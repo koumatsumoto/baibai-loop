@@ -9,8 +9,8 @@ from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
 
 
 def test_relocated_economic_resources_resolve_from_their_owner_packages():
-    from baibai_engine.data_collection.providers.spglobal.pmi import MANIFEST_PATH
     from baibai_engine.data_collection.catalog import SOURCE_CATALOG
+    from baibai_engine.data_collection.providers.spglobal.pmi import MANIFEST_PATH
     from baibai_engine.data_collection.receipts.native_sources.store import SCHEMA_PATH
 
     assert (
@@ -19,7 +19,9 @@ def test_relocated_economic_resources_resolve_from_their_owner_packages():
     )
     assert (
         SCHEMA_PATH.read_bytes()
-        == files("baibai_engine.data_collection.receipts.native_sources").joinpath("store.sql").read_bytes()
+        == files("baibai_engine.data_collection.receipts.native_sources")
+        .joinpath("store.sql")
+        .read_bytes()
     )
     assert (
         MANIFEST_PATH.read_bytes()
@@ -33,8 +35,8 @@ def test_collection_list_and_help_do_not_load_env_or_create_a_store(tmp_path, mo
     import json
     import sqlite3
 
-    from baibai_jobs import cli
     import baibai_jobs.acquisition.economic_cli as economic_cli
+    from baibai_jobs import cli
 
     def unexpected(*args, **kwargs):
         raise AssertionError("read-only Collection command opened a store or loaded env")
@@ -80,8 +82,8 @@ def test_derived_source_is_rejected(tmp_path):
 def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
     from datetime import date
 
-    from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
     from baibai_engine.data_collection.catalog import require_source
+    from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
@@ -103,8 +105,10 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
 def test_umich_acquisition_preserves_other_columns_before_l2_selection():
     from datetime import date
 
-    from baibai_engine.data_collection.providers.university_of_michigan.sentiment import parse_umich_table
     from baibai_engine.data_collection.catalog import load_sources
+    from baibai_engine.data_collection.providers.university_of_michigan.sentiment import (
+        parse_umich_table,
+    )
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
@@ -126,9 +130,9 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
     from datetime import date
 
     import baibai_engine.data_collection.acquisition.refresh as economic_acquisition
+    import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
     from baibai_engine.data_collection.receipts.native_sources import store as economic_store
     from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-    import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )

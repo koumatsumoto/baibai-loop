@@ -7,10 +7,6 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import date
 
-from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     TECHNICAL_CALCULATION_REVISION,
     bollinger_20bar,
@@ -18,6 +14,9 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
     simple_moving_average,
 )
 from baibai_engine.machine_analysis.models.technical_analysis.momentum import price_momentum_12_1
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.stocks import normalize_ticker
 
 
 def generate_technical_analysis(

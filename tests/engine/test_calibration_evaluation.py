@@ -22,9 +22,6 @@ from tests.helpers.calibration_store import (
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
-    ErCalibrationContextArtifact,
-)
 from baibai_engine.cli.historical_calibration import (
     _required_metric_statuses,
 )
@@ -35,7 +32,12 @@ from baibai_engine.machine_analysis.historical_evaluation.context import (
     CalibrationContextError,
     build_er_distribution_context,
 )
-from baibai_engine.machine_analysis.historical_evaluation.evaluation import MIN_AXIS_SAMPLE
+from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
+    ErCalibrationContextArtifact,
+)
+from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
+    MIN_AXIS_SAMPLE,
+)
 from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
     evaluate_cohorts as _evaluate_cohorts,
 )
@@ -61,6 +63,13 @@ from baibai_engine.machine_analysis.historical_evaluation.evidence import (
 )
 from baibai_engine.machine_analysis.historical_evaluation.forward import ForwardReturnRow
 from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    ScreeningRules,
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
+    production_rules_contract_hash,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PRODUCTION_PANEL_POLICY,
     PanelDiagnostics,
@@ -68,11 +77,6 @@ from baibai_engine.machine_analysis.historical_evaluation.panel import (
     rules_content_hash,
 )
 from baibai_engine.machine_analysis.historical_evaluation.store import write_forward, write_panel
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    ScreeningRules,
-    load_screening_rules,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
 
 _ASOF = "2025-06-30"
 _RULES = load_screening_rules()

@@ -117,7 +117,8 @@ def missing_keywords(keywords: Sequence[str], hits: Sequence[KeywordHit]) -> tup
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m baibai_engine.investment_judgment.company_research.pdf_reader", description=__doc__
+        prog="python -m baibai_engine.investment_judgment.company_research.pdf_reader",
+        description=__doc__,
     )
     parser.add_argument("pdf", type=Path, help="path to a locally downloaded PDF")
     parser.add_argument("--pages", help="1-based page selection, e.g. 1-3,10")

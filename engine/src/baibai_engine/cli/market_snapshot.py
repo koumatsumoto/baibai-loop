@@ -11,15 +11,14 @@ from typing import TextIO
 
 import yaml
 
-from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
-from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.primitives.time import JST
-from baibai_engine.storage.yaml import NoAliasSafeDumper as _NoAliasDumper
-from baibai_engine.machine_analysis.observations.prices.price_reader import latest_daily_bar_date
-
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
 )
+from baibai_engine.machine_analysis.observations.prices.price_reader import latest_daily_bar_date
+from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
+from baibai_engine.primitives.time import JST
+from baibai_engine.primitives.yaml import NoAliasSafeDumper as _NoAliasDumper
+from baibai_engine.storage.paths import MARKET_DB_PATH
 
 
 def _query_asof(asof: str | None, sqlite_path: Path) -> date | None:

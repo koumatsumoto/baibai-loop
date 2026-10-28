@@ -15,8 +15,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
@@ -24,17 +22,21 @@ from baibai_engine.storage.objects.r2 import (
     ObjectStore,
     RemoteObject,
 )
-
-from baibai_engine.storage.snapshots.models import DatasetManifest as LakeDatasetManifest
-from baibai_engine.storage.snapshots.models import ReleaseManifest as LakeReleaseManifest
-from baibai_engine.storage.snapshots.release import LakeReleasePointer
-from baibai_engine.storage.snapshots.models import SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef
-from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
-from baibai_engine.storage.snapshots.keys import current_release_pointer_key as lake_current_release_pointer_key
+from baibai_engine.storage.snapshots.keys import (
+    current_release_pointer_key as lake_current_release_pointer_key,
+)
 from baibai_engine.storage.snapshots.keys import dataset_manifest_key as lake_dataset_manifest_key
 from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
-from baibai_engine.storage.snapshots.models import load_lake_model_json
-from baibai_engine.storage.snapshots.models import validate_release_policy as validate_lake_release_policy
+from baibai_engine.storage.snapshots.models import DatasetManifest as LakeDatasetManifest
+from baibai_engine.storage.snapshots.models import ReleaseManifest as LakeReleaseManifest
+from baibai_engine.storage.snapshots.models import (
+    SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef,
+)
+from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes, load_lake_model_json
+from baibai_engine.storage.snapshots.models import (
+    validate_release_policy as validate_lake_release_policy,
+)
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
 
 _MAX_POINTER_BYTES = 64 * 1024
 # A per-attempt read timeout that is shorter than the transfer it guards turns a
@@ -43,12 +45,6 @@ _MAX_POINTER_BYTES = 64 * 1024
 # what this link has measured (11.9 MB/s over the 2 GB store upload that preceded
 # the lake, and 300 MB of Parquet in the first full release publication). Botocore's
 # retry policy applies this value to each attempt; it is not an overall deadline.
-
-
-
-
-
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +58,6 @@ class PointerPrecondition:
 class PointerSnapshot:
     pointer: LakeReleasePointer | None
     precondition: PointerPrecondition
-
-
 
 
 def read_pointer_snapshot(store: ObjectStore) -> PointerSnapshot:
@@ -593,12 +587,6 @@ def _ensure_immutable(
     return uploaded
 
 
-
-
-
-
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mirror", type=Path, required=True)
@@ -637,12 +625,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(json.dumps(release_report.as_dict(), sort_keys=True))
     return 0
-
-
-
-
-
-
 
 
 def _mirror_path(mirror_root: Path, key: str) -> Path:

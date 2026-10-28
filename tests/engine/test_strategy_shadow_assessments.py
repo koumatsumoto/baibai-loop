@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     UnpublishedAssessment,
@@ -15,6 +14,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     evaluate_assessment,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
+from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/research/strategy-shadow"
 

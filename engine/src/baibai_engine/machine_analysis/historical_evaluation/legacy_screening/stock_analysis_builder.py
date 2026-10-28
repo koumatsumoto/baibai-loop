@@ -11,15 +11,15 @@ from baibai_engine.machine_analysis.historical_evaluation.estimates import (
     ExpectedReturnInputs,
     estimate_expected_return,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
-    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
-    UNRESOLVED_DIVIDEND_BASIS,
-    FinancialSnapshot,
-)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
     DerivedMetrics,
     StockAnalysis,
     UniverseSnapshot,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    UNRESOLVED_ACTUAL_DIVIDEND_BASIS,
+    UNRESOLVED_DIVIDEND_BASIS,
+    FinancialSnapshot,
 )
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 

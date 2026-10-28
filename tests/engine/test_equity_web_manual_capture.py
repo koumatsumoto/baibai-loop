@@ -15,6 +15,8 @@ from tests.engine.test_kabumap import html as kabumap_html
 from tests.jobs.external_assessment_publication_fixtures import pair_responses
 
 import baibai_engine.data_collection.transport.public_pages as source_http
+import baibai_jobs.acquisition.external_assessments.cli as cli
+import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.data_collection.receipts.public_pages.capture import (
     EquityWebCapture,
     LegacyCaptureError,
@@ -23,14 +25,12 @@ from baibai_engine.data_collection.receipts.public_pages.capture import (
 )
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
-import baibai_jobs.acquisition.external_assessments.cli as cli
-import baibai_jobs.acquisition.external_assessments.collection as collection
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import rakuten
 from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import rakuten
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 

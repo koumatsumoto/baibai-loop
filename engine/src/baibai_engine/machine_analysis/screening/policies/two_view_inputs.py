@@ -6,13 +6,15 @@ from collections.abc import Iterable, Sequence
 
 from pydantic import JsonValue
 
-from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, ModelGeneration
-
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.two_views import ScreeningCoordinates, TwoViewPolicy, ViewSelection, select_views
-
-
+from baibai_engine.machine_analysis.screening.policies.two_views import (
+    ScreeningCoordinates,
+    TwoViewPolicy,
+    ViewSelection,
+    select_views,
+)
+from baibai_engine.primitives.stocks import normalize_ticker
 
 
 def select_generation(

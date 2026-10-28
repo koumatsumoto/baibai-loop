@@ -1,8 +1,11 @@
 """保存済み観測の責務別読取。取得・公開は行わない。"""
 
 from __future__ import annotations
+
 from datetime import date
+
 from pydantic.dataclasses import dataclass
+
 from baibai_engine.machine_analysis.observations.prices.price_models import MODEL_CONFIG
 
 

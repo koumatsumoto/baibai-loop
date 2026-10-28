@@ -12,21 +12,26 @@ from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
 
 import baibai_jobs.acquisition.external_assessments.collection as collection
-from baibai_jobs.acquisition.external_assessments.universe import frozen_universe
-from baibai_jobs.publication.external_assessment_verification import verify_observations
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import ParseError, kabumap
+import baibai_jobs.acquisition.external_assessments.daily as external_assessment_daily
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    ParseError,
+    kabumap,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.store import (
     ObservationConflictError,
     save_observations,
 )
-import baibai_jobs.acquisition.external_assessments.daily as external_assessment_daily
 from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
-from baibai_jobs.integration.external_assessment_raw import RAW_PREFIX, read_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import read_stages
+from baibai_jobs.acquisition.external_assessments.universe import frozen_universe
+from baibai_jobs.integration.external_assessment_raw import RAW_PREFIX, read_raw_bundle
+from baibai_jobs.publication.external_assessment_verification import verify_observations
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
 

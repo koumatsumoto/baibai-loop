@@ -13,25 +13,33 @@ from tests.engine.test_external_assessment_sources import monex_html
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_response_fixtures import response
 
-from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
-from baibai_jobs.acquisition.external_assessments.collection import CollectionResult as ExternalAssessmentCollectionResult
-from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
-from baibai_jobs.acquisition.external_assessments.collection import collector_binding as external_assessment_collector_binding
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.staging as staging
+import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation as ExternalAssessmentModelValuationObservation,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
+from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.objects import LakeObjectError
-import baibai_jobs.acquisition.external_assessments.daily as daily
 from baibai_jobs.acquisition.external_assessments.cohorts import (
     make_plan,
     new_result,
     record_outcome,
 )
-import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
-import baibai_jobs.acquisition.external_assessments.staging as staging
-from baibai_engine.storage.objects.r2 import (
-    LakeCASConflict,
-    LakePublishError,
-    RemoteObject,
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionResult as ExternalAssessmentCollectionResult,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    collector_binding as external_assessment_collector_binding,
 )
 
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)

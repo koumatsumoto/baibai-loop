@@ -5,16 +5,20 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.machine_analysis.historical_evaluation.evaluation.policy import COMPARISON_TOP_NS
 from baibai_engine.machine_analysis.historical_evaluation.evaluation.statistics import _group_stats
 from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     candidate_discovery_approach_nomination_metric,
 )
 from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    APPROACH_IDS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    CandidateDiscoveryRules,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import APPROACH_IDS
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import CandidateDiscoveryRules
+from baibai_engine.primitives.dates import add_months_clamped
 
 
 def _evaluate_candidate_discovery(

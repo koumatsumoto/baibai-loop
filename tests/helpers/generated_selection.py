@@ -5,8 +5,8 @@ from contextlib import closing
 from datetime import timedelta
 from hashlib import sha256
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.primitives.time import JST
+from tests.helpers.research_selection import selected_target
+
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchInputs,
     GeneratedResearchSelection,
@@ -14,13 +14,14 @@ from baibai_engine.investment_judgment.workflow.selection import (
     ResearchRequest,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
-from tests.helpers.research_selection import selected_target
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
 
 
 def seed_generated_selection(*, runs, now, tickers=(), scope="discover_new", models=()):

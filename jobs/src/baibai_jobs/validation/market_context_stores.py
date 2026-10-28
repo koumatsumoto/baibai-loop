@@ -10,10 +10,16 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH
-from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
-from baibai_engine.data_collection.receipts.native_sources.records import decode_records as decode_economic_source_records
-from baibai_engine.data_collection.receipts.native_sources.store import validate_current_schema as validate_economic_schema
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    decode_records as decode_economic_source_records,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH,
+    EconomicSchemaError,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    validate_current_schema as validate_economic_schema,
+)
 
 MAX_RENDERED_VIOLATIONS = 100
 

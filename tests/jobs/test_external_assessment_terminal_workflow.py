@@ -6,8 +6,8 @@ import pytest
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, seed_stage
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
-from baibai_jobs.acquisition.external_assessments.cohorts import new_result
 import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result
 
 
 @pytest.mark.parametrize("command", ["plan", "acquire", "publish", "publish-confirmed-partial"])

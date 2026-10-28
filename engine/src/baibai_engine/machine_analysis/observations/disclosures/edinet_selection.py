@@ -11,7 +11,11 @@ from typing import Any
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+    QuarantinedDocumentEvent,
+    _canonicalize_document_events,
+    parse_doc_id,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     coalesce_field,
     document_period,
@@ -19,11 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_decode import
     parse_sec_code,
     text_or_none,
 )
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    QuarantinedDocumentEvent,
-    _canonicalize_document_events,
-    parse_doc_id,
-)
+from baibai_engine.primitives.stocks import normalize_ticker
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 

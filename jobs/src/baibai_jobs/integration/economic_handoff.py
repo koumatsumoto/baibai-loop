@@ -13,26 +13,44 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from baibai_engine.cli.environment import load_project_env
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH
-from baibai_engine.data_collection.receipts.native_sources.store import RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS
-from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
-from baibai_engine.data_collection.acquisition.refresh import SourceRefreshFailure as EconomicSourceRefreshFailure
-from baibai_engine.data_collection.acquisition.policy import acquisition_groups as economic_acquisition_groups
-from baibai_engine.data_collection.acquisition.policy import explicit_recovery_ranges as economic_explicit_recovery_ranges
+from baibai_engine.data_collection.acquisition.policy import (
+    acquisition_groups as economic_acquisition_groups,
+)
+from baibai_engine.data_collection.acquisition.policy import (
+    explicit_recovery_ranges as economic_explicit_recovery_ranges,
+)
 from baibai_engine.data_collection.acquisition.policy import source_policy as economic_source_policy
-from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts as export_economic_receipts
+from baibai_engine.data_collection.acquisition.refresh import (
+    SourceRefreshFailure as EconomicSourceRefreshFailure,
+)
+from baibai_engine.data_collection.acquisition.refresh import (
+    refresh_sources as refresh_economic_sources,
+)
 from baibai_engine.data_collection.catalog import load_sources as load_economic_sources
-from baibai_engine.data_collection.acquisition.refresh import refresh_sources as refresh_economic_sources
-from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_rechecks as retain_economic_rechecks
-from baibai_engine.data_collection.receipts.native_sources.store import validate_current_schema as validate_economic_schema
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_engine.data_collection.receipts.native_sources.handoff import (
+    export_receipts as export_economic_receipts,
+)
+from baibai_engine.data_collection.receipts.native_sources.receipt_policy import (
+    retain_rechecks as retain_economic_rechecks,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    validate_current_schema as validate_economic_schema,
+)
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
 )
-from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_engine.storage.sqlite.merge import MergeError
+from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 
 
 def selected_sources(group: str, source_id: str = "") -> list[str]:

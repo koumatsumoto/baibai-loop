@@ -13,16 +13,21 @@ import pytest
 from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import extract_facts
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import ExtractedFacts, filing_identity
+from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAcquisitionError,
+    EdinetRateLimitError,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
+    extract_facts,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    ExtractedFacts,
+    filing_identity,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
     annual_documents,
     latest_annual_filing,
     usable_document,
-)
-from baibai_jobs.maintenance.edinet_extraction import (
-    refresh_edinet_facts_command,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
@@ -32,12 +37,18 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.store i
     extraction_status,
     store_facts,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import SourceFormatError, xml_root
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
+    SourceFormatError,
+    xml_root,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
-from baibai_jobs.maintenance.market import cli as app
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.edinet_extraction import (
+    refresh_edinet_facts_command,
+)
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
 
@@ -586,7 +597,9 @@ def test_retained_annual_family_receives_later_corrections():
 def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
     session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
     provider = EDINETRefresh("test-key", sqlite_path=tmp_path / "market.sqlite", session=session)
-    monkeypatch.setattr("baibai_engine.data_collection.providers.edinet.http.time.sleep", lambda _: None)
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.providers.edinet.http.time.sleep", lambda _: None
+    )
     data = provider.download_xbrl_zip("S100YR5P")
     assert provider.download_xbrl_zip("S100YR5P") == data
     assert len(session.calls) == 2
@@ -708,7 +721,9 @@ def test_operation_cannot_introduce_a_cycle_before_annual_family_selection():
 
 
 def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _canonicalize_document_events
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+        _canonicalize_document_events,
+    )
 
     original = document()
     newer = document("S100NEW1", "2027-06-24 10:00")
@@ -733,7 +748,9 @@ def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
 def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     include_withdrawal,
 ):
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _canonicalize_document_events
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+        _canonicalize_document_events,
+    )
 
     original = document()
     original.update(withdrawalStatus="2", legalStatus="0", docInfoEditStatus="2")
@@ -762,8 +779,12 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
 def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, through_sqlite):
     from tests.helpers.edinet_documents import store_edinet_documents
 
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _canonicalize_document_events
-    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_documents
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+        _canonicalize_document_events,
+    )
+    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+        read_edinet_documents,
+    )
 
     original = document()
     correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
@@ -802,7 +823,9 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
 
 @pytest.mark.parametrize("edited", ["0", "2"])
 def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+        select_document_candidates,
+    )
 
     # EDINET API v2 section 3-1-6: 2 identifies the edited filing, not a withdrawal.
     original = document()
@@ -817,7 +840,9 @@ def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
 @pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
 @pytest.mark.parametrize("missing", [None, "", "omitted"])
 def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+        select_document_candidates,
+    )
 
     original = document()
     if missing == "omitted":

@@ -8,25 +8,29 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import observations, series_definition, store_reader
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
-    SeriesDefinition,
-    load_definitions,
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    DEFAULT_RULES_PATH,
+    load_reading_rules,
+    rules_revision,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
 from baibai_engine.machine_analysis.models.market_context.reading.compute import (
     MIN_WINDOW_OBSERVATIONS,
     compute_reading,
 )
 from baibai_engine.machine_analysis.models.market_context.reading.models import SeriesReading
 from baibai_engine.machine_analysis.models.market_context.reading.rules import (
-    DEFAULT_RULES_PATH,
     PUBLICATION_INTERVAL_DAYS,
     ReadingRules,
     ReadingRulesError,
     SeriesOverride,
     ThresholdFlag,
-    load_reading_rules,
-    rules_revision,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
 )
 
 ASOF = date(2026, 7, 24)

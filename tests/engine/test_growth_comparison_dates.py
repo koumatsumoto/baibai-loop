@@ -3,7 +3,11 @@ from datetime import date, timedelta
 import pytest
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes
-from baibai_engine.machine_analysis.models.company_growth.models import Observation, PeriodState, Value
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    Observation,
+    PeriodState,
+    Value,
+)
 
 
 def period(start, end, value):

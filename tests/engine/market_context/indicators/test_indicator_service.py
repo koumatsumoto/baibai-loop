@@ -16,17 +16,25 @@ from tests.helpers.indicator_store import (
 )
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_jobs.acquisition.economic_cli import main as economic_main
-from baibai_engine.data_collection.transport.context import IndicatorsProviderError
-from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
-from baibai_engine.data_collection.receipts.native_sources.store import initialize_database, open_connection
 from baibai_engine.cli.economic_indicators import (
     main,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    read_snapshots,
+    store_snapshot,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    initialize_database,
+    open_connection,
+)
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
+from baibai_jobs.acquisition.economic_cli import main as economic_main
 
 
 class IndicatorsServiceTests(unittest.TestCase):
@@ -439,7 +447,10 @@ def test_native_refresh_cli_reports_each_source_failure(tmp_path, monkeypatch, c
 
 
 def test_tsr_all_history_collects_original_json_from_provider_floor(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, read_documents
+    from baibai_engine.data_collection.receipts.native_sources.documents import (
+        SourceDocument,
+        read_documents,
+    )
 
     series = load_definitions().by_id()["jp.bankruptcies"]
     payload = '[{"period_division":"月次","title":"2003年1月 全国企業倒産 1,462件"}]'.encode()

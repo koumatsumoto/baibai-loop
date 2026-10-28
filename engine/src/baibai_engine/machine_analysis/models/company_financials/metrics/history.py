@@ -7,10 +7,14 @@ from datetime import date
 from math import sqrt
 from statistics import mean
 
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
 from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_closes
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 VALUATION_HISTORY_SESSIONS = 750
 

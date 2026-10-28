@@ -22,24 +22,26 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _source,
 )
 
-from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+from baibai_engine.data_collection.catalog import SourceDefinition, require_source
 from baibai_engine.data_collection.providers.boj.timeseries import parse_boj_timeseries_json
 from baibai_engine.data_collection.providers.boj.workbooks import parse_boj_xlsx
-from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
 from baibai_engine.data_collection.providers.estat.api import parse_estat_json
 from baibai_engine.data_collection.providers.estat.dashboard import (
     EStatDashboardSource,
     parse_dashboard_json,
 )
-from baibai_engine.data_collection.catalog import SourceDefinition, require_source
+from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
     load_definitions,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.native import _one_value
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
 from baibai_engine.machine_analysis.observations.economic_indicators.tsr_bankruptcies import (
     parse_tsr_bankruptcies_json,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    reading_observation,
 )
 
 
@@ -810,11 +812,15 @@ class IndicatorsProviderParserTests(TestCase):
     def test_tsr_partial_history_is_visible_as_stale_and_insufficient_in_reading(self) -> None:
         from tests.helpers.indicator_store import store_reader
 
+        from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+            load_reading_rules,
+        )
+        from baibai_engine.machine_analysis.models.market_context.reading.compute import (
+            compute_reading,
+        )
         from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
             load_definitions,
         )
-        from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
-        from baibai_engine.machine_analysis.models.market_context.reading.rules import load_reading_rules
 
         series = load_definitions().by_id()["jp.bankruptcies"]
         result = parse_tsr_bankruptcies_json(

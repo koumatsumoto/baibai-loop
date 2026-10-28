@@ -4,13 +4,17 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import RunPublication
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+        RunPublication,
+    )
 
 import yaml
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    MetricValueMap,
+    StockAnalysis,
+)
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import MetricValueMap, StockAnalysis
 
 _DECIMAL_PLACES = {
     "per_forward": 2,

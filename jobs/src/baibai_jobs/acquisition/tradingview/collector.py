@@ -16,25 +16,17 @@ from zoneinfo import ZoneInfo
 from mcp.types import CallToolResult
 
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
-from baibai_jobs.observability.tradingview import (
-    CollectionFailure as CollectionFailure,
+from baibai_engine.data_collection.providers.tradingview.receipts import (
+    read_tool_results,
+    retain_tool_result,
 )
-from baibai_jobs.observability.tradingview import (
-    CollectionProgress as CollectionProgress,
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    COLUMNS,
+    TABLE,
 )
-from baibai_jobs.observability.tradingview import (
-    SourceDataError as SourceDataError,
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
+    decode_tool_result,
 )
-from baibai_jobs.observability.tradingview import (
-    TimeGuardError as TimeGuardError,
-)
-from baibai_jobs.observability.tradingview import (
-    failure_category,
-    failure_line,
-)
-from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results, retain_tool_result
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )
@@ -44,7 +36,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     ProviderPayloadError,
     normalize_batch,
 )
-from baibai_engine.machine_analysis.observations.prices.calendar_context import observation_calendar_context
+from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    observation_calendar_context,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.sqlite.source_cache.schema import (
@@ -52,6 +46,11 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.observability.tradingview import CollectionFailure as CollectionFailure
+from baibai_jobs.observability.tradingview import CollectionProgress as CollectionProgress
+from baibai_jobs.observability.tradingview import SourceDataError as SourceDataError
+from baibai_jobs.observability.tradingview import TimeGuardError as TimeGuardError
+from baibai_jobs.observability.tradingview import failure_category, failure_line
 
 JST = ZoneInfo("Asia/Tokyo")
 SOFT_BUDGET_SECONDS = 25 * 60

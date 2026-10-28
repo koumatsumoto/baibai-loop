@@ -11,12 +11,14 @@ import pytest
 from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
 import baibai_jobs.acquisition.tradingview.cli as cli
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+    FetchError,
+)
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 from baibai_jobs.observability.tradingview import (
     SourceDataError,
     TimeGuardError,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FetchError
 
 DAY = date(2026, 10, 11)
 MASTER = date(2026, 10, 9)

@@ -23,34 +23,36 @@ from pydantic import (
     model_validator,
 )
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
-from baibai_engine.primitives.time import JST
-from baibai_engine.storage.yaml import safe_load
-from baibai_engine.investment_judgment.stock_assessment.scenario import project_return, valuation_conditions
-from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
-from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
-
-from baibai_engine.investment_judgment.contracts import (
-    AssessmentError,
-    AssessmentId,
-    AssessmentReviewId,
-    NonEmptyStr,
-    _CONFIG,
-    _SHA256,
-    _date,
-    _datetime,
-    _tuple,
-)
 from baibai_engine.investment_judgment.company_research.contracts import (
     InputSnapshot,
     ObservedFact,
     ResearchFindings,
 )
+from baibai_engine.investment_judgment.contracts import (
+    _CONFIG,
+    _SHA256,
+    AssessmentError,
+    AssessmentId,
+    AssessmentReviewId,
+    NonEmptyStr,
+    _date,
+    _datetime,
+    _tuple,
+)
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
     ReviewedProjection,
 )
+from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    project_return,
+    valuation_conditions,
+)
+from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
+from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
+from baibai_engine.primitives.time import JST
+from baibai_engine.primitives.yaml import safe_load
 
 _RISK_AXES = frozenset(
     {
@@ -72,26 +74,6 @@ RiskAxis = Literal[
     "structural_decline",
     "governance_accounting",
 ]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class DerivedMetric(BaseModel):
@@ -176,12 +158,6 @@ class AssessmentConclusion(BaseModel):
         return _datetime(value)
 
 
-
-
-
-
-
-
 class AssessmentRef(BaseModel):
     model_config = _CONFIG
     assessment_id: AssessmentId
@@ -217,10 +193,6 @@ class AssessmentRefresh(BaseModel):
         if len(set(self.changed_sections)) != len(self.changed_sections):
             raise ValueError("changed_sections must be unique")
         return self
-
-
-
-
 
 
 class StockAssessmentDocument(BaseModel):
@@ -434,8 +406,6 @@ def load_assessment(path: Path) -> StockAssessmentDocument:
         return StockAssessmentDocument.model_validate(raw)
     except ValidationError as error:
         raise AssessmentError(str(error)) from error
-
-
 
 
 def evaluate_assessment(

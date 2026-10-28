@@ -12,7 +12,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _validate_document_statuses, parse_doc_id
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+    _validate_document_statuses,
+    parse_doc_id,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 _RETAINED_NATIVE_FIELDS = (

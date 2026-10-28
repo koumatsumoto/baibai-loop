@@ -9,10 +9,13 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     create_bundle,
     retain_bundle_response,
 )
-from baibai_jobs.integration.jpx_handoff import export_handoff, import_handoff
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import JPX_EARNINGS_CALENDAR_INDEX_URL, JPX_REGULATION_URLS
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
+    JPX_EARNINGS_CALENDAR_INDEX_URL,
+    JPX_REGULATION_URLS,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.jpx_handoff import export_handoff, import_handoff
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)

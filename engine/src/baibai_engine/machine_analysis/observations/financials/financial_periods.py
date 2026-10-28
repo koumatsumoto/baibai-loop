@@ -7,7 +7,6 @@ from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
-from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
@@ -16,6 +15,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.primitives.dates import add_months_clamped
 
 ACTUAL_FIELDS = (
     "sales",

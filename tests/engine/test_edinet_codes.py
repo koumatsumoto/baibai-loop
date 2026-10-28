@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+    parse_doc_id,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import parse_doc_id
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 

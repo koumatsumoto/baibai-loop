@@ -21,14 +21,25 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import resolve_earnings_calendar_urls
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
+    resolve_earnings_calendar_urls,
+)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import JPXReader, read_jpx_regulations
-from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot, store_jpx_regulations
-from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
-from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import JPX_EARNINGS_CALENDAR_INDEX_URL, JPX_REGULATION_URLS
-from baibai_jobs.maintenance.market import cli as app
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    JPXReader,
+    read_jpx_regulations,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
+    rebuild_jpx_snapshot,
+    store_jpx_regulations,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
+    JPX_EARNINGS_CALENDAR_INDEX_URL,
+    JPX_REGULATION_URLS,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 ASOF = date(2026, 10, 15)
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "jpx"

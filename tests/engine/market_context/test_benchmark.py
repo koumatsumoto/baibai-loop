@@ -8,12 +8,12 @@ from pathlib import Path
 
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.machine_analysis.generation.runners.benchmark import (
+    compute_benchmark_trend,
+)
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
     BenchmarkTrendState,
     classify_benchmark_trend,
-)
-from baibai_engine.machine_analysis.generation.runners.benchmark import (
-    compute_benchmark_trend,
 )
 
 

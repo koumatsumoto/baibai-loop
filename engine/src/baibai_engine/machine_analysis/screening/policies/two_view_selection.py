@@ -9,8 +9,6 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
-from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
-
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
@@ -18,6 +16,7 @@ from baibai_engine.machine_analysis.screening.policies.two_view_inputs import (
     _select_models,
 )
 from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 
 def select_saved_generation(

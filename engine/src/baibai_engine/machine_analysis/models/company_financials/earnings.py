@@ -7,6 +7,15 @@ from dataclasses import dataclass
 from datetime import date
 from math import isfinite
 
+from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
+    _normalize_summaries_with_status,
+    _resolve_capital_basis,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
+    _actual_rows,
+    _ttm_components,
+)
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     accounting_period_identity,
     latest_disclosure_candidates,
@@ -21,10 +30,6 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
     PriceBar,
 )
-
-from baibai_engine.machine_analysis.models.company_financials.metrics.capital import _normalize_summaries_with_status, _resolve_capital_basis
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
-from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _actual_rows, _ttm_components
 
 
 @dataclass(frozen=True, slots=True)

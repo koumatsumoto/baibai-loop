@@ -7,9 +7,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
+from baibai_engine.machine_analysis.historical_evaluation.estimates import (
+    EXPECTED_RETURN_MODEL_VERSION,
+)
 from baibai_engine.primitives.coerce import string_or_none as _text
-
-from baibai_engine.machine_analysis.historical_evaluation.estimates import EXPECTED_RETURN_MODEL_VERSION
 
 CARRY_MISSING_ASSUMPTION = (
     "Missing dividend_yield and net_share_change_yoy contribute zero to machine carry; "

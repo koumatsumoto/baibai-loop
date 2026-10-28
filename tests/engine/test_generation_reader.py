@@ -7,14 +7,16 @@ from tests.engine.test_edinet_metric_eligibility import BASE, RECORDED, TARGET, 
 from tests.helpers.lake_release import market_store
 
 import baibai_engine.machine_analysis.generation.inputs as generation_reader
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
     TTMRules,
 )
-from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    EDINETMetricBaselineError,
+)
 from baibai_engine.machine_analysis.observations.prices.calendar_context import price_calendar_basis
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import EDINETMetricBaselineError
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 

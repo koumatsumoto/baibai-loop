@@ -24,10 +24,13 @@ from datetime import date
 from pathlib import Path
 from typing import Protocol
 
-from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingRecord, read_jpx_delistings
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import is_usable_filing_status
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_current_filing_documents
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.disclosures.delistings import (
+    DelistingRecord,
+    read_jpx_delistings,
+)
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_current_filing_documents,
+)
 from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
     TENDER_OFFER_REGISTRATION_DOC_TYPE,
@@ -36,6 +39,10 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
     edinet_code_to_ticker,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+    is_usable_filing_status,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
 
 # JPX may name the squeeze-out mechanism rather than its preceding tender offer.

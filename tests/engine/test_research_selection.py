@@ -15,7 +15,10 @@ from baibai_engine.investment_judgment.workflow.selection import (
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity, validate_capacity
+from baibai_engine.investment_judgment.workflow.selection_policy import (
+    ResearchCapacity,
+    validate_capacity,
+)
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 

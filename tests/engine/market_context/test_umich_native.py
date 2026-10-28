@@ -4,13 +4,17 @@ from contextlib import closing
 from datetime import date
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.data_collection.receipts.native_sources import store as db
 import baibai_engine.data_collection.providers.university_of_michigan.sentiment as umich_sca
+from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
 )
 
 

@@ -6,9 +6,8 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-
-from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
 from baibai_engine.data_collection.providers.jquants.native import read_native_pages
+from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
 from baibai_engine.data_collection.transport.retry import jquants_read_client, read_deadline
 
 _API_KEY_ENV = "JQUANTS_API_KEY"

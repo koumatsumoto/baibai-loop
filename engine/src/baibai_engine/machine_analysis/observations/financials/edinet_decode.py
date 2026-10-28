@@ -7,9 +7,12 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
-from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+)
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
+from baibai_engine.primitives.stocks import normalize_ticker
 
 
 def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:

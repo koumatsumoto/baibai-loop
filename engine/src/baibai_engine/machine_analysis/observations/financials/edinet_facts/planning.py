@@ -9,9 +9,16 @@ from datetime import date
 from typing import Any, Literal
 
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import EXTRACTOR_REVISION
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import FactIdentity, filing_identity
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import usable_document
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
+    EXTRACTOR_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    FactIdentity,
+    filing_identity,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
+    usable_document,
+)
 
 
 @dataclass(frozen=True, slots=True)

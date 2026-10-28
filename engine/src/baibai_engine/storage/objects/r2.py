@@ -1,4 +1,5 @@
 """S3互換object転送。snapshotや候補政策を解釈せず、指定keyと条件だけを扱う。"""
+
 from __future__ import annotations
 
 import os
@@ -24,11 +25,14 @@ _BASE_OPERATION_TIMEOUT_SECONDS = 120
 
 _MIN_TRANSFER_BYTES_PER_SECOND = 4 * 1024 * 1024
 
+
 class LakePublishError(RuntimeError):
     pass
 
+
 class LakeCASConflict(LakePublishError):
     pass
+
 
 @dataclass(frozen=True)
 class RemoteObject:
@@ -36,6 +40,7 @@ class RemoteObject:
     size: int
     metadata: Mapping[str, str]
     content_type: str
+
 
 class ObjectStore(Protocol):
     def head(self, key: str) -> RemoteObject | None: ...
@@ -55,6 +60,7 @@ class ObjectStore(Protocol):
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> RemoteObject: ...
+
 
 class Boto3R2Store:
     """S3-compatible R2 adapter with reusable in-process connections."""
@@ -238,8 +244,10 @@ class Boto3R2Store:
             raise LakePublishError(f"R2 object missing after successful put: {key}")
         return result
 
+
 def _error_code(error: ClientError) -> str:
     return str(error.response.get("Error", {}).get("Code", ""))
+
 
 def _raise_r2_error(operation: str, error: ClientError) -> Never:
     code = _error_code(error)
@@ -251,6 +259,7 @@ def _raise_r2_error(operation: str, error: ClientError) -> Never:
         raise LakeCASConflict(f"R2 conditional write conflict: {operation}") from error
     raise LakePublishError(f"R2 {operation} failed") from error
 
+
 def _operation_timeout(payload_bytes: int | None) -> int:
     """A per-attempt read timeout the object's own size can satisfy."""
     if payload_bytes is None or payload_bytes <= 0:
@@ -258,12 +267,14 @@ def _operation_timeout(payload_bytes: int | None) -> int:
     transfer = -(-payload_bytes // _MIN_TRANSFER_BYTES_PER_SECOND)
     return _BASE_OPERATION_TIMEOUT_SECONDS + transfer
 
+
 def _fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
 
 def _required(env: Mapping[str, str], name: str) -> str:
     value = env.get(name)

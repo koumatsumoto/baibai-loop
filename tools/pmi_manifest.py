@@ -19,18 +19,18 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from baibai_engine.data_collection.providers.spglobal.pmi import (
+    MANIFEST_PATH,
+    RELEASE_URL_RE,
+    fetch_pdf_bytes,
+    load_manifest,
+)
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
     SourceWithheldError,
     fetch_text,
-)
-from baibai_engine.data_collection.providers.spglobal.pmi import (
-    MANIFEST_PATH,
-    RELEASE_URL_RE,
-    fetch_pdf_bytes,
-    load_manifest,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.pmi import extract_pdf_text
 from baibai_engine.machine_analysis.observations.economic_indicators.pmi_extraction import (

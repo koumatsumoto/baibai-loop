@@ -16,8 +16,9 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
+from baibai_engine.investment_judgment.independent_review.contracts import (
+    AssessmentReview,
+)
 from baibai_engine.investment_judgment.stock_assessment.document import (
     AssessmentRef,
     StockAssessmentDocument,
@@ -26,9 +27,6 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     assessment_valuation_context,
     current_price_projection,
     evaluate_assessment,
-)
-from baibai_engine.investment_judgment.independent_review.contracts import (
-    AssessmentReview,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ResearchConflictError,
@@ -40,6 +38,8 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
+from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.schema import SCHEMA_SQL
 
 

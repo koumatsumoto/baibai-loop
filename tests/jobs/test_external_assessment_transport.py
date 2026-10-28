@@ -15,14 +15,18 @@ from tests.engine.test_external_assessment_sources import monex_html
 from tests.jobs.external_assessment_response_fixtures import response
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, observation, plan
 
-from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
-from baibai_jobs.acquisition.external_assessments.collection import CollectionResult as ExternalAssessmentCollectionResult
 import baibai_jobs.acquisition.external_assessments.daily as daily
-import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as external_assessment_staging
+import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionResult as ExternalAssessmentCollectionResult,
 )
 
 

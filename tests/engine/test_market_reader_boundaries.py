@@ -10,21 +10,28 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
+import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
+import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
+import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
 from baibai_engine.machine_analysis.historical_evaluation.grid import (
     days_with_bars,
     month_end_asof_grid,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import _coverage_floors
-import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
-from baibai_engine.machine_analysis.observations.stocks import reader as stock_reader
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_next_earnings_dates,
+)
 from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
-from baibai_engine.machine_analysis.observations.prices import calendar_reader
-import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
-import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics import store as edinet_store
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_next_earnings_dates
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
+    store as edinet_store,
+)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars, read_daily_bars_for_tickers
+from baibai_engine.machine_analysis.observations.prices import calendar_reader
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_daily_bars,
+    read_daily_bars_for_tickers,
+)
+from baibai_engine.machine_analysis.observations.stocks import reader as stock_reader
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_range_source_coverage,
     record_source_coverage,

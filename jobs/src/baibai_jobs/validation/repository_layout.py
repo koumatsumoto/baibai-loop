@@ -6,8 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from baibai_engine.storage.paths import StoreLayoutError
-from baibai_engine.storage.paths import reject_noncanonical_store_paths
+from baibai_engine.storage.paths import StoreLayoutError, reject_noncanonical_store_paths
 
 
 def main(argv: list[str] | None = None) -> int:

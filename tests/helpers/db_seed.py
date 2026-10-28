@@ -6,11 +6,11 @@ from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.primitives.json import canonical_json
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService, _event_values
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 from baibai_engine.tasks.models import Task
 

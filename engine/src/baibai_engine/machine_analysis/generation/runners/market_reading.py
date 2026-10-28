@@ -7,28 +7,37 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.storage.sqlite.read import connect_read_only, is_unwritten_store
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.observations.economic_indicators.read_contracts import (
-    point_in_time_providers,
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    DEFAULT_RULES_PATH as READING_RULES_PATH,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading, required_observation_range
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import UnavailableObservationError
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    load_reading_rules,
+    rules_revision,
+)
+from baibai_engine.machine_analysis.models.market_context.reading.compute import (
+    compute_reading,
+    required_observation_range,
+)
 from baibai_engine.machine_analysis.models.market_context.reading.models import (
     ReadingSnapshot,
     snapshot_payload,
 )
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.read_contracts import (
+    point_in_time_providers,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.rules import (
-    DEFAULT_RULES_PATH as READING_RULES_PATH,
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    UnavailableObservationError,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.rules import (
-    load_reading_rules,
-    rules_revision,
-)
+from baibai_engine.storage.sqlite.read import connect_read_only, is_unwritten_store
 
 
 def reading_snapshot(

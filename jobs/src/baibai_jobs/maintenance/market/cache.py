@@ -11,23 +11,16 @@ from typing import TextIO
 
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
 from baibai_engine.data_collection.providers.jquants.http import JQuantsAcquisitionError
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
-)
-from baibai_jobs.maintenance.source_refresh.jquants import (
-    all_issues_daily_margin_backfill_candidate_dates,
-    all_issues_daily_margin_candidate_dates,
-    final_legacy_week_requires_refresh,
-    weekly_margin_candidate_dates,
-    weekly_margin_empty_requires_refresh,
 )
 from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
@@ -42,8 +35,14 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     source_coverage_sources,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
-
 from baibai_jobs.maintenance.market.providers import JQuantsMaintenance, ProviderBundle
+from baibai_jobs.maintenance.source_refresh.jquants import (
+    all_issues_daily_margin_backfill_candidate_dates,
+    all_issues_daily_margin_candidate_dates,
+    final_legacy_week_requires_refresh,
+    weekly_margin_candidate_dates,
+    weekly_margin_empty_requires_refresh,
+)
 
 
 def _maintenance(providers: ProviderBundle) -> JQuantsMaintenance:

@@ -10,13 +10,15 @@ from pathlib import Path
 
 import yaml
 
-from baibai_engine.storage.yaml import safe_load
+from baibai_engine.investment_judgment.stock_assessment.calculation import (
+    CalculationInput,
+    calculate,
+)
 from baibai_engine.investment_judgment.stock_assessment.cash_share_cb import (
     CashShareCBInput,
     calculate_cash_share_cb,
 )
-
-from baibai_engine.investment_judgment.stock_assessment.calculation import CalculationInput, calculate
+from baibai_engine.primitives.yaml import safe_load
 
 
 def build_parser() -> argparse.ArgumentParser:

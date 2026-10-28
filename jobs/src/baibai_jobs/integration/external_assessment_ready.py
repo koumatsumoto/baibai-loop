@@ -7,6 +7,10 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+    ObjectStore,
+)
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
@@ -18,10 +22,6 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     read_stages,
     read_terminal,
     stage_bytes,
-)
-from baibai_engine.storage.objects.r2 import (
-    LakePublishError,
-    ObjectStore,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore
 

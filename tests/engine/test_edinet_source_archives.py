@@ -16,10 +16,12 @@ from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.providers.edinet import http as edinet_http
-from baibai_engine.data_collection.providers.edinet.archives import read_source_archive, retain_source_archive
+from baibai_engine.data_collection.providers.edinet.archives import (
+    read_source_archive,
+    retain_source_archive,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.storage.snapshots.datasets import EDINET_SOURCE_ARCHIVES
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
@@ -29,6 +31,7 @@ from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 
 def _zip(content: bytes) -> bytes:

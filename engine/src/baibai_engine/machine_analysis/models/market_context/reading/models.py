@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 
-
 from baibai_engine.machine_analysis.models.market_context.reading.rules import ReadingStatistic
 
 type TrendDirection = Literal["up", "down", "flat"]

@@ -4,11 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.prices.benchmark_observation import BenchmarkObservation
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.cli.portfolio import main
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument, PortfolioLedgerError
+from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
+    BenchmarkObservation,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument, PortfolioLedgerError
 from baibai_engine.portfolio.performance.calculate import (
     DailyNav,
     PortfolioOutcomeError,
@@ -16,7 +18,10 @@ from baibai_engine.portfolio.performance.calculate import (
     compute_time_weighted_return,
     outcome_to_payload,
 )
-from baibai_engine.portfolio.performance.store import PortfolioOutcomePublication, PortfolioOutcomeStore
+from baibai_engine.portfolio.performance.store import (
+    PortfolioOutcomePublication,
+    PortfolioOutcomeStore,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
@@ -377,7 +382,10 @@ def test_an_outcome_is_not_published_from_a_ledger_awaiting_a_human_report() -> 
     """The tolerance that lets a prefix replay through a lapse must not reach publish:
     an outcome row cannot be corrected once written."""
 
-    from baibai_engine.portfolio.ledger.events import replay_events_through, require_resolved_expiries
+    from baibai_engine.portfolio.ledger.events import (
+        replay_events_through,
+        require_resolved_expiries,
+    )
 
     ledger = _unreleased_ledger()
     state = replay_events_through(ledger.events, ledger.as_of)

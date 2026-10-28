@@ -8,10 +8,15 @@ import pytest
 from tests.helpers.indicator_store import observation
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.data_collection.receipts.native_sources import store as economic_store
-from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
 import baibai_engine.machine_analysis.observations.economic_indicators.service as service
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.data_collection.receipts.native_sources import store as economic_store
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    read_snapshots,
+    store_snapshot,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
 )

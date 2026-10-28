@@ -33,7 +33,10 @@ from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     _read_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_basis import share_unit_factor
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 from baibai_engine.machine_analysis.observations.prices.price_reader import _read_ticker_bars
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only

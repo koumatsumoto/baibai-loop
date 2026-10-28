@@ -3,13 +3,12 @@
 from collections.abc import Iterator, Mapping
 from datetime import date
 
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
 from baibai_engine.data_collection.catalog import SourceDefinition
-
-from baibai_engine.data_collection.transport.context import FetchContext, IndicatorsProviderError
 from baibai_engine.data_collection.providers.matsui.margin import MatsuiMarginSource
 from baibai_engine.data_collection.providers.spglobal.pmi import SpGlobalPmiSource
 from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
+from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
+from baibai_engine.data_collection.transport.context import FetchContext, IndicatorsProviderError
 
 
 def fetch_source_documents(

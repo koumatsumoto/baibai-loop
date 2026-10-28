@@ -21,13 +21,21 @@ from datetime import date
 from math import isfinite
 from statistics import mean
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import UniverseSnapshot
-from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    ScreeningRules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    UniverseSnapshot,
+)
 from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_closes
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS as ELIGIBLE_MARKETS
-
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import ScreeningRules
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.stocks.universe import (
+    ELIGIBLE_MARKETS as ELIGIBLE_MARKETS,
+)
 
 # 財務評価には有効な価格1本が必要。平均売買代金は別の20本窓 (#1518)。
 # docs/reference/screening-runtime.md

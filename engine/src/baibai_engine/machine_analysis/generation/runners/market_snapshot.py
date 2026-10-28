@@ -1,21 +1,32 @@
 """市場モデルの読取と入力固定。計算はmarket_context側へ委ねる。"""
+
 from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
+
+from baibai_engine.machine_analysis.models.market_context.benchmark import (
+    _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
+    DEFAULT_MIN_BREADTH_SAMPLE,
+    NIKKEI225_ETF_PROXY,
+    benchmark_trend_from_series,
+)
+from baibai_engine.machine_analysis.models.market_context.snapshot import (
+    _POINT_LOOKBACK_CALENDAR_DAYS,
+    DEFAULT_HISTORY_WEEKS,
+    PreparedMarketContext,
+    _Series,
+    calculate_market_snapshot,
+)
+from baibai_engine.machine_analysis.models.market_context.snapshot import (
+    prepare_market_context_from_bars as prepare_from_bars,
+)
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
-from baibai_engine.machine_analysis.models.market_context.benchmark import (
-    _BENCHMARK_LOOKBACK_CALENDAR_DAYS, DEFAULT_MIN_BREADTH_SAMPLE,
-    NIKKEI225_ETF_PROXY, benchmark_trend_from_series,
-)
-from baibai_engine.machine_analysis.models.market_context.snapshot import (
-    _Series, _POINT_LOOKBACK_CALENDAR_DAYS, DEFAULT_HISTORY_WEEKS,
-    PreparedMarketContext, calculate_market_snapshot,
-    prepare_market_context_from_bars as prepare_from_bars,
-)
+
 from .benchmark import _load_benchmark_series
 
 
@@ -55,6 +66,7 @@ def prepare_market_context_inputs(
         ),
     )
 
+
 def prepare_market_context_from_bars(
     *,
     sqlite_path: Path,
@@ -66,9 +78,13 @@ def prepare_market_context_from_bars(
     benchmark_ticker: str = NIKKEI225_ETF_PROXY,
 ) -> PreparedMarketContext:
     return prepare_from_bars(
-        sqlite_path=sqlite_path.resolve(), asof_date=asof_date, master=master,
-        bars_by_ticker=bars_by_ticker, subjects=subjects,
-        history_weeks=history_weeks, benchmark_ticker=benchmark_ticker,
+        sqlite_path=sqlite_path.resolve(),
+        asof_date=asof_date,
+        master=master,
+        bars_by_ticker=bars_by_ticker,
+        subjects=subjects,
+        history_weeks=history_weeks,
+        benchmark_ticker=benchmark_ticker,
     )
 
 
@@ -117,9 +133,13 @@ def build_market_snapshot(
         for day in point_dates
     }
     return calculate_market_snapshot(
-        asof_date=asof_date, history_weeks=history_weeks,
-        benchmark_ticker=benchmark_ticker, min_breadth_sample=min_breadth_sample,
-        master=master, masters_by_date=masters_by_date, series_by_ticker=series_by_ticker,
+        asof_date=asof_date,
+        history_weeks=history_weeks,
+        benchmark_ticker=benchmark_ticker,
+        min_breadth_sample=min_breadth_sample,
+        master=master,
+        masters_by_date=masters_by_date,
+        series_by_ticker=series_by_ticker,
     )
 
 

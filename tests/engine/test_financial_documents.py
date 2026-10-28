@@ -12,22 +12,29 @@ from typing import Any
 
 import pytest
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.capital import _resolve_capital_basis
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
+    _resolve_capital_basis,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _latest_actual_row
+from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
+    _latest_actual_row,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     latest_forecast_source,
     normalize_financial_summary,
     project_financial_documents,
 )
-from baibai_engine.machine_analysis.observations.financials.financial_periods import resolve_actual_conflicts
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    resolve_actual_conflicts,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -35,6 +42,7 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
     read_fin_summaries,
     read_financial_documents,
 )
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -523,7 +531,9 @@ def test_conflicting_pre_split_reference_cannot_choose_share_basis(
     from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
         _normalize_summaries_with_status,
     )
-    from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent
+    from baibai_engine.machine_analysis.observations.prices.price_models import (
+        JQuantsAdjustmentFactorEvent,
+    )
 
     # Keep the conflicting reference period distinct from the later FY correction.
     # Otherwise that correction resolves the same cohort before reference selection.
@@ -726,7 +736,9 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
         _latest_fy_revisions,
         _resolve_dividend_carry,
     )
-    from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent
+    from baibai_engine.machine_analysis.observations.prices.price_models import (
+        JQuantsAdjustmentFactorEvent,
+    )
 
     eps = actual_document("eps-only")
     eps["NP"] = eps["Sales"] = ""
@@ -979,7 +991,9 @@ def test_native_identity_is_required_before_replacing_history(tmp_path, number):
 
 @pytest.mark.parametrize("missing_field", ["CurPerSt", "CurPerEn"])
 def test_prior_year_comparison_requires_actual_period_dates(missing_field):
-    from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _prior_year_summary
+    from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
+        _prior_year_summary,
+    )
 
     old = actual_document("prior")
     old.update(
@@ -1066,12 +1080,12 @@ def test_new_numeric_guidance_resolves_previous_unknown_revision():
 def test_actual_dividend_period_validity_agrees_with_forward_measurement(
     tmp_path, field, value, dps
 ):
-    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-        _resolve_dividend_carry,
-    )
     from baibai_engine.machine_analysis.historical_evaluation.forward import (
         _asof_basis_dividend,
         _load_fy_dividends,
+    )
+    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+        _resolve_dividend_carry,
     )
 
     record = actual_document("invalid-period", DivAnn=str(dps))

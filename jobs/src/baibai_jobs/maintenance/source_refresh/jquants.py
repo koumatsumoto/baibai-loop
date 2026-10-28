@@ -14,28 +14,30 @@ from pathlib import Path
 
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP, JQuantsSource
 from baibai_engine.data_collection.providers.jquants.receipts import acquire_request
-from baibai_engine.primitives.time import JST
+from baibai_engine.machine_analysis.observations.financials.reader import (
+    count_fin_summaries,
+    fin_summaries_covered,
+)
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
+    read_market_calendar,
+)
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    count_daily_bars,
+    daily_bars_covered,
+    latest_daily_bar_date,
+    latest_stored_daily_bar_date,
+)
+from baibai_engine.machine_analysis.observations.stocks.reader import (
+    read_eq_master_exact,
+)
 from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
     SHORT_SALE_REPORT_SOURCE,
     WEEKLY_MARGIN_SOURCE,
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
-)
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_jobs.maintenance.jquants_inputs import (
-    JQuantsReader,
-)
-from baibai_engine.machine_analysis.observations.financials.reader import (
-    count_fin_summaries,
-    fin_summaries_covered,
-)
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_exact,
-)
-from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
-    read_market_calendar,
 )
 from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
@@ -45,15 +47,16 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_publica
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
 )
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_all_issues_daily_margin, read_weekly_margin
-from baibai_engine.machine_analysis.observations.prices.price_reader import (
-    count_daily_bars,
-    daily_bars_covered,
-    latest_daily_bar_date,
-    latest_stored_daily_bar_date,
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+    read_all_issues_daily_margin,
+    read_weekly_margin,
 )
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.coverage import merge_date_ranges, missing_intervals
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
+from baibai_jobs.maintenance.jquants_inputs import (
+    JQuantsReader,
+)
 
 Progress = Callable[[int, int, date, date], None]
 

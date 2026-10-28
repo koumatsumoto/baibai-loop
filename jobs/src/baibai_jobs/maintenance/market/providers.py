@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXEarningsCalendarSnapshot, JPXRegulationSnapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
+    JPXEarningsCalendarSnapshot,
+    JPXRegulationSnapshot,
+)
 
 
 class JQuantsMaintenance(Protocol):

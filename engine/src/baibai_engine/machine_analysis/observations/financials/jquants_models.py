@@ -1,11 +1,17 @@
 """保存済み観測の責務別読取。取得・公開は行わない。"""
 
 from __future__ import annotations
+
 from datetime import date
+
 from pydantic import field_validator
 from pydantic.dataclasses import dataclass
+
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    MODEL_CONFIG,
+    validate_finite,
+)
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.machine_analysis.observations.prices.price_models import MODEL_CONFIG, validate_finite
 
 
 @dataclass(frozen=True, slots=True, config=MODEL_CONFIG)
@@ -17,7 +23,7 @@ class JQuantsFinancialSummary:
     `cumulative_eps`は開示期間の累計EPSであり、TTM合成済みの値ではない。
     このEPS自体を足し引きしてTTM合成しない。
     `shares_outstanding`は自己株式を含む発行済株式総数である。
-    計算基準はdocs/reference/company-valuation.mdの
+    計算基準はdocs/reference/company-financials.mdの
     「会社予想と実績期間」「資本と株式単位」に従う。
     """
 

@@ -4,16 +4,16 @@ import sqlite3
 from contextlib import closing
 from datetime import timedelta
 
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,
 )
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
 def seed_generation(path, *, now, as_of, with_price_path=False):

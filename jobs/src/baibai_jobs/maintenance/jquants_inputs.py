@@ -1,27 +1,43 @@
 """保存済み観測の責務別読取。取得・公開は行わない。"""
 
 from __future__ import annotations
+
 from datetime import date
 from pathlib import Path
-from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
+
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_adjustment_factor_bars,
+    read_daily_bars,
+)
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
+    require_all_issues_daily_balance_date,
+    require_legacy_weekly_balance_date,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+    read_all_issues_daily_margin,
+    read_margin_alerts,
+    read_short_sale_reports,
+    read_weekly_margin,
+)
 from baibai_engine.machine_analysis.observations.trading_activity.models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsMarginAlert,
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
 )
-from baibai_engine.machine_analysis.observations.financials.jquants_models import (
-    JQuantsFinancialSummary,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import require_all_issues_daily_balance_date, require_legacy_weekly_balance_date
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_all_issues_daily_margin, read_margin_alerts, read_short_sale_reports, read_weekly_margin
-from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.machine_analysis.observations.prices.price_reader import read_adjustment_factor_bars, read_daily_bars
-from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
-from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
-from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
 
 
 def _required[T](value: T | None, source: str) -> T:

@@ -7,7 +7,9 @@ from pathlib import Path
 
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.workflow.selection import ResearchSelectionRecord as ResearchSelection
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
 from baibai_engine.investment_judgment.workflow.selection import (
     ResearchTarget,
     selection_sha256,

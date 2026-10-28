@@ -20,14 +20,16 @@ from types import TracebackType
 from typing import Any
 
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
-from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response as equity_web_validate_response
-from baibai_jobs.acquisition.external_assessments.identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
-from baibai_jobs.acquisition.external_assessments.staging import prefix
+from baibai_engine.data_collection.receipts.public_pages.receipts import (
+    validate_response as equity_web_validate_response,
+)
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
     ObjectStore,
 )
+from baibai_jobs.acquisition.external_assessments.identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
+from baibai_jobs.acquisition.external_assessments.staging import prefix
 
 RETENTION_DAYS = 3
 

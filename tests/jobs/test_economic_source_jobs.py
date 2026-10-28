@@ -9,14 +9,17 @@ from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts
-from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    read_snapshots,
+    store_snapshot,
+)
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_jobs.integration.economic_handoff import acquire, receive
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
 from baibai_engine.storage.sqlite.merge import MergeError
+from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.integration.economic_handoff import acquire, receive
 
 DAY = date(2026, 10, 20)
 WHEN = datetime(2026, 10, 20, tzinfo=UTC)

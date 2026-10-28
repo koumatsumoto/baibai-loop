@@ -2,7 +2,10 @@
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import is_usable_filing_status, normalize_metric_record
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+    is_usable_filing_status,
+    normalize_metric_record,
+)
 
 
 @pytest.mark.parametrize(

@@ -9,11 +9,13 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.storage.sqlite.read import is_unwritten_store
+from baibai_engine.investment_judgment.market_assessment.models import (
+    StoredAssessment,
+    require_aware,
+)
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
-
-from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment, require_aware
+from baibai_engine.storage.sqlite.read import is_unwritten_store
 
 
 def select_assessment(

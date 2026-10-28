@@ -16,21 +16,23 @@ from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
+from baibai_engine.data_collection.acquisition.native_records import fetch_native_records
 from baibai_engine.data_collection.acquisition.refresh import (
     SourceRefreshFailure,
     SourceRefreshSuccess,
     _fetch_with_retry,
     refresh_sources,
 )
+from baibai_engine.data_collection.catalog import require_source
+from baibai_engine.data_collection.providers.fred import parse_fred_csv
+from baibai_engine.data_collection.receipts.native_sources.store import open_read_only_connection
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     ProviderFetchStoppedError,
 )
-from baibai_engine.data_collection.providers.fred import parse_fred_csv
-from baibai_engine.data_collection.acquisition.native_records import fetch_native_records
-from baibai_engine.data_collection.catalog import require_source
-from baibai_engine.data_collection.receipts.native_sources.store import open_read_only_connection
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
 )
@@ -116,9 +118,7 @@ def wire(monkeypatch):
     monkeypatch.setenv("no_proxy", "*")
     monkeypatch.setattr(jquantsapi.ClientV2, "_load_config", lambda self: {})
     for name in ["jquants_flows", "jquants_indices"]:
-        module = __import__(
-            f"baibai_engine.data_collection.providers.{name}", fromlist=["*"]
-        )
+        module = __import__(f"baibai_engine.data_collection.providers.{name}", fromlist=["*"])
         monkeypatch.setattr(module, "_read_api_key", lambda: "synthetic-key")
     monkeypatch.setattr(
         HTTPConnectionPool,

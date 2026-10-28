@@ -10,18 +10,16 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.primitives.time import JST
-from baibai_engine.investment_judgment.trade_proposal.holding_policy import evaluate_holding_proposal
-from baibai_engine.investment_judgment.workflow.operation.research_binding import (
-    require_proposal_research_scope,
-)
-from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
     latest_assessment_id,
     require_assessment_ref,
+)
+from baibai_engine.investment_judgment.trade_proposal.conditions import (
+    assessment_quote_basis,
+    buy_evaluation,
+    proposal_quote,
+    terms_unavailable_reasons,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     BuyItem,
@@ -33,13 +31,10 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
     proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.conditions import (
-    assessment_quote_basis,
-    buy_evaluation,
-    proposal_quote,
-    terms_unavailable_reasons,
-)
 from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
+from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
+    evaluate_holding_proposal,
+)
 from baibai_engine.investment_judgment.trade_proposal.inputs import (
     DEFAULT_BUDGET_MAX_YEN,
     DEFAULT_BUDGET_MIN_YEN,
@@ -49,9 +44,16 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
 from baibai_engine.investment_judgment.trade_proposal.policy import validate_proposal_policy
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
+from baibai_engine.investment_judgment.workflow.operation.research_binding import (
+    require_proposal_research_scope,
+)
+from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
 from baibai_engine.portfolio.holdings.market_observations import next_order_session
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 

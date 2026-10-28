@@ -8,10 +8,9 @@ from datetime import date, datetime, time
 
 import openpyxl
 
+from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
-from baibai_engine.data_collection.catalog import SourceDefinition
-
 from baibai_engine.data_collection.transport.context import (
     MAX_ZIP_RESPONSE_BYTES,
     FetchContext,

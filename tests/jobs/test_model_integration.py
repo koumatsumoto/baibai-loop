@@ -4,16 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+import baibai_jobs.integration.models as job
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
     InputSnapshot,
     ModelGenerationStream,
 )
-from baibai_engine.machine_analysis.screening.selection_query import read_publication
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
-import baibai_jobs.integration.models as job
+from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_jobs.observability.discord import render_generation
 
 

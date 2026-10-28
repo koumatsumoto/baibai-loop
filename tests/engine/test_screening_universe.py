@@ -7,11 +7,21 @@ from datetime import date, timedelta
 
 from tests.helpers.master import TSE_33_SECTORS
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import build_candidate_contexts
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import stock_analysis_payload
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import build_stock_analysis
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
+    build_candidate_contexts,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
+    stock_analysis_payload,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     build_universe,
     candidate_comparison_population,
@@ -19,8 +29,11 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.unive
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 
 
 def _bars(
@@ -486,7 +499,9 @@ class HistoricalMarketSegmentTests(unittest.TestCase):
 
 class NativeProductScopeTests(unittest.TestCase):
     def test_product_category_not_sector_name_decides_ordinary_stock(self) -> None:
-        from baibai_engine.machine_analysis.observations.stocks.master_snapshot import normalize_master_record
+        from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
+            normalize_master_record,
+        )
 
         for category in ("011", "012", "013", "014", "021", "022", "023", "024"):
             with self.subTest(category=category):
@@ -517,7 +532,9 @@ class NativeProductScopeTests(unittest.TestCase):
                 self.assertIn("130A", result.snapshots)
 
     def test_preferred_issue_is_not_projected_as_the_same_common_ticker(self) -> None:
-        from baibai_engine.machine_analysis.observations.stocks.master_snapshot import normalize_master_record
+        from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
+            normalize_master_record,
+        )
 
         self.assertIsNone(
             normalize_master_record(

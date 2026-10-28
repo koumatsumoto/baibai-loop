@@ -20,8 +20,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from baibai_engine.machine_analysis.observations.prices.price_basis import cumulative_share_unit_factor_after
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_basis import (
+    cumulative_share_unit_factor_after,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 MARKET_CONTEXT_CALCULATION_REVISION = "native-master-and-margin-publication-v5"
 

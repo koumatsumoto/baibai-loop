@@ -3,21 +3,20 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-
 from tests.model_generation_fixtures import generation
 
-from baibai_engine.machine_analysis.generation.store import (
-    GenerationConflictError,
-    ModelGenerationStore,
-)
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,
 )
+from baibai_engine.machine_analysis.generation.store import (
+    GenerationConflictError,
+    ModelGenerationStore,
+)
 from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.sqlite.machine_analysis import (
     GENERATION_SCHEMA_SQL,
     SCHEMA_SQL,
@@ -109,9 +108,12 @@ def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp
         raise AssertionError("storage must not execute candidate policy")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation", forbidden
+        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation",
+        forbidden,
     )
-    monkeypatch.setattr("baibai_engine.machine_analysis.screening.policies.two_views.select_views", forbidden)
+    monkeypatch.setattr(
+        "baibai_engine.machine_analysis.screening.policies.two_views.select_views", forbidden
+    )
     store = ScreeningSelectionStore(path)
     assert store.publish("selection-a", selected)
     assert not store.publish("selection-a", selected)
@@ -216,8 +218,6 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
     assert read_publication(path=path, selection_id="missing") is None
 
 
-
-
 def test_streamed_subject_plan_rejects_unplanned_model_without_partial_publication(tmp_path):
     from baibai_engine.machine_analysis.generation.contracts import (
         GenerationMetadata,
@@ -227,11 +227,15 @@ def test_streamed_subject_plan_rejects_unplanned_model_without_partial_publicati
 
     path = tmp_path / "planned.sqlite"
     original = generation()
-    metadata = GenerationMetadata.model_validate({
-        **original.model_dump(exclude={"models"}),
-        "schema_version": 2,
-        "subject_plan": {"1234": GenerationSubject(scope="stock", model_ids=("allowed_probe",))},
-    })
+    metadata = GenerationMetadata.model_validate(
+        {
+            **original.model_dump(exclude={"models"}),
+            "schema_version": 2,
+            "subject_plan": {
+                "1234": GenerationSubject(scope="stock", model_ids=("allowed_probe",))
+            },
+        }
+    )
     stream = ModelGenerationStream(metadata, ("1234",), iter(original.models))
     store = ModelGenerationStore(path)
     with pytest.raises(ValueError, match="subject plan"):

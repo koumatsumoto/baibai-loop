@@ -9,11 +9,19 @@ from datetime import date
 from pypdf import PdfReader
 
 from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
-from baibai_engine.machine_analysis.observations.economic_indicators.pmi_extraction import PmiExtractionError, extract_pmi_value
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.pmi_extraction import (
+    PmiExtractionError,
+    extract_pmi_value,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    reading_observation,
+)
 
 
 def extract_pdf_text(content: bytes) -> str:

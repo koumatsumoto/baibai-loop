@@ -4,16 +4,20 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
-from baibai_engine.machine_analysis.models.market_context.reading.models import snapshot_payload
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
-    UnavailableObservationError,
-)
-from baibai_engine.machine_analysis.models.market_context.reading.rules import (
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
     DEFAULT_RULES_PATH,
     load_reading_rules,
+)
+from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
+from baibai_engine.machine_analysis.models.market_context.reading.models import snapshot_payload
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    UnavailableObservationError,
 )
 
 

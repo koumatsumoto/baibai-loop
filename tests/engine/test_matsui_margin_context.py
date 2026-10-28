@@ -9,25 +9,33 @@ import requests
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
+import baibai_engine.data_collection.providers.matsui.margin as matsui_margin
 import baibai_engine.data_collection.receipts.native_sources.store as store
+from baibai_engine.cli.economic_indicators import main as indicator_main
+from baibai_engine.data_collection.catalog import load_sources, require_source
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-import baibai_engine.data_collection.providers.matsui.margin as matsui_margin
 from baibai_engine.data_collection.transport.context import FetchContext
-from baibai_engine.data_collection.catalog import load_sources, require_source
-from baibai_engine.cli.economic_indicators import main as indicator_main
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    load_reading_rules,
+)
 from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
-from baibai_engine.machine_analysis.observations.economic_indicators.documents import read_document_series
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.documents import (
+    read_document_series,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
     UnavailableObservationError,
 )
-from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.models.market_context.reading.rules import load_reading_rules
 
 SERIES_ID = "jp.matsui_margin_long_evaluation_pnl"
 SOURCE_ID = "matsui-margin"

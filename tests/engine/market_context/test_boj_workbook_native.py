@@ -6,13 +6,17 @@ from datetime import date
 from tests.engine.market_context.indicators.indicator_fixtures import _boj_workbook_bytes
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.data_collection.receipts.native_sources import store as db
 import baibai_engine.data_collection.providers.boj.workbooks as boj
+from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
 )
 
 

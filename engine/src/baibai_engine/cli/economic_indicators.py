@@ -10,10 +10,19 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH, EconomicSchemaError
-
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService, QueryResult, list_series, search
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH,
+    EconomicSchemaError,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+    QueryResult,
+    list_series,
+    search,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

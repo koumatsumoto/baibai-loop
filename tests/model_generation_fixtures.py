@@ -1,6 +1,10 @@
 from datetime import UTC, date, datetime
 
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, InputSnapshot, ModelGeneration
+from baibai_engine.machine_analysis.generation.contracts import (
+    GeneratedModel,
+    InputSnapshot,
+    ModelGeneration,
+)
 
 
 def generation(*, value=0.100049):
@@ -32,4 +36,3 @@ def generation(*, value=0.100049):
             ),
         ),
     )
-

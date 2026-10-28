@@ -23,7 +23,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     ModelValuationObservation,
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.store import (
     ObservationConflictError,
     save_observations,

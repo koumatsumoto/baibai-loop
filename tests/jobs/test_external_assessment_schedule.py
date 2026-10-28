@@ -22,15 +22,15 @@ from tests.jobs.test_external_assessment_daily import (
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
-from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.sources as sources
+import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_jobs.acquisition.external_assessments.cohorts import new_result
 from baibai_jobs.schedule import (
     EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME,
     external_assessment_target_date,
 )
-import baibai_jobs.acquisition.external_assessments.staging as staging
 
 CREATED = datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
 FRIDAY = date(2026, 10, 9)

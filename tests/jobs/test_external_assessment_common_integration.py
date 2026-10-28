@@ -7,26 +7,32 @@ from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     _plan,
     _stage,
-    pair_responses,
 )
 from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )
+from tests.jobs.external_assessment_publication_fixtures import pair_responses
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
-from baibai_jobs.publication.external_assessment_verification import history_digests as external_assessment_history_digests
-from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
+import baibai_jobs.acquisition.external_assessments.staging as staging
+import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt as external_assessment_decode_attempt,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import (
+    save_observations as external_assessment_save_observations,
+)
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+)
+from baibai_jobs.integration.external_assessment_ready import load_ready, prepare_plan, save_ready
 from baibai_jobs.integration.external_assessments import (
     VALUATION_DATASET,
     merge_ready,
     verify_and_seal,
 )
-import baibai_jobs.acquisition.external_assessments.staging as staging
-import baibai_jobs.publication.snapshot_publication as publisher
-from baibai_jobs.integration.external_assessment_ready import load_ready, prepare_plan, save_ready
-from baibai_engine.storage.objects.r2 import (
-    LakePublishError,
+from baibai_jobs.publication.external_assessment_verification import (
+    history_digests as external_assessment_history_digests,
 )
 
 
@@ -229,13 +235,16 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
 def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
     independent_plans, monkeypatch
 ):
-    from baibai_engine.storage.snapshots.objects import LakeObjectCache
-    from baibai_engine.storage.snapshots.objects import LocalMirrorSource
-    from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot as create_market_snapshot
-    from baibai_engine.storage.snapshots.equity_web_verification import history_digests as equity_web_history_digests
-    from baibai_engine.storage.snapshots.duck import lake_session
-    from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
     import baibai_jobs.integration.external_assessments as integration
+    from baibai_engine.storage.snapshots.duck import lake_session
+    from baibai_engine.storage.snapshots.equity_web_verification import (
+        history_digests as equity_web_history_digests,
+    )
+    from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
+    from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+    from baibai_engine.storage.sqlite.source_cache.snapshot import (
+        create_snapshot as create_market_snapshot,
+    )
     from baibai_jobs.integration.external_assessment_ready import available_ready
 
     store, selected, handle, database, mirror, directory = independent_plans

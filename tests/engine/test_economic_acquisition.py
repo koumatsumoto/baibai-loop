@@ -4,11 +4,14 @@ from datetime import UTC, date, datetime
 import pytest
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.data_collection.receipts.native_sources import store as store
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, read_documents
-from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
-from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.catalog import load_sources
+from baibai_engine.data_collection.receipts.native_sources import store as store
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    read_documents,
+)
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
 
 DAY = date(2026, 7, 20)
 
@@ -152,8 +155,8 @@ def test_source_store_rejects_unexpected_trigger_without_running_it(tmp_path):
 
 
 def test_old_pdf_failure_keeps_original_and_does_not_block_new_month(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.receipts.native_sources.documents import store_document
     import baibai_engine.data_collection.providers.spglobal.pmi as pmi
+    from baibai_engine.data_collection.receipts.native_sources.documents import store_document
     from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 
     source_id = "spglobal-jp-pmi-mfg"

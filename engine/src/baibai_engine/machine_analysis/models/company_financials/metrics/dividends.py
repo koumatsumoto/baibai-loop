@@ -7,7 +7,6 @@ from dataclasses import dataclass, replace
 from datetime import date
 from itertools import pairwise
 
-from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_to_asof_basis,
 )
@@ -25,12 +24,22 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     project_financial_documents,
     statement_basis,
 )
-from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days, resolve_actual_conflicts
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    period_days,
+    resolve_actual_conflicts,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.prices.price_basis import cumulative_share_unit_factor_after, share_unit_factor
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_basis import (
+    cumulative_share_unit_factor_after,
+    share_unit_factor,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
+from baibai_engine.primitives.dates import add_months_clamped
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
 # 特別配当か未実現の還元転換かを機械入力から区別できない。実績が正なら既存の実績経路へ

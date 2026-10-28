@@ -11,7 +11,9 @@ from baibai_engine.machine_analysis.observations.economic_indicators.definitions
     SeriesDefinition,
     load_definitions,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
 
 SOURCE_URL = "https://example.com/data.csv"
 

@@ -6,7 +6,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.history im
     build_valuation_history,
     self_range_position,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 

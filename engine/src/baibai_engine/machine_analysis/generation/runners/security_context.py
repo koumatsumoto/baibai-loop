@@ -1,18 +1,27 @@
 """個別市場モデルに必要な保存観測を固定し、計算へ渡す。"""
+
 from __future__ import annotations
+
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
+
+from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
+from baibai_engine.machine_analysis.models.market_context.security import (
+    _PEER_RETURN_WINDOW_BARS,
+    _RETURN_WINDOWS_BARS,
+    _window_endpoints,
+    calculate_security_market_context,
+)
+from baibai_engine.machine_analysis.models.market_context.snapshot import (
+    SECURITY_LOOKBACK_CALENDAR_DAYS,
+    PreparedMarketContext,
+)
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
-from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
-from baibai_engine.machine_analysis.models.market_context.snapshot import SECURITY_LOOKBACK_CALENDAR_DAYS, PreparedMarketContext
-from baibai_engine.machine_analysis.models.market_context.security import (
-    _RETURN_WINDOWS_BARS, _PEER_RETURN_WINDOW_BARS, _window_endpoints,
-    calculate_security_market_context,
-)
+
 from .benchmark import compute_benchmark_trend
 
 
@@ -33,6 +42,7 @@ def build_security_market_context(
         benchmark_ticker=benchmark_ticker,
         prepared=prepared,
     )[ticker]
+
 
 def build_security_market_contexts(
     *,
@@ -76,20 +86,35 @@ def build_security_market_contexts(
     for ticker in tickers:
         bars = bars_by_ticker.get(ticker, [])
         benchmark_prices, peer_prices = _comparison_inputs(
-            sqlite_path=sqlite_path, ticker=ticker, bars=bars, master=master,
-            asof_date=asof_date, benchmark_ticker=benchmark_ticker, prepared=prepared,
+            sqlite_path=sqlite_path,
+            ticker=ticker,
+            bars=bars,
+            master=master,
+            asof_date=asof_date,
+            benchmark_ticker=benchmark_ticker,
+            prepared=prepared,
         )
         contexts[ticker] = calculate_security_market_context(
-            ticker=ticker, bars=bars, master=master, benchmark=benchmark,
-            benchmark_ticker=benchmark_ticker, benchmark_prices=benchmark_prices,
-            peer_prices=peer_prices, self_range_window_bars=self_range_window_bars,
+            ticker=ticker,
+            bars=bars,
+            master=master,
+            benchmark=benchmark,
+            benchmark_ticker=benchmark_ticker,
+            benchmark_prices=benchmark_prices,
+            peer_prices=peer_prices,
+            self_range_window_bars=self_range_window_bars,
         )
     return contexts
 
 
 def _comparison_inputs(
-    *, sqlite_path: Path, ticker: str, bars: Sequence[PriceBar],
-    master: MasterSnapshot | None, asof_date: date, benchmark_ticker: str,
+    *,
+    sqlite_path: Path,
+    ticker: str,
+    bars: Sequence[PriceBar],
+    master: MasterSnapshot | None,
+    asof_date: date,
+    benchmark_ticker: str,
     prepared: PreparedMarketContext | None,
 ) -> tuple[dict[date, float], list[dict[date, float]]]:
     if not bars:
@@ -108,12 +133,21 @@ def _comparison_inputs(
     if not sector or not isinstance(sector, str) or endpoints is None:
         return benchmark_prices, []
     if prepared is not None:
-        peers = [peer for peer in prepared.common_stock_tickers_by_sector.get(sector, ()) if peer != ticker]
-    else:
-        peers = [] if master is None else [
-            peer for peer, row in master.securities.items()
-            if peer != ticker and row["is_common_stock"] and row["sector_33"] == sector
+        peers = [
+            peer
+            for peer in prepared.common_stock_tickers_by_sector.get(sector, ())
+            if peer != ticker
         ]
+    else:
+        peers = (
+            []
+            if master is None
+            else [
+                peer
+                for peer, row in master.securities.items()
+                if peer != ticker and row["is_common_stock"] and row["sector_33"] == sector
+            ]
+        )
     if not peers:
         return benchmark_prices, []
     if prepared is not None and endpoints[0] >= prepared.start:
@@ -121,9 +155,14 @@ def _comparison_inputs(
         for peer in peers:
             series = prepared.series_by_ticker.get(peer)
             if series is not None:
-                peer_prices.append({day: value for day in endpoints if (value := series.price_on(day)) is not None})
+                peer_prices.append(
+                    {day: value for day in endpoints if (value := series.price_on(day)) is not None}
+                )
     else:
-        peer_bars = read_price_bars(sqlite_path, tickers=tuple(peers), start=endpoints[0], end=asof_date)
-        peer_prices = [{bar.traded_at: bar.price for bar in values} for values in peer_bars.values()]
+        peer_bars = read_price_bars(
+            sqlite_path, tickers=tuple(peers), start=endpoints[0], end=asof_date
+        )
+        peer_prices = [
+            {bar.traded_at: bar.price for bar in values} for values in peer_bars.values()
+        ]
     return benchmark_prices, peer_prices
-

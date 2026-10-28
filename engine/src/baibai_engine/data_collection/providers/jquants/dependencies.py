@@ -10,8 +10,15 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.data_collection.providers.jquants.http import JQuantsAcquisitionError, JQuantsPage
-from baibai_engine.data_collection.providers.jquants.receipts import JQuantsRequest, complete_request, read_complete_request
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsAcquisitionError,
+    JQuantsPage,
+)
+from baibai_engine.data_collection.providers.jquants.receipts import (
+    JQuantsRequest,
+    complete_request,
+    read_complete_request,
+)
 
 
 def export_dependencies(database: Path, *, day: date, master_asof: date) -> list[dict[str, Any]]:

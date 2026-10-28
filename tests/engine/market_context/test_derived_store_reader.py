@@ -11,7 +11,9 @@ from tests.helpers.indicator_store import (
 )
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
 )
@@ -54,8 +56,8 @@ def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintag
 ):
     from tests.engine.market_context.indicators.test_option_iv import ASOF, _chain_records
 
-    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
     import baibai_engine.machine_analysis.observations.economic_indicators.options as options
+    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 
     path = tmp_path / "indicators.sqlite"
     definitions = load_definitions()

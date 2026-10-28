@@ -6,10 +6,18 @@ import json
 import sqlite3
 from datetime import datetime
 
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    ProposalResearchScope,
+    RequestScope,
+)
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
-from baibai_engine.investment_judgment.workflow.operation.progress import proposal_scope, selection_binding
-from baibai_engine.investment_judgment.workflow.selection import ResearchSelectionRecord as ResearchSelection
-from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalResearchScope, RequestScope
+from baibai_engine.investment_judgment.workflow.operation.progress import (
+    proposal_scope,
+    selection_binding,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
 
 
 def require_proposal_research_scope(

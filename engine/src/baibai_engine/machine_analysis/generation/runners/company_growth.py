@@ -7,9 +7,13 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import read_fixed_financial_documents
+from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
+from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
+    read_fixed_financial_documents,
+)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.objects import LakeObjectError
 from baibai_engine.storage.snapshots.reader import LakeReadError
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
@@ -17,9 +21,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
-
-from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
 
 
 def company_growth(

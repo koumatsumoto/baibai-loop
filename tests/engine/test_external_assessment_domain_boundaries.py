@@ -8,14 +8,14 @@ from tests.engine.test_external_assessment_core import RECEIVED, rating, valuati
 
 import baibai_engine.machine_analysis.observations.external_assessments.reader as reader
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
+from baibai_engine.machine_analysis.observations.external_assessments.contract import (
+    ANALYST_RATING_TABLE,
+    MODEL_VALUATION_TABLE,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystRatingHistory,
     ModelValuationHistory,
     ObservationHistory,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.contract import (
-    ANALYST_RATING_TABLE,
-    MODEL_VALUATION_TABLE,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

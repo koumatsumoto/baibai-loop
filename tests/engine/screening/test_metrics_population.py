@@ -5,12 +5,15 @@ from __future__ import annotations
 import unittest
 from datetime import date, timedelta
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import MetricBuildResult, build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    MetricBuildResult,
+    build_metrics,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 
 
 class MedianPopulationTests(unittest.TestCase):

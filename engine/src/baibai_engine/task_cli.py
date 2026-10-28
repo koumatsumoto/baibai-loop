@@ -11,10 +11,12 @@ from typing import get_args
 
 import yaml
 
-from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_next_earnings_dates
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_next_earnings_dates,
+)
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_engine.tasks.earnings_reconcile import reconcile_earnings_dates
 from baibai_engine.tasks.models import TaskKind, TaskStatus

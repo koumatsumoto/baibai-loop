@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    AnalystForecastObservation,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     Element,
     ParseError,
@@ -14,9 +16,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     number,
     numeric_text,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.models import (
-    AnalystForecastObservation,
-)
+from baibai_engine.primitives.stocks import normalize_ticker
 
 PARSER_VERSION = "minkabu-analyst-6"
 RATING_LABELS = ("強気買い", "買い", "中立", "売り", "強気売り")

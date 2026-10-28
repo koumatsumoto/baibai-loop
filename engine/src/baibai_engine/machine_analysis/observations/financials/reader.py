@@ -1,18 +1,24 @@
 """保存済み観測の責務別読取。取得・公開は行わない。"""
 
 from __future__ import annotations
+
 import json
 import sqlite3
 from datetime import date
 from pathlib import Path
-from baibai_engine.machine_analysis.observations.financials.financial_documents import normalize_financial_summary, project_financial_documents
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from typing import TYPE_CHECKING
+
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    normalize_financial_summary,
+    project_financial_documents,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals, range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     import duckdb
 

@@ -26,7 +26,12 @@ import boto3
 import duckdb
 from botocore.config import Config
 
-from baibai_engine.storage.snapshots.duck import LakeSession, R2ReadCredentials, lake_session, r2_uri
+from baibai_engine.storage.snapshots.duck import (
+    LakeSession,
+    R2ReadCredentials,
+    lake_session,
+    r2_uri,
+)
 from baibai_engine.storage.snapshots.keys import validate_lake_object_key
 from baibai_engine.storage.snapshots.models import LakeObject
 from baibai_engine.storage.snapshots.sources import sha256_file

@@ -16,18 +16,26 @@ from pathlib import Path
 
 import requests
 
-from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
-from baibai_jobs.acquisition.external_assessments.collection import CollectionResult as ExternalAssessmentCollectionResult
-from baibai_engine.data_collection.transport.public_pages import HostRateLimiter as ExternalAssessmentHostRateLimiter
-from baibai_engine.data_collection.receipts.public_pages.models import Source as ExternalAssessmentSource
-from baibai_engine.storage.snapshots.objects import LakeObjectCache
-from baibai_jobs.acquisition.external_assessments.universe import calendar_master_asof as external_assessment_calendar_master_asof
-from baibai_jobs.acquisition.external_assessments.collection import collect_pair as external_assessment_collect_pair
-from baibai_jobs.acquisition.external_assessments.collection import collector_binding as external_assessment_collector_binding
-from baibai_jobs.acquisition.external_assessments.universe import frozen_lake_universe as external_assessment_frozen_lake_universe
-from baibai_jobs.acquisition.external_assessments.universe import received_calendar as external_assessment_received_calendar
-from baibai_jobs.acquisition.external_assessments.universe import received_master_universe as external_assessment_received_master_universe
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    EquityWebSourceResponse,
+)
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    Source as ExternalAssessmentSource,
+)
+from baibai_engine.data_collection.transport.public_pages import (
+    HostRateLimiter as ExternalAssessmentHostRateLimiter,
+)
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    ObjectStore,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_jobs.acquisition.dependencies import (
+    available_dependencies,
+    latest_dependency,
+    load_dependency,
+)
 from baibai_jobs.acquisition.external_assessments.cohorts import (
     RunPlan,
     make_plan,
@@ -35,7 +43,15 @@ from baibai_jobs.acquisition.external_assessments.cohorts import (
     record_outcome,
     summarize,
 )
-from baibai_jobs.integration.external_assessment_raw import RawBundle
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionResult as ExternalAssessmentCollectionResult,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    collect_pair as external_assessment_collect_pair,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    collector_binding as external_assessment_collector_binding,
+)
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     commit_stage,
@@ -46,16 +62,20 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     save_new_plan,
     terminal_result,
 )
-from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
-    ObjectStore,
+from baibai_jobs.acquisition.external_assessments.universe import (
+    calendar_master_asof as external_assessment_calendar_master_asof,
 )
+from baibai_jobs.acquisition.external_assessments.universe import (
+    frozen_lake_universe as external_assessment_frozen_lake_universe,
+)
+from baibai_jobs.acquisition.external_assessments.universe import (
+    received_calendar as external_assessment_received_calendar,
+)
+from baibai_jobs.acquisition.external_assessments.universe import (
+    received_master_universe as external_assessment_received_master_universe,
+)
+from baibai_jobs.integration.external_assessment_raw import RawBundle
 from baibai_jobs.publication.snapshot_publication import _resolve_serving_release, _serving_pointer
-from baibai_jobs.acquisition.dependencies import (
-    available_dependencies,
-    latest_dependency,
-    load_dependency,
-)
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60
 PAIR_AND_STAGE_RESERVE_SECONDS = 15 * 60

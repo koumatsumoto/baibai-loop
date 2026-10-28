@@ -23,9 +23,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
-from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 from baibai_engine.storage.sqlite.merge import (
     MergeError,
     MergeReport,
@@ -34,6 +31,11 @@ from baibai_engine.storage.sqlite.merge import (
     count,
     merge_fact_tables,
     schema_name,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLITE_SCHEMA_VERSION,
+    SQLiteSchemaError,
+    validate_current_schema,
 )
 
 # The ledger of fetches, with the key that decides whether a row is the same row. It is

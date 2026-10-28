@@ -11,20 +11,19 @@ from zoneinfo import ZoneInfo
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.jquants.options as jquants_options
-from baibai_engine.data_collection.transport.context import (
-    FetchContext,
-    IndicatorsProviderError,
-    ProviderFetchStoppedError,
-)
+from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.data_collection.providers.jquants.options import OptionChainSource
 from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
     store_snapshot,
     stored_days,
 )
-from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
+from baibai_engine.data_collection.transport.context import (
+    FetchContext,
+    IndicatorsProviderError,
+    ProviderFetchStoppedError,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
     load_definitions,
@@ -40,7 +39,12 @@ from baibai_engine.machine_analysis.observations.economic_indicators.option_iv i
     quotes_from_records,
     usable_expiries,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.options import OptionSeriesReader
+from baibai_engine.machine_analysis.observations.economic_indicators.options import (
+    OptionSeriesReader,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 
 ASOF = date(2026, 7, 29)
 NEAR = date(2026, 8, 14)  # 16 days out

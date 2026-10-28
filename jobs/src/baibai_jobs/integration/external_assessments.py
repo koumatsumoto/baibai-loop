@@ -9,46 +9,79 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.external_assessments.identity import ANALYST_FORECAST_DATASET
-from baibai_engine.machine_analysis.observations.external_assessments.identity import ANALYST_RATING_DATASET as RATING_DATASET
-from baibai_engine.machine_analysis.observations.external_assessments.identity import MODEL_VALUATION_DATASET as VALUATION_DATASET
-from baibai_engine.machine_analysis.observations.external_assessments.identity import QUANTS_SCORE_DATASET as QUANTS_DATASET
-from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation
-from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
-from baibai_engine.machine_analysis.observations.external_assessments.models import Observation as ExternalAssessmentObservation
-from baibai_engine.machine_analysis.observations.external_assessments.models import QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation
-from baibai_engine.storage.snapshots.reader import FixedRelease as LakeFixedRelease
-from baibai_engine.storage.snapshots.objects import LakeObjectCache
-from baibai_engine.storage.snapshots.release import LakeReleasePointer
-from baibai_engine.storage.snapshots.objects import LocalMirrorSource
-from baibai_engine.storage.snapshots.equity_web_verification import history_digests as equity_web_history_digests
-from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses as equity_web_import_responses
-from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses as equity_web_read_responses
-from baibai_engine.storage.snapshots.equity_web_verification import response_digest as equity_web_response_digest
-from baibai_engine.storage.snapshots.equity_web_verification import verify_release_history as equity_web_verify_release_history
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
-from baibai_jobs.publication.external_assessment_verification import history_digests as external_assessment_history_digests
-from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
-from baibai_jobs.publication.external_assessment_verification import verify_release_history as external_assessment_verify_release_history
-from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.data_collection.receipts.public_pages.receipts import (
+    read_responses as equity_web_read_responses,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    ANALYST_FORECAST_DATASET,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    ANALYST_RATING_DATASET as RATING_DATASET,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    MODEL_VALUATION_DATASET as VALUATION_DATASET,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    QUANTS_SCORE_DATASET as QUANTS_DATASET,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation as ExternalAssessmentModelValuationObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    Observation as ExternalAssessmentObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt as external_assessment_decode_attempt,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import (
+    save_observations as external_assessment_save_observations,
+)
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+    ObjectStore,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.equity_web_verification import (
+    history_digests as equity_web_history_digests,
+)
+from baibai_engine.storage.snapshots.equity_web_verification import (
+    response_digest as equity_web_response_digest,
+)
+from baibai_engine.storage.snapshots.equity_web_verification import (
+    verify_release_history as equity_web_verify_release_history,
+)
+from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import FixedRelease as LakeFixedRelease
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_engine.storage.sqlite.source_cache.equity_web_import import (
+    import_responses as equity_web_import_responses,
+)
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan
 from baibai_jobs.acquisition.external_assessments.identity import (
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
 )
-from baibai_jobs.integration.external_assessment_raw import read_raw_bundle
-from baibai_jobs.integration.external_assessment_ready import load_ready
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     prefix,
     put_private,
     read_terminal,
 )
-from baibai_engine.storage.objects.r2 import (
-    LakePublishError,
-    ObjectStore,
+from baibai_jobs.integration.external_assessment_raw import read_raw_bundle
+from baibai_jobs.integration.external_assessment_ready import load_ready
+from baibai_jobs.publication.external_assessment_verification import (
+    history_digests as external_assessment_history_digests,
+)
+from baibai_jobs.publication.external_assessment_verification import (
+    verify_release_history as external_assessment_verify_release_history,
 )
 from baibai_jobs.publication.lease import PublicationLeaseHandle, verify_held
 from baibai_jobs.publication.snapshot_publication import (

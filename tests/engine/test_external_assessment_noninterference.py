@@ -8,15 +8,21 @@ from tests.helpers.screening_sqlite import (
     build_calibration_fixture_sqlite,
 )
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis,
+)
+from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import build_stock_analysis
 
 
 def test_external_observations_leave_existing_screening_and_fv_identical(tmp_path):

@@ -11,7 +11,11 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.screening_sqlite import seed_daily_bars
 
-from baibai_engine.portfolio.ledger.drafts import apply_draft, build_event_draft, build_sell_execution_draft
+from baibai_engine.portfolio.ledger.drafts import (
+    apply_draft,
+    build_event_draft,
+    build_sell_execution_draft,
+)
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
@@ -82,9 +86,9 @@ def test_human_event_draft_apply_needs_no_holding_price(holding_case, kind, deta
 
 
 def test_override_constraints_are_price_independent_and_expiry_uses_valuation_instant(holding_case):
+    from baibai_engine.portfolio.holdings.valuation import current_portfolio
     from baibai_engine.portfolio.ledger.drafts import build_override_draft
     from baibai_engine.portfolio.ledger.events import HumanOverride, PortfolioLedgerError
-    from baibai_engine.portfolio.holdings.valuation import current_portfolio
 
     db, market, ledger = holding_case
     service = LedgerStoreService(db)
@@ -130,8 +134,8 @@ def test_override_constraints_are_price_independent_and_expiry_uses_valuation_in
 def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     from tests.helpers.screening_sqlite import seed_daily_bars
 
-    from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
     from baibai_engine.portfolio.holdings.valuation import current_portfolio, holding_quote
+    from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 
     now = NOW.replace(hour=10)
     ledger = PortfolioLedgerDocument.model_validate(
@@ -260,7 +264,9 @@ def test_portfolio_summary_uses_the_replayed_instant(holding_case, valuation_at)
     ],
 )
 def test_close_date_cutoff_is_not_a_source_observation_timestamp(instant, expected):
-    from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
+    from baibai_engine.machine_analysis.observations.prices.sessions import (
+        latest_eligible_close_date,
+    )
 
     assert latest_eligible_close_date(datetime.fromisoformat(instant)).isoformat() == expected
 
@@ -307,12 +313,12 @@ def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
     [(0, None, None), (1, 0, 0), (2, 0, 1), (3, None, 2), (4, 3, 3)],
 )
 def test_holding_episode_tracks_partial_sale_full_exit_and_reentry(offset, first_index, last_index):
+    from baibai_engine.portfolio.holdings.valuation import holding_episode
     from baibai_engine.portfolio.ledger.events import (
         ExecutionEvent,
         OpeningBalanceEvent,
         PortfolioLedgerDocument,
     )
-    from baibai_engine.portfolio.holdings.valuation import holding_episode
 
     trades = tuple(
         ExecutionEvent(

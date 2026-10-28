@@ -10,12 +10,12 @@ from pathlib import Path
 
 import yaml
 
-from baibai_engine.storage.sqlite.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import (
     backup_database,
     database_path,
     initialize_database,
 )
+from baibai_engine.storage.sqlite.read import connect_read_only
 
 
 def build_parser() -> argparse.ArgumentParser:

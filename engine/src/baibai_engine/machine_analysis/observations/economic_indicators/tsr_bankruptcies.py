@@ -6,10 +6,15 @@ import json
 import re
 from datetime import date, datetime
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    reading_observation,
+)
 
 _MONTH_RE = re.compile(r"(?P<year>20\d{2})年(?:（[^）]+）)?\s*(?P<month>\d{1,2})月")
 _TITLE_VALUE_RE = re.compile(r"全国企業倒産(?:状況)?\s*(?P<value>[\d,]+)\s*件")

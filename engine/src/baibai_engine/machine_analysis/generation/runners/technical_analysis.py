@@ -6,16 +6,25 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.machine_analysis.models.technical_analysis.generation import (
+    generate_technical_analysis,
+)
+from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    price_calendar_basis,
+    read_price_calendar,
+)
+from baibai_engine.machine_analysis.observations.prices.price_observation import (
+    PriceDayState,
+    price_calendar,
+)
+from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
+    read_price_day_states,
+)
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.read import read_store_if_written
-from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
-from baibai_engine.machine_analysis.observations.prices.calendar_context import price_calendar_basis, read_price_calendar
-from baibai_engine.machine_analysis.observations.prices.price_observation import PriceDayState, price_calendar
-from baibai_engine.machine_analysis.observations.prices.price_observation_reader import read_price_day_states
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
-
-from baibai_engine.machine_analysis.models.technical_analysis.generation import generate_technical_analysis
-from baibai_engine.machine_analysis.models.technical_analysis.price_path import observe_price_path
 
 
 def technical_analysis(path: Path, *, ticker: str, as_of: date) -> dict[str, object]:

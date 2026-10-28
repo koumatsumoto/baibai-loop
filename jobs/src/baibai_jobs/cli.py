@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Sequence
-
 from importlib import import_module
 
 from baibai_engine.storage.paths import StoreLayoutError, reject_noncanonical_store_paths

@@ -4,13 +4,13 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
-from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 
 AS_OF = date(2026, 10, 23)
 NOW = datetime(2026, 10, 25, tzinfo=UTC)

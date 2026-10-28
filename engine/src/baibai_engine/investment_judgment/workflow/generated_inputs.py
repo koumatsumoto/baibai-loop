@@ -8,10 +8,11 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.machine_analysis.generation.query import read_model_inputs
+from baibai_engine.investment_judgment.workflow.company_growth_projection import (
+    project_company_growth,
+)
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
-
-from baibai_engine.investment_judgment.workflow.company_growth_projection import project_company_growth
+from baibai_engine.machine_analysis.generation.query import read_model_inputs
 
 _LEGACY_COMPANY_MODELS = (
     "company_valuation",
@@ -53,8 +54,10 @@ def project_generated_inputs(
                 payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
             models[model.model_id] = payload
             revisions[model.model_id] = model.calculation_revision
-        expected = _LEGACY_COMPANY_MODELS if plan is None else (
-            () if definition is None else definition.model_ids
+        expected = (
+            _LEGACY_COMPANY_MODELS
+            if plan is None
+            else (() if definition is None else definition.model_ids)
         )
         row: dict[str, object] = {
             "calculation_revisions": revisions,
@@ -64,17 +67,22 @@ def project_generated_inputs(
             securities[ticker] = {**models, **row}
         else:
             row["models"] = models
-            row["related_subjects"] = [] if definition is None else list(definition.related_subjects)
+            row["related_subjects"] = (
+                [] if definition is None else list(definition.related_subjects)
+            )
             if scope == "stock":
                 securities[ticker] = row
             else:
                 shared_subjects[ticker] = {"scope": scope, **row}
     if plan is not None:
-        return cast(dict[str, JsonValue], {
-            "analysis_source": saved.model_dump(mode="json", exclude={"models"}),
-            "securities": securities,
-            "shared_subjects": shared_subjects,
-        })
+        return cast(
+            dict[str, JsonValue],
+            {
+                "analysis_source": saved.model_dump(mode="json", exclude={"models"}),
+                "securities": securities,
+                "shared_subjects": shared_subjects,
+            },
+        )
     common = saved.result("market_context", "market")
     return cast(
         dict[str, JsonValue],

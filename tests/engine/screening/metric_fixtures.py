@@ -10,8 +10,8 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 
 
 class _DefaultProfit(Enum):

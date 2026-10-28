@@ -9,10 +9,8 @@ from baibai_engine.data_collection.provider_contracts import (
     MULTPL_SPEC,
     ProviderSpec,
 )
-
-from baibai_engine.data_collection.transport.context import IndicatorsProviderError
-from baibai_engine.data_collection.providers.boj.workbooks import BojSource
 from baibai_engine.data_collection.providers.boj.timeseries import BojTimeSeriesSource
+from baibai_engine.data_collection.providers.boj.workbooks import BojSource
 from baibai_engine.data_collection.providers.estat.api import EStatSource
 from baibai_engine.data_collection.providers.estat.dashboard import EStatDashboardSource
 from baibai_engine.data_collection.providers.federal_reserve.h15 import FrbH15Source
@@ -24,6 +22,7 @@ from baibai_engine.data_collection.providers.spglobal.pmi import SpGlobalPmiSour
 from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
 from baibai_engine.data_collection.providers.university_of_michigan.sentiment import UmichScaSource
 from baibai_engine.data_collection.providers.yahoo import YahooChartSource
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 
 
 def provider_spec(name: str) -> ProviderSpec:

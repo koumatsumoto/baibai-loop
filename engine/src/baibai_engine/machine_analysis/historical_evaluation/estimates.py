@@ -1,6 +1,6 @@
 """倍率・自己価格レンジとcarryによる機械期待収益推計。
 
-意味・単位・入力basisは docs/reference/company-valuation.md が所有する。
+意味・単位・入力basisは docs/reference/estimate-calibration.md が所有する。
 候補選抜と企業固有の調査 Projection は扱わない。
 """
 

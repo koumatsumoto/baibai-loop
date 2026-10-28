@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.primitives.json import canonical_json
 from baibai_engine.portfolio.ledger.decision_references import (
     DecisionReferenceBinding,
     add_manual_fact_binding,
@@ -21,6 +20,7 @@ from baibai_engine.portfolio.ledger.read import (
     ledger_append_head,
     load_ledger_in_transaction,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database

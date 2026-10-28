@@ -6,6 +6,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat
+
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation,
     AnalystRatingObservation,
@@ -80,4 +81,3 @@ class ObservationHistory(FrozenModel):
     quants_scores: tuple[QuantsScoreHistory, ...] = ()
     tradingview: TradingViewHistory = Field(default_factory=TradingViewHistory)
     minkabu: AnalystForecastHistory = Field(default_factory=AnalystForecastHistory)
-

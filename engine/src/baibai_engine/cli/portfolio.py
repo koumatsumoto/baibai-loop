@@ -17,14 +17,18 @@ from pathlib import Path
 
 import yaml
 
-from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.primitives.time import JST
-from baibai_engine.machine_analysis.observations.prices.benchmark_observation import BenchmarkObservation
-from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR
+from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
+    BenchmarkObservation,
+)
 from baibai_engine.machine_analysis.observations.prices.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,
 )
+from baibai_engine.portfolio.holdings.market_observations import (
+    market_basis_is_confirmed,
+    read_portfolio_market_inputs,
+)
+from baibai_engine.portfolio.holdings.valuation import current_portfolio
 from baibai_engine.portfolio.ledger.broker_facts import BrokerFactRecordingError
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
 from baibai_engine.portfolio.ledger.drafts import (
@@ -55,14 +59,17 @@ from baibai_engine.portfolio.ledger.events import (
     snapshot_to_payload,
 )
 from baibai_engine.portfolio.ledger.read import LedgerConflictError
-from baibai_engine.portfolio.holdings.market_observations import (
-    market_basis_is_confirmed,
-    read_portfolio_market_inputs,
-)
-from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome, outcome_to_payload
-from baibai_engine.portfolio.performance.store import PortfolioOutcomePublication, PortfolioOutcomeStore
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.portfolio.holdings.valuation import current_portfolio
+from baibai_engine.portfolio.performance.calculate import (
+    compute_portfolio_outcome,
+    outcome_to_payload,
+)
+from baibai_engine.portfolio.performance.store import (
+    PortfolioOutcomePublication,
+    PortfolioOutcomeStore,
+)
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 

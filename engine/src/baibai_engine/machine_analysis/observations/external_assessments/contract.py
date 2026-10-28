@@ -1,14 +1,21 @@
 """Physical dataset contracts; safe for schema/lake to import without services."""
 
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    ANALYST_FORECAST_TABLE as ANALYST_FORECAST_TABLE,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    ANALYST_RATING_TABLE as ANALYST_RATING_TABLE,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    MODEL_VALUATION_TABLE as MODEL_VALUATION_TABLE,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    QUANTS_SCORE_TABLE as QUANTS_SCORE_TABLE,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QUANTS_METRICS,
     VALUATION_METRICS,
 )
-
-from baibai_engine.machine_analysis.observations.external_assessments.identity import ANALYST_FORECAST_TABLE as ANALYST_FORECAST_TABLE
-from baibai_engine.machine_analysis.observations.external_assessments.identity import ANALYST_RATING_TABLE as ANALYST_RATING_TABLE
-from baibai_engine.machine_analysis.observations.external_assessments.identity import MODEL_VALUATION_TABLE as MODEL_VALUATION_TABLE
-from baibai_engine.machine_analysis.observations.external_assessments.identity import QUANTS_SCORE_TABLE as QUANTS_SCORE_TABLE
 
 type Column = tuple[str, str, bool, int]
 

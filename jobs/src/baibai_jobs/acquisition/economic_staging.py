@@ -8,12 +8,12 @@ import json
 import re
 from pathlib import Path
 
-from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
 from baibai_jobs.acquisition.dependencies import save_dependencies
+from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:

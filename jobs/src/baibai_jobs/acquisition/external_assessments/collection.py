@@ -15,8 +15,15 @@ import requests
 from pydantic import ValidationError
 
 import baibai_engine.data_collection.transport.public_pages as source_http
-from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse, Role, Source
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    EquityWebSourceResponse,
+    Role,
+    Source,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    PAIR_ACQUISITION_POLICY_VERSION,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import Observation
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     kabumap,
@@ -27,10 +34,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     parse_source_html,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.identity import (
-    PAIR_ACQUISITION_POLICY_VERSION,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.models import Observation
+from baibai_engine.primitives.stocks import normalize_ticker
 
 DEFAULT_TICKERS = ("7203", "9432", "6758")
 MAX_TICKERS = 3

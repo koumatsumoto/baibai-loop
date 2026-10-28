@@ -11,18 +11,18 @@ import pytest
 from mcp.types import CallToolResult
 from tests.helpers.master import insert_master_rows
 
-from baibai_jobs.acquisition.tradingview.collector import (
-    SourceDataError,
-    collect,
-    preflight_snapshot,
-    universe,
-)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FetchError,
     normalize_batch,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.tradingview.collector import (
+    SourceDataError,
+    collect,
+    preflight_snapshot,
+    universe,
+)
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
@@ -333,10 +333,10 @@ def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
 
 
 def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) -> None:
-    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
+    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
 
     path = store(tmp_path / "market.sqlite", 2)
 
@@ -575,11 +575,11 @@ class Timer:
 def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from dataclasses import asdict
 
-    from baibai_jobs.acquisition.tradingview.cli import failure_category
-    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
+    from baibai_jobs.acquisition.tradingview.cli import failure_category
+    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
 
     path = store(tmp_path / "market.sqlite")
     if failure == "store":
@@ -685,10 +685,10 @@ def test_missing_fields_uses_first_requested_canonical_field():
 
 @pytest.mark.parametrize("raw", [None, [], "private-body", 42])
 def test_non_dict_row_does_not_blame_a_field(raw):
-    from baibai_jobs.acquisition.tradingview.cli import failure_line
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderPayloadError,
     )
+    from baibai_jobs.acquisition.tradingview.cli import failure_line
 
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"] = raw

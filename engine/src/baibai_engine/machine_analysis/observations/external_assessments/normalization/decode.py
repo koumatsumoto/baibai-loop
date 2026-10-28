@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse, Source
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    EquityWebSourceResponse,
+    Source,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import Observation
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     kabumap,
@@ -13,7 +17,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     monex,
     rakuten,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.models import Observation
 
 
 def parse_source_html(

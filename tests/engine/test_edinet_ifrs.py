@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import parse_csv_zip_metric_record
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
+    parse_csv_zip_metric_record,
+)
 
 
 @pytest.mark.parametrize(

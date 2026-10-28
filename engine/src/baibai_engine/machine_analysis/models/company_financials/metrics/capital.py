@@ -15,13 +15,23 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _latest_non_null_row,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
-from baibai_engine.machine_analysis.observations.financials.financial_documents import accounting_period_identity
-from baibai_engine.machine_analysis.observations.financials.financial_periods import resolve_actual_conflicts
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    accounting_period_identity,
+)
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    resolve_actual_conflicts,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.prices.price_basis import cumulative_share_unit_factor_after, share_unit_factor
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_basis import (
+    cumulative_share_unit_factor_after,
+    share_unit_factor,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 
 @dataclass(frozen=True, slots=True)

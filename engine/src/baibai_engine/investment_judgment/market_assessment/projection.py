@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from baibai_engine.investment_judgment.market_assessment.models import ASSESSMENT_STALE_DAYS, StoredAssessment
+from baibai_engine.investment_judgment.market_assessment.models import (
+    ASSESSMENT_STALE_DAYS,
+    StoredAssessment,
+)
 
 
 def assessment_projection(record: StoredAssessment | None, *, as_of: date) -> dict[str, Any]:

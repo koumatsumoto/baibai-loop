@@ -14,10 +14,8 @@ from tests.helpers.indicator_store import (
     series_definition,
 )
 
+from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.providers.estat.api import parse_estat_json
-from baibai_engine.data_collection.transport.context import (
-    FetchContext,
-)
 from baibai_engine.data_collection.providers.estat.dashboard import (
     parse_dashboard_json,
 )
@@ -25,13 +23,19 @@ from baibai_engine.data_collection.providers.spglobal.pmi import (
     Release,
     _parse_stream,
 )
-from baibai_engine.data_collection.catalog import SourceDefinition
+from baibai_engine.data_collection.transport.context import (
+    FetchContext,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     SeriesDefinition,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
 from baibai_engine.machine_analysis.observations.economic_indicators.estat import estat_values
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    reading_observation,
+)
 
 if TYPE_CHECKING:
     # Only the annotation is needed; importing it for real would pull Playwright

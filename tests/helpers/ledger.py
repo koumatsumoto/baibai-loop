@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from baibai_engine.storage.yaml import safe_load
 from baibai_engine.portfolio.ledger.events import (
     MarketPrice,
     PortfolioLedgerDocument,
@@ -13,6 +12,7 @@ from baibai_engine.portfolio.ledger.events import (
     summarize_portfolio,
 )
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY, PolicyConfig
+from baibai_engine.primitives.yaml import safe_load
 
 
 def load_portfolio_ledger(path: Path) -> PortfolioLedgerDocument:

@@ -10,13 +10,18 @@ from math import isfinite
 from urllib.parse import urljoin
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
 from baibai_engine.machine_analysis.observations.economic_indicators.boj import boj_value
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.estat import read_estat_series
 from baibai_engine.machine_analysis.observations.economic_indicators.flows import read_flow_series
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    reading_observation,
+)
 
 
 def read_native_series(

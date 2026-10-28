@@ -6,11 +6,15 @@ from datetime import date
 import pytest
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.data_collection.receipts.native_sources import store as db
 import baibai_engine.data_collection.providers.nikkei.indices as nikkei_indexes
+from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 
 DAY = date(2026, 7, 24)
 

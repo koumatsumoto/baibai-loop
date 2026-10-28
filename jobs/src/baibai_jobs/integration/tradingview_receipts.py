@@ -9,7 +9,9 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema as validate_market_schema
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    validate_current_schema as validate_market_schema,
+)
 
 PUBLISHABLE_FAILURES = frozenset(
     {

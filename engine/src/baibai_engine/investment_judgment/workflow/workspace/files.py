@@ -8,8 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from baibai_engine.primitives.yaml import safe_load
 from baibai_engine.storage.filesystem import write_text_atomic
-from baibai_engine.storage.yaml import safe_load
 
 
 class ResearchWorkspaceError(Exception):

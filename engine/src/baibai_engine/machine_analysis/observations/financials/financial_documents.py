@@ -8,6 +8,9 @@ from dataclasses import replace
 from datetime import date, time
 from typing import Any
 
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
 from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQuantsProviderError,
     has_period_slot,
@@ -17,9 +20,6 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
     provider_record_payload,
     to_float,
     to_period,
-)
-from baibai_engine.machine_analysis.observations.financials.jquants_models import (
-    JQuantsFinancialSummary,
 )
 
 AccountingPeriodKey = tuple[date, int, date, date, int]

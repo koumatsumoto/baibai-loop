@@ -20,8 +20,8 @@ from tests.jobs.test_external_assessment_daily import FakeObjectStore, completed
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.sources as sources
-from baibai_jobs.acquisition.external_assessments.cohorts import new_result, plan_bytes
 import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result, plan_bytes
 
 
 def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):

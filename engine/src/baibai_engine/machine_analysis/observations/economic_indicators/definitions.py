@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
-from baibai_engine.storage.yaml import strict_safe_load
+from baibai_engine.primitives.yaml import strict_safe_load
 
 # Series definitions are split across one yaml per region so no single file grows
 # unmanageable as the registry scales; the loader globs and merges them.

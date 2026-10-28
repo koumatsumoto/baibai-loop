@@ -14,16 +14,16 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
+    ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
+    MARGIN_PUBLICATION_TRADING_DAYS,
+    _publication_has_happened,
+)
 from baibai_engine.machine_analysis.observations.trading_activity.models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsMarginAlert,
     JQuantsShortSaleReport,
     JQuantsWeeklyMargin,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
-    ALL_ISSUES_DAILY_PUBLICATION_TRADING_DAYS,
-    MARGIN_PUBLICATION_TRADING_DAYS,
-    _publication_has_happened,
 )
 from baibai_engine.storage.sqlite.source_cache.convert import optional_date, optional_float
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered

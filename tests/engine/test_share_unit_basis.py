@@ -6,18 +6,23 @@ from datetime import date
 import pytest
 from tests.engine.screening.metric_fixtures import _summary
 
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
+    _FYDividendObservation,
+    _resolve_total_return,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     _resolve_dividend_carry,
 )
-from baibai_engine.machine_analysis.historical_evaluation.forward import (
-    _FYDividendObservation,
-    _resolve_total_return,
+from baibai_engine.machine_analysis.observations.prices.price_basis import (
+    asof_basis_prices,
+    share_unit_factor,
 )
-from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_prices, share_unit_factor
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+)
 
 
 @pytest.mark.parametrize(

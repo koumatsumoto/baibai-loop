@@ -11,8 +11,12 @@ from pathlib import Path
 
 from pydantic import TypeAdapter
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.primitives.time import JST
+from baibai_engine.investment_judgment.contracts import (
+    AssessmentId,
+)
+from baibai_engine.investment_judgment.independent_review.contracts import (
+    AssessmentReview,
+)
 from baibai_engine.investment_judgment.stock_assessment.document import (
     AssessmentEvaluation,
     AssessmentRef,
@@ -22,12 +26,8 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     evaluate_assessment,
     require_recorded_identity,
 )
-from baibai_engine.investment_judgment.contracts import (
-    AssessmentId,
-)
-from baibai_engine.investment_judgment.independent_review.contracts import (
-    AssessmentReview,
-)
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 

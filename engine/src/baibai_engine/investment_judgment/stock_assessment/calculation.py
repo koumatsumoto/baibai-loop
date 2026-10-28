@@ -7,12 +7,6 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
-from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price, project_return
-from baibai_engine.investment_judgment.stock_assessment.document import (
-    DerivedMetric,
-    ratio_value_from_facts,
-)
 from baibai_engine.investment_judgment.company_research.contracts import (
     InputSnapshot,
 )
@@ -20,7 +14,16 @@ from baibai_engine.investment_judgment.contracts import (
     _date,
     _tuple,
 )
+from baibai_engine.investment_judgment.stock_assessment.document import (
+    DerivedMetric,
+    ratio_value_from_facts,
+)
+from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    maximum_entry_price,
+    project_return,
+)
 from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
+from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 

@@ -13,13 +13,19 @@ from typing import cast
 
 import requests
 
-from baibai_engine.data_collection.transport.public_pages import HostRateLimiter as ExternalAssessmentHostRateLimiter
-from baibai_engine.data_collection.receipts.public_pages.models import Source as ExternalAssessmentSource
 import baibai_jobs.acquisition.external_assessments.daily as daily
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    Source as ExternalAssessmentSource,
+)
+from baibai_engine.data_collection.transport.public_pages import (
+    HostRateLimiter as ExternalAssessmentHostRateLimiter,
+)
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    ObjectStore,
+)
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
-from baibai_jobs.schedule import external_assessment_target_date
 from baibai_jobs.acquisition.external_assessments.identity import SCHEDULED_BATCH_PREFIX
-from baibai_jobs.integration.external_assessment_ready import PreparedPlan, prepare_plan
 from baibai_jobs.acquisition.external_assessments.staging import (
     prefix,
     read_plan,
@@ -27,10 +33,8 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     read_terminal,
     terminal_result,
 )
-from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
-    ObjectStore,
-)
+from baibai_jobs.integration.external_assessment_ready import PreparedPlan, prepare_plan
+from baibai_jobs.schedule import external_assessment_target_date
 
 SOURCES: tuple[ExternalAssessmentSource, ...] = ("monex", "rakuten", "kabumap", "minkabu")
 

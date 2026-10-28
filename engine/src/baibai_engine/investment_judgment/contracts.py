@@ -1,10 +1,13 @@
 """判断成果の共通値と構文契約。工程の実行・保存は所有しない。"""
+
 from __future__ import annotations
+
 from datetime import date, datetime
 from typing import Annotated
-from pydantic import BeforeValidator, ConfigDict, Field, StringConstraints
-from baibai_engine.primitives.stocks import normalize_ticker
 
+from pydantic import BeforeValidator, ConfigDict, Field, StringConstraints
+
+from baibai_engine.primitives.stocks import normalize_ticker
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 
@@ -67,4 +70,3 @@ def _datetime(value: object) -> datetime:
 
 def _tuple(value: object) -> object:
     return tuple(value) if isinstance(value, list) else value
-

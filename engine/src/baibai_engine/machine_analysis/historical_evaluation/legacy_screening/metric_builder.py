@@ -6,6 +6,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    ScreeningRules,
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
@@ -13,7 +20,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.history im
     VALUATION_HISTORY_SESSIONS,
     build_valuation_history,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.relative import (
     VALUATION_METRICS,
     relative_valuation,
@@ -27,20 +36,21 @@ from baibai_engine.machine_analysis.models.market_context.history import (
     realized_volatility,
     turnover_spike,
 )
-from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance, margin_supply_demand
-from baibai_engine.machine_analysis.models.market_context.sector import sector_relative_strength
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    ScreeningRules,
-    load_screening_rules,
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MarginBalance,
+    margin_supply_demand,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
+from baibai_engine.machine_analysis.models.market_context.sector import sector_relative_strength
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_closes
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 
 
 @dataclass(frozen=True)

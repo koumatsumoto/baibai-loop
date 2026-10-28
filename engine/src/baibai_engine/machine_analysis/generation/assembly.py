@@ -7,21 +7,6 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
-from baibai_engine.machine_analysis.observations.financials.jquants_models import (
-    JQuantsFinancialSummary,
-)
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, PriceBar
-
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.generation.financial_models import generate_financial_and_price_models
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
-from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.observations.external_assessments.history import (
-    ObservationHistory,
-)
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
@@ -29,6 +14,25 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGenerationStream,
 )
+from baibai_engine.machine_analysis.generation.financial_models import (
+    generate_financial_and_price_models,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    ObservationHistory,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    PriceBar,
+)
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.stocks import normalize_ticker
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,13 +80,19 @@ def generate_models(
         raise ValueError("financial release must belong to the fixed generation inputs")
     # Model participation is owned by generation, not copied into L3 or Screening.
     company_model_ids = (
-        "company_valuation", "company_growth", "technical_analysis",
-        "external_assessment", "market_context",
+        "company_valuation",
+        "company_growth",
+        "technical_analysis",
+        "external_assessment",
+        "market_context",
     )
     metadata = GenerationMetadata(
         schema_version=2,
         subject_plan={
-            **{ticker: GenerationSubject(scope="stock", model_ids=company_model_ids) for ticker in tickers},
+            **{
+                ticker: GenerationSubject(scope="stock", model_ids=company_model_ids)
+                for ticker in tickers
+            },
             "market": GenerationSubject(scope="market", model_ids=("market_context",)),
         },
         generation_id=generation_id,

@@ -17,7 +17,11 @@ from urllib.parse import urlsplit
 
 import requests
 
-from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse, Role, Source
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    EquityWebSourceResponse,
+    Role,
+    Source,
+)
 from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response
 
 # Identify the actual tool, not a browser or a different client.

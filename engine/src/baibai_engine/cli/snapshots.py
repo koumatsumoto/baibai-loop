@@ -183,8 +183,9 @@ def _read_only_main(argv: list[str] | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from baibai_engine.cli.snapshot_write import WRITE_COMMANDS, print_combined_help
+    from baibai_engine.cli.snapshot_write import WRITE_COMMANDS
     from baibai_engine.cli.snapshot_write import main as write_main
+    from baibai_engine.cli.snapshot_write import print_combined_help
 
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments or arguments[0] in {"-h", "--help"}:

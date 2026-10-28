@@ -7,13 +7,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from baibai_engine.primitives.numbers import finite_decimal
-from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     current_price_projection,
 )
+from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.trade_proposal.contracts import GateReason, QuoteInput
+from baibai_engine.primitives.numbers import finite_decimal
 
 type BuyGateCode = Literal[
     "reviewed_assessment_required",

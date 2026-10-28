@@ -22,20 +22,11 @@ from tests.helpers.proposal import PREPARED, PROPOSAL_ID, PUBLISHED, bind_review
 from tests.helpers.research_selection import selected_target
 from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
-from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
-from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
-from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
-from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelectionDraft,
-    ResearchRequest,
-    selection_sha256,
-)
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
+from baibai_engine.investment_judgment.market_assessment.models import MarketContextAssessment
+from baibai_engine.investment_judgment.market_assessment.service import AssessmentService
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     assessment_core_hash,
@@ -53,26 +44,39 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
 )
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionDraft,
+    ResearchRequest,
+    selection_sha256,
+)
 from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceDataError,
     prepare_selected_workspace,
     promote,
     resume_selected_workspace,
 )
+from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.generation.runners.external_assessment import (
+    external_assessment,
+)
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    DEFAULT_TTM_RULES,
+)
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")
 PROMOTED = datetime.fromisoformat("2026-10-14T16:06:00+09:00")

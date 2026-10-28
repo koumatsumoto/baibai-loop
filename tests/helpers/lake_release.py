@@ -15,6 +15,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.storage.snapshots import models
 from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
@@ -38,9 +39,11 @@ from baibai_engine.storage.snapshots.models import (
 from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
-from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
-from tests.helpers.lake_policy import narrow_release_policy
 
 
 def release_source(release_id: str = "20260130T000000Z-release") -> LakeReleaseSourceRef:

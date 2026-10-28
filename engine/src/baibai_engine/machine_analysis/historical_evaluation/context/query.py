@@ -14,13 +14,13 @@ from zoneinfo import ZoneInfo
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.storage.yaml import safe_load
 from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     HURDLE_ER_ANNUAL,
     ErCalibrationBand,
     ErCalibrationContextArtifact,
     ErCalibrationHorizon,
 )
+from baibai_engine.primitives.yaml import safe_load
 
 ErCalibrationUnavailableReason = Literal[
     "missing_artifact",

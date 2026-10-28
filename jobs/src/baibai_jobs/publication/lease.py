@@ -19,10 +19,12 @@ from typing import Literal
 
 from dotenv import load_dotenv
 
-from baibai_engine.storage.objects.r2 import Boto3R2Store
-from baibai_engine.storage.objects.r2 import LakeCASConflict
-from baibai_engine.storage.objects.r2 import LakePublishError
-from baibai_engine.storage.objects.r2 import ObjectStore
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    ObjectStore,
+)
 
 PUBLICATION_LEASE_KEY = "coordination/publication-lease.json"
 DEFAULT_STORES_BUCKET = "baibai-stores"

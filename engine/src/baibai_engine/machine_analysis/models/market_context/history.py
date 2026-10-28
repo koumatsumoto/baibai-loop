@@ -7,8 +7,14 @@ from datetime import date
 from math import sqrt
 from statistics import mean
 
-from baibai_engine.machine_analysis.observations.prices.price_basis import asof_basis_closes, cumulative_share_unit_factor_after
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_basis import (
+    asof_basis_closes,
+    cumulative_share_unit_factor_after,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 PRICE_HISTORY_WINDOW_DAYS = 750
 AVG_VOLUME_SESSIONS = 20

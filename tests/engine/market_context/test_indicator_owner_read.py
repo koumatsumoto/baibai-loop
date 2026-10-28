@@ -8,14 +8,20 @@ from pathlib import Path
 import pytest
 from tests.helpers.indicator_store import store_h15_observations
 
+import baibai_engine.machine_analysis.observations.economic_indicators.reader as reading_reader
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-import baibai_engine.machine_analysis.observations.economic_indicators.reader as reading_reader
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.reading.rules import ReadingRulesError
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
 
 
 def test_indicator_owner_filters_range_and_keeps_latest_vintage(
@@ -220,9 +226,11 @@ def test_reading_snapshot_clamps_only_provider_declared_point_in_time_vintages(
     )
     assert readings["jp.nikkei225"]["read_semantics"]["vintage_cutoff"] is None
 
-    from baibai_engine.machine_analysis.models.market_context.reading.models import snapshot_payload
     from baibai_engine.machine_analysis.generation.runners.market_reading import read_store_snapshot
-    from baibai_engine.machine_analysis.models.market_context.reading.rules import DEFAULT_RULES_PATH
+    from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+        DEFAULT_RULES_PATH,
+    )
+    from baibai_engine.machine_analysis.models.market_context.reading.models import snapshot_payload
 
     with closing(sqlite3.connect(database)) as con:
         con.row_factory = sqlite3.Row
@@ -254,7 +262,10 @@ def test_document_revision_replaces_observed_periods_without_old_fallback(tmp_pa
     import json
     from dataclasses import replace
 
-    from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, store_document
+    from baibai_engine.data_collection.receipts.native_sources.documents import (
+        SourceDocument,
+        store_document,
+    )
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )

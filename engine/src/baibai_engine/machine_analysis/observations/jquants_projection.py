@@ -18,7 +18,9 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_short_sale_reports,
     store_jquants_weekly_margin,
 )
-from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import LEGACY_WEEKLY_LAST_BALANCE_DATE
+from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 

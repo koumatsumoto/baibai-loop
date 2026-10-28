@@ -21,13 +21,20 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _latest_summary,
     _ttm_value,
 )
-from baibai_engine.machine_analysis.observations.financials.financial_documents import statement_basis
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    statement_basis,
+)
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.financials.metric_quality import OperatingProfitSource
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.financials.metric_quality import (
+    OperatingProfitSource,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

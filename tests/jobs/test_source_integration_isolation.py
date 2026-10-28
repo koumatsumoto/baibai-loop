@@ -9,12 +9,12 @@ from tests.jobs.test_source_receipts import Store, stage
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration.sources import apply
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
+from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff
+from baibai_jobs.integration.sources import apply
 
 
 def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_source(

@@ -16,13 +16,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.paths import CALIBRATION_DIR
-from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
-    VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
-
 from baibai_engine.machine_analysis.historical_evaluation.forward import (
     DEFAULT_FORWARD_OBSERVATION_POLICY,
     FORWARD_CALCULATION_REVISION,
@@ -40,6 +33,14 @@ from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PanelRow,
     PopulationCoverageStatus,
 )
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
+)
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MARKET_CONTEXT_CALCULATION_REVISION,
+)
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.paths import CALIBRATION_DIR
 
 DEFAULT_CALIBRATION_DIR = CALIBRATION_DIR
 CURRENT_SNAPSHOT_NAME = "current.sqlite"

@@ -12,8 +12,8 @@ from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.primitives.time import JST
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY, PolicyConfig
+from baibai_engine.primitives.time import JST
 
 _MODEL_CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid")
 _TICKER_PATTERN = r"^[0-9A-Z]{4}$"

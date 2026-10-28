@@ -19,18 +19,15 @@ from typing import TextIO
 import yaml
 from pydantic import ValidationError
 
-from baibai_engine.storage.paths import (
-    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
-    MARKET_DB_PATH,
-    RUNS_DB_PATH,
-)
-from baibai_engine.primitives.time import JST
-from baibai_engine.storage.yaml import safe_load
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
-
 from baibai_engine.investment_judgment.workflow.operation.service import OperationConflictError
-from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelectionDraft, ResearchRequest
-from baibai_engine.investment_judgment.workflow.selection_query import load_generated_selection_context
+from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionDraft,
+    ResearchRequest,
+)
+from baibai_engine.investment_judgment.workflow.selection_query import (
+    load_generated_selection_context,
+)
 from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceError,
@@ -40,6 +37,13 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     resume_selected_workspace,
     scaffold_assessment,
     scaffold_review,
+)
+from baibai_engine.primitives.time import JST
+from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.storage.paths import (
+    ER_LEVEL_CALIBRATION_CONTEXT_PATH,
+    MARKET_DB_PATH,
+    RUNS_DB_PATH,
 )
 
 
@@ -190,7 +194,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
     if arguments and arguments[0] == "market-context":
-        from baibai_engine.investment_judgment.market_assessment.cli import main as market_context_main
+        from baibai_engine.investment_judgment.market_assessment.cli import (
+            main as market_context_main,
+        )
 
         return market_context_main(arguments[1:], now=now)
     if arguments and arguments[0] == "calculate":
@@ -200,9 +206,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     if arguments and arguments[0] == "stock-assessment-evaluate":
         # Returned unwrapped: evaluation reports "not assessment-ready" as exit 2,
         # which is not this CLI's usage/data/conflict code set.
-        from baibai_engine.cli.stock_assessment import (
-            main as evaluate_main,
-        )
+        from baibai_engine.cli.stock_assessment import main as evaluate_main
 
         return evaluate_main(arguments[1:], now=now)
     parser = build_parser()
@@ -236,9 +240,15 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 out.write(content)
                 return 3 if payload["status"] == "inputs_required" else 0
             case "calibration-context":
-                from baibai_engine.investment_judgment.workflow.calibration_context import research_calibration_context
-                from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
-                from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+                from baibai_engine.investment_judgment.workflow.calibration_context import (
+                    research_calibration_context,
+                )
+                from baibai_engine.investment_judgment.workflow.operation.progress import (
+                    selection_binding,
+                )
+                from baibai_engine.investment_judgment.workflow.operation.service import (
+                    OperationService,
+                )
 
                 operation = OperationService(args.db).get(args.operation_id)
                 selection = selection_binding(operation.payload)
@@ -332,10 +342,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
                 out.write(json.dumps(context.payload(), ensure_ascii=False) + "\n")
             case "trade-proposal-scaffold":
-                from baibai_engine.storage.filesystem import write_text_atomic
                 from baibai_engine.investment_judgment.trade_proposal.scaffold import (
                     scaffold_proposal,
                 )
+                from baibai_engine.storage.filesystem import write_text_atomic
 
                 if args.out.exists():
                     raise ResearchWorkspaceConflictError("proposal output already exists")

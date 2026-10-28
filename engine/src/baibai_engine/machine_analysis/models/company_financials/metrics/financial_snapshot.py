@@ -5,18 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
-from baibai_engine.machine_analysis.observations.financials.financial_documents import (
-    forecast_source_trace,
-    latest_forecast_source,
-    project_financial_documents,
-)
-from baibai_engine.machine_analysis.observations.financials.jquants_models import (
-    JQuantsFinancialSummary,
-)
-from baibai_engine.machine_analysis.observations.financials.metric_quality import OperatingProfitSource, TTMQuality
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
     _common_equity_yen,
@@ -25,8 +13,13 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
     _resolve_capital_basis,
     _shares_excluding_treasury,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import _resolve_dividend_carry
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot, TTMRules
+from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+    _resolve_dividend_carry,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+    TTMRules,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _accounting_observation_key,
     _carry_forward,
@@ -43,7 +36,28 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.profit imp
     _loss_narrowing,
     _select_operating_profit,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.ratios import _safe_positive_ratio, _safe_ratio, _yoy_ratio
+from baibai_engine.machine_analysis.models.company_financials.metrics.ratios import (
+    _safe_positive_ratio,
+    _safe_ratio,
+    _yoy_ratio,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    forecast_source_trace,
+    latest_forecast_source,
+    project_financial_documents,
+)
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import (
+    OperatingProfitSource,
+    TTMQuality,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 VALUATION_CALCULATION_REVISION = "continuous-annual-input-v44"
 
@@ -257,7 +271,7 @@ def build_financial_snapshot(
     # 同じ前年行を、自己株式を除いた株数で測り直したもの。日本の自社株買いは取得した株式を
     # 自己株式へ入れるだけで発行済株式総数を減らさないので、上の量が動くのは主に消却年で
     # あって取得年ではない。当時の比較は既存 carry を維持する結論だった
-    # (docs/reference/company-valuation.md#carry-policy)。ここでは両方の fact を出し、
+    # (docs/reference/estimate-calibration.md#carry-policy)。ここでは両方の fact を出し、
     # carry の計算は変えない。
     tradable_share_change_yoy = _yoy_ratio(
         shares_ex_treasury,

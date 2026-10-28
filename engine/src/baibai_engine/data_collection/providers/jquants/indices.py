@@ -6,12 +6,15 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_engine.data_collection.provider_contracts import JQUANTS_INDICES_SPEC
-from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
 from baibai_engine.data_collection.catalog import SourceDefinition
-
-from baibai_engine.data_collection.transport.context import FetchContext, HttpSession, ProviderFetchStoppedError
+from baibai_engine.data_collection.provider_contracts import JQUANTS_INDICES_SPEC
 from baibai_engine.data_collection.providers.jquants.native import read_native_pages
+from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
+from baibai_engine.data_collection.transport.context import (
+    FetchContext,
+    HttpSession,
+    ProviderFetchStoppedError,
+)
 from baibai_engine.data_collection.transport.retry import jquants_read_client, read_deadline
 
 _API_KEY_ENV = JQUANTS_INDICES_SPEC.required_env[0]

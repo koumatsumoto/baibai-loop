@@ -1,12 +1,17 @@
 """固定価格の読取とbenchmarkモデル呼出を合成する。"""
+
 from __future__ import annotations
+
 from datetime import date, timedelta
 from pathlib import Path
-from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
-    NIKKEI225_ETF_PROXY, _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
-    BenchmarkTrendSnapshot, benchmark_trend_from_series,
+    _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
+    NIKKEI225_ETF_PROXY,
+    BenchmarkTrendSnapshot,
+    benchmark_trend_from_series,
 )
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 
 
 def compute_benchmark_trend(

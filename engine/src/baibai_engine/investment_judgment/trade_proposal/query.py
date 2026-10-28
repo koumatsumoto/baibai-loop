@@ -199,10 +199,12 @@ def _preview_holding(
     sqlite_path: Path,
     now: datetime,
 ) -> tuple[dict[str, object], list[GateReason]]:
-    from baibai_engine.primitives.time import JST
-    from baibai_engine.investment_judgment.trade_proposal.holding_policy import evaluate_holding_proposal
     from baibai_engine.investment_judgment.trade_proposal.conditions import assessment_quote_basis
+    from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
+        evaluate_holding_proposal,
+    )
     from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
+    from baibai_engine.primitives.time import JST
 
     position = next(
         (position for position in inputs.positions if position.ticker == item.ticker), None
@@ -259,7 +261,6 @@ def preview_current_terms(
     *, proposal_id: str, db_path: Path | None, sqlite_path: Path, now: datetime
 ) -> CurrentProposalPreview:
     """保存limitと実quoteの再試算を分ける。再発行/最新runへの付替えは行わない。"""
-    from baibai_engine.primitives.time import JST
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
     from baibai_engine.investment_judgment.stock_assessment.store import latest_assessment_id
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
@@ -277,6 +278,7 @@ def preview_current_terms(
     from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
     from baibai_engine.portfolio.holdings.market_observations import next_order_session
     from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
+    from baibai_engine.primitives.time import JST
 
     if now.utcoffset() is None:
         raise ValueError("proposal preview time requires a timezone")

@@ -12,16 +12,32 @@ from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Literal, cast
 
-from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation
-from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
-from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
-from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
-from baibai_engine.machine_analysis.observations.external_assessments.models import Observation as ExternalAssessmentObservation
-from baibai_engine.machine_analysis.observations.external_assessments.models import QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation
-from baibai_engine.data_collection.receipts.public_pages.models import Source as ExternalAssessmentSource
-from baibai_jobs.acquisition.external_assessments.collection import PARSE_FAILURE_REASONS as external_assessment_parse_failure_reasons
-from baibai_jobs.acquisition.external_assessments.identity import PLAN_FORMAT
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    Source as ExternalAssessmentSource,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation as ExternalAssessmentModelValuationObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    Observation as ExternalAssessmentObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    QuantsScoreObservation as ExternalAssessmentQuantsScoreObservation,
+)
 from baibai_engine.storage.json import canonical_json
+from baibai_jobs.acquisition.external_assessments.collection import (
+    PARSE_FAILURE_REASONS as external_assessment_parse_failure_reasons,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
+from baibai_jobs.acquisition.external_assessments.identity import PLAN_FORMAT
 
 MAX_COHORT_TICKERS = 50
 DEFAULT_COHORT_TICKERS = 50

@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from math import isfinite
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    StockCandidateContext,
+)
 from baibai_engine.primitives.coerce import metric_map, optional_float
-
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import StockCandidateContext
 
 
 def candidate_rows(

@@ -12,19 +12,11 @@ _CONTEXT_PATH = (
     "calibration/published/er-level-calibration-latest.yaml"
 )
 _OWNERS = {
-    "stores/application/baibai.sqlite": Path(
-        "engine/src/baibai_engine/storage/paths.py"
-    ),
+    "stores/application/baibai.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
     "stores/market/market.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
-    "stores/market_context/indicators.sqlite": Path(
-        "engine/src/baibai_engine/storage/paths.py"
-    ),
-    "stores/screening/runs.sqlite": Path(
-        "engine/src/baibai_engine/storage/paths.py"
-    ),
-    "stores/screening/calibration": Path(
-        "engine/src/baibai_engine/storage/paths.py"
-    ),
+    "stores/market_context/indicators.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
+    "stores/screening/runs.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
+    "stores/screening/calibration": Path("engine/src/baibai_engine/storage/paths.py"),
     _CONTEXT_PATH: Path("engine/src/baibai_engine/storage/paths.py"),
 }
 

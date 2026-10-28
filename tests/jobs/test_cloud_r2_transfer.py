@@ -11,7 +11,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1532,7 +1535,9 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     carrying the full store while still reporting success.
     """
 
-    from baibai_engine.storage.snapshots.keys import current_release_pointer_key as lake_current_release_pointer_key
+    from baibai_engine.storage.snapshots.keys import (
+        current_release_pointer_key as lake_current_release_pointer_key,
+    )
 
     assert lake_current_release_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 

@@ -11,7 +11,10 @@ from pathlib import Path
 
 from baibai_engine.data_collection.receipts.public_pages.capture import LegacyCaptureError
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLiteSchemaError,
+    validate_current_schema,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,7 +90,9 @@ def main(argv: list[str] | None = None, /) -> int:
         from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
             decode_attempt,
         )
-        from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
+        from baibai_engine.machine_analysis.observations.external_assessments.store import (
+            save_observations,
+        )
         from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses
 
         capture = load_capture(args.input)

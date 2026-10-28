@@ -25,8 +25,10 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     ForwardReturnRow,
 )
 from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    CandidateDiscoveryRules,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import CandidateDiscoveryRules
 
 # Observed-return statistics exclude unresolved exits and report their count apart.
 # Recompute the conclusions under total loss and the resolved population's median

@@ -8,8 +8,12 @@ from datetime import date, timedelta
 
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,

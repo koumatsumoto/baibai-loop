@@ -5,7 +5,9 @@ from pathlib import Path
 
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
 from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
-from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
 
 
 def external_assessment(

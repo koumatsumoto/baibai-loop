@@ -6,15 +6,15 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance
-from baibai_engine.machine_analysis.observations.trading_activity.models import (
-    JQuantsAllIssuesDailyMargin,
-    JQuantsWeeklyMargin,
-)
 from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     MarginCadence,
     published_margin_balance_dates,
     read_all_issues_daily_margin,
     read_weekly_margin,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.models import (
+    JQuantsAllIssuesDailyMargin,
+    JQuantsWeeklyMargin,
 )
 
 # The delta axis reaches back 26 observed ISO weeks. Daily observations are sampled

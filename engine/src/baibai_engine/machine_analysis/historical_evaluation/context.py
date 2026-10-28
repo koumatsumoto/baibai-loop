@@ -30,11 +30,20 @@ from baibai_engine.machine_analysis.historical_evaluation.context.contracts impo
 from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     er_quintile_for_bounds,
 )
-from baibai_engine.machine_analysis.historical_evaluation.estimates import EXPECTED_RETURN_MODEL_VERSION
-
+from baibai_engine.machine_analysis.historical_evaluation.estimates import (
+    EXPECTED_RETURN_MODEL_VERSION,
+)
 from baibai_engine.machine_analysis.historical_evaluation.evaluation import TRAP_EXCESS_THRESHOLD
-from baibai_engine.machine_analysis.historical_evaluation.evidence import ESTIMATOR_POLICY_MANDATORY_METRICS, ESTIMATOR_POLICY_SUBJECT
-from baibai_engine.machine_analysis.historical_evaluation.forward import RESOLVED_STATUSES, TOTAL_RETURN_BASIS, TOTAL_RETURN_STATUSES, ForwardReturnRow
+from baibai_engine.machine_analysis.historical_evaluation.evidence import (
+    ESTIMATOR_POLICY_MANDATORY_METRICS,
+    ESTIMATOR_POLICY_SUBJECT,
+)
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
+    RESOLVED_STATUSES,
+    TOTAL_RETURN_BASIS,
+    TOTAL_RETURN_STATUSES,
+    ForwardReturnRow,
+)
 from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
 from baibai_engine.machine_analysis.historical_evaluation.store import forward_row_from_mapping

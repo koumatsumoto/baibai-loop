@@ -6,7 +6,6 @@ from datetime import datetime
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
-from baibai_engine.investment_judgment.trade_proposal.holding_policy import evaluate_holding_proposal
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -20,6 +19,9 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     PositionInput,
     QuoteInput,
     RemainingReward,
+)
+from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
+    evaluate_holding_proposal,
 )
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 

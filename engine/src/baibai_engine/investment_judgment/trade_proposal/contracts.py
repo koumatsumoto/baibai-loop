@@ -17,13 +17,16 @@ from pydantic import (
     model_validator,
 )
 
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
+from baibai_engine.investment_judgment.workflow.selection import ResearchTarget
+from baibai_engine.portfolio.holdings.price_grid import (
+    common_stock_limit_is_valid,
+    floor_common_stock_limit,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
-from baibai_engine.investment_judgment.workflow.selection import ResearchTarget
-from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
-from baibai_engine.portfolio.holdings.price_grid import common_stock_limit_is_valid, floor_common_stock_limit
 
 INVESTMENT_PROPOSAL_SCHEMA_VERSION = 3
 _CONFIG = ConfigDict(extra="forbid", frozen=True, strict=True, allow_inf_nan=False)

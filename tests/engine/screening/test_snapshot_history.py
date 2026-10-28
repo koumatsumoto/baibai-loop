@@ -12,7 +12,9 @@ from tests.engine.screening.metric_fixtures import (
 )
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 

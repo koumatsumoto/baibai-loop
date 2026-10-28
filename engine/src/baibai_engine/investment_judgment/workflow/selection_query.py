@@ -7,14 +7,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
+from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -35,10 +35,10 @@ def load_generated_selection_context(
 
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
     from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+    from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
     from baibai_engine.machine_analysis.screening.selection_query import (
         read_publication,
     )
-    from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
 
     if known_at.utcoffset() is None:
         raise ValueError("input cutoff must have a timezone")
@@ -97,7 +97,11 @@ def load_generated_selection_context(
             }
         )
     )
-    models = read_research_model_inputs(generation_id, targets=tuple(subject for subject in subjects if subject != "market"), path=runs_path)
+    models = read_research_model_inputs(
+        generation_id,
+        targets=tuple(subject for subject in subjects if subject != "market"),
+        path=runs_path,
+    )
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     if models.as_of > as_of or models.evaluation_time > known_at:

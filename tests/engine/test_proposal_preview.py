@@ -194,8 +194,8 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
 def test_rate_and_horizon_flow_through_context_publication_and_preview(
     tmp_path, horizon_months, expected_maximum
 ):
-    from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.stock_assessment.document import assessment_core_hash
+    from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
     from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
     from baibai_engine.storage.sqlite.application.read import connect_read_only

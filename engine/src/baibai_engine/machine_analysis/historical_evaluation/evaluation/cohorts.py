@@ -42,9 +42,13 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     ForwardReturnRow,
 )
 from baibai_engine.machine_analysis.historical_evaluation.horizons import require_horizon
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    APPROACH_IDS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    CandidateDiscoveryRules,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import APPROACH_IDS
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import CandidateDiscoveryRules
 from baibai_engine.machine_analysis.observations.prices.benchmark import TOPIX_ETF_PROXY
 
 

@@ -10,9 +10,11 @@ from pathlib import Path
 
 import yaml
 
-from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.contracts import (
     AssessmentError,
+)
+from baibai_engine.investment_judgment.independent_review.contracts import (
+    load_assessment_review,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
     UnpublishedAssessment,
@@ -21,9 +23,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     evaluation_to_payload,
     load_assessment,
 )
-from baibai_engine.investment_judgment.independent_review.contracts import (
-    load_assessment_review,
-)
+from baibai_engine.primitives.time import JST
 
 
 def build_parser() -> argparse.ArgumentParser:

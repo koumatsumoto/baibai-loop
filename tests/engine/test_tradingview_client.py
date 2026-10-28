@@ -10,7 +10,9 @@ from mcp.types import CallToolResult, TextContent
 
 from baibai_engine.data_collection.providers.tradingview.client import fetch_batch
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
+    decode_tool_result,
+)
 
 SCANNER_ERROR = (
     "tradingview api: https://scanner.tradingview.com/japan/scan?label-product=tv-mcp: 429"
@@ -90,10 +92,10 @@ def test_tool_status_extraction_does_not_retry_or_disclose(text, status):
     "error", [SCANNER_ERROR, SCANNER_ERROR_WITH_SUFFIX, "HTTP 429 private-token https://secret"]
 )
 def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, error):
-    from baibai_jobs.acquisition.tradingview.cli import failure_line
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
+    from baibai_jobs.acquisition.tradingview.cli import failure_line
 
     payload = {"success": False, "error": error, "token": "private-token"}
     session = SimpleNamespace(

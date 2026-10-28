@@ -3,9 +3,15 @@
 import json
 from datetime import date
 
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import EXTRACTOR_REVISION
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import filing_identity
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import plan_fact_item
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
+    EXTRACTOR_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    filing_identity,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
+    plan_fact_item,
+)
 
 
 def _document(**changes):

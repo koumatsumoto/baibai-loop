@@ -18,30 +18,28 @@ from baibai_engine.investment_judgment.market_assessment.models import StoredAss
 from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_payload as read_context,
 )
-from baibai_engine.investment_judgment.market_assessment.query import (
-    latest_assessment_payload,
-)
+from baibai_engine.investment_judgment.market_assessment.query import latest_assessment_payload
 from baibai_engine.machine_analysis.generation.runners.benchmark import (
     compute_benchmark_trend,
 )
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.models.market_context.sector import (
-    _rank_to_percentiles,
-    sector_relative_strength,
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
+    build_market_snapshot,
 )
 from baibai_engine.machine_analysis.generation.runners.security_context import (
     build_security_market_context,
 )
-from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
-    build_market_snapshot,
+from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
+from baibai_engine.machine_analysis.models.market_context.sector import (
+    _rank_to_percentiles,
+    sector_relative_strength,
 )
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import bollinger_20bar
-from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 5, 29)

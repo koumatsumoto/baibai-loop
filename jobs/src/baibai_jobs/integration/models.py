@@ -10,30 +10,37 @@ import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import DEFAULT_TTM_RULES
-from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.storage.paths import RUNS_DB_PATH
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease as ModelInputRelease
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
+)
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot as ModelInputSnapshot
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.screening.policies.two_view_selection import select_saved_generation
-from baibai_engine.storage.snapshots.sources import sha256_file
-from baibai_jobs.maintenance.model_cache import prune_model_cache
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    DEFAULT_TTM_RULES,
+)
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    InputRelease as ModelInputRelease,
+)
+from baibai_engine.machine_analysis.screening.policies.two_view_selection import (
+    select_saved_generation,
+)
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     ObjectStore,
 )
+from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.sqlite.snapshot import create_snapshot
+from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import (
     prepare_market_lake,
     publish_prepared_market_lake,
 )
-from baibai_engine.storage.sqlite.snapshot import create_snapshot
 
 
 def integrate_models(

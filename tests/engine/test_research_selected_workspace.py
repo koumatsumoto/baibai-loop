@@ -15,6 +15,11 @@ from tests.helpers.generated_selection import generated_draft_for, seed_generate
 from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import historical_operation, selected_target, selection
 
+from baibai_engine.cli.investment_judgment import main
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    TradeProposal,
+    proposal_draft_sha256,
+)
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -22,7 +27,6 @@ from baibai_engine.investment_judgment.workflow.selection import (
     ResearchRequest,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.workflow.workspace import (
     ResearchWorkspaceConflictError,
     compute_status,
@@ -33,8 +37,9 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     scaffold_review,
     selected_prepare,
 )
-from baibai_engine.cli.investment_judgment import main
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
@@ -62,7 +67,9 @@ def resume_historical(tmp_path, value):
 
 
 def test_discover_new_preserves_selected_noncandidate_from_fixed_generation(tmp_path):
-    from baibai_engine.investment_judgment.workflow.selection_query import load_generated_selection_context
+    from baibai_engine.investment_judgment.workflow.selection_query import (
+        load_generated_selection_context,
+    )
 
     runs = tmp_path / "runs"
     value = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
@@ -96,13 +103,15 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
-    from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
-        machine_valuation_from_analysis,
-    )
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
         build_candidate_contexts,
     )
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+        ScreeningRunReader,
+    )
+    from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
+        machine_valuation_from_analysis,
+    )
 
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     # Saved JSON is the input; expectations below are independent of the projection helper.
@@ -652,7 +661,9 @@ def test_previous_analysis_day_current_research_and_formal_assessment_are_separa
 
     from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
     from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+        ScreeningRunReader,
+    )
 
     runs = tmp_path / "runs"
     row = stock_analysis("1234", name="合成会社", metrics={"er_annual": 0.13})

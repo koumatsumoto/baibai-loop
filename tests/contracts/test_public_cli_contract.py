@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from baibai_engine.cli.app import main
-from baibai_jobs.cli import main as collection_main
-from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
 from baibai_engine.cli.historical_evaluation.app import build_parser as build_screening_parser
+from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
+from baibai_jobs.cli import main as collection_main
 from baibai_jobs.maintenance.market.cli import build_parser as build_source_parser
 
 

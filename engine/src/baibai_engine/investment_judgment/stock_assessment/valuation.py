@@ -7,9 +7,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.primitives.numbers import finite_decimal
-
 from baibai_engine.investment_judgment.stock_assessment.scenario import Projection
+from baibai_engine.primitives.numbers import finite_decimal
 
 _CONFIG = ConfigDict(frozen=True, strict=True, extra="forbid", allow_inf_nan=False)
 

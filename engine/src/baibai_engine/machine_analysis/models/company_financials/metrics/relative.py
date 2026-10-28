@@ -7,12 +7,17 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import median
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import self_range_position, sigma_gap
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
+    self_range_position,
+    sigma_gap,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 # 少数の同業標本へ依存しすぎない計算上の慣例。経済的最適値ではない (#12, #1153)。
-# docs/reference/company-valuation.md
+# docs/reference/company-financials.md
 MIN_SECTOR_MEDIAN_POPULATION = 10
 SECTOR_MEDIAN_BASIS_SECTOR = "sector"
 SECTOR_MEDIAN_BASIS_MARKET = "market"

@@ -18,13 +18,29 @@ from dataclasses import dataclass, replace
 from datetime import date
 from statistics import fmean, stdev
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationReader
-from baibai_engine.machine_analysis.models.market_context.reading.models import ReadingSnapshot, SeriesReading, SeriesTrend, TrendDirection
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import UnavailableObservationError
-from baibai_engine.machine_analysis.models.market_context.reading.rules import ReadingRules, ReadingStatistic, ResolvedRule, SamplingCadence, window_start
+from baibai_engine.machine_analysis.models.market_context.reading.models import (
+    ReadingSnapshot,
+    SeriesReading,
+    SeriesTrend,
+    TrendDirection,
+)
+from baibai_engine.machine_analysis.models.market_context.reading.rules import (
+    ReadingRules,
+    ReadingStatistic,
+    ResolvedRule,
+    SamplingCadence,
+    window_start,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationReader,
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    UnavailableObservationError,
+)
 
 # A percentile / z-score needs enough points that it describes a distribution
 # rather than a handful of readings.

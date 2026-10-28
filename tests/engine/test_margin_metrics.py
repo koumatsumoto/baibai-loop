@@ -8,20 +8,24 @@ from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.models.market_context.margin import (
-    MarginBalance,
-    MarginSupplyDemand,
-    margin_supply_demand,
-)
 from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
+)
 from baibai_engine.machine_analysis.historical_evaluation.store import (
     CalibrationCacheError,
     read_panel,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
-    build_stock_analysis_metrics,
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MarginBalance,
+    MarginSupplyDemand,
+    margin_supply_demand,
 )
 
 WEEK = date(2026, 7, 24)
@@ -164,7 +168,9 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
 
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
-        from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_weekly_margin
+        from baibai_engine.machine_analysis.observations.jquants_writer import (
+            store_jquants_weekly_margin,
+        )
         from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         for week_end in week_ends:
@@ -188,7 +194,9 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # A store filled past the decision date holds balance dates the market has not
         # reached. Listing one would put a future week at the head of the cohort, which
         # is the point-in-time break this reader exists to prevent.
-        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_week_ends
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+            published_margin_week_ends,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -215,7 +223,9 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
-        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_week_ends
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+            published_margin_week_ends,
+        )
         from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -361,7 +371,9 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_a_daily_balance_is_unusable_until_its_publication_day_has_closed(self) -> None:
         """Next business day, and not at that day's own close."""
-        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_balance_dates
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+            published_margin_balance_dates,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"

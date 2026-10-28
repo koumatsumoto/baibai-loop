@@ -18,11 +18,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.machine_analysis.observations.stocks.contracts import (
-    MasterSnapshot,
-)
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
     _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
     BREADTH_MA_WINDOW_BARS,
@@ -34,6 +29,10 @@ from baibai_engine.machine_analysis.models.market_context.benchmark import (
     classify_benchmark_trend,
 )
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.observations.stocks.contracts import (
+    MasterSnapshot,
+)
 
 DEFAULT_HISTORY_WEEKS = 12
 SECURITY_LOOKBACK_CALENDAR_DAYS = 1130
@@ -79,8 +78,6 @@ class PreparedMarketContext:
     benchmark_start: date
     benchmark_prices: dict[date, float]
     benchmark_trend: BenchmarkTrendSnapshot | None
-
-
 
 
 def prepare_market_context_from_bars(
@@ -140,8 +137,6 @@ def prepare_market_context_from_bars(
             benchmark_ticker=benchmark_ticker,
         ),
     )
-
-
 
 
 def _point(
@@ -265,8 +260,6 @@ def _sector_table(
 def _sector_sort_key(row: dict[str, object]) -> float:
     value = row.get("median_return_20d")
     return float(value) if isinstance(value, int | float) else 0.0
-
-
 
 
 def calculate_market_snapshot(

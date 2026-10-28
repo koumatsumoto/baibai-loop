@@ -14,9 +14,9 @@ from typing import Literal
 
 import openpyxl
 
-from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"

@@ -1,19 +1,22 @@
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.data_collection.acquisition.refresh import (
-    SourceRefreshFailure,
-    SourceRefreshSuccess,
-    refresh_sources,
-)
 from baibai_engine.data_collection.acquisition.policy import (
     explicit_recovery_ranges,
     recent_start,
     recovery_ranges,
     source_policy,
 )
+from baibai_engine.data_collection.acquisition.refresh import (
+    SourceRefreshFailure,
+    SourceRefreshSuccess,
+    refresh_sources,
+)
 from baibai_engine.data_collection.catalog import load_sources
-from baibai_engine.data_collection.receipts.native_sources.store import initialize_database, record_source_run
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    initialize_database,
+    record_source_run,
+)
 
 END = date(2026, 10, 23)
 
@@ -140,7 +143,10 @@ def test_partially_received_native_days_are_not_reacquired_as_missing_history(tm
 
 
 def test_pmi_partial_pdf_months_cover_history_even_when_the_range_failed(tmp_path):
-    from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, store_document
+    from baibai_engine.data_collection.receipts.native_sources.documents import (
+        SourceDocument,
+        store_document,
+    )
 
     source = load_sources()["spglobal-jp-pmi-mfg"]
     with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:

@@ -8,8 +8,8 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
-from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
 import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
 
 
 def plan():

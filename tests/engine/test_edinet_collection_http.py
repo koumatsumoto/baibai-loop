@@ -10,7 +10,10 @@ import requests
 from tests.helpers.http_doubles import FakeResponse, response
 
 from baibai_engine.data_collection.providers.edinet import http
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
+from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAcquisitionError,
+    EdinetRateLimitError,
+)
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 

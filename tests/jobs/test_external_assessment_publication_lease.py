@@ -6,9 +6,9 @@ import pytest
 from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
-import baibai_jobs.publication.snapshot_release as lake_publish
 import baibai_jobs.publication.lease as publication_lease
 import baibai_jobs.publication.snapshot_publication as publisher
+import baibai_jobs.publication.snapshot_release as lake_publish
 from baibai_jobs.publication.lease import LeaseError
 
 

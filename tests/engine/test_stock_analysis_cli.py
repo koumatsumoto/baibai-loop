@@ -11,8 +11,12 @@ import yaml
 from tests.engine.test_screening_run_store import _publish, _run
 
 from baibai_engine.cli.historical_evaluation.app import main as screening_main
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import published_run_payload
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+    ScreeningRunReader,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
+    published_run_payload,
+)
 
 
 @pytest.mark.parametrize("command", ["run-show", "candidates"])

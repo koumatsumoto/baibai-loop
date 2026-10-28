@@ -10,10 +10,16 @@ from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import UnavailableObservationError, reading_observation
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    UnavailableObservationError,
+    reading_observation,
+)
 
 _TITLE = "信用残速報（松井証券内）"
 _DAY = re.compile(r"(\d{1,2})/(\d{1,2})\s*\(([月火水木金土日])\)")

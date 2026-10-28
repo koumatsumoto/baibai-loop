@@ -7,16 +7,16 @@ from tests.engine.test_jquants_projection import body, receive
 from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 from tests.engine.test_tradingview_rebuild import _retain
 
-from baibai_jobs.observability.tradingview import (
-    SourceDataError,
-)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.tradingview_handoff import (
     TradingViewHandoff,
     export_handoff,
     import_handoff,
 )
 from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.observability.tradingview import (
+    SourceDataError,
+)
 
 
 def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selection(tmp_path):

@@ -8,10 +8,15 @@ from collections.abc import Sequence
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.machine_analysis.generation.contracts import (
+    GeneratedModel,
+    GenerationMetadata,
+    ModelGeneration,
+    ModelInputSlice,
+    research_subjects,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
-
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata, ModelGeneration, ModelInputSlice, research_subjects
 
 
 def read_generation(generation_id: str, *, path: Path | None = None) -> ModelGeneration | None:
@@ -43,11 +48,16 @@ def read_research_model_inputs(
     generation_id: str, *, targets: Sequence[str], path: Path | None = None
 ) -> ModelInputSlice | None:
     generation = _read(generation_id, path=path, research_targets=targets)
-    return None if generation is None else _slice(generation, research_subjects(generation, targets))
+    return (
+        None if generation is None else _slice(generation, research_subjects(generation, targets))
+    )
 
 
 def _read(
-    generation_id: str, *, path: Path | None, subjects: Sequence[str] | None = None,
+    generation_id: str,
+    *,
+    path: Path | None,
+    subjects: Sequence[str] | None = None,
     research_targets: Sequence[str] | None = None,
 ) -> ModelGeneration | None:
     with closing(connect_read_only(path)) as connection:

@@ -10,8 +10,8 @@ import pytest
 import yaml
 from tests.helpers.assessment_v1 import pair_payload
 
-import baibai_engine.investment_judgment.stock_assessment.document as assessment_module
 import baibai_engine.cli.stock_assessment as cli
+import baibai_engine.investment_judgment.stock_assessment.document as assessment_module
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )

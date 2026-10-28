@@ -19,21 +19,26 @@ from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
 import baibai_engine.data_collection.providers.jquants.options as jquants_options
+from baibai_engine.data_collection.catalog import require_source
+from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    read_snapshots,
+    store_snapshot,
+)
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     ProviderFetchStoppedError,
 )
 from baibai_engine.data_collection.transport.retry import read_deadline
-from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots, store_snapshot
-from baibai_engine.data_collection.catalog import require_source
-from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.observations.economic_indicators.option_iv import (
     option_iv_readings,
     quotes_from_records,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.options import OptionSeriesReader
+from baibai_engine.machine_analysis.observations.economic_indicators.options import (
+    OptionSeriesReader,
+)
 
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")

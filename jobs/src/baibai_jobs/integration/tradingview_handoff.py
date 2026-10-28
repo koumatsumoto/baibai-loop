@@ -11,20 +11,15 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
-from baibai_jobs.acquisition.tradingview.collector import (
-    calendar_context,
-    preflight_snapshot,
-    universe,
-    validate_time,
-)
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
-from baibai_jobs.observability.tradingview import (
-    SourceDataError,
-    failure_category,
-)
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    COLUMNS,
+    TABLE,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
+    decode_tool_result,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     COLUMNS as REQUEST_COLUMNS,
 )
@@ -33,7 +28,20 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     normalize_batch,
 )
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection, validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    open_connection,
+    validate_current_schema,
+)
+from baibai_jobs.acquisition.tradingview.collector import (
+    calendar_context,
+    preflight_snapshot,
+    universe,
+    validate_time,
+)
+from baibai_jobs.observability.tradingview import (
+    SourceDataError,
+    failure_category,
+)
 
 _RAW_KEYS = {
     "tradingview_source_receipts": ("receipt_id",),

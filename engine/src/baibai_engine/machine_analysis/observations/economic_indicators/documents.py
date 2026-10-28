@@ -7,12 +7,19 @@ from dataclasses import replace
 from datetime import date
 
 from baibai_engine.data_collection.receipts.native_sources.documents import read_documents
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
-from baibai_engine.machine_analysis.observations.economic_indicators.matsui_margin import read_matsui_margin_documents
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.matsui_margin import (
+    read_matsui_margin_documents,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.pmi import read_pmi_document
-from baibai_engine.machine_analysis.observations.economic_indicators.tsr_bankruptcies import parse_tsr_bankruptcies_json
+from baibai_engine.machine_analysis.observations.economic_indicators.tsr_bankruptcies import (
+    parse_tsr_bankruptcies_json,
+)
 
 
 def read_document_series(

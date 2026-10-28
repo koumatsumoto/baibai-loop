@@ -10,7 +10,9 @@ from typing import TextIO
 
 import yaml
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunStore
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+    ScreeningRunStore,
+)
 
 
 def prune_command(

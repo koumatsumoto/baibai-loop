@@ -6,14 +6,20 @@ from collections.abc import Sequence
 from datetime import date
 from itertools import pairwise
 
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.machine_analysis.models.company_growth.calculations import (
+    build_changes,
+    build_period_states,
+)
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    CompanyGrowth,
+    Coverage,
+    InputRelease,
+)
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-
-from baibai_engine.machine_analysis.models.company_growth.calculations import build_changes, build_period_states
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, Coverage, InputRelease
+from baibai_engine.primitives.stocks import normalize_ticker
 
 
 def generate_company_growth(

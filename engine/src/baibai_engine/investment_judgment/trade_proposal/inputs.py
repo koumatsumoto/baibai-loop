@@ -10,16 +10,6 @@ from datetime import date, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.primitives.numbers import finite_decimal
-from baibai_engine.primitives.time import JST
-from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
-from baibai_engine.investment_judgment.workflow.operation.progress import proposal_scope, selection_binding
-from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
-    saved_market_assessment,
-)
-from baibai_engine.investment_judgment.workflow.selection import ResearchSelectionRecord as ResearchSelection
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ReviewedAssessment,
@@ -38,9 +28,26 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ReservationInput,
     SecurityClassification,
 )
+from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
+from baibai_engine.investment_judgment.workflow.operation.progress import (
+    proposal_scope,
+    selection_binding,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelection,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
+from baibai_engine.investment_judgment.workflow.selection import saved_market_assessment
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
+from baibai_engine.portfolio.holdings.market_observations import (
+    market_basis_is_confirmed,
+    read_unadjusted_close,
+)
+from baibai_engine.portfolio.holdings.valuation import holding_episode
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     MarketPrice,
@@ -48,9 +55,10 @@ from baibai_engine.portfolio.ledger.events import (
     summarize_portfolio,
 )
 from baibai_engine.portfolio.ledger.read import load_ledger_in_transaction
-from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed, read_unadjusted_close
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
-from baibai_engine.portfolio.holdings.valuation import holding_episode
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.numbers import finite_decimal
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
@@ -361,8 +369,8 @@ def _context_calculations(
     now: datetime,
     session: date | None,
 ) -> dict[str, dict[str, object]]:
-    from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
+    from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
         assessment_quote_basis,
         buy_evaluation,

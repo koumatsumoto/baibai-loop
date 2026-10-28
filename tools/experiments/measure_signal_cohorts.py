@@ -23,7 +23,10 @@ from typing import Literal, TextIO
 
 import yaml
 
-from baibai_engine.machine_analysis.historical_evaluation.estimates import SHARE_COUNT_CLIP, UPSIDE_CAP
+from baibai_engine.machine_analysis.historical_evaluation.estimates import (
+    SHARE_COUNT_CLIP,
+    UPSIDE_CAP,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import PanelRow as StoredPanelRow
 from baibai_engine.machine_analysis.historical_evaluation.store import (
     CalibrationCacheError,

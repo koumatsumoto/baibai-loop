@@ -12,12 +12,18 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.cli.environment import load_project_env
-
-from baibai_engine.data_collection.acquisition.refresh import SourceRefreshFailure, SourceRefreshSuccess, refresh_sources
-from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_rechecks
 from baibai_engine.data_collection.acquisition.policy import acquisition_groups, source_policy
+from baibai_engine.data_collection.acquisition.refresh import (
+    SourceRefreshFailure,
+    SourceRefreshSuccess,
+    refresh_sources,
+)
 from baibai_engine.data_collection.catalog import load_sources
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH, EconomicSchemaError
+from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_rechecks
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH,
+    EconomicSchemaError,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

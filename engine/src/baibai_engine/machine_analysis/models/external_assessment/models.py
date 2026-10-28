@@ -7,8 +7,6 @@ from typing import Literal
 
 from pydantic import Field
 
-from baibai_engine.machine_analysis.observations.external_assessments.models import FrozenModel
-
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystForecastHistory,
     AnalystRatingHistory,
@@ -16,6 +14,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     QuantsScoreHistory,
     TradingViewHistory,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.models import FrozenModel
 
 METHOD_VERSION = "same-series-v4"
 

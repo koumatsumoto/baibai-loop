@@ -37,7 +37,11 @@ from baibai_engine.storage.snapshots.keys import (
     release_manifest_key,
     validate_lake_object_key,
 )
-from baibai_engine.storage.snapshots.models import DatasetManifest, ReleaseManifest, load_lake_model_json
+from baibai_engine.storage.snapshots.models import (
+    DatasetManifest,
+    ReleaseManifest,
+    load_lake_model_json,
+)
 from baibai_engine.storage.snapshots.objects import mirror_path, sha256_bytes
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.snapshots.sources import sha256_file

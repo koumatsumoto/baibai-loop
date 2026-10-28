@@ -24,24 +24,16 @@ from typing import cast
 DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-jobs maintain-market": "baibai_jobs.maintenance.market.cli",
     "baibai-jobs acquire-economic": "baibai_jobs.acquisition.economic_cli",
-    "baibai-engine market-context snapshot": (
-        "baibai_engine.cli.market_snapshot"
-    ),
-    "baibai-engine market-context indicators": (
-        "baibai_engine.cli.economic_indicators"
-    ),
-    "baibai-engine market-context reading": (
-        "baibai_engine.cli.market_reading"
-    ),
+    "baibai-engine market-context snapshot": ("baibai_engine.cli.market_snapshot"),
+    "baibai-engine market-context indicators": ("baibai_engine.cli.economic_indicators"),
+    "baibai-engine market-context reading": ("baibai_engine.cli.market_reading"),
     "baibai-engine investment-judgment market-context": (
         "baibai_engine.investment_judgment.market_assessment.cli"
     ),
     "baibai-engine investment-judgment stock-assessment-evaluate": (
         "baibai_engine.cli.stock_assessment"
     ),
-    "baibai-engine investment-judgment calculate": (
-        "baibai_engine.cli.assessment_calculation"
-    ),
+    "baibai-engine investment-judgment calculate": ("baibai_engine.cli.assessment_calculation"),
 }
 
 

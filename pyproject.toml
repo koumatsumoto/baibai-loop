@@ -214,7 +214,7 @@ exclude_dirs = ["/tests/", "/.venv/"]
 skips = ["B101"]
 
 # Import-direction contracts encode the subsystem dependency DAG
-# (five analysis domains / Screening / Position / Research / shared) so a structural edit that
+# (Collection / observations / models / generation / policy / judgment / Portfolio) so an edit that
 # reintroduces a cross-subsystem edge fails CI rather than passing every other gate.
 [tool.importlinter]
 root_packages = ["baibai_engine", "baibai_web", "baibai_jobs", "tools"]
@@ -282,13 +282,13 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "position does not import screening (cycle prevention)"
+name = "portfolio does not import candidate policy"
 type = "forbidden"
 source_modules = ["baibai_engine.portfolio"]
 forbidden_modules = ["baibai_engine.machine_analysis.screening"]
 
 [[tool.importlinter.contracts]]
-name = "screening does not import position (one-way market<-{screening,position})"
+name = "candidate policy does not import portfolio"
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.screening"]
 forbidden_modules = ["baibai_engine.portfolio"]
@@ -313,7 +313,7 @@ forbidden_modules = ["baibai_engine.investment_judgment"]
 [[tool.importlinter.contracts]]
 name = "investment judgment composes explicit domain reads and portfolio judgments"
 type = "forbidden"
-# Research composes the five analysis domains through saved query boundaries; no acquisition.
+# Judgment consumes saved model generations and candidate results, not acquisition.
 source_modules = ["baibai_engine.investment_judgment"]
 forbidden_modules = [
 
@@ -324,7 +324,7 @@ forbidden_modules = [
 allow_indirect_imports = true
 ignore_imports = [
   # New saved policy results and pure view contracts; not the writer.
-  "baibai_engine.investment_judgment.workflow.selection -> baibai_engine.machine_analysis.screening.policies.two_view_inputs",
+  "baibai_engine.investment_judgment.workflow.selection -> baibai_engine.machine_analysis.screening.contracts",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.selection_query",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.policies.two_views",
   "baibai_engine.investment_judgment.workflow.operation.service -> baibai_engine.machine_analysis.screening.selection_query",
@@ -422,7 +422,7 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "valuation depends only on its inputs and primitives"
+name = "company financials depend only on their inputs and primitives"
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.models.company_financials"]
 forbidden_modules = [
@@ -457,9 +457,8 @@ type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.observations.economic_indicators"]
 forbidden_modules = [
   "baibai_engine.machine_analysis.models.company_growth",
-  "baibai_engine.machine_analysis.observations.economic_indicators.service",
   "baibai_engine.cli.economic_indicators",
-  "baibai_engine.machine_analysis.models.market_context.reading.compute", "baibai_engine.machine_analysis.observations.economic_indicators.reader",
+  "baibai_engine.machine_analysis.models.market_context.reading.compute",
   "baibai_engine.machine_analysis.generation.runners.market_reading", "baibai_engine.machine_analysis.models.market_context.benchmark",
   "baibai_engine.machine_analysis.models.market_context.snapshot", "baibai_engine.machine_analysis.models.market_context.security",
   "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment",
@@ -551,12 +550,12 @@ type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.historical_evaluation.context.contracts", "baibai_engine.machine_analysis.observations.prices.benchmark_observation"]
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.investment_judgment",
-  "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.market.*",
+  "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio",
   "baibai_engine.machine_analysis.historical_evaluation.context.query",
 ]
 
 [[tool.importlinter.contracts]]
-name = "position decision references do not recheck research eligibility"
+name = "portfolio decision references do not recheck research eligibility"
 type = "forbidden"
 source_modules = ["baibai_engine.portfolio.ledger.decision_references"]
 forbidden_modules = ["baibai_engine.storage.sqlite.application.write", "baibai_engine.investment_judgment"]
@@ -607,7 +606,7 @@ source_modules = [
 forbidden_modules = [
   "baibai_engine.storage.sqlite.application.write",
   "baibai_engine.investment_judgment.market_assessment.service",
-  "baibai_engine.investment_judgment.market_assessment.cli",
+  "baibai_engine.cli.market_assessment",
   "baibai_engine.investment_judgment.workflow.workspace",
   "baibai_engine.investment_judgment.trade_proposal.service",
   ]
@@ -682,3 +681,22 @@ source_modules = [
   "baibai_engine.machine_analysis.models.market_context.security",
 ]
 forbidden_modules = ["baibai_engine.storage", "baibai_engine.data_collection", "baibai_engine.machine_analysis.generation", "baibai_jobs"]
+
+[[tool.importlinter.contracts]]
+name = "models cannot choose candidates or orchestrate their generation"
+type = "forbidden"
+source_modules = ["baibai_engine.machine_analysis.models"]
+forbidden_modules = [
+  "baibai_engine.machine_analysis.generation", "baibai_engine.machine_analysis.screening",
+  "baibai_engine.machine_analysis.historical_evaluation", "baibai_engine.investment_judgment",
+  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web",
+]
+
+[[tool.importlinter.contracts]]
+name = "generation publishes observations and models without candidate or investment policy"
+type = "forbidden"
+source_modules = ["baibai_engine.machine_analysis.generation"]
+forbidden_modules = [
+  "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment",
+  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web",
+]

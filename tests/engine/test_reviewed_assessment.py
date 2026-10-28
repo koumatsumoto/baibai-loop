@@ -12,16 +12,16 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
+from baibai_engine.investment_judgment.stock_assessment.document import (
+    StockAssessmentDocument,
+    assessment_core_hash,
+)
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
     Projection,
     maximum_entry_price,
     project_return,
     required_total_value,
     valuation_conditions,
-)
-from baibai_engine.investment_judgment.stock_assessment.document import (
-    StockAssessmentDocument,
-    assessment_core_hash,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,

@@ -7,15 +7,23 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_observed_documents
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_observed_documents,
+)
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+    select_document_candidates,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import (
     can_reuse_edinet_metric,
     make_metric_extraction_plan,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_metric_baseline
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    EDINET_METRIC_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_metric_baseline,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
-from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 

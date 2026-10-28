@@ -10,8 +10,12 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
     build_earnings_calendar_snapshot,
     parse_earnings_calendar_excel,
 )
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_jpx_earnings_calendar_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import store_jpx_earnings_calendar_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_jpx_earnings_calendar_snapshot,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
+    store_jpx_earnings_calendar_snapshot,
+)
 
 
 @pytest.mark.parametrize("schedule", ["", "未定_Undecided", "10月中旬", "conflicting"])

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.stock_assessment.document import (
     assessment_core_hash,
 )
@@ -17,7 +16,10 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     ResearchConflictError,
     ResearchValidationError,
 )
-from baibai_engine.investment_judgment.workflow.workspace.admission import require_authoring_selection
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.investment_judgment.workflow.workspace.admission import (
+    require_authoring_selection,
+)
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,

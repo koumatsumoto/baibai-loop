@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from typing import Literal
 
-from baibai_engine.primitives.numbers import finite_decimal
-from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ExposureRow,
@@ -21,6 +19,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.policy import MAX_NEW_BUYS
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
+from baibai_engine.primitives.numbers import finite_decimal
+from baibai_engine.primitives.time import JST
 
 
 @dataclass(frozen=True, slots=True)

@@ -14,18 +14,27 @@ from collections.abc import Sequence
 from datetime import date
 
 from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.derived import derive_series
+from baibai_engine.machine_analysis.observations.economic_indicators.documents import (
+    read_document_series,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.formulas import FORMULAS
+from baibai_engine.machine_analysis.observations.economic_indicators.native import (
+    read_native_series,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationReader,
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.options import (
+    OptionSeriesReader,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.read_contracts import (
     NATIVE_BULK_PROVIDERS,
 )
-
-from baibai_engine.machine_analysis.observations.economic_indicators.derived import derive_series
-from baibai_engine.machine_analysis.observations.economic_indicators.documents import read_document_series
-from baibai_engine.machine_analysis.observations.economic_indicators.formulas import FORMULAS
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationReader
-from baibai_engine.machine_analysis.observations.economic_indicators.native import read_native_series
-from baibai_engine.machine_analysis.observations.economic_indicators.options import OptionSeriesReader
 
 
 def build_store_observation_reader(

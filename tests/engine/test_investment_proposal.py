@@ -8,11 +8,6 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchSelection,
-    selection_sha256,
-    selection_targets,
-)
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalError,
     TradeProposal,
@@ -20,6 +15,11 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.policy import validate_proposal_policy
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelection,
+    selection_sha256,
+    selection_targets,
+)
 
 
 @pytest.fixture

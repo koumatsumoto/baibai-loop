@@ -12,8 +12,10 @@ from baibai_engine.data_collection.providers.tradingview.auth import (
     AuthenticationError,
     SecretPersistenceError,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+    FetchError,
+)
 from baibai_jobs.acquisition.tradingview.collector import SourceDataError, TimeGuardError
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FetchError
 
 
 @pytest.mark.parametrize(
@@ -180,12 +182,12 @@ def test_unsaved_business_day_reaches_oauth_and_snapshot(monkeypatch, capsys):
     [(401, "auth"), (403, "auth"), (429, "provider_rate_limit"), (503, "provider_response")],
 )
 def test_provider_http_category_through_collection_and_groups(status, category):
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+        ProviderHTTPError,
+    )
     from baibai_jobs.acquisition.tradingview.collector import (
         CollectionFailure,
         CollectionProgress,
-    )
-    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-        ProviderHTTPError,
     )
 
     error = ProviderHTTPError(status)
@@ -203,12 +205,12 @@ def test_provider_http_category_through_collection_and_groups(status, category):
 
 
 def test_cli_collection_error_prints_only_safe_diagnostics(monkeypatch, capsys):
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+        ProviderPayloadError,
+    )
     from baibai_jobs.acquisition.tradingview.collector import (
         CollectionFailure,
         CollectionProgress,
-    )
-    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-        ProviderPayloadError,
     )
 
     def fail(*args, **kwargs):

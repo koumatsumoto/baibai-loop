@@ -7,23 +7,18 @@ import statistics
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from baibai_engine.machine_analysis.models.market_context.benchmark import BenchmarkTrendSnapshot
+from baibai_engine.machine_analysis.models.market_context.history import trailing_return
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
 )
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-
-from baibai_engine.machine_analysis.models.market_context.benchmark import BenchmarkTrendSnapshot
-from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 
 _WEEK_52_WINDOW_BARS = 252
 _VOL_WINDOW_BARS = 20
 _TURNOVER_WINDOW_BARS = 20
 _RETURN_WINDOWS_BARS = (1, 5, 20, 60)
 _PEER_RETURN_WINDOW_BARS = 20
-
-
-
-
 
 
 def _price_block(
@@ -68,10 +63,6 @@ def _price_block(
     }
 
 
-
-
-
-
 def _window_endpoints(bars: Sequence[PriceBar], window_bars: int) -> tuple[date, date] | None:
     if len(bars) < window_bars + 1:
         return None
@@ -105,9 +96,14 @@ def _realized_vol(prices: Sequence[float]) -> float | None:
 
 
 def calculate_security_market_context(
-    *, ticker: str, bars: Sequence[PriceBar], master: MasterSnapshot | None,
-    benchmark: BenchmarkTrendSnapshot | None, benchmark_ticker: str,
-    benchmark_prices: Mapping[date, float], peer_prices: Sequence[Mapping[date, float]],
+    *,
+    ticker: str,
+    bars: Sequence[PriceBar],
+    master: MasterSnapshot | None,
+    benchmark: BenchmarkTrendSnapshot | None,
+    benchmark_ticker: str,
+    benchmark_prices: Mapping[date, float],
+    peer_prices: Sequence[Mapping[date, float]],
     self_range_window_bars: int,
 ) -> dict[str, object]:
     """固定した個社・市場・同業価格から比較を計算する。追加読取を行わない。"""
@@ -117,18 +113,25 @@ def calculate_security_market_context(
         "master": security,
         "price": _price_block(bars, self_range_window_bars=self_range_window_bars),
         "relative": _relative_block(
-            bars=bars, sector=sector if isinstance(sector, str) else None,
-            master=master, benchmark_ticker=benchmark_ticker,
-            benchmark_prices=benchmark_prices, peer_prices=peer_prices,
+            bars=bars,
+            sector=sector if isinstance(sector, str) else None,
+            master=master,
+            benchmark_ticker=benchmark_ticker,
+            benchmark_prices=benchmark_prices,
+            peer_prices=peer_prices,
         ),
         "benchmark_trend": None if benchmark is None else benchmark.to_dict(),
     }
 
 
 def _relative_block(
-    *, bars: Sequence[PriceBar], sector: str | None,
-    master: MasterSnapshot | None, benchmark_ticker: str,
-    benchmark_prices: Mapping[date, float], peer_prices: Sequence[Mapping[date, float]],
+    *,
+    bars: Sequence[PriceBar],
+    sector: str | None,
+    master: MasterSnapshot | None,
+    benchmark_ticker: str,
+    benchmark_prices: Mapping[date, float],
+    peer_prices: Sequence[Mapping[date, float]],
 ) -> dict[str, object] | None:
     if not bars:
         return None
@@ -144,12 +147,16 @@ def _relative_block(
         "benchmark_ticker": benchmark_ticker,
         **versus_benchmark,
         "sector": _sector_block(bars=bars, sector=sector, master=master, peer_prices=peer_prices)
-        if sector else None,
+        if sector
+        else None,
     }
 
 
 def _sector_block(
-    *, bars: Sequence[PriceBar], sector: str, master: MasterSnapshot | None,
+    *,
+    bars: Sequence[PriceBar],
+    sector: str,
+    master: MasterSnapshot | None,
     peer_prices: Sequence[Mapping[date, float]],
 ) -> dict[str, object] | None:
     endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)

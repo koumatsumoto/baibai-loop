@@ -9,12 +9,20 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_stored_documents
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_stored_documents,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
+    EXTRACTOR_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    DebtFact,
+    ExtractedFacts,
+    FactIdentity,
+    SegmentFact,
+)
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
-
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import EXTRACTOR_REVISION
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import DebtFact, ExtractedFacts, FactIdentity, SegmentFact
 
 COVERAGE_SOURCE = "edinet_research_facts"
 

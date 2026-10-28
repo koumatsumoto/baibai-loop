@@ -12,9 +12,16 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     AnalystForecastHistory,
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import ParseError, minkabu
-from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
-from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    ParseError,
+    minkabu,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.rebuild import (
+    rebuild_attempts,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.store import (
     ObservationConflictError,
     save_observations,

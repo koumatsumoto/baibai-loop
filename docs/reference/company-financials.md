@@ -1,30 +1,14 @@
 # 企業財務 / Company Financials
 
-名称の区別は[用語集](../glossary.md)。以下の旧module名と保存契約は、モジュール構成再設計の移行が済むまで現状を示す。
+名称の区別は[用語集](../glossary.md)。旧機械ER/FVの意味と採否は[歴史評価](estimate-calibration.md#machine-valuation)へ分け、現行の企業財務と混同しない。
 
-`machine_analysis/company_valuation/metrics`は財務・会計期間・株式basisを揃えて機械指標を作る。新しい五モデル生成は`machine_analysis/company_models.py`で実績利益・価格と財務観測を保存する。同じmarket sealに適格なEDINET metricsがあれば、既存の文書・訂正・抽出revisionの適格性を保って財務観測へ任意入力として渡す。未取得を補完せず、取得・抽出の成功を全社候補の前提にはしない。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
+財務・会計期間・株式basisを揃え、実績利益・価格と財務状態の観測を作る。同じmarket sealに適格なEDINET metricsがあれば、既存の文書・訂正・抽出revisionの適格性を保って財務観測へ任意入力として渡す。未取得を補完せず、取得・抽出の成功を全社候補の前提にはしない。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
 
 価格がない場合も財務観測・EDINET金額と出典を保持し、価格・時価総額に依存する倍率や利回りだけを欠測にする。過去の正価格や0で補完しない。
 
 ## 利益価格の観測
 
 Yは報告された年間利益総額を現在の普通株時価総額で割る座標であり、普通株主へ分配可能な利益や期待収益率ではない。連結では親会社帰属利益、単体では当期純利益を使い、優先配当・優先株償還等の普通株帰属調整を推定で行わない。保存モデルはこのbasisを明示する。種類株式がある企業では、会社EPSの分子と報告純利益が異なり得るため、L3は原典の1株当たり情報・優先資本を確認する。EPS×平均株数によって丸め・株式basis不明の利益総額を作り直さない。
-
-<a id="machine-valuation"></a>
-## 保存済みの旧機械ER/FV
-
-旧runの機械E[r]は倍率収束とcarryによるsecondary prior。以下は保存済み結果と旧較正を読むための意味であり、新しい候補抽出・L3入力には含めない。AI調査の優先度や企業固有の価値を所有しない。年率ratio、成分、入力basis、anchor・係数・clipの前提と一緒に読む。機械の5年priorは銘柄評価の期間を固定しない。
-
-carryの配当・グロス株数変化が欠測なら計算上の寄与は0になるが、無配・株数不変を観測した意味ではない。元のnullable入力と欠測仮定を示す。予想DPS spike guardは一回性の分配を反復carryへ入れる影響を限定するため採用したが、当時の長期比較は盲検の閾値検証ではなく、5y top5 trap悪化の受容を含む。[採用時の制約](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-30-dividend-carry-spike-guard/report.md)は将来成績の保証ではない。株数減少は消却・発行等を含む過去の変化で、自己株取得の実行cash・未消化枠・将来還元ではない。
-
-業種中央値anchorと自己レンジanchorは機械比較値で、企業の期間内分配・将来終価・現在価値とは別である。Stock Assessmentへ重複転記せず、保存run・時点とともに引用する。保存fieldの不在、明示null、0を混ぜず、旧snapshotへ後付けして再発行しない。
-
-保存済み照会は選択runの値を読む。論理as-of cutoffで選ぶrunは後日生成した過去replayもあり、当時既知の保証ではない。対象runなし・run内tickerなし・計算不能を区別し、古い値や候補一覧で埋めない。企業の条件付き算術は[Stock Assessment](stock-assessment.md#scenario-arithmetic)、歴史分布は[較正](estimate-calibration.md)。
-
-<a id="carry-policy"></a>
-### 機械priorの採否
-
-carryはグロス株数変化を維持する。自己株控除後の変化は別のfactとして残すが、当時の比較はrank ICが劣り、分位差も時間分割で反転し、置換を支持しなかった。較正の実現率引上げとupside/buyback cap拡張も両horizonの改善を確認できず採らない。これは将来の有効性を否定する判定ではない。詳細は固定した[株数比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-tradable-share-change/report.md)、[実現率](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-01-er-level-calibration/report.md)、[cap比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-10-er-distribution-context-v2/report.md)に残す。
 
 ## 会社予想と実績期間
 
@@ -73,7 +57,7 @@ Investment JudgmentのBS文脈で測定日やdebt scopeが未保存なら、最�
 
 ## 配当と還元
 
-DPSの会社予想と実績を対象期・basisごとに分ける。旧機械priorの5年反復するcarryでは、正のsplit-safe実績に対して予想が2倍超なら、特別配当と恒常転換を識別できないため実績を使う。実績0や未観測では初配当等を消さないため予想を使える。これは予想の不可能性や持続性の判定でなく、L3の期間内分配は原典と仮定から別に評価する。
+DPSの会社予想と実績を対象期・basisごとに分ける。L3の期間内分配は原典と仮定から別に評価し、過去の機械priorをそのまま反復するものではない。
 
 正の実績DPSは会社が分割後へ先行換算した値と原基準値が混在し得る。会計期間から比較日まで単位変更・未分類actionがあれば、四半期末を配当基準日にしたり配当総額÷期末株数で換算したりしない。正の実績の期間不明・逆転・未来終了も未解決で、明示0は株式basisに依存しない観測として保持する。
 

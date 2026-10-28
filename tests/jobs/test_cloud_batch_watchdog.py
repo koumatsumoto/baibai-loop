@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_jobs.schedule import BATCH_SCHEDULED_FIRE_TIME, batch_target_date
 from baibai_jobs.observability.watchdog import (
     DEFAULT_WINDOW_HOURS,
     RESULT_STEP_PREFIX,
@@ -23,6 +22,7 @@ from baibai_jobs.observability.watchdog import (
     resolve_run_results,
     resolve_window_end,
 )
+from baibai_jobs.schedule import BATCH_SCHEDULED_FIRE_TIME, batch_target_date
 from baibai_jobs.validation.workflow_inputs import WorkflowInputError, validate_watchdog_input
 
 ROOT = Path(__file__).resolve().parents[2]

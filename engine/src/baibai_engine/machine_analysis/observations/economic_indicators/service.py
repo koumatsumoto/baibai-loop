@@ -8,11 +8,20 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH, open_read_only_connection
-
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition, load_definitions
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-from baibai_engine.machine_analysis.observations.economic_indicators.reader import build_store_observation_reader
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH,
+    open_read_only_connection,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
+    build_store_observation_reader,
+)
 
 _LATEST_READ_DAYS = {"daily": 14, "weekly": 60, "monthly": 370}
 

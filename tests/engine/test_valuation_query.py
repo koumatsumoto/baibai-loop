@@ -15,7 +15,22 @@ from tests.helpers.screening_run import screening_run_payload, seed_saved_run, s
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot, InputGap
 from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
+    build_candidate_contexts,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+    ScreeningRunReader,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
+    expected_return_inputs,
+)
 from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
@@ -23,13 +38,8 @@ from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import 
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import build_candidate_contexts
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
-    build_stock_analysis_metrics,
-    expected_return_inputs,
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
 )
 
 CUTOFF = date(2026, 9, 19)

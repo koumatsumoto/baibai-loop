@@ -8,7 +8,6 @@ import pyarrow.parquet as pq
 import pytest
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_weekly_margin,
@@ -18,6 +17,7 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_reader 
     read_all_issues_daily_margin,
 )
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 
 
 @pytest.mark.parametrize("missing", [False, True])

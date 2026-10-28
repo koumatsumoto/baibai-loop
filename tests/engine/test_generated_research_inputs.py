@@ -8,7 +8,11 @@ import yaml
 from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import selected_target, selection
 
-from baibai_engine.investment_judgment.workflow.calibration_context import research_calibration_context
+from baibai_engine.investment_judgment.trade_proposal.contracts import GeneratedLiquidityContext
+from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context
+from baibai_engine.investment_judgment.workflow.calibration_context import (
+    research_calibration_context,
+)
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -19,9 +23,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
     parse_selection,
     selection_sha256,
 )
-from baibai_engine.investment_judgment.workflow.selection_query import load_generated_selection_context
-from baibai_engine.investment_judgment.trade_proposal.contracts import GeneratedLiquidityContext
-from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context
+from baibai_engine.investment_judgment.workflow.selection_query import (
+    load_generated_selection_context,
+)
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
@@ -41,7 +45,8 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
         raise AssertionError("must not calculate candidates or live model inputs")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation", forbidden
+        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation",
+        forbidden,
     )
     result = load_generated_selection_context(
         request=request,
@@ -219,11 +224,14 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
     stock_models = tuple(model.model_id for model in original.models if model.subject == "1234")
     plan = {
         "1234": GenerationSubject(
-            scope="stock", model_ids=(*stock_models, "stress_probe"),
+            scope="stock",
+            model_ids=(*stock_models, "stress_probe"),
             related_subjects=("sector:food",),
         ),
         "5678": GenerationSubject(
-            scope="stock", model_ids=("stress_probe",), related_subjects=("sector:food",),
+            scope="stock",
+            model_ids=("stress_probe",),
+            related_subjects=("sector:food",),
         ),
         "9999": GenerationSubject(scope="stock", model_ids=("stress_probe",)),
         "sector:food": GenerationSubject(scope="sector", model_ids=("sector_probe",)),
@@ -232,7 +240,9 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
         "market:world": GenerationSubject(scope="market", model_ids=("macro_probe",)),
     }
     extra = tuple(
-        GeneratedModel(model_id=model, subject=subject, calculation_revision="probe-v1", payload=payload)
+        GeneratedModel(
+            model_id=model, subject=subject, calculation_revision="probe-v1", payload=payload
+        )
         for model, subject, payload in (
             ("stress_probe", "1234", {"value": None, "reason": "not_observed"}),
             ("stress_probe", "9999", {"value": 10}),
@@ -242,21 +252,29 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
             ("macro_probe", "market:world", {"value": None, "reason": "not_observed"}),
         )
     )
-    generation = ModelGeneration.model_validate({
-        **original.model_dump(), "schema_version": 2, "generation_id": "scoped-synthetic",
-        "subject_plan": plan, "models": (*original.models, *extra),
-    })
+    generation = ModelGeneration.model_validate(
+        {
+            **original.model_dump(),
+            "schema_version": 2,
+            "generation_id": "scoped-synthetic",
+            "subject_plan": plan,
+            "models": (*original.models, *extra),
+        }
+    )
     ModelGenerationStore(runs).publish(generation)
     policy = TwoViewPolicy(earnings_limit=20, combined_limit=20)
     assert select_generation(generation, tickers=("1234", "5678"), policy=policy).result == (
         select_generation(original, tickers=("1234", "5678"), policy=policy).result
     )
-    fixed = read_research_model_inputs(generation.generation_id, targets=("1234", "5678"), path=runs)
+    fixed = read_research_model_inputs(
+        generation.generation_id, targets=("1234", "5678"), path=runs
+    )
     assert set(fixed.subjects) == {"1234", "5678", "sector:food", "market", "market:world"}
     assert set(fixed.subject_plan) == set(fixed.subjects)
     projected = project_generated_inputs(fixed)
     assert projected["securities"]["1234"]["models"]["stress_probe"] == {
-        "value": None, "reason": "not_observed",
+        "value": None,
+        "reason": "not_observed",
     }
     assert "stress_probe" not in projected["securities"]["1234"]["not_generated"]
     assert projected["securities"]["5678"]["not_generated"] == ["stress_probe"]
@@ -268,18 +286,28 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
 
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
-        request=ResearchRequest(text="固定した複数モデルを比較", scope="specified_stocks", requested_tickers=("1234", "5678")),
-        research_as_of=AS_OF, input_known_at=NOW, generation_id=generation.generation_id,
+        request=ResearchRequest(
+            text="固定した複数モデルを比較",
+            scope="specified_stocks",
+            requested_tickers=("1234", "5678"),
+        ),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=generation.generation_id,
         selection_summary="候補政策を変えず追加モデルを調査する",
         targets=(selected_target("1234"), selected_target("5678")),
     )
     workspace, database = tmp_path / "research", tmp_path / "application.sqlite"
-    prepared = prepare_selected_workspace(draft=draft, db_path=database, workspace=workspace, runs_path=runs, now=NOW)
+    prepared = prepare_selected_workspace(
+        draft=draft, db_path=database, workspace=workspace, runs_path=runs, now=NOW
+    )
     saved = selection_binding(OperationService(database).get(prepared.operation_id).payload)
     before = project_research_inputs(saved)
     digest = selection_sha256(saved)
     runs.unlink()
-    resumed = resume_selected_workspace(operation_id=prepared.operation_id, db_path=database, workspace=workspace, now=NOW)
+    resumed = resume_selected_workspace(
+        operation_id=prepared.operation_id, db_path=database, workspace=workspace, now=NOW
+    )
     assert resumed.selection_sha256 == digest
     assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == before
     assert project_research_inputs(parse_selection(saved.model_dump(mode="json"))) == before
@@ -290,21 +318,35 @@ def test_v1_generation_metadata_and_fixed_slice_do_not_gain_new_default_fields(t
     import sqlite3
     from contextlib import closing
 
-    from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata, ModelInputSlice
+    from baibai_engine.machine_analysis.generation.contracts import (
+        GenerationMetadata,
+        ModelInputSlice,
+    )
     from baibai_engine.primitives.json import canonical_json
 
     runs = tmp_path / "runs.sqlite"
     original = seed_generation(runs, now=NOW, as_of=AS_OF)
     expected = {
-        "schema_version": 1, "generation_id": "fixed-synthetic",
-        "as_of": "2026-10-23", "evaluation_time": "2026-10-25T08:59:00Z",
-        "inputs": {"market": {"kind": "lake_release", "reference": "synthetic", "sha256": "a" * 64}},
+        "schema_version": 1,
+        "generation_id": "fixed-synthetic",
+        "as_of": "2026-10-23",
+        "evaluation_time": "2026-10-25T08:59:00Z",
+        "inputs": {
+            "market": {"kind": "lake_release", "reference": "synthetic", "sha256": "a" * 64}
+        },
     }
     with closing(sqlite3.connect(runs)) as connection:
-        header = connection.execute("SELECT header FROM model_generation WHERE generation_id=?", (original.generation_id,)).fetchone()[0]
+        header = connection.execute(
+            "SELECT header FROM model_generation WHERE generation_id=?", (original.generation_id,)
+        ).fetchone()[0]
     assert json.loads(header) == expected
-    assert canonical_json(GenerationMetadata.model_validate(expected).model_dump(mode="json")) == header
-    fixed = ModelGenerationStore(runs).read_subjects(original.generation_id, subjects=("1234", "market"))
+    assert (
+        canonical_json(GenerationMetadata.model_validate(expected).model_dump(mode="json"))
+        == header
+    )
+    fixed = ModelGenerationStore(runs).read_subjects(
+        original.generation_id, subjects=("1234", "market")
+    )
     raw = fixed.model_dump(mode="json")
     assert "subject_plan" not in raw
     assert ModelInputSlice.model_validate(raw).model_dump(mode="json") == raw

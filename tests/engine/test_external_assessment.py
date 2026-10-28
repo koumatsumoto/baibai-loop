@@ -12,17 +12,22 @@ import pytest
 from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
 
 from baibai_engine.cli.external_assessment import main
+from baibai_engine.machine_analysis.generation.runners.external_assessment import (
+    external_assessment,
+)
 from baibai_engine.machine_analysis.models.external_assessment.analysis import FORECAST_METRICS
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
     read_observations,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    COLUMNS,
+    TABLE,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 

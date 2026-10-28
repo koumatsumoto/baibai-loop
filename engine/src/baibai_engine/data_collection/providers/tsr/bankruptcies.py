@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
-from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.catalog import SourceDefinition
-
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
+from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
 from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
     FetchContext,

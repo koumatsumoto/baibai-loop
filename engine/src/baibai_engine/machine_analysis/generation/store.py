@@ -9,21 +9,20 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.sqlite.machine_analysis import (
-    connect_rw,
-    initialize_run_store,
-)
-
-from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
-    validate_full_plan,
-    validate_model_scope,
     GenerationMetadata,
     ModelGeneration,
     ModelGenerationStream,
     ModelInputSlice,
+    validate_full_plan,
+    validate_model_scope,
+)
+from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.sqlite.machine_analysis import (
+    connect_rw,
+    initialize_run_store,
 )
 
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 
-from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
@@ -26,6 +25,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
+from baibai_engine.primitives.dates import add_months_clamped
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 

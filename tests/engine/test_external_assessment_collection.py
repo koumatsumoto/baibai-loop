@@ -14,17 +14,20 @@ import pytest
 import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
+import baibai_jobs.acquisition.external_assessments.cli as cli
+import baibai_jobs.acquisition.external_assessments.collection as collection
 from baibai_engine.data_collection.receipts.public_pages.capture import (
     EquityWebCapture,
     load_capture,
     save_capture,
 )
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
-import baibai_jobs.acquisition.external_assessments.cli as cli
-import baibai_jobs.acquisition.external_assessments.collection as collection
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import ParseError, monex
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    ParseError,
+    monex,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 

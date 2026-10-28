@@ -7,10 +7,16 @@ from collections.abc import Mapping, Sequence
 from contextlib import closing
 from typing import Any
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    APPROACH_IDS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
+    production_rules_contract_hash,
+)
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import APPROACH_IDS
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
 from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
 
 

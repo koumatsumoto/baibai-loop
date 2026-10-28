@@ -3,17 +3,19 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.generation.financial_models import generate_financial_and_price_models
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.generation.financial_models import (
+    generate_financial_and_price_models,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
+from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 
 ASOF = date(2026, 8, 31)
 CALENDAR = tuple(ASOF - timedelta(days=252 - index) for index in range(253))

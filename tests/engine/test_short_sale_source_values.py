@@ -5,10 +5,14 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_short_sale_reports
-from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_short_sale_reports
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_short_sale_reports,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+    read_short_sale_reports,
+)
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 
 
 @pytest.mark.parametrize("missing", [False, True])

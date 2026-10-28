@@ -9,14 +9,16 @@ from datetime import date, timedelta
 import pytest
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.cli.technical_analysis import main
+from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     bollinger_20bar,
     rsi_14bar,
     simple_moving_average,
 )
-from baibai_engine.cli.technical_analysis import main
-from baibai_engine.machine_analysis.models.technical_analysis.generation import generate_technical_analysis
-from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
+from baibai_engine.machine_analysis.models.technical_analysis.generation import (
+    generate_technical_analysis,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 

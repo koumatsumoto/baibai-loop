@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     compact,
     document,
     number,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.models import (
-    ModelValuationObservation,
-)
+from baibai_engine.primitives.stocks import normalize_ticker
 
 PARSER_VERSION = "monex-theory-3"
 

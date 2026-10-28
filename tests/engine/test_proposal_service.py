@@ -9,7 +9,7 @@ import pytest
 import yaml
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
@@ -20,7 +20,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.cli.investment_judgment import main
+from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 
 
 @pytest.fixture
@@ -102,9 +102,7 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
     def fail_output(*_args, **_kwargs):
         raise yaml.YAMLError("synthetic publication output failure")
 
-    monkeypatch.setattr(
-        "baibai_engine.cli.investment_judgment.yaml.safe_dump", fail_output
-    )
+    monkeypatch.setattr("baibai_engine.cli.investment_judgment.yaml.safe_dump", fail_output)
     with pytest.raises(yaml.YAMLError, match="synthetic publication output failure"):
         main(
             [
@@ -391,8 +389,8 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     case = backend_case(tmp_path, tickers=("1234", "5678"))
     from tests.helpers.assessment_v1 import assessment_id, pair_payload
 
-    from baibai_engine.investment_judgment.workflow.operation.progress import UnfinishedTarget
     from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+    from baibai_engine.investment_judgment.workflow.operation.progress import UnfinishedTarget
 
     case.operation = case.operations.record_outcome(
         case.operation.operation_id,

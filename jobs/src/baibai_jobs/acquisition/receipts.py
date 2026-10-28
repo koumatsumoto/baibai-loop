@@ -9,12 +9,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
-from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
+from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
+from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
 
 class ReceiptStore(ObjectStore, Protocol):

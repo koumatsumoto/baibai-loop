@@ -9,9 +9,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.storage.paths import MARKET_DB_PATH
-
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
+from baibai_engine.storage.paths import MARKET_DB_PATH
 
 
 def build_parser() -> argparse.ArgumentParser:

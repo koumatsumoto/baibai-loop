@@ -14,9 +14,11 @@ from tests.engine.test_kabumap import html as kabumap_html
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 
 import baibai_engine.data_collection.transport.public_pages as source_http
-from baibai_jobs.acquisition.external_assessments.collection import collect_pair as external_assessment_collect_pair
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_jobs.acquisition.external_assessments.collection import (
+    collect_pair as external_assessment_collect_pair,
+)
 
 BASE = datetime(2026, 10, 11, 0, tzinfo=UTC)
 

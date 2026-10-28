@@ -2,12 +2,9 @@
 
 from datetime import date
 
-from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
 from baibai_engine.data_collection.catalog import SourceDefinition
-
-from baibai_engine.data_collection.transport.context import FetchContext, IndicatorsProviderError
-from baibai_engine.data_collection.providers.boj.workbooks import BojSource
 from baibai_engine.data_collection.providers.boj.timeseries import BojTimeSeriesSource
+from baibai_engine.data_collection.providers.boj.workbooks import BojSource
 from baibai_engine.data_collection.providers.cftc import CftcSource
 from baibai_engine.data_collection.providers.ecb.fx import EcbFxSource
 from baibai_engine.data_collection.providers.estat.api import EStatSource
@@ -21,6 +18,8 @@ from baibai_engine.data_collection.providers.multpl import MultplSource
 from baibai_engine.data_collection.providers.nikkei.indices import NikkeiIndexesSource
 from baibai_engine.data_collection.providers.university_of_michigan.sentiment import UmichScaSource
 from baibai_engine.data_collection.providers.yahoo import YahooChartSource
+from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
+from baibai_engine.data_collection.transport.context import FetchContext, IndicatorsProviderError
 
 
 def fetch_native_records(

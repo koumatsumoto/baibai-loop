@@ -1,9 +1,11 @@
 """保存済み観測の責務別読取。取得・公開は行わない。"""
 
 from __future__ import annotations
+
 import sqlite3
 from datetime import date
 from pathlib import Path
+
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current

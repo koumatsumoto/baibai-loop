@@ -2,7 +2,9 @@
 
 from collections.abc import Mapping, Sequence
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
 
 
 def boj_value(series: SeriesDefinition, record: Mapping[str, object]) -> float | None:

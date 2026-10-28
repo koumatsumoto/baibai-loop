@@ -8,6 +8,13 @@ from datetime import date
 import pytest
 from tests.engine.screening.metric_fixtures import _daily_bars, _security, _split_bar, _summary
 
+from baibai_engine.machine_analysis.historical_evaluation.forward import (
+    _asof_basis_dividend as _forward_asof_basis_dividend,
+)
+from baibai_engine.machine_analysis.historical_evaluation.forward import _FYDividendObservation
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_to_asof_basis,
     _normalize_summaries_with_status,
@@ -16,14 +23,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.dividends 
     _resolve_dividend_carry,
     build_shareholder_return_change_signals,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.historical_evaluation.forward import (
-    _asof_basis_dividend as _forward_asof_basis_dividend,
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
 )
-from baibai_engine.machine_analysis.historical_evaluation.forward import (
-    _FYDividendObservation,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 
@@ -374,7 +376,7 @@ class TradableShareChangeTest(unittest.TestCase):
     日本の自社株買いは取得した株式を自己株式へ入れるだけで、発行済株式総数は消却するまで
     減らない。carry の株数項が発行済で測られている限り、還元が起きた年は 0 で、現金の動かない
     消却年に符号が付く。当時の比較結果は既存 carry の維持として記録済み
-    (docs/reference/company-valuation.md#carry-policy)。ここでは 2 軸が別物であることを
+    (docs/reference/estimate-calibration.md#carry-policy)。ここでは 2 軸が別物であることを
     固定する。
     """
 
@@ -648,7 +650,9 @@ def test_unrelated_payment_and_share_disagreements_do_not_veto_annual_dps(tmp_pa
     from baibai_engine.machine_analysis.observations.financials.reader import (
         read_financial_documents,
     )
-    from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
+    from baibai_engine.machine_analysis.observations.jquants_writer import (
+        store_jquants_fin_summaries,
+    )
 
     day = date(2026, 5, 15)
     path = tmp_path / "market.sqlite"

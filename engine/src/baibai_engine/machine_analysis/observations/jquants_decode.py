@@ -8,9 +8,12 @@ from datetime import date, datetime
 from math import isfinite
 from typing import Any
 
-from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
+from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
 
 class JQuantsProviderError(RuntimeError):

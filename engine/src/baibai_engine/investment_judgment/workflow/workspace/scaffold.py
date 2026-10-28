@@ -10,8 +10,6 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from baibai_engine.storage.filesystem import write_text_atomic
-from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -24,7 +22,9 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     latest_assessment_id,
     load_reviewed_assessment,
 )
-from baibai_engine.investment_judgment.workflow.workspace.admission import require_authoring_selection
+from baibai_engine.investment_judgment.workflow.workspace.admission import (
+    require_authoring_selection,
+)
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
@@ -37,6 +37,8 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _validate_editable_drafts,
 )
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.filesystem import write_text_atomic
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 

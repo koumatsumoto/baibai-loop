@@ -14,12 +14,14 @@ from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, sto
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_market_calendar,
+    store_jquants_master,
+)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
 )
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar, store_jquants_master
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -36,8 +38,12 @@ from baibai_engine.storage.snapshots.writer import (
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
-from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 
 NAME = "tradingview.forecast_snapshots"
 

@@ -22,7 +22,9 @@ from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     DelistingRecord,
     resolve_delisting_archive_urls,
 )
-from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import resolve_earnings_calendar_urls
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
+    resolve_earnings_calendar_urls,
+)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXProviderError,

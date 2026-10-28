@@ -22,6 +22,46 @@ from pathlib import Path
 from typing import Literal
 
 from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.historical_evaluation.horizons import STALE_PRICE_MAX_LAG_DAYS
+from baibai_engine.machine_analysis.historical_evaluation.identity import rules_contract_hash
+from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
+    BARS_INPUT_WINDOW_DAYS,
+    FIN_INPUT_WINDOW_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
+    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
+    build_candidate_contexts,
+    candidate_discovery_method_hash,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
+    read_margin_supply_demand_inputs,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+    group_adjustment_events_by_ticker,
+    group_bars_by_ticker,
+    group_summaries_by_ticker,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    ScreeningRules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    StockAnalysis,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
+    stock_analysis_payload,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis,
+    expected_return_inputs,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
+    POLICY_EXCLUSION_REASONS,
+    UNIVERSE_SCOPE_REVISION,
+    build_universe,
+    candidate_comparison_population,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     build_shares_outstanding_index,
 )
@@ -42,45 +82,25 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.relative i
     SECTOR_MEDIAN_BASIS_MARKET,
     VALUATION_METRICS,
 )
-from baibai_engine.machine_analysis.models.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import read_margin_supply_demand_inputs
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
-    build_metrics,
-    group_adjustment_events_by_ticker,
-    group_bars_by_ticker,
-    group_summaries_by_ticker,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_metrics
-from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
-    BARS_INPUT_WINDOW_DAYS,
-    FIN_INPUT_WINDOW_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-    SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MARKET_CONTEXT_CALCULATION_REVISION,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_jpx_regulations
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_metrics,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.machine_analysis.observations.financials.reader import (
     fin_summaries_readable_from,
     read_fin_summaries,
 )
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_adjustment_factor_bars,
+    read_daily_bars,
+)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
 )
-from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-from baibai_engine.machine_analysis.observations.prices.price_reader import read_adjustment_factor_bars, read_daily_bars
-
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import build_candidate_contexts, candidate_discovery_method_hash
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import ScreeningRules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import StockAnalysis
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import stock_analysis_payload
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import build_stock_analysis, expected_return_inputs
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
-    POLICY_EXCLUSION_REASONS,
-    UNIVERSE_SCOPE_REVISION,
-    build_universe,
-    candidate_comparison_population,
-)
-from baibai_engine.machine_analysis.historical_evaluation.horizons import STALE_PRICE_MAX_LAG_DAYS
-from baibai_engine.machine_analysis.historical_evaluation.identity import rules_contract_hash
 
 PanelVariant = Literal["production", "pre2019_self_range_375"]
 CandidateDiscoveryInputStatus = Literal["complete", "incomplete", "unavailable"]

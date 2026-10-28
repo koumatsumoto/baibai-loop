@@ -11,20 +11,13 @@ from typing import TextIO, cast
 
 import yaml
 
-from baibai_engine.storage.filesystem import write_text_atomic
-from baibai_engine.machine_analysis.historical_evaluation.estimates import EXPECTED_RETURN_MODEL_VERSION
-from baibai_engine.storage.snapshots.retention import lake_writer_lock
-from baibai_engine.storage.snapshots.writer import (
-    LakeBuildError,
-    SealedSQLiteSnapshot,
-    sealed_sqlite_snapshot,
+from baibai_engine.machine_analysis.historical_evaluation.context import (
+    CalibrationContextError,
+    build_er_distribution_context,
 )
-from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
-
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import APPROACH_IDS
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import ScreeningRules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
-from baibai_engine.machine_analysis.historical_evaluation.context import CalibrationContextError, build_er_distribution_context
+from baibai_engine.machine_analysis.historical_evaluation.estimates import (
+    EXPECTED_RETURN_MODEL_VERSION,
+)
 from baibai_engine.machine_analysis.historical_evaluation.evaluation import evaluate_cohorts
 from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
@@ -50,6 +43,15 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     read_failure_exits,
 )
 from baibai_engine.machine_analysis.historical_evaluation.grid import month_end_asof_grid
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    APPROACH_IDS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    ScreeningRules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
+    production_rules_contract_hash,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PANEL_BUILD_POLICIES,
     PRODUCTION_PANEL_POLICY,
@@ -75,6 +77,14 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
     write_forward,
     write_panel,
 )
+from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.storage.snapshots.retention import lake_writer_lock
+from baibai_engine.storage.snapshots.writer import (
+    LakeBuildError,
+    SealedSQLiteSnapshot,
+    sealed_sqlite_snapshot,
+)
+from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
 
 
 def calibration_build_command(

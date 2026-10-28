@@ -7,10 +7,12 @@ from datetime import date, timedelta
 from tests.engine.screening.metric_fixtures import _security, _summary
 from tests.engine.screening.metric_snapshot_fixtures import SnapshotFixtures
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     build_shareholder_return_change_signals,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 

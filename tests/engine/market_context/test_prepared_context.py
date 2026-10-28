@@ -9,20 +9,20 @@ import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
-from baibai_engine.machine_analysis.generation.runners.security_context import (
-    build_security_market_context,
-    build_security_market_contexts,
-)
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
     prepare_market_context_from_bars,
     prepare_market_context_inputs,
 )
+from baibai_engine.machine_analysis.generation.runners.security_context import (
+    build_security_market_context,
+    build_security_market_contexts,
+)
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 5, 30)
@@ -116,7 +116,8 @@ def test_shared_security_reads_only_its_long_history(context_store: Path, mocker
     assert securities.items.call_count == 1
     read = mocker.spy(
         __import__(
-            "baibai_engine.machine_analysis.generation.runners.security_context", fromlist=["read_price_bars"]
+            "baibai_engine.machine_analysis.generation.runners.security_context",
+            fromlist=["read_price_bars"],
         ),
         "read_price_bars",
     )
@@ -254,10 +255,12 @@ def test_shared_bar_input_never_requeries_sparse_benchmark_or_peers(context_stor
         raise AssertionError("generation must reuse its shared price input")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_price_bars", forbidden
+        "baibai_engine.machine_analysis.generation.runners.market_snapshot.read_price_bars",
+        forbidden,
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.security_context.read_price_bars", forbidden
+        "baibai_engine.machine_analysis.generation.runners.security_context.read_price_bars",
+        forbidden,
     )
     prepared = prepare_market_context_from_bars(
         sqlite_path=context_store,

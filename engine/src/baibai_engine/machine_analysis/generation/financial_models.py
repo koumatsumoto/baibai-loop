@@ -7,25 +7,31 @@ from collections.abc import Sequence
 from dataclasses import asdict, replace
 from datetime import date
 
-from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
-from baibai_engine.machine_analysis.observations.financials.jquants_models import (
-    JQuantsFinancialSummary,
-)
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, PriceBar
-
-from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.models.company_financials.earnings import earnings_price
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
     build_financial_snapshot,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
-from baibai_engine.machine_analysis.models.technical_analysis.calculations import TECHNICAL_CALCULATION_REVISION
-from baibai_engine.machine_analysis.models.technical_analysis.generation import generate_technical_analysis
+from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
+from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
+    TECHNICAL_CALCULATION_REVISION,
+)
+from baibai_engine.machine_analysis.models.technical_analysis.generation import (
+    generate_technical_analysis,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    PriceBar,
+)
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.stocks import normalize_ticker
 
 _GROWTH_FIELDS = frozenset(
     {"eps_yoy", "sales_yoy", "operating_profit_yoy", "cfo_yoy", "operating_profit_loss_narrowing"}

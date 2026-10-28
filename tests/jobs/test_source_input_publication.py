@@ -17,7 +17,9 @@ def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic
     economic = tmp_path / "economic.sqlite"
     with closing(initialize_database(economic)):
         pass
-    monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("tradingview",))
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("tradingview",)
+    )
     monkeypatch.setattr(
         "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
     )

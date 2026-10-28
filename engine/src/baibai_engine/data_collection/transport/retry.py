@@ -13,9 +13,8 @@ from urllib3.exceptions import DecodeError, HTTPError, InvalidHeader, ProtocolEr
 from urllib3.response import BaseHTTPResponse, HTTPResponse
 from urllib3.util import Retry
 
-from baibai_engine.data_collection.transport.http import check_acquisition_deadline
-
 from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
+from baibai_engine.data_collection.transport.http import check_acquisition_deadline
 
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})

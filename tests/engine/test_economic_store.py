@@ -5,9 +5,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+from baibai_engine.cli.market_reading import main as reading_main
 from baibai_engine.data_collection.receipts.native_sources import store as store
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
-from baibai_engine.cli.market_reading import main as reading_main
 
 
 def test_read_only_connection_encodes_uri_metacharacters_and_rejects_writes(tmp_path):
@@ -86,12 +86,14 @@ def test_native_withdrawal_removes_derived_reading_without_scalar_history(tmp_pa
         store_mof_observations,
     )
 
-    from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
     from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
     from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
         build_store_observation_reader,
+    )
+    from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+        IndicatorsService,
     )
 
     path = tmp_path / "sources.sqlite"

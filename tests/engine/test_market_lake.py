@@ -12,8 +12,8 @@ from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.cli.app import DOMAINS
-from baibai_engine.storage.snapshots import models as lake_models
 from baibai_engine.cli.snapshots import main as lake_main
+from baibai_engine.storage.snapshots import models as lake_models
 from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.snapshots.inventory import inventory
 from baibai_engine.storage.snapshots.keys import (

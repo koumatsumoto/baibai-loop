@@ -3,11 +3,17 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, store_document
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    store_document,
+)
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
-from baibai_engine.data_collection.receipts.native_sources.store import initialize_database, row_count
-from baibai_jobs.integration.native_source_merge import merge_stores
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    initialize_database,
+    row_count,
+)
 from baibai_engine.storage.sqlite.merge import MergeError
+from baibai_jobs.integration.native_source_merge import merge_stores
 
 DAY = date(2026, 7, 20)
 WHEN = datetime(2026, 7, 21, tzinfo=UTC)

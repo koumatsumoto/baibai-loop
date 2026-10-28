@@ -14,8 +14,13 @@ from tests.engine.test_external_assessment_sources import (
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex, rakuten
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    monex,
+    rakuten,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt,
+)
 
 
 class Clock:

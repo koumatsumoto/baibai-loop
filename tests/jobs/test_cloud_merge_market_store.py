@@ -10,8 +10,12 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import filing_identity
-from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_short_sale_reports
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    filing_identity,
+)
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_short_sale_reports,
+)
 from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
@@ -962,7 +966,9 @@ def test_shared_clean_financial_claim_is_checked_before_target_wins(tmp_path, so
 
 @pytest.mark.parametrize("newer_side", ["source", "target"])
 def test_short_sale_partial_refetch_cannot_be_relabelled_complete_by_merge(tmp_path, newer_side):
-    from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import read_short_sale_reports
+    from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+        read_short_sale_reports,
+    )
 
     stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
     day = date(2026, 8, 1)

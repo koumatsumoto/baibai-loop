@@ -10,11 +10,14 @@ from pathlib import Path
 
 import yaml
 
-from baibai_engine.storage.paths import RUNS_DB_PATH
-from baibai_engine.primitives.time import JST
-from baibai_engine.storage.yaml import safe_load
-from baibai_engine.investment_judgment.workflow.operation.models import SESSION_KINDS, OperationPayload
+from baibai_engine.investment_judgment.workflow.operation.models import (
+    SESSION_KINDS,
+    OperationPayload,
+)
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.primitives.time import JST
+from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.storage.paths import RUNS_DB_PATH
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     DeferItem,
     GateReason,
@@ -16,6 +15,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
+from baibai_engine.primitives.time import JST
 
 
 def scaffold_proposal(

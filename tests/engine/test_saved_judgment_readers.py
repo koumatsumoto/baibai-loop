@@ -11,15 +11,18 @@ from tests.helpers.assessment_v1 import assessment_id, pair_payload, review_id, 
 from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_proposal
 from tests.helpers.screening_sqlite import seed_daily_bars
 
-from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
+from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     load_latest_reviewed_assessment,
     load_reviewed_assessment,
     require_assessment_ref,
 )
-from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    TradeProposal,
+    proposal_draft_sha256,
+)
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,

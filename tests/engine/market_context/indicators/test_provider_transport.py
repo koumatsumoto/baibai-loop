@@ -13,19 +13,19 @@ from tests.engine.market_context.indicators.indicator_fixtures import (
     _StaticSession,
 )
 
-from baibai_engine.data_collection.transport.context import IndicatorsProviderError
-from baibai_engine.data_collection.providers.ecb.fx import parse_ecb_reference_csv
 from baibai_engine.data_collection.provider_registry import provider_spec
+from baibai_engine.data_collection.providers.ecb.fx import parse_ecb_reference_csv
+from baibai_engine.data_collection.providers.fred import FredSource
 from baibai_engine.data_collection.transport.context import (
     BrowserUnavailableError,
     FetchContext,
     HttpSession,
+    IndicatorsProviderError,
     SourceWithheldError,
     fetch_bytes,
     fetch_text,
     store_fetched_bytes,
 )
-from baibai_engine.data_collection.providers.fred import FredSource
 
 
 class IndicatorsProviderParserTests(TestCase):

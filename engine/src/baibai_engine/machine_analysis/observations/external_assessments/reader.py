@@ -8,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_FORECAST_COLUMNS,
     ANALYST_FORECAST_TABLE,
@@ -19,6 +18,15 @@ from baibai_engine.machine_analysis.observations.external_assessments.contract i
     QUANTS_SCORE_COLUMNS,
     QUANTS_SCORE_TABLE,
     Column,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    AnalystForecastHistory,
+    AnalystRatingHistory,
+    ModelValuationHistory,
+    ObservationHistory,
+    QuantsScoreHistory,
+    TradingViewHistory,
+    TradingViewObservation,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystForecastObservation,
@@ -34,17 +42,8 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     TABLE as TV_TABLE,
 )
+from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
-
-from baibai_engine.machine_analysis.observations.external_assessments.history import (
-    AnalystForecastHistory,
-    AnalystRatingHistory,
-    ModelValuationHistory,
-    ObservationHistory,
-    QuantsScoreHistory,
-    TradingViewHistory,
-    TradingViewObservation,
-)
 
 
 def _latest_rows(

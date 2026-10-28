@@ -11,10 +11,10 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.publication.snapshot_publication as publish_module
-from baibai_engine.storage.snapshots.writer import LakeBuildError
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
+from baibai_engine.storage.snapshots.writer import LakeBuildError
 from baibai_jobs.publication.lease import _save_handle, acquire
 
 ROOT = Path(__file__).resolve().parents[2]

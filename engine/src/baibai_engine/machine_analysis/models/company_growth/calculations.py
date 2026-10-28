@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, timedelta
 
-from baibai_engine.primitives.dates import add_months_clamped
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    Change,
+    Metric,
+    Observation,
+    PeriodState,
+    SourceDocument,
+    Value,
+)
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
@@ -26,8 +33,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-
-from baibai_engine.machine_analysis.models.company_growth.models import Change, Metric, Observation, PeriodState, SourceDocument, Value
+from baibai_engine.primitives.dates import add_months_clamped
 
 # Source names map meanings, not fallback priorities. NP is parent profit only for group statements.
 _AMOUNT_FIELDS: tuple[tuple[Metric, str], ...] = (

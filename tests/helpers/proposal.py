@@ -6,15 +6,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
-from baibai_engine.investment_judgment.workflow.operation.service import OperationService
-from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
-from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
-from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
-from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
-from baibai_engine.storage.sqlite.application.write import initialize_database
 from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,
@@ -24,6 +15,19 @@ from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import seed_daily_bars
+
+from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
+from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    TradeProposal,
+    proposal_draft_sha256,
+)
+from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
+from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
+from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.storage.sqlite.application.write import initialize_database
 
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")

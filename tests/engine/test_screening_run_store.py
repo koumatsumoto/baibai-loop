@@ -11,22 +11,32 @@ import yaml
 from tests.engine.test_candidate_discovery import GOLDEN, _analysis
 from tests.helpers.screening_run import saved_candidate, seed_saved_run
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import APPROACH_IDS
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.projection import candidate_rows
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
+import baibai_engine.storage.sqlite.machine_analysis as machine_store
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
+    APPROACH_IDS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.projection import (
+    candidate_rows,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
+    production_rules_contract_hash,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
     ScreeningRunStore,
     initialize_run_store,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import StockAnalysis
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    StockAnalysis,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
     published_run_payload,
     serialize_published_run_yaml,
     stock_analysis_payload,
 )
-import baibai_engine.storage.sqlite.machine_analysis as machine_store
 from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
 RULES = load_screening_rules()

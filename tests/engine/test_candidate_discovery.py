@@ -7,7 +7,9 @@ from random import Random
 
 import pytest
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery import candidates as candidates_module
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery import (
+    candidates as candidates_module,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
     CandidateDiscoveryContractError,
     build_candidate_contexts,
@@ -23,7 +25,9 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
     candidate_rows,
     reinvestment_coordinates,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
 
 SCREENING_RULES = load_screening_rules()
 RULES = SCREENING_RULES.candidate_discovery

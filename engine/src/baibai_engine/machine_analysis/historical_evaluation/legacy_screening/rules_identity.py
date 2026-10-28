@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from baibai_engine.machine_analysis.historical_evaluation.identity import rules_contract_hash
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import UNIVERSE_SCOPE_REVISION
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
+    UNIVERSE_SCOPE_REVISION,
+)
 
 
 def production_rules_contract_hash(
@@ -11,6 +13,9 @@ def production_rules_contract_hash(
 ) -> str:
     """Keep the historical production-variant identity used by calibration contexts."""
 
+    from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
+        BARS_INPUT_WINDOW_DAYS,
+    )
     from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
         VALUATION_CALCULATION_REVISION,
     )
@@ -20,7 +25,6 @@ def production_rules_contract_hash(
     from baibai_engine.machine_analysis.models.market_context.margin import (
         MARKET_CONTEXT_CALCULATION_REVISION,
     )
-    from baibai_engine.machine_analysis.historical_evaluation.input_windows import BARS_INPUT_WINDOW_DAYS
 
     return rules_contract_hash(
         rules_json,

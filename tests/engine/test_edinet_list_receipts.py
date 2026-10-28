@@ -19,7 +19,6 @@ from baibai_engine.data_collection.providers.edinet.receipts import (
     retain_list_response,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -27,6 +26,7 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 _DAY = date(2026, 10, 15)
 

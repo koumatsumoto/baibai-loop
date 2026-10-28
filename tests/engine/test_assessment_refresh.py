@@ -14,7 +14,6 @@ from tests.helpers.assessment_v1 import (
     update_review_hash,
 )
 
-from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price, project_return
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -25,6 +24,10 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     evaluate_assessment,
 )
 from baibai_engine.investment_judgment.stock_assessment.refresh import scaffold_assessment_refresh
+from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    maximum_entry_price,
+    project_return,
+)
 from baibai_engine.investment_judgment.stock_assessment.store import (
     ResearchValidationError,
     load_reviewed_assessment,
@@ -431,8 +434,8 @@ def test_same_day_refresh_publish_rejects_checks_before_the_prior_pair(
 
 @pytest.mark.parametrize("fault", ["assessed_at", "checked_at"])
 def test_same_day_refresh_read_rechecks_authoritative_prior_time(connection, fault):
-    from baibai_engine.primitives.json import canonical_json
     from baibai_engine.investment_judgment.stock_assessment.document import assessment_core_hash
+    from baibai_engine.primitives.json import canonical_json
 
     prior = same_day_prior(connection)
     draft, review = same_day_refresh(

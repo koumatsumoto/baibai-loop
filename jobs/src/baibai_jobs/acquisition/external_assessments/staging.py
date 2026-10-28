@@ -12,6 +12,10 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+    ObjectStore,
+)
 from baibai_jobs.acquisition.external_assessments.cohorts import (
     CohortResult,
     RunPlan,
@@ -26,10 +30,6 @@ from baibai_jobs.acquisition.external_assessments.identity import (
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
     STAGE_FORMAT,
-)
-from baibai_engine.storage.objects.r2 import (
-    LakePublishError,
-    ObjectStore,
 )
 
 MAX_PRIVATE_OBJECT_BYTES = 2_000_000

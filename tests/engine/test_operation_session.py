@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.research_selection import selection
 
-from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.workflow.operation.cli import main as operation_main
 from baibai_engine.investment_judgment.workflow.operation.models import (
     SESSION_KINDS,
@@ -24,6 +23,7 @@ from baibai_engine.investment_judgment.workflow.operation.service import (
     OperationConflictError,
     OperationService,
 )
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)

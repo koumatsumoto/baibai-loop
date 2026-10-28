@@ -7,23 +7,27 @@ import pytest
 from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
+import baibai_engine.data_collection.providers.spglobal.pmi as spglobal_pmi
+import baibai_engine.machine_analysis.observations.economic_indicators.pmi as pmi
+import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
+from baibai_engine.data_collection.catalog import require_source
+from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
 from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-import baibai_engine.data_collection.providers.spglobal.pmi as spglobal_pmi
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     IndicatorsProviderError,
 )
-from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
-from baibai_engine.data_collection.catalog import require_source
-import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
-import baibai_engine.machine_analysis.observations.economic_indicators.pmi as pmi
-from baibai_engine.machine_analysis.observations.economic_indicators.documents import read_document_series
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.documents import (
+    read_document_series,
+)
 
 WHEN = datetime(2026, 10, 17, tzinfo=UTC)
 MONTH = date(2026, 6, 1)

@@ -11,14 +11,24 @@ from pathlib import Path
 from typing import cast
 
 from baibai_engine.data_collection.receipts.native_sources import store as economic_store
-from baibai_engine.data_collection.receipts.native_sources.store import DEFAULT_DB_PATH, EconomicSchemaError
+from baibai_engine.data_collection.receipts.native_sources.store import (
+    DEFAULT_DB_PATH,
+    EconomicSchemaError,
+)
 from baibai_engine.machine_analysis.generation.runners.market_reading import (
     read_store_snapshot,
     store_snapshot_payload,
 )
-
-from baibai_engine.machine_analysis.models.market_context.reading.models import ReadingSnapshot, SeriesReading
-from baibai_engine.machine_analysis.models.market_context.reading.rules import DEFAULT_RULES_PATH, ReadingRulesError
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    DEFAULT_RULES_PATH,
+)
+from baibai_engine.machine_analysis.models.market_context.reading.models import (
+    ReadingSnapshot,
+    SeriesReading,
+)
+from baibai_engine.machine_analysis.models.market_context.reading.rules import (
+    ReadingRulesError,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

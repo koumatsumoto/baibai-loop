@@ -22,7 +22,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
-from baibai_jobs.schedule import acquisition_target_date, batch_target_date
 from baibai_jobs.observability.discord import (
     DEFAULT_TIMEOUT_SECONDS,
     WEBHOOK_ENV_VAR,
@@ -33,6 +32,7 @@ from baibai_jobs.observability.discord import (
     run_url,
     sanitize_one_line,
 )
+from baibai_jobs.schedule import acquisition_target_date, batch_target_date
 
 WATCHED_WORKFLOW = "cloud-daily-batch"
 RUNS_SHOWN = 5

@@ -10,10 +10,13 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.paths import RUNS_DB_PATH
-from baibai_engine.storage.sqlite.read import read_rows
-from baibai_engine.primitives.time import JST
+from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
+from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    TradeProposal,
+    proposal_draft_sha256,
+)
+from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
@@ -38,14 +41,14 @@ from baibai_engine.investment_judgment.workflow.operation.validation import (
 )
 from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelection
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
-from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
-from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
-from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
+from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.paths import RUNS_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.read import read_rows
 
 
 class OperationNotFoundError(ValueError):

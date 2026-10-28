@@ -5,7 +5,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 import tools.pmi_manifest as tool
+from baibai_engine.data_collection.providers.spglobal.pmi import (
+    MANIFEST_PATH,
+    load_manifest,
+)
+from baibai_engine.data_collection.transport.context import (
+    FetchContext,
+    IndicatorsProviderError,
+)
 from tools.pmi_manifest import (
     STREAM_TITLES,
     IndexEntry,
@@ -17,15 +26,6 @@ from tools.pmi_manifest import (
     parse_release_index,
     resolve_stream,
     verified_value,
-)
-
-from baibai_engine.data_collection.transport.context import (
-    FetchContext,
-    IndicatorsProviderError,
-)
-from baibai_engine.data_collection.providers.spglobal.pmi import (
-    MANIFEST_PATH,
-    load_manifest,
 )
 
 _JP_MFG_URL = (

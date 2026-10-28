@@ -7,7 +7,10 @@ from collections import defaultdict
 from collections.abc import Collection
 from datetime import date
 
-from baibai_engine.machine_analysis.observations.prices.price_observation import PriceDayState, classify_price_day
+from baibai_engine.machine_analysis.observations.prices.price_observation import (
+    PriceDayState,
+    classify_price_day,
+)
 
 
 def read_price_day_states(

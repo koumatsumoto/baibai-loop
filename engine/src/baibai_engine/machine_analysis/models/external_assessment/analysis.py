@@ -4,22 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from baibai_engine.machine_analysis.observations.external_assessments.models import (
-    QUANTS_METRICS,
-    VALUATION_METRICS,
-    Observation,
-    utc_datetime,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FIELDS
-
-from baibai_engine.machine_analysis.observations.external_assessments.history import (
-    AnalystForecastHistory,
-    AnalystRatingHistory,
-    ModelValuationHistory,
-    ObservationHistory,
-    QuantsScoreHistory,
-    TradingViewHistory,
-)
 from baibai_engine.machine_analysis.models.external_assessment.models import (
     AnalystRatingAssessment,
     ExternalAssessment,
@@ -29,6 +13,23 @@ from baibai_engine.machine_analysis.models.external_assessment.models import (
     OriginReference,
     QuantsScoreAssessment,
     TradingViewAssessment,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
+    AnalystForecastHistory,
+    AnalystRatingHistory,
+    ModelValuationHistory,
+    ObservationHistory,
+    QuantsScoreHistory,
+    TradingViewHistory,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    QUANTS_METRICS,
+    VALUATION_METRICS,
+    Observation,
+    utc_datetime,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+    FIELDS,
 )
 
 FORECAST_METRICS = tuple(

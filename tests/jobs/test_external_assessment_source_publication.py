@@ -12,41 +12,59 @@ from tests.engine.test_minkabu import html as minkabu_html
 from tests.engine.test_minkabu import no_coverage_html
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
-    integrate_ready_plans,
-    pair_responses,
-    ready_reference,
-    upload_bundle,
 )
 from tests.jobs.external_assessment_publication_fixtures import _plan as _plan
 from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
+from tests.jobs.external_assessment_publication_fixtures import (
+    integrate_ready_plans,
+    pair_responses,
+)
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
+from tests.jobs.external_assessment_publication_fixtures import ready_reference, upload_bundle
 from tests.jobs.test_external_assessment_raw import Session
 from tests.jobs.test_external_assessment_raw import connect as connect
 
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.integration.external_assessments as integration
+import baibai_jobs.publication.snapshot_publication as publisher
 from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
-from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
-from baibai_engine.storage.snapshots.equity_web_verification import history_digests as equity_web_history_digests
-from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses as equity_web_import_responses
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
-from baibai_jobs.publication.external_assessment_verification import history_digests as external_assessment_history_digests
-from baibai_engine.machine_analysis.observations.external_assessments.normalization import ParseError
 from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    ParseError,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt as external_assessment_decode_attempt,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.rebuild import (
+    rebuild_attempts,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.equity_web_verification import (
+    history_digests as equity_web_history_digests,
+)
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.equity_web_import import (
+    import_responses as equity_web_import_responses,
+)
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-import baibai_jobs.acquisition.external_assessments.daily as daily
-import baibai_jobs.integration.external_assessments as integration
 from baibai_jobs.acquisition.external_assessments.cohorts import new_result, record_outcome
-import baibai_jobs.publication.snapshot_publication as publisher
-from baibai_jobs.integration.external_assessment_ready import available_ready
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
 from baibai_jobs.acquisition.external_assessments.staging import CohortStage, stage_bytes, stage_key
+from baibai_jobs.integration.external_assessment_ready import available_ready
+from baibai_jobs.publication.external_assessment_verification import (
+    history_digests as external_assessment_history_digests,
+)
 
 
 def _publish(publication, plan, suffix):

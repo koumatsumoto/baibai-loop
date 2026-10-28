@@ -7,7 +7,10 @@ from datetime import date
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.machine_analysis.observations.financials.metric_quality import OperatingProfitSource, TTMQuality
+from baibai_engine.machine_analysis.observations.financials.metric_quality import (
+    OperatingProfitSource,
+    TTMQuality,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import validate_finite
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False, validate_assignment=False)
@@ -19,7 +22,7 @@ class TTMRules(BaseModel):
     """変則決算や前年期間のずれを区別し、別期間の利益をTTMへ混ぜない。
 
     算術の期間照合であり、購入の要求期間ではない。
-    docs/reference/company-valuation.md
+    docs/reference/company-financials.md
     """
 
     model_config = ConfigDict(frozen=True, strict=True)

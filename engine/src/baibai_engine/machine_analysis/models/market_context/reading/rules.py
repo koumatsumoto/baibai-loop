@@ -11,15 +11,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-
-from baibai_engine.storage.paths import READING_RULES_PATH
-from baibai_engine.storage.yaml import strict_safe_load
-
-DEFAULT_RULES_PATH = READING_RULES_PATH
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 type FlagComparison = Literal["below", "at_or_below", "above", "at_or_above"]
 
@@ -211,35 +205,6 @@ class ResolvedRule(_StrictModel):
         return asof > self.stale_after(observed_at)
 
 
-def load_reading_rules(path: Path = DEFAULT_RULES_PATH) -> ReadingRules:
-    """Load a revision, rejecting a file that names the same series twice.
-
-    A series is overridden for several unrelated reasons (its window, its statistic, its
-    publication lag), so a second entry for one series is an easy edit to make. Plain YAML
-    would keep the last one and silently drop the settings above it, which reads as a rule
-    that was applied.
-    """
-
-    try:
-        raw = strict_safe_load(path.read_text(encoding="utf-8"))
-    except ValueError as exc:
-        raise ReadingRulesError(f"invalid Reading rules: {path}: {exc}") from exc
-    except OSError as exc:
-        raise ReadingRulesError(f"failed to read Reading rules: {path}: {exc}") from exc
-    if not isinstance(raw, Mapping):
-        raise ReadingRulesError(f"Reading rules root must be a mapping: {path}")
-    try:
-        return ReadingRules.model_validate(raw)
-    except ValidationError as exc:
-        raise ReadingRulesError(f"invalid Reading rules: {path}: {exc}") from exc
-
-
-def rules_revision(path: Path = DEFAULT_RULES_PATH) -> str:
-    """The revision identity of a rules file: its dated stem."""
-
-    return path.stem
-
-
 def _default_sampling_cadence(frequency: str) -> SamplingCadence:
     if frequency == "monthly":
         return "monthly"
@@ -298,7 +263,6 @@ def window_start(asof: date, years: int) -> date:
 
 
 __all__ = [
-    "DEFAULT_RULES_PATH",
     "PUBLICATION_INTERVAL_DAYS",
     "PublicationCadence",
     "ReadingRules",
@@ -308,7 +272,5 @@ __all__ = [
     "SamplingCadence",
     "SeriesOverride",
     "ThresholdFlag",
-    "load_reading_rules",
-    "rules_revision",
     "window_start",
 ]

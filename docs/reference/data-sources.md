@@ -18,7 +18,7 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
-財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[企業価値](company-valuation.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
+財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通の財務観測が原本文書を読み、[企業財務](company-financials.md)が予想・実績の比較座標を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 
 JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
 

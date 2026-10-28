@@ -26,16 +26,6 @@ from tests.helpers.screening_sqlite import (
     insert_financial_record,
 )
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
-    VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_profitability_level_signals,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import MARKET_CONTEXT_CALCULATION_REVISION
 from baibai_engine.cli.historical_calibration import (
     calibration_build_command,
     calibration_evaluate_command,
@@ -46,6 +36,21 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     ForwardReturnRow,
 )
 from baibai_engine.machine_analysis.historical_evaluation.identity import rules_contract_hash
+from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
+    BARS_INPUT_WINDOW_DAYS,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
+    candidate_discovery_method_hash,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
+    production_rules_contract_hash,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
+    UNIVERSE_SCOPE_REVISION,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PRE2019_SELF_RANGE_POLICY,
     build_panel,
@@ -61,13 +66,18 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
     write_forward,
     write_panel,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
-    candidate_discovery_method_hash,
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    VALUATION_CALCULATION_REVISION,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import production_rules_contract_hash
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import UNIVERSE_SCOPE_REVISION
-from baibai_engine.machine_analysis.historical_evaluation.input_windows import BARS_INPUT_WINDOW_DAYS
+from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
+    build_profitability_level_signals,
+)
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MARKET_CONTEXT_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

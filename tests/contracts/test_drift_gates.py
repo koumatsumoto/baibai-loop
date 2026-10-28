@@ -4,14 +4,14 @@ import argparse
 from pathlib import Path
 
 import pytest
+
+from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 from tools.quality.drift import (
     check_cli_help,
     check_documented_commands,
     check_markdown_links,
     check_repository_paths,
 )
-
-from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 
 ROOT = Path(__file__).resolve().parents[2]
 

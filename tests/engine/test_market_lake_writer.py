@@ -13,7 +13,6 @@ import pyarrow.parquet as pq
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tools.diagnostics.benchmark_lake_export import benchmark
 
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.snapshots import identity as identity_module
@@ -34,8 +33,12 @@ from baibai_engine.storage.snapshots.writer import (
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
-from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from tools.diagnostics.benchmark_lake_export import benchmark
 
 _COMMIT = "a" * 40
 

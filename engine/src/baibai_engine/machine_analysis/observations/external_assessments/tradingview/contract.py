@@ -1,6 +1,8 @@
 """Physical snapshot columns shared by SQLite and the existing Lake contract."""
 
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FIELDS
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+    FIELDS,
+)
 
 TABLE = "tradingview_forecast_snapshots"
 # name, SQLite type, nullable, primary-key order

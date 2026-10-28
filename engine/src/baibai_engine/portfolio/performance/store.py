@@ -9,13 +9,14 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.portfolio.performance.contracts import (
+    PortfolioOutcomePayload as PortfolioOutcomePayload,
+)
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.sqlite.read import read_rows
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
-
-from baibai_engine.portfolio.performance.contracts import PortfolioOutcomePayload as PortfolioOutcomePayload
+from baibai_engine.storage.sqlite.read import read_rows
 
 
 class PortfolioOutcomeConflictError(ValueError):

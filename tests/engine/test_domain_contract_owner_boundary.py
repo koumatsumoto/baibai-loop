@@ -12,12 +12,14 @@ import pytest
 import yaml
 from tests.helpers.er_calibration_context import context_artifact
 
-from baibai_engine.storage.yaml import safe_load
 from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     candidate_er_band_context,
     load_er_calibration_context,
 )
-from baibai_engine.machine_analysis.observations.prices.jpx_total_return import load_benchmark_observation
+from baibai_engine.machine_analysis.observations.prices.jpx_total_return import (
+    load_benchmark_observation,
+)
+from baibai_engine.primitives.yaml import safe_load
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,7 +56,7 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
     assert not [
         name
         for name in json.loads(result.stdout)
-        if name not in {"baibai_engine.storage", "baibai_engine.storage.yaml"}
+        if name not in {"baibai_engine.storage", "baibai_engine.primitives.yaml"}
         and any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
     ]
 

@@ -9,7 +9,26 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.financials.financial_documents import required_disclosure_number
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    required_disclosure_number,
+)
+from baibai_engine.machine_analysis.observations.jquants_decode import (
+    normalize_ex_right_type,
+    provider_record_payload,
+)
+from baibai_engine.machine_analysis.observations.normalization import (
+    NormalizedRows,
+    code_quality,
+    date_iso,
+    distinct_source_rows,
+    to_float,
+    to_str_or_none,
+)
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
+    MASTER_SOURCE,
+    master_coverage_key,
+    validate_master_snapshot,
+)
 from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     ALL_ISSUES_DAILY_MARGIN_SOURCE,
     MARGIN_ALERT_OPERATION,
@@ -20,23 +39,9 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
-from baibai_engine.machine_analysis.observations.jquants_decode import normalize_ex_right_type, provider_record_payload
 from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,
-)
-from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
-    MASTER_SOURCE,
-    master_coverage_key,
-    validate_master_snapshot,
-)
-from baibai_engine.machine_analysis.observations.normalization import (
-    NormalizedRows,
-    code_quality,
-    date_iso,
-    distinct_source_rows,
-    to_float,
-    to_str_or_none,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     delete_date_range,

@@ -7,12 +7,18 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from baibai_engine.data_collection.providers.jpx.receipts import JPXBundleError, read_complete_bundle
+from baibai_engine.data_collection.providers.jpx.receipts import (
+    JPXBundleError,
+    read_complete_bundle,
+)
+from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.data_collection.receipts.merge import copy_originals
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection, validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    open_connection,
+    validate_current_schema,
+)
 
 # These three owners replace their entire current view. Regulations replace only
 # one as-of day. Keep these contracts explicit rather than using a provider LWW.

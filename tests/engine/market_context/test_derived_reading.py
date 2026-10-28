@@ -10,10 +10,14 @@ from tests.helpers.indicator_store import (
     observation,
 )
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.derived import derive_series
 from baibai_engine.machine_analysis.observations.economic_indicators.formulas import FORMULAS
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
 
 
 class DerivedReadingTests(TestCase):

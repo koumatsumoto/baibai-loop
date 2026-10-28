@@ -16,19 +16,26 @@ from tests.engine.test_external_assessment_sources import (
 )
 from tests.engine.test_kabumap import html as kabumap_html
 
-from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses, retain_response
 from baibai_engine.cli.external_assessment import main as assessment_main
+from baibai_engine.data_collection.receipts.public_pages.receipts import (
+    read_responses,
+    retain_response,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.identity import (
+    MODEL_VALUATION_TABLE,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     kabumap,
     monex,
     rakuten,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
-from baibai_engine.machine_analysis.observations.external_assessments.identity import (
-    MODEL_VALUATION_TABLE,
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts
+from baibai_engine.machine_analysis.observations.external_assessments.rebuild import (
+    rebuild_attempts,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 

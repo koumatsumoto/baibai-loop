@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from baibai_jobs.maintenance.market import cli as app
 import baibai_jobs.integration.source_handoff as source_handoff
+from baibai_jobs.maintenance.market import cli as app
 
 
 @pytest.mark.parametrize("source", source_handoff.SOURCES[1:])

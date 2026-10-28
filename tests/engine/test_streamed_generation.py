@@ -6,20 +6,22 @@ from contextlib import closing
 import pytest
 from tests.engine.test_model_generation_store import generation
 
-from baibai_engine.primitives.json import canonical_json
 import baibai_engine.machine_analysis.generation.store as generation_store
-from baibai_engine.machine_analysis.generation.store import (
-    GenerationConflictError,
-    ModelGenerationStore,
-)
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
     ModelGenerationStream,
 )
+from baibai_engine.machine_analysis.generation.store import (
+    GenerationConflictError,
+    ModelGenerationStore,
+)
 from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_view_selection import select_saved_generation
+from baibai_engine.machine_analysis.screening.policies.two_view_selection import (
+    select_saved_generation,
+)
 from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.primitives.json import canonical_json
 
 
 def stream(original, models=None):

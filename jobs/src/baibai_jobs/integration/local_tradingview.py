@@ -18,17 +18,19 @@ from types import FrameType
 
 from dotenv import load_dotenv
 
+import baibai_jobs.publication.lease as lease
 from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_jobs.observability.tradingview import failure_line as tradingview_failure_line
-from baibai_jobs.acquisition.tradingview.collector import preflight_snapshot as tradingview_preflight
-from baibai_jobs.observability.tradingview import safe_progress as tradingview_safe_progress
-from baibai_jobs.schedule import resolve_tradingview_target
+from baibai_jobs.acquisition.tradingview.collector import (
+    preflight_snapshot as tradingview_preflight,
+)
 from baibai_jobs.integration.tradingview_receipts import (
     KNOWN_FAILURES,
     can_publish_failure_receipts,
     count_layer_rows,
 )
-import baibai_jobs.publication.lease as lease
+from baibai_jobs.observability.tradingview import failure_line as tradingview_failure_line
+from baibai_jobs.observability.tradingview import safe_progress as tradingview_safe_progress
+from baibai_jobs.schedule import resolve_tradingview_target
 
 ROOT = Path(__file__).resolve().parents[4]
 FETCH_TIMEOUT = 30 * 60

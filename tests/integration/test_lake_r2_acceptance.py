@@ -16,6 +16,12 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
 from baibai_engine.storage.snapshots import models as lake_models
 from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
@@ -34,12 +40,6 @@ from baibai_engine.storage.snapshots.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.snapshots.reader import resolve_current_release
 from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
 from baibai_engine.storage.snapshots.writer import export_market_store
-from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
-    LakeCASConflict,
-    LakePublishError,
-    RemoteObject,
-)
 from baibai_jobs.publication.snapshot_release import (
     publish_release,
 )

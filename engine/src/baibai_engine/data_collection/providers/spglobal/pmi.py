@@ -8,11 +8,9 @@ from functools import cache
 from pathlib import Path
 from typing import cast
 
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
-from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.catalog import SourceDefinition
-from baibai_engine.storage.yaml import strict_safe_load
-
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
+from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
@@ -21,6 +19,7 @@ from baibai_engine.data_collection.transport.context import (
     SourceWithheldError,
     fetch_bytes,
 )
+from baibai_engine.primitives.yaml import strict_safe_load
 
 MANIFEST_PATH = Path(__file__).with_name("pmi_release_urls.yaml")
 RELEASE_URL_RE = re.compile(

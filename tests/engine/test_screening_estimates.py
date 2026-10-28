@@ -5,12 +5,16 @@ from __future__ import annotations
 import unittest
 
 from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    expected_return_inputs,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     UNRESOLVED_DIVIDEND_BASIS,
     FinancialSnapshot,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import expected_return_inputs
 
 
 def _financial(

@@ -10,9 +10,6 @@ from typing import cast
 
 import yaml
 
-from baibai_engine.primitives.json import canonical_json
-from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
-from baibai_engine.investment_judgment.workflow.selection import ResearchSelectionRecord as ResearchSelection
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -22,11 +19,16 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     assessment_core_hash,
     evaluate_assessment,
 )
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
     ResearchWorkspaceDataError,
     _load_mapping,
 )
+from baibai_engine.primitives.json import canonical_json
 
 
 def _validate_editable_drafts(

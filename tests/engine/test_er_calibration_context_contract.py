@@ -10,14 +10,14 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.er_calibration_context import context_artifact
 
-from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
-from baibai_engine.storage.yaml import safe_load
 from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
 from baibai_engine.machine_analysis.historical_evaluation.context.query import (
     load_er_calibration_context,
 )
+from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PUBLISHED = _ROOT / ER_LEVEL_CALIBRATION_CONTEXT_PATH
@@ -206,7 +206,9 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
 
 
 def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path: Path) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+        load_screening_rules,
+    )
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
@@ -234,11 +236,13 @@ def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path:
 def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str, partial: bool
 ) -> None:
-    from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+        load_screening_rules,
+    )
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
+    from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
 
     rules_json = load_screening_rules().model_dump_json()
     with monkeypatch.context() as previous:
@@ -286,7 +290,9 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
 
 
 def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp_path) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+        load_screening_rules,
+    )
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )

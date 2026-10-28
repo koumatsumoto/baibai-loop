@@ -30,11 +30,22 @@ from baibai_engine.data_collection.providers.tradingview.client import (
     connect,
     fetch_batch,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
+    decode_tool_result,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+    FetchError,
+)
+from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_jobs.acquisition.tradingview.collector import (
     JST,
     TimeGuardError,
     collect,
     preflight_snapshot,
+)
+from baibai_jobs.maintenance.tradingview_rebuild import (
+    RebuildError,
+    rebuild_from_receipts,
 )
 from baibai_jobs.observability.tradingview import (
     CollectionProgress,
@@ -42,13 +53,6 @@ from baibai_jobs.observability.tradingview import (
     failure_line,
     safe_progress,
 )
-from baibai_jobs.maintenance.tradingview_rebuild import (
-    RebuildError,
-    rebuild_from_receipts,
-)
-from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import decode_tool_result
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import FetchError
 
 
 def _write_progress_file(path: Path, payload: dict[str, object]) -> None:

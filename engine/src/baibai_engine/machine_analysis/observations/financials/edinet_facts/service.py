@@ -12,9 +12,16 @@ from typing import Any, Protocol, TextIO
 from zipfile import BadZipFile
 
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import extract_facts
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import FactExtractionItem, plan_fact_item
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import annual_documents
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
+    extract_facts,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
+    FactExtractionItem,
+    plan_fact_item,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
+    annual_documents,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
     document_inventory,
     extraction_status,
@@ -27,8 +34,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 
 class XbrlReader(Protocol):
     def read_xbrl_zip(self, doc_id: str) -> bytes: ...
-
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,5 +182,3 @@ def extract_edinet_facts_command(
         reasons=reasons,
         stdout=out,
     )
-
-

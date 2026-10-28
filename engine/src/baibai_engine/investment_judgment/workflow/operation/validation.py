@@ -5,10 +5,15 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
-from baibai_engine.investment_judgment.workflow.operation.progress import ResearchProgress, require_coverage
-from baibai_engine.investment_judgment.workflow.selection import ResearchSelectionRecord as ResearchSelection
-from baibai_engine.investment_judgment.workflow.selection import ResearchTarget, selection_targets
 from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
+from baibai_engine.investment_judgment.workflow.operation.progress import (
+    ResearchProgress,
+    require_coverage,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
+)
+from baibai_engine.investment_judgment.workflow.selection import ResearchTarget, selection_targets
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
 

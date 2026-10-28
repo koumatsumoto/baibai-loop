@@ -1,9 +1,20 @@
 """企業調査で確認した出典・観測事実・仮説検討。価格の採否とは分ける。"""
+
 from __future__ import annotations
+
 from datetime import date, datetime
 from typing import Annotated, Literal
+
 from pydantic import AwareDatetime, BaseModel, Field, field_validator, model_validator
-from baibai_engine.investment_judgment.contracts import _CONFIG, NonEmptyStr, Ticker, _date, _datetime, _tuple
+
+from baibai_engine.investment_judgment.contracts import (
+    _CONFIG,
+    NonEmptyStr,
+    Ticker,
+    _date,
+    _datetime,
+    _tuple,
+)
 
 
 class Source(BaseModel):
@@ -179,4 +190,3 @@ class ResearchFindings(BaseModel):
     @classmethod
     def _sequences(cls, value: object) -> object:
         return _tuple(value)
-

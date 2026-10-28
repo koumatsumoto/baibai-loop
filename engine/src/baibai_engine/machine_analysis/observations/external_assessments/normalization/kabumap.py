@@ -6,16 +6,16 @@ import re
 import unicodedata
 from datetime import date, datetime
 
-from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    QuantsScoreObservation,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     compact,
     document,
     numeric_text,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.models import (
-    QuantsScoreObservation,
-)
+from baibai_engine.primitives.stocks import normalize_ticker
 
 PARSER_VERSION = "kabumap-quants-3"
 LABELS = {

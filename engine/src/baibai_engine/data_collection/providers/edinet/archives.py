@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from pathlib import Path
-from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 from datetime import date
+from pathlib import Path
+
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 
 def read_source_archive(
@@ -53,4 +54,3 @@ def archive_keys(database: Path) -> set[tuple[str, int]]:
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_current_schema(conn)
         return set(conn.execute("SELECT doc_id, source_type FROM edinet_source_archives"))
-

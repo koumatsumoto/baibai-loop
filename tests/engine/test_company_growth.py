@@ -15,7 +15,9 @@ from tests.helpers.master import insert_master_rows
 from tests.helpers.research_selection import historical_operation, selection
 from tests.helpers.screening_sqlite import insert_financial_record
 
-from baibai_engine.investment_judgment.workflow.company_growth_projection import project_company_growth
+from baibai_engine.investment_judgment.workflow.company_growth_projection import (
+    project_company_growth,
+)
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
@@ -25,16 +27,20 @@ from baibai_engine.investment_judgment.workflow.selection import (
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.workspace import resume_selected_workspace
+from baibai_engine.machine_analysis.generation.runners.company_growth import (
+    company_growth as public_company_growth,
+)
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
-from baibai_engine.machine_analysis.generation.runners.company_growth import (
-    company_growth as public_company_growth,
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    normalize_financial_summary,
 )
-from baibai_engine.machine_analysis.observations.financials.financial_documents import normalize_financial_summary
-from baibai_engine.machine_analysis.observations.financials.financial_periods import prior_year_period_matches
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    prior_year_period_matches,
+)
 from baibai_engine.storage.snapshots.keys import release_manifest_key
 from baibai_engine.storage.snapshots.models import ReleaseManifest
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
@@ -487,8 +493,8 @@ def test_legacy_selection_hash_keeps_its_original_serialized_inputs():
 def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged(
     tmp_path, monkeypatch, capsys, start
 ):
-    from baibai_engine.investment_judgment.workflow.workspace import compute_status
     from baibai_engine.cli.investment_judgment import main
+    from baibai_engine.investment_judgment.workflow.workspace import compute_status
 
     records = [
         document(year, quarter, quarter * 100, quarter * 20, quarter * 10)
@@ -722,9 +728,13 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
 
 
 def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
-    from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
+    from baibai_engine.machine_analysis.models.company_growth.generation import (
+        generate_company_growth,
+    )
     from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-    from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import read_fixed_financial_population
+    from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
+        read_fixed_financial_population,
+    )
 
     path = market_store(
         tmp_path,

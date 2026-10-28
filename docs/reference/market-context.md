@@ -1,6 +1,6 @@
 # 市場環境
 
-保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。企業価値は[企業価値](company-valuation.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はInvestment Judgmentが所有する。取得・原本はData Collection、現在のL2定義はindicators、計算・統計はreadingに置く。
+保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。財務・利益価格の観測は[企業財務](company-financials.md)、仮定付き企業価値評価は[銘柄評価](stock-assessment.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はInvestment Judgmentが所有する。取得・原本、共通の経済指標観測、市場モデルの計算・統計を別の責務として扱う。
 
 <a id="market-context-reads"></a>
 ## 比較する母集団と時点

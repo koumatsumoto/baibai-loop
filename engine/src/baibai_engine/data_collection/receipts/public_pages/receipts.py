@@ -9,7 +9,11 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse, Role, Source
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    EquityWebSourceResponse,
+    Role,
+    Source,
+)
 from baibai_engine.primitives.stocks import SecurityCodeError, normalize_ticker
 
 

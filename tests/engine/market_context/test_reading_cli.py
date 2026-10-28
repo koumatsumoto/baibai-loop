@@ -15,18 +15,24 @@ from tests.helpers.indicator_store import (
     store_reader,
 )
 
+import baibai_engine.cli.market_reading as cli
 from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import load_definitions
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-import baibai_engine.cli.market_reading as cli
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    DEFAULT_RULES_PATH,
+    load_reading_rules,
+)
 from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
 from baibai_engine.machine_analysis.models.market_context.reading.models import ReadingSnapshot
 from baibai_engine.machine_analysis.models.market_context.reading.rules import (
-    DEFAULT_RULES_PATH,
     ReadingRules,
     SeriesOverride,
-    load_reading_rules,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
 )
 
 

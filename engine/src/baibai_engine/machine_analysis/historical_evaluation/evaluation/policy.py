@@ -108,7 +108,7 @@ AXES: tuple[AxisSpec, ...] = (
     AxisSpec(name="srp_p_s", direction=-1),
     AxisSpec(name="net_share_change_yoy", direction=-1),
     # 同じ株数変化を自己株控除後で測った軸。方向は旧軸と同じ「縮むほど良い」を先に宣言する。
-    # 当時の比較結果は docs/reference/company-valuation.md#carry-policy に残す。
+    # 当時の比較結果は docs/reference/estimate-calibration.md#carry-policy に残す。
     AxisSpec(name="tradable_share_change_yoy", direction=-1),
     AxisSpec(name="accruals_to_assets", direction=-1),
     AxisSpec(name="dps_yoy_latest", direction=1),

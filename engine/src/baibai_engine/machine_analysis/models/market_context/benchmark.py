@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 
-
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 
 NIKKEI225_ETF_PROXY = "1321"
@@ -78,8 +77,6 @@ def classify_benchmark_trend(benchmark_return_20d: float | None) -> BenchmarkTre
     return BenchmarkTrendState.NEUTRAL
 
 
-
-
 def benchmark_trend_from_series(
     benchmark_series: list[tuple[date, float]], *, asof_date: date, benchmark_ticker: str
 ) -> BenchmarkTrendSnapshot | None:
@@ -102,8 +99,6 @@ def benchmark_trend_from_series(
         benchmark_gap_from_high=_gap_from_high(benchmark_series),
         trend_state=classify_benchmark_trend(benchmark_return_20d),
     )
-
-
 
 
 def _gap_from_high(series: list[tuple[date, float]]) -> float | None:

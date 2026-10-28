@@ -7,7 +7,9 @@ from typing import cast
 
 from pydantic import JsonValue
 
-from baibai_engine.investment_judgment.workflow.company_growth_projection import project_company_growth
+from baibai_engine.investment_judgment.workflow.company_growth_projection import (
+    project_company_growth,
+)
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,

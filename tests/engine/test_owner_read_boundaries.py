@@ -15,27 +15,33 @@ from tests.helpers.screening_run import seed_saved_run
 from baibai_engine.data_collection.receipts.native_sources.store import (
     initialize_database as initialize_indicator_database,
 )
-from baibai_engine.storage.sqlite.read import read_rows
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.machine_analysis.observations.economic_indicators.service import IndicatorsService
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
     initialize_run_store,
 )
-from baibai_engine.machine_analysis.observations.prices.calendar_context import market_calendar_business_day
-from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_next_earnings_dates
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_next_earnings_dates,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.service import (
+    IndicatorsService,
+)
+from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    market_calendar_business_day,
+)
 from baibai_engine.storage.sqlite.application.read import (
     connect_read_only as connect_application_read_only,
 )
 from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
+from baibai_engine.storage.sqlite.read import read_rows
 from baibai_engine.storage.sqlite.source_cache.schema import _SCHEMA_SQL as MARKET_SCHEMA_SQL
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
 

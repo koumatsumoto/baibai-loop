@@ -8,6 +8,12 @@ from datetime import date, timedelta
 
 from tests.engine.screening.metric_fixtures import _edinet_metric_record, _security, _summary
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+    build_metrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _closer_share_basis,
     _common_equity_yen,
@@ -22,13 +28,14 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _actual_rows,
     _ttm_value,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import build_metrics
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 
 class ShareBasisOnTheDisclosureDateTests(unittest.TestCase):

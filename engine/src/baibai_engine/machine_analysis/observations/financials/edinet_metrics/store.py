@@ -10,14 +10,21 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import normalize_metric_record
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_stored_documents
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_stored_documents,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+    normalize_metric_record,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     DEFERRED_CSV_REASON,
     PARTIAL_CSV_COVERAGE,
     has_hard_metric_failure,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_models import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+)
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 

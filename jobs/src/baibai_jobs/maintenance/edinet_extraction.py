@@ -1,4 +1,5 @@
 """明示的なEDINET取得と保存原本の抽出を組み立てる。"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -8,12 +9,26 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import EdinetMetricReader, prepare_edinet_metric_plan, extract_edinet_metrics_from_plan
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import XbrlReader, prepare_edinet_facts, process_edinet_fact_item, finish_edinet_facts
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import plan_fact_item
+from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAcquisitionError,
+    EdinetRateLimitError,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
+    plan_fact_item,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
+    XbrlReader,
+    finish_edinet_facts,
+    prepare_edinet_facts,
+    process_edinet_fact_item,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import record_failure
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
+    EdinetMetricReader,
+    extract_edinet_metrics_from_plan,
+    prepare_edinet_metric_plan,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 

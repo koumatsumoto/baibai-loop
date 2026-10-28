@@ -6,11 +6,20 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import assert_never
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import SeriesDefinition
-from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
-
-from baibai_engine.machine_analysis.observations.economic_indicators.formulas import FORMULAS, DerivedFormula, MonthlyObservationDate
-from baibai_engine.machine_analysis.observations.economic_indicators.validation import reading_observation
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+    SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.formulas import (
+    FORMULAS,
+    DerivedFormula,
+    MonthlyObservationDate,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
+    ObservationRecord,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
+    reading_observation,
+)
 
 
 def derive_series(

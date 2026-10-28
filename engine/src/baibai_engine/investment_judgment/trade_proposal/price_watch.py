@@ -16,12 +16,6 @@ from typing import cast
 
 import yaml
 
-from baibai_engine.primitives.numbers import decimal_to_number
-from baibai_engine.storage.paths import (
-    APPLICATION_DB_PATH,
-    StoreLayoutError,
-    reject_noncanonical_store_paths,
-)
 from baibai_engine.investment_judgment.contracts import (
     AssessmentError,
 )
@@ -40,10 +34,19 @@ from baibai_engine.portfolio.ledger.read import (
     LedgerSchemaError,
     load_ledger_in_transaction,
 )
+from baibai_engine.primitives.numbers import decimal_to_number
+from baibai_engine.storage.paths import (
+    APPLICATION_DB_PATH,
+    StoreLayoutError,
+    reject_noncanonical_store_paths,
+)
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.convert import optional_float
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    SQLiteSchemaError,
+    validate_current_schema,
+)
 
 _GAP_QUANTUM = Decimal("0.000001")
 _ADJUSTMENT_FACTOR_ABS_TOLERANCE = 1e-12

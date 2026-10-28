@@ -6,9 +6,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from baibai_engine.storage.paths import SCREENING_RULES_PATH
-from baibai_engine.storage.yaml import safe_load
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.primitives.yaml import safe_load
+from baibai_engine.storage.paths import SCREENING_RULES_PATH
 
 DEFAULT_RULES_PATH = SCREENING_RULES_PATH
 

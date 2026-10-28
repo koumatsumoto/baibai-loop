@@ -10,10 +10,13 @@ import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
 import baibai_engine.cli.investment_judgment as workspace_cli
-from baibai_engine.investment_judgment.stock_assessment.calculation import CalculationInput, calculate
 from baibai_engine.cli.assessment_calculation import main
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
+)
+from baibai_engine.investment_judgment.stock_assessment.calculation import (
+    CalculationInput,
+    calculate,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,

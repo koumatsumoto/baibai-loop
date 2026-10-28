@@ -12,9 +12,14 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.machine_analysis.observations.prices.calendar_context import observation_calendar_context as calendar_context
+from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    observation_calendar_context as calendar_context,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import master_coverage_key
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection, validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import (
+    open_connection,
+    validate_current_schema,
+)
 
 _MARKET = (
     "jquants_master_snapshots",

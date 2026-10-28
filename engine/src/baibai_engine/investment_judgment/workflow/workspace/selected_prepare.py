@@ -8,10 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
-from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload, OperationSession
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation.models import (
+    OperationPayload,
+    OperationSession,
+)
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.operation.validation import validate_target_purposes

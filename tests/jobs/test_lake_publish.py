@@ -13,6 +13,15 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
+import baibai_jobs.publication.snapshot_publication as market_publish_module
+import baibai_jobs.publication.snapshot_release as lake_publish_module
+from baibai_engine.storage.objects import r2 as object_storage
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
 from baibai_engine.storage.snapshots import models as lake_models
 from baibai_engine.storage.snapshots import writer as lake_writer_module
 from baibai_engine.storage.snapshots.keys import dataset_manifest_key
@@ -36,20 +45,11 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
-import baibai_jobs.publication.snapshot_release as lake_publish_module
-from baibai_engine.storage.objects import r2 as object_storage
-import baibai_jobs.publication.snapshot_publication as market_publish_module
-from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
-    LakeCASConflict,
-    LakePublishError,
-    RemoteObject,
-)
+from baibai_jobs.publication.lease import _save_handle, acquire, release
 from baibai_jobs.publication.snapshot_release import (
     PointerPrecondition,
     publish_release,
 )
-from baibai_jobs.publication.lease import _save_handle, acquire, release
 
 
 @pytest.fixture(autouse=True)
