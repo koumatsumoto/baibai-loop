@@ -2,6 +2,8 @@
 
 Baibai Loopは、外部から受領した事実を保存し、機械分析から調査の入口を作り、企業の経済的な価値と支払価格を比較する。AIは根拠付きの提案を作り、人間が採否・注文・約定を確認する。
 
+採用名称と意味の区別は[用語集](glossary.md)。以下の配置表は現行実装を示し、Company Financials・Portfolioの名称と旧module名の不一致は#1632で解消する。保存identityは名称変更だけで書き換えない。
+
 ## 情報の流れ
 
 ```mermaid
@@ -13,7 +15,7 @@ flowchart LR
     F -->|候補と抽出理由| J
     I[一次資料・確認済み保有] --> J
     J --> H[システム外: Human Decision → Order Execution]
-    H -->|確認済み取引| P[Position / 台帳] --> J
+    H -->|確認済み取引| P[Portfolio / 台帳] --> J
 ```
 
 L1 **情報収集 / Data Collection**は原本またはsource契約で明示したprovider-native表現と受領事実を保持する。L2 **機械分析 / Machine Analysis**は入力を選択・正規化・計算する**モデル生成 / Model Generation**と、規則に従う**候補抽出 / Screening**である。同じ入力・規則・計算実装・基準時点なら同じ結果を返す。L3 **投資判断 / Investment Judgment**は仮定を伴う解釈・評価・判断である。型付き行は原本の代わりにならず、仮定を決定的な式で計算してもL2の観測にはならない。
@@ -27,7 +29,7 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 | 配置 | 所有する責務 |
 | --- | --- |
 | `data_collection/` | 情報収集 / Data Collection：sourceとの通信、原本・native record・受領の契約、取得の合成 |
-| `machine_analysis/company_valuation/` | 企業価値 / Company Valuation：[現行の財務観測・利益と価格の座標](reference/company-valuation.md)、旧runの機械ER/FVと[較正文脈](reference/estimate-calibration.md) |
+| `machine_analysis/company_valuation/` | 企業財務 / Company Financials：[現行の財務観測・利益と価格の座標](reference/company-valuation.md)、旧runの機械ER/FVと[較正文脈](reference/estimate-calibration.md) |
 | `machine_analysis/company_growth/` | 企業成長 / Company Growth：[過去実績状態・変化](reference/company-growth.md)、会計四半期を整理軸とする振り返り |
 | `machine_analysis/market_context/` | 市場環境 / Market Context：[経済Reading、市場・業種・個別の相対状態](reference/market-context.md) |
 | `machine_analysis/external_assessment/` | 外部評価 / External Assessment：[外部提示値の出所・対象期・比較条件と欠測](reference/data-sources.md#external-assessment) |
@@ -40,17 +42,17 @@ engineのdomainは[`engine/src/baibai_engine/`](../engine/src/baibai_engine/)に
 
 現在のモデル数は五つだが、責務分離は五つに固定するための設計ではない。追加の観測を候補抽出へ活かす設計は[別企画 #1633](https://github.com/koumatsumoto/baibai-loop/issues/1633)で扱い、現行二viewが全モデルを使うとは説明しない。
 
-五モデルはScreening専用の中間データではない。Investment Judgmentは保存モデルと一次資料を統合し、候補外の企業も調査できる。現行のCompany Valuationは財務観測と利益・価格の座標を渡し、機械ER/FVは新Selectionの入力に含めない。同domainに残る機械ER/FVと較正は旧runの読取・保守用である。企業価値の評価はL3、最終買付採否は人間が担い、Screeningはどちらも確定しない。
+五モデルはScreening専用の中間データではない。Investment Judgmentは保存モデルと一次資料を統合し、候補外の企業も調査できる。現行のCompany Financialsは財務観測と利益・価格の座標を渡し、機械ER/FVは新Selectionの入力に含めない。同domainに残る機械ER/FVと較正は旧runの読取・保守用である。企業価値の評価はL3、最終買付採否は人間が担い、Screeningはどちらも確定しない。
 
 統合判断の採否基準は[doctrine](doctrine.md#fact-analysis-separation)、五モデルを企業仮定へ接続する方法は[銘柄評価](reference/stock-assessment.md#analysis-domain-integration)が所有する。
 
-共通モデル生成は、固定market releaseと独立economic snapshotから各domainの計算を合成し、候補抽出より先に全対象の結果を一つの世代として保存する。途中失敗した世代は公開しない。この順序により、候補政策を変えても元の観測を失わず、候補外の調査も同じ入力に基づける。Screeningは現在、保存済みのCompany ValuationとTechnical Analysisから[二つのview](reference/screening-runtime.md#rule-purpose)を作る。Jobsは生成・抽出・同じreleaseの公開順を所有する。
+共通モデル生成は、固定market releaseと独立economic snapshotから各domainの計算を合成し、候補抽出より先に全対象の結果を一つの世代として保存する。途中失敗した世代は公開しない。この順序により、候補政策を変えても元の観測を失わず、候補外の調査も同じ入力に基づける。Screeningは現在、保存済みのCompany FinancialsとTechnical Analysisから[二つのview](reference/screening-runtime.md#rule-purpose)を作る。Jobsは生成・抽出・同じreleaseの公開順を所有する。
 
 投資判断を始めるSelectionは、必要なモデル断面と候補抽出の政策・結果・公開時刻をapplication DBへ複写し、再開時に再計算しない。新規Operationはこの生成済み入力だけを受け付け、旧runと可変storeからの新規収集経路は持たない。保存済み旧Selectionは元のhash・入力を保ち、Operation IDから再開する。算式・field・分岐は実装、結果を解釈するうえで必要な経済的意味は各referenceが所有する。
 
 現在の`market/`は共通観測の読取・正規化・価格/財務算術に加え、source取得・原受領handoff・最新正本への投影を合成し、L1/L2をまたぐ。source通信と受領はData Collection、通信のない観測と計算はMachine Analysisへ分けるのが目標だが、TradingViewの保存原本からのrebuild等には既存の合成境界が残る。原本を保存したことと、正しいL2へ投影できたことを一つの成功状態にしない。
 
-仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Positionも使う汎用数値変換を共通基盤へ分け、PositionからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Positionは人間の確認済み事実を保存する。
+仮定付きProjection・return/Pmax・CB算術は`investment_judgment/`が所有する。Portfolioも使う汎用数値変換を共通基盤へ分け、PortfolioからL3への逆依存を作らない。モデルは判断・候補選択・UIへ逆依存せず、Portfolioは人間の確認済み事実を保存する。
 
 `jobs/`は情報取得・共通統合の実行の合成、`tools/`は開発・保守用の入口である。Jobsは`job_api`・`read_api`を通し、domainの算術・保存条件を複製しない。`read_api`は内部Python境界でありHTTP公開APIではない。Webは資産・損益・保有銘柄、運用成績、タスクだけを保持する。旧調査提案・候補一覧・マクロ一覧・前回差分と外部データ取得APIは撤去し、コアの成功条件に含めない。Webは所有domainの読取を合成し、旧screening互換に依存しない。最新売買提案レポートの再設計はIssue #1615で扱う。依存範囲の厳密な定義は[pyproject.toml](../pyproject.toml)にある。
 
@@ -68,7 +70,7 @@ Company Research（企業調査）は一次資料から事業・財務・競争�
 
 解釈・判断はAI、算術・保存・状態管理はエンジンが担当する。人間の明示開始から有限対象を扱い、新しい自律agent基盤や自動調査起動は設けない。Selectionは対象・問い・入力を開始時に固定する。不足・反証があれば調査・評価へ戻り、工程名を理由に固定DAGや必須承認を増やさない。個別企業から独立した市場判断は別入口を持ち、L2のMarket Contextと区別する。
 
-最終裁定 **Human Decision**と注文実行 **Order Execution**はシステム外の人間の行為で、L4は設けない。Operation完了、提案公開、人間の採用、注文、約定は別の状態である。確認済み事実と進行状態を記録するPositionは維持する。
+最終裁定 **Human Decision**と注文実行 **Order Execution**はシステム外の人間の行為で、L4は設けない。Operation完了、提案公開、人間の採用、注文、約定は別の状態である。確認済み事実と進行状態を記録するPortfolioは維持する。
 
 期間・観測日・公表日・受領cutoffを区別する。固定snapshotは再開時の入力を保つが、全入力のintraday point-in-time再現を保証しない。[入力の意味](reference/data-sources.md)と[判断の意味](reference/stock-assessment.md)が個別の制約を所有する。
 
