@@ -18,6 +18,8 @@ from baibai_engine.storage.sqlite.machine_analysis import (
 from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
+    validate_full_plan,
+    validate_model_scope,
     GenerationMetadata,
     ModelGeneration,
     ModelGenerationStream,
@@ -53,6 +55,7 @@ class ModelGenerationStore:
     def _publish(
         self, metadata: GenerationMetadata, models: Iterable[GeneratedModel]
     ) -> GenerationPublication:
+        validate_full_plan(metadata)
         header = canonical_json(
             metadata.model_dump(mode="json", include=set(GenerationMetadata.model_fields))
         )
@@ -78,6 +81,7 @@ class ModelGenerationStore:
                     )
                 seen: set[tuple[str, str]] = set()
                 for model in models:
+                    validate_model_scope(metadata, model)
                     key = (model.model_id, model.subject)
                     if key in seen:
                         raise GenerationConflictError("generation has duplicate model identity")

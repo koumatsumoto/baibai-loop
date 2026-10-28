@@ -1,6 +1,6 @@
-"""Compute a reading snapshot from the L1 store, deterministically.
+"""Compute a reading snapshot from fixed observation values, deterministically.
 
-Pure with respect to its inputs: the same store contents, rules and as-of date
+Pure with respect to its inputs: the same observations, rules and as-of date
 always produce the same snapshot. Nothing here fetches from a provider or writes
 to a store, so a reading can be recomputed for any past date without touching the
 outside world. Store readers clamp vintages only for providers whose spec
@@ -62,6 +62,14 @@ class _StatisticPoint:
 
     observed_at: date
     value: float
+
+
+def required_observation_range(
+    definition: SeriesDefinition, *, rules: ReadingRules, asof: date
+) -> tuple[date, date]:
+    """モデルの比較窓を入力固定側へ渡す。取得・保存は行わない。"""
+    rule = rules.resolve(series_id=definition.series_id, frequency=definition.frequency)
+    return _read_start(window_start(asof, rule.percentile_window_years), rule.statistic), asof
 
 
 def compute_reading(

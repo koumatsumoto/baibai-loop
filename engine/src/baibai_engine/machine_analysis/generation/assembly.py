@@ -25,6 +25,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
+    GenerationSubject,
     InputSnapshot,
     ModelGenerationStream,
 )
@@ -73,7 +74,17 @@ def generate_models(
         for item in inputs.values()
     ):
         raise ValueError("financial release must belong to the fixed generation inputs")
+    # Model participation is owned by generation, not copied into L3 or Screening.
+    company_model_ids = (
+        "company_valuation", "company_growth", "technical_analysis",
+        "external_assessment", "market_context",
+    )
     metadata = GenerationMetadata(
+        schema_version=2,
+        subject_plan={
+            **{ticker: GenerationSubject(scope="stock", model_ids=company_model_ids) for ticker in tickers},
+            "market": GenerationSubject(scope="market", model_ids=("market_context",)),
+        },
         generation_id=generation_id,
         as_of=as_of,
         evaluation_time=evaluation_time,

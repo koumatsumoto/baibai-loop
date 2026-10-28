@@ -201,3 +201,110 @@ def test_policy_published_after_cutoff_is_not_admitted(tmp_path, explicit):
             load_generated_selection_context(**kwargs)
     else:
         assert load_generated_selection_context(**kwargs)["status"] == "inputs_required"
+
+
+def test_scoped_additional_models_reach_fixed_selection_and_resume_without_policy_change(tmp_path):
+    """追加モデル・業種・複数市場を保存から再開まで通し、候補政策とは分離する。"""
+    from baibai_engine.machine_analysis.generation.contracts import (
+        GeneratedModel,
+        GenerationSubject,
+        ModelGeneration,
+    )
+    from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+    from baibai_engine.machine_analysis.screening.model_projection import select_generation
+    from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
+
+    runs = tmp_path / "runs.sqlite"
+    original = seed_generation(runs, now=NOW, as_of=AS_OF)
+    stock_models = tuple(model.model_id for model in original.models if model.subject == "1234")
+    plan = {
+        "1234": GenerationSubject(
+            scope="stock", model_ids=(*stock_models, "stress_probe"),
+            related_subjects=("sector:food",),
+        ),
+        "5678": GenerationSubject(
+            scope="stock", model_ids=("stress_probe",), related_subjects=("sector:food",),
+        ),
+        "9999": GenerationSubject(scope="stock", model_ids=("stress_probe",)),
+        "sector:food": GenerationSubject(scope="sector", model_ids=("sector_probe",)),
+        "sector:unrelated": GenerationSubject(scope="sector", model_ids=("sector_probe",)),
+        "market": GenerationSubject(scope="market", model_ids=("market_context", "macro_probe")),
+        "market:world": GenerationSubject(scope="market", model_ids=("macro_probe",)),
+    }
+    extra = tuple(
+        GeneratedModel(model_id=model, subject=subject, calculation_revision="probe-v1", payload=payload)
+        for model, subject, payload in (
+            ("stress_probe", "1234", {"value": None, "reason": "not_observed"}),
+            ("stress_probe", "9999", {"value": 10}),
+            ("sector_probe", "sector:food", {"value": 0.7}),
+            ("sector_probe", "sector:unrelated", {"value": 0.9}),
+            ("macro_probe", "market", {"value": 0}),
+            ("macro_probe", "market:world", {"value": None, "reason": "not_observed"}),
+        )
+    )
+    generation = ModelGeneration.model_validate({
+        **original.model_dump(), "schema_version": 2, "generation_id": "scoped-synthetic",
+        "subject_plan": plan, "models": (*original.models, *extra),
+    })
+    ModelGenerationStore(runs).publish(generation)
+    policy = TwoViewPolicy(earnings_limit=20, combined_limit=20)
+    assert select_generation(generation, tickers=("1234", "5678"), policy=policy).result == (
+        select_generation(original, tickers=("1234", "5678"), policy=policy).result
+    )
+    fixed = read_research_model_inputs(generation.generation_id, targets=("1234", "5678"), path=runs)
+    assert set(fixed.subjects) == {"1234", "5678", "sector:food", "market", "market:world"}
+    assert set(fixed.subject_plan) == set(fixed.subjects)
+    projected = project_generated_inputs(fixed)
+    assert projected["securities"]["1234"]["models"]["stress_probe"] == {
+        "value": None, "reason": "not_observed",
+    }
+    assert "stress_probe" not in projected["securities"]["1234"]["not_generated"]
+    assert projected["securities"]["5678"]["not_generated"] == ["stress_probe"]
+    assert projected["shared_subjects"]["sector:food"]["models"]["sector_probe"]["value"] == 0.7
+    assert projected["shared_subjects"]["market"]["models"]["macro_probe"]["value"] == 0
+    assert projected["shared_subjects"]["market:world"]["models"]["macro_probe"]["value"] is None
+    assert "9999" not in projected["securities"]
+    assert "sector:unrelated" not in projected["shared_subjects"]
+
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(text="固定した複数モデルを比較", scope="specified_stocks", requested_tickers=("1234", "5678")),
+        research_as_of=AS_OF, input_known_at=NOW, generation_id=generation.generation_id,
+        selection_summary="候補政策を変えず追加モデルを調査する",
+        targets=(selected_target("1234"), selected_target("5678")),
+    )
+    workspace, database = tmp_path / "research", tmp_path / "application.sqlite"
+    prepared = prepare_selected_workspace(draft=draft, db_path=database, workspace=workspace, runs_path=runs, now=NOW)
+    saved = selection_binding(OperationService(database).get(prepared.operation_id).payload)
+    before = project_research_inputs(saved)
+    digest = selection_sha256(saved)
+    runs.unlink()
+    resumed = resume_selected_workspace(operation_id=prepared.operation_id, db_path=database, workspace=workspace, now=NOW)
+    assert resumed.selection_sha256 == digest
+    assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == before
+    assert project_research_inputs(parse_selection(saved.model_dump(mode="json"))) == before
+
+
+def test_v1_generation_metadata_and_fixed_slice_do_not_gain_new_default_fields(tmp_path):
+    import json
+    import sqlite3
+    from contextlib import closing
+
+    from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata, ModelInputSlice
+    from baibai_engine.primitives.json import canonical_json
+
+    runs = tmp_path / "runs.sqlite"
+    original = seed_generation(runs, now=NOW, as_of=AS_OF)
+    expected = {
+        "schema_version": 1, "generation_id": "fixed-synthetic",
+        "as_of": "2026-10-23", "evaluation_time": "2026-10-25T08:59:00Z",
+        "inputs": {"market": {"kind": "lake_release", "reference": "synthetic", "sha256": "a" * 64}},
+    }
+    with closing(sqlite3.connect(runs)) as connection:
+        header = connection.execute("SELECT header FROM model_generation WHERE generation_id=?", (original.generation_id,)).fetchone()[0]
+    assert json.loads(header) == expected
+    assert canonical_json(GenerationMetadata.model_validate(expected).model_dump(mode="json")) == header
+    fixed = ModelGenerationStore(runs).read_subjects(original.generation_id, subjects=("1234", "market"))
+    raw = fixed.model_dump(mode="json")
+    assert "subject_plan" not in raw
+    assert ModelInputSlice.model_validate(raw).model_dump(mode="json") == raw

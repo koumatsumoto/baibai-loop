@@ -13,7 +13,7 @@ from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 
 from baibai_engine.investment_judgment.workflow.company_growth_projection import project_company_growth
 
-_COMPANY_MODELS = (
+_LEGACY_COMPANY_MODELS = (
     "company_valuation",
     "company_growth",
     "technical_analysis",
@@ -33,27 +33,48 @@ def project_generated_inputs(
 ) -> dict[str, JsonValue]:
     """モデル固有の意味を維持し、未生成と生成内の欠測を区別して提示する。"""
     securities: dict[str, object] = {}
+    shared_subjects: dict[str, object] = {}
+    plan = saved.subject_plan
     for ticker in saved.subjects:
-        if ticker == "market":
+        if plan is None and ticker == "market":
             continue
+        definition = None if plan is None else plan.get(ticker)
+        scope = "stock" if definition is None else definition.scope
         models: dict[str, JsonValue] = {}
         revisions: dict[str, str] = {}
         for index, model in enumerate(saved.models):
             if model.subject != ticker:
                 continue
             payload = deepcopy(model.payload)
-            if model.model_id == "company_growth":
+            if scope == "stock" and model.model_id == "company_growth":
                 payload = project_company_growth(
                     payload, ticker=ticker, periods=company_growth_periods
                 )
                 payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
             models[model.model_id] = payload
             revisions[model.model_id] = model.calculation_revision
-        securities[ticker] = {
-            **models,
+        expected = _LEGACY_COMPANY_MODELS if plan is None else (
+            () if definition is None else definition.model_ids
+        )
+        row: dict[str, object] = {
             "calculation_revisions": revisions,
-            "not_generated": [name for name in _COMPANY_MODELS if name not in models],
+            "not_generated": [name for name in expected if name not in models],
         }
+        if plan is None:
+            securities[ticker] = {**models, **row}
+        else:
+            row["models"] = models
+            row["related_subjects"] = [] if definition is None else list(definition.related_subjects)
+            if scope == "stock":
+                securities[ticker] = row
+            else:
+                shared_subjects[ticker] = {"scope": scope, **row}
+    if plan is not None:
+        return cast(dict[str, JsonValue], {
+            "analysis_source": saved.model_dump(mode="json", exclude={"models"}),
+            "securities": securities,
+            "shared_subjects": shared_subjects,
+        })
     common = saved.result("market_context", "market")
     return cast(
         dict[str, JsonValue],

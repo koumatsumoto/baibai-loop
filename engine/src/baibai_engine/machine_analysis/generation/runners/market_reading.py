@@ -12,7 +12,9 @@ from baibai_engine.machine_analysis.observations.economic_indicators.definitions
 from baibai_engine.machine_analysis.observations.economic_indicators.read_contracts import (
     point_in_time_providers,
 )
-from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
+from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading, required_observation_range
+from baibai_engine.machine_analysis.observations.economic_indicators.observations import ObservationRecord
+from baibai_engine.machine_analysis.observations.economic_indicators.validation import UnavailableObservationError
 from baibai_engine.machine_analysis.models.market_context.reading.models import (
     ReadingSnapshot,
     snapshot_payload,
@@ -96,10 +98,28 @@ def read_store_snapshot(
     connection: sqlite3.Connection, *, asof: date, rules_path: Path
 ) -> ReadingSnapshot:
     definitions = load_definitions()
+    rules = load_reading_rules(rules_path)
+    source_reader = build_store_observation_reader(connection, series=definitions.series)
+    fixed: dict[str, tuple[ObservationRecord, ...] | UnavailableObservationError] = {}
+    # Preserve the model's exact window and source-specific vintage rules. The
+    # calculation callback below can only access this already materialized input.
+    for definition in sorted(definitions.series, key=lambda item: item.series_id):
+        start, end = required_observation_range(definition, rules=rules, asof=asof)
+        try:
+            fixed[definition.series_id] = tuple(source_reader(definition.series_id, start, end))
+        except UnavailableObservationError as error:
+            fixed[definition.series_id] = error
+
+    def fixed_reader(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
+        value = fixed[series_id]
+        if isinstance(value, UnavailableObservationError):
+            raise value
+        return value
+
     return compute_reading(
         series=definitions.series,
-        reader=build_store_observation_reader(connection, series=definitions.series),
-        rules=load_reading_rules(rules_path),
+        reader=fixed_reader,
+        rules=rules,
         rules_revision=rules_revision(rules_path),
         asof=asof,
     )

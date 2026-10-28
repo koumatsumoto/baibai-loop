@@ -22,7 +22,7 @@ from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
 from baibai_engine.investment_judgment.workflow.selection_policy import ResearchCapacity, validate_capacity
-from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
+from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice, research_subjects
 from baibai_engine.machine_analysis.screening.model_projection import ScreeningSelection
 
 
@@ -221,8 +221,8 @@ class GeneratedResearchSelection(_Contract):
         generation = self.inputs.generation
         if self.request.scope == "discover_new" and self.inputs.screening_selection_id is None:
             raise ValueError("discovery requires an explicit saved screening selection")
-        if set(generation.subjects) != {"market", *(t.ticker for t in self.targets)}:
-            raise ValueError("model input scope must exactly cover targets and common market")
+        if set(generation.subjects) != set(research_subjects(generation, tuple(t.ticker for t in self.targets))):
+            raise ValueError("model input scope must exactly cover targets and their shared contexts")
         if self.research_as_of > self.input_known_at.astimezone(JST).date():
             raise ValueError("research_as_of is after the input cutoff's JST date")
         if generation.as_of > self.research_as_of:

@@ -216,3 +216,24 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
     assert read_publication(path=path, selection_id="missing") is None
 
 
+
+
+def test_streamed_subject_plan_rejects_unplanned_model_without_partial_publication(tmp_path):
+    from baibai_engine.machine_analysis.generation.contracts import (
+        GenerationMetadata,
+        GenerationSubject,
+        ModelGenerationStream,
+    )
+
+    path = tmp_path / "planned.sqlite"
+    original = generation()
+    metadata = GenerationMetadata.model_validate({
+        **original.model_dump(exclude={"models"}),
+        "schema_version": 2,
+        "subject_plan": {"1234": GenerationSubject(scope="stock", model_ids=("allowed_probe",))},
+    })
+    stream = ModelGenerationStream(metadata, ("1234",), iter(original.models))
+    store = ModelGenerationStore(path)
+    with pytest.raises(ValueError, match="subject plan"):
+        store.publish_stream(stream)
+    assert store.read(original.generation_id) is None

@@ -34,7 +34,7 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _load_mapping,
     _write_workspace_file,
 )
-from baibai_engine.machine_analysis.generation.query import read_model_inputs
+from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -78,8 +78,8 @@ def _generated_selection(
         publication = read_publication(path=runs_path, selection_id=draft.screening_selection_id)
         if publication is None or publication.generation.generation_id != draft.generation_id:
             raise ValueError("screening selection differs from the chosen generation")
-    models = read_model_inputs(
-        draft.generation_id, subjects=("market", *(t.ticker for t in draft.targets)), path=runs_path
+    models = read_research_model_inputs(
+        draft.generation_id, targets=tuple(t.ticker for t in draft.targets), path=runs_path
     )
     if models is None:
         raise ValueError("chosen model generation is unavailable")
