@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse, _StaticSession
+from tests.helpers.provider_fixtures import _FakeResponse, _StaticSession
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.spglobal.pmi as spglobal_pmi

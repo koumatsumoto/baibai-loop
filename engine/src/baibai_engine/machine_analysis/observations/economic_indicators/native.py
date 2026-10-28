@@ -11,7 +11,7 @@ from urllib.parse import urljoin
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.machine_analysis.observations.economic_indicators.boj import boj_value
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.estat import read_estat_series

@@ -12,8 +12,10 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH,
     open_read_only_connection,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import (

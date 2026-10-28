@@ -4,7 +4,9 @@ from dataclasses import replace
 from datetime import date
 
 import pytest
-from tests.engine.screening.metric_fixtures import _summary
+from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+    _summary,
+)
 
 from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _FYDividendObservation,

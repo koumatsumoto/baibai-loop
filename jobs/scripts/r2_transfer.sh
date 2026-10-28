@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-(cd "${repo_root}" && uv run python -m baibai_jobs.validation.repository_layout)
+(cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # The lake mirror is a fetch-through cache of immutable objects, so it is named next to

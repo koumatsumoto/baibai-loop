@@ -19,7 +19,7 @@ _COMMANDS = {
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",
-    "validate-market-context-stores": "baibai_jobs.validation.market_context_stores",
+    "validate-market-context-stores": "baibai_jobs.observability.source_stores",
 }
 
 

@@ -64,7 +64,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="read-only SMA, BB, Wilder RSI and common-calendar momentum from saved prices",
     ),
     "operation": Domain(
-        module="baibai_engine.investment_judgment.workflow.operation.cli",
+        module="baibai_engine.cli.operation",
         summary="operation sessions: one active workflow at a time, with completion checks",
     ),
     "portfolio": Domain(
@@ -79,7 +79,7 @@ DOMAINS: Mapping[str, Domain] = {
         ),
     ),
     "task": Domain(
-        module="baibai_engine.task_cli",
+        module="baibai_engine.cli.tasks",
         summary="dated operation tasks — the canonical record of what is waiting on a date",
     ),
     "db": Domain(

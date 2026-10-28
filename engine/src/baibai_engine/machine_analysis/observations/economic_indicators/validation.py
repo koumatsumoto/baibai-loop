@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from math import isfinite
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import (

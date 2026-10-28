@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import date
 
 from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.derived import derive_series

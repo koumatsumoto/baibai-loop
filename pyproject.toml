@@ -687,6 +687,7 @@ name = "models cannot choose candidates or orchestrate their generation"
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.models"]
 forbidden_modules = [
+  "baibai_engine.storage", "baibai_engine.data_collection",
   "baibai_engine.machine_analysis.generation", "baibai_engine.machine_analysis.screening",
   "baibai_engine.machine_analysis.historical_evaluation", "baibai_engine.investment_judgment",
   "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web",

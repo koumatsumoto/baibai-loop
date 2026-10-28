@@ -8,7 +8,10 @@ import sys
 
 import pytest
 import yaml
-from tests.engine.test_screening_run_store import _publish, _run
+from tests.engine.machine_analysis.historical_evaluation.test_screening_run_store import (
+    _publish,
+    _run,
+)
 
 from baibai_engine.cli.historical_evaluation.app import main as screening_main
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (

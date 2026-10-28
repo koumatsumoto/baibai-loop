@@ -165,7 +165,7 @@ def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeyp
     path = tmp_path / "existing.sqlite"
     path.touch()
     conn = sqlite3.connect(":memory:")
-    monkeypatch.setattr(jquants_reader, "connect_current", lambda path: conn)
+    monkeypatch.setattr(stock_reader, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
         stock_reader.read_eq_master_exact(path, date(2026, 10, 15))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):

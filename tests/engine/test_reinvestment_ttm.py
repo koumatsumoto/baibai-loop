@@ -2,8 +2,15 @@ from dataclasses import replace
 from datetime import date
 
 import pytest
-from tests.engine.screening.metric_fixtures import _daily_bars, _security, _summary
-from tests.engine.test_candidate_discovery import _analysis, _discover
+from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+    _daily_bars,
+    _security,
+    _summary,
+)
+from tests.engine.machine_analysis.historical_evaluation.test_candidate_discovery import (
+    _analysis,
+    _discover,
+)
 
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery import (
     candidates as discovery,

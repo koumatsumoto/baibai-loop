@@ -37,7 +37,7 @@ jobs:
         id: smoke
         env:
           PYTHONPATH: jobs/src
-        run: python3 -c "import baibai_jobs.observability.watchdog; import baibai_jobs.validation.workflow_inputs"
+        run: python3 -c "import baibai_jobs.observability.watchdog; import baibai_jobs.integration.workflow_inputs"
 
       # Validate the untrusted dispatch value before any credential-bearing step.
       # The scheduled event supplies an empty value, which is valid.
@@ -47,7 +47,7 @@ jobs:
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
           PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_jobs.validation.workflow_inputs watchdog \
+          python3 -m baibai_jobs.integration.workflow_inputs watchdog \
             --check-date "$WATCHDOG_CHECK_DATE"
           echo "check_date=$WATCHDOG_CHECK_DATE" >> "$GITHUB_OUTPUT"
 
@@ -97,7 +97,7 @@ jobs:
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
           PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_jobs.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_jobs.integration.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
           python3 -m baibai_jobs.observability.watchdog --economic --read-run-results \
             --runs-json "$RUNNER_TEMP/economic-runs.json" --check-date "$WATCHDOG_CHECK_DATE"
 
@@ -119,5 +119,5 @@ jobs:
           WATCHDOG_CHECK_DATE: ${{ inputs.check_date }}
           PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_jobs.validation.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
+          python3 -m baibai_jobs.integration.workflow_inputs watchdog --check-date "$WATCHDOG_CHECK_DATE"
           python3 -m baibai_jobs.observability.watchdog --market --read-run-results --runs-json "$RUNNER_TEMP/market-runs.json" --check-date "$WATCHDOG_CHECK_DATE"

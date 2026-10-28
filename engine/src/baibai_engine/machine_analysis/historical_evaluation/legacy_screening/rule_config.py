@@ -126,7 +126,7 @@ class ScreeningRules(BaseModel):
 
 def load_screening_rules(path: Path = DEFAULT_RULES_PATH) -> ScreeningRules:
     if not path.exists() and not path.is_absolute():
-        path = Path(__file__).resolve().parents[5] / path
+        path = Path(__file__).resolve().parents[6] / path
     payload = safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError(f"screening rules root must be a mapping: {path}")

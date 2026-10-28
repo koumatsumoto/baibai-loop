@@ -49,9 +49,9 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
 @pytest.mark.parametrize(
     "module",
     [
-        "machine_analysis.market_context.history",
-        "machine_analysis.market_context.margin",
-        "machine_analysis.technical_analysis.calculations",
+        "machine_analysis.models.market_context.history",
+        "machine_analysis.models.market_context.margin",
+        "machine_analysis.models.technical_analysis.calculations",
     ],
 )
 def test_market_context_calculation_cold_import_does_not_load_composition_or_io(module) -> None:

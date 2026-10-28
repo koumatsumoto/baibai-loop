@@ -148,7 +148,7 @@ args=sys.argv[1:]
 assert args.pop(0)=='run'
 with Path(os.environ['TRANSFER_TEST_LOG']).open('a') as log:
  log.write(json.dumps(args)+'\\n')
-if args[:3]==['python','-m','baibai_jobs.validation.repository_layout']:
+if args[:3]==['python','-m','baibai_jobs.observability.repository_layout']:
  sys.exit(0) # isolated shell root intentionally contains no application store
 if args[:3]==['baibai-engine','lake','dehydrate'] or args[:3]==['baibai-engine','lake','hydrate']:
  from baibai_engine.storage.snapshots import models

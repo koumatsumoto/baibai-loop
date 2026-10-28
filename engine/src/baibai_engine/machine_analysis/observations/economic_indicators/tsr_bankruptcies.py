@@ -6,7 +6,7 @@ import json
 import re
 from datetime import date, datetime
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import (

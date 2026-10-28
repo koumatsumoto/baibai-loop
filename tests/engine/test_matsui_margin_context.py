@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 import requests
-from tests.engine.market_context.indicators.indicator_fixtures import _FakeResponse
+from tests.helpers.provider_fixtures import _FakeResponse
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.matsui.margin as matsui_margin

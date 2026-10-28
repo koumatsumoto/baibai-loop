@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import assert_never
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.formulas import (

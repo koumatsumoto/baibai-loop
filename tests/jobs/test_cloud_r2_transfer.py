@@ -255,7 +255,7 @@ for argument in "$@"; do
     baibai_engine.storage.sqlite.snapshot) script=snapshot ;;
     baibai_jobs.integration.native_source_merge) script=merge ;;
     baibai_jobs.integration.source_cache_merge) script=merge ;;
-    baibai_jobs.validation.repository_layout) script=layout ;;
+    baibai_jobs.observability.repository_layout) script=layout ;;
     baibai_jobs.publication.snapshot_publication) script=publish ;;
   esac
 done

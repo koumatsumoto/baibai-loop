@@ -7,8 +7,10 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, timedelta
 
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import (

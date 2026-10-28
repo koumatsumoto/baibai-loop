@@ -14,7 +14,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH,
     EconomicSchemaError,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.service import (

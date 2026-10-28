@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 
-from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
 

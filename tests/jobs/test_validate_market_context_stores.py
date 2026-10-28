@@ -18,7 +18,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     initialize_database,
     record_source_run,
 )
-from baibai_jobs.validation.market_context_stores import (
+from baibai_jobs.observability.source_stores import (
     main,
     validate_store,
 )

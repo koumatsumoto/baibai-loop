@@ -164,8 +164,8 @@ class ModelInputSlice(_ModelCollection):
     def bounded_subjects(self) -> Self:
         if len(set(self.subjects)) != len(self.subjects):
             raise ValueError("input slice subjects must be unique")
-        if self.subject_plan is not None and not set(self.subject_plan).issubset(self.subjects):
-            raise ValueError("subject plan is outside the input slice scope")
+        if self.subject_plan is not None and set(self.subject_plan) != set(self.subjects):
+            raise ValueError("subject plan must exactly cover the input slice scope")
         if any(model.subject not in self.subjects for model in self.models):
             raise ValueError("model is outside the input slice subjects")
         return self

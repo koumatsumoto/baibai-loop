@@ -113,7 +113,10 @@ def test_observed_zero_balance_needs_no_share_conversion_but_missing_stays_missi
 
 
 def test_screening_assembles_margin_and_volume_on_one_basis():
-    from tests.engine.screening.metric_fixtures import _security, _summary
+    from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+        _security,
+        _summary,
+    )
 
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
         build_metrics,

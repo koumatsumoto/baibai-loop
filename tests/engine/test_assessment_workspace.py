@@ -462,7 +462,7 @@ def test_published_holding_workspace_status_remains_readable_after_sale(tmp_path
 
     assert LedgerStoreService(db).load().model_dump(mode="json") == before
     if completed:
-        from tests.engine.test_research_progression import (
+        from tests.engine.investment_judgment.workflow.test_research_progression import (
             final_payload,
             proposal_for,
             seed_proposal,

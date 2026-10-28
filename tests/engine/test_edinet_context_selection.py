@@ -5,7 +5,9 @@ from datetime import date
 from io import BytesIO
 
 import pytest
-from tests.engine.screening.metric_fixtures import _summary
+from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+    _summary,
+)
 
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
