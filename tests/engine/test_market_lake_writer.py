@@ -15,7 +15,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tools.diagnostics.benchmark_lake_export import benchmark
 
-from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.lake import identity as identity_module
 from baibai_engine.storage.lake import writer as writer_module
 from baibai_engine.storage.lake.datasets import require_lake_dataset

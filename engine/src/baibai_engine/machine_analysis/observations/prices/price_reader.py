@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.storage.observations.convert import optional_float
 from baibai_engine.storage.observations.coverage import range_covered

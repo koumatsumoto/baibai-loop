@@ -16,7 +16,7 @@ from typing import Literal
 
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.time import JST
-from baibai_engine.market.edinet_decode import to_float
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import to_float
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 

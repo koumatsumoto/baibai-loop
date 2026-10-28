@@ -9,23 +9,23 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
-from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
-from baibai_engine.market.edinet_metrics.planning import (
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import parse_csv_zip_metric_record
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import (
     MetricExtractionPlan,
     can_reuse_edinet_metric,
     make_metric_extraction_plan,
 )
-from baibai_engine.market.edinet_metrics.revision import (
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     DEFERRED_CSV_REASON,
     EDINET_METRIC_REVISION,
     PARTIAL_CSV_COVERAGE,
     has_hard_metric_failure,
 )
-from baibai_engine.market.edinet_metrics.store import (
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,
 )
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 from baibai_engine.storage.observations.readiness import unreadable_store_reason

@@ -9,8 +9,8 @@ from typing import Any
 
 from baibai_engine.data_collection.providers.edinet.archives import read_source_archive
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import parse_doc_id
-from baibai_engine.market.edinet_metrics.eligibility import read_eligible_edinet_metrics
-from baibai_engine.market.edinet_metrics.store import read_edinet_documents
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.eligibility import read_eligible_edinet_metrics
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_documents
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.storage.observations.read import connect_read_only
 

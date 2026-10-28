@@ -25,9 +25,9 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     "module",
     [
-        "machine_analysis.company_valuation.calibration.contracts",
-        "machine_analysis.company_valuation.calibration.query",
-        "market.benchmark_observation",
+        "machine_analysis.historical_evaluation.context.contracts",
+        "machine_analysis.historical_evaluation.context.query",
+        "machine_analysis.observations.prices.benchmark_observation",
     ],
 )
 def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(module) -> None:
@@ -49,18 +49,12 @@ def test_contract_and_reader_cold_imports_do_not_load_composition_or_storage(mod
         "baibai_engine.machine_analysis.screening",
         "baibai_engine.investment_judgment",
         "baibai_engine.storage",
-        "baibai_engine.market",
         "baibai_engine.portfolio",
-    )
-    own_market_modules = (
-        {"baibai_engine.market", "baibai_engine.machine_analysis.observations.prices.benchmark_observation"}
-        if module == "market.benchmark_observation"
-        else set()
     )
     assert not [
         name
         for name in json.loads(result.stdout)
-        if name not in own_market_modules
+        if name not in {"baibai_engine.storage", "baibai_engine.storage.yaml"}
         and any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
     ]
 

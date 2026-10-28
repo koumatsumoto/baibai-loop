@@ -17,17 +17,17 @@ from baibai_engine.machine_analysis.observations.disclosures.delistings import D
 from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_facts_command,
 )
-from baibai_engine.market.edinet_facts.service import (
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_lists_command
 from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_metrics_command,
 )
-from baibai_engine.market.edinet_metrics.service import (
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
     extract_edinet_metrics_command,
 )
-from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarSnapshot,

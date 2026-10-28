@@ -29,7 +29,7 @@ from baibai_engine.machine_analysis.screening.sqlite_coverage import (
 from baibai_engine.machine_analysis.screening.sqlite_coverage import (
     verify_screening_sqlite_coverage,
 )
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
 )

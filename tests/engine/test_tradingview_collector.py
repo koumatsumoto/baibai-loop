@@ -21,7 +21,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     FetchError,
     normalize_batch,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.observations.schema import open_connection
 
 DAY = date(2026, 9, 18)

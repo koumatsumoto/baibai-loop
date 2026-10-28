@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.screening.rule_config import (
     DEFAULT_RULES_PATH,
     load_screening_rules,
 )
-from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
+from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR
 
 from .cache import verify_cache_coverage_command
 from .prune import prune_command

@@ -3,8 +3,8 @@
 from datetime import date
 
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import QuarantinedDocumentEvent
-from baibai_engine.market.edinet_metrics.planning import make_metric_extraction_plan
-from baibai_engine.market.edinet_metrics.store import EDINETMetricBaseline, EDINETMetricBaselineRow
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import make_metric_extraction_plan
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import EDINETMetricBaseline, EDINETMetricBaselineRow
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import DocumentSelection, EdinetDocumentCandidate
 

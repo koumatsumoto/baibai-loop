@@ -8,8 +8,8 @@ from tests.engine.test_external_assessment_daily_verification import build_maste
 from tests.engine.test_jquants_projection import body, receive
 from tests.jobs.test_external_assessment_daily import wire_success
 
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.observations.schema import open_connection
 from baibai_jobs.jobs import external_assessment_daily as daily

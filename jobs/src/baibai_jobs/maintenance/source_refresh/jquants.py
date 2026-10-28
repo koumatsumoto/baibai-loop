@@ -22,8 +22,8 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
 )

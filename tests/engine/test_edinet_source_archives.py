@@ -18,7 +18,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from baibai_engine.data_collection.providers.edinet import http as edinet_http
 from baibai_engine.data_collection.providers.edinet.archives import read_source_archive, retain_source_archive
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.storage.lake.datasets import EDINET_SOURCE_ARCHIVES
 from baibai_engine.storage.lake.duck import lake_session

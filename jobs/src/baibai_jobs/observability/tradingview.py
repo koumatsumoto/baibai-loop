@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     ProviderHTTPError,
     ProviderPayloadError,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.observations.schema import SQLiteSchemaError
 
 

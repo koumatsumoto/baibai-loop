@@ -11,7 +11,7 @@ from baibai_engine.data_collection.providers.jpx.receipts import JPXBundleError,
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.receipt_handoff import copy_originals
+from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 # These three owners replace their entire current view. Regulations replace only

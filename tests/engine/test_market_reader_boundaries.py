@@ -21,9 +21,9 @@ from baibai_engine.machine_analysis.observations.financials import reader as fin
 from baibai_engine.machine_analysis.observations.prices import calendar_reader
 import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
 import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
-from baibai_engine.market.edinet_metrics import store as edinet_store
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import store as edinet_store
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_next_earnings_dates
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars, read_daily_bars_for_tickers
 from baibai_engine.storage.observations.coverage import (
     record_range_source_coverage,
@@ -301,7 +301,7 @@ def test_margin_coverage_and_observations_share_a_snapshot(
 ):
     from tests.engine.test_jquants_projection import FIRST_AT, body, receive, source_record
 
-    from baibai_engine.market.jquants_projection import project_request
+    from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 
     path = tmp_path / "market.sqlite"
     query = {"disc_date" if source == "short_sale_reports" else "date": day}

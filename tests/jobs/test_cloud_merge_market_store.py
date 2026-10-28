@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
-from baibai_engine.market.edinet_facts.models import filing_identity
-from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import filing_identity
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_short_sale_reports
 from baibai_engine.storage.lake.datasets import LAKE_DATASETS
 from baibai_engine.storage.observations.coverage import record_range_source_coverage
 from baibai_engine.storage.observations.lake_origin import (
@@ -862,7 +862,7 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
 
     from tests.engine.test_edinet_research_facts import facts
 
-    from baibai_engine.market.edinet_facts.store import (
+    from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
         extraction_status,
         record_failure,
         record_initialized,

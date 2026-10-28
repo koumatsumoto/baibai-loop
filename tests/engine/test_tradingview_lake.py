@@ -19,7 +19,7 @@ from baibai_engine.data_collection.providers.tradingview.receipts import retain_
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
 )
-from baibai_engine.market.jquants_writer import store_jquants_market_calendar, store_jquants_master
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar, store_jquants_master
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource

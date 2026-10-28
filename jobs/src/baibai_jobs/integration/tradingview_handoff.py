@@ -32,7 +32,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     FetchError,
     normalize_batch,
 )
-from baibai_engine.market.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 _RAW_KEYS = {

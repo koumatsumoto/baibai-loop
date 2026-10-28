@@ -8,11 +8,11 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.market.edinet_facts.planning import plan_fact_item
-from baibai_engine.market.edinet_facts.service import prepare_edinet_facts
-from baibai_engine.market.edinet_metrics.service import prepare_edinet_metric_plan
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import plan_fact_item
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import prepare_edinet_facts
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import prepare_edinet_metric_plan
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 

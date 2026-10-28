@@ -49,6 +49,9 @@ def reject_noncanonical_store_paths(root: Path = Path()) -> None:
         )
 
 
+# Default directory of the canonical market working-copy path.
+DEFAULT_SQLITE_CACHE_DIR = MARKET_DB_PATH.parent
+
 __all__ = [
     "APPLICATION_DB_PATH",
     "CALIBRATION_DIR",

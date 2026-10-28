@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.trading_activity.models import (
     JQuantsAllIssuesDailyMargin,
     JQuantsMarginAlert,

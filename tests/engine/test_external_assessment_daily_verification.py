@@ -33,7 +33,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 )
 from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.keys import current_release_pointer_key
 from baibai_engine.storage.lake.models import canonical_lake_model_bytes

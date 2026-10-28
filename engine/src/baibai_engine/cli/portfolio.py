@@ -20,7 +20,7 @@ import yaml
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import BenchmarkObservation
-from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR
+from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR
 from baibai_engine.machine_analysis.observations.prices.jpx_total_return import (
     BenchmarkObservationError,
     load_benchmark_observation,

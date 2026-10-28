@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from baibai_engine.market.edinet_decode import (
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     document_period,
     is_usable_filing_status,
     parse_sec_code,

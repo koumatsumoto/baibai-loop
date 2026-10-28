@@ -53,16 +53,16 @@ assert tv_contract.TABLE == 'tradingview_forecast_snapshots'
 def test_market_readers_do_not_load_provider_or_writer_implementations():
     code = """
 import sys
-from baibai_engine.market import jquants_decode
+from baibai_engine.machine_analysis.observations import jquants_decode
 from baibai_engine.machine_analysis.observations.financials import jquants_models
 from baibai_engine.machine_analysis.observations.disclosures import jpx_reader, jpx_models
 from baibai_engine.machine_analysis.observations.financials import edinet_models
 from baibai_engine.machine_analysis.observations.trading_activity import margin_reader, models as margin_models
 from baibai_jobs.maintenance import jquants_inputs as jquants_reader
 for prefix in (
-    'baibai_engine.market.jquants_writer',
+    'baibai_engine.machine_analysis.observations.jquants_writer',
     'baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild',
-    'baibai_engine.market.edinet_metrics',
+    'baibai_engine.machine_analysis.observations.financials.edinet_metrics',
     'baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild',
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
@@ -75,9 +75,9 @@ assert jquants_reader.JQuantsProviderError is jquants_decode.JQuantsProviderErro
 def test_edinet_decoding_and_sqlite_reads_do_not_load_http_client():
     code = """
 import sys
-from baibai_engine.market import edinet_decode
-from baibai_engine.market.edinet_metrics import store
-from baibai_engine.market.edinet_metrics import csv as edinet_csv
+from baibai_engine.machine_analysis.observations.financials import edinet_decode
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import store
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import csv as edinet_csv
 for prefix in (
     'baibai_jobs.maintenance.source_refresh.edinet',
     'requests',

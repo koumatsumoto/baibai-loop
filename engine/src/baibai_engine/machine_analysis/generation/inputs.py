@@ -11,7 +11,7 @@ from pathlib import Path
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.calendar_context import price_calendar_basis, read_price_calendar
-from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

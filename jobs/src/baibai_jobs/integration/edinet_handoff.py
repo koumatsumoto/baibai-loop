@@ -8,15 +8,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_document_day
-from baibai_engine.market.edinet_metrics.store import read_unrechecked_edinet_document_dates
-from baibai_engine.market.receipt_handoff import copy_originals
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_unrechecked_edinet_document_dates
+from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
 
 
-def archive_keys(database: Path) -> set[tuple[str, int]]:
-    with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
-        validate_current_schema(conn)
-        return set(conn.execute("SELECT doc_id, source_type FROM edinet_source_archives"))
 
 
 def export_handoff(

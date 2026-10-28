@@ -8,7 +8,7 @@ from dataclasses import replace
 from datetime import date, time
 from typing import Any
 
-from baibai_engine.market.jquants_decode import (
+from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQuantsProviderError,
     has_period_slot,
     parse_date,

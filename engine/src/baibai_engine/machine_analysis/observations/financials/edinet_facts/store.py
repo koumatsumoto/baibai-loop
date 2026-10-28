@@ -13,8 +13,8 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.storage.observations.coverage import record_source_coverage
 from baibai_engine.storage.observations.schema import connect_current, open_connection
 
-from .extract import EXTRACTOR_REVISION
-from .models import DebtFact, ExtractedFacts, FactIdentity, SegmentFact
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import EXTRACTOR_REVISION
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import DebtFact, ExtractedFacts, FactIdentity, SegmentFact
 
 COVERAGE_SOURCE = "edinet_research_facts"
 

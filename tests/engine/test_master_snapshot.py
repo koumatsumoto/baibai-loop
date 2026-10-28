@@ -20,7 +20,7 @@ from baibai_engine.primitives.time import JST
 from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
     _append_master_snapshot_issues,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
 )
@@ -29,7 +29,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
 )
 from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
-from baibai_engine.market.jquants_writer import store_jquants_master
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_master
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_jobs.maintenance.market.cache import backfill_master_command, bootstrap_cache_command
 from baibai_jobs.maintenance.market.providers import ProviderBundle
@@ -289,7 +289,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market.jquants_writer.record_source_coverage",
+                    "baibai_engine.machine_analysis.observations.jquants_writer.record_source_coverage",
                     side_effect=sqlite3.OperationalError("injected coverage failure"),
                 ),
                 self.assertRaises(sqlite3.OperationalError),

@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.market.edinet_decode import (
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     coalesce_field,
     parse_sec_code,
     safe_error_value,

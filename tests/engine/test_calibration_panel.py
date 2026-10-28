@@ -67,7 +67,7 @@ from baibai_engine.machine_analysis.screening.discovery.candidates import (
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
 from baibai_engine.machine_analysis.screening.rules_identity import production_rules_contract_hash
 from baibai_engine.machine_analysis.screening.universe import UNIVERSE_SCOPE_REVISION
-from baibai_engine.market.input_windows import BARS_INPUT_WINDOW_DAYS
+from baibai_engine.machine_analysis.historical_evaluation.input_windows import BARS_INPUT_WINDOW_DAYS
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

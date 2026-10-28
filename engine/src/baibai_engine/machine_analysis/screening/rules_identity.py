@@ -20,7 +20,7 @@ def production_rules_contract_hash(
     from baibai_engine.machine_analysis.models.market_context.margin import (
         MARKET_CONTEXT_CALCULATION_REVISION,
     )
-    from baibai_engine.market.input_windows import BARS_INPUT_WINDOW_DAYS
+    from baibai_engine.machine_analysis.historical_evaluation.input_windows import BARS_INPUT_WINDOW_DAYS
 
     return rules_contract_hash(
         rules_json,

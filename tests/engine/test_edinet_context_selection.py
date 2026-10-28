@@ -11,7 +11,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.financial_
     build_financial_snapshot,
 )
 from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import parse_csv_zip_metric_record
 
 _CONSOLIDATION_DEI = "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI"
 

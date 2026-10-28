@@ -14,9 +14,9 @@ from tests.helpers.http_doubles import FakeSession, response
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.market.edinet_facts.extract import extract_facts
-from baibai_engine.market.edinet_facts.models import ExtractedFacts, filing_identity
-from baibai_engine.market.edinet_facts.selection import (
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import extract_facts
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import ExtractedFacts, filing_identity
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
     annual_documents,
     latest_annual_filing,
     usable_document,
@@ -24,17 +24,17 @@ from baibai_engine.market.edinet_facts.selection import (
 from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_facts_command,
 )
-from baibai_engine.market.edinet_facts.service import (
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
 )
-from baibai_engine.market.edinet_facts.store import (
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
     document_inventory,
     extraction_status,
     store_facts,
 )
-from baibai_engine.market.edinet_facts.xbrl import SourceFormatError, xml_root
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import SourceFormatError, xml_root
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_jobs.maintenance.market import cli as app
 from baibai_engine.storage.observations.schema import open_connection
@@ -438,7 +438,7 @@ def test_research_facts_stop_after_rate_limit_without_planning_later_documents(
     requested = []
     planned = []
 
-    from baibai_engine.market.edinet_facts import service
+    from baibai_engine.machine_analysis.observations.financials.edinet_facts import service
 
     original_plan = service.plan_fact_item
 
@@ -763,7 +763,7 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
     from tests.helpers.edinet_documents import store_edinet_documents
 
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import _canonicalize_document_events
-    from baibai_engine.market.edinet_metrics.store import read_edinet_documents
+    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_documents
 
     original = document()
     correction = document("S100CORR", "2026-08-01 10:00", parentDocID="S100TEST")
@@ -940,7 +940,7 @@ def test_empty_research_facts_still_bind_the_extraction_identity(tmp_path, monke
     reader = Mock()
     reader.read_xbrl_zip.return_value = source_zip()
     monkeypatch.setattr(
-        "baibai_engine.market.edinet_facts.service.extract_facts",
+        "baibai_engine.machine_analysis.observations.financials.edinet_facts.service.extract_facts",
         lambda **kwargs: ExtractedFacts((), ()),
     )
     kwargs = dict(asof=date(2026, 9, 18), sqlite_path=path, reader=reader)

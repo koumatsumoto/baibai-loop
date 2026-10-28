@@ -11,11 +11,11 @@ from tests.engine.test_source_maintenance_cli import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.market.edinet_facts.store import record_initialized
-from baibai_engine.market.edinet_integration import extract_saved_edinet
-from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError, read_edinet_metrics
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import record_initialized
+from baibai_engine.machine_analysis.observations.financials.edinet_integration import extract_saved_edinet
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import EDINETMetricBaselineError, read_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.observations.schema import open_connection
 
 
@@ -147,7 +147,7 @@ def test_unexpected_extractor_error_is_not_classified_as_deferred_input(tmp_path
         raise RuntimeError("unexpected extractor error")
 
     monkeypatch.setattr(
-        "baibai_engine.market.edinet_integration.extract_edinet_metrics_from_plan", broken
+        "baibai_engine.machine_analysis.observations.financials.edinet_integration.extract_edinet_metrics_from_plan", broken
     )
     with pytest.raises(RuntimeError, match="unexpected extractor error"):
         extract_saved_edinet(path, asof=TARGET, lookback_days=3)

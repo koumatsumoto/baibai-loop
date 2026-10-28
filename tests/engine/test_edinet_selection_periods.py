@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.market.edinet_metrics.planning import make_metric_extraction_plan
-from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import make_metric_extraction_plan
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import EDINET_METRIC_REVISION
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 
 

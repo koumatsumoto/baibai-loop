@@ -16,13 +16,13 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXEarningsCalendarEntry, JPXEarningsCalendarSnapshot
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError, parse_jquants_code_parts
 from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
 )
@@ -37,7 +37,7 @@ from baibai_jobs.maintenance.source_refresh.jquants import (
     weekly_margin_candidate_dates,
     weekly_margin_empty_requires_refresh,
 )
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_daily_bars,
     store_jquants_fin_summaries,

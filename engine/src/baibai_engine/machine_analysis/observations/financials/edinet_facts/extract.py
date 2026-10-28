@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from .debt import debt_facts
-from .models import ExtractedFacts, filing_identity
-from .segments import segment_facts
-from .xbrl import read_instance
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.debt import debt_facts
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import ExtractedFacts, filing_identity
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.segments import segment_facts
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import read_instance
 
 # Increment when extraction semantics change. Separate from the existing metrics
 # revision: research fact changes must not invalidate screening's financial baseline.

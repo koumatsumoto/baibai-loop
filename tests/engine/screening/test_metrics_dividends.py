@@ -648,7 +648,7 @@ def test_unrelated_payment_and_share_disagreements_do_not_veto_annual_dps(tmp_pa
     from baibai_engine.machine_analysis.observations.financials.reader import (
         read_financial_documents,
     )
-    from baibai_engine.market.jquants_writer import store_jquants_fin_summaries
+    from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 
     day = date(2026, 5, 15)
     path = tmp_path / "market.sqlite"

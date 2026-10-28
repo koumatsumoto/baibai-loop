@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .models import FactIdentity, SegmentFact
-from .xbrl import Instance, SourceFormatError, local_name, numeric_fact
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import FactIdentity, SegmentFact
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import Instance, SourceFormatError, local_name, numeric_fact
 
 # Only EDINET standard concepts are normalized. Issuer extension names that merely
 # resemble them do not establish the same accounting meaning.

@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_daily_bars,
     store_jquants_fin_summaries,

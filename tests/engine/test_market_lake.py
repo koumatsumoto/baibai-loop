@@ -824,11 +824,12 @@ def test_only_a_replaced_table_is_exempt_from_the_history_floor() -> None:
     from baibai_engine.storage.lake.datasets import LAKE_DATASETS
     from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
 
-    # Source writers live in market; inspect the owner of both snapshot datasets.
-    market = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine/market"
+    # Inspect the observation and SQLite owners of snapshot replacement.
+    engine = Path(__file__).resolve().parents[2] / "engine/src/baibai_engine"
+    observations = engine / "machine_analysis" / "observations"
     replaced = {
         match.group(1)
-        for source_root in (market, market.parent / "storage" / "observations")
+        for source_root in (observations, engine / "storage" / "observations")
         for path in source_root.rglob("*.py")
         for match in re.finditer(r"DELETE FROM (\w+)\s*(?:\"|')", path.read_text(encoding="utf-8"))
     }

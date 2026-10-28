@@ -7,8 +7,8 @@ import unicodedata
 from decimal import Decimal
 from xml.etree import ElementTree as ET  # nosec B405 -- parsed by bounded xml_root
 
-from .models import DebtFact, FactIdentity
-from .xbrl import Context, Instance, SourceFormatError, local_name, xml_root
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import DebtFact, FactIdentity
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import Context, Instance, SourceFormatError, local_name, xml_root
 
 _BLOCKS = {
     "AnnexedConsolidatedDetailedScheduleOfBorrowingsTextBlock": "borrowings",

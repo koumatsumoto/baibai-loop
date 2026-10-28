@@ -20,7 +20,7 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
-from baibai_engine.market.jquants_decode import normalize_ex_right_type, provider_record_payload
+from baibai_engine.machine_analysis.observations.jquants_decode import normalize_ex_right_type, provider_record_payload
 from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     require_all_issues_daily_balance_date,
     require_legacy_weekly_balance_date,

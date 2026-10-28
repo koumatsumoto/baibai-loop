@@ -72,7 +72,7 @@ def test_market_context_calculation_cold_import_does_not_load_composition_or_io(
         "baibai_engine.machine_analysis.screening",
         "baibai_engine.investment_judgment",
         "baibai_engine.storage",
-        "baibai_engine.market.edinet_metrics.csv",
+        "baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv",
         "baibai_engine.machine_analysis.observations.prices.price_reader",
         "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
     )

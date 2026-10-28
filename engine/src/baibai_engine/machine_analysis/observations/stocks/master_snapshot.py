@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Final
 
-from baibai_engine.market.jquants_decode import (
+from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQuantsProviderError,
     parse_jquants_code_parts,
     provider_record_payload,

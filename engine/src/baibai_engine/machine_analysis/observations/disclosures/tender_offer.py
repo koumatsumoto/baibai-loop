@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingRecord, read_jpx_delistings
-from baibai_engine.market.edinet_decode import is_usable_filing_status
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import is_usable_filing_status
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import read_current_filing_documents
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (

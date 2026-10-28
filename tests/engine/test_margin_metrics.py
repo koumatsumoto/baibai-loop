@@ -164,7 +164,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
 
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
-        from baibai_engine.market.jquants_writer import store_jquants_weekly_margin
+        from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_weekly_margin
         from baibai_engine.storage.observations.schema import open_connection
 
         for week_end in week_ends:
@@ -286,7 +286,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
     @classmethod
     def _seed(cls, db: Path, *, weekly_from: date, daily_through: date) -> None:
         """Weekly balances through the freeze, daily balances after it, bars for both."""
-        from baibai_engine.market.jquants_writer import (
+        from baibai_engine.machine_analysis.observations.jquants_writer import (
             store_jquants_all_issues_daily_margin,
             store_jquants_weekly_margin,
         )

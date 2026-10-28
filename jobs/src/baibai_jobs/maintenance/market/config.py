@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from baibai_engine.market.config import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
+from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
 
 
 class ConfigError(ValueError):

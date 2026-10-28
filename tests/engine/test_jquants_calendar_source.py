@@ -7,11 +7,11 @@ from datetime import date, timedelta
 import pyarrow.parquet as pq
 
 from baibai_engine.machine_analysis.observations.prices.calendar_context import market_calendar_business_day
-from baibai_engine.market.jquants_decode import normalize_market_calendar
+from baibai_engine.machine_analysis.observations.jquants_decode import normalize_market_calendar
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     read_market_calendar,
 )
-from baibai_engine.market.jquants_writer import store_jquants_market_calendar
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
 from baibai_engine.storage.lake.datasets import JQUANTS_MARKET_CALENDAR
 from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 

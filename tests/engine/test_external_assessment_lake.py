@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.market.jquants_writer import store_jquants_market_calendar
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY

@@ -6,7 +6,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 from baibai_engine.machine_analysis.observations.financials.financial_documents import normalize_financial_summary, project_financial_documents
-from baibai_engine.market.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

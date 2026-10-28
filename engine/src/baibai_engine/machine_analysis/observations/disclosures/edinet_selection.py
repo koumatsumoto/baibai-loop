@@ -12,7 +12,7 @@ from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.market.edinet_decode import (
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     coalesce_field,
     document_period,
     is_usable_filing_status,

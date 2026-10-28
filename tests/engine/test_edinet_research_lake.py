@@ -10,8 +10,8 @@ from tests.engine.test_edinet_research_facts import facts
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import lake as lake
 
-from baibai_engine.market.edinet_facts.models import filing_identity
-from baibai_engine.market.edinet_facts.store import store_facts
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import filing_identity
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import store_facts
 from baibai_engine.storage.lake.duck import lake_session
 from baibai_engine.storage.lake.hydrate import hydrate_market_store
 from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
