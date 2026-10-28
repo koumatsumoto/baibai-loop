@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.reader imp
 )
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import COLUMNS, TABLE
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def tv_row(path, fetched, *, status="ok", ticker="1234", **metrics):

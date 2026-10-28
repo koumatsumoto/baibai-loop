@@ -16,13 +16,13 @@ from tests.jobs.external_assessment_publication_fixtures import publication as p
 from tools.quality.drift.check_workflow_trust import check_workflow
 
 from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
-from baibai_engine.storage.lake.objects import LakeObjectCache
-from baibai_engine.storage.lake.objects import LocalMirrorSource
+from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_engine.storage.snapshots.objects import LocalMirrorSource
 from baibai_jobs.publication.external_assessment_verification import history_digests as external_assessment_history_digests
 from baibai_jobs.publication.external_assessment_verification import verify_release_history as external_assessment_verify_release_history
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_jobs.jobs import external_assessment_integration as external_assessment
-from baibai_jobs.storage import publish_market_lake as publisher
+from baibai_engine.storage.snapshots.duck import lake_session
+import baibai_jobs.integration.external_assessments as external_assessment
+import baibai_jobs.publication.snapshot_publication as publisher
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 

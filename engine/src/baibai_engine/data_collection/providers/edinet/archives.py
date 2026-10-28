@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from baibai_engine.storage.observations.schema import validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 from datetime import date
 
 

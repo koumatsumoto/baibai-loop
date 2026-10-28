@@ -18,7 +18,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.screening.model_projection import select_generation
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
-from baibai_engine.storage.machine_analysis import (
+from baibai_engine.storage.sqlite.machine_analysis import (
     GENERATION_SCHEMA_SQL,
     SCHEMA_SQL,
     connect_read_only,

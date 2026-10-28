@@ -128,7 +128,7 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         FetchError,
     )
-    from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
+    from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 
     local, canonical = (
         store(tmp_path / "local.sqlite", 51),

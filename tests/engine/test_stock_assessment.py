@@ -40,7 +40,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
 )
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
-from baibai_engine.storage.application.schema import SCHEMA_SQL
+from baibai_engine.storage.sqlite.application.schema import SCHEMA_SQL
 
 
 @pytest.fixture
@@ -606,8 +606,8 @@ def test_publication_requires_formal_assessment_and_review_namespaces(connection
 
 def test_service_owns_and_commits_short_transaction_with_current_schema(tmp_path):
     from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-    from baibai_engine.storage.application.read import connect_read_only
-    from baibai_engine.storage.application.write import initialize_database
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
+    from baibai_engine.storage.sqlite.application.write import initialize_database
 
     db = tmp_path / "app.sqlite"
     initialize_database(db)

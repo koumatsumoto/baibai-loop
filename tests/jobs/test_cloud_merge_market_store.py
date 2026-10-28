@@ -12,15 +12,15 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_financial
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import filing_identity
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_short_sale_reports
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import (
+from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
-from baibai_jobs.storage.merge_market_store import (
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.integration.source_cache_merge import (
     ALL_TABLES,
     FACT_KEYS,
     UNCOMPARED,

@@ -30,7 +30,7 @@ from baibai_jobs.maintenance.tradingview_rebuild import (
 )
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results, retain_tool_result
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import COLUMNS
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _ids(path: Path) -> list[str]:

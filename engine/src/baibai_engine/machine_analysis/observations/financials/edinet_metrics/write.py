@@ -14,12 +14,12 @@ from baibai_engine.machine_analysis.observations.normalization import (
     to_float,
     to_str_or_none,
 )
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def store_edinet_metrics(

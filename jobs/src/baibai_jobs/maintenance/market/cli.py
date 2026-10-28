@@ -41,7 +41,7 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     TSECapitalPolicyRefreshSummary,
     ValuationCatalystError,
 )
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 from baibai_jobs.maintenance.market.cache import (
     backfill_history_command,

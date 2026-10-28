@@ -18,7 +18,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.investment_judgment.trade_proposal.price_watch import ResearchPriceWatchError, build_watch
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 @pytest.fixture

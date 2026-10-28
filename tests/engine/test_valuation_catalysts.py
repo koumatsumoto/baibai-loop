@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     edinet_code_to_ticker,
     parse_tse_capital_policy_workbook,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 # The two real layouts. The 2025 sheets put the contact application next to the update

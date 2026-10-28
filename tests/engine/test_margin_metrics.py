@@ -165,7 +165,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
         from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_weekly_margin
-        from baibai_engine.storage.observations.schema import open_connection
+        from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         for week_end in week_ends:
             store_jquants_weekly_margin(
@@ -216,7 +216,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
             read_margin_supply_demand_inputs,
         )
         from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import published_margin_week_ends
-        from baibai_engine.storage.observations.schema import open_connection
+        from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -290,7 +290,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
             store_jquants_all_issues_daily_margin,
             store_jquants_weekly_margin,
         )
-        from baibai_engine.storage.observations.schema import open_connection
+        from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         trading = cls._weekdays(weekly_from, daily_through)
         conn = open_connection(db)

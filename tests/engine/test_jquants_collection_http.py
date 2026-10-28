@@ -24,8 +24,8 @@ from baibai_engine.data_collection.providers.jquants.http import (
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request, read_request_pages
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 RECEIVED_AT = datetime(2026, 10, 17, 12, tzinfo=UTC)
 

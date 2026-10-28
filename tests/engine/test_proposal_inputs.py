@@ -24,7 +24,7 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
 from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 def _collect(case, *, now=PREPARED, proposal_id=PROPOSAL_ID):

@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_missing_reader_inputs_never_create_a_store_or_connect(tmp_path):

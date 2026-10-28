@@ -52,8 +52,8 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     latest_daily_bar_date,
     latest_stored_daily_bar_date,
 )
-from baibai_engine.storage.observations.coverage import merge_date_ranges, missing_intervals
-from baibai_engine.storage.observations.schema import connect_current, open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import merge_date_ranges, missing_intervals
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
 
 Progress = Callable[[int, int, date, date], None]
 

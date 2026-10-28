@@ -14,9 +14,9 @@ Command = Callable[[list[str] | None], int]
 
 # Commands are resolved only after selection. Listing/help never opens unrelated stores or providers.
 _COMMANDS = {
-    "model-integration": "baibai_jobs.jobs.model_integration",
+    "model-integration": "baibai_jobs.integration.models",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
-    "tradingview": "baibai_jobs.jobs.tradingview",
+    "tradingview": "baibai_jobs.integration.local_tradingview",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",

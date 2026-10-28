@@ -17,10 +17,13 @@ from tests.jobs.test_external_assessment_daily import FakeObjectStore, observati
 
 from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
 from baibai_jobs.acquisition.external_assessments.collection import CollectionResult as ExternalAssessmentCollectionResult
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.storage import external_assessment_raw as external_assessment_raw
-from baibai_jobs.storage import external_assessment_staging as external_assessment_staging
-from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
+import baibai_jobs.acquisition.external_assessments.staging as external_assessment_staging
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakePublishError,
+)
 
 
 class S3Client:
@@ -188,7 +191,7 @@ def test_failed_bundle_acknowledgement_prevents_stage_commit(monkeypatch, capsys
 
 
 def test_source_cli_only_disables_put_head_for_private_acquisition(monkeypatch, tmp_path):
-    from baibai_jobs.jobs import external_assessment_sources as sources
+    import baibai_jobs.acquisition.external_assessments.sources as sources
 
     configured = []
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: configured.append(kwargs))

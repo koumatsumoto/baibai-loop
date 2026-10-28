@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.machine_analysis import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, ModelGeneration, ModelInputSlice
 

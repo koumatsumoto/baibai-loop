@@ -93,7 +93,7 @@ check_sqlite() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_jobs.storage.sqlite_snapshot check --path "$1"
+      uv run python -m baibai_engine.storage.sqlite.snapshot check --path "$1"
   )
 }
 
@@ -101,7 +101,7 @@ snapshot_sqlite() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_jobs.storage.sqlite_snapshot create \
+      uv run python -m baibai_engine.storage.sqlite.snapshot create \
         --source "$1" --output "$2"
   )
 }
@@ -120,11 +120,11 @@ merge_store() {
 }
 
 merge_economic_store() {
-  merge_store baibai_jobs.storage.merge_economic_store "$1" "$2"
+  merge_store baibai_jobs.integration.native_source_merge "$1" "$2"
 }
 
 merge_market_store() {
-  merge_store baibai_jobs.storage.merge_market_store "$1" "$2"
+  merge_store baibai_jobs.integration.source_cache_merge "$1" "$2"
 }
 
 hydrate_market() {
@@ -134,7 +134,7 @@ hydrate_market() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-engine lake hydrate \
+      uv run baibai-engine snapshots hydrate \
         --mirror "${lake_mirror}" \
         --store "$(store_path market.sqlite)" \
         --bucket "${stores_bucket}"
@@ -149,7 +149,7 @@ publish_lake() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_jobs.storage.publish_market_lake \
+      uv run python -m baibai_jobs.publication.snapshot_publication \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
         --bucket "${stores_bucket}" \
@@ -165,7 +165,7 @@ dehydrate_market_snapshot() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-engine lake dehydrate \
+      uv run baibai-engine snapshots dehydrate \
         --mirror "${lake_mirror}" \
         --store "${path}" \
         --bucket "${stores_bucket}"

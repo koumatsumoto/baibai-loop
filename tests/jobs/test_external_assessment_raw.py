@@ -20,10 +20,13 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.storage import external_assessment_raw as external_assessment_raw
-from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_jobs.storage.lake_publish import Boto3R2Store, LakePublishError
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
+import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakePublishError,
+)
 
 
 class Session(requests.Session):

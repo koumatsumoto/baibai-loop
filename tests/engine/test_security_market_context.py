@@ -18,7 +18,7 @@ from baibai_engine.machine_analysis.models.market_context.security import build_
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_jpx_regulations, read_next_earnings_dates
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 

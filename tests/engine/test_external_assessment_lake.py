@@ -17,18 +17,18 @@ from baibai_engine.machine_analysis.generation.runners.external_assessment impor
 from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.models import PRODUCTION_RELEASE_POLICY
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 VALUATION = "external_assessment.model_valuation_observations"
 RATING = "external_assessment.analyst_rating_observations"

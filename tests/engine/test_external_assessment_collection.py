@@ -26,7 +26,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 class Session:

@@ -14,7 +14,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProp
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
-from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.sqlite.application.write import initialize_database
 from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,

@@ -24,8 +24,8 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_metric_baseline
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def extract_saved_edinet(

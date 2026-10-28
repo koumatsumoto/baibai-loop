@@ -71,8 +71,8 @@ from baibai_engine.machine_analysis.generation.inputs import read_and_generate_m
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.storage.application.read import connect_read_only
-from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 START = datetime.fromisoformat("2026-10-14T15:45:00+09:00")
 PROMOTED = datetime.fromisoformat("2026-10-14T16:06:00+09:00")

@@ -30,25 +30,27 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     monex,
     rakuten,
 )
-from baibai_jobs.jobs import external_assessment_integration as external_assessment
-from baibai_jobs.jobs.external_assessment_cohorts import (
+import baibai_jobs.integration.external_assessments as external_assessment
+from baibai_jobs.acquisition.external_assessments.cohorts import (
     RunPlan,
     make_plan,
     new_result,
     record_outcome,
 )
-from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_jobs.storage import publish_market_lake as publisher
-from baibai_jobs.storage.external_assessment_raw import RawBundle
-from baibai_jobs.storage.external_assessment_ready import prepare_plan, save_ready
-from baibai_jobs.storage.external_assessment_staging import (
+import baibai_jobs.acquisition.external_assessments.staging as staging
+import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_jobs.integration.external_assessment_raw import RawBundle
+from baibai_jobs.integration.external_assessment_ready import prepare_plan, save_ready
+from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     put_private,
     stage_bytes,
     stage_key,
 )
-from baibai_jobs.storage.lake_publish import ObjectStore
-from baibai_jobs.storage.publication_lease import acquire, verify_held
+from baibai_engine.storage.objects.r2 import (
+    ObjectStore,
+)
+from baibai_jobs.publication.lease import acquire, verify_held
 
 
 def pair_responses(

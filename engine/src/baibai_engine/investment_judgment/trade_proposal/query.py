@@ -24,7 +24,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     order_readiness,
     proposal_draft_sha256,
 )
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -> TradeProposal:

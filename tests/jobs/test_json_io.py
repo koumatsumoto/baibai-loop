@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from baibai_jobs.storage import json_io
+import baibai_engine.storage.json as json_io
 
 
 def test_canonical_json_keeps_stable_utf8_bytes():

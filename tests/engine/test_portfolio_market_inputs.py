@@ -12,8 +12,8 @@ from tests.helpers.screening_sqlite import add_source_coverage
 
 import baibai_engine.portfolio.holdings.market_observations as market_store
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
-from baibai_engine.storage.observations.read import connect_read_only
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 START = date(2026, 10, 14)
 END = date(2026, 10, 15)

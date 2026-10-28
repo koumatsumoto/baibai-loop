@@ -5,9 +5,9 @@ from contextlib import closing
 
 import pytest
 
-from baibai_engine.storage.application import write as application_write
-from baibai_engine.storage.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
-from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.sqlite.application import write as application_write
+from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
+from baibai_engine.storage.sqlite.application.write import initialize_database
 
 EXPECTED_TABLES = (
     "task",

@@ -26,7 +26,7 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
     read_tender_offer_blocks,
     store_tender_offer_exit_values,
 )
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 from baibai_jobs.maintenance.market.providers import EDINETMaintenance
 

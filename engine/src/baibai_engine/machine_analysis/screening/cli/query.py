@@ -18,7 +18,7 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     published_run_payload,
     serialize_published_run_yaml,
 )
-from baibai_engine.storage.machine_analysis import run_store_path
+from baibai_engine.storage.sqlite.machine_analysis import run_store_path
 
 
 def run_show_command(

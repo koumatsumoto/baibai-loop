@@ -10,8 +10,8 @@ from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsPr
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.storage.observations.coverage import covered_intervals, range_covered
-from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals, range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb

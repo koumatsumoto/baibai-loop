@@ -53,7 +53,7 @@ jobs:
           import json
           import os
           from datetime import datetime
-          from baibai_jobs.jobs.schedule import market_source_target_date
+          from baibai_jobs.schedule import market_source_target_date
           all_sources = ['jquants-market', 'jquants-financial', 'jpx-earnings', 'jpx-regulations', 'edinet-list', 'edinet-metrics', 'edinet-facts']
           day = market_source_target_date(
               datetime.fromisoformat(os.environ['RUN_CREATED_AT']),

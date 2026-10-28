@@ -28,7 +28,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     FetchError,
     normalize_batch,
 )
-from baibai_engine.storage.observations.schema import validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 
 class RebuildError(SourceDataError):

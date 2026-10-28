@@ -22,8 +22,8 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_short_sale_reports,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def day(value: str) -> date:

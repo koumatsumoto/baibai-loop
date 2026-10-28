@@ -30,7 +30,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.identity i
 )
 from baibai_engine.machine_analysis.observations.external_assessments.rebuild import rebuild_attempts
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 RECEIVED = datetime(2026, 10, 10, 16, 30, 12, 345678, tzinfo=UTC)
 

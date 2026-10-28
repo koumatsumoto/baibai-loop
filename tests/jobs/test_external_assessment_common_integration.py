@@ -17,15 +17,17 @@ from tests.jobs.external_assessment_publication_fixtures import publication as p
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt as external_assessment_decode_attempt
 from baibai_jobs.publication.external_assessment_verification import history_digests as external_assessment_history_digests
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations as external_assessment_save_observations
-from baibai_jobs.jobs.external_assessment_integration import (
+from baibai_jobs.integration.external_assessments import (
     VALUATION_DATASET,
     merge_ready,
     verify_and_seal,
 )
-from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_jobs.storage import publish_market_lake as publisher
-from baibai_jobs.storage.external_assessment_ready import load_ready, prepare_plan, save_ready
-from baibai_jobs.storage.lake_publish import LakePublishError
+import baibai_jobs.acquisition.external_assessments.staging as staging
+import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_jobs.integration.external_assessment_ready import load_ready, prepare_plan, save_ready
+from baibai_engine.storage.objects.r2 import (
+    LakePublishError,
+)
 
 
 def ready_references(batch):
@@ -87,7 +89,7 @@ def test_common_readback_failure_never_repairs_sqlite_or_seals_any_terminal(
         raise ValueError("synthetic independent readback failure")
 
     monkeypatch.setattr(
-        "baibai_jobs.jobs.external_assessment_integration.external_assessment_verify_release_history",
+        "baibai_jobs.integration.external_assessments.external_assessment_verify_release_history",
         reject,
     )
     for _ in range(2):
@@ -227,14 +229,14 @@ def test_minkabu_fresh_forecast_readback_with_a_separate_tradingview_update(
 def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
     independent_plans, monkeypatch
 ):
-    from baibai_engine.storage.lake.objects import LakeObjectCache
-    from baibai_engine.storage.lake.objects import LocalMirrorSource
-    from baibai_engine.storage.observations.snapshot import create_snapshot as create_market_snapshot
-    from baibai_engine.storage.lake.equity_web_verification import history_digests as equity_web_history_digests
-    from baibai_engine.storage.lake.duck import lake_session
-    from baibai_engine.storage.lake.hydrate import dehydrate_market_store, hydrate_market_store
-    from baibai_jobs.jobs import external_assessment_integration as integration
-    from baibai_jobs.storage.external_assessment_ready import available_ready
+    from baibai_engine.storage.snapshots.objects import LakeObjectCache
+    from baibai_engine.storage.snapshots.objects import LocalMirrorSource
+    from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot as create_market_snapshot
+    from baibai_engine.storage.snapshots.equity_web_verification import history_digests as equity_web_history_digests
+    from baibai_engine.storage.snapshots.duck import lake_session
+    from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
+    import baibai_jobs.integration.external_assessments as integration
+    from baibai_jobs.integration.external_assessment_ready import available_ready
 
     store, selected, handle, database, mirror, directory = independent_plans
     before = publisher._serving_pointer(store).pointer
@@ -306,8 +308,8 @@ def test_terminal_failure_resumes_only_pending_source_from_fresh_hydration(
 def test_terminal_acknowledgement_loss_does_not_reopen_a_verified_source(
     independent_plans, monkeypatch
 ):
-    from baibai_jobs.jobs import external_assessment_integration as integration
-    from baibai_jobs.storage.external_assessment_ready import available_ready
+    import baibai_jobs.integration.external_assessments as integration
+    from baibai_jobs.integration.external_assessment_ready import available_ready
 
     store, selected, handle, database, mirror, directory = independent_plans
     reference = ready_references(independent_plans)[0]

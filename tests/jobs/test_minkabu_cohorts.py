@@ -8,7 +8,7 @@ import pytest
 
 from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystForecastObservation as ExternalAssessmentAnalystForecastObservation
 from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
-from baibai_jobs.jobs.external_assessment_cohorts import (
+from baibai_jobs.acquisition.external_assessments.cohorts import (
     load_plan,
     load_result,
     make_plan,

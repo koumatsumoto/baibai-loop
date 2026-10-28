@@ -18,7 +18,7 @@ from baibai_engine.cli.market_snapshot import (
     build_parser,
     market_snapshot_command,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 _ASOF = date(2026, 5, 29)
 

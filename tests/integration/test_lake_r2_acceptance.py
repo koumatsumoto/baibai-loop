@@ -16,29 +16,31 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
-from baibai_engine.storage.lake import models as lake_models
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.keys import (
+from baibai_engine.storage.snapshots import models as lake_models
+from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.keys import (
     current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
-from baibai_engine.storage.lake.models import (
+from baibai_engine.storage.snapshots.models import (
     ReleaseManifest,
     canonical_lake_model_bytes,
     load_lake_model_json,
 )
-from baibai_engine.storage.lake.objects import open_lake
-from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
-from baibai_engine.storage.lake.reader import resolve_current_release
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.writer import export_market_store
-from baibai_jobs.storage.lake_publish import (
+from baibai_engine.storage.snapshots.objects import open_lake
+from baibai_engine.storage.snapshots.prefetch import prefetching_hydration_cache
+from baibai_engine.storage.snapshots.reader import resolve_current_release
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.writer import export_market_store
+from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
     RemoteObject,
+)
+from baibai_jobs.publication.snapshot_release import (
     publish_release,
 )
 

@@ -29,20 +29,20 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     QuantsScoreObservation,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.rows import observation_row
-from baibai_engine.storage.lake.datasets import (
+from baibai_engine.storage.snapshots.datasets import (
     EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_MODEL_VALUATION_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS,
 )
-from baibai_engine.storage.lake.duck import LakeSession
-from baibai_engine.storage.lake.objects import LakeObjectCache
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.storage.snapshots.duck import LakeSession
+from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
     iter_partition_rows,
     materialize_partitions,
 )
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def _row_bytes(row: Sequence[object]) -> bytes:

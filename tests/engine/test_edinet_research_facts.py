@@ -37,7 +37,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_jobs.maintenance.market import cli as app
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 FIXTURES = Path(__file__).parents[1] / "fixtures/edinet/research"
 

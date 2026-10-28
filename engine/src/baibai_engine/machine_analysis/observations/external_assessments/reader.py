@@ -34,7 +34,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
     TABLE as TV_TABLE,
 )
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystForecastHistory,

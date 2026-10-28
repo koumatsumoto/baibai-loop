@@ -26,9 +26,9 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import read_price_day_states
 from baibai_engine.machine_analysis.observations.prices.price_reader import _adjustment_events_from_rows
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import SealedSQLiteSnapshot
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import VALUATION_HISTORY_SESSIONS

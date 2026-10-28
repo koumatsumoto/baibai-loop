@@ -33,7 +33,7 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _verify_screening_sqlite_coverage(*args, **kwargs):
@@ -1566,7 +1566,7 @@ if __name__ == "__main__":  # pragma: no cover
 
 
 def test_fetched_empty_financial_history_is_not_sufficient_for_screening() -> None:
-    from baibai_engine.storage.observations.coverage import range_covered
+    from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 
     asof = _COMMON_COVERAGE_ASOF
     with _complete_coverage_database() as database:

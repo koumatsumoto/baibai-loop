@@ -38,8 +38,8 @@ from baibai_engine.investment_judgment.workflow.operation.service import (
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
-from baibai_engine.storage.application.read import connect_read_only
-from baibai_engine.storage.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 

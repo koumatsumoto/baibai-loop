@@ -1,0 +1,411 @@
+"""Resolve one release at the start of a run, then read only that release.
+
+The current pointer is the single mutable object in the lake. It is read exactly
+once, at ``resolve_current_release``; everything downstream travels as a
+``FixedRelease`` holding immutable keys and digests. A publisher that switches the
+pointer while a run is in flight therefore cannot change what that run reads.
+
+Reads are fail-closed on identity, and the identity chain is closed by digest at
+every edge: the release manifest must hash to what the pointer named, each dataset
+manifest must hash to what the release entry named, and each object must hash to
+what its dataset manifest named while also carrying the schema, contract, row
+count that manifest published. Declared key ranges are validated structurally,
+not recomputed from object rows by this reader. A reader accepts exactly one
+``contract_version`` per dataset; a different contract is an error rather than
+something to adapt to.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from types import MappingProxyType
+
+import duckdb
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
+from baibai_engine.storage.snapshots.datasets import LakeDataset, period_label, require_lake_dataset
+from baibai_engine.storage.snapshots.duck import LakeSession
+from baibai_engine.storage.snapshots.keys import (
+    current_release_pointer_key,
+    dataset_manifest_key,
+    release_manifest_key,
+    validate_identifier,
+)
+from baibai_engine.storage.snapshots.models import (
+    DatasetManifest,
+    LakeObject,
+    LakeReleaseSourceRef,
+    PartitionManifest,
+    ReleaseManifest,
+    canonical_lake_model_bytes,
+    load_lake_model_json,
+    validate_release_policy,
+)
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LakeObjectSource, sha256_bytes
+from baibai_engine.storage.snapshots.release import LakeReleasePointer
+
+
+class LakeReadError(RuntimeError):
+    """The lake graph does not resolve to one internally consistent release."""
+
+
+# Bound the Python rows converted per fetch. DuckDB's query and sort use additional
+# memory independently of this batch size.
+ROW_BATCH_SIZE = 20_000
+
+type Month = tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FixedRelease:
+    """One immutable input generation, resolved once and reused for a whole run."""
+
+    release_id: str
+    manifest_key: str
+    manifest_sha256: str
+    data_as_of: date
+    manifest: ReleaseManifest
+    dataset_manifests: Mapping[str, DatasetManifest]
+    dataset_manifest_sha256: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "dataset_manifests",
+            MappingProxyType(dict(self.dataset_manifests)),
+        )
+        object.__setattr__(
+            self,
+            "dataset_manifest_sha256",
+            MappingProxyType(dict(self.dataset_manifest_sha256)),
+        )
+
+    def dataset_names(self) -> tuple[str, ...]:
+        return tuple(sorted(self.dataset_manifests))
+
+    def dataset_manifest(self, dataset: str) -> DatasetManifest:
+        try:
+            return self.dataset_manifests[dataset]
+        except KeyError:
+            available = ", ".join(self.dataset_names())
+            raise LakeReadError(
+                f"release {self.release_id} does not contain dataset {dataset!r}; "
+                f"published datasets: {available or '(none)'}"
+            ) from None
+
+
+def resolve_current_release(source: LakeObjectSource) -> FixedRelease:
+    """Freeze current and require it to satisfy policy structurally."""
+
+    pointer = _read_current_pointer(source)
+    release = _load_release(
+        source,
+        release_id=pointer.release_id,
+        expected_manifest_sha256=pointer.manifest_sha256,
+    )
+    try:
+        validate_release_policy(
+            release.manifest,
+            release.dataset_manifests,
+        )
+    except ValueError as exc:
+        raise LakeReadError(f"market current release fails operational policy: {exc}") from None
+    return release
+
+
+def _read_current_pointer(source: LakeObjectSource) -> LakeReleasePointer:
+    try:
+        payload = source.read_bytes(current_release_pointer_key())
+    except Exception as exc:
+        # A missing pointer is only one cause: access and transport failures also
+        # arrive here. Do not tell an operator to publish over an existing pointer.
+        raise LakeReadError(
+            "market current pointer could not be read; check availability and access. "
+            "If no release has been published, publish one or name a fixed release "
+            "with --release and --manifest-sha256"
+        ) from exc
+    try:
+        pointer = load_lake_model_json(payload, LakeReleasePointer)
+    except ValueError:
+        raise LakeReadError("market current pointer is invalid") from None
+    return pointer
+
+
+def resolve_release(
+    source: LakeObjectSource,
+    release_id: str,
+    *,
+    manifest_sha256: str,
+) -> FixedRelease:
+    """Resolve one named release without reading the pointer at all.
+
+    This is how a release that is not current gets read: the release is chosen by the
+    caller, so nothing about the current pointer takes part in the decision. A local
+    mirror has no pointer until it publishes, so it is also the only way to read one
+    before then.
+    """
+
+    validate_identifier(release_id, label="release_id")
+    return _load_release(
+        source,
+        release_id=release_id,
+        expected_manifest_sha256=manifest_sha256,
+    )
+
+
+def resolve_release_ref(source: LakeObjectSource, reference: LakeReleaseSourceRef) -> FixedRelease:
+    """Resolve a persisted reference whose typed identity includes the manifest digest."""
+
+    return resolve_release(
+        source,
+        reference.source_id,
+        manifest_sha256=reference.sha256,
+    )
+
+
+def _load_release(
+    source: LakeObjectSource,
+    *,
+    release_id: str,
+    expected_manifest_sha256: str,
+) -> FixedRelease:
+    manifest_key = release_manifest_key(release_id=release_id)
+    payload = source.read_bytes(manifest_key)
+    digest = sha256_bytes(payload)
+    if digest != expected_manifest_sha256:
+        raise LakeReadError("market release manifest digest does not match its expected identity")
+    try:
+        release = load_lake_model_json(payload, ReleaseManifest)
+    except ValueError:
+        raise LakeReadError("market release manifest is invalid") from None
+    if release.release_id != release_id:
+        raise LakeReadError("market release manifest identifies a different release")
+
+    manifests: dict[str, DatasetManifest] = {}
+    digests: dict[str, str] = {}
+    for name, entry in sorted(release.datasets.items()):
+        key = dataset_manifest_key(dataset=name, build_id=entry.build_id)
+        dataset_payload = source.read_bytes(key)
+        dataset_digest = sha256_bytes(dataset_payload)
+        if dataset_digest != entry.manifest_sha256:
+            raise LakeReadError(f"dataset manifest digest does not match the release: {name}")
+        try:
+            manifest = load_lake_model_json(dataset_payload, DatasetManifest)
+        except ValueError:
+            raise LakeReadError(f"dataset manifest is invalid: {name}") from None
+        # Everything the release entry restates about the manifest, not only what
+        # addresses it. Freshness is rightly exempted on a historical read — a pinned
+        # study is old on purpose — but the watermark, coverage, and totals a release
+        # states are what a reader reports about the generation, and an entry that
+        # disagrees with the manifest it names describes data that is not there.
+        if (
+            manifest.dataset != name
+            or manifest.layer != entry.layer
+            or manifest.build_id != entry.build_id
+            or manifest.contract_version != entry.contract_version
+            or manifest.data_as_of != entry.data_as_of
+            or manifest.coverage_status != entry.coverage_status
+            or manifest.totals != entry.totals
+        ):
+            raise LakeReadError(f"release and dataset manifest disagree: {name}")
+        manifests[name] = manifest
+        digests[name] = dataset_digest
+    return FixedRelease(
+        release_id=release_id,
+        manifest_key=manifest_key,
+        manifest_sha256=digest,
+        data_as_of=release.data_as_of,
+        manifest=release,
+        dataset_manifests=manifests,
+        dataset_manifest_sha256=digests,
+    )
+
+
+def materialize_release_metadata(cache: LakeObjectCache, release: FixedRelease) -> None:
+    """Retain the resolved graph so the same cached release can be read offline."""
+    metadata = [
+        (
+            release.manifest_key,
+            release.manifest_sha256,
+            canonical_lake_model_bytes(release.manifest),
+        ),
+        *(
+            (
+                dataset_manifest_key(dataset=name, build_id=manifest.build_id),
+                release.dataset_manifest_sha256[name],
+                canonical_lake_model_bytes(manifest),
+            )
+            for name, manifest in release.dataset_manifests.items()
+        ),
+    ]
+    for key, digest, payload in metadata:
+        # Readers accept valid noncanonical JSON too; preserve its actual pinned bytes.
+        if sha256_bytes(payload) != digest:
+            payload = cache.source.read_bytes(key)
+        cache.retain_metadata(key, payload, sha256=digest)
+
+
+def accepted_dataset(release: FixedRelease, dataset_name: str) -> LakeDataset:
+    """The dataset contract this reader accepts, or an error naming the mismatch."""
+
+    dataset = require_lake_dataset(dataset_name)
+    manifest = release.dataset_manifest(dataset_name)
+    if manifest.contract_version != dataset.contract_version:
+        raise LakeReadError(
+            f"dataset {dataset_name} publishes contract v{manifest.contract_version}; "
+            f"this reader accepts only v{dataset.contract_version}"
+        )
+    if tuple(manifest.partition_by) != dataset.partition_by:
+        raise LakeReadError(f"dataset {dataset_name} publishes an unexpected partition layout")
+    return dataset
+
+
+def selected_partitions(
+    release: FixedRelease,
+    dataset_name: str,
+    *,
+    periods: Iterable[Month] | None = None,
+) -> tuple[PartitionManifest, ...]:
+    """Partitions of one dataset, in calendar order, restricted to ``periods``."""
+
+    manifest = release.dataset_manifest(dataset_name)
+    layout = tuple(manifest.partition_by)
+    wanted = set(periods) if periods is not None else None
+
+    def key(partition: PartitionManifest) -> Month:
+        return partition_period(partition, layout)
+
+    selected = [
+        partition for partition in manifest.partitions if wanted is None or key(partition) in wanted
+    ]
+    if wanted is not None:
+        missing = sorted(wanted - {key(partition) for partition in selected})
+        if missing:
+            rendered = ", ".join(period_label(item) for item in missing)
+            raise LakeReadError(
+                f"release {release.release_id} does not publish {dataset_name} for {rendered}"
+            )
+    return tuple(sorted(selected, key=key))
+
+
+def partition_period(partition: PartitionManifest, layout: tuple[str, ...]) -> Month:
+    """Read one partition's calendar position through the layout its manifest declares.
+
+    The layout comes from the manifest rather than the dataset contract so that a
+    manifest written under another grain is read as what it says. Resolving it against
+    today's contract instead would reinterpret its partitions before anything checked
+    whether the manifest is acceptable at all.
+    """
+
+    return tuple(int(partition.values[name]) for name in layout)
+
+
+def partition_objects(partitions: Sequence[PartitionManifest]) -> tuple[LakeObject, ...]:
+    return tuple(item for partition in partitions for item in partition.objects)
+
+
+def verify_object(path: Path, dataset: LakeDataset, lake_object: LakeObject) -> None:
+    """Check a materialized object against the contract before any row is read.
+
+    The comparison is Arrow's exact one, metadata included, so a file with the right
+    column names but a different dataset identity or contract version fails here
+    rather than being read as the wrong dataset.
+    """
+
+    try:
+        schema = pq.read_schema(path)
+        metadata = pq.read_metadata(path)
+    except (OSError, ValueError) as exc:
+        # pyarrow raises ArrowInvalid (a ValueError) for a bad footer and ArrowIOError
+        # (an OSError) for an unreadable file.
+        raise LakeReadError(f"Parquet object is unreadable: {lake_object.key}: {exc}") from exc
+    if not schema.equals(dataset.arrow_schema, check_metadata=True):
+        raise LakeReadError(f"Parquet object schema does not match the contract: {lake_object.key}")
+    if metadata.num_rows != lake_object.rows:
+        raise LakeReadError(
+            f"Parquet object row count differs from its manifest: {lake_object.key}"
+        )
+
+
+def iter_partition_rows(
+    session: LakeSession,
+    *,
+    dataset: LakeDataset,
+    paths: Sequence[Path],
+    columns: Sequence[str] | None = None,
+    batch_size: int = ROW_BATCH_SIZE,
+) -> Iterator[list[tuple[object, ...]]]:
+    """Yield bounded batches of named columns from an explicit object list, PK-ordered.
+
+    ``read_parquet`` receives the exact file list the manifest fixed. There is no
+    glob, no directory scan, and no ``union_by_name``: a file whose schema differs
+    from the others is an error, which is what makes a silent contract drift
+    impossible to read as data.
+
+    Rows arrive in batches because a dataset here is a decade of daily bars. Turning
+    a whole partition set into Python objects at once costs on the order of a
+    kilobyte per row and would exhaust memory long before a build finished. DuckDB
+    executes the query and sort under its own memory limits; ``fetchmany`` bounds
+    the Python row batch, not the query's total memory usage.
+    """
+
+    if not paths:
+        return
+    if batch_size < 1:
+        raise LakeReadError("row batch size must be positive")
+    if dataset.has_binary_payload:
+        batch_size = 1
+    selected = (
+        tuple(columns) if columns is not None else tuple(column.name for column in dataset.columns)
+    )
+    known = {column.name for column in dataset.columns}
+    unknown = [name for name in selected if name not in known]
+    if unknown:
+        raise LakeReadError(f"dataset {dataset.name} has no column {unknown[0]!r}")
+    projection = ", ".join(_quote_identifier(name) for name in selected)
+    order = ", ".join(_quote_identifier(name) for name in dataset.primary_key)
+    statement = (
+        f"SELECT {projection} FROM read_parquet($files, union_by_name = false) "  # nosec B608
+        f"ORDER BY {order}"
+    )
+    cursor = session.connection.cursor()
+    try:
+        cursor.execute(statement, {"files": [str(path) for path in paths]})
+        while True:
+            batch = cursor.fetchmany(batch_size)
+            if not batch:
+                return
+            yield batch
+    except duckdb.Error as exc:
+        raise LakeReadError(
+            f"dataset {dataset.name} could not be read: {session.redact(str(exc))}"
+        ) from None
+    finally:
+        cursor.close()
+
+
+def _quote_identifier(name: str) -> str:
+    """Quote a column name that already passed the dataset contract allowlist."""
+
+    if not name.isidentifier():
+        raise LakeReadError(f"column name is not a plain identifier: {name!r}")
+    return f'"{name}"'
+
+
+def materialize_partitions(
+    cache: LakeObjectCache,
+    *,
+    dataset: LakeDataset,
+    partitions: Sequence[PartitionManifest],
+) -> tuple[Path, ...]:
+    """Fetch (or reuse) every object of the selected partitions and verify it."""
+
+    paths: list[Path] = []
+    for lake_object in partition_objects(partitions):
+        path = cache.materialize(lake_object)
+        verify_object(path, dataset, lake_object)
+        paths.append(path)
+    return tuple(paths)

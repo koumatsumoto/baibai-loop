@@ -36,8 +36,8 @@ from baibai_engine.machine_analysis.observations.prices.price_basis import share
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
 from baibai_engine.machine_analysis.observations.prices.price_reader import _read_ticker_bars
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
-from baibai_engine.storage.observations.read import connect_read_only
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     connect_current,

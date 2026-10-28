@@ -47,7 +47,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 from baibai_engine.machine_analysis.observations.prices.calendar_context import observation_calendar_context
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     open_connection,
     validate_current_schema,

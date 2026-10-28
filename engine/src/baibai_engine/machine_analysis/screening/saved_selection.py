@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
-from baibai_engine.storage.machine_analysis import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 from .model_projection import ScreeningSelection, _select_models
 from .views import TwoViewPolicy

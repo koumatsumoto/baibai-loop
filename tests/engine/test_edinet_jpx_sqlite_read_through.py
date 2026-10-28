@@ -18,7 +18,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_reader import
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import has_jpx_regulation_data, read_jpx_regulations
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _add_source_coverage(

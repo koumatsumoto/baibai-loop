@@ -16,7 +16,7 @@ from baibai_engine.data_collection.receipts.native_sources.records import read_s
 from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.data_collection.receipts.native_sources.handoff import accept_rechecks
-from baibai_jobs.storage.merge_economic_store import merge_stores, verify_stores
+from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)

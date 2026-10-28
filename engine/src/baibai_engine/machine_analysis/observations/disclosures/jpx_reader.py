@@ -16,8 +16,8 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     index_calendar_announcements,
     next_earnings_dates,
 )
-from baibai_engine.storage.observations.coverage import date_covered
-from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
 def read_next_earnings_dates(sqlite_path: Path, asof_date: date) -> dict[str, date] | None:

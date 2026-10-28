@@ -28,7 +28,7 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.portfolio.ledger.events import ExecutionEvent, ReservationEvent
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 @pytest.mark.parametrize("part", ["assessment_id", "core_sha256", "review_id"])

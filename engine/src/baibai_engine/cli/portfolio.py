@@ -63,7 +63,7 @@ from baibai_engine.portfolio.performance.calculate import compute_portfolio_outc
 from baibai_engine.portfolio.performance.store import PortfolioOutcomePublication, PortfolioOutcomeStore
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.holdings.valuation import current_portfolio
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def _datetime_argument(value: str) -> datetime:

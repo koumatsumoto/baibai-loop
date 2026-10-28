@@ -16,8 +16,8 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     read_daily_bars,
     read_daily_bars_for_tickers,
 )
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _insert_bars(conn: sqlite3.Connection, ranges: list[tuple[date, date]]) -> None:

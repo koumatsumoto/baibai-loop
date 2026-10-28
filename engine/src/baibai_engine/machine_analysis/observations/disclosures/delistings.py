@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.storage.observations.schema import connect_current, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
 
 JPX_DELISTING_INDEX_URL = "https://www.jpx.co.jp/listing/stocks/delisted/"
 _JPX_ARCHIVE_RE = re.compile(r"/listing/stocks/delisted/archives-\d+\.html$")

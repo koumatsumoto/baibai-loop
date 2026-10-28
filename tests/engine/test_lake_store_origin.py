@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.storage.observations import lake_origin
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, LakeStoreOriginError
+from baibai_engine.storage.sqlite.source_cache import lake_origin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, LakeStoreOriginError
 
 
 @pytest.mark.parametrize("operation", ["read", "advance", "conflict"])

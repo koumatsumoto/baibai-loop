@@ -101,9 +101,9 @@ jobs:
           RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
         run: |
           asof="$MANUAL_ASOF"
-          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_jobs.jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
           echo "asof=$asof" >> "$GITHUB_OUTPUT"
-          uv run python -m baibai_jobs.jobs.source_integration plan --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
 
       - name: Acquire publication lease
         id: lease-acquire
@@ -111,7 +111,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_jobs.storage.publication_lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.publication.lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
       # failure policy: 1 — the batch cannot compute without the canonical stores.
       - name: Pull stores
@@ -145,7 +145,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ASOF: ${{ steps.source-plan.outputs.asof }}
-        run: uv run python -m baibai_jobs.jobs.source_integration apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+        run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
       # Core publication owns one fixed market release and economic snapshot.
       # Web is not part of the engine's success or publication path.
@@ -199,8 +199,8 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           jobs/scripts/r2_transfer.sh pull-indicators
-          uv run python -m baibai_jobs.jobs.source_integration verify --directory "$RUNNER_TEMP/integration"
-          uv run python -m baibai_jobs.jobs.source_integration seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+          uv run python -m baibai_jobs.integration.sources verify --directory "$RUNNER_TEMP/integration"
+          uv run python -m baibai_jobs.integration.sources seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Refresh source-scoped inputs from this canonical generation
         id: source-inputs
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
@@ -210,11 +210,11 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           ASOF: ${{ steps.source-plan.outputs.asof }}
           IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: uv run python -m baibai_jobs.jobs.source_integration inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.integration.sources inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Report integration failures and deferred source inputs
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
-        run: uv run python -m baibai_jobs.jobs.source_integration check --directory "$RUNNER_TEMP/integration"
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
 
       # Presentation follows core persistence; it never gates model generation or sealing.
       - name: Publish retained portfolio and task views
@@ -235,7 +235,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_jobs.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
       # `cancelled()` is a status-check function: it is only evaluated in an `if`
       # conditional, and interpolating it into a `run:` block makes the whole

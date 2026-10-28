@@ -198,7 +198,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     from baibai_engine.investment_judgment.stock_assessment.document import assessment_core_hash
     from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
     from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
-    from baibai_engine.storage.application.read import connect_read_only
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
 
     case = backend_case(tmp_path, required_rate="3", horizon_months=horizon_months)
     original_hash = assessment_core_hash(case.pair.document)

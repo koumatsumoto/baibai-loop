@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from baibai_engine.storage.observations.coverage import covered_intervals
+from baibai_engine.storage.sqlite.source_cache.coverage import covered_intervals
 
 from .shared import CacheCoverageIssue
 

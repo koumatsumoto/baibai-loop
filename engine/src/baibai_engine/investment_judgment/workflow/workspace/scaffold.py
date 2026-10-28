@@ -37,8 +37,8 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _validate_editable_drafts,
 )
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
-from baibai_engine.storage.application.paths import database_path
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.paths import database_path
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 _ASSESSMENT_DRAFT_HEADER = (
     "# 銘柄評価 draft。重要な支持・相反・不足をfindings、investment_case、"

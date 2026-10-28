@@ -26,8 +26,8 @@ from baibai_engine.machine_analysis.screening.screening_run_serializer import (
     serialize_published_run_yaml,
     stock_analysis_payload,
 )
-from baibai_engine.storage import machine_analysis as machine_store
-from baibai_engine.storage.machine_analysis import RUN_STORE_SCHEMA_VERSION
+import baibai_engine.storage.sqlite.machine_analysis as machine_store
+from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
 RULES = load_screening_rules()
 RULES_HASH = production_rules_contract_hash(RULES.model_dump_json())

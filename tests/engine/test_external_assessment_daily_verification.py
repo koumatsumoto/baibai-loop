@@ -34,16 +34,16 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
 from baibai_engine.machine_analysis.observations.external_assessments.reader import read_observations
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.keys import current_release_pointer_key
-from baibai_engine.storage.lake.models import canonical_lake_model_bytes
-from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectError, LocalMirrorSource
-from baibai_engine.storage.lake.reader import LakeReadError, resolve_current_release
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LakeObjectError, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import LakeReadError, resolve_current_release
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 ASOF = date(2026, 10, 11)
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)

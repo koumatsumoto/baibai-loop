@@ -19,7 +19,7 @@ from baibai_engine.portfolio.holdings.market_observations import (
     next_order_session,
     read_unadjusted_close,
 )
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,

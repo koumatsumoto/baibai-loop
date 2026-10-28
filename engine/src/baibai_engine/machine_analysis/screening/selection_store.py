@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.machine_analysis import connect_rw, initialize_run_store
+from baibai_engine.storage.sqlite.machine_analysis import connect_rw, initialize_run_store
 
 from .model_projection import ScreeningSelection
 from .selection_query import read_selection

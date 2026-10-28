@@ -13,7 +13,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
 )
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
-from baibai_jobs.jobs import model_integration as job
+import baibai_jobs.integration.models as job
 from baibai_jobs.observability.discord import render_generation
 
 

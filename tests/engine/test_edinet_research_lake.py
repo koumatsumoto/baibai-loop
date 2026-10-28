@@ -12,19 +12,19 @@ from tests.helpers.lake_release import lake as lake
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import filing_identity
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import store_facts
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     accepted_dataset,
     materialize_partitions,
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):

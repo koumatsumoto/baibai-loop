@@ -35,14 +35,14 @@ from baibai_engine.machine_analysis.generation.runners.company_growth import (
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import normalize_financial_summary
 from baibai_engine.machine_analysis.observations.financials.financial_periods import prior_year_period_matches
-from baibai_engine.storage.lake.keys import release_manifest_key
-from baibai_engine.storage.lake.models import ReleaseManifest
-from baibai_engine.storage.observations.lake_origin import (
+from baibai_engine.storage.snapshots.keys import release_manifest_key
+from baibai_engine.storage.snapshots.models import ReleaseManifest
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 NOW = datetime.fromisoformat("2026-10-24T18:00:00+09:00")
 

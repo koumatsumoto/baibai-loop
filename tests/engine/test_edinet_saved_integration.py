@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_integration i
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import EDINETMetricBaselineError, read_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_missing_current_list_keeps_saved_snapshot_and_failed_acquisition_unchanged(tmp_path):

@@ -34,14 +34,14 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_publica
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     count_overlapping_source_coverage,
     count_source_coverage,
     delete_overlapping_source_coverage,
     delete_source_coverage,
     source_coverage_sources,
 )
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 from baibai_jobs.maintenance.market.providers import JQuantsMaintenance, ProviderBundle
 

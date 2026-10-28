@@ -30,7 +30,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     load_reviewed_assessment,
     publish_reviewed_assessment,
 )
-from baibai_engine.storage.application.schema import SCHEMA_SQL
+from baibai_engine.storage.sqlite.application.schema import SCHEMA_SQL
 
 
 @pytest.fixture

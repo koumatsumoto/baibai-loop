@@ -24,16 +24,16 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
 )
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
-from baibai_engine.storage.lake.duck import LakeSession
-from baibai_engine.storage.lake.objects import LakeObjectCache
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.storage.snapshots.duck import LakeSession
+from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
     LakeReadError,
     accepted_dataset,
     materialize_partitions,
     selected_partitions,
 )
-from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 
 
 def frozen_universe(database: Path, master_asof: date) -> tuple[tuple[str, ...], str]:

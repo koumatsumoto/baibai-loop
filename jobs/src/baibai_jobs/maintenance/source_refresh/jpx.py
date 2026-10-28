@@ -37,7 +37,7 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     TSE_CAPITAL_POLICY_URL,
     TSECapitalPolicyRefreshSummary,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 class JPXRefresh:

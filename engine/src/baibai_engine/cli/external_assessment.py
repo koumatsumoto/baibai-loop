@@ -11,7 +11,7 @@ from pathlib import Path
 
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -50,7 +50,7 @@ from baibai_jobs.maintenance.market.cache import (
 )
 from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.market.valuation_catalyst_cli import backfill_edinet_identity_command
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 # The store path every command below derives from the working directory.
 _STORE = Path("stores/market/market.sqlite")

@@ -12,7 +12,7 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_eve
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.eligibility import read_eligible_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_documents
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 class EDINETReader:

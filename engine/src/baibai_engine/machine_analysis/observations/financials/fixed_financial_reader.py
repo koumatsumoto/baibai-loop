@@ -13,15 +13,15 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
     read_financial_documents,
 )
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
-from baibai_engine.storage.lake.datasets import JQUANTS_FIN_SUMMARIES, JQUANTS_MASTER_SNAPSHOTS
-from baibai_engine.storage.lake.objects import open_lake
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.storage.snapshots.datasets import JQUANTS_FIN_SUMMARIES, JQUANTS_MASTER_SNAPSHOTS
+from baibai_engine.storage.snapshots.objects import open_lake
+from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
     materialize_partitions,
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin
+from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin
 
 
 @dataclass(frozen=True)

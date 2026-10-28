@@ -22,7 +22,7 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 INDEX = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
 FILE = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"

@@ -15,11 +15,11 @@ import pytest
 from mcp.types import CallToolResult
 
 from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
-from baibai_engine.storage.observations.schema import SQLiteSchemaError as MarketSchemaError
-from baibai_engine.storage.observations.schema import open_connection
-from baibai_jobs.jobs import tradingview as runner
-from baibai_jobs.jobs import tradingview_receipts as receipt_jobs
-from baibai_jobs.jobs.tradingview_receipts import can_publish_failure_receipts, count_layer_rows
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError as MarketSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+import baibai_jobs.integration.local_tradingview as runner
+import baibai_jobs.integration.tradingview_receipts as receipt_jobs
+from baibai_jobs.integration.tradingview_receipts import can_publish_failure_receipts, count_layer_rows
 
 REAL_COMMAND = runner.command
 

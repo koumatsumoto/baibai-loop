@@ -36,7 +36,7 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
     edinet_code_to_ticker,
 )
-from baibai_engine.storage.observations.schema import connect_current, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
 
 # JPX may name the squeeze-out mechanism rather than its preceding tender offer.
 # These reasons select cases to investigate; only the filing evidence below can

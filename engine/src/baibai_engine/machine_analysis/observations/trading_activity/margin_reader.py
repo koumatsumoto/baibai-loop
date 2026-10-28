@@ -25,9 +25,9 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_publica
     MARGIN_PUBLICATION_TRADING_DAYS,
     _publication_has_happened,
 )
-from baibai_engine.storage.observations.convert import optional_date, optional_float
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.sqlite.source_cache.convert import optional_date, optional_float
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 MarginCadence = Literal["weekly", "daily"]
 

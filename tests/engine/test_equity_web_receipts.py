@@ -20,19 +20,19 @@ from baibai_engine.data_collection.receipts.public_pages.receipts import (
     read_responses,
     retain_response,
 )
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.equity_web_verification import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.equity_web_verification import (
     history_digests,
     response_digest,
     verify_release_history,
 )
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.equity_web_import import import_responses
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 DAY = datetime(2026, 9, 30, 23, 59, tzinfo=UTC)
 DATASET = "equity_web.source_responses"

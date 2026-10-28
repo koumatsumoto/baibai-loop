@@ -27,7 +27,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
     ResearchValidationError,
 )
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 

@@ -23,10 +23,10 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
     ObservationConflictError,
     save_observations,
 )
-from baibai_jobs.jobs import external_assessment_daily as external_assessment_daily
-from baibai_jobs.jobs.external_assessment_cohorts import make_plan
-from baibai_jobs.storage.external_assessment_raw import RAW_PREFIX, read_raw_bundle
-from baibai_jobs.storage.external_assessment_staging import read_stages
+import baibai_jobs.acquisition.external_assessments.daily as external_assessment_daily
+from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
+from baibai_jobs.integration.external_assessment_raw import RAW_PREFIX, read_raw_bundle
+from baibai_jobs.acquisition.external_assessments.staging import read_stages
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
 

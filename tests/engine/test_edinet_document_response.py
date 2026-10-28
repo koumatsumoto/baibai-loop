@@ -13,7 +13,7 @@ from baibai_engine.data_collection.providers.edinet.receipts import read_list_re
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_documents
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _saved_response(path):

@@ -33,7 +33,7 @@ from baibai_engine.machine_analysis.observations.jquants_writer import store_jqu
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads, validate_master_snapshot
 from baibai_jobs.maintenance.market.cache import backfill_master_command, bootstrap_cache_command
 from baibai_jobs.maintenance.market.providers import ProviderBundle
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 
 class _MasterClient(requests.Session):

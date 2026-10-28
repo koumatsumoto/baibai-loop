@@ -9,8 +9,8 @@ from baibai_engine.data_collection.providers.jquants.http import JQuantsAcquisit
 from baibai_engine.data_collection.providers.jquants.receipts import acquire_request
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff, import_handoff
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def calendar(path, first, last, division, received):

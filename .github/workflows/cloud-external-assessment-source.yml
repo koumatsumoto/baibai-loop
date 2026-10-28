@@ -59,7 +59,7 @@ jobs:
           args=(--source "$SOURCE" --run-id "$SOURCE_RUN_ID" --directory "$RUNNER_TEMP/source-plan")
           if [ -n "$OBSERVATION_DATE" ]; then args+=(--observation-date "$OBSERVATION_DATE");
           else args+=(--master-asof "$MASTER_ASOF"); fi
-          timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_jobs.jobs.external_assessment_sources acquire "${args[@]}"
+          timeout --signal=TERM --kill-after=30s 270m uv run python -m baibai_jobs.acquisition.external_assessments.sources acquire "${args[@]}"
 
   handoff:
     needs: acquire
@@ -88,7 +88,7 @@ jobs:
           args=(--selection-json "$SOURCE_RUNS" --report-output "$RUNNER_TEMP/source-ready.json")
           if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
           if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial); fi
-          uv run python -m baibai_jobs.jobs.external_assessment_sources ready "${args[@]}"
+          uv run python -m baibai_jobs.acquisition.external_assessments.sources ready "${args[@]}"
 
   notify:
     needs: [acquire, handoff]

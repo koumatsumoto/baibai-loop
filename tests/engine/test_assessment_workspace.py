@@ -375,7 +375,7 @@ def test_refresh_from_old_material_supersedes_latest_and_publishes_new_reviewed_
         workspace=workspace, ticker="1234", db_path=db, now=NOW + timedelta(minutes=2)
     )
     assert promoted.assessment_id == result["assessment_id"]
-    from baibai_engine.storage.application.read import connect_read_only
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
 
     with closing(connect_read_only(db)) as connection, connection:
         pair = load_reviewed_assessment(connection, promoted.assessment_id)

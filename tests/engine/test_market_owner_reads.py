@@ -23,7 +23,7 @@ from baibai_engine.portfolio.holdings.market_observations import (
     next_order_session,
     read_unadjusted_close,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:

@@ -20,17 +20,17 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
     read_complete_request,
     read_request_pages,
 )
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 FIRST_AT = datetime(2026, 10, 17, 12, 34, 56, 123456, tzinfo=UTC)
 SECOND_AT = FIRST_AT + timedelta(seconds=9)

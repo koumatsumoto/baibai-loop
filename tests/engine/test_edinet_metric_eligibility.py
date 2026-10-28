@@ -19,8 +19,8 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
-from baibai_engine.storage.observations.coverage import record_source_coverage
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 BASE = date(2026, 4, 24)
 TARGET = date(2026, 4, 27)

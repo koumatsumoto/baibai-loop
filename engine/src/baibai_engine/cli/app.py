@@ -47,8 +47,8 @@ DOMAINS: Mapping[str, Domain] = {
         module="baibai_engine.cli.external_assessment",
         summary="saved external assessments and explicit offline observation rebuild",
     ),
-    "lake": Domain(
-        module="baibai_engine.storage.lake.cli",
+    "snapshots": Domain(
+        module="baibai_engine.cli.snapshots",
         summary="immutable market-data manifests, object keys, and read-only inventory",
     ),
     "screening": Domain(
@@ -83,7 +83,7 @@ DOMAINS: Mapping[str, Domain] = {
         summary="dated operation tasks — the canonical record of what is waiting on a date",
     ),
     "db": Domain(
-        module="baibai_engine.storage.application.cli",
+        module="baibai_engine.cli.database",
         summary="application database maintenance: init, backup, and schema/row inspection",
     ),
 }

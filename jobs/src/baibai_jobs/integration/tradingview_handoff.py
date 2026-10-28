@@ -33,7 +33,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     normalize_batch,
 )
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.storage.observations.schema import open_connection, validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection, validate_current_schema
 
 _RAW_KEYS = {
     "tradingview_source_receipts": ("receipt_id",),

@@ -304,7 +304,7 @@ def test_refresh_rebuilds_saved_list_without_creating_http_session(tmp_path, mon
     monkeypatch.setattr(http.requests, "Session", unexpected_session)
     sqlite_path = tmp_path / "market.sqlite"
     from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
-    from baibai_engine.storage.observations.schema import open_connection
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
     connection = open_connection(sqlite_path)
     try:

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.storage.application import LATEST_VERSION
-from baibai_engine.storage.application.write import (
+from baibai_engine.storage.sqlite.application import LATEST_VERSION
+from baibai_engine.storage.sqlite.application.write import (
     backup_database,
     initialize_database,
     prune_backups,
@@ -190,7 +190,7 @@ def test_backup_rejects_naive_time_without_creating_a_generation(tmp_path: Path)
 
 
 def test_info_reads_an_old_store_without_writer_access(tmp_path, monkeypatch, capsys) -> None:
-    import baibai_engine.storage.application.cli as cli
+    import baibai_engine.cli.database as cli
 
     db = tmp_path / "old.sqlite"
     with closing(sqlite3.connect(db)) as connection, connection:

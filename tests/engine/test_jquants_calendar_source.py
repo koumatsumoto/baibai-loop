@@ -12,8 +12,8 @@ from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     read_market_calendar,
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
-from baibai_engine.storage.lake.datasets import JQUANTS_MARKET_CALENDAR
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.datasets import JQUANTS_MARKET_CALENDAR
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 
 
 def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(tmp_path):

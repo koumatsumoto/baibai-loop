@@ -108,7 +108,7 @@ def test_document_requires_timezone(tmp_path):
 
 
 def test_document_bodies_participate_in_store_merge(tmp_path):
-    from baibai_jobs.storage.merge_economic_store import merge_stores
+    from baibai_jobs.integration.native_source_merge import merge_stores
 
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     value = document()

@@ -3,7 +3,7 @@ from contextlib import closing
 
 import pytest
 
-from baibai_engine.storage.observations import schema
+from baibai_engine.storage.sqlite.source_cache import schema
 
 
 def test_connect_current_does_not_create_missing_file(tmp_path):

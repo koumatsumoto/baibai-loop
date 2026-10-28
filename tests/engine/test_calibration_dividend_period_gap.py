@@ -11,7 +11,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _ticker_forward_rows,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 @pytest.mark.parametrize("missing", [2020, 2021, None])

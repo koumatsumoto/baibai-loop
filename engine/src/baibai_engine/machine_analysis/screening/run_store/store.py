@@ -7,7 +7,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-from baibai_engine.storage.machine_analysis import (
+from baibai_engine.storage.sqlite.machine_analysis import (
     DEFAULT_RUN_STORE_PATH,
     connect_rw,
     initialize_run_store,

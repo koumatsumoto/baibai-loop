@@ -28,7 +28,7 @@ from baibai_engine.investment_judgment.contracts import (
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
-from baibai_engine.storage.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 
 class ResearchConflictError(ValueError):

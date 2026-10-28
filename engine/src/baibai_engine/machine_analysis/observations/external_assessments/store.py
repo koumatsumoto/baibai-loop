@@ -7,7 +7,7 @@ from pathlib import Path
 
 from baibai_engine.machine_analysis.observations.external_assessments.models import Observation
 from baibai_engine.machine_analysis.observations.external_assessments.rows import observation_row
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 class ObservationConflictError(ValueError):

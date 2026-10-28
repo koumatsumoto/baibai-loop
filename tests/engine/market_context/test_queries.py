@@ -36,7 +36,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 5, 29)
 
@@ -293,7 +293,7 @@ import sys
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.models.market_context.security import build_security_market_context
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.providers")) for name in sys.modules)
-assert "baibai_engine.storage.application.write" not in sys.modules
+assert "baibai_engine.storage.sqlite.application.write" not in sys.modules
 assert "baibai_engine.investment_judgment.market_assessment.service" not in sys.modules
 """,
         ],
@@ -381,7 +381,7 @@ def test_security_price_basis_includes_rights_price_adjustments(tmp_path):
 
 @pytest.mark.parametrize("reader", ["prices", "master"])
 def test_market_context_readers_reject_obsolete_market_schema(tmp_path, reader):
-    from baibai_engine.storage.observations.schema import (
+    from baibai_engine.storage.sqlite.source_cache.schema import (
         SQLITE_SCHEMA_VERSION,
         SQLiteSchemaError,
     )

@@ -33,7 +33,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 
 class ReadEqMasterAsOfTests(unittest.TestCase):

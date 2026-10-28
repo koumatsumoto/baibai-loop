@@ -28,8 +28,8 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import store_edinet_metrics
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
-from baibai_engine.storage.observations.readiness import unreadable_store_reason
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 
 class EdinetMetricReader(Protocol):

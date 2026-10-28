@@ -51,7 +51,7 @@ from baibai_engine.portfolio.ledger.read import load_ledger_in_transaction
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed, read_unadjusted_close
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
 from baibai_engine.portfolio.holdings.valuation import holding_episode
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000

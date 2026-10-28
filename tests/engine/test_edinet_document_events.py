@@ -17,7 +17,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.store i
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import rebuild_edinet_document_day
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_documents
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ORIGIN_DAY = date(2026, 8, 1)
 EDIT_DAY = date(2026, 8, 2)

@@ -16,15 +16,15 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.storage.lake import models
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.keys import (
+from baibai_engine.storage.snapshots import models
+from baibai_engine.storage.snapshots.datasets import LAKE_DATASETS
+from baibai_engine.storage.snapshots.keys import (
     canonical_object_key,
     current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
-from baibai_engine.storage.lake.models import (
+from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
     LakeObject,
     LakeReleaseSourceRef,
@@ -35,11 +35,11 @@ from baibai_engine.storage.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
 from tests.helpers.lake_policy import narrow_release_policy
 
 

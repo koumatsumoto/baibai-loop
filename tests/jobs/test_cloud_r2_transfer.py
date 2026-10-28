@@ -11,8 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin, write_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRANSFER_SCRIPT = REPO_ROOT / "jobs/scripts/r2_transfer.sh"
@@ -238,22 +238,22 @@ if [[ "$1 $2 $3" == "run python -c" ]]; then
   shift
   exec "$@"
 fi
-if [[ "$*" == *"baibai-engine lake dehydrate"* ]]; then
+if [[ "$*" == *"baibai-engine snapshots dehydrate"* ]]; then
   printf 'dehydrate %s\\n' "$*" >> "$AWS_LOG"
   exit 0
 fi
-if [[ "$*" == *"baibai-engine lake hydrate"* ]]; then
+if [[ "$*" == *"baibai-engine snapshots hydrate"* ]]; then
   printf 'hydrate %s\\n' "$*" >> "$AWS_LOG"
   exit 0
 fi
 script=""
 for argument in "$@"; do
   case "${argument}" in
-    baibai_jobs.storage.sqlite_snapshot) script=snapshot ;;
-    baibai_jobs.storage.merge_economic_store) script=merge ;;
-    baibai_jobs.storage.merge_market_store) script=merge ;;
+    baibai_engine.storage.sqlite.snapshot) script=snapshot ;;
+    baibai_jobs.integration.native_source_merge) script=merge ;;
+    baibai_jobs.integration.source_cache_merge) script=merge ;;
     baibai_jobs.validation.repository_layout) script=layout ;;
-    baibai_jobs.storage.publish_market_lake) script=publish ;;
+    baibai_jobs.publication.snapshot_publication) script=publish ;;
   esac
 done
 case "${script}" in
@@ -1532,7 +1532,7 @@ def test_the_transfer_script_names_the_same_pointer_key_the_engine_publishes() -
     carrying the full store while still reporting success.
     """
 
-    from baibai_engine.storage.lake.keys import current_release_pointer_key as lake_current_release_pointer_key
+    from baibai_engine.storage.snapshots.keys import current_release_pointer_key as lake_current_release_pointer_key
 
     assert lake_current_release_pointer_key() in TRANSFER_SCRIPT.read_text(encoding="utf-8")
 

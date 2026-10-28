@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.machine_analysis import (
+from baibai_engine.storage.sqlite.machine_analysis import (
     connect_rw,
     initialize_run_store,
 )

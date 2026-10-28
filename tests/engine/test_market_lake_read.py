@@ -20,34 +20,34 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
-from baibai_engine.storage.lake import duck as duck_module
-from baibai_engine.storage.lake import hydrate as hydrate_module
-from baibai_engine.storage.lake import objects as objects_module
-from baibai_engine.storage.lake import prefetch as prefetch_module
-from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS, LAKE_DATASETS
-from baibai_engine.storage.lake.duck import (
+from baibai_engine.storage.snapshots import duck as duck_module
+from baibai_engine.storage.snapshots import hydrate as hydrate_module
+from baibai_engine.storage.snapshots import objects as objects_module
+from baibai_engine.storage.snapshots import prefetch as prefetch_module
+from baibai_engine.storage.snapshots.datasets import JQUANTS_DAILY_BARS, LAKE_DATASETS
+from baibai_engine.storage.snapshots.duck import (
     LakeCredentialError,
     LakeSession,
     R2ReadCredentials,
     lake_session,
 )
-from baibai_engine.storage.lake.hydrate import (
+from baibai_engine.storage.snapshots.hydrate import (
     LakeHydrateError,
     dehydrate_market_store,
     hydrate_market_store,
 )
-from baibai_engine.storage.lake.keys import (
+from baibai_engine.storage.snapshots.keys import (
     canonical_object_key,
     current_release_pointer_key,
     release_manifest_key,
 )
-from baibai_engine.storage.lake.models import (
+from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
     LakeObject,
     LakeReleaseSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.lake.objects import (
+from baibai_engine.storage.snapshots.objects import (
     MAX_BUFFERED_OBJECT_BYTES,
     LakeObjectCache,
     LakeObjectError,
@@ -56,12 +56,12 @@ from baibai_engine.storage.lake.objects import (
     mirror_path,
     mirror_root,
 )
-from baibai_engine.storage.lake.prefetch import (
+from baibai_engine.storage.snapshots.prefetch import (
     PrefetchingSource,
     hydration_order,
     prefetching_hydration_cache,
 )
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     accepted_dataset,
     iter_partition_rows,
@@ -71,16 +71,16 @@ from baibai_engine.storage.lake.reader import (
     selected_partitions,
     verify_object,
 )
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.retention import LakeRetentionError, exclusive_lock
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.lake_origin import (
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.retention import LakeRetentionError, exclusive_lock
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,
@@ -920,7 +920,7 @@ class TestCredentialBoundary:
             R2ReadCredentials.from_env({"R2_ACCOUNT_ID": "a" * 32})
 
     def test_a_session_without_credentials_cannot_produce_a_remote_uri(self) -> None:
-        from baibai_engine.storage.lake.objects import R2ObjectSource
+        from baibai_engine.storage.snapshots.objects import R2ObjectSource
 
         with (
             lake_session() as session,
@@ -1431,7 +1431,7 @@ class TestHydrate:
     def test_capacity_failure_during_load_preserves_the_previous_store(
         self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from baibai_engine.storage.lake import hydrate as hydrate_module
+        from baibai_engine.storage.snapshots import hydrate as hydrate_module
 
         store = _dehydrated(lake, tmp_path / "arrived.sqlite")
         before = store.read_bytes()

@@ -15,7 +15,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.observations.prices.calendar_context import price_calendar_basis
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import EDINETMetricBaselineError
-from baibai_engine.storage.lake.writer import sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 
 def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(tmp_path, mocker):

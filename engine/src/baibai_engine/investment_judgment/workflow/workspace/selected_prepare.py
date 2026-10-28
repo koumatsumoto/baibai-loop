@@ -36,8 +36,8 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
 )
 from baibai_engine.machine_analysis.generation.query import read_model_inputs
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.storage.application.paths import database_path
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.paths import database_path
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 @dataclass(frozen=True, slots=True)

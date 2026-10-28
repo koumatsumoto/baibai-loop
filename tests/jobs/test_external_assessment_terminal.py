@@ -7,9 +7,9 @@ from datetime import date
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs.external_assessment_cohorts import make_plan
-from baibai_jobs.storage import external_assessment_staging as staging
+import baibai_jobs.acquisition.external_assessments.daily as daily
+from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
+import baibai_jobs.acquisition.external_assessments.staging as staging
 
 
 def plan():

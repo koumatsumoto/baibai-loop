@@ -25,7 +25,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
 from baibai_engine.machine_analysis.historical_evaluation.grid import observed_month_end_dates
 from baibai_engine.machine_analysis.observations.prices.benchmark import TOPIX_ETF_PROXY
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _bar(

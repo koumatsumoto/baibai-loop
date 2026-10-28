@@ -19,12 +19,12 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_list_project
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.normalization import date_iso, first, to_str_or_none
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     connect_current,
     open_connection,

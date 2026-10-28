@@ -6,8 +6,8 @@ import pytest
 from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument, store_document
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database, row_count
-from baibai_jobs.storage.merge_economic_store import merge_stores
-from baibai_jobs.storage.store_merge import MergeError
+from baibai_jobs.integration.native_source_merge import merge_stores
+from baibai_engine.storage.sqlite.merge import MergeError
 
 DAY = date(2026, 7, 20)
 WHEN = datetime(2026, 7, 21, tzinfo=UTC)
@@ -126,21 +126,21 @@ def test_merge_refuses_an_old_schema_without_migrating_it(tmp_path):
 
 
 def test_merge_refuses_a_schema_it_does_not_attach():
-    from baibai_jobs.storage.store_merge import schema_name
+    from baibai_engine.storage.sqlite.merge import schema_name
 
     with pytest.raises(ValueError, match="unsupported SQLite schema name"):
         schema_name("main; DROP TABLE economic_source_records")
 
 
 def test_merge_refuses_a_table_name_that_is_not_an_identifier():
-    from baibai_jobs.storage.store_merge import internal_name
+    from baibai_engine.storage.sqlite.merge import internal_name
 
     with pytest.raises(ValueError, match="invalid SQL identifier"):
         internal_name('economic_source_records" --')
 
 
 def test_main_reports_a_missing_store(tmp_path, capsys):
-    from baibai_jobs.storage.merge_economic_store import main
+    from baibai_jobs.integration.native_source_merge import main
 
     target = tmp_path / "target.sqlite"
     with closing(initialize_database(target)):

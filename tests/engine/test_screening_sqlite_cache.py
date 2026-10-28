@@ -53,12 +53,12 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_reader 
     read_weekly_margin,
 )
 from baibai_engine.machine_analysis.observations.normalization import code_quality, to_float, to_str_or_none
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     covered_intervals,
     range_covered,
     record_range_source_coverage,
 )
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,

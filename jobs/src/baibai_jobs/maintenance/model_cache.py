@@ -6,7 +6,7 @@ from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.store import delete_generations
 from baibai_engine.machine_analysis.screening.selection_store import delete_generation_selections
-from baibai_engine.storage.machine_analysis import connect_rw, initialize_run_store
+from baibai_engine.storage.sqlite.machine_analysis import connect_rw, initialize_run_store
 
 
 def prune_model_cache(

@@ -1,6 +1,6 @@
 """保存済み旧runの読取と明示cache整理。新規公開はしない。"""
 
-from baibai_engine.storage.machine_analysis import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 from .read import RunPublication, ScreeningRunReader
 from .store import (

@@ -14,7 +14,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import XbrlReader, prepare_edinet_facts, process_edinet_fact_item, finish_edinet_facts
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import plan_fact_item
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import record_failure
-from baibai_engine.storage.observations.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 
 
 class EdinetMetricAcquisition(Protocol):

@@ -8,8 +8,8 @@ from baibai_engine.storage.sqlite.read import read_rows
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_contract
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
-from baibai_engine.storage.observations.read import connect_read_only
-from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
 @dataclass(frozen=True, slots=True)

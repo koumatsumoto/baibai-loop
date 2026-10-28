@@ -12,8 +12,8 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     FIN_INPUT_WINDOW_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
 )
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     validate_current_schema,

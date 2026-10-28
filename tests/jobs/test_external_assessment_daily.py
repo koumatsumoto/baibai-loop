@@ -18,17 +18,21 @@ from baibai_jobs.acquisition.external_assessments.collection import CollectionRe
 from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
 from baibai_jobs.acquisition.external_assessments.collection import collector_binding as external_assessment_collector_binding
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
-from baibai_engine.storage.lake.keys import current_release_pointer_key
-from baibai_engine.storage.lake.objects import LakeObjectError
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs.external_assessment_cohorts import (
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+from baibai_engine.storage.snapshots.objects import LakeObjectError
+import baibai_jobs.acquisition.external_assessments.daily as daily
+from baibai_jobs.acquisition.external_assessments.cohorts import (
     make_plan,
     new_result,
     record_outcome,
 )
-from baibai_jobs.storage import external_assessment_raw
-from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_jobs.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
+import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
+import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
 
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
 
@@ -320,7 +324,7 @@ def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_abse
 
 
 def test_old_binding_plan_with_pending_acquisition_is_rejected(monkeypatch):
-    from baibai_jobs.jobs import external_assessment_sources as sources
+    import baibai_jobs.acquisition.external_assessments.sources as sources
 
     p = replace(plan(), run_id="monex-old-binding", collector_binding="previous-collector")
     store = FakeObjectStore()

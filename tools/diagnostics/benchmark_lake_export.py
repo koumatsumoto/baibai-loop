@@ -19,11 +19,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.storage.filesystem import write_bytes_atomic
-from baibai_engine.storage.lake.identity import verified_git_commit
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import LakeExportReport, export_market_store
-from baibai_engine.storage.observations.lake_origin import read_lake_store_origin
-from baibai_engine.storage.observations.snapshot import create_snapshot
+from baibai_engine.storage.snapshots.identity import verified_git_commit
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import LakeExportReport, export_market_store
+from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
 
 
 def _report_build(build: LakeExportReport) -> dict[str, object]:

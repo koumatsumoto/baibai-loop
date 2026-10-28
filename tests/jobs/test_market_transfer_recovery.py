@@ -13,17 +13,17 @@ from tests.engine.test_financial_documents import documents
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
-from baibai_engine.storage.lake.keys import current_release_pointer_key
-from baibai_engine.storage.lake.models import canonical_lake_model_bytes
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.lake_origin import (
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 FIN = "jquants.fin_summaries"
 TABLE = "jquants_fin_summaries"
@@ -95,7 +95,7 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
 
     from tests.jobs.test_cloud_r2_transfer import _environment, _fake_aws, _fake_repo
 
-    from baibai_engine.storage.lake import models
+    from baibai_engine.storage.snapshots import models
 
     target, mirror, origin = published_market
     root = _fake_repo(tmp_path)
@@ -151,11 +151,11 @@ with Path(os.environ['TRANSFER_TEST_LOG']).open('a') as log:
 if args[:3]==['python','-m','baibai_jobs.validation.repository_layout']:
  sys.exit(0) # isolated shell root intentionally contains no application store
 if args[:3]==['baibai-engine','lake','dehydrate'] or args[:3]==['baibai-engine','lake','hydrate']:
- from baibai_engine.storage.lake import models
+ from baibai_engine.storage.snapshots import models
  models.PRODUCTION_RELEASE_POLICY=models.ReleasePolicy.model_validate_json(Path(os.environ['TRANSFER_TEST_POLICY']).read_text())
  args=args[2:]
  i=args.index('--bucket');del args[i:i+2]
- from baibai_engine.storage.lake.write_cli import main
+ from baibai_engine.cli.snapshot_write import main
  sys.exit(main(args))
 assert args[0]=='python'
 if args[1]=='-c':
@@ -199,7 +199,7 @@ runpy.run_module(args[2],run_name='__main__')
     assert hydrated.returncode == 0, hydrated.stderr
     assert table_contents(root / "stores/market/market.sqlite") == table_contents(target)
     calls = Path(env["TRANSFER_TEST_LOG"]).read_text()
-    assert "baibai_jobs.storage.merge_market_store" in calls
+    assert "baibai_jobs.integration.source_cache_merge" in calls
     assert calls.count('"dehydrate"') == 2
     assert '"hydrate"' in calls
     assert "--if-match" in log.read_text()

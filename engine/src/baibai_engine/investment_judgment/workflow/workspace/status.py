@@ -30,8 +30,8 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
     _read_case,
     _validate_editable_drafts,
 )
-from baibai_engine.storage.application.paths import database_path
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.paths import database_path
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 # --------------------------------------------------------------------------- #
 # status

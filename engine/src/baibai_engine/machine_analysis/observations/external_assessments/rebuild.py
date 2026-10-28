@@ -12,7 +12,7 @@ from typing import Any
 from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import decode_attempt
 from baibai_engine.machine_analysis.observations.external_assessments.rows import observation_row
-from baibai_engine.storage.observations.schema import validate_current_schema
+from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 
 def _selected_attempts(attempt_ids: Sequence[str]) -> tuple[str, ...]:

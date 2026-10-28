@@ -23,7 +23,7 @@ from baibai_engine.portfolio.ledger.drafts import (
     load_draft,
 )
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
-from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.sqlite.application.write import initialize_database
 
 ROOT = Path(__file__).parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"

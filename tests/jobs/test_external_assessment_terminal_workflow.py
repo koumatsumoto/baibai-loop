@@ -5,9 +5,9 @@ import json
 import pytest
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, seed_stage
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs.external_assessment_cohorts import new_result
-from baibai_jobs.storage import external_assessment_staging as staging
+import baibai_jobs.acquisition.external_assessments.daily as daily
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result
+import baibai_jobs.acquisition.external_assessments.staging as staging
 
 
 @pytest.mark.parametrize("command", ["plan", "acquire", "publish", "publish-confirmed-partial"])

@@ -45,7 +45,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_jobs.storage.publication_lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.publication.lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
       - name: Pull stores
         env:
@@ -86,4 +86,4 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_jobs.storage.publication_lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+        run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"

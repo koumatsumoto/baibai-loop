@@ -18,8 +18,8 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_adjustment_factor_bars, read_daily_bars
-from baibai_engine.storage.lake.datasets import JQUANTS_DAILY_BARS
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.datasets import JQUANTS_DAILY_BARS
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 
 
 @pytest.mark.parametrize(("kind", "factor"), [("1", 0.5), ("2", 2.0), ("3", 0.8), ("3", 1.0)])

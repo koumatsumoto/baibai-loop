@@ -18,8 +18,8 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revis
     has_hard_metric_failure,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.storage.observations.coverage import date_covered
-from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
 class EDINETMetricBaselineError(RuntimeError):

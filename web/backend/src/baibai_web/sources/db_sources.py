@@ -15,7 +15,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument, PortfolioSnapshot
 from baibai_engine.portfolio.ledger.read import load_ledger_document
 from baibai_engine.portfolio.holdings.valuation import current_portfolio
-from baibai_engine.storage.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.tasks.models import Task
 from baibai_engine.tasks.service import TaskService
 

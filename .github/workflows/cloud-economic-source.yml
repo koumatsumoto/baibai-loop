@@ -74,7 +74,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: uv run python -m baibai_jobs.jobs.economic input --group "$GROUP" --directory "$RUNNER_TEMP/source-input"
+        run: uv run python -m baibai_jobs.integration.economic_handoff input --group "$GROUP" --directory "$RUNNER_TEMP/source-input"
       - name: Acquire and export new receipts for this provider
         id: acquire
         env:
@@ -83,7 +83,7 @@ jobs:
           ASOF: ${{ inputs.asof }}
           JQUANTS_API_KEY: ${{ inputs.group == 'jquants' && secrets.JQUANTS_API_KEY || '' }}
           ESTAT_APP_ID: ${{ inputs.group == 'estat' && secrets.ESTAT_APP_ID || '' }}
-        run: uv run python -m baibai_jobs.jobs.economic acquire --group "$GROUP" --source-id "$SOURCE_ID" --asof "$ASOF" --directory "$RUNNER_TEMP/economic-handoff"
+        run: uv run python -m baibai_jobs.integration.economic_handoff acquire --group "$GROUP" --source-id "$SOURCE_ID" --asof "$ASOF" --directory "$RUNNER_TEMP/economic-handoff"
       - name: Save confirmed receipts in private R2 staging
         id: stage
         if: ${{ always() && steps.acquire.outputs.stage_ready == 'true' }}
@@ -92,7 +92,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           STAGE_ID: ${{ inputs.group }}-${{ inputs.asof }}-${{ github.run_id }}-${{ github.run_attempt }}
-        run: uv run python -m baibai_jobs.jobs.economic stage --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/economic-handoff"
+        run: uv run python -m baibai_jobs.integration.economic_handoff stage --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/economic-handoff"
       - name: Economic result for ${{ inputs.asof }}
         if: ${{ always() && steps.stage.outcome == 'success' }}
         run: echo 'Economic private receipts saved; canonical and serving integration are separate'

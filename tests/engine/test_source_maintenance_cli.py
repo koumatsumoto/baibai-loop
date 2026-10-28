@@ -51,7 +51,7 @@ from baibai_jobs.maintenance.market.cache import (
     bootstrap_cache_command,
 )
 from baibai_jobs.maintenance.market.providers import ProviderBundle
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 @dataclass

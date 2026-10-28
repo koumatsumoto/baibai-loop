@@ -28,7 +28,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
     ObservationConflictError,
     save_observations,
 )
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 RECEIVED = datetime(2026, 10, 10, 16, 30, 0, 123456, tzinfo=UTC)
 
@@ -380,8 +380,8 @@ for name in (
     'baibai_engine.machine_analysis.observations.external_assessments.store',
     'baibai_engine.machine_analysis.observations.external_assessments.reader',
     'baibai_jobs.acquisition.external_assessments.collection',
-    'baibai_engine.storage.observations.schema',
-    'baibai_engine.storage.lake.reader',
+    'baibai_engine.storage.sqlite.source_cache.schema',
+    'baibai_engine.storage.snapshots.reader',
 ):
     assert name not in sys.modules, name
 for columns, model in (

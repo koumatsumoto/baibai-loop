@@ -130,7 +130,7 @@ def test_forced_export_cannot_replace_input_run_store(
     elif path_source == "environment":
         monkeypatch.setenv("BAIBAI_RUNS_DB", str(path))
     else:
-        from baibai_engine.storage import machine_analysis
+        import baibai_engine.storage.sqlite.machine_analysis as machine_analysis
 
         monkeypatch.delenv("BAIBAI_RUNS_DB", raising=False)
         monkeypatch.setattr(machine_analysis, "DEFAULT_RUN_STORE_PATH", path)

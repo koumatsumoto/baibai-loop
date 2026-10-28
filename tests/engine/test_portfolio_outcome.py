@@ -17,7 +17,7 @@ from baibai_engine.portfolio.performance.calculate import (
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import PortfolioOutcomePublication, PortfolioOutcomeStore
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_twr_neutralizes_beginning_of_day_contribution() -> None:

@@ -5,8 +5,8 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import connect_current
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
 def read_market_calendar(

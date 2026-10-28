@@ -102,9 +102,9 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 with_publication_lease() (
   handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
   rm -f "$handle"
-  uv run python -m baibai_jobs.storage.publication_lease acquire --purpose operator --handle "$handle" || return $?
+  uv run python -m baibai_jobs.publication.lease acquire --purpose operator --handle "$handle" || return $?
   if PUBLICATION_LEASE_HANDLE="$handle" "$@"; then result=0; else result=$?; fi
-  uv run python -m baibai_jobs.storage.publication_lease release --handle "$handle" || return $?
+  uv run python -m baibai_jobs.publication.lease release --handle "$handle" || return $?
   return "$result"
 )
 ```
@@ -258,8 +258,8 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 最初にcurrentを一度解決し、release IDとmanifest SHA-256を固定する。以後は同じmanifestが列挙したdataset/objectだけを読む。optional datasetなしは未収録で、他releaseのpartitionやprovider値で穴埋めしない。
 
 ```bash
-uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
-uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores \
+uv run baibai-engine snapshots resolve --mirror stores --bucket baibai-stores --format json
+uv run baibai-engine snapshots resolve --mirror stores --bucket baibai-stores \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
 
@@ -273,7 +273,7 @@ objectのdigest・bytes・row数・schemaを通常のlake readerで照合する�
 必要量とsnapshot用容量を確認し、manifest/objectの完全mirrorを認可済み読取で揃える。部分JSON exportで正規market readerを代用しない。
 
 ```bash
-uv run baibai-engine lake hydrate \
+uv run baibai-engine snapshots hydrate \
   --mirror <COMPLETE_LOCAL_MIRROR> --store <LOCAL_MARKET_COPY> \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
@@ -284,9 +284,9 @@ uv run baibai-engine lake hydrate \
 
 ```python
 from pathlib import Path
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
     materialize_partitions,
     resolve_release,
@@ -332,9 +332,9 @@ cutoffはJST日末でintraday PITではない。選択なしは書類不存在�
 retention rootはcurrent releaseのみ。到達objectとmanifestを保持し、未到達/stagingはgrace後の候補になる。gcはdry-runを読み、apply時に再planしたhashが一致した場合だけ削除する。calibrationは対象外。
 
 ```bash
-uv run baibai-engine lake inventory --root stores
-uv run baibai-engine lake gc --mirror stores
-uv run baibai-engine lake gc --mirror stores --apply --plan-hash <HASH>
+uv run baibai-engine snapshots inventory --root stores
+uv run baibai-engine snapshots gc --mirror stores
+uv run baibai-engine snapshots gc --mirror stores --apply --plan-hash <HASH>
 ```
 
 immutable prefixのBucket Lockとmutable pointer/stagingを区別する。rollback pointerや全履歴監査を追加せず、問題releaseは正しいstoreから新releaseを前向きに発行する。

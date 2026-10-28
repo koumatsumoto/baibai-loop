@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from baibai_jobs.jobs.schedule import MARKET_SOURCE_SCHEDULES, market_source_target_date
+from baibai_jobs.schedule import MARKET_SOURCE_SCHEDULES, market_source_target_date
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/cloud-market-sources.yml"

@@ -43,9 +43,9 @@ from baibai_engine.investment_judgment.stock_assessment.store import load_review
 from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal, proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.storage.application.paths import database_path
-from baibai_engine.storage.application.read import connect_read_only
-from baibai_engine.storage.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.paths import database_path
+from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 
 class OperationNotFoundError(ValueError):

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.machine_analysis.screening.discovery.contracts import validate_candidate_run
-from baibai_engine.storage.machine_analysis import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 
 @dataclass(frozen=True, slots=True)

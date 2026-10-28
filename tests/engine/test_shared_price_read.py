@@ -2,7 +2,7 @@ from contextlib import closing
 from datetime import date
 
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_streamed_companies_keep_independent_adjustments_and_null_close_actions(tmp_path):

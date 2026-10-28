@@ -25,12 +25,12 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics impor
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_next_earnings_dates
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars, read_daily_bars_for_tickers
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_range_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.observations.readiness import unreadable_store_reason
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 
 @pytest.mark.parametrize(

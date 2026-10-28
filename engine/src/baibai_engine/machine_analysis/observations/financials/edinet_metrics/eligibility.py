@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revis
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import read_edinet_metric_baseline
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import select_document_candidates
-from baibai_engine.storage.observations.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def read_eligible_edinet_metrics(

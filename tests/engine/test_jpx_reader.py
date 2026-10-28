@@ -24,7 +24,7 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import 
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
 )
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,

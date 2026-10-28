@@ -16,7 +16,7 @@ from baibai_jobs.integration.tradingview_handoff import (
     import_handoff,
 )
 from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selection(tmp_path):

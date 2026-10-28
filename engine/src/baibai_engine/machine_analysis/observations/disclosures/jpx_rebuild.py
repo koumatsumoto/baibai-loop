@@ -38,13 +38,13 @@ from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,
     delete_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.observations.schema import connect_current, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
 
 _LOGGER = logging.getLogger(__name__)
 

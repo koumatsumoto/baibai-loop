@@ -18,10 +18,10 @@ from tests.jobs.external_assessment_publication_fixtures import integrate_ready_
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, completed_pair, plan
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs import external_assessment_sources as sources
-from baibai_jobs.jobs.external_assessment_cohorts import new_result, plan_bytes
-from baibai_jobs.storage import external_assessment_staging as staging
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.sources as sources
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result, plan_bytes
+import baibai_jobs.acquisition.external_assessments.staging as staging
 
 
 def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):

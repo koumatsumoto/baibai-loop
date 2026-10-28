@@ -24,7 +24,7 @@ from baibai_engine.investment_judgment.workflow.operation.service import (
     OperationConflictError,
     OperationService,
 )
-from baibai_engine.storage.application.write import connect_rw, initialize_database
+from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=JST)
 

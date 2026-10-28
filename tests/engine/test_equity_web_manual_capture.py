@@ -31,7 +31,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.contract i
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _counts(db):

@@ -9,7 +9,7 @@ import pytest
 from baibai_engine.machine_analysis.observations.external_assessments.models import AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation
 from baibai_jobs.acquisition.external_assessments.collection import CollectionOutcome as ExternalAssessmentCollectionOutcome
 from baibai_engine.machine_analysis.observations.external_assessments.models import ModelValuationObservation as ExternalAssessmentModelValuationObservation
-from baibai_jobs.jobs.external_assessment_cohorts import (
+from baibai_jobs.acquisition.external_assessments.cohorts import (
     PairEntry,
     load_plan,
     load_result,

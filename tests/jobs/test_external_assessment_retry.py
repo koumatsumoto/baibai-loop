@@ -15,8 +15,8 @@ from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 from baibai_jobs.acquisition.external_assessments.collection import collect_pair as external_assessment_collect_pair
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.storage import external_assessment_staging as staging
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.staging as staging
 
 BASE = datetime(2026, 10, 11, 0, tzinfo=UTC)
 
@@ -149,7 +149,7 @@ def test_rakuten_retry_restarts_outer_page_and_archives_every_received_200(monke
     assert client.calls[0][0] == client.calls[2][0]
     saved = staging.read_stage(store, p, 0)[0]
     assert saved.result.entries[0].state == "success"
-    from baibai_jobs.storage.external_assessment_raw import read_raw_bundle
+    from baibai_jobs.integration.external_assessment_raw import read_raw_bundle
 
     manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
     assert len(manifest["receipts"]) == len(bodies) == 3

@@ -12,7 +12,7 @@ from baibai_engine.portfolio.performance.store import (
     PortfolioOutcomePublication,
     PortfolioOutcomeStore,
 )
-from baibai_engine.storage.application.write import initialize_database
+from baibai_engine.storage.sqlite.application.write import initialize_database
 
 
 def _publication(*, status: str = "resolved") -> PortfolioOutcomePublication:

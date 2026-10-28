@@ -11,10 +11,10 @@ from baibai_engine.data_collection.receipts.native_sources.records import read_s
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.storage.observations.schema import open_connection
-from baibai_jobs.jobs.source_integration import apply
-from baibai_jobs.storage.economic_staging import save_handoff
-from baibai_jobs.storage.source_receipts import available_handoffs, seal_integrated
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.sources import apply
+from baibai_jobs.acquisition.economic_staging import save_handoff
+from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
 
 
 def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_source(
@@ -63,7 +63,7 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
             "SELECT * FROM source_coverage ORDER BY source, coverage_key"
         ).fetchall()
     monkeypatch.setattr(
-        "baibai_jobs.jobs.source_integration.extract_saved_edinet",
+        "baibai_jobs.integration.sources.extract_saved_edinet",
         lambda *args, **kwargs: {},
     )
     report = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))
@@ -114,11 +114,11 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
     work.mkdir()
     (work / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
     monkeypatch.setattr(
-        "baibai_jobs.jobs.source_integration._replay",
+        "baibai_jobs.integration.sources._replay",
         lambda *args, **kwargs: {"projection_failures": ["bundle"] if projection_failed else []},
     )
     monkeypatch.setattr(
-        "baibai_jobs.jobs.source_integration.extract_saved_edinet", lambda *args, **kwargs: {}
+        "baibai_jobs.integration.sources.extract_saved_edinet", lambda *args, **kwargs: {}
     )
     outcome = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))[
         "handoffs"
