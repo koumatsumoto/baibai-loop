@@ -45,7 +45,7 @@ engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは�
 
 snapshotの列・layer・coverage等の定義とSQLite tableの意味は原本／観測のownerが持つ。Storageは明示された定義を使う保存・検証機構であり、公開対象やsource別の受入条件はJobsが合成する。全体hydrate/dehydrateは完全なcatalogとpolicyを必須入力にし、個別の固定読取は必要なownerの契約だけを受け取る。
 
-`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。各domainの算術や保存条件を複製せず、所有者の入口を呼ぶ。`tools/`は開発・診断用で、通常運用の隠れた入口にしない。Webは資産・損益・保有、運用成績、タスクの読取を合成し、候補抽出や判断の成功条件には含めない。最新売買提案レポートは[別企画 #1615](https://github.com/koumatsumoto/baibai-loop/issues/1615)で扱う。
+`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。各domainの算術や保存条件を複製せず、所有者の入口を呼ぶ。`tools/`は開発・診断用で、通常運用の隠れた入口にしない。Webは資産・損益・保有、運用成績、タスク、最新保存提案とexact評価pairの読取を合成し、候補抽出や判断の成功条件には含めない。判断の作成・現在条件の再試算・台帳更新はWebから呼ばない。表示契約は[Web](../web/README.md)が所有する。
 
 ```mermaid
 flowchart TB
@@ -63,6 +63,7 @@ flowchart TB
     J --> P[Portfolio]
     P --> O
     W[Web] --> P
+    W -->|保存提案・exact評価pairの読取| J
 ```
 
 上図は主要な依存方向。領域から保存機構・共通値への依存は省略する。CollectionからL2、観測からモデル、モデル生成から候補政策、PortfolioからL3への逆依存は作らない。工程間で必要な保存・再開の合成と、解析モデル内の算術は別に置く。厳密な境界は[依存契約](../pyproject.toml)で管理する。
@@ -78,6 +79,8 @@ flowchart TB
 ## 判断と進行
 
 Company Researchは一次資料から事業・財務・競争力・経営を調べる。Stock Assessmentは調査と機械観測を統合し、価値・価格・成立条件・リスクリワードを評価する。Independent Reviewは作者と独立して根拠・仮定・算術・反証を検証する。Trade Proposalは検証された評価を価格・cash・保有へ適用する。これらは無リスク認定や、全事実の完全証明を意味しない。
+
+`investment_judgment/judgment_retrospective/`は特定の旧判断と後日根拠の照合・学びをapplication DBへ保存し、企業知識の更新・現在評価・Portfolioの損益・機械手法の歴史較正とは分ける。
 
 解釈と判断はAI、算術・保存・状態管理はエンジンが担当する。Selectionは人間が明示した有限対象・問い・入力を固定する。不足や反証があれば調査・評価へ戻り、工程名だけを理由に必須DAGや承認を増やさない。市場全体の判断は個別企業から独立した入口を持つ。
 

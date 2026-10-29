@@ -108,6 +108,29 @@ def get_investment_proposal(*, proposal_id: str, db_path: Path | None = None) ->
         return load_investment_proposal(connection, proposal_id)
 
 
+def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:
+    """全scopeから最大の(as_of, aware published_at, ID)を読み、破損版を飛ばさない。"""
+
+    rows = connection.execute(
+        "SELECT proposal_id,published_at FROM investment_proposal "
+        "WHERE as_of=(SELECT MAX(as_of) FROM investment_proposal)"
+    ).fetchall()
+    headers: list[tuple[datetime, str]] = []
+    for row in rows:
+        try:
+            instant = datetime.fromisoformat(str(row[1]))
+            if instant.utcoffset() is None:
+                raise ValueError("stored publication time must include a timezone")
+        except ValueError as error:
+            raise ProposalConflictError("invalid stored proposal publication header") from error
+        headers.append((instant, str(row[0])))
+    # Compare aware instants in Python: textual offsets and SQLite julianday
+    # respectively lose instant ordering and sub-millisecond precision.
+    if not headers:
+        return None
+    return load_investment_proposal(connection, max(headers)[1])
+
+
 @dataclass(frozen=True, slots=True)
 class CurrentProposalPreview:
     saved_proposal_id: str

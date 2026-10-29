@@ -8,6 +8,7 @@ import { PageShell } from '../src/components/PageShell'
 import { PageState } from '../src/components/PageState'
 import { RouteErrorBoundary } from '../src/components/RouteErrorBoundary'
 import { DashboardPage } from '../src/pages/DashboardPage'
+import { ProposalPage } from '../src/pages/ProposalPage'
 import { TasksPage } from '../src/pages/TasksPage'
 
 function renderInLayout(page: ReactNode): string {
@@ -23,6 +24,7 @@ function renderInLayout(page: ReactNode): string {
 it.each<[string, ReactNode, string]>([
   ['dashboard loading', createElement(DashboardPage), '資産状況を読み込んでいます'],
   ['tasks loading', createElement(TasksPage), 'Tasks を読み込んでいます'],
+  ['proposal loading', createElement(ProposalPage), '売買提案を読み込んでいます'],
   ['read error', createElement(PageState, { message: '読取失敗' }), '読取失敗'],
   ['ready content', createElement(PageShell, { title: '表示内容', children: '用件' }), '用件'],
 ])('keeps one navigation and one main through %s', (_name, page, content) => {
@@ -32,6 +34,7 @@ it.each<[string, ReactNode, string]>([
   expect(html).toContain('aria-label="メインナビゲーション"')
   expect(html).toContain('href="/"')
   expect(html).toContain('href="/tasks"')
+  expect(html).toContain('href="/proposal"')
   expect(html).toContain(content)
 })
 
@@ -49,6 +52,7 @@ it('keeps navigation outside a failed route boundary', () => {
     expect(html.match(/<main\b/g)).toHaveLength(1)
     expect(html).toContain('href="/"')
     expect(html).toContain('href="/tasks"')
+    expect(html).toContain('href="/proposal"')
     expect(html).toContain('この画面を表示できませんでした')
     expect(html).not.toContain('page content')
   } finally {
@@ -60,6 +64,8 @@ it.each([
   ['/', '/'],
   ['/tasks', '/tasks'],
   ['/tasks?view=all#top', '/tasks'],
+  ['/proposal', '/proposal'],
+  ['/proposal?view=all#top', '/proposal'],
 ])('keys the page boundary by pathname at %s', (entry, pathname) => {
   const boundaryKeys: (string | null)[] = []
   function InspectLayout() {

@@ -4,7 +4,7 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 26
+APPLICATION_SCHEMA_VERSION = 27
 
 COMPANY_RESEARCH_SCHEMA_SQL = """
 CREATE TABLE company_research (
@@ -23,6 +23,24 @@ CREATE TRIGGER company_research_immutable
 BEFORE UPDATE ON company_research
 BEGIN
     SELECT RAISE(ABORT, 'saved Company Research is immutable');
+END;
+"""
+
+JUDGMENT_RETROSPECTIVE_SCHEMA_SQL = """
+CREATE TABLE judgment_retrospective (
+    retrospective_id TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    payload_sha256 TEXT NOT NULL
+) STRICT;
+CREATE INDEX judgment_retrospective_ticker_recorded_idx
+ON judgment_retrospective(ticker, recorded_at, retrospective_id);
+CREATE TRIGGER judgment_retrospective_immutable
+BEFORE UPDATE ON judgment_retrospective
+BEGIN
+    SELECT RAISE(ABORT, 'saved Judgment Retrospective is immutable');
 END;
 """
 
@@ -214,6 +232,12 @@ CREATE INDEX portfolio_outcome_period_idx
 ON portfolio_outcome(period_end_date, horizon, outcome_id);
 """
     + COMPANY_RESEARCH_SCHEMA_SQL
+    + JUDGMENT_RETROSPECTIVE_SCHEMA_SQL
 )
 
-__all__ = ["APPLICATION_SCHEMA_VERSION", "COMPANY_RESEARCH_SCHEMA_SQL", "SCHEMA_SQL"]
+__all__ = [
+    "APPLICATION_SCHEMA_VERSION",
+    "COMPANY_RESEARCH_SCHEMA_SQL",
+    "JUDGMENT_RETROSPECTIVE_SCHEMA_SQL",
+    "SCHEMA_SQL",
+]

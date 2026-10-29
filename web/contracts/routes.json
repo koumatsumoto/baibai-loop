@@ -2,7 +2,8 @@
   "routes": {
     "/api/dashboard": "views/portfolio-dashboard.json",
     "/api/tasks": "views/tasks.json",
-    "/api/outcomes": "views/outcomes.json"
+    "/api/outcomes": "views/outcomes.json",
+    "/api/proposal/latest": "views/latest-proposal.json"
   },
   "edge_routes": {},
   "patterns": {},
