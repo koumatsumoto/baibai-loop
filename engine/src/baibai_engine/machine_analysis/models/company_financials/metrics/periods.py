@@ -252,6 +252,38 @@ def _ttm_value(
     return compose_ttm_amount(*values), TTMQuality.EXACT
 
 
+def _ttm_period(
+    summaries: Sequence[JQuantsFinancialSummary], field: str, ttm_rules: TTMRules
+) -> dict[str, object] | None:
+    """値と同じ構成要素が実際に覆う区間。最新開示日や年度末で代用しない。"""
+    components = _ttm_components(summaries, field, ttm_rules)
+    if not components:
+        return None
+    latest = components[0]
+    start = latest.period_start if len(components) == 1 else annual_ttm_start(*components)
+    return {
+        "start": start.isoformat() if start is not None else None,
+        "end": latest.period_end.isoformat() if latest.period_end is not None else None,
+        "method": "reported_annual"
+        if len(components) == 1
+        else "fy_plus_current_ytd_minus_prior_ytd",
+        "statement_basis": statement_basis(latest),
+        "components": [
+            {
+                "coefficient": -1 if index == 2 else 1,
+                "amount_yen": getattr(row, field),
+                "period_start": row.period_start.isoformat() if row.period_start else None,
+                "period_end": row.period_end.isoformat() if row.period_end else None,
+                "disclosed_at": row.disclosed_at.isoformat(),
+                "disclosed_time": row.disclosed_time,
+                "disclosure_number": row.disclosure_number,
+                "document_type": row.document_type,
+            }
+            for index, row in enumerate(components)
+        ],
+    }
+
+
 def _ttm_components(
     summaries: Sequence[JQuantsFinancialSummary],
     field: str,

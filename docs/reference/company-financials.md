@@ -53,6 +53,12 @@ OCFとcapexは同じcontext・scopeを使い、合算と内訳を二重計上せ
 
 exact/approximated/unavailableは取得フローと期間の品質。年次metadataの12か月確認と、半期等を完全TTMへ合成できることは別で、半期CFを機械年率化しない。net cashは時点残高で12か月フローではない。品質は経済的持続性・株主回収可能性・倍率全体の正しさの認定ではない。
 
+現行 generation の `financial.edinet_reported_flows` は報告額を `amounts` に一度だけ保持し、年次・半期・累計の種類、連結basis、出所、既存抽出ownerの `annual_quality` を一緒に渡す。旧物理列の `*_ttm` は改名・再保存せず、新規モデルでは同値のTTM aliasを出さない。半期・変則年度・期間不明を単純年率化せず、年間額として成立しないFCF yield・EV/EBITDAは出さない。年次exactの報告額と利回りは維持するが、最新終端のTTMを意味しない。規模照合で倍率へ不適格な場合も報告額自体は消さず、`edinet_failure_reasons` を併記する。
+
+`filing_fiscal_period` は既知の書類年度を保持する。現行metric storeはnative contextの日付を保存していないため、`measurement_period` は理由付き不明のままにし、年度metadataや提出日から推定しない。年次exactの既存認定もnative fact durationの観測済みを意味しない。一方、短信の `ocf_ttm_period` は値と同じ構成要素の実期間・金額・開示identityと合成方法を示す。March annualの報告FCFとJune trailing CFOなどを、同じ期間の差引きに使わない。短信提供値とEDINET原典の精度差も元値のまま残す。
+
+この意味変更は新しい企業財務generation revisionに限り、旧generation・判断hash・再開payloadへ既定値を補わない。EDINETの全年代TTM化やFY＋当期YTD−前年YTDの新規合成は行っていない。
+
 Investment JudgmentのBS文脈で測定日やdebt scopeが未保存なら、最新開示日・書類期末・最大carry lagから推定しない。金額と品質だけでなく原典の時点・連結・単位・内訳を必要な範囲で確認する。
 
 ## 配当と還元
