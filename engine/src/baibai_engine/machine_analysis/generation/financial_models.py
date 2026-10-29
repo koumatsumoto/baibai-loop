@@ -14,6 +14,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.financial_
     build_financial_snapshot,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_financials.reported_flows import (
+    financial_observation_payload,
+)
 from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
@@ -87,7 +90,7 @@ def generate_financial_and_price_models(
             else "stale_price",
         )
     price = latest.price if latest is not None and latest.price > 0 else None
-    financial = asdict(
+    financial = financial_observation_payload(
         build_financial_snapshot(
             price,
             documents,
@@ -95,7 +98,8 @@ def generate_financial_and_price_models(
             ttm_rules,
             adjustment_events=adjustment_events,
             asof_date=as_of,
-        )
+        ),
+        edinet,
     )
     # 変化の正準材料は企業成長。価格欠測で独立した財務観測を消さない。
     financial = {key: value for key, value in financial.items() if key not in _GROWTH_FIELDS}
@@ -114,7 +118,7 @@ def generate_financial_and_price_models(
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v7",
+            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods",
             payload=json.loads(
                 canonical_json(
                     {

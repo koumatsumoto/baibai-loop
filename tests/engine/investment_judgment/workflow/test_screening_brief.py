@@ -245,3 +245,21 @@ def test_distinct_source_urls_never_overwrite_same_metric_levels():
         100.0,
         200.0,
     ]
+
+
+def test_reported_flows_and_independent_cfo_interval_survive_l3_brief():
+    company = card()
+    financial = company["context"]["financial"]
+    financial["edinet_reported_flows"] = {
+        "period_kind": "annual",
+        "amounts": {"free_cash_flow": 3_222_500_000.0},
+        "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
+        "filing_fiscal_period": {"start": "2025-04-01", "end": "2026-03-31"},
+        "annual_quality": {"free_cash_flow": "exact"},
+    }
+    financial["ocf_ttm_period"] = {"start": "2025-07-01", "end": "2026-06-30"}
+    financial["ocf_ttm"] = -1_229_635_000.0
+    brief = economic_screening_brief(result(company))["cards"][0]["context"]["financial"]
+    assert brief["edinet_reported_flows"] == financial["edinet_reported_flows"]
+    assert brief["ocf_ttm_period"] == financial["ocf_ttm_period"]
+    assert brief["ocf_ttm"] == financial["ocf_ttm"]
