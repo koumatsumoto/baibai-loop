@@ -29,6 +29,8 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
+from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
 from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 
 
@@ -95,6 +97,111 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
         completed_at=PUBLISHED,
     )
     assert completed.status == "completed"
+
+
+@pytest.mark.parametrize("publication", ["before_read", "after_read", "changed_reason"])
+def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypatch, publication):
+    operation = case.operations.record_unfinished(
+        case.operation.operation_id,
+        ticker="1234",
+        reason="追加資料の確認が未完了",
+        references=("synthetic-pending-source",),
+        now=PREPARED,
+    )
+    proposal = reviewed_proposal(case, action="defer")
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    get = case.operations.get
+    if publication == "after_read":
+
+        def read_then_publish(operation_id):
+            before = get(operation_id)
+            service.publish(proposal)
+            return before
+
+        monkeypatch.setattr(case.operations, "get", read_then_publish)
+    else:
+        service.publish(proposal)
+    if publication == "changed_reason":
+        operation = case.operations.record_unfinished(
+            operation.operation_id,
+            ticker="1234",
+            reason="公開後に追加の反証を確認し、別の問いが残った",
+            references=("synthetic-new-counterevidence",),
+            now=PUBLISHED,
+        )
+    assert progress_binding(operation.payload).proposal_ref is None
+    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
+        case.operations.complete(
+            operation.operation_id,
+            result="評価未完了のまま作業を終了",
+            next="不足する資料を確認する",
+            completed_at=PUBLISHED,
+        )
+    assert get(operation.operation_id) == operation
+    assert get_investment_proposal(
+        proposal_id=proposal.proposal_id, db_path=case.app
+    ).payload() == {
+        **proposal.payload(),
+        "published_at": PUBLISHED.isoformat(),
+    }
+    if publication == "changed_reason":
+        with pytest.raises(OperationCompletionError, match="fixed coverage"):
+            case.operations.record_proposal(
+                operation.operation_id, proposal.proposal_id, now=PUBLISHED
+            )
+        assert get(operation.operation_id) == operation
+    else:
+        monkeypatch.setattr(case.operations, "get", get)
+        case.operations.record_proposal(operation.operation_id, proposal.proposal_id, now=PUBLISHED)
+        completed = case.operations.complete(
+            operation.operation_id,
+            result="未完了を明示した提案を保存し作業を終了",
+            next="不足する資料を確認する",
+            completed_at=PUBLISHED,
+        )
+        assert completed.status == "completed"
+        assert progress_binding(completed.payload).proposal_ref.proposal_id == proposal.proposal_id
+
+
+def test_reviewed_defer_still_requires_a_bound_published_proposal(tmp_path):
+    case = backend_case(tmp_path, valuation_unresolved=True)
+    proposal = reviewed_proposal(case, action="defer")
+    assert proposal.research_scope.outcomes[0].status == "reviewed"
+    assert proposal.items[0].action == "defer"
+    notes = {"result": "不確実な評価を保存", "next": "新しい開示を確認", "completed_at": PUBLISHED}
+    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
+        case.operations.complete(case.operation.operation_id, **notes)
+    published = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
+    case.operations.record_proposal(
+        case.operation.operation_id, published.proposal_id, now=PUBLISHED
+    )
+    assert case.operations.complete(case.operation.operation_id, **notes).status == "completed"
+
+
+def test_unfinished_completion_prevents_later_new_proposal_publication(case):
+    case.operations.record_unfinished(
+        case.operation.operation_id,
+        ticker="1234",
+        reason="資料待ちで評価未完了",
+        references=("synthetic-pending-source",),
+        now=PREPARED,
+    )
+    proposal = reviewed_proposal(case, action="defer")
+    completed = case.operations.complete(
+        case.operation.operation_id,
+        result="今回の作業を終了",
+        next="不足する資料を確認する",
+        completed_at=PUBLISHED,
+    )
+    before = _counts(case.app)
+    with pytest.raises(ProposalConflictError, match="active Research Operation"):
+        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+            proposal
+        )
+    assert _counts(case.app) == before
+    assert case.operations.get(completed.operation_id) == completed
 
 
 def test_cli_yaml_output_failure_preserves_successful_publication(

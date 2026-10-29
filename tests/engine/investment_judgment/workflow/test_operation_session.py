@@ -79,9 +79,9 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
 ) -> None:
     db = tmp_path / "app.sqlite"
     selected = (
-        seed_generated_selection(runs=tmp_path / "runs.sqlite", now=NOW)
+        seed_generated_selection(runs=tmp_path / "runs.sqlite", now=NOW, tickers=("1234", "5678"))
         if generated
-        else selection(now=NOW)
+        else selection(now=NOW, tickers=("1234", "5678"))
     )
     operation = historical_operation(selected)
     payload = operation.payload.model_copy(
@@ -92,6 +92,15 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
     )
     operation = operation.model_copy(update={"payload": payload})
     seed_historical_operation(db, operation)
+    for ticker in ("1234", "5678"):
+        operation = OperationService(db).record_unfinished(
+            operation.operation_id,
+            ticker=ticker,
+            reason="一次資料が不足し評価未完了",
+            references=(f"synthetic-research-{ticker}", "saved-research-digest"),
+            now=NOW,
+        )
+    payload = operation.payload
 
     assert (
         operation_main(
@@ -103,7 +112,7 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
                 "complete",
                 operation.operation_id,
                 "--result",
-                "今回の条件に合う対象なし",
+                "調査作業を終了、評価は未完了",
                 "--next",
                 "新しい明示依頼を待つ",
             ],
@@ -115,7 +124,7 @@ def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifact
     assert json.loads(capsys.readouterr().out) == completed.public()
     assert completed.status == "completed"
     assert completed.payload == payload.model_copy(
-        update={"result": "今回の条件に合う対象なし", "next": "新しい明示依頼を待つ"}
+        update={"result": "調査作業を終了、評価は未完了", "next": "新しい明示依頼を待つ"}
     )
     assert selection_sha256(selection_binding(completed.payload)) == selection_sha256(selected)
     with pytest.raises(OperationConflictError, match="immutable"):
