@@ -444,5 +444,6 @@ def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
     quote, confirmed = valuation.holding_quote(
         case.ledger, ticker="1234", sqlite_path=case.market, now=now
     )
-    assert quote is not None and quote.close_yen == 9999.0
+    assert quote is not None
+    assert quote.close_yen == 9999.0
     assert not confirmed

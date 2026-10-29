@@ -48,7 +48,6 @@ from baibai_engine.portfolio.ledger.events import (
     ConfirmedTaxEvent,
     ContributionEvent,
     CostEvent,
-    ExecutionEvent,
     HumanOverride,
     IncomeEvent,
     PortfolioLedgerDocument,
