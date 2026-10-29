@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -50,6 +50,21 @@ def holding_case(tmp_path):
             if (date(2026, 6, 3) + timedelta(days=i)).weekday() < 5
         ],
     )
+    start, end = date(2026, 6, 3), NOW.date()
+    days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-holding-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
     return db, market, ledger
 
 

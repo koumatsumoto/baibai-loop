@@ -616,7 +616,7 @@ def test_new_store_uses_only_the_requested_initial_window(database, source):
         assert maintenance.ensure_market_calendar(start, end) == 2
     else:
         expected_calls = [("margin-alert", value.isoformat()) for value in (start, end)]
-        maintenance, session = refresh(database, dict.fromkeys(expected_calls, []))
+        maintenance, session = refresh(database, {call: [] for call in expected_calls})
         assert maintenance.refresh_margin_alerts(start, end) == 0
     assert session.calls == expected_calls
 

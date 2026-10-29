@@ -115,7 +115,7 @@ def prepare_selected_workspace(
     runs_path: Path,
     now: datetime,
     force: bool = False,
-    company_growth_periods: int | None | EllipsisType = ...,
+    company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     if not isinstance(draft, GeneratedResearchSelectionDraft):
         raise ResearchWorkspaceConflictError("new Research requires a generated selection draft")
@@ -202,7 +202,7 @@ def resume_selected_workspace(
     workspace: Path,
     now: datetime,
     force: bool = False,
-    company_growth_periods: int | None | EllipsisType = ...,
+    company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
     selection = selection_binding(operation.payload)
@@ -236,7 +236,7 @@ def _materialize(
     *,
     status: Literal["prepared", "resumed", "already_completed"],
     force: bool,
-    company_growth_periods: int | None | EllipsisType,
+    company_growth_periods: int | EllipsisType | None,
 ) -> SelectedResearchPreparation:
     # 省略時は上で既存workspaceの表示を引き継ぎ、新規投影だけ12期から始める。
     # Noneは保存済み全期間の明示指定として区別する。
