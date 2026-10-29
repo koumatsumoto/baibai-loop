@@ -83,6 +83,7 @@ class EStatSource:
             params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         return parse_estat_json(series, text, start=start, end=end)
 

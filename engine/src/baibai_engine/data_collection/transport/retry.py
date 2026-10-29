@@ -9,12 +9,15 @@ from typing import Any, Self, cast
 from requests import PreparedRequest, Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
-from urllib3.exceptions import DecodeError, HTTPError, InvalidHeader, ProtocolError
+from urllib3.exceptions import DecodeError, HTTPError, ProtocolError
 from urllib3.response import BaseHTTPResponse, HTTPResponse
 from urllib3.util import Retry
 
 from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
-from baibai_engine.data_collection.transport.http import check_acquisition_deadline
+from baibai_engine.data_collection.transport.http import (
+    check_acquisition_deadline,
+    retry_after_delay,
+)
 
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -59,12 +62,7 @@ class ReadRetry(Retry):
     def sleep(self, response: BaseHTTPResponse | None = None) -> None:
         waiting = self.get_backoff_time()
         if response is not None and self.respect_retry_after_header:
-            try:
-                retry_after = self.get_retry_after(response)
-            except InvalidHeader:
-                retry_after = None
-            if retry_after is not None:
-                waiting = retry_after
+            waiting = retry_after_delay(response.headers.get("Retry-After"), fallback=waiting)
         self.deadline.wait(waiting)
 
 

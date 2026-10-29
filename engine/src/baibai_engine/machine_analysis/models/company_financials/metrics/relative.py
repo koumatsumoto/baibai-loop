@@ -9,7 +9,6 @@ from statistics import median
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     self_range_position,
-    sigma_gap,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
@@ -30,7 +29,6 @@ class RelativeValuation:
     sector_median_basis: Mapping[str, str]
     self_range_position: Mapping[str, float | None]
     self_range_median: Mapping[str, float | None]
-    sigma_gap: Mapping[str, float | None]
 
 
 def relative_valuation(
@@ -44,7 +42,6 @@ def relative_valuation(
     sector_bases: dict[str, str] = {}
     self_positions: dict[str, float | None] = {}
     self_medians: dict[str, float | None] = {}
-    sigma_gaps: dict[str, float | None] = {}
     for metric in VALUATION_METRICS:
         current = getattr(snapshot, metric)
         sector_values = sector_metric_values.get(metric, [])
@@ -75,7 +72,6 @@ def relative_valuation(
         # これは倍率の履歴ではなく価格の履歴を倍率の単位で表したものである。価格比例の
         # 軸では `自己中央値 / 現値` が軸によらず `median(終値) / 現在株価` に一致する。
         self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
-        sigma_gaps[metric] = sigma_gap(history_values, current)
 
     return RelativeValuation(
         sector_median_gap=sector_gaps,
@@ -83,7 +79,6 @@ def relative_valuation(
         sector_median_basis=sector_bases,
         self_range_position=self_positions,
         self_range_median=self_medians,
-        sigma_gap=sigma_gaps,
     )
 
 

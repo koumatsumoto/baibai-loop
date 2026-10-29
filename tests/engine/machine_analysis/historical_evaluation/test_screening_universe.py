@@ -432,7 +432,6 @@ class ScreeningUniverseTests(unittest.TestCase):
                 )
                 self.assertIsNotNone(analysis.per_forward)
                 self.assertIsNotNone(analysis.pbr)
-                self.assertIsNone(analysis.price_change_20d)
                 self.assertIsNone(analysis.metrics["fv_self_range_yen"])
                 self.assertEqual(analysis.avg_turnover_oku, 3.0 if count == 20 else None)
                 discovery = build_candidate_contexts(

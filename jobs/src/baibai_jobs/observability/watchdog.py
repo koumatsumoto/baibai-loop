@@ -61,14 +61,14 @@ def run_target_date(*, event: str, display_title: str) -> date | None:
 
     if event != "workflow_dispatch":
         return None
-    title = display_title.strip()
-    prefix = f"{RUN_NAME_PREFIX} "
-    if not title.startswith(prefix):
-        return None
-    try:
-        return date.fromisoformat(title[len(prefix) :].strip())
-    except ValueError:
-        return None
+    match display_title.split():
+        case ["daily", day] | ["economic", _, _, day] | ["market-acquisition", _, day]:
+            try:
+                return date.fromisoformat(day)
+            except ValueError:
+                return None
+        case _:
+            return None
 
 
 @dataclass(frozen=True, slots=True)

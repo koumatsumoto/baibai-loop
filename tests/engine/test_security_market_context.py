@@ -8,12 +8,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.market_context import security_context_from_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.machine_analysis.generation.runners.security_context import (
-    build_security_market_context,
-)
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
@@ -76,10 +74,10 @@ def _insert_reference_rows(sqlite_path: Path) -> None:
 
 class SecurityMarketContextTests(unittest.TestCase):
     def _build(self, root: Path, ticker: str) -> dict[str, object]:
-        return build_security_market_context(
-            sqlite_path=root / "market.sqlite",
+        return security_context_from_store(
+            root / "market.sqlite",
             ticker=ticker,
-            asof_date=_ASOF,
+            as_of=_ASOF,
             self_range_window_bars=VALUATION_HISTORY_SESSIONS,
         )
 
@@ -274,10 +272,10 @@ def _insert_dated_bars(sqlite_path, ticker, prices):
 
 
 def _security_context(root, asof):
-    return build_security_market_context(
-        sqlite_path=root / "market.sqlite",
+    return security_context_from_store(
+        root / "market.sqlite",
         ticker="AAAA",
-        asof_date=asof,
+        as_of=asof,
         self_range_window_bars=VALUATION_HISTORY_SESSIONS,
     )
 

@@ -69,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "market-context", help="explicit market judgment and saved history", add_help=False
     )
+    subparsers.add_parser(
+        "company-research", help="save/revisit partial company research", add_help=False
+    )
     context_parser = subparsers.add_parser(
         "selection-context", help="read saved inputs for AI target selection"
     )
@@ -197,6 +200,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "company-research":
+        from baibai_engine.cli.company_research import main as company_research_main
+
+        return company_research_main(arguments[1:], now=now)
     if arguments and arguments[0] == "market-context":
         from baibai_engine.cli.market_assessment import main as market_context_main
 

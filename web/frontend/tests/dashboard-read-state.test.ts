@@ -28,8 +28,8 @@ vi.mock('../src/api/client', () => ({ fetchJson: vi.fn() }))
 function dashboard(): DashboardView {
   return {
     generated_at: '2026-10-16T09:00:00+09:00', ledger_exists: true,
-    ledger_error: null, ledger_as_of: null, ledger_stale: false,
-    valuation_as_of: null, valuation_stale: false,
+    ledger_error: null, ledger_as_of: null,
+    valuation_as_of: null,
     total_capital_yen: null, available_cash_yen: null, reserved_cash_yen: null,
     holdings_market_value_yen: null, deployed_cost_yen: null,
     realized_gross_pnl_yen: null, cash_pct: null, reserved_pct: null, deployed_pct: null,

@@ -459,7 +459,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     saved_selection = selection_binding(
         OperationService(tmp_path / "app").get(prepared.operation_id).payload
     )
-    assert saved_selection.schema_version == (3 if generated else 2)
+    assert saved_selection.schema_version == (4 if generated else 2)
     fixed_hash = selection_sha256(saved_selection)
     workspace = prepared.workspace
     assert not (workspace / "research-workspace.yaml").exists()

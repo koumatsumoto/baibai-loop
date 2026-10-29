@@ -22,7 +22,8 @@ def export_read_models(root: Path, output_dir: Path) -> list[Path]:
     market_path = root / MARKET_DB_PATH
     ledger = DbLedgerSource(app, market_path)
     market = DbMarketSource(market_path)
-    # Build every view before replacing an artifact: invalid sources fail the export.
+    # Build every view before replacing artifacts. Optional display sources may be
+    # unavailable; builders retain the independent facts and expose missing sections.
     views = {
         "portfolio-dashboard": build_dashboard(ledger, market),
         "tasks": build_tasks(DbTaskSource(app), ledger, market),

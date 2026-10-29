@@ -35,7 +35,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に開始時点のready受領一覧を固定する。全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して五モデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
-取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。日次に移行・全期間backfill・較正再構築を代行させない。
+取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。経済native取得の再試行は失敗した1 GETだけで行い、成功済みの別月やprovider全体の解析をやり直さない。H.15も1回の取得でplain→browserの選択を繰り返さず、browser起動不能はsource拒否として記憶しないため、後の独立取得で再試行できる。文書取得の再試行方針は変えない。日次に移行・全期間backfill・較正再構築を代行させない。
 
 取得／private受領の通知と、共通統合の正本反映／読戻し／lease解放を区別し、run log、store push、release、generation/selection IDを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogは取得を12:00 UTC、共通統合を16:00 UTCに別々のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
 
@@ -125,6 +125,17 @@ merge・origin・schema・取得ETag/CASの失敗では公開を止める。lake
 malformed leaseは自動修復しない。GitHubとlocalにactive/pending writerがないと確認した場合だけexact coordination/publication-lease.jsonを調べ、対象1keyの削除後に通常acquireで再作成する。prefix削除や手書きJSON上書きを通常運用へ入れない。
 
 ## application DB を反映する
+
+### Research保存のschema 25→26切替
+
+この切替は通常runtimeの自動移行ではない。取得ETagと対応するschema25作業コピーを保全し、`tools/cutover_application_v25_to_v26.py --source <schema25.sqlite> --destination <new-schema26.sqlite>`で別ファイルを作る。旧行・payload・hashを再計算せず、新しいResearch領域だけを追加する。
+
+共通のpublication leaseはapplication writerを排他しない。切替前に全application writerの更新を止める段取りを確定し、対応コードとschema26正本を一組で反映する。取得ETagへの条件付き反映が競合した場合は、最新schema25コピーから移行し直し、古い移行コピーを押し込まない。反映前に既存の同日backupを独立した退避先へ保全するか、上書きしない方法を確定する。`R2_APP_BACKUP_PRUNE=skip`だけでは同日backup置換を防げない。
+
+反映後にschema26と既存評価・Selection・台帳の保持、新Research保存・再読、viewの読戻しを確認してwriterを再開する。コードmergeだけをstore切替完了とは扱わない。移行完了後はこの一回用toolと手順を撤去し、経緯をIssue #1652へ残す。
+
+
+### 通常のapplication更新
 
 作業開始前に、空の作業領域へpull-appしてDBとstores/.r2-generations/baibai.sqlite.etagを一組で取得する。そのDBを正規CLIで更新し、取得ETagを保持する。
 

@@ -417,7 +417,13 @@ def test_a_recovery_dispatch_for_an_earlier_day_does_not_cover_this_one() -> Non
     assert verdict.runs_in_window[0].target_date == date(2026, 8, 2)
 
 
-def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either() -> None:
+@pytest.mark.parametrize(
+    "display_title",
+    ["daily 2026-08-02", "economic all all 2026-08-02", "market-acquisition all 2026-08-02"],
+)
+def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either(
+    display_title: str,
+) -> None:
     runs = parse_runs(
         _listing(
             _run(
@@ -425,7 +431,7 @@ def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either() 
                 status="in_progress",
                 conclusion="",
                 event="workflow_dispatch",
-                display_title="daily 2026-08-02",
+                display_title=display_title,
             ),
         )
     )

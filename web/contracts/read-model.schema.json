@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "roots": {
     "views/outcomes.json": "#/$defs/OutcomesView",
     "views/portfolio-dashboard.json": "#/$defs/DashboardView",
@@ -42,10 +42,6 @@
           ],
           "title": "Ledger As Of"
         },
-        "ledger_stale": {
-          "title": "Ledger Stale",
-          "type": "boolean"
-        },
         "valuation_as_of": {
           "anyOf": [
             {
@@ -57,10 +53,6 @@
             }
           ],
           "title": "Valuation As Of"
-        },
-        "valuation_stale": {
-          "title": "Valuation Stale",
-          "type": "boolean"
         },
         "total_capital_yen": {
           "anyOf": [
@@ -189,9 +181,7 @@
         "ledger_exists",
         "ledger_error",
         "ledger_as_of",
-        "ledger_stale",
         "valuation_as_of",
-        "valuation_stale",
         "total_capital_yen",
         "available_cash_yen",
         "reserved_cash_yen",
@@ -540,10 +530,6 @@
             }
           ],
           "title": "Event Date"
-        },
-        "overdue": {
-          "title": "Overdue",
-          "type": "boolean"
         }
       },
       "required": [
@@ -554,8 +540,7 @@
         "ticker",
         "due_date",
         "event_label",
-        "event_date",
-        "overdue"
+        "event_date"
       ],
       "title": "TaskView",
       "type": "object"
@@ -609,6 +594,19 @@
           "description": "保有決算予定の確認可否。保有なし/台帳不明はnull。",
           "title": "Earnings Calendar Available"
         },
+        "earnings_calendar_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "決算カレンダーの読取失敗。欠測だけの場合はnull。",
+          "title": "Earnings Calendar Error"
+        },
         "ledger_error": {
           "anyOf": [
             {
@@ -628,6 +626,7 @@
         "next_task",
         "upcoming_events",
         "earnings_calendar_available",
+        "earnings_calendar_error",
         "ledger_error"
       ],
       "title": "TasksView",
@@ -662,18 +661,13 @@
         "label": {
           "title": "Label",
           "type": "string"
-        },
-        "days_until": {
-          "title": "Days Until",
-          "type": "integer"
         }
       },
       "required": [
         "event_date",
         "kind",
         "ticker",
-        "label",
-        "days_until"
+        "label"
       ],
       "title": "UpcomingEventView",
       "type": "object"

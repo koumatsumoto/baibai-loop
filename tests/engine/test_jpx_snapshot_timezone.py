@@ -4,7 +4,6 @@ from datetime import date
 import pytest
 
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jpx import (
-    _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
@@ -46,12 +45,6 @@ def test_calendar_snapshot_requires_explicit_fetch_timezone(
     else:
         with pytest.raises(JPXProviderError, match="fetched_at lacks timezone"):
             read_jpx_earnings_calendar_snapshot(path, date(2026, 10, 14), allow_stale=allow_stale)
-    with closing(open_connection(path)) as connection:
-        issues = []
-        _append_jpx_earnings_calendar_issues(
-            connection, issues, asof_date=date(2026, 10, 14), allow_stale_jpx=allow_stale
-        )
-    assert bool(issues) is not readable
 
 
 @pytest.mark.parametrize("allow_stale", [False, True])

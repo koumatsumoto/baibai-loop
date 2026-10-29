@@ -39,7 +39,9 @@ from baibai_engine.investment_judgment.workflow.operation.validation import (
     validate_progress,
     validate_selection,
 )
-from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelection
+from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionV4,
+)
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.primitives.json import canonical_json
@@ -89,9 +91,9 @@ class OperationService:
             raise OperationConflictError(
                 "start with `investment-judgment prepare`; one research_selection is required"
             )
-        if not isinstance(selection, GeneratedResearchSelection):
+        if not isinstance(selection, GeneratedResearchSelectionV4):
             raise OperationConflictError(
-                "new Research requires a saved model generation; legacy selections are resume-only"
+                "new Research requires Selection V4; legacy selections are resume-only"
             )
         if selection.capacity != CURRENT_RESEARCH_CAPACITY:
             raise OperationConflictError("new Research requires the current capacity policy")

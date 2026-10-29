@@ -23,7 +23,6 @@ from .edinet import (
     _append_edinet_metrics_coverage_issues,
 )
 from .jpx import (
-    _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
     _jpx_source_names,
 )
@@ -204,12 +203,6 @@ def verify_screening_sqlite_coverage(
                         reason="normalized-profit summary range is not fully covered in SQLite",
                     )
                 )
-            _append_jpx_earnings_calendar_issues(
-                conn,
-                issues,
-                asof_date=asof_date,
-                allow_stale_jpx=allow_stale_jpx,
-            )
             if not range_covered(conn, "jquants_market_calendar", asof_date, asof_date):
                 _append_source_coverage_quality_issues(
                     conn,

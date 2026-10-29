@@ -10,6 +10,8 @@ from typing import Any, cast
 
 from pydantic import TypeAdapter
 
+from baibai_engine.investment_judgment.company_research.context import company_context_brief
+from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
@@ -154,6 +156,17 @@ def load_generated_selection_context(
         ),
         "requested_tickers": requested,
         "held_tickers": held,
+        "saved_company_context": {
+            ticker: company_context_brief(item)
+            for ticker, item in read_company_contexts(
+                app_path,
+                tickers=tuple(
+                    sorted(set(requested) | set(held) | set(candidates) | detail_targets)
+                ),
+                as_of=as_of,
+                known_at=known_at,
+            ).items()
+        },
         "model_inputs": model_inputs,
         "saved_market_context_assessment": None
         if context is None

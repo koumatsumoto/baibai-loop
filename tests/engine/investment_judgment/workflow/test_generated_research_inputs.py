@@ -45,7 +45,7 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
         raise AssertionError("must not calculate candidates or live model inputs")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation",
+        "baibai_engine.machine_analysis.screening.policies.economic_path_selection.select_saved_economic_generation",
         forbidden,
     )
     result = load_generated_selection_context(
@@ -93,7 +93,7 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(
         now=NOW,
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
-    assert saved.schema_version == 3
+    assert saved.schema_version == 4
     assert saved.inputs.screening_selection.result.policy.earnings_limit == 20
     digest = selection_sha256(saved)
     original = project_research_inputs(saved)
@@ -208,7 +208,7 @@ def test_policy_published_after_cutoff_is_not_admitted(tmp_path, explicit):
         assert load_generated_selection_context(**kwargs)["status"] == "inputs_required"
 
 
-def test_scoped_additional_models_reach_fixed_selection_and_resume_without_policy_change(tmp_path):
+def test_scoped_additional_models_reach_fixed_selection_and_resume(tmp_path):
     """追加モデル・業種・複数市場を保存から再開まで通し、候補政策とは分離する。"""
     from baibai_engine.machine_analysis.generation.contracts import (
         GeneratedModel,
@@ -216,8 +216,6 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
         ModelGeneration,
     )
     from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-    from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-    from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 
     runs = tmp_path / "runs.sqlite"
     original = seed_generation(runs, now=NOW, as_of=AS_OF)
@@ -278,10 +276,6 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume_without_polic
         }
     )
     ModelGenerationStore(runs).publish(generation)
-    policy = TwoViewPolicy(earnings_limit=20, combined_limit=20)
-    assert select_generation(generation, tickers=("1234", "5678"), policy=policy).result == (
-        select_generation(original, tickers=("1234", "5678"), policy=policy).result
-    )
     fixed = read_research_model_inputs(
         generation.generation_id, targets=("1234", "5678", "7777"), path=runs
     )

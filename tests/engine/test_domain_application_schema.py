@@ -11,6 +11,7 @@ from baibai_engine.storage.sqlite.application.write import initialize_database
 
 EXPECTED_TABLES = (
     "task",
+    "company_research",
     "market_context_assessment",
     "market_context_assessment_head",
     "ledger_event",
@@ -85,6 +86,25 @@ def test_ledger_keeps_fact_reference_separate_from_proposal_identity(connection)
     ledger_columns = {row[1] for row in connection.execute("PRAGMA table_info(ledger_event)")}
     assert "decision_reference" in ledger_columns
     assert "proposal_id" not in ledger_columns
+
+
+def test_company_research_is_immutable_and_prior_is_an_existing_other_record(connection):
+    values = ("research-one", "1234", "2026-10-29", "2026-10-29T16:00:00+09:00")
+    connection.execute(
+        "INSERT INTO company_research VALUES (?,?,?,?,?,?,?)", (*values, None, "{}", "0" * 64)
+    )
+    assert [
+        row[2] for row in connection.execute("PRAGMA index_info(company_research_latest_idx)")
+    ] == ["ticker", "as_of", "recorded_at", "research_id"]
+    for column, value in (("payload", '{"changed":true}'), ("ticker", "5678")):
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(f'UPDATE company_research SET "{column}"=?', (value,))
+    for prior, error in (("missing", "FOREIGN KEY"), ("research-two", "CHECK")):
+        with pytest.raises(sqlite3.IntegrityError, match=error):
+            connection.execute(
+                "INSERT INTO company_research VALUES (?,?,?,?,?,?,?)",
+                ("research-two", *values[1:], prior, "{}", "0" * 64),
+            )
 
 
 def test_exactly_one_review_and_reference_fk_protects_assessment(connection):

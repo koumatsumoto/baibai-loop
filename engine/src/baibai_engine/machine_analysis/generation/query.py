@@ -20,46 +20,34 @@ from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 
 def read_generation(generation_id: str, *, path: Path | None = None) -> ModelGeneration | None:
-    return _read(generation_id, path=path)
+    return _read(generation_id, collection=ModelGeneration, path=path)
 
 
 def read_model_inputs(
     generation_id: str, *, subjects: Sequence[str], path: Path | None = None
 ) -> ModelInputSlice | None:
-    scope = tuple(sorted(set(subjects)))
-    generation = _read(generation_id, path=path, subjects=scope)
-    return _slice(generation, scope)
-
-
-def _slice(generation: ModelGeneration | None, subjects: Sequence[str]) -> ModelInputSlice | None:
-    if generation is None:
-        return None
-    payload = generation.model_dump()
-    if generation.subject_plan is not None:
-        payload["subject_plan"] = {
-            subject: definition.model_dump()
-            for subject, definition in generation.subject_plan.items()
-            if subject in subjects
-        }
-    return ModelInputSlice.model_validate({**payload, "subjects": tuple(subjects)})
+    return _read(
+        generation_id,
+        collection=ModelInputSlice,
+        path=path,
+        subjects=tuple(sorted(set(subjects))),
+    )
 
 
 def read_research_model_inputs(
     generation_id: str, *, targets: Sequence[str], path: Path | None = None
 ) -> ModelInputSlice | None:
-    generation = _read(generation_id, path=path, research_targets=targets)
-    return (
-        None if generation is None else _slice(generation, research_subjects(generation, targets))
-    )
+    return _read(generation_id, collection=ModelInputSlice, path=path, research_targets=targets)
 
 
-def _read(
+def _read[Collection: (ModelGeneration, ModelInputSlice)](
     generation_id: str,
     *,
+    collection: type[Collection],
     path: Path | None,
     subjects: Sequence[str] | None = None,
     research_targets: Sequence[str] | None = None,
-) -> ModelGeneration | None:
+) -> Collection | None:
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
         header = connection.execute(
@@ -86,4 +74,15 @@ def _read(
             )
             for row in rows
         )
-        return ModelGeneration.model_validate({**json.loads(header[0]), "models": models})
+        # Keep decoded models and nested metadata typed: dumping a temporary
+        # generation would recursively copy every retained owner payload again.
+        fields = dict(metadata)
+        if subjects is not None:
+            fields["subjects"] = tuple(subjects)
+            if metadata.subject_plan is not None:
+                fields["subject_plan"] = {
+                    subject: definition
+                    for subject, definition in metadata.subject_plan.items()
+                    if subject in subjects
+                }
+        return collection(**fields, models=models)

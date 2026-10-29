@@ -61,8 +61,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertIsNotNone(per_trailing)
         assert per_trailing is not None
         self.assertAlmostEqual(per_trailing, (100.0 + 399) / 18.0, places=5)
-        # short_history_flag must be derived from bars <= asof only. 400d history < 750d ⇒ True.
-        self.assertTrue(result.derived["130A"].short_history_flag)
 
     def test_valuation_history_uses_the_same_treasury_adjusted_capital_basis(self) -> None:
         """現在倍率と自己履歴の差に自己株分母の不一致を混ぜない。"""
@@ -111,20 +109,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertAlmostEqual(self_median["p_s"], financial.p_s, places=6)
         self.assertAlmostEqual(self_median["ev_ebitda"], financial.ev_ebitda, places=6)
 
-    def test_build_metrics_uses_observed_bars_span_for_short_history(self) -> None:
-        """An 800-day observed price span is not short; it does not establish listing age."""
-        asof = date(2026, 4, 24)
-        security = _security()
-        bars = _daily_bars("130A", asof, 800)
-        result = build_metrics(
-            asof_date=asof,
-            securities_by_ticker={"130A": security},
-            bars_by_ticker={"130A": bars},
-            summaries_by_ticker={"130A": [_summary("130A", asof - timedelta(days=30))]},
-            edinet_by_ticker={},
-        )
-        self.assertFalse(result.derived["130A"].short_history_flag)
-
     def test_build_metrics_records_price_history_coverage_for_gappy_ticker(self) -> None:
         """A long observed price span can still have low coverage relative to other tickers."""
         asof = date(2026, 4, 24)
@@ -149,7 +133,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
         gappy = result.derived["130A"]
         dense = result.derived["1111"]
         self.assertEqual(dense.price_history_coverage_750d, 1.0)
-        self.assertFalse(gappy.short_history_flag)
         assert gappy.price_history_sessions_750d is not None
         self.assertEqual(gappy.price_history_sessions_750d, 200)
         assert gappy.price_history_coverage_750d is not None

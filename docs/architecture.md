@@ -90,7 +90,7 @@ Operation完了、提案公開、人間の採用、注文、約定は別の状�
 
 | 保存単位 | 役割 |
 | --- | --- |
-| application DB | 判断・Review・提案・Selection・Operation・task・台帳の正本。 |
+| application DB | 部分的な企業調査・判断・Review・提案・Selection・Operation・task・台帳の正本。 |
 | 固定snapshot | L1原本とL2投影を含むimmutable object・manifest。readerは一つのreleaseを固定する。 |
 | source cache SQLite | 原本・投影と取得coverage等を持つ実行用コピー。source単位の部分copyと全体releaseのcopyは別である。 |
 | native source SQLite | 経済等のnative原本・受領・取得記録。必要な観測は固定した読取から導出する。 |

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from contextlib import ExitStack, closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -32,7 +31,6 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
 )
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
-    IndicatorsProviderError,
     ProviderFetchStoppedError,
     ProviderRateLimitError,
 )
@@ -203,9 +201,7 @@ def _refresh_source(
                         )
                     received += len(records)
         else:
-            records_by_day = _fetch_with_retry(
-                lambda: fetch_native_records(source, start=start, end=end, context=context), context
-            )
+            records_by_day = fetch_native_records(source, start=start, end=end, context=context)
             fetched_at = datetime.now(UTC)
             count = 0
             with connection:
@@ -247,15 +243,3 @@ def _refresh_source(
             record_count=received,
         )
     return received
-
-
-def _fetch_with_retry[T](operation: Callable[[], T], context: FetchContext) -> T:
-    for attempt in range(2):
-        try:
-            return operation()
-        except IndicatorsProviderError as error:
-            context.discard_cached_bytes()
-            if isinstance(error, ProviderFetchStoppedError) or attempt == 1:
-                raise
-            time.sleep(1.0)
-    raise AssertionError("unreachable provider retry loop")

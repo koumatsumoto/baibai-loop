@@ -21,7 +21,6 @@ from baibai_engine.data_collection.acquisition.native_records import fetch_nativ
 from baibai_engine.data_collection.acquisition.refresh import (
     SourceRefreshFailure,
     SourceRefreshSuccess,
-    _fetch_with_retry,
     refresh_sources,
 )
 from baibai_engine.data_collection.catalog import require_source
@@ -102,13 +101,10 @@ def wire(monkeypatch):
 
         def fetch(self, series_id, *, context=None):
             selected_context = self.context if context is None else context
-            native = _fetch_with_retry(
-                lambda: fetch_native_records(
-                    require_source(load_definitions().by_id()[series_id].source_id),
-                    start=START,
-                    end=END,
-                    context=selected_context,
-                ),
+            native = fetch_native_records(
+                require_source(load_definitions().by_id()[series_id].source_id),
+                start=START,
+                end=END,
                 context=selected_context,
             )
             return [row for records in native.values() for row in records]

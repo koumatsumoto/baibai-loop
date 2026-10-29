@@ -238,12 +238,13 @@ def hydrate_market_store(
                     ),
                 )
                 connection.commit()
-                if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
-                    raise LakeHydrateError("hydrated market store failed quick_check")
             finally:
                 connection.close()
             _require_published_rows(rows, expected_row_totals(plan))
-            filled_version = validate_snapshot(temporary)
+            try:
+                filled_version = validate_snapshot(temporary)
+            except sqlite3.DatabaseError as error:
+                raise LakeHydrateError("hydrated market store failed validation") from error
             if filled_version != schema_version:
                 raise LakeHydrateError(
                     f"hydration moved the market schema version from {schema_version} "

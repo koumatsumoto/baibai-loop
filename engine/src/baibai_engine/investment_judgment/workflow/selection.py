@@ -18,6 +18,11 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.investment_judgment.company_research.context import (
+    AvailableAssessment,
+    AvailableResearch,
+    CompanyContext,
+)
 from baibai_engine.investment_judgment.workflow.selection_policy import (
     ResearchCapacity,
     validate_capacity,
@@ -208,9 +213,9 @@ class GeneratedResearchSelectionDraft(_Contract):
         return self
 
 
-class GeneratedResearchSelection(_Contract):
+class _GeneratedSelection(_Contract):
     kind: Literal["research_selection"] = "research_selection"
-    schema_version: Literal[3] = 3
+    schema_version: int
     request: ResearchRequest
     research_as_of: date
     input_known_at: AwareDatetime
@@ -246,7 +251,49 @@ class GeneratedResearchSelection(_Contract):
         return self
 
 
-type ResearchSelectionRecord = ResearchSelection | GeneratedResearchSelection
+class GeneratedResearchSelection(_GeneratedSelection):
+    """旧V3のfield集合・dumpを保持する。"""
+
+    schema_version: Literal[3] = 3
+
+
+class GeneratedResearchInputsV4(GeneratedResearchInputs):
+    saved_company_context: dict[Ticker, CompanyContext]
+
+
+class GeneratedResearchSelectionV4(_GeneratedSelection):
+    """prepare時点の開始材料。最終Assessmentの全因果provenanceではない。"""
+
+    schema_version: Literal[4] = 4
+    inputs: GeneratedResearchInputsV4
+
+    @model_validator(mode="after")
+    def fixed_company_context(self) -> Self:
+        if set(self.inputs.saved_company_context) != {target.ticker for target in self.targets}:
+            raise ValueError("saved company context must exactly cover selected targets")
+        for ticker, context in self.inputs.saved_company_context.items():
+            if isinstance(context.research, AvailableResearch):
+                record = context.research.record
+                if (
+                    record.document.ticker != ticker
+                    or record.document.as_of > self.research_as_of
+                    or record.recorded_at > self.input_known_at
+                ):
+                    raise ValueError("saved Research differs from ticker or cutoff")
+            if isinstance(context.assessment, AvailableAssessment):
+                assessment = context.assessment
+                if (
+                    assessment.ticker != ticker
+                    or assessment.as_of > self.research_as_of
+                    or assessment.published_at > self.input_known_at
+                ):
+                    raise ValueError("saved Assessment differs from ticker or cutoff")
+        return self
+
+
+type ResearchSelectionRecord = (
+    ResearchSelection | GeneratedResearchSelection | GeneratedResearchSelectionV4
+)
 
 
 def _validate_subjects(
@@ -267,6 +314,8 @@ def _validate_subjects(
 
 
 def parse_selection(payload: Mapping[str, object]) -> ResearchSelectionRecord:
+    if payload.get("schema_version") == 4:
+        return GeneratedResearchSelectionV4.model_validate(payload)
     if payload.get("schema_version") == 3:
         return GeneratedResearchSelection.model_validate(payload)
     if payload.get("schema_version") != 2:
@@ -285,6 +334,6 @@ def selection_sha256(selection: ResearchSelectionRecord) -> str:
 
 
 def saved_market_assessment(selection: ResearchSelectionRecord) -> JsonValue:
-    if isinstance(selection, GeneratedResearchSelection):
+    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         return selection.inputs.saved_market_context_assessment
     return selection.inputs.market_context.get("saved_market_context_assessment")

@@ -12,6 +12,12 @@ from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
 )
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    CandidateCard,
+    EconomicPathPolicy,
+    EconomicPathSelection,
+    RankedPath,
+)
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
@@ -57,7 +63,45 @@ def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path
             payload={"earnings_price": {"earnings_yield": None}, "observed_zero": 0},
         ),
     )
-    selected = seed_generated_selection(runs=path, now=NOW, tickers=("1234", "5678"), models=models)
+    selected = seed_generated_selection(
+        runs=path,
+        now=NOW,
+        tickers=("1234", "5678"),
+        models=models,
+        screening_result=EconomicPathSelection(
+            EconomicPathPolicy(candidate_limit=20),
+            1,
+            (
+                CandidateCard(
+                    ticker="1234",
+                    name=None,
+                    sector=None,
+                    rank=1,
+                    priority=0.5,
+                    strongest_path="earning_power",
+                    paths=(
+                        RankedPath(
+                            "earning_power",
+                            "annual_ttm",
+                            0.1,
+                            0.25,
+                            "market",
+                            "sector",
+                            0.5,
+                            0.5,
+                            1,
+                            1,
+                            0.5,
+                            {},
+                        ),
+                    ),
+                    context={},
+                    model_revisions={},
+                    not_generated=(),
+                ),
+            ),
+        ),
+    )
     before = path.read_bytes()
     baseline = context(path, selected=selected)
     result = context(path, selected=selected, comparisons=("5678", "9999", "5678"))

@@ -94,7 +94,6 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     )
     assert view.ledger_error is None
     assert view.ledger_as_of == ledger.as_of
-    assert view.ledger_stale
     assert view.generated_at == NOW
     assert view.available_cash_yen == 10080500
     assert view.holdings[0].quantity == 200

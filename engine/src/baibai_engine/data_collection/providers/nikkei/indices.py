@@ -67,6 +67,7 @@ class NikkeiIndexesSource:
                 max_bytes=MAX_CSV_RESPONSE_BYTES,
                 headers=_DATALOAD_HEADERS,
                 context=context,
+                retry_transient=True,
             )
             for day, records in parse_nikkei_valuation(series, text, start=start, end=end).items():
                 by_date[day].extend(records)

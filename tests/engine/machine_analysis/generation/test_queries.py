@@ -10,6 +10,7 @@ from functools import partial
 
 import pytest
 from tests.helpers.assessment_history import historical_context_payload, seed_history
+from tests.helpers.market_context import security_context_from_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
@@ -20,21 +21,11 @@ from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_payload as read_context,
 )
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment_payload
-from baibai_engine.machine_analysis.generation.runners.benchmark import (
-    compute_benchmark_trend,
-)
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
 )
-from baibai_engine.machine_analysis.generation.runners.security_context import (
-    build_security_market_context,
-)
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
-from baibai_engine.machine_analysis.models.market_context.sector import (
-    _rank_to_percentiles,
-    sector_relative_strength,
-)
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import bollinger_20bar
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
@@ -75,9 +66,7 @@ def bars(path, ticker, total_return, *, end=ASOF):
 
 
 def security(path, *, ticker="AAAA", as_of=ASOF):
-    return build_security_market_context(
-        sqlite_path=path, ticker=ticker, asof_date=as_of, self_range_window_bars=750
-    )
+    return security_context_from_store(path, ticker=ticker, as_of=as_of, self_range_window_bars=750)
 
 
 def test_past_master_and_peers_ignore_future_classification_and_prices(tmp_path):
@@ -114,41 +103,19 @@ def test_latest_eligible_snapshot_does_not_restore_removed_members(tmp_path):
     assert read_master_snapshot(path, as_of=date(2026, 5, 26)) is None
 
 
-def test_mean_population_relative_strength_and_snapshot_median_remain_distinct(tmp_path):
+def test_snapshot_sector_median_and_self_excluded_peer_median_remain_distinct(tmp_path):
     path = tmp_path / "market.sqlite"
     returns = {"AAAA": 0.0, "BBBB": 0.0, "CCCC": 0.9, "DDDD": 0.1}
     sectors = {"AAAA": "機械", "BBBB": "機械", "CCCC": "機械", "DDDD": "小売業"}
     for ticker, ret in returns.items():
         bars(path, ticker, ret)
     master(path, "2026-05-28", sectors)
-    mean_context = sector_relative_strength(returns, sectors)
     snapshot = build_market_snapshot(sqlite_path=path, asof_date=ASOF, history_weeks=1)
     row = next(item for item in snapshot["sectors"] if item["sector_33"] == "機械")
-    assert mean_context.mean_returns["機械"] == pytest.approx(0.3)
-    assert mean_context.relative_returns["機械"] == pytest.approx(0.05)
-    assert mean_context.percentiles == {"機械": 1.0, "小売業": 0.5}
     assert row["median_return_20d"] == 0.0
     assert row["pct_above_ma20"] == pytest.approx(1 / 3)
-    # Own-vs-peers uses the peer median, rather than either whole-sector statistic.
+    # Own-vs-peers excludes the subject rather than using the whole-sector median.
     assert security(path)["relative"]["sector"]["relative_return_20d"] == pytest.approx(-0.45)
-
-
-def test_sector_strength_ties_have_one_percentile_independent_of_sector_name():
-    result = sector_relative_strength(
-        {"AAAA": 0.0, "BBBB": 0.0}, {"AAAA": "Z sector", "BBBB": "A sector"}
-    )
-    assert result.relative_returns == {"Z sector": 0.0, "A sector": 0.0}
-    assert result.percentiles == {"Z sector": 0.75, "A sector": 0.75}
-
-
-def test_sector_percentile_midrank_handles_partial_ties_nulls_and_input_order():
-    values = {"low": -1.0, "C": 0.0, "B": 0.0, "high": 1.0, "missing": None}
-    expected = {"low": 0.25, "C": 0.625, "B": 0.625, "high": 1.0, "missing": None}
-    assert _rank_to_percentiles(values) == expected
-    assert _rank_to_percentiles(dict(reversed(list(values.items())))) == expected
-    assert _rank_to_percentiles({"only": 0.0}) == {"only": 1.0}
-    assert _rank_to_percentiles({"C": None}) == {"C": None}
-    assert _rank_to_percentiles({}) == {}
 
 
 def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_path):
@@ -173,10 +140,9 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
         connection.close()
     series = read_price_bars(path, start=ASOF - timedelta(days=90), end=ASOF)["1321"]
     assert [bar.price for bar in series] == [100.0] * 20
-    assert (
-        compute_benchmark_trend(path, ASOF).benchmark_return_20d is None
-    )  # null close isn't a bar
-    assert compute_benchmark_trend(path, ASOF).benchmark_gap_from_high == 0
+    benchmark = security(path, ticker="1321")["benchmark_trend"]
+    assert benchmark["benchmark_return_20d"] is None  # null close isn't a bar
+    assert benchmark["benchmark_gap_from_high"] == 0
     assert (
         build_market_snapshot(sqlite_path=path, asof_date=ASOF)["points"][-1][
             "benchmark_return_20d"
@@ -296,7 +262,7 @@ def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tm
             """
 import sys
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.generation.runners.security_context import build_security_market_context
+from baibai_engine.machine_analysis.generation.runners.security_context import build_security_market_contexts
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.portfolio", "baibai_engine.data_collection.transport", "baibai_engine.data_collection.acquisition", "baibai_engine.data_collection.providers.jquants.http", "baibai_engine.data_collection.providers.edinet.http", "baibai_engine.data_collection.providers.jpx.http")) for name in sys.modules)
 assert "baibai_engine.storage.sqlite.application.write" not in sys.modules
 assert "baibai_engine.investment_judgment.market_assessment.service" not in sys.modules

@@ -3,7 +3,7 @@
 import json
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -12,6 +12,13 @@ from tests.engine.portfolio.test_position_outcome_store import _publication
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
+    JPXEarningsCalendarEntry,
+    JPXEarningsCalendarSnapshot,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
+    store_jpx_earnings_calendar_snapshot,
+)
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.tasks.service import TaskService
@@ -113,3 +120,105 @@ def test_no_holdings_does_not_read_earnings_calendar(tmp_path, monkeypatch):
     assert (
         DbMarketSource(tmp_path / "absent").next_earnings_dates([], as_of=date(2026, 10, 25)) == {}
     )
+
+
+@pytest.mark.parametrize("failed_source", ["calendar", "names", "names_date"])
+def test_optional_market_read_failure_does_not_block_independent_view_export(
+    tmp_path, mocker, caplog, failed_source
+):
+    now = datetime.fromisoformat("2026-07-20T09:00:00+09:00")
+    for module in (
+        "baibai_web.sources.db_sources",
+        "baibai_web.readmodel.builders.dashboard",
+        "baibai_web.readmodel.builders.tasks",
+    ):
+        mocker.patch(f"{module}.datetime").now.return_value = now
+    app, market = tmp_path / APPLICATION_DB_PATH, tmp_path / MARKET_DB_PATH
+    seed_ledger(
+        app, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    task = TaskService(app).add(
+        title="確認する用件",
+        kind="follow-up",
+        due_date=date(2026, 7, 21),
+        created_at=now.date(),
+    )
+    PortfolioOutcomeStore(app).publish(_publication())
+    store_jpx_earnings_calendar_snapshot(
+        market,
+        JPXEarningsCalendarSnapshot(
+            entries=(JPXEarningsCalendarEntry("2331", date(2026, 7, 21)),),
+            source_urls=(),
+            raw_record_count=1,
+            excluded_record_count=0,
+            superseded_record_count=0,
+        ),
+        fetched_at_utc="2026-07-20T00:00:00Z",
+    )
+    with closing(sqlite3.connect(market)) as connection, connection:
+        if failed_source == "calendar":
+            connection.execute(
+                "UPDATE source_coverage SET record_count=2 WHERE source='jpx_earnings_calendar'"
+            )
+        elif failed_source == "names":
+            connection.execute(
+                "INSERT INTO jquants_master_snapshots VALUES ('2026-07-20', '23310', 'invalid')"
+            )
+        else:
+            connection.execute(
+                "INSERT INTO jquants_master_snapshots VALUES (?, ?, ?)",
+                (
+                    "2026-07-0x",
+                    "23310",
+                    json.dumps(
+                        {
+                            "Date": "2026-07-20",
+                            "Code": "23310",
+                            "CoName": "保有企業",
+                            "MktNm": "Prime",
+                            "S33Nm": "サービス業",
+                            "ProdCat": "011",
+                        }
+                    ),
+                ),
+            )
+    before = app.read_bytes(), market.read_bytes()
+
+    output = tmp_path / "export"
+    paths = export_read_models(tmp_path, output)
+
+    assert {path.name for path in paths} == {
+        "portfolio-dashboard.json",
+        "tasks.json",
+        "outcomes.json",
+    }
+    dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
+    assert dashboard["ledger_error"] is None
+    assert dashboard["holdings"][0]["quantity"] == 200
+    assert dashboard["available_cash_yen"] == 10080500
+    tasks = json.loads((output / "views/tasks.json").read_text())
+    assert tasks["open_tasks"][0]["task_id"] == task.task_id
+    assert tasks["ledger_error"] is None
+    assert {
+        "event_date": "2026-07-31",
+        "kind": "reservation_expiry",
+        "ticker": "8929",
+        "label": "8929",
+    } in tasks["upcoming_events"]
+    if failed_source == "calendar":
+        assert tasks["earnings_calendar_available"] is False
+        assert "row count mismatch" in tasks["earnings_calendar_error"]
+    else:
+        assert tasks["earnings_calendar_available"] is True
+        assert tasks["earnings_calendar_error"] is None
+        assert tasks["upcoming_events"][0]["label"] == "2331"
+        assert dashboard["holdings"][0]["company_name"] is None
+        if failed_source == "names_date":
+            assert "stored master snapshot has invalid date: '2026-07-0x'" in caplog.text
+    outcomes = json.loads((output / "views/outcomes.json").read_text())
+    assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
+    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+        assert response.json() == tasks
+    assert (app.read_bytes(), market.read_bytes()) == before

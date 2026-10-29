@@ -57,6 +57,7 @@ class YahooChartSource:
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             headers={"User-Agent": _USER_AGENT},
             context=context,
+            retry_transient=True,
         )
         return parse_yahoo_chart(series, text, start=start, end=end)
 

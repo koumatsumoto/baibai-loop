@@ -58,6 +58,8 @@ class FredSource:
             )
             return parse_fred_csv(series, text, start=start, end=end)
         except (IndicatorsProviderError, RequestException, ValueError) as exc:
+            if context is not None:
+                context.discard_cached_bytes(series.source_url, None)
             raise ProviderFetchStoppedError(str(exc)) from None
 
 

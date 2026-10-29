@@ -200,15 +200,17 @@ def test_null_event_and_future_rows_keep_actual_observation_dates(tmp_path):
     )
 
 
-@pytest.mark.parametrize("calendar_gap", [False, True])
-def test_query_and_cli_include_the_same_common_calendar_momentum(tmp_path, capsys, calendar_gap):
+@pytest.mark.parametrize("calendar_state", ["complete", "gap", "short"])
+def test_query_and_cli_include_the_same_common_calendar_momentum(tmp_path, capsys, calendar_state):
     path = tmp_path / "market.sqlite"
     insert_daily_bars_from_closes(path, "1234", list(range(100, 500)), end_date=ASOF)
     calendar = {
         ASOF - timedelta(days=n): (ASOF - timedelta(days=n)).weekday() < 5 for n in range(400)
     }
-    if calendar_gap:
+    if calendar_state == "gap":
         del calendar[ASOF - timedelta(days=100)]
+    elif calendar_state == "short":
+        calendar = {day: business for day, business in calendar.items() if (ASOF - day).days < 100}
     with closing(open_connection(path)) as connection, connection:
         connection.executemany(
             "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
@@ -217,9 +219,12 @@ def test_query_and_cli_include_the_same_common_calendar_momentum(tmp_path, capsy
     before = hashlib.sha256(path.read_bytes()).hexdigest()
     result = technical_analysis(path, ticker="1234", as_of=ASOF)
     momentum = result["price_momentum"]
-    if calendar_gap:
+    if calendar_state != "complete":
         assert momentum["status"] == "insufficient_calendar"
         assert momentum["value"] is None
+        assert momentum["reference_date"] == (
+            ASOF.isoformat() if calendar_state == "short" else None
+        )
     else:
         dates = sorted(day for day, business in calendar.items() if business)
         assert momentum["status"] == "available"

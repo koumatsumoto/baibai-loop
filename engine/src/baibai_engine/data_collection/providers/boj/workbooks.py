@@ -50,6 +50,7 @@ class BojSource:
             params=None,
             max_bytes=MAX_ZIP_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         return parse_boj_xlsx(series, content, start=start, end=end)
 

@@ -34,13 +34,11 @@ from baibai_engine.machine_analysis.models.market_context.history import (
     latest_bar_on_or_before,
     price_change,
     realized_volatility,
-    turnover_spike,
 )
 from baibai_engine.machine_analysis.models.market_context.margin import (
     MarginBalance,
     margin_supply_demand,
 )
-from baibai_engine.machine_analysis.models.market_context.sector import sector_relative_strength
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -83,7 +81,7 @@ def build_metrics(
     margin balance produces.
 
     ``median_population`` restricts the comparison population for sector / market
-    medians and sector relative strength to the common-eligible comparison population.
+    medians to the common-eligible comparison population.
     Metrics are still computed for every ticker in
     ``securities_by_ticker``. This keeps relative-valuation judgments anchored
     to investable comparables even though the screen covers all common stocks;
@@ -139,30 +137,6 @@ def build_metrics(
         for metric in VALUATION_METRICS
     }
 
-    ticker_returns_4w: dict[str, float] = {}
-    for ticker in securities_by_ticker:
-        ticker_bars = bars_by_ticker.get(ticker, ())
-        adjustment_events = (
-            adjustment_events_by_ticker.get(ticker, ())
-            if adjustment_events_by_ticker is not None
-            else ticker_bars
-        )
-        four_week = price_change(
-            ticker_bars,
-            20,
-            asof_date,
-            adjustment_events=adjustment_events,
-        )
-        if four_week is not None:
-            ticker_returns_4w[ticker] = four_week
-
-    sector_context = sector_relative_strength(
-        {ticker: value for ticker, value in ticker_returns_4w.items() if _in_population(ticker)},
-        {ticker: security.sector_33 for ticker, security in securities_by_ticker.items()},
-    )
-    sector_rs = sector_context.relative_returns
-    rs_percentiles = sector_context.percentiles
-
     history_window_start = asof_date - timedelta(days=PRICE_HISTORY_WINDOW_DAYS)
     price_history_sessions: dict[str, int] = {
         ticker: sum(
@@ -199,24 +173,12 @@ def build_metrics(
             valuation_history,
         )
 
-        eligible_bars = sorted(
-            (bar for bar in ticker_bars if bar.traded_at <= asof_date),
-            key=lambda item: item.traded_at,
-        )
-        observed_span_days = (asof_date - eligible_bars[0].traded_at).days if eligible_bars else 0
         derived[ticker] = DerivedMetrics(
             sector_median_gap=relative.sector_median_gap,
             sector_median_value=relative.sector_median_value,
             sector_median_basis=relative.sector_median_basis,
             self_range_position=relative.self_range_position,
             self_range_median=relative.self_range_median,
-            price_change_1d=price_change(
-                ticker_bars, 1, asof_date, adjustment_events=adjustment_events
-            ),
-            price_change_5d=price_change(
-                ticker_bars, 5, asof_date, adjustment_events=adjustment_events
-            ),
-            price_change_20d=ticker_returns_4w.get(ticker),
             price_change_60d=price_change(
                 ticker_bars, 60, asof_date, adjustment_events=adjustment_events
             ),
@@ -226,13 +188,6 @@ def build_metrics(
             gap_from_52w_low=gap_from_low(
                 ticker_bars, 252, asof_date, adjustment_events=adjustment_events
             ),
-            turnover_spike_5d=turnover_spike(ticker_bars, asof_date),
-            sigma_gap=relative.sigma_gap,
-            sector_relative_strength_4w=sector_rs.get(sector),
-            sector_relative_strength_percentile=rs_percentiles.get(sector),
-            ticker_return_4w=ticker_returns_4w.get(ticker),
-            sector_return_4w=sector_context.mean_returns.get(sector),
-            short_history_flag=observed_span_days < PRICE_HISTORY_WINDOW_DAYS,
             **asdict(
                 margin_supply_demand(
                     latest=(margin_latest or {}).get(ticker),

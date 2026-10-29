@@ -7,9 +7,7 @@ export interface DashboardView {
   ledger_exists: boolean
   ledger_error: string | null
   ledger_as_of: string | null
-  ledger_stale: boolean
   valuation_as_of: string | null
-  valuation_stale: boolean
   total_capital_yen: number | null
   /**
    * 台帳上の未予約現金。売却代金は約定時にgrossで計上し、受渡済み資金や証券会社の発注可能額は表さない。
@@ -80,7 +78,6 @@ export interface TaskView {
   due_date: string
   event_label: string | null
   event_date: string | null
-  overdue: boolean
 }
 
 /**
@@ -96,6 +93,10 @@ export interface TasksView {
    * 保有決算予定の確認可否。保有なし/台帳不明はnull。
    */
   earnings_calendar_available: boolean | null
+  /**
+   * 決算カレンダーの読取失敗。欠測だけの場合はnull。
+   */
+  earnings_calendar_error: string | null
   ledger_error: string | null
 }
 
@@ -104,7 +105,6 @@ export interface UpcomingEventView {
   kind: 'earnings' | 'reservation_expiry'
   ticker: string | null
   label: string
-  days_until: number
 }
 
 export interface WarningView {

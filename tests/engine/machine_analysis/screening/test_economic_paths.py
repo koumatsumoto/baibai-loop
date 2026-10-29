@@ -19,10 +19,10 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     select_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.policies.two_views import (
-    ScreeningCoordinates,
+    CandidateView,
+    RankedCompany,
     TwoViewPolicy,
     ViewSelection,
-    select_views,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
@@ -200,19 +200,39 @@ def test_candidate_limit_is_a_finite_attention_cap(invalid):
 
 
 def test_old_selection_codec_retains_original_shape():
-    old = select_views(
-        [ScreeningCoordinates(ticker="1001", earnings_yield=0.1, price_momentum=None)],
-        policy=TwoViewPolicy(earnings_limit=1, combined_limit=1),
-    )
     expected = {
         "generation_id": "g",
         "universe_tickers": ["1001"],
-        "result": TypeAdapter(ViewSelection).dump_python(old, mode="json"),
+        "result": {
+            "policy": {
+                "method": "earnings-price-views-v1",
+                "earnings_limit": 1,
+                "combined_limit": 1,
+                "earnings_scale": 0.1,
+                "momentum_scale": 0.5,
+                "earnings_weight": 0.6,
+            },
+            "views": [
+                {
+                    "view_id": "earnings-price",
+                    "limit": 1,
+                    "eligible_count": 1,
+                    "companies": [{"ticker": "1001", "rank": 1, "ranking_value": 0.1}],
+                },
+                {
+                    "view_id": "earnings-price-response",
+                    "limit": 1,
+                    "eligible_count": 1,
+                    "companies": [{"ticker": "1001", "rank": 1, "ranking_value": -0.123456}],
+                },
+            ],
+        },
     }
     codec = TypeAdapter(ScreeningSelection)
     previous_bytes = canonical_json(expected).encode()
     restored = codec.validate_json(previous_bytes)
     assert isinstance(restored.result, ViewSelection)
+    assert restored.result.tickers == ("1001",)
     actual = codec.dump_python(restored, mode="json")
     assert canonical_json(actual) == canonical_json(expected)
     assert sha256(canonical_json(actual).encode()).digest() == sha256(previous_bytes).digest()
@@ -273,9 +293,12 @@ def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_pat
     path = tmp_path / "runs.sqlite"
     fixed = generation()
     ModelGenerationStore(path).publish(fixed)
-    old = select_views(
-        [ScreeningCoordinates(ticker="1001", earnings_yield=0.100049, price_momentum=None)],
-        policy=TwoViewPolicy(earnings_limit=1, combined_limit=1),
+    old = ViewSelection(
+        TwoViewPolicy(earnings_limit=1, combined_limit=1),
+        (
+            CandidateView("earnings-price", 1, 1, (RankedCompany("1001", 1, 0.100049),)),
+            CandidateView("earnings-price-response", 1, 0, ()),
+        ),
     )
     result = (
         replace(select(row("1001", 0.100049, 0.2)), policy=EconomicPathPolicy(method=method))

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
-from datetime import datetime, timedelta
+from collections.abc import Mapping
+from datetime import datetime
 
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_web.readmodel.builders.presentation import (
     holding_view,
     percentage,
@@ -20,6 +24,8 @@ from baibai_web.sources.protocols import (
     LedgerSource,
     MarketSource,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def build_dashboard(
@@ -46,7 +52,12 @@ def build_dashboard(
             ledger_error=str(error),
         )
 
-    security_names = market.security_names(as_of=today)
+    security_names: Mapping[str, str] = {}
+    if snapshot.holdings:
+        try:
+            security_names = market.security_names(as_of=today)
+        except (JQuantsProviderError, SQLiteSchemaError, sqlite3.Error) as error:
+            _LOGGER.warning("保有の銘柄名を取得できないためtickerで表示します: %s", error)
     holdings = [
         holding_view(
             holding,
@@ -108,9 +119,7 @@ def build_dashboard(
         ledger_exists=True,
         ledger_error=None,
         ledger_as_of=snapshot.ledger_as_of,
-        ledger_stale=snapshot.ledger_as_of.astimezone(JST).date() <= today - timedelta(days=7),
         valuation_as_of=valuation_as_of,
-        valuation_stale=valuation_as_of is None or valuation_as_of <= today - timedelta(days=7),
         total_capital_yen=total,
         available_cash_yen=available_cash,
         reserved_cash_yen=reserved_cash,
@@ -137,9 +146,7 @@ def _empty_dashboard(
         ledger_exists=ledger_exists,
         ledger_error=ledger_error,
         ledger_as_of=None,
-        ledger_stale=False,
         valuation_as_of=None,
-        valuation_stale=False,
         total_capital_yen=None,
         available_cash_yen=None,
         reserved_cash_yen=None,
