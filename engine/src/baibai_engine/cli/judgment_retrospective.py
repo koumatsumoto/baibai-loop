@@ -28,7 +28,9 @@ from baibai_engine.storage.filesystem import write_text_atomic
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine investment-judgment judgment-retrospective")
+    parser = argparse.ArgumentParser(
+        prog="baibai-engine investment-judgment judgment-retrospective"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     scaffold = commands.add_parser(
         "scaffold", help="read an exact old judgment and prepare its comparison draft"

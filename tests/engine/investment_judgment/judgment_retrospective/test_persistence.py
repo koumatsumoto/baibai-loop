@@ -110,9 +110,9 @@ def _save(path, raw, *, now=NOW):
 
 
 def _publish(case, *, action="buy"):
-    return TradeProposalService(
-        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
-    ).publish(reviewed_proposal(case, action=action))
+    return TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
+        reviewed_proposal(case, action=action)
+    )
 
 
 def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_path):
@@ -166,7 +166,10 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
     assert result["record"] == saved.model_dump(mode="json")
     origin = result["context"]["origin"]
     assert origin["proposal"]["item"] == proposal.items[0].model_dump(mode="json")
-    assert origin["proposal"]["forgone"] == proposal.forgone
+    assert origin["proposal"] == {
+        **proposal.model_dump(mode="json", exclude={"items"}),
+        "item": proposal.items[0].model_dump(mode="json"),
+    }
     assert origin["assessment"]["reference"]["assessment_id"] == case.pair.assessment_id
     citations = result["context"]["citations"]
     assert citations[0]["record"]["reference"] == research.reference.model_dump(mode="json")

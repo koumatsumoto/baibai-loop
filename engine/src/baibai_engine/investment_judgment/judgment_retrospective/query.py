@@ -88,17 +88,8 @@ def _origin_context(
         if item is None or origin.ticker != ticker:
             raise ValueError("origin Proposal item ticker mismatch")
         published_at = proposal.published_at
-        proposal_context = {
-            "proposal_id": proposal.proposal_id,
-            "as_of": proposal.as_of.isoformat(),
-            "published_at": published_at.isoformat(),
-            "headline": proposal.headline,
-            "comparison": proposal.comparison,
-            "forgone": proposal.forgone,
-            "item": item.model_dump(mode="json"),
-            "inputs": proposal.inputs.model_dump(mode="json"),
-            "review": proposal.review.model_dump(mode="json"),
-        }
+        proposal_context = proposal.model_dump(mode="json", exclude={"items"})
+        proposal_context["item"] = item.model_dump(mode="json")
         if item.assessment_ref is not None:
             pair = require_assessment_ref(connection, item.assessment_ref)
     else:
@@ -252,7 +243,9 @@ def scaffold_retrospective(
                     append_head=head,
                     as_of=as_of,
                 )
-                ledger = LedgerSnapshot(append_head=head, event_ids=tuple(e.event_id for e in events))
+                ledger = LedgerSnapshot(
+                    append_head=head, event_ids=tuple(e.event_id for e in events)
+                )
         else:
             assert assessment_id is not None
             pair = load_reviewed_assessment(connection, assessment_id)
@@ -261,7 +254,7 @@ def scaffold_retrospective(
             if ticker is not None and normalize_ticker(ticker) != actual_ticker:
                 raise ValueError("origin Assessment ticker mismatch")
             ticker = actual_ticker
-        context = {
+        context: dict[str, object] = {
             "origin": _origin_context(
                 connection, origin, ticker=ticker, as_of=as_of, recorded_at=now
             ),

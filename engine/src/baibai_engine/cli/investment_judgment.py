@@ -73,7 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
         "company-research", help="save/revisit partial company research", add_help=False
     )
     subparsers.add_parser(
-        "judgment-retrospective", help="compare a saved judgment with later evidence", add_help=False
+        "judgment-retrospective",
+        help="compare a saved judgment with later evidence",
+        add_help=False,
     )
     context_parser = subparsers.add_parser(
         "selection-context", help="read saved inputs for AI target selection"

@@ -64,10 +64,15 @@ def cutover(source_path: Path, destination_path: Path) -> Path:
     return destination_path
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True, help="schema26のローカルDB")
     parser.add_argument("--destination", type=Path, required=True, help="未作成のschema27出力先")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
     try:
         destination = cutover(args.source, args.destination)
