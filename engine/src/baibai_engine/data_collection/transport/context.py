@@ -40,7 +40,7 @@ class ProviderFetchStoppedError(IndicatorsProviderError):
 
 
 class ProviderRateLimitError(ProviderFetchStoppedError):
-    """Stop new requests to this provider after a rate-limit response."""
+    """Stop new requests sharing this acquisition group's quota for the current pass."""
 
 
 class SourceWithheldError(IndicatorsProviderError):

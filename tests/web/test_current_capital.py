@@ -93,6 +93,7 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
         DbMarketSource(market),
     )
     assert view.ledger_error is None
+    assert view.valuation_error is None
     assert view.ledger_as_of == ledger.as_of
     assert view.generated_at == NOW
     assert view.available_cash_yen == 10080500

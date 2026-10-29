@@ -100,12 +100,10 @@ def extract_saved_edinet(
     else:
         assert available is not None
         window_start = available - timedelta(days=lookback_days)
+        # The extraction window is not the operation-resolution window: a recent
+        # edit/withdrawal may target a retained origin or ancestor from years ago.
         selection = select_document_candidates(
-            [
-                doc
-                for doc in documents
-                if window_start.isoformat() <= str(doc["doc_date"]) <= available.isoformat()
-            ],
+            [doc for doc in documents if str(doc["doc_date"]) <= available.isoformat()],
             origin_start=window_start,
         )
         plan = make_metric_extraction_plan(

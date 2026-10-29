@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
-from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.db_seed import seed_historical_operation
+from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation
 
 from baibai_engine.investment_judgment.company_research.context import AvailableResearch, Unreadable

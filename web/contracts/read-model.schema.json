@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "roots": {
     "views/outcomes.json": "#/$defs/OutcomesView",
     "views/portfolio-dashboard.json": "#/$defs/DashboardView",
@@ -41,6 +41,18 @@
             }
           ],
           "title": "Ledger As Of"
+        },
+        "valuation_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "市場評価の読取失敗。台帳事実は保持し、株価等の欠測だけの場合はnull。",
+          "title": "Valuation Error"
         },
         "valuation_as_of": {
           "anyOf": [
@@ -181,6 +193,7 @@
         "ledger_exists",
         "ledger_error",
         "ledger_as_of",
+        "valuation_error",
         "valuation_as_of",
         "total_capital_yen",
         "available_cash_yen",

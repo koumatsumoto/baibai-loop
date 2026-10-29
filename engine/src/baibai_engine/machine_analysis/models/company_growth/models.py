@@ -108,7 +108,7 @@ class CompanyGrowth(Contract):
     ticker: str
     status: Literal["available", "unavailable"]
     reason: str | None = None
-    calculation_method: str = "company_growth_retrospective_v5"
+    calculation_method: str = "company_growth_retrospective_v6"
     read_semantics: Literal["retained_latest_in_fixed_release_not_point_in_time"] = (
         "retained_latest_in_fixed_release_not_point_in_time"
     )

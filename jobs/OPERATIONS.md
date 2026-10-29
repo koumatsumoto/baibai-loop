@@ -35,7 +35,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に開始時点のready受領一覧を固定する。全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して五モデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
-取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。経済native取得の再試行は失敗した1 GETだけで行い、成功済みの別月やprovider全体の解析をやり直さない。H.15も1回の取得でplain→browserの選択を繰り返さず、browser起動不能はsource拒否として記憶しないため、後の独立取得で再試行できる。文書取得の再試行方針は変えない。日次に移行・全期間backfill・較正再構築を代行させない。
+取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。429の再試行を続けられないときは、その取得pass内の同quota groupだけ新規GETを止め、既受領と他groupの取得を保つ。経済native取得の再試行は失敗した1 GETだけで行い、成功済みの別月やprovider全体の解析をやり直さない。H.15も1回の取得でplain→browserの選択を繰り返さず、browser起動不能はsource拒否として記憶しないため、後の独立取得で再試行できる。文書取得の再試行方針は変えない。日次に移行・全期間backfill・較正再構築を代行させない。
 
 取得／private受領の通知と、共通統合の正本反映／読戻し／lease解放を区別し、run log、store push、release、generation/selection IDを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogは取得を12:00 UTC、共通統合を16:00 UTCに別々のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
 
@@ -46,6 +46,8 @@ gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 過去日再計算でも、その日のmaster・価格・財務の対象日と欠測を保持する。現在の受領からの再計算を完全な当時point-in-time再現とは扱わない。
 
 EDINETは取得日と抽出日を分ける。当日一覧・必要archiveの未到着は `applied.json` の `deferred_inputs` と通知の「入力延期」に残し、適格な保存値で統合を続ける。原本が届けば次回統合で再抽出する。別文書の未到着を理由に、保存済み原本の破損・解析失敗を隠さない。
+
+metricsのlookbackは取得coverageと抽出候補の範囲であり、archive取得計画・明示抽出・共通統合とも訂正・取下げの解決に使う保持origin/祖先は切り捨てない。旧年度operationを誤ってorphan扱いしたquarantine行は再利用せず、archive取得計画で選択された現年度文書のCSVを確保し、次回統合で回復する。CSV未到着なら入力延期を保ち、古い正常baselineへ戻さない。保持証拠の範囲だけを直すこの回復に、全期間再取得・全件再抽出や抽出意味revisionの付替えは不要。
 
 一覧の不正再受領では既存のok日の投影・受領時計を保つ。未適格日の不正受領は、選択できた正常原典由来の証拠とfailed coverageを保存し、`edinet.documents`だけはpartialでも公開して正常な別sourceと原本保存を止めない。partial公開は日別取得の完了認定ではなく、厳密な日付読取はfailed日を拒否する。正常な別日の訂正・取下げは反映し、不正日は新しいhandoffがなくても失敗報告を続け、正常受領で回復するまで`source-check`は成功にしない。
 
@@ -543,3 +545,6 @@ uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 ```
 
 これはローカル生成だけであり公開しない。cloud workflow内だけが `jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving` で3 viewを公開する。資本・損益・保有の欠測とエラー、タスク、運用成績を読戻しで照合する。
+
+<a id="web-authentication"></a>
+Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有用Bearerまたは`?share=`で、どちらも同じ3 viewを読める独立credentialである。R2転送credentialとは別で、owner passwordの変更やUI再配備だけでは共有tokenを失効できない。共有の失効は配備先Workerの`READ_ACCESS_TOKEN`自体を更新、または削除／空値で無効化し、旧tokenが拒否され、必要な新tokenとownerの読取が維持されることを確認する。owner側も`VIEW_PASSWORD`自体を更新して旧値の拒否を確認する。実環境の変更は別の明示依頼に従い、秘密値や共有URLを本文・shell引数・logへ残さない。

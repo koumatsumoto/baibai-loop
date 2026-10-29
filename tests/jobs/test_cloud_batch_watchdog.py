@@ -441,6 +441,102 @@ def test_a_recovery_dispatch_for_an_earlier_day_is_not_in_flight_cover_either(
     )
 
 
+@pytest.mark.parametrize("status", ["queued", "in_progress"])
+@pytest.mark.parametrize("original_day", [2, 3])
+@pytest.mark.parametrize(
+    ("mode", "title", "hour", "minute"),
+    [
+        (None, "daily", 15, 40),  # Queue delay across JST midnight keeps the cron day.
+        ("--economic", "economic all all", 7, 43),
+        ("--market", "market-acquisition inputs", 7, 43),
+        ("--market", "market-acquisition edinet-metrics", 8, 43),
+        ("--market", "market-acquisition edinet-facts", 9, 13),
+    ],
+)
+def test_scheduled_reruns_cover_only_the_original_day(
+    tmp_path, monkeypatch, mode, title, hour, minute, original_day, status
+) -> None:
+    check = ACQUISITION_CHECK if mode else FIRED_AT
+    row = _run(
+        created_at=datetime(2026, 8, original_day, hour, minute, tzinfo=UTC),
+        updated_at=check - timedelta(minutes=20),
+        display_title=title,
+        status=status,
+        conclusion="",
+        attempt=2,
+    )
+    assert parse_runs(_listing(row))[0].target_date == date(2026, 8, original_day)
+    rows = [row]
+    if mode == "--market":
+        # Every other slot succeeded today; this slot alone must still be missing.
+        rows.extend(
+            _run(
+                number=index,
+                created_at=ACQUISITION_CHECK - timedelta(hours=1),
+                display_title="market-acquisition " + scope,
+            )
+            for index, scope in enumerate(("inputs", "edinet-metrics", "edinet-facts"), 2)
+            if title != "market-acquisition " + scope
+        )
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        _listing(*rows),
+        argv=["--check-date", "2026-08-03", *([mode] if mode else [])],
+    )
+    assert code == 0
+    if original_day == 2:
+        assert "[MISSING]" in _delivered_message(transport)
+    else:
+        assert transport.calls == []
+
+
+@pytest.mark.parametrize("title", ["daily", "economic all all", "market-acquisition all"])
+def test_blank_dispatch_rerun_keeps_the_original_jst_creation_day(title: str) -> None:
+    check = FIRED_AT + timedelta(days=1)
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(days=1),  # 08-03 01:00 JST
+                updated_at=check - timedelta(minutes=20),
+                event="workflow_dispatch",
+                display_title=title,
+                status="in_progress",
+                conclusion="",
+                attempt=2,
+            )
+        )
+    )
+    assert runs[0].target_date == date(2026, 8, 3)
+    assert evaluate(runs, window_end=check, window_hours=20).state == STATE_MISSING
+
+
+@pytest.mark.parametrize(
+    ("event", "title"),
+    [
+        ("schedule", "unknown"),
+        ("schedule", "market-acquisition all"),
+        ("workflow_dispatch", "unknown"),
+        ("workflow_dispatch", "daily not-a-date"),
+        ("push", "daily"),
+    ],
+)
+def test_unknown_in_flight_runs_are_not_assigned_a_creation_day(event, title) -> None:
+    runs = parse_runs(
+        _listing(
+            _run(
+                created_at=FIRED_AT - timedelta(days=1),
+                updated_at=FIRED_AT - timedelta(minutes=20),
+                event=event,
+                display_title=title,
+                status="in_progress",
+                conclusion="",
+            )
+        )
+    )
+    assert runs[0].target_date is None
+
+
 def test_a_success_without_a_reported_target_cannot_be_assigned_to_its_creation_day() -> None:
 
     runs = parse_runs(

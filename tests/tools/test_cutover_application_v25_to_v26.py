@@ -171,11 +171,12 @@ def test_cutover_refuses_wrong_source_version_and_reapplication(tmp_path, versio
     with closing(sqlite3.connect(source_path)) as source:
         source.execute(f"PRAGMA user_version = {version}")
     before = source_path.read_bytes()
+    existing_paths = set(tmp_path.iterdir())
     with pytest.raises(ValueError, match="source must have user_version=25"):
         tool.cutover(source_path, destination_path)
     assert not destination_path.exists()
     assert source_path.read_bytes() == before
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["source.sqlite"]
+    assert set(tmp_path.iterdir()) == existing_paths
 
 
 def test_cutover_refuses_same_source_and_existing_destination(tmp_path):
@@ -198,6 +199,7 @@ def test_failed_additive_ddl_does_not_publish_or_modify_source(tmp_path, monkeyp
         _schema25(source)
         _seed_legacy_rows(source)
     before = source_path.read_bytes()
+    existing_paths = set(tmp_path.iterdir())
     monkeypatch.setattr(
         tool, "COMPANY_RESEARCH_SCHEMA_SQL", COMPANY_RESEARCH_SCHEMA_SQL + "INVALID;"
     )
@@ -205,4 +207,4 @@ def test_failed_additive_ddl_does_not_publish_or_modify_source(tmp_path, monkeyp
         tool.cutover(source_path, destination_path)
     assert source_path.read_bytes() == before
     assert not destination_path.exists()
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["source.sqlite"]
+    assert set(tmp_path.iterdir()) == existing_paths

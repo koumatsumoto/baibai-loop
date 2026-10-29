@@ -17,6 +17,7 @@ from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.research_selection import selection as make_selection
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
+from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.stock_assessment.store import publish_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
@@ -373,12 +374,8 @@ def test_exact_assessment_pair_and_selected_purpose_are_verified(case, change):
         )
     else:
         outcome = outcome.model_copy(update={change: "5678" if change == "ticker" else "holding"})
-    with pytest.raises(ValueError, match=r"differs|unselected"):
-        service.checkpoint(
-            operation.operation_id,
-            with_progress(operation.payload, progress.model_copy(update={"outcomes": (outcome,)})),
-            now=NOW,
-        )
+    with pytest.raises(ValueError, match=r"differs|unselected|outside"):
+        service.record_outcome(operation.operation_id, outcome, now=NOW)
     assert service.get(operation.operation_id) == operation
 
 
@@ -408,14 +405,16 @@ def test_retry_is_stable_and_checkpoint_cannot_remove_recorded_outcomes_or_refer
     )
     for update in ({"outcomes": ()}, {"proposal_ref": None}):
         progress = progress_binding(operation.payload).model_copy(update=update)
-        with pytest.raises(ValueError, match="silently removed"):
+        with pytest.raises(OperationConflictError, match="cannot change research_progress"):
             service.checkpoint(
                 operation.operation_id, with_progress(operation.payload, progress), now=PUBLISHED
             )
         assert service.get(operation.operation_id) == operation
 
 
-def test_late_outcome_preserves_saved_proposal_but_completion_requires_current_scope(case):
+def test_late_outcome_survives_stale_checkpoint_and_requires_current_proposal(
+    case, tmp_path, capsys
+):
     db, _ = case
     first, later = seed_assessment(db), seed_assessment(db, "5678", number=2)
     service, operation = start(case, ("1234", "5678"))
@@ -435,6 +434,22 @@ def test_late_outcome_preserves_saved_proposal_but_completion_requires_current_s
     operation = service.record_assessment(operation.operation_id, later, now=PUBLISHED)
     assert progress_binding(stale_payload).outcomes[1].status == "unfinished"
     assert progress_binding(operation.payload).outcomes[1].assessment_ref.assessment_id == later
+    stale_file = tmp_path / "stale-checkpoint.json"
+    stale_file.write_text(stale_payload.model_dump_json(), encoding="utf-8")
+    assert (
+        operation_main(
+            ["--db", str(db), "checkpoint", operation.operation_id, "--payload", str(stale_file)],
+            now=PUBLISHED,
+        )
+        == 1
+    )
+    assert "cannot change research_progress" in capsys.readouterr().err
+    assert service.get(operation.operation_id) == operation
+    current_payload = operation.payload.model_copy(
+        update={"checkpoint": "後着評価を保存し、提案を更新する", **notes}
+    )
+    operation = service.checkpoint(operation.operation_id, current_payload, now=PUBLISHED)
+    assert operation.payload == current_payload
     with closing(connect_read_only(db)) as reader:
         assert load_investment_proposal(reader, proposal.proposal_id) == proposal
         with pytest.raises(ValueError, match="scope differs"):
@@ -527,7 +542,7 @@ def test_only_concrete_buy_terms_complete_purchase_proposal(case, action):
             assert load_investment_proposal(reader, proposal.proposal_id) == proposal
 
 
-def test_proposal_hash_future_publication_and_completed_publish_are_checked(case):
+def test_proposal_reference_changes_and_publication_times_are_checked(case):
     db, _ = case
     reference = seed_assessment(db)
     service, operation = start(case, ("1234",))
@@ -542,7 +557,7 @@ def test_proposal_hash_future_publication_and_completed_publish_are_checked(case
     progress = progress.model_copy(
         update={"proposal_ref": progress.proposal_ref.model_copy(update={"draft_sha256": "0" * 64})}
     )
-    with pytest.raises(OperationCompletionError, match="saved draft hash"):
+    with pytest.raises(OperationConflictError, match="cannot change research_progress"):
         service.checkpoint(
             operation.operation_id,
             with_progress(operation.payload, progress),
@@ -711,14 +726,7 @@ def test_selected_ticker_cannot_borrow_another_tickers_assessment_pair(case):
     progress = progress_binding(operation.payload)
     borrowed = progress.outcomes[0].model_copy(update={"ticker": "5678"})
     with pytest.raises(ValueError, match="Reviewed Assessment ticker"):
-        service.checkpoint(
-            operation.operation_id,
-            with_progress(
-                operation.payload,
-                progress.model_copy(update={"outcomes": (*progress.outcomes, borrowed)}),
-            ),
-            now=NOW,
-        )
+        service.record_outcome(operation.operation_id, borrowed, now=NOW)
     assert service.get(operation.operation_id) == operation
 
 
@@ -737,24 +745,8 @@ def test_a_new_operation_cannot_bind_the_previous_operations_proposal(case):
     assert service.get(operation.operation_id) == completed
 
 
-def test_stale_progress_write_cannot_overwrite_a_concurrent_outcome(case):
-    db, _ = case
-    reference = seed_assessment(db)
-    service, operation = start(case, ("1234", "5678"))
-    stale_payload = operation.payload
-    updated = service.record_assessment(operation.operation_id, reference, now=NOW)
-    with pytest.raises(OperationConflictError, match="progress changed"):
-        service._replace_active(
-            operation.operation_id,
-            payload=stale_payload,
-            completed_at=None,
-            checked_at=NOW,
-            expected_payload=stale_payload,
-        )
-    assert service.get(operation.operation_id) == updated
-
-
-def test_complete_cannot_overwrite_an_outcome_recorded_after_its_read(case, monkeypatch):
+@pytest.mark.parametrize("command", ["checkpoint", "complete"])
+def test_notes_cannot_overwrite_an_outcome_recorded_after_its_read(case, monkeypatch, command):
     db, _ = case
     reference = seed_assessment(db)
     service, operation = start(case, ("1234",))
@@ -769,12 +761,19 @@ def test_complete_cannot_overwrite_an_outcome_recorded_after_its_read(case, monk
 
     monkeypatch.setattr(service, "get", read_then_record)
     with pytest.raises(OperationConflictError, match="progress changed"):
-        service.complete(
-            operation.operation_id,
-            result="調査結果を保存した",
-            next="次の明示依頼",
-            completed_at=PUBLISHED,
-        )
+        if command == "checkpoint":
+            service.checkpoint(
+                operation.operation_id,
+                operation.payload.model_copy(update={"checkpoint": "調査メモを保存する"}),
+                now=PUBLISHED,
+            )
+        else:
+            service.complete(
+                operation.operation_id,
+                result="調査結果を保存した",
+                next="次の明示依頼",
+                completed_at=PUBLISHED,
+            )
     assert concurrent.get(operation.operation_id) == updated[0]
     assert updated[0].status == "active"
     assert (

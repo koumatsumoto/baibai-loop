@@ -793,9 +793,11 @@ class ScreeningProviderTests(unittest.TestCase):
         selected = select_document_candidates([released, hidden, origin]).candidates
         self.assertEqual(selected["7203"].doc_id, "S100TEST")
 
-    def test_select_document_candidates_tombstones_withdrawn_parent_and_child(self) -> None:
+    def test_select_document_candidates_tombstones_withdrawn_old_parent_and_recent_child(
+        self,
+    ) -> None:
         parent = {
-            "doc_date": "2026-04-01",
+            "doc_date": "2024-04-01",
             "seqNumber": 1,
             "docID": "S100PARENT",
             "secCode": "72030",
@@ -809,6 +811,7 @@ class ScreeningProviderTests(unittest.TestCase):
         }
         child = {
             **parent,
+            "doc_date": "2026-04-01",
             "seqNumber": 2,
             "docID": "S100CHILD",
             "docTypeCode": "130",
@@ -825,7 +828,11 @@ class ScreeningProviderTests(unittest.TestCase):
             "legalStatus": "0",
         }
 
-        self.assertEqual(select_document_candidates([child, withdrawal, parent]).candidates, {})
+        selection = select_document_candidates(
+            [child, withdrawal, parent], origin_start=date(2026, 4, 1)
+        )
+        self.assertEqual(selection.candidates, {})
+        self.assertEqual(selection.quarantined_events, ())
 
     def test_select_document_candidates_reports_an_event_without_origin(self) -> None:
         selection = select_document_candidates(
@@ -874,7 +881,9 @@ class ScreeningProviderTests(unittest.TestCase):
             ("S100WITHDRAW",),
         )
 
-    def test_select_document_candidates_drops_an_event_on_an_origin_outside_lookback(self) -> None:
+    def test_select_document_candidates_resolves_an_event_before_filtering_old_origins(
+        self,
+    ) -> None:
         origin = {
             "doc_date": "2024-01-01",
             "seqNumber": 1,
@@ -906,13 +915,7 @@ class ScreeningProviderTests(unittest.TestCase):
             origin_start=date(2025, 1, 1),
         )
 
-        self.assertEqual(
-            tuple(event.doc_id for event in selection.quarantined_events),
-            ("S100OLD",),
-        )
-        self.assertEqual(selection.quarantined_events[0].event_type, "edit")
-        self.assertEqual(selection.quarantined_events[0].document_type, "120")
-        self.assertEqual(selection.quarantined_events[0].ticker, "7203")
+        self.assertEqual(selection.quarantined_events, ())
         self.assertEqual(sorted(selection.candidates), ["9984"])
 
     def test_select_document_candidates_rejects_parent_cycle_without_withdrawal(self) -> None:

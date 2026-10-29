@@ -99,9 +99,15 @@ def available_handoffs(
         if entry.get("invalid"):
             continue
         watermark = watermarks.get(str(entry["source"]))
+        # An integrated intermediate receipt can still be missing from a stale input.
+        # Only a never-integrated receipt is a newly out-of-order arrival.
         entry["late_before_integrated"] = bool(
             str(entry["source"]) in blocked_sources
-            or (watermark and datetime.fromisoformat(str(entry["started_at"])) < watermark)
+            or (
+                entry["integration"] is None
+                and watermark
+                and datetime.fromisoformat(str(entry["started_at"])) < watermark
+            )
         )
     return sorted(
         ready,

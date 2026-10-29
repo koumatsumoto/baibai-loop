@@ -19,7 +19,7 @@ function holding(ticker: string): HoldingView {
 function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
   return {
     generated_at: '2026-09-24T20:00:00+09:00', ledger_exists: true,
-    ledger_error: null, ledger_as_of: '2026-09-24',
+    ledger_error: null, ledger_as_of: '2026-09-24', valuation_error: null,
     valuation_as_of: '2026-09-24',
     total_capital_yen: 210_000, holdings_market_value_yen: 110_000,
     available_cash_yen: 100_000, reserved_cash_yen: 0,

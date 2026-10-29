@@ -33,7 +33,7 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 def _assessment_context(
     connection: sqlite3.Connection, ticker: str, *, as_of: date, known_at: datetime
 ) -> AvailableAssessment | NotFound | Unreadable:
-    # Select headers first. Unknown/corrupt latest content must not expose an older favorable stance.
+    # Select headers first: unreadable latest content must not expose an older stance.
     identity = None
     try:
         headers: list[tuple[date, datetime, str]] = []

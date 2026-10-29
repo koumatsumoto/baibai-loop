@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -40,7 +41,11 @@ def proposal_quote(inputs: ProposalInputs, ticker: str) -> QuoteInput | None:
 
 
 def assessment_quote_basis(
-    assessment: StockAssessmentDocument, quote: QuoteInput | None, *, sqlite_path: Path
+    assessment: StockAssessmentDocument,
+    quote: QuoteInput | None,
+    *,
+    sqlite_path: Path,
+    market_connection: sqlite3.Connection | None,
 ) -> bool:
     price_fact = next(
         (
@@ -52,6 +57,7 @@ def assessment_quote_basis(
     )
     return (
         quote is not None
+        and market_connection is not None
         and price_fact is not None
         and market_basis_is_confirmed(
             basis="price",
@@ -59,6 +65,7 @@ def assessment_quote_basis(
             ticker=quote.ticker,
             from_date=price_fact.as_of,
             through_date=quote.price_as_of,
+            connection=market_connection,
         )
     )
 
@@ -71,6 +78,7 @@ def buy_evaluation(
     latest: bool,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> BuyTermsEvaluation:
     quote = proposal_quote(inputs, pair.document.input_snapshot.ticker)
     ticker = pair.document.input_snapshot.ticker
@@ -81,7 +89,9 @@ def buy_evaluation(
         as_of=now.astimezone(JST).date(),
         quote=quote,
         proposed_limit_yen=proposed_limit_yen,
-        basis_confirmed=assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path),
+        basis_confirmed=assessment_quote_basis(
+            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+        ),
         market_price_max_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
         held_quantity=sum(
             position.quantity for position in inputs.positions if position.ticker == ticker

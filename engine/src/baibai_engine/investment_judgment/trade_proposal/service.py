@@ -40,6 +40,7 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
     DEFAULT_BUDGET_MIN_YEN,
     collect_proposal_inputs,
     proposal_liquidity_context,
+    proposal_market_snapshot,
 )
 from baibai_engine.investment_judgment.trade_proposal.policy import validate_proposal_policy
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
@@ -73,6 +74,7 @@ def _validate_action(
     *,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> tuple[GateReason, ...]:
     latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
     inputs = proposal.inputs
@@ -85,6 +87,7 @@ def _validate_action(
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
+            market_connection=market_connection,
         )
         blockers.extend(result.hard_blockers)
         if item.terms is not None and (
@@ -106,7 +109,7 @@ def _validate_action(
             as_of=now.astimezone(JST).date(),
             quote=quote,
             price_basis_confirmed=assessment_quote_basis(
-                pair.document, quote, sqlite_path=sqlite_path
+                pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
             ),
             remaining_reward=item.remaining_reward,
             case_reassessment_reason=item.case_reassessment_reason,
@@ -181,6 +184,26 @@ def check_proposal(
     now: datetime,
     require_review: bool = True,
 ) -> ProposalValidation:
+    with proposal_market_snapshot(sqlite_path) as market_connection:
+        return _check_proposal(
+            connection,
+            proposal,
+            sqlite_path=sqlite_path,
+            now=now,
+            require_review=require_review,
+            market_connection=market_connection,
+        )
+
+
+def _check_proposal(
+    connection: sqlite3.Connection,
+    proposal: TradeProposal,
+    *,
+    sqlite_path: Path,
+    now: datetime,
+    require_review: bool,
+    market_connection: sqlite3.Connection | None,
+) -> ProposalValidation:
     proposal = TradeProposal.model_validate(proposal.model_dump(mode="python"))
     validate_proposal_policy(proposal)
     if now.utcoffset() is None:
@@ -212,6 +235,7 @@ def check_proposal(
         sqlite_path=sqlite_path,
         budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
         budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+        market_connection=market_connection,
     )
     if proposal_inputs_fingerprint(actual) != proposal_inputs_fingerprint(proposal.inputs):
         raise ProposalConflictError(
@@ -275,7 +299,15 @@ def check_proposal(
             )
         if item.action in {"buy", "hold", "sell"}:
             blockers.extend(
-                _validate_action(connection, proposal, item, pair, sqlite_path=sqlite_path, now=now)
+                _validate_action(
+                    connection,
+                    proposal,
+                    item,
+                    pair,
+                    sqlite_path=sqlite_path,
+                    now=now,
+                    market_connection=market_connection,
+                )
             )
     warnings = build_proposal_warnings(
         proposal.inputs,

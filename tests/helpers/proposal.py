@@ -42,6 +42,7 @@ def backend_case(
     cash_yen=300000,
     opening_at="2026-10-14T09:00:00+09:00",
     assessment_as_of="2026-10-14",
+    assessment_quote_as_of=None,
     valuation_unresolved=False,
     required_rate=None,
     horizon_months=None,
@@ -144,7 +145,7 @@ def backend_case(
             max_date=(PREPARED.date() + timedelta(days=15)).isoformat(),
             record_count=16,
         )
-    document, review = pair_payload(as_of=assessment_as_of)
+    document, review = pair_payload(as_of=assessment_as_of, quote_as_of=assessment_quote_as_of)
     if required_rate is not None:
         document["valuation"]["required_annual_return_pct"] = required_rate
         update_review_hash(document, review)

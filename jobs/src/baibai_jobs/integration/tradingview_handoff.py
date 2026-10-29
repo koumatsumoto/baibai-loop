@@ -65,13 +65,20 @@ class TradingViewHandoff:
 
     @classmethod
     def from_json(cls, value: Mapping[str, Any]) -> TradingViewHandoff:
-        return cls(
-            snapshot_date=date.fromisoformat(value["snapshot_date"]),
-            master_asof=date.fromisoformat(value["master_asof"]),
-            symbols=tuple(value["symbols"]),
-            receipt_ids=tuple(value["receipt_ids"]),
-            master_request_ids=tuple(value["master_request_ids"]),
-        )
+        for field in ("symbols", "receipt_ids", "master_request_ids"):
+            items = value.get(field)
+            if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+                raise ValueError(f"invalid TradingView handoff {field}")
+        try:
+            return cls(
+                snapshot_date=date.fromisoformat(value["snapshot_date"]),
+                master_asof=date.fromisoformat(value["master_asof"]),
+                symbols=tuple(value["symbols"]),
+                receipt_ids=tuple(value["receipt_ids"]),
+                master_request_ids=tuple(value["master_request_ids"]),
+            )
+        except (KeyError, TypeError) as error:
+            raise ValueError("invalid TradingView handoff metadata") from error
 
 
 def export_handoff(source: Path, output: Path, *, day: date, since: datetime) -> TradingViewHandoff:

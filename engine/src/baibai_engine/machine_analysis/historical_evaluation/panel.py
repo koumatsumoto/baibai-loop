@@ -108,6 +108,7 @@ CandidateDiscoveryInputStatus = Literal["complete", "incomplete", "unavailable"]
 PopulationCoverageStatus = Literal[
     "evaluated", "priced_master_without_universe", "master_without_universe_unpriced"
 ]
+PANEL_CALCULATION_REVISION = "adjoining-annual-fy-signals-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +153,7 @@ def rules_content_hash(
             required_jpx_flags=rules.universe.required_jpx_flags,
         ),
         universe_scope_revision=UNIVERSE_SCOPE_REVISION,
+        panel_calculation_revision=PANEL_CALCULATION_REVISION,
         valuation_calculation_revision=VALUATION_CALCULATION_REVISION,
         market_context_calculation_revision=MARKET_CONTEXT_CALCULATION_REVISION,
         variant=policy.variant,

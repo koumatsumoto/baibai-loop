@@ -43,14 +43,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     checkpoint = commands.add_parser(
         "checkpoint",
-        help="replace the active session's payload with the current working state",
+        help="update active working notes without changing research progress",
     )
     checkpoint.add_argument("operation_id")
     checkpoint.add_argument(
         "--payload",
         type=Path,
         required=True,
-        help="path to an OperationPayload YAML or JSON file",
+        help="OperationPayload YAML or JSON with unchanged selection and research progress",
     )
 
     show = commands.add_parser(

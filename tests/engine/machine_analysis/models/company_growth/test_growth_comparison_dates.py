@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from itertools import permutations
 
 import pytest
 
@@ -48,3 +49,34 @@ def test_53_week_quarter_can_differ_by_one_week_without_a_fiscal_month_shift():
     prior = period(date(2025, 6, 1), date(2025, 9, 7), 100)
     current = period(date(2026, 6, 1), date(2026, 8, 31), 120)
     assert build_changes((prior, current))[-1].rate == 0.2
+
+
+@pytest.mark.parametrize(
+    ("other_value", "reason"),
+    [(100, "ambiguous_growth_comparison"), (None, "operand_unavailable")],
+)
+def test_prior_tie_does_not_choose_a_good_value_or_fall_back_to_an_older_end(other_value, reason):
+    older = period(date(2025, 4, 1), date(2025, 6, 23), 50)
+    missing = period(date(2025, 4, 1), date(2025, 6, 30), None)
+    other = period(date(2025, 4, 1), date(2025, 6, 30), other_value)
+    current = period(date(2026, 4, 1), date(2026, 6, 30), 120)
+    for ordered in permutations((older, missing, other, current)):
+        change = next(item for item in build_changes(ordered) if item.to_end == current.period_end)
+        assert (change.from_start, change.from_end) == (date(2025, 4, 1), date(2025, 6, 30))
+        assert change.from_value is None
+        assert change.to_value == 120
+        assert change.difference is None
+        assert change.reason == reason
+
+
+def test_same_prior_end_and_value_do_not_resolve_conflicting_actual_starts():
+    prior = period(date(2025, 4, 1), date(2025, 6, 30), 100)
+    shifted = period(date(2025, 4, 2), date(2025, 6, 30), 100)
+    current = period(date(2026, 4, 1), date(2026, 6, 30), 120)
+    for ordered in permutations((prior, shifted, current)):
+        change = next(item for item in build_changes(ordered) if item.to_end == current.period_end)
+        assert change.from_start is None
+        assert change.from_end == date(2025, 6, 30)
+        assert change.from_value == 100
+        assert change.difference is None
+        assert change.reason == "ambiguous_growth_comparison"

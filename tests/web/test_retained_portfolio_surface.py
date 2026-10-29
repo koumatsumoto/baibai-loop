@@ -4,6 +4,7 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -19,11 +20,16 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
     store_jpx_earnings_calendar_snapshot,
 )
+from baibai_engine.portfolio.holdings.valuation import current_portfolio
+from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_engine.tasks.service import TaskService
 from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
+from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.tasks import build_tasks
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource, DbTaskSource
 
@@ -87,6 +93,12 @@ def test_corrupt_ledger_metadata_does_not_hide_independent_tasks(tmp_path):
     assert len(view.open_tasks) == 1
     assert view.ledger_error
     assert view.upcoming_events == []
+    dashboard = build_dashboard(DbLedgerSource(app, market), DbMarketSource(market))
+    assert dashboard.ledger_error
+    assert dashboard.valuation_error is None
+    assert dashboard.available_cash_yen is None
+    assert dashboard.holdings == []
+    assert dashboard.reservations == []
 
 
 @pytest.mark.parametrize("path", ["/api/dashboard", "/api/tasks", "/api/outcomes"])
@@ -122,7 +134,18 @@ def test_no_holdings_does_not_read_earnings_calendar(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.parametrize("failed_source", ["calendar", "names", "names_date"])
+@pytest.mark.parametrize(
+    "failed_source",
+    [
+        "calendar",
+        "names",
+        "names_date",
+        "names_empty",
+        "names_missing",
+        "valuation_schema",
+        "valuation_sql",
+    ],
+)
 def test_optional_market_read_failure_does_not_block_independent_view_export(
     tmp_path, mocker, caplog, failed_source
 ):
@@ -137,6 +160,16 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     seed_ledger(
         app, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     )
+    service = LedgerStoreService(app)
+    draft = build_sell_execution_draft(
+        service,
+        occurred_at=datetime.fromisoformat("2026-07-12T10:00:00+09:00"),
+        ticker="2331",
+        quantity=100,
+        price_yen=Decimal("1100"),
+        decision_reference="synthetic-human-sale-note",
+    )
+    apply_draft(service, draft, human_confirmed=True)
     task = TaskService(app).add(
         title="確認する用件",
         kind="follow-up",
@@ -164,25 +197,37 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
             connection.execute(
                 "INSERT INTO jquants_master_snapshots VALUES ('2026-07-20', '23310', 'invalid')"
             )
-        else:
+        elif failed_source.startswith("names_"):
+            record = {
+                "Date": "2026-07-20",
+                "Code": "23310",
+                "CoName": "保有企業",
+                "MktNm": "Prime",
+                "S33Nm": "サービス業",
+                "ProdCat": "011",
+            }
+            if failed_source == "names_empty":
+                record["CoName"] = ""
+            elif failed_source == "names_missing":
+                del record["CoName"]
             connection.execute(
                 "INSERT INTO jquants_master_snapshots VALUES (?, ?, ?)",
                 (
-                    "2026-07-0x",
+                    "2026-07-0x" if failed_source == "names_date" else "2026-07-20",
                     "23310",
-                    json.dumps(
-                        {
-                            "Date": "2026-07-20",
-                            "Code": "23310",
-                            "CoName": "保有企業",
-                            "MktNm": "Prime",
-                            "S33Nm": "サービス業",
-                            "ProdCat": "011",
-                        }
-                    ),
+                    json.dumps(record),
                 ),
             )
+        elif failed_source == "valuation_schema":
+            connection.execute("PRAGMA user_version=1")
+    if failed_source == "valuation_sql":
+        market.write_bytes(b"not a SQLite database")
     before = app.read_bytes(), market.read_bytes()
+    valuation_failed = failed_source.startswith("valuation_")
+    if valuation_failed:
+        error_type = SQLiteSchemaError if failed_source == "valuation_schema" else sqlite3.Error
+        with pytest.raises(error_type):
+            current_portfolio(service.load(), sqlite_path=market, now=now)
 
     output = tmp_path / "export"
     paths = export_read_models(tmp_path, output)
@@ -194,8 +239,29 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     }
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_error"] is None
-    assert dashboard["holdings"][0]["quantity"] == 200
-    assert dashboard["available_cash_yen"] == 10080500
+    assert dashboard["holdings"][0]["quantity"] == 100
+    assert dashboard["holdings"][0]["deployed_cost_yen"] == 99000
+    assert dashboard["holdings"][0]["company_name"] is None
+    assert dashboard["available_cash_yen"] == 10190500
+    assert dashboard["reserved_cash_yen"] == 119000
+    assert dashboard["deployed_cost_yen"] == 99000
+    assert dashboard["realized_gross_pnl_yen"] == 6000
+    assert dashboard["reservations"][0]["ticker"] == "8929"
+    assert dashboard["reservations"][0]["remaining_quantity"] == 100
+    assert dashboard["holdings"][0]["market_value_yen"] is None
+    assert dashboard["holdings"][0]["unrealized_pnl_yen"] is None
+    assert dashboard["holdings_market_value_yen"] is None
+    assert dashboard["total_capital_yen"] is None
+    assert dashboard["valuation_as_of"] is None
+    if valuation_failed:
+        expected_error = (
+            "obsolete market SQLite schema"
+            if failed_source == "valuation_schema"
+            else "file is not a database"
+        )
+        assert expected_error in dashboard["valuation_error"]
+    else:
+        assert dashboard["valuation_error"] is None
     tasks = json.loads((output / "views/tasks.json").read_text())
     assert tasks["open_tasks"][0]["task_id"] == task.task_id
     assert tasks["ledger_error"] is None
@@ -205,9 +271,11 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         "ticker": "8929",
         "label": "8929",
     } in tasks["upcoming_events"]
-    if failed_source == "calendar":
+    if failed_source == "calendar" or valuation_failed:
         assert tasks["earnings_calendar_available"] is False
-        assert "row count mismatch" in tasks["earnings_calendar_error"]
+        assert tasks["earnings_calendar_error"]
+        if failed_source == "calendar":
+            assert "row count mismatch" in tasks["earnings_calendar_error"]
     else:
         assert tasks["earnings_calendar_available"] is True
         assert tasks["earnings_calendar_error"] is None
@@ -215,10 +283,17 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         assert dashboard["holdings"][0]["company_name"] is None
         if failed_source == "names_date":
             assert "stored master snapshot has invalid date: '2026-07-0x'" in caplog.text
+        elif failed_source in {"names_empty", "names_missing"}:
+            assert "stored master record has invalid security fields" in caplog.text
     outcomes = json.loads((output / "views/outcomes.json").read_text())
     assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        response = client.get("/api/tasks")
-        assert response.status_code == 200
-        assert response.json() == tasks
+        for route, expected in (
+            ("dashboard", dashboard),
+            ("tasks", tasks),
+            ("outcomes", outcomes),
+        ):
+            response = client.get(f"/api/{route}")
+            assert response.status_code == 200
+            assert response.json() == expected
     assert (app.read_bytes(), market.read_bytes()) == before

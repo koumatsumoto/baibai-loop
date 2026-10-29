@@ -185,8 +185,17 @@ class OperationService:
     def checkpoint(
         self, operation_id: str, payload: OperationPayload, *, now: datetime | None = None
     ) -> OperationSession:
+        operation = self.get(operation_id)
+        if progress_binding(payload) != progress_binding(operation.payload):
+            raise OperationConflictError(
+                "checkpoint cannot change research_progress; reload and use record-* commands"
+            )
         return self._replace_active(
-            operation_id, payload=payload, completed_at=None, checked_at=now
+            operation_id,
+            payload=payload,
+            completed_at=None,
+            checked_at=now,
+            expected_payload=operation.payload,
         )
 
     def complete(

@@ -44,7 +44,7 @@ def build_dashboard(
                 ledger_exists=False,
                 ledger_error=None,
             )
-        snapshot = ledger.snapshot()
+        portfolio = ledger.snapshot()
     except (ValueError, RuntimeError, sqlite3.Error) as error:
         return _empty_dashboard(
             generated_at=now,
@@ -52,6 +52,7 @@ def build_dashboard(
             ledger_error=str(error),
         )
 
+    snapshot = portfolio.snapshot
     security_names: Mapping[str, str] = {}
     if snapshot.holdings:
         try:
@@ -119,6 +120,7 @@ def build_dashboard(
         ledger_exists=True,
         ledger_error=None,
         ledger_as_of=snapshot.ledger_as_of,
+        valuation_error=portfolio.valuation_error,
         valuation_as_of=valuation_as_of,
         total_capital_yen=total,
         available_cash_yen=available_cash,
@@ -146,6 +148,7 @@ def _empty_dashboard(
         ledger_exists=ledger_exists,
         ledger_error=ledger_error,
         ledger_as_of=None,
+        valuation_error=None,
         valuation_as_of=None,
         total_capital_yen=None,
         available_cash_yen=None,
