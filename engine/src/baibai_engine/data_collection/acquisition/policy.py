@@ -7,12 +7,12 @@ a change. A recent check is not a history rebuild or a bound on outage recovery.
 from __future__ import annotations
 
 import calendar
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
+from baibai_engine.data_collection.receipts.native_sources.documents import read_documents
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {"daily": 14, "weekly": 60, "monthly": 370, "quarterly": 370}
@@ -43,7 +43,7 @@ def source_policy(source: SourceDefinition) -> RefreshPolicy:
         mode = "bulk_then_filter"
     elif source.provider == "matsui_margin":
         mode = "current_only"
-    elif source.provider in {"spglobal_pmi", "tsr_bankruptcies"}:
+    elif source.provider in {"spglobal_pmi", "tradingeconomics_pmi", "tsr_bankruptcies"}:
         mode = "documents"
     elif source.provider == "jquants_options":
         mode = "day_requests"
@@ -96,7 +96,7 @@ def recovery_ranges(
         start, finish = date.fromisoformat(start_raw), date.fromisoformat(end_raw)
         if status == "ok":
             anchors.append(start)
-            if source.provider != "spglobal_pmi":
+            if source.provider not in {"spglobal_pmi", "tradingeconomics_pmi"}:
                 covered.append((start, finish))
         elif (finish - start).days <= source_policy(source).lookback_days:
             anchors.append(start)
@@ -148,7 +148,7 @@ def _missing_ranges(
             (source.source_id, last.isoformat(), first.isoformat()),
         )
     )
-    if source.provider != "spglobal_pmi":
+    if source.provider not in {"spglobal_pmi", "tradingeconomics_pmi"}:
         covered.extend(successful_ranges)
     for (observed,) in connection.execute(
         "SELECT DISTINCT observed_at FROM economic_source_records "
@@ -157,12 +157,12 @@ def _missing_ranges(
     ):
         day = date.fromisoformat(observed)
         covered.append((day, day))
-    if source.provider == "spglobal_pmi":
-        for (metadata,) in connection.execute(
-            "SELECT metadata FROM economic_source_documents WHERE source_id = ?",
-            (source.source_id,),
-        ):
-            month = date.fromisoformat(json.loads(metadata)["observed_at"])
+    if source.provider in {"spglobal_pmi", "tradingeconomics_pmi"}:
+        for document in read_documents(connection, source.source_id):
+            identity = document.metadata
+            if "observed_at" not in identity or identity.get("phase", "final") != "final":
+                continue
+            month = date.fromisoformat(str(identity["observed_at"]))
             covered.append(
                 (month, month.replace(day=calendar.monthrange(month.year, month.month)[1]))
             )

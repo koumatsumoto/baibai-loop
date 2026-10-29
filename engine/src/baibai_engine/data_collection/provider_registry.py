@@ -19,6 +19,7 @@ from baibai_engine.data_collection.providers.matsui.margin import MatsuiMarginSo
 from baibai_engine.data_collection.providers.mof.jgb import MofJgbSource
 from baibai_engine.data_collection.providers.nikkei.indices import NikkeiIndexesSource
 from baibai_engine.data_collection.providers.spglobal.pmi import SpGlobalPmiSource
+from baibai_engine.data_collection.providers.tradingeconomics.pmi import TradingEconomicsPmiSource
 from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
 from baibai_engine.data_collection.providers.university_of_michigan.sentiment import UmichScaSource
 from baibai_engine.data_collection.providers.yahoo import YahooChartSource
@@ -35,6 +36,7 @@ def provider_spec(name: str) -> ProviderSpec:
 def registered_specs() -> tuple[ProviderSpec, ...]:
     return (
         SpGlobalPmiSource.spec,
+        TradingEconomicsPmiSource.spec,
         TsrBankruptciesSource.spec,
         MatsuiMarginSource.spec,
         EStatDashboardSource.spec,

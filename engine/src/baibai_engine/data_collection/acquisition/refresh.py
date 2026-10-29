@@ -122,7 +122,7 @@ def refresh_sources(
             except Exception as error:
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)
-                    and catalog[source_id].provider == "spglobal_pmi"
+                    and catalog[source_id].provider in {"spglobal_pmi", "tradingeconomics_pmi"}
                 ):
                     stopped_providers.add(catalog[source_id].provider)
                 outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
