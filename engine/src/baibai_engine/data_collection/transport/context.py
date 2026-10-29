@@ -278,16 +278,3 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
             # for the refusal or permission to use another route.
             raise SourceWithheldError(f"source withheld {url}: {exc}") from exc
         raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
-
-
-def parse_float(value: str) -> float:
-    try:
-        return float(value.replace(",", ""))
-    except ValueError as exc:
-        raise IndicatorsProviderError(f"invalid numeric value: {value!r}") from exc
-
-
-def parse_optional_float(value: str | None) -> float | None:
-    if value is None or not value or value in {"ND", "."}:
-        return None
-    return parse_float(value)

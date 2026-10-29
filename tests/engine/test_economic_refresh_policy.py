@@ -1,6 +1,8 @@
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
+
 from baibai_engine.data_collection.acquisition.policy import (
     explicit_recovery_ranges,
     recent_start,
@@ -87,7 +89,8 @@ def test_first_recent_refresh_is_distinct_from_explicit_history_rebuild(tmp_path
     assert starts[-1] == date(1900, 1, 1)
 
 
-def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recent", [True, False])
+def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch, recent):
     import baibai_engine.data_collection.acquisition.refresh as acquisition
 
     monkeypatch.setattr(
@@ -100,7 +103,7 @@ def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch):
         db_path=tmp_path / "source.sqlite",
         start=None,
         end=date(2000, 1, 1),
-        recent=True,
+        recent=recent,
     )
     assert isinstance(outcomes[0], SourceRefreshFailure)
     assert "current-only" in outcomes[0].message

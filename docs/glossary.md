@@ -60,6 +60,4 @@
 
 ## 名称と保存契約
 
-採用名称とPythonの配置、保存ID・DB table・JSON kind・R2 keyは別の契約。#1632のモジュール構成再設計では採用名称へ配置を揃えるが、既存履歴や参照を名前だけのために書き換えない。Company Financialsへの改名後も、明示的な保存契約移行を行わない限り保存model IDは`company_valuation`を維持する。
-
-用語の変更を未実装の配置変更と混同しない。現行の実配置と移行状況はarchitectureと[実施Issue #1632](https://github.com/koumatsumoto/baibai-loop/issues/1632)を参照する。
+採用名称と保存IDは別の契約。Company Financialsの保存model IDは、既存履歴・参照を保つため`company_valuation`を維持する。現行配置と保存責務は[architecture](architecture.md#store-authority)を参照する。

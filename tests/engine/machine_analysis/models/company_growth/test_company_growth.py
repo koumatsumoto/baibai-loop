@@ -619,7 +619,11 @@ def test_optional_source_rows_leave_core_states_documents_and_changes_unchanged(
             ("1234", "2024-06-28", 1000),
         )
         insert_financial_record(connection, document(2024, 1, 999, Code="56780"))
+    publish_market_fixture(path, "synthetic-release-with-other-inputs", created_at=NOW)
     after = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert after.input_release != before.input_release
+    other = company_growth(path, ticker="5678", as_of=NOW.date())
+    assert amount(other.periods[0], "reported", "sales").value == 999
     assert after.periods == before.periods
     assert after.changes == before.changes
     assert after.per.status == "not_provided"
@@ -859,3 +863,13 @@ def test_compact_growth_does_not_replace_latest_missing_ttm_with_old_fy():
     assert latest["row"]["values"] == [None, None, None, None]
     assert latest["row"]["missing"]["parent_profit"] == "matching_period_not_observed"
     assert latest["row"]["missing"]["operating_margin"] == "not_applicable_to_financial_sector"
+
+
+def test_invalid_fixed_release_origin_is_local_unavailability(tmp_path):
+    path = market_store(tmp_path, [document(2024, 1, 100)])
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("UPDATE lake_store_origin SET release_manifest_sha256 = ?", ("z" * 64,))
+    result = company_growth(path, ticker="1234", as_of=NOW.date())
+    assert result.status == "unavailable"
+    assert result.reason == "market_store_unreadable"
+    assert result.input_release is None
