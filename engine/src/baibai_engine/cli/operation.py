@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="close an active session once its kind's completion requirements hold",
     )
     complete.add_argument("operation_id")
-    complete.add_argument("--result", required=True, help="summary of the completed research")
+    complete.add_argument("--result", required=True, help="summary of the work and its outcome")
     complete.add_argument("--next", required=True, help="next action after this Operation")
     assessment = commands.add_parser(
         "record-assessment", help="bind a completed Reviewed Assessment to its fixed target"

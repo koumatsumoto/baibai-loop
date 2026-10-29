@@ -267,6 +267,14 @@ def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(ca
     proposal = proposal_for(operation)
     assert [item.action for item in proposal.items] == ["no_action", "defer"]
     assert [row.status for row in proposal.research_scope.outcomes] == ["reviewed", "unfinished"]
+    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
+        service.complete(
+            operation.operation_id,
+            result="調査結果を保存した",
+            next="次の明示依頼",
+            completed_at=PUBLISHED,
+        )
+    assert service.get(operation.operation_id) == operation
     seed_proposal(db, proposal)
     before = ledger_rows(db)
     completed = record_and_finish(service, operation, proposal)
@@ -280,7 +288,7 @@ def test_reviewed_a_and_unfinished_b_keep_complete_scope_and_distinct_actions(ca
         service.record_assessment(operation.operation_id, reference, now=PUBLISHED)
 
 
-def test_all_unfinished_requires_saved_defer_proposal_and_does_not_become_rejection(case):
+def test_all_unfinished_with_bound_proposal_keeps_the_normal_completion_path(case):
     db, _ = case
     service, operation = start(case, ("1234",))
     operation = service.record_unfinished(
@@ -290,19 +298,42 @@ def test_all_unfinished_requires_saved_defer_proposal_and_does_not_become_reject
         references=("synthetic-source",),
         now=NOW,
     )
-    with pytest.raises(OperationCompletionError, match="published Trade Proposal"):
-        service.complete(
-            operation.operation_id,
-            result="調査結果を保存した",
-            next="次の明示依頼",
-            completed_at=PUBLISHED,
-        )
     proposal = proposal_for(operation)
     seed_proposal(db, proposal)
     completed = record_and_finish(service, operation, proposal)
     assert progress_binding(completed.payload).outcomes[0].status == "unfinished"
     assert proposal.items[0].action == "defer"
     assert proposal.items[0].assessment_ref is None
+
+
+def test_explicit_correction_to_unfinished_uses_current_outcomes_without_deleting_assessment(case):
+    db, _ = case
+    reference = seed_assessment(db)
+    service, operation = start(case, ("1234",))
+    service.record_assessment(operation.operation_id, reference, now=NOW)
+    operation = service.record_unfinished(
+        operation.operation_id,
+        ticker="1234",
+        reason="追加の反証により評価の前提を確認し直す",
+        references=(reference, "synthetic-counterevidence"),
+        now=PUBLISHED,
+    )
+    completed = service.complete(
+        operation.operation_id,
+        result="追加確認は未完了のまま今回の作業を終了",
+        next="反証に対する一次資料を確認する",
+        completed_at=PUBLISHED,
+    )
+    assert completed.status == "completed"
+    assert progress_binding(completed.payload) == progress_binding(operation.payload)
+    assert progress_binding(completed.payload).proposal_ref is None
+    with closing(connect_read_only(db)) as connection:
+        assert (
+            connection.execute(
+                "SELECT assessment_id FROM stock_assessment WHERE assessment_id=?", (reference,)
+            ).fetchone()[0]
+            == reference
+        )
 
 
 @pytest.mark.parametrize("action", ["hold", "sell"])
@@ -334,9 +365,18 @@ def test_holding_uses_common_assessment_reference_and_published_proposal_only(ca
     assert proposal.items[0].position.original_reason_unavailable_reason
 
 
-def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case):
+@pytest.mark.parametrize("partly_recorded", [False, True])
+def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case, partly_recorded):
     db, _ = case
     service, operation = start(case, ("1234", "5678"))
+    if partly_recorded:
+        operation = service.record_unfinished(
+            operation.operation_id,
+            ticker="1234",
+            reason="研究不足",
+            references=("synthetic-source",),
+            now=NOW,
+        )
     with pytest.raises(OperationCompletionError, match="covered"):
         service.complete(
             operation.operation_id,
@@ -349,7 +389,18 @@ def test_selection_immutable_and_missing_outcomes_cannot_drop_targets(case):
     with pytest.raises(OperationConflictError, match="immutable"):
         service.checkpoint(
             operation.operation_id,
-            operation.payload.model_copy(update={"artifacts": (changed.model_dump(mode="json"),)}),
+            operation.payload.model_copy(
+                update={
+                    "artifacts": (
+                        changed.model_dump(mode="json"),
+                        *(
+                            artifact
+                            for artifact in operation.payload.artifacts
+                            if artifact.get("kind") != "research_selection"
+                        ),
+                    )
+                }
+            ),
         )
     assert service.get(operation.operation_id) == operation
     assert ledger_rows(db) == []
@@ -742,6 +793,21 @@ def test_a_new_operation_cannot_bind_the_previous_operations_proposal(case):
     with pytest.raises(OperationConflictError, match="another Research Operation"):
         service.record_proposal(other.operation_id, proposal.proposal_id, now=PUBLISHED)
     assert service.get(other.operation_id) == other
+    service.record_unfinished(
+        other.operation_id,
+        ticker="1234",
+        reason="今回の問いは未確認",
+        references=("synthetic-new-question",),
+        now=PUBLISHED,
+    )
+    other_completed = service.complete(
+        other.operation_id,
+        result="評価未完了のまま今回の作業を終了",
+        next="新しい問いを確認する",
+        completed_at=PUBLISHED,
+    )
+    assert other_completed.status == "completed"
+    assert progress_binding(other_completed.payload).proposal_ref is None
     assert service.get(operation.operation_id) == completed
 
 

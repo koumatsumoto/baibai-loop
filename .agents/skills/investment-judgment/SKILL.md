@@ -96,6 +96,11 @@ statusとOperationを読む。`stock-assessment-promote`は保存評価をOperat
 ```bash
 uv run baibai-engine operation --db stores/application/baibai.sqlite record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <SOURCE_OR_WORKSPACE_REF>
+```
+
+固定対象を全件被覆し、現在の全outcomeが`unfinished`で、同OperationのProposalが未公開かつ参照未束縛なら、Proposal context・draft・Reviewを作らず[完了と再開](#完了と再開)へ進む。保存済みの部分Researchと未完了理由・参照は残し、`result`に確認した範囲と評価未完了、`next`に未解決の問いや再調査条件を書く。Researchがない未調査でも理由・参照は必要。経済的な見送りや保有判断を`unfinished`へ読み替えて工程を避けない。reviewedを含む場合、または同Operationに公開済みProposalがある場合は以下の通常経路を使い、未束縛の公開済みProposalも省略しない。
+
+```bash
 uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --db stores/application/baibai.sqlite \
   --sqlite-path stores/market/market.sqlite
@@ -137,7 +142,9 @@ Assessmentだけなら`--proposal-id`と`--ticker`の代わりに`--assessment-i
 
 ## 完了と再開
 
-公開済み提案を`operation record-proposal <OPERATION_ID> --proposal-id <ID>`へ記録し、`operation complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'`で完了する。完了は保存済みの固定Selection・成果・参照を保ち、現在の成果と公開済み提案のscopeを照合する。buyを含む完了には具体termsが必要。sellのterms不足は理由付きで調査工程を終了できるが、価格・数量まで完成したと報告しない。人間の採否・broker操作・実約定を完了条件へ補完しない。
+Proposalを使う通常経路では、公開済み提案を`operation record-proposal <OPERATION_ID> --proposal-id <ID>`へ明示的に記録する。いずれの経路も`operation complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'`で完了する。完了は保存済みの固定Selection・成果・参照を保ち、提案参照があれば現在の成果と公開済み提案のscopeを照合する。buyを含む完了には具体termsが必要。sellのterms不足は理由付きで調査工程を終了できるが、価格・数量まで完成したと報告しない。人間の採否・broker操作・実約定を完了条件へ補完しない。
+
+`completed`は今回の有限な作業の終了で、評価や売買提案の完成とは限らない。完了状態の正本は`operation show <OPERATION_ID>`で確認する。workspaceの評価statusが`incomplete`でもOperationの完了とは別である。
 
 ```bash
 uv run baibai-engine investment-judgment prepare \
@@ -145,6 +152,6 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --force
 ```
 
-再開は保存入力から投影を復元し、元generation・旧runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。同文の本当の再依頼は新workspaceと新Operationで扱う。
+再開は保存入力から投影を復元し、元generation・旧runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。完了済みのprepareは`already_completed`を返し、forceでもactiveには戻さない。後日の再調査や同文の本当の再依頼は、保存Researchを必要に応じて読み、新workspaceと新Operationで扱う。
 
 後続調査は現在の成果を確定して次Operationへ進む。実際に報告された注文・資金は[Ledger Record](../ledger-record/SKILL.md)、本番反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。monitoringは同じ問いの既存taskを確認して記録する。

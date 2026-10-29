@@ -27,6 +27,18 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
+def has_published_proposal_for_operation(connection: sqlite3.Connection, operation_id: str) -> bool:
+    """Operationへの参照束縛前も含め、公開済み提案の存在だけを確認する。"""
+    return (
+        connection.execute(
+            "SELECT 1 FROM investment_proposal "
+            "WHERE json_extract(payload, '$.research_scope.operation_id') = ? LIMIT 1",
+            (operation_id,),
+        ).fetchone()
+        is not None
+    )
+
+
 def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -> TradeProposal:
     """本文/hash/index/正確な評価pairを検証する。現在の資格やprogressは読まない。"""
 
