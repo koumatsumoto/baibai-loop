@@ -2,6 +2,12 @@
 
 from types import MappingProxyType
 
+from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
+from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
+    ARTICLE_PROJECTION_RUNS,
+    ARTICLE_OBSERVATIONS,
+    ARTICLE_EXTRACTION_ARTIFACTS,
+)
 from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
     EDINET_LIST_RESPONSES,
     EDINET_SOURCE_ARCHIVES,
@@ -59,6 +65,10 @@ from baibai_engine.storage.snapshots.contracts import LakeDataset
 
 LAKE_DATASETS = MappingProxyType(
     {
+        ARTICLE_RECEIPTS.name: ARTICLE_RECEIPTS,
+        ARTICLE_PROJECTION_RUNS.name: ARTICLE_PROJECTION_RUNS,
+        ARTICLE_OBSERVATIONS.name: ARTICLE_OBSERVATIONS,
+        ARTICLE_EXTRACTION_ARTIFACTS.name: ARTICLE_EXTRACTION_ARTIFACTS,
         EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS.name: (
             EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS
         ),
