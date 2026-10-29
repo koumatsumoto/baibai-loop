@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
     ObjectStore,
+    R2Error,
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
@@ -81,19 +83,9 @@ def available_handoffs(
                         "integration": integrated,
                     }
                 )
-            except LakePublishError as error:
-                if str(error).startswith("R2 "):
-                    raise
-                ready.append(
-                    {
-                        "market": market,
-                        "stage_id": stage_id,
-                        "source": source_name,
-                        "manifest_sha256": digest,
-                        "invalid": type(error).__name__,
-                    }
-                )
-            except (ValueError, KeyError, TypeError) as error:
+            except (R2Error, LakeCASConflict):
+                raise
+            except (LakePublishError, ValueError, KeyError, TypeError) as error:
                 ready.append(
                     {
                         "market": market,

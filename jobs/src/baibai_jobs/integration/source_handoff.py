@@ -36,6 +36,7 @@ from baibai_jobs.integration.jquants_handoff import FINANCIAL_SOURCES as JQUANTS
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import export_handoff as export_jquants_handoff
 from baibai_jobs.integration.jquants_handoff import import_handoff as import_jquants_handoff
+from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
@@ -58,20 +59,7 @@ def _retained_archive_keys(database: Path) -> set[tuple[str, int]]:
         return edinet_archive_keys(connection)
 
 
-def _command(source: str, asof: date, *, database: Path, offline: bool = False) -> list[str]:
-    if source in {"edinet-metrics", "edinet-facts"}:
-        verb = ("extract-" if offline else "refresh-") + source
-        return [
-            "baibai-jobs",
-            "maintain-market",
-            verb,
-            "--asof",
-            asof.isoformat(),
-            "--sqlite-path",
-            str(database),
-        ]
-    if offline:
-        raise ValueError("this source has no extraction command")
+def _command(source: str, asof: date, *, database: Path) -> list[str]:
     return [
         "baibai-jobs",
         "maintain-market",
@@ -126,9 +114,7 @@ def _export(
     write_json_atomic(directory / "result.json", report)
 
 
-def _replay(
-    source: str, database: Path, directory: Path, *, extract: bool = True
-) -> dict[str, object]:
+def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     if report["source"] != source:
         raise ValueError("handoff source differs from the publication plan")
@@ -144,49 +130,14 @@ def _replay(
         return import_jpx_handoff(
             path, database, tuple(report["bundle_ids"]), collection=_JPX_COLLECTION[source]
         )
-    result = import_edinet_handoff(path, database)
-    if extract and source in {"edinet-metrics", "edinet-facts"}:
-        # Re-plan from the latest canonical lists/archives, never copy derived facts
-        # computed against the acquisition's older database. These CLIs are offline.
-        completed = subprocess.run(  # nosec B603
-            _command(source, date.fromisoformat(report["asof"]), database=database, offline=True),
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        print(completed.stdout, end="")
-        print(completed.stderr, end="", file=sys.stderr)
-        result["extraction_exit_code"] = completed.returncode
-        result["extraction_status"] = (
-            "skipped_not_initialized"
-            if "skipped=not_initialized" in completed.stdout
-            else "completed"
-            if completed.returncode == 0
-            else "failed"
-        )
-    return result
-
-
-def complete(result: dict[str, object]) -> bool:
-    return not any(
-        result.get(key)
-        for key in (
-            "rejected_receipts",
-            "incomplete_requests",
-            "projection_failures",
-            "incomplete_bundles",
-            "failed_days",
-            "archive_conflicts",
-            "extraction_exit_code",
-        )
-    )
+    return import_edinet_handoff(path, database)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("input", "resume", "acquire", "export", "stage", "download", "replay", "check"),
+        choices=("input", "resume", "acquire", "export", "stage", "download"),
     )
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--directory", type=Path, required=True)
@@ -240,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     packet = directory / f"resume-{source}-{index}"
                     download_fixed(store, entry, packet)
-                    _replay(source, args.database, packet, extract=False)
+                    _replay(source, args.database, packet)
         elif args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
@@ -314,13 +265,6 @@ def main(argv: list[str] | None = None) -> int:
                 with Path(output).open("a", encoding="utf-8") as stream:
                     print("stage_ready=true", file=stream)
             return status
-        elif args.command == "replay":
-            result = _replay(args.source, args.database, directory)
-            write_json_atomic(directory / "replayed.json", result)
-            print(json.dumps(result, sort_keys=True))
-        else:
-            result = json.loads((directory / "replayed.json").read_text(encoding="utf-8"))
-            return 0 if complete(result) else 1
     except Exception as error:
         # Raw provider payload and credentials must not enter cross-job output.
         print(f"source handoff failed: {type(error).__name__}", file=sys.stderr)

@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
     ObjectStore,
+    R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
 from baibai_jobs.acquisition.external_assessments.staging import (
@@ -151,10 +153,8 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
             reference = {"key": key, "sha256": hashlib.sha256(saved.payload).hexdigest()}
             if run_id not in latest or clock > latest[run_id][0]:
                 latest[run_id] = (clock, reference)
-        except LakePublishError as error:
-            if str(error).startswith("R2 "):
-                raise
-            failed.append({"run_id": run_id, "reason": type(error).__name__})
-        except (ValueError, KeyError, TypeError) as error:
+        except (R2Error, LakeCASConflict):
+            raise
+        except (LakePublishError, ValueError, KeyError, TypeError) as error:
             failed.append({"run_id": run_id, "reason": type(error).__name__})
     return [value[1] for _, value in sorted(latest.items())], failed

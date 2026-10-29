@@ -104,11 +104,10 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
         "asof": asof.isoformat(),
         "sources": rows,
     }
-    # Only public source identity/ranges/counts cross jobs; provider error text stays local.
+    # Provider error text stays local; the handoff keeps source identity/ranges/counts.
     write_json_atomic(directory / "result.json", report)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
-            print(f"report={json.dumps(report, ensure_ascii=False)}", file=stream)
             print("stage_ready=true", file=stream)
     print(json.dumps(report, ensure_ascii=False))
     return int(any(isinstance(item, EconomicSourceRefreshFailure) for item in outcomes))

@@ -20,6 +20,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
+    R2Error,
     RemoteObject,
 )
 from baibai_engine.storage.snapshots import models as lake_models
@@ -364,7 +365,7 @@ def test_ambiguous_pointer_switch_reconciles_an_exact_committed_target(
                 raise AssertionError("a pointer PUT may happen only once")
             if key == "lake/pointers/market/current.json":
                 if failure_phase == "put":
-                    raise LakePublishError("injected response timeout after commit")
+                    raise R2Error("injected response timeout after commit")
                 self.armed = True
             return result
 
@@ -375,13 +376,13 @@ def test_ambiguous_pointer_switch_reconciles_an_exact_committed_target(
                 and key == "lake/pointers/market/current.json"
             ):
                 self.armed = False
-                raise LakePublishError("injected HEAD timeout after commit")
+                raise R2Error("injected HEAD timeout after commit")
             return super().head(key)
 
         def get_bytes(self, key: str) -> bytes:
             if self.armed and failure_phase == "get" and key == "lake/pointers/market/current.json":
                 self.armed = False
-                raise LakePublishError("injected GET timeout after commit")
+                raise R2Error("injected GET timeout after commit")
             return super().get_bytes(key)
 
     store = AmbiguousStore()
@@ -416,7 +417,7 @@ def test_ambiguous_pointer_switch_reports_a_different_successor_as_conflict(
             result = super().put_file(key, path, **kwargs)  # type: ignore[arg-type]
             if key == "lake/pointers/market/current.json":
                 _replace_pointer(self, successor)
-                raise LakePublishError("injected timeout after another writer won")
+                raise R2Error("injected timeout after another writer won")
             return result
 
     store = SuccessorStore()
@@ -443,12 +444,12 @@ def test_ambiguous_pointer_switch_reports_unknown_when_it_cannot_read_current(
             result = super().put_file(key, path, **kwargs)  # type: ignore[arg-type]
             if key == "lake/pointers/market/current.json":
                 self.committed = True
-                raise LakePublishError("injected response timeout after commit")
+                raise R2Error("injected response timeout after commit")
             return result
 
         def head(self, key: str) -> RemoteObject | None:
             if self.committed and key == "lake/pointers/market/current.json":
-                raise LakePublishError("injected reconciliation timeout")
+                raise R2Error("injected reconciliation timeout")
             return super().head(key)
 
     with pytest.raises(LakePublishError, match="outcome is unknown"):
@@ -978,7 +979,7 @@ def test_r2_adapter_classifies_conflict_and_timeout(
             raise ReadTimeoutError(endpoint_url="https://redacted.invalid")
 
     monkeypatch.setattr(store, "_client", lambda *_: TimeoutClient())
-    with pytest.raises(LakePublishError, match="timed out"):
+    with pytest.raises(R2Error, match="timed out"):
         store.head("test")
 
 
@@ -1020,8 +1021,13 @@ def test_r2_adapter_sends_conditional_put_and_classifies_404(
                 "ContentType": "application/json",
             }
 
+        def get_object(self, **_: object) -> object:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
     monkeypatch.setattr(store, "_client", lambda *_: RecordingClient())
     assert store.head("missing") is None
+    with pytest.raises(R2Error, match="get-object failed"):
+        store.get_bytes("missing")
     payload = tmp_path / "payload"
     payload.write_bytes(b"one")
     store.put_file(
@@ -1071,7 +1077,7 @@ def test_r2_download_stream_failure_never_exposes_partial_bytes(
             return {"Body": BrokenBody()}
 
     monkeypatch.setattr(store, "_client", lambda *_: Client())
-    with pytest.raises(LakePublishError, match="timed out"):
+    with pytest.raises(R2Error, match="timed out"):
         store.download_file("key", target, expect_bytes=10)
 
     if existing:
@@ -1116,7 +1122,7 @@ def test_r2_download_rejects_size_mismatch_without_replacing_cache(
             return {"Body": Body()}
 
     monkeypatch.setattr(store, "_client", lambda *_: Client())
-    with pytest.raises(LakePublishError, match="size mismatch"):
+    with pytest.raises(R2Error, match="size mismatch"):
         store.download_file("key", target, expect_bytes=expected)
 
     assert target.read_bytes() == b"known-good"

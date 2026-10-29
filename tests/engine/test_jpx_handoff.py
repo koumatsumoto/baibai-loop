@@ -76,7 +76,8 @@ def test_late_global_earnings_bundle_preserves_latest_complete_workbook(tmp_path
     selected = export_handoff(source, stage, since=STAMP, collection="earnings_calendar")
     assert selected == (old,)
     result = import_handoff(stage, target, selected, collection="earnings_calendar")
-    assert result["replayed_bundles"] == [newer]
+    assert result.complete is True
+    assert result.report["replayed_bundles"] == [newer]
     with closing(open_connection(target)) as conn:
         assert conn.execute("SELECT * FROM jpx_earnings_calendar").fetchall() == expected
         assert conn.execute("SELECT COUNT(*) FROM jpx_source_bundles").fetchone()[0] == 2
@@ -88,7 +89,9 @@ def test_late_global_earnings_bundle_preserves_latest_complete_workbook(tmp_path
         assert conn.execute("SELECT COUNT(*) FROM jpx_earnings_calendar").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 0
     assert (
-        import_handoff(stage, target, selected, collection="earnings_calendar")["raw_rows_added"]
+        import_handoff(stage, target, selected, collection="earnings_calendar").report[
+            "raw_rows_added"
+        ]
         == 0
     )
 
@@ -130,8 +133,9 @@ def test_invalid_complete_bundle_is_retained_but_does_not_claim_projection_succe
     invalid = earnings(source, STAMP + timedelta(hours=1), "2026-10-22", "7203", invalid=True)
     selected = export_handoff(source, stage, since=STAMP, collection="earnings_calendar")
     result = import_handoff(stage, target, selected, collection="earnings_calendar")
-    assert result["projection_failures"] == [invalid]
-    assert result["replayed_bundles"] == []
+    assert result.complete is False
+    assert result.report["projection_failures"] == [invalid]
+    assert result.report["replayed_bundles"] == []
     with closing(open_connection(target)) as conn:
         assert conn.execute("SELECT ticker FROM jpx_earnings_calendar").fetchone()[0] == "130A"
         assert conn.execute("SELECT COUNT(*) FROM jpx_source_bundles").fetchone()[0] == 2

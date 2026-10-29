@@ -31,7 +31,9 @@ from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsPr
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
+    LakeCASConflict,
     LakePublishError,
+    R2Error,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.merge import MergeError
@@ -44,7 +46,7 @@ from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
-from baibai_jobs.integration.source_handoff import _replay, complete
+from baibai_jobs.integration.source_handoff import _replay
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
 
@@ -94,8 +96,9 @@ def apply(
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
                 if entry["market"]:
-                    result = _replay(entry["source"], market, packet, extract=False)
-                    failed = recovery = not complete(result)
+                    replay = _replay(entry["source"], market, packet)
+                    result = replay.report
+                    failed = recovery = not replay.complete
                 else:
                     accepted = packet / "accepted.sqlite"
                     result = accept_economic_rechecks(
@@ -104,12 +107,10 @@ def apply(
                     merge_stores(accepted, economic)
                     failed = recovery = bool(result["late_recovery_required"])
                 applied = True
-            except LakePublishError as error:
-                if str(error).startswith("R2 "):
-                    raise
-                result = {"reason": type(error).__name__}
-                failed = recovery = True
+            except (R2Error, LakeCASConflict):
+                raise
             except (
+                LakePublishError,
                 ValueError,
                 MergeError,
                 MarketSchemaError,
@@ -196,6 +197,25 @@ def main(argv: list[str] | None = None) -> int:
                         if deferred
                         else "completed",
                         "deferred_inputs": deferred,
+                        "failed_handoffs": [
+                            {
+                                "source": item["entry"]["source"],
+                                "stage_id": item["entry"]["stage_id"],
+                                **(
+                                    {"asof": item["entry"]["asof"]}
+                                    if "asof" in item["entry"]
+                                    else {}
+                                ),
+                                "result": item["result"],
+                            }
+                            for item in report["handoffs"]
+                            if item["failed"]
+                        ],
+                        "failed_extractions": {
+                            source: item
+                            for source, item in report["extractions"].items()
+                            if item["exit_code"]
+                        },
                     },
                     sort_keys=True,
                 )

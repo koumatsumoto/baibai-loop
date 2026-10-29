@@ -28,6 +28,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.maintenance.tradingview_context import (
     calendar_context,
     snapshot_state,
@@ -144,7 +145,7 @@ def _copy_raw(
     return inserted
 
 
-def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> dict[str, object]:
+def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> ReplayResult:
     """Add original receipts and replay missing tickers; never replace a saved snapshot.
 
     A changed calendar/master universe refuses the handoff. A master received by
@@ -234,10 +235,13 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
             )
             added += conn.total_changes - changes
     after = snapshot_state(target, handoff.snapshot_date)
-    return {
-        **after,
-        "rows_added": added,
-        "raw_receipts_added": raw_added,
-        "rows_before": before.get("rows", 0),
-        "rejected_receipts": rejected,
-    }
+    return ReplayResult(
+        report={
+            **after,
+            "rows_added": added,
+            "raw_receipts_added": raw_added,
+            "rows_before": before.get("rows", 0),
+            "rejected_receipts": rejected,
+        },
+        complete=not rejected,
+    )

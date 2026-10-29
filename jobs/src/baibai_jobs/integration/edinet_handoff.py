@@ -20,6 +20,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.integration.replay_result import ReplayResult
 
 
 def export_handoff(
@@ -51,7 +52,7 @@ def export_handoff(
     return {"list_receipts": lists, "archives": sorted(archives)}
 
 
-def import_handoff(source: Path, target: Path) -> dict[str, object]:
+def import_handoff(source: Path, target: Path) -> ReplayResult:
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
         closing(open_connection(target)) as conn,
@@ -103,9 +104,12 @@ def import_handoff(source: Path, target: Path) -> dict[str, object]:
                     projection.rollback()
             else:
                 replayed.append(day.isoformat())
-    return {
-        "raw_rows_added": added,
-        "replayed_days": replayed,
-        "failed_days": failed,
-        "archive_conflicts": conflicts,
-    }
+    return ReplayResult(
+        report={
+            "raw_rows_added": added,
+            "replayed_days": replayed,
+            "failed_days": failed,
+            "archive_conflicts": conflicts,
+        },
+        complete=not (failed or conflicts),
+    )

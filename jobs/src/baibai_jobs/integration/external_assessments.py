@@ -43,8 +43,10 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
     save_observations as external_assessment_save_observations,
 )
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
     ObjectStore,
+    R2Error,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
@@ -237,11 +239,9 @@ def merge_ready(
             if selected_digests.keys() & digests.keys():
                 raise ValueError("receipt identity shared by independent exact plans")
             rows = external_assessment_save_observations(database, own)
-        except LakePublishError as error:
-            if str(error).startswith("R2 "):
-                raise
-            failed.append({"reference": reference, "reason": type(error).__name__})
-        except (ValueError, KeyError, TypeError) as error:
+        except (R2Error, LakeCASConflict):
+            raise
+        except (LakePublishError, ValueError, KeyError, TypeError) as error:
             failed.append({"reference": reference, "reason": type(error).__name__})
         else:
             observations.extend(own)
