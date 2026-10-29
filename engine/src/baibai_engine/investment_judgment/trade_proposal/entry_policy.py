@@ -51,6 +51,12 @@ def _positive_board_lot(value: object) -> int:
     return value
 
 
+def _selected_board_lot_quantity(value: object, board_lot: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0 or value % board_lot:
+        raise ValueError("selected_quantity must be a positive board-lot multiple")
+    return value
+
+
 def evaluate_buy_terms(
     assessment: StockAssessmentDocument,
     *,
@@ -77,13 +83,8 @@ def evaluate_buy_terms(
     board_lot = _positive_board_lot(board_lot)
     if guide <= 0:
         raise ValueError("positive board_lot and budget guide required")
-    if selected_quantity is not None and (
-        isinstance(selected_quantity, bool)
-        or not isinstance(selected_quantity, int)
-        or selected_quantity <= 0
-        or selected_quantity % board_lot
-    ):
-        raise ValueError("selected_quantity must be a positive board-lot multiple")
+    if selected_quantity is not None:
+        selected_quantity = _selected_board_lot_quantity(selected_quantity, board_lot)
     blockers: list[GateReason] = []
 
     def block(code: BuyGateCode, message: str) -> None:

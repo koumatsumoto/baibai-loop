@@ -26,6 +26,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
+    load_latest_investment_proposal,
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
@@ -116,6 +117,11 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
     ):
         with pytest.raises(ValueError, match=error):
             reader()
+    with (
+        closing(connect_read_only(case.app)) as connection,
+        pytest.raises(ValueError, match=error),
+    ):
+        load_latest_investment_proposal(connection)
     assert case.app.read_bytes() == before
 
 

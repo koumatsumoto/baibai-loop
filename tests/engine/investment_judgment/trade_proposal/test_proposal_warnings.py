@@ -392,11 +392,14 @@ def test_multiple_buys_use_shared_initial_policy_limit(case):
 
 def test_selected_notional_not_quantity_ceiling_drives_exposure_adv_and_cash_warnings(case):
     _, proposal = case
-    small = calculate(
-        case, items=(buy(proposal, quantity=100),), liquidity_context=liquidity(4000000)
-    )
+    inputs = proposal.inputs.model_copy(update={"budget_min_yen": 200000})
+    small_buy = buy(proposal, quantity=100)
+    maximum_buy = buy(proposal, quantity=300)
+    assert small_buy.terms.notional_yen == 100000 < inputs.budget_min_yen
+    assert maximum_buy.terms.notional_yen == 300000 == inputs.budget_max_yen
+    small = calculate(case, inputs=inputs, items=(small_buy,), liquidity_context=liquidity(4000000))
     maximum = calculate(
-        case, items=(buy(proposal, quantity=300),), liquidity_context=liquidity(4000000)
+        case, inputs=inputs, items=(maximum_buy,), liquidity_context=liquidity(4000000)
     )
     assert small.portfolio_exposure.ticker.prospective_pct * 3 == pytest.approx(
         maximum.portfolio_exposure.ticker.prospective_pct

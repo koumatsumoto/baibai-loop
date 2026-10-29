@@ -1,4 +1,4 @@
-"""Loopback-only read-only portfolio and task views."""
+"""Loopback-only read-only portfolio, task and saved proposal views."""
 
 from __future__ import annotations
 
@@ -13,9 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
+from baibai_web.readmodel.builders.proposal import build_latest_proposal
 from baibai_web.readmodel.builders.tasks import build_tasks
 from baibai_web.readmodel.models import DashboardView, OutcomesView, TasksView
+from baibai_web.readmodel.proposal_models import LatestProposalView
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource, DbTaskSource
+from baibai_web.sources.proposal import DbProposalSource
 
 PUBLIC_ASSETS = (
     "favicon.ico",
@@ -55,6 +58,10 @@ def create_app(root: Path, *, db_path: Path | None = None) -> FastAPI:
     @app.get("/api/outcomes", response_model=OutcomesView)
     def outcomes() -> OutcomesView:
         return build_outcomes(application)
+
+    @app.get("/api/proposal/latest", response_model=LatestProposalView)
+    def latest_proposal() -> LatestProposalView:
+        return build_latest_proposal(DbProposalSource(application))
 
     dist = resolved_root / "web/frontend/dist"
     assets = dist / "assets"

@@ -554,6 +554,15 @@ def test_author_sell_floor_flows_through_check_publish_get_and_preview(
     assert checked.valid
     calculation = checked.payload()["calculations"]["1234"]
     assert (calculation["sell_limit_projection"] is None) is broken
+    if broken:
+        wrong_basis = proposal.payload()
+        wrong_basis["items"][0]["terms"]["valuation_as_of"] = (
+            "2026-10-13" if assessment_as_of == "2026-10-14" else "2026-10-14"
+        )
+        wrong_basis = bind_review(wrong_basis, {case.pair.assessment_id: case.pair.document})
+        rejected = service.check(wrong_basis)
+        assert not rejected.valid
+        assert "sell_valuation_basis_differs" in {reason.code for reason in rejected.blockers}
     if not broken:
         assert calculation["current_price_projection"]["price_yen"] == 1100
         assert Decimal(calculation["sell_limit_projection"]["calculation_price_yen"]) == floor
