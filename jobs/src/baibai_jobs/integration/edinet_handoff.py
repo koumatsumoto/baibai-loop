@@ -15,6 +15,7 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     read_unrechecked_edinet_document_dates,
 )
+from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
@@ -90,14 +91,16 @@ def import_handoff(source: Path, target: Path) -> dict[str, object]:
             days.update(read_unrechecked_edinet_document_dates(target, before=max(days)))
     failed = []
     replayed = []
-    # Originals are durable. Reject only the failed day: successful dates may
-    # contain withdrawals/corrections that must still invalidate older facts.
+    # Preserve an eligible prior day on failure. Without one, keep the owner's
+    # failed projection and evidence; successful other dates still commit.
     for day in sorted(days):
         with closing(open_connection(target)) as projection, projection:
             projection.execute("BEGIN IMMEDIATE")
+            previously_covered = date_covered(projection, "edinet_documents", day)
             if rebuild_edinet_document_day(target, day, connection=projection).error is not None:
                 failed.append(day.isoformat())
-                projection.rollback()
+                if previously_covered:
+                    projection.rollback()
             else:
                 replayed.append(day.isoformat())
     return {

@@ -124,7 +124,8 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="edinet.documents",
             required=True,
             carries_history=True,
-            require_complete_coverage=True,
+            # Failed list days remain explicit without blocking independent sources.
+            require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.segment_facts",
