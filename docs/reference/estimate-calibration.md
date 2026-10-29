@@ -1,6 +1,6 @@
 # 見積り較正
 
-現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しいY/M二viewを較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。実装の入口は[較正処理](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/)と[保存文脈](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/)。本書は測定値の解釈と採否の制約を残し、CLI・field・検証分岐は転記しない。
+現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しい経済経路の候補政策を較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。実装の入口は[較正処理](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/)と[保存文脈](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/)。本書は測定値の解釈と採否の制約を残し、CLI・field・検証分岐は転記しない。
 
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味

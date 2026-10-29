@@ -22,10 +22,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
-from baibai_engine.machine_analysis.screening.policies.two_view_selection import (
-    select_saved_generation,
+from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
+    select_saved_economic_generation,
 )
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
@@ -53,7 +53,7 @@ def integrate_models(
     as_of: date,
     lease_handle: Path,
     growth_start: date | None,
-    policy: TwoViewPolicy,
+    policy: EconomicPathPolicy,
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
     handle = _load_handle(lease_handle)
@@ -85,7 +85,7 @@ def integrate_models(
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)
         subjects = generation.subjects
-        selection = select_saved_generation(
+        selection = select_saved_economic_generation(
             generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
         )
         selection_id = f"selection-{prepared.release.release_id}"
@@ -123,8 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         type=date.fromisoformat,
         help="optional accounting-period start; omitted retains all available periods",
     )
-    parser.add_argument("--earnings-limit", type=int, default=20)
-    parser.add_argument("--combined-limit", type=int, default=20)
+    parser.add_argument("--candidate-limit", type=int, default=36)
     args = parser.parse_args(argv)
     try:
         result = integrate_models(
@@ -136,9 +135,7 @@ def main(argv: list[str] | None = None) -> int:
             as_of=args.asof,
             lease_handle=args.lease_handle,
             growth_start=args.growth_start,
-            policy=TwoViewPolicy(
-                earnings_limit=args.earnings_limit, combined_limit=args.combined_limit
-            ),
+            policy=EconomicPathPolicy(candidate_limit=args.candidate_limit),
         )
     except Exception as error:
         write_json_atomic(

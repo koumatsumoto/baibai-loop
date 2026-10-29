@@ -19,9 +19,9 @@ uv run baibai-engine investment-judgment selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
-指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五モデル・保有・既存調査を比較する。必要な候補外の対照も同じ固定generationから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。選定は購入順位でなく、次に調べる価値の比較である。価値差と損失経路、答えによって採否・価格条件が変わる大きさ、調査で答えが得られる見込みを既存のselection_summary・rationale・research_questionへ記す。開示が豊富なだけで優先せず、同じ未解決の問いを繰り返すだけなら他の対象と比較する。
+指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、生成済みモデル・保有・既存調査を比較する。必要な候補外の対照も同じ固定generationから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。選定は購入順位でなく、次に調べる価値の比較である。価値差と損失経路、答えによって採否・価格条件が変わる大きさ、調査で答えが得られる見込みを既存のselection_summary・rationale・research_questionへ記す。開示が豊富なだけで優先せず、同じ未解決の問いを繰り返すだけなら他の対象と比較する。
 
-selection-contextは発行済みの候補政策と、そのgenerationのモデルを返す。未生成とpayload内の欠測を区別し、欠測を正常値へ補わない。prepareは選定した対象のモデルと政策本文を固定保存し、可変storeから再計算しない。
+新政策のselection-contextは発行済みのcompact候補カードと共有文脈を返す。経路のraw値・符号・対象期と借入/現金/投資/希薄化等の反対材料を読み、候補入りを絶対的割安・健全・買付資格と扱わない。気になる対象は同じscreening_selection_idに--compare-tickerを指定し、完全モデルを読む。候補の順位低下だけを保有売却の理由にしない。未生成とpayload内の欠測を区別し、欠測を正常値へ補わない。prepareは選定した対象のモデルと政策本文を固定保存し、可変storeから再計算しない。
 
 調査対象と採否は[投資戦略](../../../docs/doctrine.md#economic-return-policy)に照らして判断し、統合の進め方は下記のCompany Researchへ進む。
 

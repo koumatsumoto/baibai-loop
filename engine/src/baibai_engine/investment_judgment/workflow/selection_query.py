@@ -7,10 +7,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
+from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
 from baibai_engine.primitives.stocks import normalize_ticker
@@ -31,11 +35,12 @@ def load_generated_selection_context(
     comparison_tickers: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
-    from pydantic import TypeAdapter
-
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
-    from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-    from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
+    from baibai_engine.machine_analysis.generation.contracts import research_subjects
+    from baibai_engine.machine_analysis.generation.query import (
+        read_model_inputs,
+        read_research_model_inputs,
+    )
     from baibai_engine.machine_analysis.screening.selection_query import (
         read_publication,
     )
@@ -61,6 +66,7 @@ def load_generated_selection_context(
     if request.scope == "discover_new" and screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
     screening = None
+    publication = None
     if screening_selection_id is not None:
         publication = read_publication(
             path=runs_path, selection_id=screening_selection_id, as_of=as_of, known_at=known_at
@@ -87,21 +93,31 @@ def load_generated_selection_context(
                 )
     requested = request.requested_tickers or (held if request.scope == "review_positions" else ())
     candidates = () if screening is None else screening.result.tickers
-    subjects = tuple(
-        sorted(
-            {
-                "market",
-                *requested,
-                *candidates,
-                *(normalize_ticker(ticker) for ticker in comparison_tickers),
-            }
+    compact_screening = screening is not None and isinstance(
+        screening.result, EconomicPathSelection
+    )
+    detail_targets = set(requested) | {normalize_ticker(ticker) for ticker in comparison_tickers}
+    if compact_screening:
+        # 候補株の詳細を展開せず、発行時の完全planから候補に必要な共有文脈を解く。
+        # 明示対象・保有は同じgenerationの全予定モデルを通常どおり読める。
+        assert publication is not None
+        detail_targets.update(held)
+        metadata = publication.generation
+        related = research_subjects(metadata, tuple(sorted(detail_targets | set(candidates))))
+        plan = metadata.subject_plan
+        shared = (
+            {"market"}
+            if plan is None
+            else {subject for subject, definition in plan.items() if definition.scope != "stock"}
         )
-    )
-    models = read_research_model_inputs(
-        generation_id,
-        targets=tuple(subject for subject in subjects if subject != "market"),
-        path=runs_path,
-    )
+        subjects = tuple(
+            subject for subject in related if subject in detail_targets or subject in shared
+        )
+        models = read_model_inputs(generation_id, subjects=subjects, path=runs_path)
+    else:
+        models = read_research_model_inputs(
+            generation_id, targets=tuple(sorted(detail_targets | set(candidates))), path=runs_path
+        )
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     if models.as_of > as_of or models.evaluation_time > known_at:
@@ -116,11 +132,13 @@ def load_generated_selection_context(
         "generation_id": generation_id,
         "screening_selection_id": screening_selection_id,
         "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
-        "screening": None
-        if screening is None
-        else TypeAdapter(ViewSelection).dump_python(screening.result, mode="json"),
+        "screening": None if screening is None else _project_screening(screening.result),
         "candidate_tickers": list(candidates),
-        "candidate_order_semantics": "per_view_rank_not_a_union_investment_ranking",
+        "candidate_order_semantics": (
+            "best_economic_path_attention_priority_not_investment_return"
+            if compact_screening
+            else "per_view_rank_not_a_union_investment_ranking"
+        ),
         "requested_tickers": requested,
         "held_tickers": held,
         "model_inputs": project_generated_inputs(models),
@@ -128,3 +146,17 @@ def load_generated_selection_context(
         if context is None
         else assessment_projection(context, as_of=as_of),
     }
+
+
+def _project_screening(result: ScreeningResult) -> dict[str, Any]:
+    # 新政策のcontext/evidenceは既に有限の観測要約。ここで別のカードschemaへ
+    # 縮め直すと、期間・basis・出所・欠測や比較不能の理由を落としてしまう。
+    projection = TypeAdapter(ScreeningResult).dump_python(result, mode="json")
+    if isinstance(result, EconomicPathSelection):
+        projection["interpretation"] = (
+            "screening_priority_not_expected_return_or_buy_recommendation"
+        )
+        projection["detail_read"] = (
+            "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>"
+        )
+    return projection
