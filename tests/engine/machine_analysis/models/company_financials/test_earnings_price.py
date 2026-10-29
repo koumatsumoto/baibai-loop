@@ -1,14 +1,19 @@
-from dataclasses import replace
+import json
+from dataclasses import asdict, replace
 from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.models.company_financials.earnings import earnings_price
+from baibai_engine.machine_analysis.models.company_financials.earnings import (
+    earnings_price,
+    read_earnings_price,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.primitives.json import canonical_json
 
 ASOF = date(2026, 8, 31)
 RULES = TTMRules(
@@ -58,6 +63,7 @@ def test_signed_profit_and_standalone_companies_remain_representable(profit, bas
     assert result.statement_basis == basis.lower()
     assert result.profit_components[0].disclosure_number == "fy-2026"
     assert result.profit_components[0].disclosed_time == "15:30:00"
+    assert result.profit_period == (date(2025, 4, 1), date(2026, 3, 31))
 
 
 def test_unknown_statement_basis_keeps_amount_without_claiming_comparable_yield():
@@ -141,6 +147,40 @@ def test_ttm_keeps_actual_operands_instead_of_adding_reported_eps():
         (1, 100.0),
         (-1, 20.0),
     ]
+    assert result.profit_period == (date(2025, 7, 1), date(2026, 6, 30))
+    saved = json.loads(canonical_json(asdict(result)))
+    restored = read_earnings_price(saved)
+    assert restored == result
+    assert restored.profit_period == result.profit_period
+    assert "profit_period" not in asdict(restored)
+    assert canonical_json(asdict(restored)) == canonical_json(saved)
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        ("empty", (None, None)),
+        ("missing_start", (None, date(2026, 3, 31))),
+        ("two_positive", (None, None)),
+        ("missing_positive_end", (None, None)),
+        ("missing_negative_end", (None, None)),
+    ],
+)
+def test_profit_period_does_not_invent_missing_component_dates(shape, expected):
+    result = observation([annual()])
+    part = result.profit_components[0]
+    components = {
+        "empty": (),
+        "missing_start": (replace(part, period_start=None),),
+        "two_positive": (part, part),
+        "missing_positive_end": (
+            part,
+            replace(part, period_end=None),
+            replace(part, coefficient=-1),
+        ),
+        "missing_negative_end": (part, part, replace(part, coefficient=-1, period_end=None)),
+    }[shape]
+    assert replace(result, profit_components=components).profit_period == expected
 
 
 def test_missing_treasury_shares_is_not_assumed_zero():

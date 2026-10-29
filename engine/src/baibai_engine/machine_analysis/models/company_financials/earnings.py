@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from math import isfinite
+
+from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
@@ -56,6 +58,28 @@ class EarningsPrice:
     profit_components: tuple[ProfitComponent, ...]
     earnings_yield: float | None
     unavailable_reason: str | None
+
+    @property
+    def profit_period(self) -> tuple[date | None, date | None]:
+        positive = [part for part in self.profit_components if part.coefficient == 1]
+        negative = [part for part in self.profit_components if part.coefficient == -1]
+        if len(positive) == 1 and not negative:
+            return positive[0].period_start, positive[0].period_end
+        if len(positive) == 2 and len(negative) == 1:
+            prior_end = negative[0].period_end
+            endpoints = [part.period_end for part in positive]
+            if prior_end is not None and all(end is not None for end in endpoints):
+                return prior_end + timedelta(days=1), max(
+                    end for end in endpoints if end is not None
+                )
+        return None, None
+
+
+_EARNINGS_PRICE = TypeAdapter(EarningsPrice)
+
+
+def read_earnings_price(payload: dict[str, JsonValue]) -> EarningsPrice:
+    return _EARNINGS_PRICE.validate_python(payload)
 
 
 def earnings_price(
