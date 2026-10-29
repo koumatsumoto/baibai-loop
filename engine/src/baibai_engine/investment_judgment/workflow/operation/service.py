@@ -16,7 +16,10 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
     proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal.query import (
+    has_published_proposal_for_operation,
+    load_investment_proposal,
+)
 from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
@@ -431,7 +434,16 @@ class OperationService:
                         or progress.proposal_ref != progress_binding(before.payload).proposal_ref,
                     )
                 if completed_at is not None:
-                    if selected_before.targets and progress.proposal_ref is None:
+                    # Coverage is already exact. Check publication under this writer
+                    # transaction: publishing does not itself bind the Operation ref.
+                    if (
+                        selected_before.targets
+                        and progress.proposal_ref is None
+                        and (
+                            not all(outcome.status == "unfinished" for outcome in progress.outcomes)
+                            or has_published_proposal_for_operation(connection, operation_id)
+                        )
+                    ):
                         raise OperationCompletionError(
                             "completion requires one published Trade Proposal reference"
                         )
