@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
@@ -43,7 +43,7 @@ class ArticleEvidence:
     lookup_release_id: str
     lookup_manifest_sha256: str
     receipt: ArticleReceipt
-    body: bytes
+    body: bytes = field(repr=False)
     observation: ArticleObservation | None
     artifact: ArticleExtractionArtifact | None
 

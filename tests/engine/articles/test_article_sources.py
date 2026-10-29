@@ -201,3 +201,45 @@ def test_partial_html_does_not_include_navigation_or_claim_linked_pdf_read():
     assert "ignore" not in item.text
     assert item.content_scope == "partial_text"
     assert item.metadata["attachments"] == ["https://www.boj.or.jp/attachment.pdf"]
+
+
+def test_pdf_projection_records_exact_page_coordinates():
+    from io import BytesIO
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    for value in (b"Synthetic decision one", b"Synthetic annex two"):
+        page = writer.add_blank_page(width=400, height=400)
+        font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+        )
+        content = DecodedStreamObject()
+        content.set_data(b"BT /F1 12 Tf 20 300 Td (" + value + b") Tj ET")
+        page[NameObject("/Contents")] = content
+    output = BytesIO()
+    writer.write(output)
+    item = parse_document("boj_news", output.getvalue(), url="https://www.boj.or.jp/synthetic.pdf")
+    spans = item.metadata["page_spans"]
+    assert len(spans) == 2
+    assert "Synthetic decision one" in item.text[spans[0]["start"] : spans[0]["end"]]
+    assert "Synthetic annex two" in item.text[spans[1]["start"] : spans[1]["end"]]
+    assert item.missing_parts == ("non_text_figures_and_layout",)
+
+
+def test_orphan_304_is_returned_even_when_recovery_budget_is_exhausted():
+    session = Mock(spec=requests.Session)
+    session.get.return_value = response(304)
+    (attempt,) = fetch(
+        session, budget=ArticleBudget.start(max_requests=1, max_bytes=1000, seconds=30)
+    )
+    assert attempt.receipt.error_code == "missing_304_baseline"
+    assert session.get.call_count == 1

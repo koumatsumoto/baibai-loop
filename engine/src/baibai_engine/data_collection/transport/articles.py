@@ -12,7 +12,7 @@ import hashlib
 import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
@@ -65,7 +65,7 @@ class ArticleBudgetExceeded(RuntimeError):
 @dataclass(frozen=True)
 class ArticleResponse:
     receipt: ArticleReceipt
-    body: bytes | None
+    body: bytes | None = field(repr=False)
 
 
 def fetch_article(

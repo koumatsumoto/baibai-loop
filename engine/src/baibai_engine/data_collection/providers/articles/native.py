@@ -218,6 +218,8 @@ def parse_document(
         "minkabu_news": ("news-body", "md_newsBody", "news_body"),
     }.get(source, ())
     region = next((node for node in nodes if any(node.has_class(name) for name in classes)), None)
+    if region is None and source == "minkabu_news":
+        region = next((node for node in nodes if node.attrs.get("itemprop") == "articleBody"), None)
     if region is None and source in {"boj_news", "mof_news"}:
         region = next(
             (

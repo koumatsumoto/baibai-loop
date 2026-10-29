@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from contextlib import closing
 from pathlib import Path
 
@@ -56,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def _run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command in {"save-receipt", "save-artifact", "project"}:
         with closing(open_connection(args.sqlite_path)) as conn, conn:
@@ -94,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
             evidence = (
                 reader.get(reference) if args.command == "get" else reader.exact_evidence(reference)
             )
-            args.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            args.output_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
             # Refuse accidental replacement; the command is explicit private materialization.
             with (args.output_dir / "body.bin").open("xb") as output:
                 output.write(evidence.body)
@@ -120,3 +121,15 @@ def main(argv: list[str] | None = None) -> int:
             }
     print(json.dumps(result, ensure_ascii=False))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        return _run(argv)
+    except Exception as exc:
+        # Validation tracebacks can include submitted private source/extraction text.
+        print(
+            f"article command failed ({type(exc).__name__}); inspect private input/store",
+            file=sys.stderr,
+        )
+        return 1

@@ -270,3 +270,46 @@ def test_explicit_schema_upgrade_preserves_old_store_and_operator_rows(tmp_path)
         assert conn.execute("SELECT count(*) FROM article_source_receipts").fetchone()[0] == 0
     with pytest.raises(FileExistsError):
         upgrade_article_working_copy(source, destination)
+
+
+def test_cli_validation_does_not_echo_private_input(tmp_path, capsys):
+    from baibai_engine.cli.articles import main
+
+    private = tmp_path / "invalid.json"
+    private.write_text('{"private_original":"DO_NOT_PRINT_SYNTHETIC_SECRET"}')
+    result = main(
+        [
+            "save-artifact",
+            "--artifact-file",
+            str(private),
+            "--sqlite-path",
+            str(tmp_path / "market.sqlite"),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "ValidationError" in captured.err
+    assert "DO_NOT_PRINT_SYNTHETIC_SECRET" not in captured.err + captured.out
+
+
+def test_assistant_extraction_requires_fixed_model_prompt_and_config(tmp_path):
+    from pydantic import ValidationError
+
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        body = payload()
+        retain_receipt(conn, receipt("one", body), body=body)
+        _, observations = project_receipt(conn, "one", generated_at=AT)
+        draft = artifact(observations[0]).model_dump(mode="json")
+        draft["method"] = "assistant"
+        with pytest.raises(ValidationError, match="fixed model"):
+            ArticleExtractionArtifact.model_validate(draft)
+        candidate = ArticleExtractionArtifact.model_validate(
+            {
+                **draft,
+                "model_id": "synthetic-model",
+                "prompt_sha256": "a" * 64,
+                "config_sha256": "b" * 64,
+            }
+        )
+        save_artifact(conn, candidate)
+        assert read_artifacts(conn, [candidate.artifact_id]) == (candidate,)

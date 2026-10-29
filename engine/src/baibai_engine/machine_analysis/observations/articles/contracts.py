@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 from typing import Literal
 
-from pydantic import AwareDatetime, Field, JsonValue
+from pydantic import AwareDatetime, Field, JsonValue, model_validator
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleValue,
@@ -114,10 +114,20 @@ class ArticleExtractionArtifact(ArticleValue):
     extractor_revision: str
     status: Literal["extracted", "empty", "failed", "unsupported", "pending"]
     model_id: str | None = None
-    prompt_sha256: str | None = None
-    config_sha256: str | None = None
+    prompt_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    config_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     payload: dict[str, JsonValue] = Field(default_factory=dict)
     error_code: str | None = None
+
+    @model_validator(mode="after")
+    def assistant_identity(self) -> ArticleExtractionArtifact:
+        if self.method == "assistant" and not (
+            self.model_id and self.prompt_sha256 and self.config_sha256
+        ):
+            raise ValueError(
+                "assistant extraction requires fixed model, prompt and config identities"
+            )
+        return self
 
     @property
     def artifact_id(self) -> str:

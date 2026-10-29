@@ -21,9 +21,9 @@ from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts impo
     EQUITY_WEB_SOURCE_RESPONSES,
 )
 from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
-    ARTICLE_PROJECTION_RUNS,
-    ARTICLE_OBSERVATIONS,
     ARTICLE_EXTRACTION_ARTIFACTS,
+    ARTICLE_OBSERVATIONS,
+    ARTICLE_PROJECTION_RUNS,
 )
 from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
     EDINET_DOCUMENT_LISTS,
