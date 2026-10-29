@@ -10,6 +10,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     Metric,
     Observation,
     PeriodState,
+    PeriodStatus,
     SourceDocument,
     Value,
 )
@@ -183,7 +184,7 @@ def _derived(
     all_rows: Sequence[JQuantsFinancialSummary],
     *,
     ttm: bool,
-) -> tuple[date, dict[Metric, Value]]:
+) -> tuple[date, dict[Metric, Value], PeriodStatus]:
     anchor = current[0]
     assert anchor.period_start is not None
     assert anchor.period_end is not None
@@ -193,7 +194,11 @@ def _derived(
         if ttm
         else 70 <= days <= 110
     ):
-        return anchor.period_start, {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS}
+        return (
+            anchor.period_start,
+            {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS},
+            "available",
+        )
     start = (
         add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
         if ttm
@@ -238,7 +243,7 @@ def _derived(
         )
         if previous is not None:
             selected_groups = [previous]
-    period_reason = None
+    period_reason: PeriodStatus | None = None
     if not selected_groups:
         period_reason = "matching_period_not_observed"
     else:
@@ -285,7 +290,7 @@ def _derived(
         value = compose_ttm_amount(*values) if ttm else values[0] - values[1]
         metrics[metric] = Value(value=value, documents=tuple(_document(r) for r in sources))
 
-    return start, metrics
+    return start, metrics, period_reason or "available"
 
 
 def build_period_states(
@@ -329,13 +334,14 @@ def build_period_states(
             ),
         ]
         for ttm in (False, True):
-            start, metrics = _derived(group, groups, rows, ttm=ttm)
+            start, metrics, period_status = _derived(group, groups, rows, ttm=ttm)
             _margin(metrics, sector)
             observations.append(
                 Observation(
                     period_start=start,
                     period_end=anchor.period_end,
                     measurement="annual_ttm" if ttm else "quarter",
+                    period_status=period_status,
                     statement_basis=basis,
                     metrics=metrics,
                 )

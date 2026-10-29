@@ -78,6 +78,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 "related_subjects",
                 "full_result_reference",
             ),
+            "annual_observation": _annual_observation(_object(context.get("annual_observation"))),
             "growth_coverage": _pick(
                 _object(context.get("growth_coverage")),
                 "status",
@@ -153,6 +154,30 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
             "external_assessment": _external(_object(context.get("external_assessment"))),
         },
     }
+
+
+def _annual_observation(annual: dict[str, Any]) -> dict[str, Any]:
+    brief = _pick(
+        annual,
+        "selected_variant",
+        "full_fy_period_start",
+        "full_fy_period_end",
+        "full_fy_age_days",
+        "latest_ttm_period_status",
+        "capital_fallback",
+    )
+    if annual.get("selected_variant") == "full_fy":
+        for name in ("latest_reported_observation", "latest_quarter_observation"):
+            observation = _object(annual.get(name))
+            brief[name] = {
+                **_pick(observation, "period_start", "period_end", "statement_basis"),
+                "metrics": {
+                    metric: _pick(_object(value), "value", "reason")
+                    for metric, value in _object(observation.get("metrics")).items()
+                    if metric in {"sales", "operating_profit", "operating_margin", "parent_profit"}
+                },
+            }
+    return brief
 
 
 def _path(path: dict[str, Any], *, include_earnings_periods: bool) -> dict[str, Any]:
