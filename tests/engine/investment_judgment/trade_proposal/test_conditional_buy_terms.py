@@ -130,7 +130,7 @@ def test_discount_limit_cannot_bypass_any_hard_gate(overrides, blocker):
     payload["valuation"]["required_annual_return_pct"] = "3"
     result = evaluate(
         StockAssessmentDocument.model_validate(payload),
-        **dict(proposed_limit_yen=Decimal(900)) | overrides,
+        **dict(proposed_limit_yen=Decimal(900), selected_quantity=100) | overrides,
     )
     assert blocker in codes(result)
     assert result.quantity == 0
@@ -207,3 +207,52 @@ def test_quote_ticker_must_resolve_to_assessment():
 def test_board_lot_is_a_positive_integer(lot):
     with pytest.raises(ValueError, match="positive board_lot"):
         evaluate(board_lot=lot)
+
+
+@pytest.mark.parametrize("quantity", [100, 200, 300])
+def test_author_selects_quantity_within_existing_ceiling_without_changing_per_share_return(
+    quantity,
+):
+    result = evaluate(selected_quantity=quantity)
+    maximum = evaluate()
+    assert result.hard_blockers == ()
+    assert result.quantity == quantity
+    assert result.maximum_quantity == maximum.quantity == 300
+    assert result.limit_price_projection == maximum.limit_price_projection
+    assert result.current_price_projection == maximum.current_price_projection
+
+
+@pytest.mark.parametrize("quantity", [0, -100, True, 1.5, Decimal(100), 99, 101])
+def test_invalid_selected_quantity_is_not_rounded_or_replaced(quantity):
+    with pytest.raises(ValueError, match="positive board-lot multiple"):
+        evaluate(selected_quantity=quantity)
+
+
+def test_selected_quantity_over_ceiling_is_blocked_without_silent_resizing():
+    for overrides in (
+        {"selected_quantity": 400},
+        {"selected_quantity": 300, "available_cash_yen": Decimal(200000)},
+        {
+            "selected_quantity": 300,
+            "proposed_limit_yen": Decimal(880),
+            "quote": quote("875"),
+            "available_cash_yen": Decimal(263000),
+        },
+    ):
+        result = evaluate(**overrides)
+        assert "selected_quantity_above_maximum" in codes(result)
+        assert result.quantity == 0
+        assert result.maximum_quantity < overrides["selected_quantity"]
+
+
+def test_author_quantity_preserves_one_lot_guide_exception_and_exact_cash_boundary():
+    result = evaluate(
+        selected_quantity=100, budget_max_yen=Decimal(50000), available_cash_yen=Decimal(100000)
+    )
+    assert result.hard_blockers == ()
+    assert result.quantity == result.maximum_quantity == 100
+    result = evaluate(
+        selected_quantity=100, budget_max_yen=Decimal(50000), available_cash_yen=Decimal(99999)
+    )
+    assert result.quantity == result.maximum_quantity == 0
+    assert "available_cash_below_board_lot" in codes(result)

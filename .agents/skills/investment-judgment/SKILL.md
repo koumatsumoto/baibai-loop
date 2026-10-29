@@ -103,6 +103,8 @@ uv run baibai-engine investment-judgment trade-proposal-check <DRAFT> --db store
 uv run baibai-engine investment-judgment trade-proposal-publish <REVIEWED_DRAFT> --db stores/application/baibai.sqlite
 ```
 
+売却は[保有継続と回収](../../../docs/reference/trade-proposal.md#holding)に従い、実quoteと作者下限の比較をcheckの算術と照合し、回収・保有継続・回復待ちの理由を内容Reviewへ渡す。
+
 checkのvalidとreview_bindingを別に読み、作者と別の作業者が正規modelのdraft_sha256へ内容Reviewを束縛する。[Review・保存・preview](../../../docs/reference/trade-proposal.md#publication-review)に従い、入力事実が変わればsnapshotとReviewを取り直す。
 
 ## 完了と再開

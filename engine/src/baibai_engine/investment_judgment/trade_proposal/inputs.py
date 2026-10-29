@@ -69,11 +69,13 @@ from baibai_engine.storage.sqlite.source_cache.read import (
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
+PROPOSAL_TERMS_POLICY_REVISION = "author-selected-terms-v1"
 
 
 def proposal_input_policy_id() -> str:
-    """現在使ったthreshold全体の世代を、入力事実の一部として固定する。"""
-    return "portfolio-policy-" + sha256(canonical_json(PORTFOLIO_POLICY).encode()).hexdigest()
+    """提案条件の意味revisionと使用thresholdを新規入力へ固定する。"""
+    policy = {"proposal_terms": PROPOSAL_TERMS_POLICY_REVISION, "portfolio": PORTFOLIO_POLICY}
+    return "proposal-policy-" + sha256(canonical_json(policy).encode()).hexdigest()
 
 
 def _original_assessment(

@@ -388,3 +388,20 @@ def test_multiple_buys_use_shared_initial_policy_limit(case):
         calculate(
             case, items=(proposal.items[0], proposal.items[0].model_copy(update={"ticker": "5678"}))
         )
+
+
+def test_selected_notional_not_quantity_ceiling_drives_exposure_adv_and_cash_warnings(case):
+    _, proposal = case
+    small = calculate(
+        case, items=(buy(proposal, quantity=100),), liquidity_context=liquidity(4000000)
+    )
+    maximum = calculate(
+        case, items=(buy(proposal, quantity=300),), liquidity_context=liquidity(4000000)
+    )
+    assert small.portfolio_exposure.ticker.prospective_pct * 3 == pytest.approx(
+        maximum.portfolio_exposure.ticker.prospective_pct
+    )
+    assert "budget_guide_under" in small.terms_warnings["1234"]
+    for warning in ("adv_participation_exceeds_warning", "dry_powder_below_floor"):
+        assert warning not in small.terms_warnings["1234"]
+        assert warning in maximum.terms_warnings["1234"]

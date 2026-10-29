@@ -474,8 +474,13 @@ def test_sell_full_holding_and_no_buy_maximum(payload):
     )
     item.update(terms=buy_terms, terms_unavailable_reasons=[])
     assert TradeProposal.model_validate(payload).items[0].terms.side == "sell"
-    buy_terms.update(limit_price_yen="1101", notional_yen="110100")
-    with pytest.raises(ValidationError, match="actual close"):
+    for price in (900, 1101, 1200):
+        buy_terms.update(limit_price_yen=str(price), notional_yen=str(price * 100))
+        proposal = TradeProposal.model_validate(payload)
+        assert proposal.items[0].terms.limit_price_yen == price
+        assert proposal.inputs.quotes[0].price_yen == 1100
+    buy_terms.update(limit_price_yen="3001", notional_yen="300100")
+    with pytest.raises(ValidationError, match="grid rule"):
         TradeProposal.model_validate(payload)
     buy_terms.update(limit_price_yen="1100", notional_yen="110000")
     buy_terms.update(quantity=50, notional_yen="55000")

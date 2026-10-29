@@ -18,6 +18,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
 from baibai_engine.investment_judgment.trade_proposal.conditions import (
     assessment_quote_basis,
     buy_evaluation,
+    buy_evaluation_payload,
     proposal_quote,
     terms_unavailable_reasons,
 )
@@ -77,24 +78,26 @@ def _validate_action(
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
-) -> tuple[GateReason, ...]:
+) -> tuple[tuple[GateReason, ...], dict[str, object]]:
     latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
     inputs = proposal.inputs
     blockers: list[GateReason] = []
+    calculation: dict[str, object] = {}
     if item.action == "buy":
         result = buy_evaluation(
             pair,
             inputs=inputs,
             proposed_limit_yen=_limit_for_partial_buy(item),
+            selected_quantity=None if item.terms is None else item.terms.quantity,
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
             market_connection=market_connection,
         )
         blockers.extend(result.hard_blockers)
+        calculation = buy_evaluation_payload(result)
         if item.terms is not None and (
-            item.terms.quantity != result.quantity
-            or item.terms.maximum_entry_price_yen != result.maximum_price_yen
+            item.terms.maximum_entry_price_yen != result.maximum_price_yen
             or item.terms.valuation_as_of != pair.document.input_snapshot.as_of
         ):
             blockers.append(
@@ -119,7 +122,16 @@ def _validate_action(
             reviewed=True,
             latest=latest,
             max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+            proposed_sell_limit_yen=(
+                item.terms.limit_price_yen
+                if item.action == "sell" and item.terms is not None
+                else None
+            ),
         )
+        calculation = {
+            "current_price_projection": result_holding.current_price_projection,
+            "sell_limit_projection": result_holding.sell_limit_projection,
+        }
         blockers.extend(result_holding.hard_blockers)
         if (
             result_holding.action != item.action
@@ -153,6 +165,16 @@ def _validate_action(
                 )
         else:
             blockers.extend(unavailable)
+            if (
+                item.action == "sell"
+                and item.terms.valuation_as_of != pair.document.input_snapshot.as_of
+            ):
+                blockers.append(
+                    GateReason(
+                        code="sell_valuation_basis_differs",
+                        message="売却条件の評価日は参照した保存評価の基準日へ一致させてください。",
+                    )
+                )
             if item.terms.target_session != next_order_session(sqlite_path=sqlite_path, now=now):
                 blockers.append(
                     GateReason(
@@ -160,7 +182,7 @@ def _validate_action(
                         message="提案条件のsessionが次の注文可能sessionへ一致しません。",
                     )
                 )
-    return tuple(blockers)
+    return tuple(blockers), calculation
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +190,7 @@ class ProposalValidation:
     valid: bool
     draft_sha256: str
     blockers: tuple[GateReason, ...]
+    calculations: dict[str, dict[str, object]]
 
     def payload(self) -> dict[str, object]:
         return {
@@ -175,6 +198,7 @@ class ProposalValidation:
             "valid": self.valid,
             "draft_sha256": self.draft_sha256,
             "blockers": [reason.model_dump(mode="json") for reason in self.blockers],
+            "calculations": self.calculations,
         }
 
 
@@ -249,6 +273,7 @@ def _check_proposal(
             f"proposal content review binds a different draft; expected {draft_hash}"
         )
     pairs: dict[str, ReviewedAssessment] = {}
+    calculations: dict[str, dict[str, object]] = {}
     blockers: list[GateReason] = []
     if proposal.as_of != now.astimezone(JST).date():
         blockers.append(
@@ -300,17 +325,17 @@ def _check_proposal(
                 )
             )
         if item.action in {"buy", "hold", "sell"}:
-            blockers.extend(
-                _validate_action(
-                    connection,
-                    proposal,
-                    item,
-                    pair,
-                    sqlite_path=sqlite_path,
-                    now=now,
-                    market_connection=market_connection,
-                )
+            action_blockers, calculation = _validate_action(
+                connection,
+                proposal,
+                item,
+                pair,
+                sqlite_path=sqlite_path,
+                now=now,
+                market_connection=market_connection,
             )
+            blockers.extend(action_blockers)
+            calculations[item.ticker] = calculation
     warnings = build_proposal_warnings(
         proposal.inputs,
         proposal.items,
@@ -331,7 +356,7 @@ def _check_proposal(
             and item.terms.warnings != warnings.terms_warnings.get(item.ticker, ())
         ):
             raise ProposalConflictError("proposal terms warnings differ from fixed inputs")
-    return ProposalValidation(not blockers, draft_hash, tuple(blockers))
+    return ProposalValidation(not blockers, draft_hash, tuple(blockers), calculations)
 
 
 class TradeProposalService:

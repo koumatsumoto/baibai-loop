@@ -508,3 +508,118 @@ def test_same_session_adjustment_does_not_change_native_quote_or_comparison(case
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     assert service.publish(proposal).proposal_id == proposal.proposal_id
+
+
+@pytest.mark.parametrize("broken", [False, True])
+@pytest.mark.parametrize("floor", [900, 1200])
+def test_author_sell_floor_flows_through_check_publish_get_and_preview(tmp_path, broken, floor):
+    case = backend_case(tmp_path, holding=True, broken=broken, valuation_unresolved=broken)
+    raw = reviewed_proposal(case, action="sell").payload()
+    item = raw["items"][0]
+    item["terms_unavailable_reasons"] = []
+    item["terms"] = {
+        "side": "sell",
+        "limit_price_yen": str(floor),
+        "quantity": 100,
+        "notional_yen": str(floor * 100),
+        "target_session": "2026-10-15",
+        "valuation_as_of": "2026-10-14",
+        "maximum_entry_price_yen": None,
+        "price_grid_rule_id": "tse-common-conservative-20261014",
+        "conditions": ["全量の回収下限。未約定時は回復待ちの代償を再確認する。"],
+        "warnings": [],
+    }
+    if not broken:
+        item["reason_code"] = "insufficient_remaining_reward"
+        item["remaining_reward"] = {
+            "status": "insufficient",
+            "reason": "現在quoteで今後の損失経路に見返りが見合わない。",
+        }
+        item["case_reassessment_reason"] = "仮説は維持している。"
+    raw["comparison"] = "実quoteと作者下限での保有継続を比べ、下限でも回収を選ぶ。"
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    checked = service.check(proposal)
+    assert checked.valid
+    calculation = checked.payload()["calculations"]["1234"]
+    assert (calculation["sell_limit_projection"] is None) is broken
+    if not broken:
+        assert calculation["current_price_projection"]["price_yen"] == 1100
+        assert Decimal(calculation["sell_limit_projection"]["calculation_price_yen"]) == floor
+    ledger_before = _ledger_snapshot(case.app)
+    published = service.publish(proposal)
+    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
+    before_preview = case.app.read_bytes()
+    preview = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    assert preview.status == "unchanged"
+    assert (
+        preview.items[0]["saved_limit_revalidation"]["sell_limit_projection"]
+        == calculation["sell_limit_projection"]
+    )
+    assert Decimal(preview.items[0]["saved_terms"]["limit_price_yen"]) == floor
+    assert preview.current_inputs.quotes[0].price_yen == 1100
+    assert preview.current_inputs.available_cash_yen == proposal.inputs.available_cash_yen
+    assert case.app.read_bytes() == before_preview
+    assert _ledger_snapshot(case.app) == ledger_before
+    changed = proposal.payload()
+    changed["items"][0]["terms"].update(
+        limit_price_yen=str(floor + 1), notional_yen=str((floor + 1) * 100)
+    )
+    with pytest.raises(ProposalConflictError, match="content review"):
+        service.check(load_proposal_draft(changed))
+
+
+def test_policy_revision_invalidates_unpublished_draft_not_saved_identity(case, monkeypatch):
+    import baibai_engine.investment_judgment.trade_proposal.inputs as proposal_inputs
+
+    current_policy = proposal_inputs.proposal_input_policy_id()
+    with monkeypatch.context() as old:
+        old.setattr(proposal_inputs, "proposal_input_policy_id", lambda: "retained-old-policy")
+        proposal = reviewed_proposal(case)
+        service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+        published = service.publish(proposal)
+    assert current_policy != proposal.inputs.policy_id
+    before = case.app.read_bytes()
+    assert service.publish(proposal) == published
+    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
+    preview = preview_current_terms(
+        proposal_id=proposal.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
+    )
+    assert preview.status == "changed"
+    assert "input_facts_changed:policy_id" in {reason.code for reason in preview.change_reasons}
+    assert case.app.read_bytes() == before
+    with pytest.raises(ProposalConflictError, match="input facts changed"):
+        service.check(proposal)
+
+
+@pytest.mark.parametrize("quantity", [100, 200, 300, 400])
+def test_selected_buy_quantity_publication_uses_existing_ceiling(tmp_path, quantity):
+    case = backend_case(tmp_path, cash_yen=500000)
+    raw = reviewed_proposal(case).payload()
+    raw["items"][0]["terms"].update(quantity=quantity, notional_yen=str(quantity * 1000))
+    raw["comparison"] = "選択数量と上限量・現金維持を比べ、no-addで増量できない代償も確認。"
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    checked = service.check(proposal)
+    assert checked.valid is (quantity <= 300)
+    assert checked.calculations["1234"]["maximum_quantity"] == 300
+    if quantity > 300:
+        assert "selected_quantity_above_maximum" in {reason.code for reason in checked.blockers}
+        with pytest.raises(ProposalError, match="数量上限"):
+            service.publish(proposal)
+        return
+    published = service.publish(proposal)
+    assert published.items[0].terms.quantity == quantity
+    assert published.items[0].terms.notional_yen == quantity * 1000
+    assert ("budget_guide_under" in published.items[0].terms.warnings) is (quantity == 100)
+    assert published.portfolio_exposure.ticker.prospective_pct == quantity / 5
+    changed = proposal.payload()
+    replacement = 200 if quantity == 100 else 100
+    changed["items"][0]["terms"].update(quantity=replacement, notional_yen=str(replacement * 1000))
+    with pytest.raises(ProposalConflictError, match="content review"):
+        service.check(load_proposal_draft(changed))

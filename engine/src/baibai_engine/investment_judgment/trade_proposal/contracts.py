@@ -549,7 +549,7 @@ class TradeProposalDraft(_ProposalValue):
                 raise ValueError("buy terms require valuation based on proposal as_of")
             if item.timing == "wait_limit" and terms.limit_price_yen >= quote.price_yen:
                 raise ValueError("wait_limit must be below the actual quote")
-        if item.action == "sell" or item.timing == "at_current_limit":
+        if item.action == "buy" and item.timing == "at_current_limit":
             current_limit = floor_common_stock_limit(
                 quote.price_yen,
                 target_session=terms.target_session,
