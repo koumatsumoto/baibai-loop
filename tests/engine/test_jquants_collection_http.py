@@ -8,16 +8,19 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
+from unittest.mock import Mock
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
+from tests.helpers.screening_sqlite import make_master_records
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
+    JQuantsRateLimitError,
     page_records,
 )
 from baibai_engine.data_collection.providers.jquants.http import (
@@ -28,8 +31,15 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
     read_request_pages,
 )
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
+from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market.cache import (
+    backfill_history_command,
+    backfill_master_command,
+    bootstrap_cache_command,
+)
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 RECEIVED_AT = datetime(2026, 10, 17, 12, tzinfo=UTC)
@@ -120,6 +130,7 @@ def test_exact_body_unknown_fields_and_original_json_types_survive():
                 "headers": {"x-api-key": "synthetic-test-key"},
                 "timeout": 30,
                 "allow_redirects": False,
+                "stream": True,
             },
         )
     ]
@@ -460,10 +471,128 @@ def test_second_get_exhausts_own_retry_budget_without_replaying_first(wire):
     try:
         pages = client.pages("master", {})
         assert next(pages).body == payload([], cursor="next")
-        with pytest.raises(JQuantsAcquisitionError, match="RetryError"):
+        with pytest.raises(JQuantsRateLimitError, match="HTTP 429") as caught:
             next(pages)
     finally:
         client.close()
     assert len(wire.calls) == 7
     assert wire.waits == [30, 60, 120, 300, 600]
     assert sum("pagination_key" not in parse_qs(urlsplit(url).query) for _, url in wire.calls) == 1
+    assert caught.value.__context__ is None
+    assert caught.value.__cause__ is None
+
+
+@pytest.mark.parametrize("command", ["backfill-history", "backfill-master", "bootstrap-cache"])
+def test_rate_limit_exhaustion_stops_next_endpoint_or_day_in_same_pass(
+    wire, tmp_path, command, capsys
+):
+    def reply(url):
+        assert len(wire.calls) <= 6, "shared quota must not receive another GET budget"
+        return 429, {}, b'{"message":"synthetic-test-key"}'
+
+    wire.reply = reply
+    database = tmp_path / "market.sqlite"
+    open_connection(database).close()
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    maintenance = JQuantsRefresh(database, None, client=client)
+    edinet = Mock()
+    jpx = Mock()
+    edinet.bootstrap_cache.return_value = {"ok": 1}
+    jpx.bootstrap_cache.return_value = {"ok": 1}
+    providers = ProviderBundle(jquants_refresh=maintenance, edinet_refresh=edinet, jpx_refresh=jpx)
+    target = date(2026, 10, 16)
+    try:
+        if command == "backfill-history":
+            code = backfill_history_command(
+                start=target,
+                end=target + timedelta(days=1),
+                providers=providers,
+                sqlite_path=database,
+            )
+        elif command == "backfill-master":
+            code = backfill_master_command(
+                asof_dates=[target, target + timedelta(days=1)],
+                providers=providers,
+                sqlite_path=database,
+            )
+        else:
+            code = bootstrap_cache_command(
+                asof_date=target, providers=providers, sqlite_path=database
+            )
+    finally:
+        maintenance.close()
+
+    assert code == 1
+    assert len(wire.calls) == 6
+    assert len({url for _, url in wire.calls}) == 1
+    assert wire.waits == [30, 60, 120, 300, 600]
+    error = capsys.readouterr().err
+    assert "JQuantsRateLimitError" in error
+    assert "synthetic-test-key" not in error
+    if command == "bootstrap-cache":
+        edinet.bootstrap_cache.assert_called_once()
+        jpx.bootstrap_cache.assert_called_once_with(target)
+    else:
+        edinet.bootstrap_cache.assert_not_called()
+        jpx.bootstrap_cache.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_final_status_survives_an_unreadable_error_body(wire, status):
+    class UnreadableBody(io.BytesIO):
+        def read(self, *args, **kwargs):
+            raise ReadTimeoutError(None, None, "synthetic-test-key in body timeout details")
+
+    wire.reply = lambda url: (status, {}, UnreadableBody())
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    try:
+        with pytest.raises(JQuantsAcquisitionError) as caught:
+            list(client.pages("master", {}))
+    finally:
+        client.close()
+    assert isinstance(caught.value, JQuantsRateLimitError) == (status == 429)
+    assert str(status) in str(caught.value)
+    assert "synthetic-test-key" not in str(caught.value)
+    assert caught.value.__context__ is None
+    assert caught.value.__cause__ is None
+    assert len(wire.calls) == 6
+    assert wire.waits == [30, 60, 120, 300, 600]
+
+
+@pytest.mark.parametrize("failure", ["server", "schema"])
+def test_non_quota_failure_keeps_next_master_date_recoverable(wire, tmp_path, failure):
+    first = date(2026, 10, 15)
+    second = date(2026, 10, 16)
+    recovered = payload(make_master_records(second))
+
+    def reply(url):
+        requested = parse_qs(urlsplit(url).query)["date"]
+        if requested == [first.isoformat()]:
+            if failure == "server":
+                return 503, {}, b'{"message":"429 Too Many Requests"}'
+            return 200, {}, b'{"data":{}}'
+        assert requested == [second.isoformat()]
+        return 200, {}, recovered
+
+    wire.reply = reply
+    database = tmp_path / "market.sqlite"
+    open_connection(database).close()
+    client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
+    maintenance = JQuantsRefresh(database, None, client=client)
+    try:
+        assert (
+            backfill_master_command(
+                asof_dates=[first, second],
+                providers=ProviderBundle(jquants_refresh=maintenance),
+                sqlite_path=database,
+            )
+            == 1
+        )
+    finally:
+        maintenance.close()
+
+    assert len(wire.calls) == (7 if failure == "server" else 2)
+    assert parse_qs(urlsplit(wire.calls[-1][1]).query)["date"] == [second.isoformat()]
+    assert wire.waits == ([30, 60, 120, 300, 600] if failure == "server" else [])
+    assert read_eq_master_exact(database, first) is None
+    assert read_eq_master_exact(database, second) is not None

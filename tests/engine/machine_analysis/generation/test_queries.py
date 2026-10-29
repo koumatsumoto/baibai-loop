@@ -76,8 +76,13 @@ def test_past_master_and_peers_ignore_future_classification_and_prices(tmp_path)
     master(path, "2026-05-28", {"AAAA": "機械", "BBBB": "機械", "CCCC": "機械", "DDDD": "小売業"})
     master(path, "2026-06-01", {"AAAA": "小売業", "BBBB": "建設業", "DDDD": "小売業"})
     result = security(path)
-    assert result["master"]["sector_33"] == "機械"
-    assert result["master"]["snapshot_date"] == "2026-05-28"
+    assert result["master"] == {
+        "name": "AAAA",
+        "market_segment": "プライム",
+        "sector_33": "機械",
+        "is_common_stock": True,
+        "snapshot_date": "2026-05-28",
+    }
     peer = result["relative"]["sector"]
     assert peer["peer_count"] == 2
     assert peer["peer_median_return_20d"] == pytest.approx(0.3)

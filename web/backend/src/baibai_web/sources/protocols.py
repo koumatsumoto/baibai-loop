@@ -16,13 +16,15 @@ class PortfolioRead:
 
 
 class LedgerSource(Protocol):
-    def exists(self) -> bool: ...
-    def snapshot(self) -> PortfolioRead: ...
+    def snapshot(self) -> PortfolioRead | None:
+        """Return None only for an uninitialized ledger; damaged ledgers raise."""
+        ...
 
 
 class LedgerFactsSource(Protocol):
-    def exists(self) -> bool: ...
-    def facts_snapshot(self) -> PortfolioSnapshot: ...
+    def facts_snapshot(self) -> PortfolioSnapshot | None:
+        """Return ledger facts or None when uninitialized, without market valuation."""
+        ...
 
 
 class MarketSource(Protocol):

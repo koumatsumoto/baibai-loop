@@ -28,6 +28,10 @@ class JQuantsAcquisitionError(RuntimeError):
         self.request_id = request_id
 
 
+class JQuantsRateLimitError(JQuantsAcquisitionError):
+    """The final HTTP 429 stops further J-Quants acquisition in this pass."""
+
+
 @dataclass(frozen=True, slots=True)
 class JQuantsPage:
     """Decompressed HTTP response content, with no credentials or response headers.

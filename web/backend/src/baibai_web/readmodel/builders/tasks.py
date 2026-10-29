@@ -41,15 +41,6 @@ def build_tasks(
     open_tasks, next_task = _task_views(tasks.list_tasks())
     tasks_exist = tasks.exists()
     try:
-        if not ledger.exists():
-            return TasksView(
-                generated_at=now,
-                tasks_exist=tasks_exist,
-                open_tasks=open_tasks,
-                next_task=next_task,
-                upcoming_events=[],
-                ledger_error=None,
-            )
         snapshot = ledger.facts_snapshot()
     except (ValueError, RuntimeError, sqlite3.Error) as error:
         return TasksView(
@@ -59,6 +50,15 @@ def build_tasks(
             next_task=next_task,
             upcoming_events=[],
             ledger_error=str(error),
+        )
+    if snapshot is None:
+        return TasksView(
+            generated_at=now,
+            tasks_exist=tasks_exist,
+            open_tasks=open_tasks,
+            next_task=next_task,
+            upcoming_events=[],
+            ledger_error=None,
         )
 
     holding_tickers = [holding.ticker for holding in snapshot.holdings]

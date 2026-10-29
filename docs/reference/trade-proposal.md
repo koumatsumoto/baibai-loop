@@ -56,7 +56,7 @@ PmaxはBaseの条件付き年率が要求率を満たす価格上限で、期待
 <a id="publication-review"></a>
 ## Review・保存・preview
 
-scaffoldで入力とIDを固定し、正規checkが返すdraft_sha256へ作者と別の内容Reviewを束縛する。checkのvalidとreview_bindingは別で、staleやfile hashをReview完了としない。価格・数量・cash・scope・warningを含む内容を変えたら再Reviewする。初回発行直前のpublished_atを使い、Review時刻を付け替えて順序を作らない。
+scaffoldで入力とIDを固定し、正規checkが返すdraft_sha256へ作者と別の内容Reviewを束縛する。checkのvalidとreview_bindingは別で、staleやfile hashをReview完了としない。価格・数量・cash・scope・warningを含む内容を変えたら再Reviewする。published_atは初回発行時にエンジンが付けるためdraftへ記入しない。Reviewには実際の検証時刻を記し、時刻を付け替えて順序を作らない。
 
 公開時は固定scope・exact評価pair・現在の入力事実を照合する。checked_atの経過だけをdriftとせず、実際の入力変化でsnapshotとReviewを取り直す。同ID同内容の再送は保存済み結果を返し、異内容は拒否する。読取へ現在termsの適格性を追加して過去本文を書き換えない。
 

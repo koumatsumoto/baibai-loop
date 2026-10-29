@@ -109,9 +109,8 @@ def prepare_market_context_from_bars(
     sectors: dict[str, list[str]] = {}
     if master is not None:
         for ticker, security in master.securities.items():
-            sector = security["sector_33"]
-            if security["is_common_stock"] and isinstance(sector, str):
-                sectors.setdefault(sector, []).append(ticker)
+            if security.is_common_stock:
+                sectors.setdefault(security.sector_33, []).append(ticker)
     benchmark_rows = [
         (bar.traded_at, bar.price)
         for bar in bars_by_ticker.get(benchmark_ticker, ())
@@ -276,9 +275,9 @@ def calculate_market_snapshot(
         {}
         if master is None
         else {
-            ticker: str(row["sector_33"])
-            for ticker, row in master.securities.items()
-            if row["is_common_stock"]
+            ticker: security.sector_33
+            for ticker, security in master.securities.items()
+            if security.is_common_stock
         }
     )
     benchmark = series_by_ticker.get(benchmark_ticker)
@@ -289,7 +288,9 @@ def calculate_market_snapshot(
             set()
             if point_master is None
             else {
-                ticker for ticker, row in point_master.securities.items() if row["is_common_stock"]
+                ticker
+                for ticker, security in point_master.securities.items()
+                if security.is_common_stock
             }
         )
         points.append(

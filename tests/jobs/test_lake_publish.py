@@ -599,6 +599,53 @@ def test_first_publication_needs_no_store_origin(
     )
 
 
+def test_publication_rejects_history_shorter_than_the_serving_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    narrow_release_policy(monkeypatch, carries_history=None)
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    store = MemoryR2Store()
+    monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
+    market_publish_module.publish_market_lake(
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        store=store,
+        release_id="two-month-history",
+    )
+    pointer = store.values["lake/pointers/market/current.json"]
+    origin = read_lake_store_origin(sqlite_path)
+    assert origin is not None
+
+    # Keep the serving origin, but give the next export a valid, shorter price span.
+    # Stale January coverage would test a broken fixture rather than the history floor.
+    with closing(sqlite3.connect(sqlite_path)) as connection, connection:
+        connection.execute("DELETE FROM jquants_daily_bars WHERE traded_at < '2026-02-01'")
+        connection.execute("DELETE FROM source_coverage WHERE source = 'jquants_daily_bars'")
+        record_range_source_coverage(
+            connection,
+            source="jquants_daily_bars",
+            operation="get_daily_quotes",
+            table="jquants_daily_bars",
+            date_column="traded_at",
+            requested_start=date(2026, 2, 2),
+            requested_end=date(2026, 2, 2),
+            status="ok",
+            error=None,
+        )
+
+    with pytest.raises(ValueError, match="the serving release already covers"):
+        market_publish_module.publish_market_lake(
+            sqlite_path=sqlite_path,
+            mirror_root=mirror,
+            store=store,
+            release_id="shortened-history",
+        )
+
+    assert store.values["lake/pointers/market/current.json"] == pointer
+    assert read_lake_store_origin(sqlite_path) == origin
+
+
 def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

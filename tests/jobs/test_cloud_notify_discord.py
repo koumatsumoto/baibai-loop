@@ -11,7 +11,7 @@ from baibai_jobs.observability.discord import (
     DeliveryError,
     decide_outcome,
     deliver,
-    derive_failed_step,
+    derive_failed_steps,
     load_notice,
     prepare_webhook_url,
     render_message,
@@ -164,33 +164,35 @@ def test_urllib_transport_identifies_itself_instead_of_the_default_urllib_agent(
 # --- outcome and failed step ----------------------------------------------
 
 
-def test_derive_failed_step_names_the_first_step_that_did_not_succeed_in_order() -> None:
+def test_derive_failed_steps_keeps_every_unsuccessful_step_in_order() -> None:
     outcomes = {"smoke": "success", "setup": "success", "pull": "failure", "hydrate": "failure"}
-    assert derive_failed_step(outcomes) == "pull"
+    assert derive_failed_steps(outcomes) == ["pull", "hydrate"]
 
 
-def test_derive_failed_step_treats_a_cancelled_step_as_where_to_look() -> None:
-    assert derive_failed_step({"upload-stores": "cancelled"}) == "upload-stores"
-    assert derive_failed_step({"upload-stores": "skipped"}) == ""
+def test_derive_failed_steps_keeps_cancelled_steps_but_not_skipped_steps() -> None:
+    assert derive_failed_steps({"upload-stores": "cancelled"}) == ["upload-stores"]
+    assert derive_failed_steps({"upload-stores": "skipped"}) == []
 
 
 @pytest.mark.parametrize(
-    ("exit_code", "failed_step", "cancelled", "expected"),
+    ("exit_code", "failed_steps", "cancelled", "expected"),
     [
-        ("0", "", False, "ok"),
-        ("3", "", False, "failed"),
-        ("1", "model-integration", False, "failed"),
-        ("0", "upload-stores", False, "failed"),
-        ("3", "source-seal", False, "failed"),
-        ("", "pre-batch", False, "failed"),
-        ("0", "", True, "cancelled"),
+        ("0", [], False, "ok"),
+        ("3", [], False, "failed"),
+        ("1", ["model-integration"], False, "failed"),
+        ("0", ["upload-stores"], False, "failed"),
+        ("3", ["source-seal"], False, "failed"),
+        ("", ["pre-batch"], False, "failed"),
+        ("0", [], True, "cancelled"),
+        ("1", ["portfolio-views"], False, "failed"),
+        ("0", ["portfolio-views", "lease-release"], True, "cancelled"),
     ],
 )
 def test_decide_outcome_table(
-    exit_code: str, failed_step: str, cancelled: bool, expected: str
+    exit_code: str, failed_steps: list[str], cancelled: bool, expected: str
 ) -> None:
     assert (
-        decide_outcome(batch_exit_code=exit_code, failed_step=failed_step, cancelled=cancelled)
+        decide_outcome(batch_exit_code=exit_code, failed_steps=failed_steps, cancelled=cancelled)
         == expected
     )
 
@@ -202,7 +204,7 @@ def test_render_message_is_one_headline_generation_counts_and_the_run(tmp_path: 
     notice = load_notice(_notice(tmp_path / "n.json"))
 
     message = render_message(
-        outcome="ok", asof="2026-08-26", failed_step="", notice=notice, url=RUN_URL
+        outcome="ok", asof="2026-08-26", failed_steps=[], notice=notice, url=RUN_URL
     )
 
     assert message.splitlines() == [
@@ -218,7 +220,7 @@ def test_render_message_is_one_headline_generation_counts_and_the_run(tmp_path: 
 
 def test_render_message_names_the_failed_step_separately() -> None:
     message = render_message(
-        outcome="failed", asof="", failed_step="hydrate", notice={}, url=RUN_URL
+        outcome="failed", asof="", failed_steps=["hydrate"], notice={}, url=RUN_URL
     )
 
     assert message.splitlines() == [
@@ -241,7 +243,7 @@ def test_render_message_executor_comes_from_runner(monkeypatch, github_actions, 
     else:
         monkeypatch.setenv("GITHUB_ACTIONS", github_actions)
     message = render_message(
-        outcome="ok", asof="2026-09-26", failed_step="", notice={}, url=RUN_URL
+        outcome="ok", asof="2026-09-26", failed_steps=[], notice={}, url=RUN_URL
     )
     assert message.splitlines()[2] == f"Executor: {expected}"
     assert message.count("Executor:") == 1
@@ -249,7 +251,7 @@ def test_render_message_executor_comes_from_runner(monkeypatch, github_actions, 
 
 def test_render_message_does_not_invent_generation_or_delta_without_a_notice() -> None:
     message = render_message(
-        outcome="failed", asof="", failed_step="pre-batch", notice={}, url=RUN_URL
+        outcome="failed", asof="", failed_steps=["pre-batch"], notice={}, url=RUN_URL
     )
     assert "候補入り" not in message
     assert "候補退出" not in message
@@ -398,7 +400,7 @@ def test_successful_integration_notice_keeps_deferred_input_and_real_source_day(
     message = render_message(
         outcome=discord.OUTCOME_OK,
         asof="2026-10-24",
-        failed_step="",
+        failed_steps=[],
         notice={"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0},
         url=RUN_URL,
         integration_report={
@@ -416,22 +418,39 @@ def test_successful_integration_notice_keeps_deferred_input_and_real_source_day(
     assert "モデル生成: 2社 / 11件 / 候補0社" in message
 
 
-def test_failed_after_publication_keeps_successful_publication_steps() -> None:
-    message = render_message(
-        outcome="failed",
-        asof="2026-10-25",
-        failed_step="lease-release",
-        notice={},
-        url=RUN_URL,
-        step_outcomes={
-            "publish-lake": "success",
-            "upload-stores": "success",
-            "lease-release": "failure",
-        },
+@pytest.mark.parametrize(
+    ("view_outcome", "lease_outcome", "label", "failed_steps"),
+    [
+        ("failure", "success", "DEGRADED", "portfolio-views"),
+        ("success", "failure", "FAILED", "lease-release"),
+        ("failure", "failure", "FAILED", "portfolio-views / lease-release"),
+    ],
+)
+def test_main_reports_all_post_publication_failures_without_losing_core_success(
+    tmp_path, monkeypatch, view_outcome, lease_outcome, label, failed_steps
+):
+    notice = _notice(tmp_path / "notice.json")
+    _, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        "--batch-exit-code",
+        "0",
+        "--publish-lake-outcome",
+        "success",
+        "--upload-stores-outcome",
+        "success",
+        "--portfolio-views-outcome",
+        view_outcome,
+        "--lease-release-outcome",
+        lease_outcome,
+        notice=notice,
     )
-    assert "[FAILED]" in message
-    assert "要確認工程: lease-release" in message
+    message = _sent(transport)
+    assert message.startswith(f"**[{label}]")
+    assert f"- 要確認工程: {failed_steps}" in message.splitlines()
     assert "工程結果: Lake公開 成功 / Store反映 成功" in message
+    assert f"保有・運用画面更新 {discord.step_label(view_outcome)}" in message
+    assert "モデル生成: 3686社 / 18431件 / 候補35社" in message
 
 
 def test_long_details_keep_a_complete_preview_suppressed_run_link() -> None:
@@ -450,27 +469,6 @@ def test_local_execution_without_run_identity_does_not_invent_a_github_url() -> 
     )
     assert "Run: なし" in message
     assert "local/local" not in message
-
-
-def test_portfolio_view_failure_does_not_report_core_success_as_full_success():
-    outcomes = {"publish-lake": "success", "upload-stores": "success", "portfolio-views": "failure"}
-    failed = derive_failed_step(outcomes)
-    assert failed == "portfolio-views"
-    outcome = decide_outcome(batch_exit_code="0", failed_step=failed, cancelled=False)
-    assert outcome == "degraded"
-    message = render_message(
-        outcome=outcome,
-        asof="2026-10-25",
-        failed_step=failed,
-        notice={},
-        url=RUN_URL,
-        step_outcomes=outcomes,
-    )
-    assert "[DEGRADED]" in message
-    assert "portfolio-views" in message
-    assert "Lake公開" in message
-    assert "Store反映" in message
-    assert "保有・運用画面更新" in message
 
 
 @pytest.mark.parametrize("field", ["company_count", "model_count", "candidate_count"])
@@ -498,11 +496,11 @@ def test_generation_readiness_does_not_reuse_stale_counts_or_legacy_delta():
 def test_successful_generation_does_not_hide_a_failed_store_upload():
     notice = {"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0}
     outcomes = {"publish-lake": "success", "upload-stores": "failure"}
-    failed = derive_failed_step(outcomes)
+    failed = derive_failed_steps(outcomes)
     message = render_message(
-        outcome=decide_outcome(batch_exit_code="0", failed_step=failed, cancelled=False),
+        outcome=decide_outcome(batch_exit_code="0", failed_steps=failed, cancelled=False),
         asof="2026-10-25",
-        failed_step=failed,
+        failed_steps=failed,
         notice=notice,
         url=RUN_URL,
         step_outcomes=outcomes,
@@ -543,7 +541,7 @@ def test_failed_lake_stage_suppresses_stale_success_count():
     message = render_message(
         outcome="failed",
         asof="2026-10-25",
-        failed_step="publish-lake",
+        failed_steps=["publish-lake"],
         url=RUN_URL,
         notice={"models_ready": True, "company_count": 2, "model_count": 11, "candidate_count": 0},
         step_outcomes={"publish-lake": "failure"},
@@ -556,7 +554,7 @@ def test_deferred_input_text_is_single_line_and_keeps_the_run_link():
     message = render_message(
         outcome="ok",
         asof="2026-10-25",
-        failed_step="",
+        failed_steps=[],
         notice={},
         url=RUN_URL,
         integration_report={

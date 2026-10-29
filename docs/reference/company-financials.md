@@ -25,8 +25,6 @@ Yは報告された年間利益総額を現在の普通株時価総額で割る�
 
 合成は円総額で行い、1株換算は最後に一度だけ行う。各期EPSは異なる平均株数で割られており、EPSの和差では株式数が変わった企業を誤る。FinancialSnapshotのEPSは時価総額と同じ自己株控除後分母で組み直した値で、会社開示の期中平均株数EPSとは別である。
 
-3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。旧Normalized Earningsの候補抽出で使っていたが、現行の候補政策のmembershipや順位へは使わない。旧機械ER/FV anchorへも投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
-
 YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。旧指標の選択利益に経常/純利益fallbackがあっても、営業利益を代替しない。新しい五モデルの成長変化はcompany_growthが所有し、負基準の旧前年比を併記しない。
 
 ## 資本と株式単位
@@ -69,13 +67,7 @@ DPSの会社予想と実績を対象期・basisごとに分ける。L3の期間�
 
 basis未解決と無配・未観測を分け、独立して使える予想まで妨げない。相殺して累積factorが1でも変更をなかったことにしない。原本の明細・総額・株数は残し、未解決年度を飛ばして増配率やstreakを復活させない。将来carryを実現配当へ読み替えない。
 
-## 相対比較と自己レンジ
-
-旧runの倍率業種中央値は当時のScreeningの共通資格母集団で作る。新しい五モデルの市場・同業文脈とは区別する。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
-
-自己レンジは**現在fundamentalsを固定し、過去価格だけを動かした倍率比較**。各日の当時利益・資本から再現した倍率履歴ではない。min/max内の位置は観測順位のpercentileではなく、短い履歴の位置0も長期割安の証拠ではない。bar本数、履歴期間proxy、scope内の相対密度を合わせて読む。密度は取引calendarの完全性を証明しない。
-
-真の倍率履歴anchorへの置換は、必要な5y確認窓が成立せず[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-self-range-vs-multiple-history/report.md)とした。
+## 価格と株数のbasis
 
 価格調整はraw closeとfactorからas-of basisを作り、取得世代の異なるprovider調整済み価格を接続しない。価格日より後のfactorを使い、権利落ち日当日に二重適用しない。factor0をイベントなしとせず、正の有限係数を要求する。
 

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalError,
     TradeProposal,
+    load_proposal_draft,
     order_readiness,
     proposal_draft_sha256,
 )
@@ -82,6 +83,16 @@ def test_appendix_parses_with_exact_typed_review_hash(payload):
     assert proposal.items[0].terms.notional_yen == Decimal("300000")
     assert order_readiness(proposal.items[0]) == "ready"
     validate_proposal_policy(proposal)
+
+
+def test_draft_has_the_same_hash_as_the_historical_publication(payload):
+    published = TradeProposal.model_validate(payload)
+    draft = load_proposal_draft(payload)
+    assert "published_at" not in draft.payload()
+    assert proposal_draft_sha256(draft) == published.review.draft_sha256
+    assert TradeProposal.model_validate(payload).payload() == payload
+    with pytest.raises(ValidationError, match="published_at"):
+        TradeProposal.model_validate(draft.payload())
 
 
 def test_scope_hash_binds_the_fixed_research_selection_fixture():

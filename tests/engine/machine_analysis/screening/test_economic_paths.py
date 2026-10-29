@@ -2,7 +2,6 @@ import gzip
 import sqlite3
 from contextlib import closing
 from dataclasses import replace
-from hashlib import sha256
 from itertools import permutations
 
 import pytest
@@ -18,12 +17,7 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     PathCoordinates,
     select_economic_paths,
 )
-from baibai_engine.machine_analysis.screening.policies.two_views import (
-    CandidateView,
-    RankedCompany,
-    TwoViewPolicy,
-    ViewSelection,
-)
+from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 
@@ -199,46 +193,6 @@ def test_candidate_limit_is_a_finite_attention_cap(invalid):
         EconomicPathPolicy(candidate_limit=invalid)
 
 
-def test_old_selection_codec_retains_original_shape():
-    expected = {
-        "generation_id": "g",
-        "universe_tickers": ["1001"],
-        "result": {
-            "policy": {
-                "method": "earnings-price-views-v1",
-                "earnings_limit": 1,
-                "combined_limit": 1,
-                "earnings_scale": 0.1,
-                "momentum_scale": 0.5,
-                "earnings_weight": 0.6,
-            },
-            "views": [
-                {
-                    "view_id": "earnings-price",
-                    "limit": 1,
-                    "eligible_count": 1,
-                    "companies": [{"ticker": "1001", "rank": 1, "ranking_value": 0.1}],
-                },
-                {
-                    "view_id": "earnings-price-response",
-                    "limit": 1,
-                    "eligible_count": 1,
-                    "companies": [{"ticker": "1001", "rank": 1, "ranking_value": -0.123456}],
-                },
-            ],
-        },
-    }
-    codec = TypeAdapter(ScreeningSelection)
-    previous_bytes = canonical_json(expected).encode()
-    restored = codec.validate_json(previous_bytes)
-    assert isinstance(restored.result, ViewSelection)
-    assert restored.result.tickers == ("1001",)
-    actual = codec.dump_python(restored, mode="json")
-    assert canonical_json(actual) == canonical_json(expected)
-    assert sha256(canonical_json(actual).encode()).digest() == sha256(previous_bytes).digest()
-    assert "cards" not in actual["result"]
-
-
 def test_card_evidence_context_and_missing_models_round_trip_with_new_result():
     first = row("1001", 0.100049, 0.25)
     first = replace(
@@ -287,30 +241,76 @@ def test_saved_card_coordinates_must_remain_finite_numbers(invalid):
 
 @pytest.mark.parametrize(
     "method",
-    ["two-view", "best-economic-path-v1", "best-economic-path-v2", "best-economic-path-v3"],
+    ["earnings-price-views-v1", "best-economic-path-v1", "best-economic-path-v2"],
 )
-def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_path, method):
+def test_historical_selection_payload_keeps_shape_and_idempotent_publication(tmp_path, method):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
     ModelGenerationStore(path).publish(fixed)
-    old = ViewSelection(
-        TwoViewPolicy(earnings_limit=1, combined_limit=1),
-        (
-            CandidateView("earnings-price", 1, 1, (RankedCompany("1001", 1, 0.100049),)),
-            CandidateView("earnings-price-response", 1, 0, ()),
-        ),
-    )
-    result = (
-        replace(select(row("1001", 0.100049, 0.2)), policy=EconomicPathPolicy(method=method))
-        if method != "two-view"
-        else old
-    )
-    selection = ScreeningSelection(fixed.generation_id, ("1001",), result)
-    # 旧結果は新unionのschemaを使わず保存し、既存bytesのまま読めることを確認する。
+    # 合成した固定保存契約fixture。本番履歴ではなく、現行計算・codecから生成しない。
+    # 新しい既定fieldに合わせて更新せず、旧bytesを維持できるかを検証する。
+    result = {
+        "policy": {
+            "method": "earnings-price-views-v1",
+            "earnings_limit": 1,
+            "combined_limit": 1,
+            "earnings_scale": 0.1,
+            "momentum_scale": 0.5,
+            "earnings_weight": 0.6,
+        },
+        "views": [
+            {
+                "view_id": "earnings-price",
+                "limit": 1,
+                "eligible_count": 1,
+                "companies": [{"ticker": "1001", "rank": 1, "ranking_value": 0.1}],
+            },
+            {
+                "view_id": "earnings-price-response",
+                "limit": 1,
+                "eligible_count": 1,
+                "companies": [{"ticker": "1001", "rank": 1, "ranking_value": -0.123456}],
+            },
+        ],
+    }
+    if method != "earnings-price-views-v1":
+        result = {
+            "policy": {"method": method, "candidate_limit": 36},
+            "eligible_count": 1,
+            "cards": [
+                {
+                    "ticker": "1001",
+                    "name": "1001",
+                    "sector": "sector",
+                    "rank": 1,
+                    "priority": 0.5,
+                    "strongest_path": "business_expansion",
+                    "paths": [
+                        {
+                            "path_id": "business_expansion",
+                            "variant": "quarter",
+                            "price_value": 0.100049,
+                            "business_value": 0.2,
+                            "price_group": "sector",
+                            "business_group": "sector",
+                            "price_percentile": 0.5,
+                            "business_percentile": 0.5,
+                            "price_population": 1,
+                            "business_population": 1,
+                            "score": 0.5,
+                            "evidence": {},
+                        }
+                    ],
+                    "context": {},
+                    "model_revisions": {},
+                    "not_generated": [],
+                }
+            ],
+        }
     expected = {
-        "generation_id": fixed.generation_id,
+        "generation_id": "synthetic-generation",
         "universe_tickers": ["1001"],
-        "result": TypeAdapter(type(result)).dump_python(result, mode="json"),
+        "result": result,
     }
     payload = canonical_json(expected).encode()
     compressed = gzip.compress(payload, mtime=0)
@@ -326,7 +326,14 @@ def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_pat
         )
     store = ScreeningSelectionStore(path)
     restored = store.read("selection")
-    assert restored == selection
+    assert restored is not None
+    assert isinstance(
+        restored.result,
+        ViewSelection if method == "earnings-price-views-v1" else EconomicPathSelection,
+    )
+    assert restored.result.tickers == ("1001",)
+    codec = TypeAdapter(ScreeningSelection)
+    assert canonical_json(codec.dump_python(restored, mode="json")).encode() == payload
     assert not store.publish("selection", restored)
     with closing(sqlite3.connect(path)) as connection:
         saved = connection.execute(
@@ -334,8 +341,6 @@ def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_pat
         ).fetchone()[0]
     assert saved == compressed
     assert gzip.decompress(saved) == payload
-    assert store.publish("new-selection", selection)
-    assert store.read("new-selection") == selection
 
 
 @pytest.mark.parametrize("method", ["best-economic-path-v1", "best-economic-path-v2"])

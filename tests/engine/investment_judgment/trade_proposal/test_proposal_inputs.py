@@ -228,7 +228,6 @@ def test_partial_buy_uses_saved_hope_ceiling_cash_and_never_creates_binding(tmp_
             }
         ],
     )
-    raw["published_at"] = PUBLISHED.isoformat()
     raw["review"]["reviewer_identity"] = "synthetic-independent-reviewer"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
@@ -268,9 +267,9 @@ def test_original_reason_respects_reported_buy_time_precision(
     # The earlier-day negative case needs cash to exist before its reported fill.
     case = backend_case(tmp_path, opening_at="2026-10-13T09:00:00+09:00")
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     from baibai_engine.portfolio.ledger.events import ExecutionEvent, ReservationEvent
     from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
@@ -382,7 +381,12 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
     classification = next(
         row for row in _collect(case).security_classification if row.ticker == "1234"
     )
-    assert classification.is_common_stock is expected_common
+    assert classification.model_dump(mode="json") == {
+        "ticker": "1234",
+        "market_segment": "Prime",
+        "is_common_stock": expected_common,
+        "snapshot_date": "2026-10-14",
+    }
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         db_path=case.app,
@@ -479,7 +483,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     if consumer == "preview":
-        service.publish(proposal)
+        proposal = service.publish(proposal)
     with closing(sqlite3.connect(case.market)) as writer, writer:
         assert writer.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
         writer.execute("UPDATE jquants_daily_bars SET adjustment_factor = 0.5, ex_right_type = '1'")

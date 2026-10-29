@@ -31,10 +31,11 @@ from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.tasks import build_tasks
+from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource, DbTaskSource
 
 
-def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tmp_path):
+def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tmp_path, mocker):
     app = tmp_path / APPLICATION_DB_PATH
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     seed_ledger(app, ledger)
@@ -50,7 +51,9 @@ def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tm
     old_dashboard = output / "views/dashboard.json"
     old_dashboard.parent.mkdir(parents=True)
     old_dashboard.write_text('{"legacy": true}\n')
+    document_read = mocker.spy(db_sources, "load_ledger_document")
     paths = export_read_models(tmp_path, output)
+    assert document_read.call_count == 2  # One document per Dashboard / Tasks view.
     assert old_dashboard.read_text() == '{"legacy": true}\n'
     assert {path.name for path in paths} == {
         "portfolio-dashboard.json",
@@ -75,6 +78,38 @@ def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tm
     assert not (tmp_path / "stores/market_context").exists()
 
 
+@pytest.mark.parametrize("store", ["absent", "empty", "unimported"])
+def test_uninitialized_ledger_is_not_damage_or_zero_capital(tmp_path, store):
+    app, market = tmp_path / "app.sqlite", tmp_path / "absent-market"
+    if store == "empty":
+        app.touch()
+    elif store == "unimported":
+        TaskService(app).add(
+            title="台帳初期化前の用件",
+            kind="ops",
+            due_date=date(2026, 10, 26),
+            created_at=date(2026, 10, 25),
+        )
+    before = app.read_bytes() if app.exists() else None
+    ledger, names = DbLedgerSource(app, market), DbMarketSource(market)
+
+    dashboard = build_dashboard(ledger, names)
+    tasks = build_tasks(DbTaskSource(app), ledger, names)
+
+    assert dashboard.ledger_exists is False
+    assert dashboard.ledger_error is None
+    assert dashboard.valuation_error is None
+    assert dashboard.total_capital_yen is None
+    assert dashboard.available_cash_yen is None
+    assert dashboard.holdings_market_value_yen is None
+    assert dashboard.holdings == []
+    assert tasks.ledger_error is None
+    assert tasks.upcoming_events == []
+    assert len(tasks.open_tasks) == (1 if store == "unimported" else 0)
+    assert (app.read_bytes() if app.exists() else None) == before
+    assert not market.exists()
+
+
 def test_corrupt_ledger_metadata_does_not_hide_independent_tasks(tmp_path):
     app = tmp_path / "app.sqlite"
     seed_ledger(
@@ -94,6 +129,7 @@ def test_corrupt_ledger_metadata_does_not_hide_independent_tasks(tmp_path):
     assert view.ledger_error
     assert view.upcoming_events == []
     dashboard = build_dashboard(DbLedgerSource(app, market), DbMarketSource(market))
+    assert dashboard.ledger_exists is True
     assert dashboard.ledger_error
     assert dashboard.valuation_error is None
     assert dashboard.available_cash_yen is None

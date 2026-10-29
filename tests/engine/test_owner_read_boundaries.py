@@ -133,9 +133,9 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
 ) -> None:
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     table = "stock_assessment" if kind == "assessment" else "investment_proposal"
     raw = case.pair.document.model_dump(mode="json") if kind == "assessment" else proposal.payload()
     raw["schema_version"] = version

@@ -34,7 +34,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
-    TradeProposal,
+    load_proposal_draft,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
@@ -509,7 +509,6 @@ def _promote_and_propose(case):
         headline="合成五領域の比較",
         comparison="保存評価の五領域・反証を現金維持と比較した。",
         forgone="価格指標や同原外部評価の票数では購入しない。",
-        published_at=PUBLISHED.isoformat(),
     )
     item = raw["items"][0]
     item["review_conditions"] = ["借換不能・恒常収益源の喪失なら価格と独立して再調査する。"]
@@ -719,7 +718,7 @@ def test_changed_action_reason_cannot_publish_with_original_content_review(
         raw["items"][0]["rationale"] = "待つ経済的理由を変更した。"
     else:
         raw["items"][0]["review_conditions"].append("新しい借換条件を再確認する。")
-    changed = TradeProposal.model_validate(raw)
+    changed = load_proposal_draft(raw)
     # 初回の正常draft以降はbind_reviewを呼ばず、元Reviewをそのまま渡す。
     assert changed.review == proposal.review
     assert proposal_draft_sha256(changed) != changed.review.draft_sha256
