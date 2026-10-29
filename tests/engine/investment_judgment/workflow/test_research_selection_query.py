@@ -22,7 +22,6 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathSelection,
     RankedPath,
 )
-
 from baibai_engine.portfolio.ledger.events import ContributionEvent
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 

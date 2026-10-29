@@ -115,6 +115,8 @@ def refresh_sources(
                         )
                         first = min(first, missing_start)
                 outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
+            except sqlite3.Error:
+                raise
             except Exception as error:
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)

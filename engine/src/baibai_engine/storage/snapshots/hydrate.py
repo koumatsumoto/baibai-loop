@@ -201,7 +201,6 @@ def hydrate_market_store(
     plan, partitions = plan_release_load(release, dataset_names=dataset_names, catalog=catalog)
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
-        schema_version = validate_snapshot(store)
         require_row_counts_within_release(store, plan, catalog=catalog)
         require_safe_hydrate_transition(store, release=release, plan=plan, catalog=catalog)
         require_free_capacity(store.parent, store=store)
@@ -209,7 +208,7 @@ def hydrate_market_store(
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
         rows: dict[str, int] = {}
         try:
-            create_snapshot(store, temporary)
+            schema_version = create_snapshot(store, temporary)
             connection = sqlite3.connect(temporary)
             try:
                 connection.execute("PRAGMA journal_mode=OFF")
