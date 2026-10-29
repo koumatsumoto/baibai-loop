@@ -68,7 +68,6 @@ class CompanyGrowthReader:
             if item.metric == metric
             # A decoder default is not an explicitly saved comparison observation.
             and "comparison" in item.model_fields_set
-            and item.comparison == "year_over_year"
             and item.measurement == observation.measurement
             and item.to_start == observation.period_start
             and item.to_end == observation.period_end
