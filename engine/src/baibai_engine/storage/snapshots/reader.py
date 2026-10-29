@@ -386,9 +386,7 @@ def iter_partition_rows(
                 return
             yield batch
     except duckdb.Error as exc:
-        raise LakeReadError(
-            f"dataset {dataset.name} could not be read: {session.redact(str(exc))}"
-        ) from None
+        raise LakeReadError(f"dataset {dataset.name} could not be read: {exc}") from None
     finally:
         cursor.close()
 

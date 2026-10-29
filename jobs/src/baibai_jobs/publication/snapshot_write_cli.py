@@ -8,7 +8,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from baibai_engine.storage.snapshots.duck import LakeCredentialError
 from baibai_engine.storage.snapshots.hydrate import (
     LakeHydrateError,
     dehydrate_market_store,
@@ -16,7 +15,12 @@ from baibai_engine.storage.snapshots.hydrate import (
 )
 from baibai_engine.storage.snapshots.identity import verified_git_commit
 from baibai_engine.storage.snapshots.models import LakeReleaseSourceRef, load_lake_model_json
-from baibai_engine.storage.snapshots.objects import LakeObjectError, LakeObjectSource, open_lake
+from baibai_engine.storage.snapshots.objects import (
+    LakeCredentialError,
+    LakeObjectError,
+    LakeObjectSource,
+    open_lake,
+)
 from baibai_engine.storage.snapshots.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
