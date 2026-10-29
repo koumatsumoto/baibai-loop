@@ -118,7 +118,9 @@ def generate_financial_and_price_models(
         GeneratedModel(
             model_id="company_valuation",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods",
+            calculation_revision=(
+                f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
+            ),
             payload=json.loads(
                 canonical_json(
                     {

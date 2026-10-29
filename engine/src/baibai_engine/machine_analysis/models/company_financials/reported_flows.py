@@ -10,7 +10,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
-
 # 旧物理列は reported amount を保持している。現行モデルでは同値の TTM alias を出さない。
 _EDINET_FLOW_FIELDS = (
     "edinet_ocf_ttm",
