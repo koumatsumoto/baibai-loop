@@ -636,6 +636,7 @@ def save_research_seed(case, *, ticker="1234", recorded_at=NOW, questions_only=F
 
 def test_research_seed_preserves_evidence_without_authoring_value_or_review(case):
     from tests.helpers.screening_sqlite import seed_daily_bars
+
     from baibai_engine.investment_judgment.company_research.store import load_research
     from baibai_engine.storage.sqlite.application.read import connect_read_only
 
