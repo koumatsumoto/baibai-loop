@@ -48,7 +48,6 @@ from baibai_engine.portfolio.ledger.events import (
     ConfirmedTaxEvent,
     ContributionEvent,
     CostEvent,
-    ExecutionEvent,
     HumanOverride,
     IncomeEvent,
     PortfolioLedgerDocument,
@@ -62,6 +61,7 @@ from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
     compute_portfolio_outcome,
+    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -450,10 +450,6 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    # Unfilled reservations move cash between available and reserved, not into stock.
-    tickers = tuple(
-        sorted({event.ticker for event in ledger.events if isinstance(event, ExecutionEvent)})
-    )
     connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
     try:
         if connection is None:
@@ -462,11 +458,26 @@ def _run_outcome(
             connection.execute("BEGIN")
             calendar_days, bars = read_portfolio_market_inputs(
                 sqlite_path,
-                tickers,
+                (),
                 benchmark.period_start_date,
                 benchmark.period_end_date,
                 connection=connection,
             )
+            if calendar_days is not None:
+                tickers = outcome_market_tickers(
+                    ledger,
+                    business_days=tuple(day.day for day in calendar_days if day.is_business_day),
+                    start=benchmark.period_start_date,
+                    end=benchmark.period_end_date,
+                )
+                if tickers:
+                    _, bars = read_portfolio_market_inputs(
+                        sqlite_path,
+                        tickers,
+                        benchmark.period_start_date,
+                        benchmark.period_end_date,
+                        connection=connection,
+                    )
         if calendar_days is None:
             payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
         elif bars is None:

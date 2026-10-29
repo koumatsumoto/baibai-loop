@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.cli.portfolio import main
@@ -11,12 +12,13 @@ from baibai_engine.machine_analysis.observations.prices.benchmark_observation im
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument, PortfolioLedgerError
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.performance.calculate import (
     DailyNav,
     PortfolioOutcomeError,
     compute_portfolio_outcome,
     compute_time_weighted_return,
+    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -379,22 +381,6 @@ def _unreleased_ledger() -> PortfolioLedgerDocument:
     return PortfolioLedgerDocument.model_validate(raw)
 
 
-def test_an_outcome_is_not_published_from_a_ledger_awaiting_a_human_report() -> None:
-    """The tolerance that lets a prefix replay through a lapse must not reach publish:
-    an outcome row cannot be corrected once written."""
-
-    from baibai_engine.portfolio.ledger.events import (
-        replay_events_through,
-        require_resolved_expiries,
-    )
-
-    ledger = _unreleased_ledger()
-    state = replay_events_through(ledger.events, ledger.as_of)
-
-    with pytest.raises(PortfolioLedgerError, match="expired reservations require"):
-        require_resolved_expiries(state)
-
-
 def test_after_close_internal_cashflow_rolls_past_that_close() -> None:
     from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
 
@@ -568,6 +554,12 @@ def _preperiod_holding() -> PortfolioLedgerDocument:
 
 
 def test_opening_holding_requires_evidence_of_its_preperiod_units() -> None:
+    assert outcome_market_tickers(
+        _preperiod_holding(),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        start=date(2025, 1, 6),
+        end=date(2026, 1, 6),
+    ) == ("1234",)
     result = compute_portfolio_outcome(
         _preperiod_holding(),
         _benchmark(),
@@ -649,8 +641,15 @@ def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> No
             "price_yen": 6,
         },
     ]
+    ledger = PortfolioLedgerDocument.model_validate(raw)
+    assert outcome_market_tickers(
+        ledger,
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        start=date(2025, 1, 6),
+        end=date(2026, 1, 6),
+    ) == ("1234",)
     result = compute_portfolio_outcome(
-        PortfolioLedgerDocument.model_validate(raw),
+        ledger,
         _benchmark(),
         business_days=(date(2025, 1, 6), date(2026, 1, 6)),
         bars=(
@@ -662,17 +661,69 @@ def test_full_sale_does_not_hide_a_corporate_action_on_its_execution_day() -> No
     assert result.reason == "corporate_action_unresolved"
 
 
-def test_outcome_cli_publishes_cash_only_after_unfilled_order_without_price_coverage(
-    tmp_path, monkeypatch, capsys
-):
+def _cash_only_period_ledger(history: str) -> PortfolioLedgerDocument:
+    if history == "unfilled_order":
+        return _lapsed_reservation_ledger()
+    if history == "unreported_expiry":
+        return _unreleased_ledger()
+    raw = _ledger().model_dump(mode="json")
+    raw["events"] = raw["events"][:3]
+    if history.startswith("closed_"):
+        for event in raw["events"]:
+            event["occurred_at"] = event["occurred_at"].replace("2025-01-06", "2024-12-27")
+        sale_day = "2025-01-03" if history == "closed_before_start" else "2025-01-06"
+        raw["events"].append(
+            {
+                "event_id": "sale",
+                "type": "execution",
+                "execution_id": "sale",
+                "occurred_at": f"{sale_day}T09:00:00+09:00",
+                "ticker": "1234",
+                "side": "sell",
+                "quantity": 100,
+                "price_yen": 5,
+            }
+        )
+    else:
+        day = "2026-01-07" if history == "future_purchase" else "2026-01-06"
+        for index, event in enumerate(raw["events"][1:], start=1):
+            event["occurred_at"] = f"{day}T16:0{index}:00+09:00"
+        raw["events"][1]["expires_at"] = "2026-01-08T15:30:00+09:00"
+        raw["as_of"] = "2026-01-07T17:00:00+09:00"
+    return PortfolioLedgerDocument.model_validate(raw)
+
+
+@pytest.mark.parametrize("date_only", [False, True])
+def test_outcome_market_scope_respects_reported_day_at_the_ending_close(date_only):
+    raw = _cash_only_period_ledger("after_end_close_purchase").model_dump(mode="json")
+    if date_only:
+        for event in raw["events"][1:]:
+            event["occurred_on"] = "2026-01-06"
+    assert outcome_market_tickers(
+        PortfolioLedgerDocument.model_validate(raw),
+        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
+        start=date(2025, 1, 6),
+        end=date(2026, 1, 6),
+    ) == (("1234",) if date_only else ())
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        "unfilled_order",
+        "closed_before_start",
+        "closed_on_start",
+        "future_purchase",
+        "after_end_close_purchase",
+        "unreported_expiry",
+    ],
+)
+def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, history):
     import yaml
 
-    from baibai_engine.portfolio.ledger.store import LedgerStoreService
-
-    # Exercise the CLI's ticker selection, actual calendar reader, calculation and
-    # publication. The confirmed ledger contains a reservation but no acquisition.
-    ledger = _lapsed_reservation_ledger()
-    monkeypatch.setattr(LedgerStoreService, "load", lambda self: ledger)
+    # Real CLI -> ledger/calendar readers -> calculation -> immutable publication.
+    # Old/future trades are not dependencies of the requested cash-only period.
+    ledger = _cash_only_period_ledger(history)
     benchmark = _benchmark()
     observation = tmp_path / "benchmark.yaml"
     observation.write_text(yaml.safe_dump(benchmark.model_dump(mode="json")), encoding="utf-8")
@@ -693,23 +744,29 @@ def test_outcome_cli_publishes_cash_only_after_unfilled_order_without_price_cove
             record_count=len(days),
         )
     application = tmp_path / "application.sqlite"
+    seed_ledger(application, ledger)
+    before = PortfolioOutcomeStore(application).list()
 
-    assert (
-        main(
-            [
-                "outcome",
-                "--db",
-                str(application),
-                "--sqlite",
-                str(market),
-                "--benchmark-observation",
-                str(observation),
-            ]
-        )
-        == 0
+    result = main(
+        [
+            "outcome",
+            "--db",
+            str(application),
+            "--sqlite",
+            str(market),
+            "--benchmark-observation",
+            str(observation),
+        ]
     )
+    output = capsys.readouterr()
+    if history == "unreported_expiry":
+        assert result == 2
+        assert "expired reservations require" in output.err
+        assert PortfolioOutcomeStore(application).list() == before == ()
+        return
 
-    emitted = yaml.safe_load(capsys.readouterr().out)
+    assert result == 0
+    emitted = yaml.safe_load(output.out)
     assert emitted["status"] == "resolved"
     assert emitted["portfolio_twr_pct"] == 0.0
     saved = PortfolioOutcomeStore(application).list()
