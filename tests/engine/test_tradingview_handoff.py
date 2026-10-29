@@ -4,7 +4,7 @@ from datetime import timedelta
 import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.engine.test_jquants_projection import body, receive
-from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
+from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
 from tests.engine.test_tradingview_rebuild import _retain
 
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

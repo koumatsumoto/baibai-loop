@@ -23,4 +23,6 @@ def test_local_bulk_entry_is_removed_but_offline_rebuild_remains() -> None:
     with pytest.raises(SystemExit) as error:
         build_parser().parse_args(["tradingview"])
     assert error.value.code == 2
-    assert build_parser().parse_args(["tradingview-source", "rebuild"]).command == "tradingview-source"
+    assert (
+        build_parser().parse_args(["tradingview-source", "rebuild"]).command == "tradingview-source"
+    )

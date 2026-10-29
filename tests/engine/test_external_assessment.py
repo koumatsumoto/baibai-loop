@@ -240,7 +240,7 @@ def test_domain_import_does_not_start_composition_or_acquisition():
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context")) for name in sys.modules)
 assert "baibai_jobs.acquisition.external_assessments.collection" not in sys.modules
-assert "baibai_jobs.acquisition.tradingview.collector" not in sys.modules
+assert not any(name.startswith("baibai_jobs.maintenance.tradingview") for name in sys.modules)
 """,
         ],
         check=True,
@@ -337,9 +337,10 @@ def test_saved_tradingview_history_stays_dated_but_new_generation_excludes_it(tm
     history = read_observations(path, "1234", cutoff)
     personal = external_assessment(path, ticker="1234", cutoff=cutoff, evaluated_at=cutoff)
     assert personal.tradingview.inputs.latest.fetched_at_utc == RECEIVED
-    assert personal.tradingview.inputs.latest.snapshot_date == RECEIVED.astimezone(
-        ZoneInfo("Asia/Tokyo")
-    ).date()
+    assert (
+        personal.tradingview.inputs.latest.snapshot_date
+        == RECEIVED.astimezone(ZoneInfo("Asia/Tokyo")).date()
+    )
     assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
     fixed_payload = personal.model_dump_json()
     generated = generate_external_assessment(history, evaluated_at=cutoff)

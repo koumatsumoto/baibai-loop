@@ -60,7 +60,11 @@ class QuantsScoreAssessment(FrozenModel):
 class TradingViewAssessment(FrozenModel):
     inputs: TradingViewHistory
     availability: Literal[
-        "not_observed", "unresolved", "all_null", "forecast_fields_present", "excluded_by_source_terms"
+        "not_observed",
+        "unresolved",
+        "all_null",
+        "forecast_fields_present",
+        "excluded_by_source_terms",
     ]
     forecast_fields: tuple[str, ...]
     comparisons: tuple[MetricComparison, ...]

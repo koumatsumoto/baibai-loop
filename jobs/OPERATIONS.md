@@ -471,7 +471,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 ### 採用する最小運用
 
 - **個人の対話調査**：既存の公式connectorを使い、ユーザーが関与する個別の問いへ回答する。接続済みでも全銘柄巡回や定期取得へ転用しない。必要な再認証はユーザーが公式client上で行う。新たな契約・認証権限や秘密のコピーは必要ない。
-- **新規batch取得**：TradingViewのscheduled/workflow_dispatch全件取得、local全件runner、OAuth smokeを設けない。`tradingview-source`はoffline `rebuild`だけを持つ。手動で起動するbulk取得も対話調査の代替ではない。
+- **新規batch取得**：TradingViewのscheduled/workflow_dispatch全件取得、local全件runner、OAuth smoke、TV専用の新規source input発行を設けない。`tradingview-source`はoffline `rebuild`だけを持つ。手動で起動するbulk取得も対話調査の代替ではない。
 - **保存済みデータ**：L1原本・受領日時・immutable release・保存済みモデル/判断を削除・再日付化しない。保存履歴の個人向けread-only確認と明示offline再構築は、新規取得なしに行う。原本や時系列の外部共有はしない。保存済みであること自体を、自動判断への再利用許諾と扱わない。
 - **新しいモデル生成**：TradingViewは読み込まず、`external_assessment.tradingview.availability=excluded_by_source_terms`とし、値・比較を入力しない。欠測や正常nullと区別するため、生成revisionは`same-series-v5-no-tradingview`。既存の固定generation/Selection/判断を読む・再開する際は元payload・revision・hashを保ち、現行の空入力へ書き換えない。旧generationを新規判断の入力へ転用する許諾を与えるものではない。
 
