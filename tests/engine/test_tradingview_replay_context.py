@@ -39,5 +39,5 @@ def test_original_receipt_clock_is_checked_not_replaced_with_today():
         validate_time(DAY, NOW + timedelta(days=1))
     with pytest.raises(TimeGuardError):
         validate_time(DAY, NOW - timedelta(hours=1))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Timezone-aware"):
         validate_time(DAY, NOW.replace(tzinfo=None))

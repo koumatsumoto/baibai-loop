@@ -164,3 +164,50 @@ def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_siz
         "quote_close": None,
         "quote_currency": None,
     }
+
+
+def test_populated_retained_row_keeps_all_eighteen_native_field_mappings():
+    data = payload(["TSE:1000"])
+    data["data"]["TSE:1000"].update(
+        AnalystRating="Buy",
+        recommendation_total=7,
+        price_target_average=170,
+        price_target_high=220,
+        price_target_low=130,
+        earnings_per_share_forecast_next_fq=-1.25,
+        revenue_forecast_next_fq=200_000,
+        revenue_forecast_next_fy=900_000,
+        price_earnings_fwd=13.5,
+        price_sales_fwd=2.5,
+        enterprise_value_ebitda_fwd=7.5,
+        ebitda_estimate_fy=300_000,
+        free_cash_flow_estimate_fy=-40_000,
+        capital_expenditures_estimate_fy=-50_000,
+        total_debt_estimate_fy=600_000,
+    )
+    assert normalize_batch(data, ["TSE:1000"], NOW) == [
+        {
+            "ticker": "1000",
+            "provider_symbol": "TSE:1000",
+            "fetched_at_utc": NOW.isoformat(),
+            "fetch_status": "ok",
+            "analyst_rating": "Buy",
+            "recommendation_total": 7,
+            "price_target_average": 170,
+            "price_target_high": 220,
+            "price_target_low": 130,
+            "eps_forecast_next_fq": -1.25,
+            "eps_forecast_next_fy": -5,
+            "revenue_forecast_next_fq": 200_000,
+            "revenue_forecast_next_fy": 900_000,
+            "forward_pe": 13.5,
+            "forward_ps": 2.5,
+            "forward_ev_ebitda": 7.5,
+            "ebitda_estimate_fy": 300_000,
+            "free_cash_flow_estimate_fy": -40_000,
+            "capex_estimate_fy": -50_000,
+            "total_debt_estimate_fy": 600_000,
+            "quote_close": 100,
+            "quote_currency": "JPY",
+        }
+    ]

@@ -265,7 +265,9 @@ def main(argv: list[str] | None = None) -> int:
             acquisition_report: dict[str, object] = {}
             if args.command == "acquire":
                 if args.source == "tradingview":
-                    raise ValueError("TradingView live acquisition is retired; replay retained receipts")
+                    raise ValueError(
+                        "TradingView live acquisition is retired; replay retained receipts"
+                    )
                 if (
                     args.source.startswith("jquants-")
                     and os.environ.get("GITHUB_EVENT_NAME") == "schedule"

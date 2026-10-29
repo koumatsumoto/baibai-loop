@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime

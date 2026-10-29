@@ -43,7 +43,9 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
     def fail_market_input(*_args, **_kwargs):
         raise ValueError("unavailable market input")
 
-    monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.export_source_input", fail_market_input)
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.export_market_source_input", fail_market_input
+    )
     report = publish_inputs(
         remote,
         market=market,

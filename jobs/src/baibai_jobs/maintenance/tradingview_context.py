@@ -13,7 +13,9 @@ from zoneinfo import ZoneInfo
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import TABLE
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    TABLE,
+)
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     observation_calendar_context,
 )
@@ -51,9 +53,7 @@ def validate_time(day: date, now: datetime, *, is_business_day: bool = True) -> 
     local = now.astimezone(JST)
     opening = daytime(15, 30) if is_business_day else daytime(9)
     if local.date() != day or local.time() < opening:
-        raise TimeGuardError(
-            "Receipt time must match its recorded day and observation window"
-        )
+        raise TimeGuardError("Receipt time must match its recorded day and observation window")
 
 
 def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
@@ -95,7 +95,8 @@ def snapshot_state(path: Path, day: date) -> dict[str, object]:
         stored = {
             row[0]
             for row in conn.execute(
-                f"SELECT ticker FROM {TABLE} WHERE snapshot_date=?", (day.isoformat(),)  # nosec B608
+                f"SELECT ticker FROM {TABLE} WHERE snapshot_date=?",  # nosec B608
+                (day.isoformat(),),
             )
         }
         if not stored <= expected:

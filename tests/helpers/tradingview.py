@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from mcp.types import CallToolResult
-from tests.helpers.master import insert_master_rows
 
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
@@ -17,6 +16,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
+from tests.helpers.master import insert_master_rows
 
 DAY = date(2026, 9, 18)
 NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
@@ -42,7 +42,6 @@ PROVIDER_ROW = {
     "close": 100,
     "currency": "JPY",
 }
-
 
 
 def _sdk(body: dict) -> CallToolResult:

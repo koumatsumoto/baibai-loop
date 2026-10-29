@@ -23,11 +23,11 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     COLUMNS,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.observability.tradingview import SourceDataError
 from baibai_jobs.maintenance.tradingview_rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )
+from baibai_jobs.observability.tradingview import SourceDataError
 
 
 def _ids(path: Path) -> list[str]:
