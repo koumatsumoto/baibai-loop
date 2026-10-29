@@ -837,8 +837,10 @@ def test_cash_investment_components_and_source_survive_the_same_fcf():
     second["company_valuation"]["financial"].update(edinet_ocf_ttm=-100.0, capex_ttm=100.0)
     a, b = project(first).context["financial"], project(second).context["financial"]
     assert a["fcf_ttm"] == b["fcf_ttm"] == -200.0
-    assert a["edinet_ocf_ttm"] == 100.0 and b["edinet_ocf_ttm"] == -100.0
-    assert a["capex_ttm"] == 300.0 and b["capex_ttm"] == 100.0
+    assert a["edinet_ocf_ttm"] == 100.0
+    assert b["edinet_ocf_ttm"] == -100.0
+    assert a["capex_ttm"] == 300.0
+    assert b["capex_ttm"] == 100.0
     for field in (
         "edinet_capex_source",
         "consolidation_basis",
