@@ -195,7 +195,7 @@ def _item(
                 ),
             }
         )
-    if item.action in {"hold", "sell"}:
+    if item.action == "hold" or item.action == "sell":
         position = item.position
         original = position.original_assessment_ref
         common.update(
