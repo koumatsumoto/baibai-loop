@@ -130,15 +130,6 @@ malformed leaseは自動修復しない。GitHubとlocalにactive/pending writer
 
 ## application DB を反映する
 
-### Research保存のschema 25→26切替
-
-この切替は通常runtimeの自動移行ではない。取得ETagと対応するschema25作業コピーを保全し、`tools/cutover_application_v25_to_v26.py --source <schema25.sqlite> --destination <new-schema26.sqlite>`で別ファイルを作る。旧行・payload・hashを再計算せず、新しいResearch領域だけを追加する。
-
-共通のpublication leaseはapplication writerを排他しない。切替前に全application writerの更新を止める段取りを確定し、対応コードとschema26正本を一組で反映する。取得ETagへの条件付き反映が競合した場合は、最新schema25コピーから移行し直し、古い移行コピーを押し込まない。反映前に既存の同日backupを独立した退避先へ保全するか、上書きしない方法を確定する。`R2_APP_BACKUP_PRUNE=skip`だけでは同日backup置換を防げない。
-
-反映後にschema26と既存評価・Selection・台帳の保持、新Research保存・再読、viewの読戻しを確認してwriterを再開する。コードmergeだけをstore切替完了とは扱わない。移行完了後はこの一回用toolと手順を撤去し、経緯をIssue #1652へ残す。
-
-
 ### 通常のapplication更新
 
 作業開始前に、空の作業領域へpull-appしてDBとstores/.r2-generations/baibai.sqlite.etagを一組で取得する。そのDBを正規CLIで更新し、取得ETagを保持する。
