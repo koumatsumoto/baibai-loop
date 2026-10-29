@@ -12,9 +12,9 @@ from pydantic import TypeAdapter
 
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
+from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.portfolio.ledger.events import replay_events_through

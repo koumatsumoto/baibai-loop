@@ -111,7 +111,8 @@ def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():
     assert {row["state"] for row in external["comparable_changes"]} == {"increased", "decreased"}
     assert len(external["sources"]) == 2  # providerが同じでもorigin/対象期を誤結合しない。
     first = external["sources"][0]
-    assert first["origin"] == "origin-a" and first["target_period"] == "FY2027"
+    assert first["origin"] == "origin-a"
+    assert first["target_period"] == "FY2027"
     states = {group["state"]: group for group in first["states"]}
     assert states["same_value"]["metrics"]["same_value"] == 1.0
     assert states["first_observation"]["metrics"]["first_observation"] == -2.0
@@ -164,7 +165,8 @@ def test_growth_retains_bad_latest_quarter_and_only_distinct_selected_fallback()
     assert changes["latest_quarter"][0]["to_end"] == "2026-06-30"
     assert changes["selected_fallbacks"][0]["metrics"]["operating_profit"]["to_value"] == 30.0
     assert "sales" not in changes["selected_fallbacks"][0]["metrics"]
-    assert context["financial"]["debt"] is None and context["financial"]["fcf_ttm"] == -12.0
+    assert context["financial"]["debt"] is None
+    assert context["financial"]["fcf_ttm"] == -12.0
     assert brief["common_model_revisions"]["sixth_probe"] == "v2"
     assert brief["cards"][0]["not_generated"] == ["seventh_probe"]
 

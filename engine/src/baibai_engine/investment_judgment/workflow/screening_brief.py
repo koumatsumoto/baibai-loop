@@ -31,7 +31,9 @@ def economic_screening_brief(result: dict[str, Any]) -> dict[str, Any]:
             "growth": "selected_fallbacks_only_when_different_from_latest_quarter",
             "models": "selected_known_model_fields_only_other_generated_models_are_detail_only",
         },
-        "detail_read": "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>",
+        "detail_read": (
+            "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>"
+        ),
     }
 
 
