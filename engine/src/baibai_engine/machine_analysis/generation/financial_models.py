@@ -57,10 +57,10 @@ def generate_financial_and_price_models(
     edinet: EdinetMetricRecord | None = None,
     price_path: dict[str, object] | None = None,
 ) -> tuple[GeneratedModel, ...]:
-    """同じ個社入力から企業価値・企業成長・テクニカル分析を生成する。
+    """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
 
     barsはas_ofと同じ調整基準。財務原本の全履歴を受け取り、企業成長の振り返りと
-    企業価値の開示日cutoffは各ownerの意味を保つ。EDINETによる詳細調査はL3へ委ねる。
+    企業財務の開示日cutoffは各ownerの意味を保つ。EDINETによる詳細調査はL3へ委ねる。
     市場環境・外部評価はそれぞれの共有読取から別途同じgenerationへ組み込む。
     """
     ticker = normalize_ticker(ticker)

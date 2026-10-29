@@ -28,6 +28,6 @@ PER・peer比較は現版では未提供。価格・利益・資本の単位対�
 
 保存された成長結果を他モデルと一緒にSelectionへ固定する。表示を広げることと生成入力を増やすことは別で、長期の問いには[skillの表示・再開手順](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)と完全結果を使う。表示変更で入力hashや原観測を変えない。
 
-通常生成は全保持範囲を扱うが、保存モデル自体の範囲不足は表示切替では補えない。固定旧入力から別generationを生成・保存する専用CLIは未提供で、現在marketの公開jobを代用しない。[入力準備](../../jobs/OPERATIONS.md#research-input-preparation)に従う。旧Selectionも保存された形式・欠測・入力のまま再開し、新しいgenerationへ読み替えない。
+通常生成は全保持範囲を扱うが、保存モデル自体の範囲不足は表示切替では補えない。固定旧入力から別generationを生成・保存する専用CLIは未提供で、現在marketの公開jobを代用しない。[開始・再開手順](../../.agents/skills/investment-judgment/SKILL.md)に従う。旧Selectionも保存された形式・欠測・入力のまま再開し、新しいgenerationへ読み替えない。
 
 通常表示の期数は原本保存期間や生成範囲の制限ではない。[初期の入力量測定](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#2026-10-24-の実データ測定)と[有限受入の範囲](https://github.com/koumatsumoto/baibai-loop/issues/1588)を、全市場の原典照合や収益改善の証明へ一般化しない。

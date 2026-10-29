@@ -17,6 +17,7 @@ from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.objects import LakeObjectError
 from baibai_engine.storage.snapshots.reader import LakeReadError
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOriginError,
     read_lake_store_origin_from_connection,
 )
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -53,13 +54,8 @@ def company_growth(
             origin = read_lake_store_origin_from_connection(connection)
             if origin is None:
                 return result.model_copy(update={"reason": "fixed_release_unavailable"})
-    except (sqlite3.Error, JQuantsProviderError, SQLiteSchemaError) as exc:
-        reason = (
-            "financial_documents_unreadable"
-            if isinstance(exc, JQuantsProviderError)
-            else "market_store_unreadable"
-        )
-        return result.model_copy(update={"reason": reason})
+    except (sqlite3.Error, SQLiteSchemaError, LakeStoreOriginError):
+        return result.model_copy(update={"reason": "market_store_unreadable"})
     # The SQLite marker chooses a release; it does not certify this working store's rows.
     try:
         fixed = read_fixed_financial_documents(mirror, origin=origin, ticker=ticker, as_of=as_of)

@@ -85,7 +85,7 @@ def save(path, *documents):
             store_document(connection, item)
 
 
-def test_collection_receives_once_for_any_range_and_preserves_html(tmp_path, monkeypatch):
+def test_collection_receives_once_and_claims_only_current_day(tmp_path, monkeypatch):
     body = html(value="未公表")
 
     class Session:
@@ -111,13 +111,15 @@ def test_collection_receives_once_for_any_range_and_preserves_html(tmp_path, mon
     context.session = session
     monkeypatch.setattr(acquisition, "FetchContext", lambda **kwargs: context)
     monkeypatch.setattr(matsui_margin, "datetime", Clock)
+    monkeypatch.setattr(acquisition, "datetime", Clock)
     path = tmp_path / "data.sqlite"
     outcome = acquisition.refresh_sources(
-        [SOURCE_ID, SOURCE_ID], db_path=path, start=date(2000, 1, 1), end=DAY
+        [SOURCE_ID, SOURCE_ID], db_path=path, start=date(2000, 1, 1), end=date(2026, 10, 24)
     )
     assert len(outcome) == 1
     assert isinstance(outcome[0], acquisition.SourceRefreshSuccess)
     assert outcome[0].record_count == session.calls == 1
+    assert outcome[0].start == outcome[0].end == date(2026, 10, 24)
     with closing(store.open_read_only_connection(path)) as connection:
         received = list(read_documents(connection, SOURCE_ID))
     assert received == [document(body=body)]
@@ -127,6 +129,13 @@ def test_collection_receives_once_for_any_range_and_preserves_html(tmp_path, mon
 
 
 def test_collection_transport_failure_is_one_get_without_fallback(tmp_path, monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return WHEN.astimezone(tz)
+
+    monkeypatch.setattr(acquisition, "datetime", Clock)
+
     class Session:
         calls = 0
 
@@ -143,7 +152,9 @@ def test_collection_transport_failure_is_one_get_without_fallback(tmp_path, monk
     context.session = session
     monkeypatch.setattr(acquisition, "FetchContext", lambda **kwargs: context)
     path = tmp_path / "data.sqlite"
-    outcome = acquisition.refresh_sources([SOURCE_ID], db_path=path, start=DAY, end=DAY)
+    outcome = acquisition.refresh_sources(
+        [SOURCE_ID], db_path=path, start=date(2026, 10, 24), end=date(2026, 10, 24)
+    )
     assert isinstance(outcome[0], acquisition.SourceRefreshFailure)
     assert session.calls == 1
     with closing(store.open_read_only_connection(path)) as connection:

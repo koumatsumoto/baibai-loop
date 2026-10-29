@@ -111,7 +111,7 @@ def test_no_argument_validates_ledger_before_upload(tmp_path: Path) -> None:
         "r2:push-app",
         "gh:workflow run cloud-materialize.yml --ref main",
     ]
-    assert result.stdout == "application DB uploaded; cloud-materialize dispatch requested\n"
+    assert result.stdout == "application DB uploaded\ncloud-materialize dispatch requested\n"
     assert result.stderr == ""
 
 
@@ -180,3 +180,16 @@ def test_publish_uses_its_own_repository_from_another_directory(tmp_path: Path) 
         "r2:push-app",
         "gh:workflow run cloud-materialize.yml --ref main",
     ]
+
+
+def test_failed_dispatch_reports_committed_application_without_reupload(tmp_path: Path) -> None:
+    publish, call_log, env = _isolated_publish_script(tmp_path)
+    with (tmp_path / "bin" / "gh").open("a") as stream:
+        stream.write("exit 1\n")
+    result = subprocess.run((publish,), env=env, check=False, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert result.stdout == "application DB uploaded\n"
+    assert "Do not repeat publish.sh" in result.stderr
+    assert "Check Actions" in result.stderr
+    assert "if no run was created" in result.stderr
+    assert call_log.read_text().splitlines().count("r2:push-app") == 1

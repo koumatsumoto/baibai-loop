@@ -91,19 +91,18 @@ def refresh_sources(
                     raise ProviderFetchStoppedError(
                         "provider acquisition stopped earlier in this run"
                     )
-                if (
-                    recent
-                    and source_policy(source).mode == "current_only"
-                    and end != datetime.now(ZoneInfo("Asia/Tokyo")).date()
-                ):
-                    raise ValueError("current-only source cannot recover a historical date")
-                first = (
-                    recent_start(source, end)
-                    if recent
-                    else start
-                    if start is not None
-                    else _history_start(source, end)
-                )
+                if source_policy(source).mode == "current_only":
+                    if end != datetime.now(ZoneInfo("Asia/Tokyo")).date():
+                        raise ValueError("current-only source cannot recover a historical date")
+                    first = end
+                else:
+                    first = (
+                        recent_start(source, end)
+                        if recent
+                        else start
+                        if start is not None
+                        else _history_start(source, end)
+                    )
                 received = _refresh_source(
                     connection, source, start=first, end=end, context=context
                 )

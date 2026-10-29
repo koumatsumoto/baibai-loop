@@ -180,14 +180,6 @@ class BrowserFetcher:
         finally:
             page.close()
 
-    def fetch_pdf(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
-        """Read one download and require PDF bytes; the refresh service owns retries."""
-
-        content = self.fetch_download(url, max_bytes=max_bytes)
-        if not content.startswith(b"%PDF"):
-            raise IndicatorsProviderError(f"browser download from {url} is not a PDF")
-        return content
-
     def fetch_html(self, url: str) -> str:
         """Navigate to ``url`` and return the fully rendered HTML."""
 

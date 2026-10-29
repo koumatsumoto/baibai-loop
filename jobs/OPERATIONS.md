@@ -249,11 +249,6 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 途中停止では残存pathと失敗commandを確認し、blockを無条件反復しない。
 
 
-<a id="research-input-preparation"></a>
-## Investment Judgment入力の準備
-
-新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。新規は保存済みgenerationと、候補探索では候補政策を固定し、prepareで必要なモデル断面をapplicationへ複写する。prepare中に企業成長を再計算せず、固定入力からの再開にもmarket mirrorを要求しない。長い表示は同じ保存結果から切り替える。固定旧入力から別generationを生成・保存する専用CLIは現状未提供であり、現在marketから新releaseを作って公開するmodel_integrationを代用しない。個別の成長照会は[固定release](#fixed-release-read)の財務・masterを読み、更新中のSQLite行で代替しない。取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
-
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
 

@@ -12,7 +12,6 @@ import json
 import shutil
 import sqlite3
 import tempfile
-from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -288,34 +287,6 @@ def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
             end_date=ASOF,
             turnover_value=2e8,
         )
-
-
-def market_store_with_fetch_claim(root: Path, *, claimed_rows: int, held_rows: int) -> Path:
-    """Write a market store whose fetch ledger claims rows the store may not hold.
-
-    ``held_rows`` short of ``claimed_rows`` is not the interesting case — coverage
-    windows overlap, so the working store is short by millions. Zero is: it is what
-    the published copy looks like after the lake-owned tables were emptied.
-    """
-
-    path = root / "stores/market/market.sqlite"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with closing(open_connection(path)) as connection:
-        connection.execute(
-            "INSERT INTO source_coverage "
-            "(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
-            "record_count, status) VALUES "
-            "('jquants_daily_bars', '2026-08-17', '2026-08-17', '2026-08-17', "
-            "'2026-08-17T08:00:00+00:00', ?, 'ok')",
-            (claimed_rows,),
-        )
-        for index in range(held_rows):
-            connection.execute(
-                "INSERT INTO jquants_daily_bars (ticker, traded_at, close) VALUES (?, ?, ?)",
-                (f"{1000 + index}", "2026-08-17", 100.0),
-            )
-        connection.commit()
-    return path
 
 
 def seed_daily_bars(
