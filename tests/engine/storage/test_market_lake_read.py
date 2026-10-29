@@ -180,9 +180,24 @@ def _build_lake(root: Path, *, release_id: str = "release-one") -> Lake:
     return Lake(root=root, mirror=mirror, sqlite_path=sqlite_path, release_id=release_id)
 
 
+@pytest.fixture(scope="module")
+def _lake_template(tmp_path_factory: pytest.TempPathFactory) -> Lake:
+    # Build once per worker, then give every test a complete independent copy.
+    with pytest.MonkeyPatch.context() as patch:
+        narrow_release_policy(patch)
+        return _build_lake(tmp_path_factory.mktemp("lake-template"))
+
+
 @pytest.fixture
-def lake(tmp_path: Path) -> Lake:
-    return _build_lake(tmp_path)
+def lake(tmp_path: Path, _lake_template: Lake) -> Lake:
+    root = tmp_path / "lake"
+    shutil.copytree(_lake_template.root, root)
+    return Lake(
+        root=root,
+        mirror=root / "mirror",
+        sqlite_path=root / "market.sqlite",
+        release_id=_lake_template.release_id,
+    )
 
 
 @pytest.fixture
