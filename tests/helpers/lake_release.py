@@ -35,7 +35,6 @@ from baibai_jobs.publication.datasets import (
 from baibai_jobs.publication.policy import release_policy_for_profile
 from tests.helpers.lake_policy import narrow_release_policy
 
-
 _DEFAULT_DAILY_BARS: tuple[tuple[str, str, float, float], ...] = (
     ("1301", "2026-01-05", 100.0, 1000.0),
     ("7203", "2026-01-05", 200.0, 2000.0),
