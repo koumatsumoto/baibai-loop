@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
     select_economic_paths,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
@@ -32,7 +33,6 @@ def select_saved_economic_generation(
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects):
         raise ValueError("screening universe must contain unique companies")
-    universe = set(subjects)
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
         row = connection.execute(
@@ -41,30 +41,35 @@ def select_saved_economic_generation(
         if row is None:
             raise ValueError("model generation not found")
         metadata = GenerationMetadata.model_validate_json(row[0])
-        rows = connection.execute(
-            "SELECT subject,model_id,calculation_revision,payload_gzip FROM generated_model "
-            "WHERE generation_id=? ORDER BY subject,model_id",
-            (generation_id,),
+        # 並べ替えるのは対象のキーだけ。payloadは同じ読取断面から主キーで個別に読む。
+        keys = connection.execute(
+            "SELECT subject,model_id FROM generated_model WHERE generation_id=? "
+            "AND subject IN (SELECT value FROM json_each(?)) ORDER BY subject,model_id",
+            (generation_id, canonical_json(subjects)),
         )
         coordinates: dict[str, CompanyCoordinates] = {}
-        for subject, group in groupby(rows, key=lambda item: item[0]):
-            if subject not in universe:
-                continue
-            models = tuple(
-                GeneratedModel(
-                    subject=subject,
-                    model_id=item[1],
-                    calculation_revision=item[2],
-                    payload=json.loads(gzip.decompress(item[3])),
+        for subject, group in groupby(keys, key=lambda item: item[0]):
+            models: list[GeneratedModel] = []
+            for _, model_id in group:
+                saved = connection.execute(
+                    "SELECT calculation_revision,payload_gzip FROM generated_model "
+                    "WHERE generation_id=? AND model_id=? AND subject=?",
+                    (generation_id, model_id, subject),
+                ).fetchone()
+                models.append(
+                    GeneratedModel(
+                        subject=subject,
+                        model_id=model_id,
+                        calculation_revision=saved[0],
+                        payload=json.loads(gzip.decompress(saved[1])),
+                    )
                 )
-                for item in group
-            )
-            coordinates[subject] = project_company(subject, models=models, metadata=metadata)
+            coordinates[subject] = project_company(subject, models=tuple(models), metadata=metadata)
         for subject in subjects:
             if subject not in coordinates:
                 coordinates[subject] = project_company(subject, models=(), metadata=metadata)
     return ScreeningSelection(
-        generation_id,
-        subjects,
-        select_economic_paths(tuple(coordinates[t] for t in subjects), policy=policy),
+        generation_id=generation_id,
+        universe_tickers=subjects,
+        result=select_economic_paths(tuple(coordinates[t] for t in subjects), policy=policy),
     )

@@ -33,7 +33,12 @@ from baibai_engine.machine_analysis.generation.contracts import (
     ModelGeneration,
 )
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, PeriodState
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    CompanyGrowth,
+    Observation,
+    PeriodState,
+    Value,
+)
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
@@ -68,7 +73,22 @@ def seed_economic_generation(path, *, scoped=True):
                             fiscal_year_end=date(year, 12, 31),
                             period_start=date(year, 1, 1),
                             period_end=date(year, 12, 31),
-                            observations=(),
+                            observations=(
+                                Observation(
+                                    period_start=date(year, 1, 1),
+                                    period_end=date(year, 12, 31),
+                                    measurement="annual_ttm",
+                                    statement_basis="consolidated",
+                                    metrics={"sales": Value(value=float(year))},
+                                ),
+                                Observation(
+                                    period_start=date(year, 10, 1),
+                                    period_end=date(year, 12, 31),
+                                    measurement="quarter",
+                                    statement_basis="consolidated",
+                                    metrics={"sales": Value(value=year / 10)},
+                                ),
+                            ),
                         )
                         for year in range(2005, 2025)
                     ),
@@ -208,8 +228,8 @@ def seed_economic_generation(path, *, scoped=True):
                     PathCoordinates(
                         "operating_recovery",
                         "quarter",
-                        0.1,
-                        0.03,
+                        0.1 if ticker == "1234" else 0.2,
+                        0.03 if ticker == "1234" else 0.06,
                         "food",
                         "food",
                         True,
@@ -217,10 +237,7 @@ def seed_economic_generation(path, *, scoped=True):
                     ),
                 ),
                 card_context,
-                {
-                    model_id: "probe-v1"
-                    for model_id in (*stock_ids, "stress_probe", "catalyst_probe")
-                },
+                dict.fromkeys((*stock_ids, "stress_probe", "catalyst_probe"), "probe-v1"),
                 (),
             )
             for ticker in ("1234", "5678")
@@ -270,6 +287,12 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
     expected = {"market", "sector:food", "sector:funding"} if scoped else {"market"}
     assert read_subjects == [expected]
     assert result["model_inputs"]["securities"] == {}
+    assert result["candidate_tickers"] == ["1234", "5678"]
+    assert result["candidate_order_semantics"] == (
+        "ticker_code_order_attention_priority_in_screening_cards_rank"
+    )
+    assert [card["ticker"] for card in result["screening"]["cards"]] == ["5678", "1234"]
+    assert [card["rank"] for card in result["screening"]["cards"]] == [1, 2]
     if scoped:
         assert set(result["model_inputs"]["shared_subjects"]) == expected
     assert (
@@ -301,9 +324,12 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
 
 
 @pytest.mark.parametrize("specified", [False, True])
-def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(tmp_path, specified):
+@pytest.mark.parametrize("scoped", [False, True])
+def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(
+    tmp_path, specified, scoped
+):
     runs = tmp_path / "runs"
-    generation, _ = seed_economic_generation(runs)
+    generation, _ = seed_economic_generation(runs, scoped=scoped)
     baseline = context(runs)
     request = (
         ResearchRequest(
@@ -319,14 +345,22 @@ def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(tmp_path
     assert result["candidate_tickers"] == baseline["candidate_tickers"]
     assert set(result["model_inputs"]["securities"]) == {"1234", "9999"}
     assert "5678" not in result["model_inputs"]["securities"]
-    assert "sector:other" in result["model_inputs"]["shared_subjects"]
+    if scoped:
+        assert "sector:other" in result["model_inputs"]["shared_subjects"]
     for ticker in ("1234", "9999"):
         details = result["model_inputs"]["securities"][ticker]
-        assert {"stress_probe", "catalyst_probe"}.issubset(details["models"])
-        assert (
-            details["models"]["stress_probe"] == generation.result("stress_probe", ticker).payload
-        )
-        assert details["models"]["company_growth"]["saved_scope"]["period_count"] == 20
+        models = details["models"] if scoped else details
+        assert {"stress_probe", "catalyst_probe"}.issubset(models)
+        assert models["stress_probe"] == generation.result("stress_probe", ticker).payload
+        growth = models["company_growth"]
+        assert growth == generation.result("company_growth", ticker).payload
+        assert len(growth["periods"]) == 20
+        assert "full_result_ref" not in growth
+        older_observations = growth["periods"][0]["observations"]
+        assert older_observations[0]["measurement"] == "annual_ttm"
+        assert older_observations[0]["metrics"]["sales"]["value"] == 2005.0
+        assert older_observations[1]["measurement"] == "quarter"
+        assert older_observations[1]["metrics"]["sales"]["value"] == 200.5
         assert details["not_generated"] == []
 
 
@@ -334,7 +368,7 @@ def test_held_details_remain_available_without_promoting_them_to_requested(tmp_p
     import baibai_engine.investment_judgment.workflow.selection_query as query
 
     runs = tmp_path / "runs"
-    seed_economic_generation(runs)
+    generation, _ = seed_economic_generation(runs)
     # Exercise the held-target boundary independently of ledger replay arithmetic.
     db = tmp_path / "app"
     db.touch()
@@ -355,6 +389,9 @@ def test_held_details_remain_available_without_promoting_them_to_requested(tmp_p
     assert result["requested_tickers"] == ()
     assert result["request"]["requested_tickers"] == []
     assert set(result["model_inputs"]["securities"]) == {"9999"}
+    assert result["model_inputs"]["securities"]["9999"]["models"]["company_growth"] == (
+        generation.result("company_growth", "9999").payload
+    )
     assert "sector:food" in result["model_inputs"]["shared_subjects"]
     assert "sector:other" in result["model_inputs"]["shared_subjects"]
 
@@ -391,6 +428,11 @@ def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_witho
     assert saved.inputs.generation.result("company_growth", "5678") is None
     original = project_research_inputs(saved)
     raw, digest = saved.model_dump(mode="json"), selection_sha256(saved)
+    growth_projection = original["securities"]["1234"]["models"]["company_growth"]
+    complete = raw
+    for segment in growth_projection["full_result_ref"].strip("/").split("/"):
+        complete = complete[int(segment)] if isinstance(complete, list) else complete[segment]
+    assert complete == generation.result("company_growth", "1234").payload
     runs.unlink()
     resumed = resume_selected_workspace(
         operation_id=prepared.operation_id,

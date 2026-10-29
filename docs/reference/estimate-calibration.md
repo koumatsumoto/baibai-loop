@@ -69,7 +69,7 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 
 ## methodと再構築
 
-旧run経路と旧較正は同じ丸め済みStock Analysisと候補純関数を使う。新しいモデル生成・二view政策とは別契約であり、旧較正の成績を新政策へ転用しない。rules/method/calculation revisionや入力窓・forward規約が異なるcacheを読み替えず、現在入力から再構築する。意味変更はownerのrevisionへ反映するが、文書・配置・importだけで進めない。field順や無効knob削除でも現行rules hashが変わる場合があり、再構築費用と便益を比較する。
+旧run経路と旧較正は同じ丸め済みStock Analysisと候補純関数を使う。現行のモデル生成・候補政策とは別契約であり、旧較正の成績を新政策へ転用しない。rules/method/calculation revisionや入力窓・forward規約が異なるcacheを読み替えず、現在入力から再構築する。意味変更はownerのrevisionへ反映するが、文書・配置・importだけで進めない。field順や無効knob削除でも現行rules hashが変わる場合があり、再構築費用と便益を比較する。
 
 calibrationは再生成可能なローカルsnapshot。generation graph・remote pointer・過去世代保持を持たず、temporary buildからatomic replaceする。全再構築は保持する全cohortを覆う範囲とforceを指定し、先に現snapshotを消さない。forceは指定範囲だけから新snapshotを作る。不足coverageは再実行だけでは解消しない。
 

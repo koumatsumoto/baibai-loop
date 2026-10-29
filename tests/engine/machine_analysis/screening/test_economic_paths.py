@@ -181,8 +181,8 @@ def test_multiple_active_periods_are_not_a_cherry_picking_route():
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), -float("inf"), True, "1"])
 @pytest.mark.parametrize("eligible", [False, True])
 def test_non_finite_coordinates_are_not_ranked(invalid, axis, eligible):
+    first = row("1001", 1, 1, eligible=eligible)
     with pytest.raises(ValueError, match="finite"):
-        first = row("1001", 1, 1, eligible=eligible)
         select(replace(first, paths=(replace(first.paths[0], **{axis: invalid}),)))
 
 

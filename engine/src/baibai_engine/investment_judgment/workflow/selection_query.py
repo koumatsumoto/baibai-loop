@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from contextlib import closing
+from copy import deepcopy
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import TypeAdapter
 
@@ -122,6 +123,18 @@ def load_generated_selection_context(
         raise ValueError("chosen model generation is unavailable")
     if models.as_of > as_of or models.evaluation_time > known_at:
         raise ValueError("chosen generation is after the research cutoff")
+    model_inputs = cast(
+        dict[str, Any],
+        project_generated_inputs(models, company_growth_periods=None if compact_screening else 12),
+    )
+    if compact_screening:
+        # contextにはOperationの/inputs/generation参照先がない。明示詳細は成長の
+        # 完全payloadを直接渡し、古いquarter/annual観測もその場で読めるようにする。
+        for model in models.models:
+            if model.model_id == "company_growth" and model.subject in detail_targets:
+                security = model_inputs["securities"][model.subject]
+                detail = security if models.subject_plan is None else security["models"]
+                detail["company_growth"] = deepcopy(model.payload)
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     return {
         "schema_version": 3,
@@ -135,13 +148,13 @@ def load_generated_selection_context(
         "screening": None if screening is None else _project_screening(screening.result),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": (
-            "best_economic_path_attention_priority_not_investment_return"
+            "ticker_code_order_attention_priority_in_screening_cards_rank"
             if compact_screening
             else "per_view_rank_not_a_union_investment_ranking"
         ),
         "requested_tickers": requested,
         "held_tickers": held,
-        "model_inputs": project_generated_inputs(models),
+        "model_inputs": model_inputs,
         "saved_market_context_assessment": None
         if context is None
         else assessment_projection(context, as_of=as_of),
@@ -151,7 +164,8 @@ def load_generated_selection_context(
 def _project_screening(result: ScreeningResult) -> dict[str, Any]:
     # 新政策のcontext/evidenceは既に有限の観測要約。ここで別のカードschemaへ
     # 縮め直すと、期間・basis・出所・欠測や比較不能の理由を落としてしまう。
-    projection = TypeAdapter(ScreeningResult).dump_python(result, mode="json")
+    adapter = TypeAdapter[ScreeningResult](ScreeningResult)
+    projection = cast(dict[str, Any], adapter.dump_python(result, mode="json"))
     if isinstance(result, EconomicPathSelection):
         projection["interpretation"] = (
             "screening_priority_not_expected_return_or_buy_recommendation"

@@ -110,12 +110,7 @@ def select_economic_paths(
                 ("business", path.business_group, path.business_value),
             ):
                 if value is not None:
-                    if (
-                        not isinstance(value, (int, float))
-                        or isinstance(value, bool)
-                        or not isfinite(value)
-                    ):
-                        raise ValueError("economic coordinates must be finite or missing")
+                    _validate_coordinate(value)
                     population = observations.setdefault((path.path_id, axis, group), {})
                     if row.ticker in population and population[row.ticker] != value:
                         raise ValueError("a reference coordinate must have one value per company")
@@ -129,46 +124,54 @@ def select_economic_paths(
                 continue
             prices = populations[(path.path_id, "price", path.price_group)]
             business = populations[(path.path_id, "business", path.business_group)]
-            p = _midrank(prices, path.price_value)
-            t = _midrank(business, path.business_value)
+            price_percentile = _midrank(prices, path.price_value)
+            business_percentile = _midrank(business, path.business_value)
             paths.append(
                 RankedPath(
-                    path.path_id,
-                    path.variant,
-                    path.price_value,
-                    path.business_value,
-                    path.price_group,
-                    path.business_group,
-                    p,
-                    t,
-                    len(prices),
-                    len(business),
-                    2 * p * t / (p + t),
-                    path.evidence,
+                    path_id=path.path_id,
+                    variant=path.variant,
+                    price_value=path.price_value,
+                    business_value=path.business_value,
+                    price_group=path.price_group,
+                    business_group=path.business_group,
+                    price_percentile=price_percentile,
+                    business_percentile=business_percentile,
+                    price_population=len(prices),
+                    business_population=len(business),
+                    score=2
+                    * price_percentile
+                    * business_percentile
+                    / (price_percentile + business_percentile),
+                    evidence=path.evidence,
                 )
             )
         if paths:
             ranked.append((row, tuple(sorted(paths, key=lambda item: (-item.score, item.path_id)))))
     ranked.sort(key=lambda item: (-item[1][0].score, item[0].ticker))
     return EconomicPathSelection(
-        policy,
-        len(ranked),
-        tuple(
+        policy=policy,
+        eligible_count=len(ranked),
+        cards=tuple(
             CandidateCard(
-                row.ticker,
-                row.name,
-                row.sector,
-                rank,
-                paths[0].score,
-                paths[0].path_id,
-                paths,
-                row.context,
-                row.model_revisions,
-                row.not_generated,
+                ticker=row.ticker,
+                name=row.name,
+                sector=row.sector,
+                rank=rank,
+                priority=paths[0].score,
+                strongest_path=paths[0].path_id,
+                paths=paths,
+                context=row.context,
+                model_revisions=row.model_revisions,
+                not_generated=row.not_generated,
             )
             for rank, (row, paths) in enumerate(ranked[: policy.candidate_limit], start=1)
         ),
     )
+
+
+def _validate_coordinate(value: object) -> None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not isfinite(value):
+        raise ValueError("economic coordinates must be finite or missing")
 
 
 def _midrank(values: list[float], value: float) -> float:

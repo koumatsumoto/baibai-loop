@@ -5,11 +5,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date, timedelta
-from math import isclose, isfinite
+from math import isclose
 
 from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
+from baibai_engine.machine_analysis.screening.policies.economic_path_context import (
+    _external_context,
+    _growth_coverage,
+    _number,
+    _object,
+    _objects,
+    _text,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
     PathCoordinates,
@@ -43,7 +51,8 @@ def project_company(
         cap = None
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None
     periods = _objects(growth.get("periods"))
-    anchor = max(periods, key=lambda item: str(item.get("period_end", "")), default={})
+    # The owner preserves accounting_period_identity order, including tied period ends.
+    anchor = periods[-1] if periods else {}
     observations = {
         _text(item.get("measurement")): item for item in _objects(anchor.get("observations"))
     }
@@ -60,14 +69,14 @@ def project_company(
     )
     paths = [
         PathCoordinates(
-            "earning_power",
-            "annual_ttm",
-            y,
-            margin,
-            "market:reported_ttm_earnings",
-            f"{sector_group}:annual_ttm_margin",
-            income_aligned and _is_positive(y) and _is_positive(margin),
-            {
+            path_id="earning_power",
+            variant="annual_ttm",
+            price_value=y,
+            business_value=margin,
+            price_group="market:reported_ttm_earnings",
+            business_group=f"{sector_group}:annual_ttm_margin",
+            eligible=income_aligned and _is_positive(y) and _is_positive(margin),
+            evidence={
                 "earnings_components": earnings.get("profit_components"),
                 "earnings_basis": valuation.get("earnings_basis"),
                 "earnings_period_start": earnings_period[0],
@@ -83,11 +92,22 @@ def project_company(
             metric: _change(growth, observation, metric)
             for metric in ("sales", "operating_profit", "operating_margin")
         }
-    # Availability selects the period before the economic sign or rank is inspected.
+    # Do not escape an observed deterioration through a missing companion metric.
     expansion_variant = (
         "quarter" if _number(changes["quarter"]["sales"].get("rate")) is not None else "annual_ttm"
     )
-    recovery_variant = "quarter" if _recovery_available(changes["quarter"]) else "annual_ttm"
+    quarter_deterioration = any(
+        value is not None and value <= 0
+        for value in (
+            _number(changes["quarter"][metric].get("difference"))
+            for metric in ("operating_profit", "operating_margin")
+        )
+    )
+    recovery_variant = (
+        "quarter"
+        if _recovery_available(changes["quarter"]) or quarter_deterioration
+        else "annual_ttm"
+    )
     sales_price = _ratio(sales, cap)
     for variant, observation in (("quarter", quarter), ("annual_ttm", annual)):
         change = changes[variant]
@@ -95,14 +115,16 @@ def project_company(
         rate = _number(sales_change.get("rate"))
         paths.append(
             PathCoordinates(
-                "business_expansion",
-                variant,
-                sales_price,
-                rate,
-                f"{sector_group}:annual_ttm_sales_price",
-                f"{sector_group}:{variant}:sales_growth",
-                variant == expansion_variant and _is_positive(sales_price) and _is_positive(rate),
-                {
+                path_id="business_expansion",
+                variant=variant,
+                price_value=sales_price,
+                business_value=rate,
+                price_group=f"{sector_group}:annual_ttm_sales_price",
+                business_group=f"{sector_group}:{variant}:sales_growth",
+                eligible=variant == expansion_variant
+                and _is_positive(sales_price)
+                and _is_positive(rate),
+                evidence={
                     "sales_observation": _observation(annual, "sales"),
                     "sales_change": sales_change,
                     "change_observation": _observation(observation, "sales"),
@@ -117,18 +139,18 @@ def project_company(
         recovery_price = _ratio(improvement, cap)
         paths.append(
             PathCoordinates(
-                "operating_recovery",
-                variant,
-                recovery_price,
-                margin_improvement,
-                f"{sector_group}:{variant}:operating_change_price",
-                f"{sector_group}:{variant}:margin_change",
-                variant == recovery_variant
+                path_id="operating_recovery",
+                variant=variant,
+                price_value=recovery_price,
+                business_value=margin_improvement,
+                price_group=f"{sector_group}:{variant}:operating_change_price",
+                business_group=f"{sector_group}:{variant}:margin_change",
+                eligible=variant == recovery_variant
                 and _recovery_available(change)
                 and _is_positive(improvement)
                 and _is_positive(margin_improvement)
                 and _is_positive(recovery_price),
-                {
+                evidence={
                     "operating_change": op_change,
                     "margin_change": margin_change,
                     "operating_observation": _observation(observation, "operating_profit"),
@@ -150,21 +172,24 @@ def project_company(
     )
     paths.append(
         PathCoordinates(
-            "capital_productivity",
-            "reported_profit_latest_book",
-            book_price,
-            implied_profit_book,
-            f"{sector_group}:book_price",
-            f"{sector_group}:reported_profit_book",
-            book_price is not None and _is_positive(implied_profit_book),
-            {
+            path_id="capital_productivity",
+            variant="reported_profit_latest_book",
+            price_value=book_price,
+            business_value=implied_profit_book,
+            price_group=f"{sector_group}:book_price",
+            business_group=f"{sector_group}:reported_profit_book",
+            eligible=book_price is not None and _is_positive(implied_profit_book),
+            evidence={
                 "pbr": pbr,
                 "earnings_yield": y,
                 "same_current_market_cap": capital_pricing_aligned,
                 "book_amount_implied_by_pbr": _ratio(financial_cap, pbr),
                 "earnings_components": earnings.get("profit_components"),
                 "book_provenance": "individual_book_source_scope_and_measurement_date_not_exposed",
-                "interpretation": "reported_profit_to_model_implied_book_not_verified_common_or_average_equity_roe",
+                "interpretation": (
+                    "reported_profit_to_model_implied_book_"
+                    "not_verified_common_or_average_equity_roe"
+                ),
             },
         )
     )
@@ -185,6 +210,7 @@ def project_company(
     external = payloads.get("external_assessment", {})
     context: dict[str, JsonValue] = {
         "generation_id": metadata.generation_id,
+        "related_subjects": [] if definition is None else list(definition.related_subjects),
         "price_date": earnings.get("price_date"),
         "expected_price_date": valuation.get("expected_price_date"),
         "market_cap_yen": cap,
@@ -193,19 +219,24 @@ def project_company(
         "turnover_20d_oku": _object(market.get("price")).get("avg_turnover_20d_oku"),
         "turnover_observation_date": _object(market.get("price")).get("resolved_date"),
         "growth_comparison_basis": growth.get("comparison_basis"),
+        "growth_status": growth.get("status"),
+        "growth_reason": growth.get("reason"),
         "growth_coverage": _growth_coverage(_object(growth.get("coverage"))),
         "latest_growth_changes": {
             "sales": {
-                "variant": expansion_variant,
-                "comparison": changes[expansion_variant]["sales"],
+                "latest_quarter": changes["quarter"]["sales"],
+                "selected_variant": expansion_variant,
+                "selected_comparison": changes[expansion_variant]["sales"],
             },
             "operating_profit": {
-                "variant": recovery_variant,
-                "comparison": changes[recovery_variant]["operating_profit"],
+                "latest_quarter": changes["quarter"]["operating_profit"],
+                "selected_variant": recovery_variant,
+                "selected_comparison": changes[recovery_variant]["operating_profit"],
             },
             "operating_margin": {
-                "variant": recovery_variant,
-                "comparison": changes[recovery_variant]["operating_margin"],
+                "latest_quarter": changes["quarter"]["operating_margin"],
+                "selected_variant": recovery_variant,
+                "selected_comparison": changes[recovery_variant]["operating_margin"],
             },
         },
         "financial": {
@@ -219,6 +250,11 @@ def project_company(
                 "cash",
                 "debt",
                 "fcf_ttm",
+                "edinet_ocf_ttm",
+                "capex_ttm",
+                "edinet_capex_source",
+                "consolidation_basis",
+                "edinet_failure_reasons",
                 "edinet_source_period_start",
                 "edinet_source_period_end",
                 "edinet_source_doc_id",
@@ -246,135 +282,13 @@ def project_company(
         "full_result_reference": {"generation_id": metadata.generation_id, "subject": ticker},
     }
     return CompanyCoordinates(
-        ticker,
-        _text(master.get("name")),
-        sector,
-        tuple(paths),
-        context,
-        {key: model.calculation_revision for key, model in index.items()},
-        tuple(model for model in expected if model not in index),
-    )
-
-
-def _external_context(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    tradingview = _object(payload.get("tradingview"))
-    comparisons: list[JsonValue] = []
-    for kind in ("model_valuations", "analyst_ratings", "quants_scores"):
-        for assessment in _objects(payload.get(kind)):
-            comparisons.extend(_external_comparisons(kind, assessment))
-    comparisons.extend(_external_comparisons("tradingview", tradingview))
-    minkabu = _object(_object(payload.get("minkabu")).get("latest"))
-    return {
-        "status": payload.get("status"),
-        "method_version": payload.get("method_version"),
-        "tradingview_availability": tradingview.get("availability"),
-        "comparisons": comparisons,
-        "minkabu_latest": {
-            key: minkabu.get(key)
-            for key in (
-                "availability",
-                "display_as_of_date",
-                "origin",
-                "source_url",
-                "rating_label",
-                "target_price_yen",
-                "target_horizon_months",
-                "forecast_period_label",
-                "analyst_forecast_as_of_date",
-                "company_forecast_as_of_date",
-                "share_basis",
-                "analyst_revenue_million_yen",
-                "company_revenue_million_yen",
-                "analyst_net_income_million_yen",
-                "company_net_income_million_yen",
-                "analyst_eps_yen",
-                "company_eps_yen",
-            )
-        }
-        if minkabu
-        else None,
-        "origin_groups": payload.get("origin_groups"),
-        "detail_required_for_original_estimates": True,
-    }
-
-
-def _external_comparisons(kind: str, assessment: dict[str, JsonValue]) -> list[JsonValue]:
-    inputs = _object(assessment.get("inputs"))
-    latest, previous = _object(inputs.get("latest")), _object(inputs.get("previous"))
-    comparisons = _objects(assessment.get("comparisons"))
-    if kind == "analyst_ratings":
-        comparison = _object(assessment.get("comparison"))
-        comparisons = (comparison,) if comparison else ()
-    summaries: list[JsonValue] = []
-    for comparison in comparisons:
-        metric = _text(comparison.get("metric"))
-        summaries.append(
-            {
-                "kind": kind,
-                "distributor": latest.get("distributor", assessment.get("distributor")),
-                **{
-                    key: comparison.get(key)
-                    for key in (
-                        "metric",
-                        "state",
-                        "comparable",
-                        "reason",
-                        "latest_count",
-                        "previous_count",
-                    )
-                },
-                **{
-                    key: _number(comparison.get(key))
-                    for key in (
-                        "latest_value",
-                        "previous_value",
-                        "delta",
-                    )
-                },
-                "origin": latest.get(f"{metric}_origin", latest.get("origin")),
-                "previous_origin": previous.get(f"{metric}_origin", previous.get("origin")),
-                "target_period": latest.get(f"{metric}_period"),
-                "previous_target_period": previous.get(f"{metric}_period"),
-                "source_url": latest.get("source_url"),
-                "fetched_at_utc": latest.get("fetched_at_utc"),
-                "score_as_of_date": latest.get("score_as_of_date"),
-                "basis": {
-                    key: latest[key]
-                    for key in (
-                        "currency",
-                        "unit",
-                        "share_basis",
-                        "rating_scale_min",
-                        "rating_scale_max",
-                        "rating_scale_direction",
-                        "score_scale_max",
-                        "composite_scale_max",
-                    )
-                    if latest.get(key) is not None
-                },
-                # TradingView's row label is not a confirmed period for each forecast metric.
-                "source_target_period_label": latest.get("target_period_label"),
-                "source_target_period_end": latest.get("target_period_end"),
-            }
-        )
-    return summaries
-
-
-def _object(value: JsonValue | None) -> dict[str, JsonValue]:
-    return value if isinstance(value, dict) else {}
-
-
-def _objects(value: JsonValue | None) -> tuple[dict[str, JsonValue], ...]:
-    return (
-        tuple(item for item in value if isinstance(item, dict)) if isinstance(value, list) else ()
-    )
-
-
-def _number(value: JsonValue | None) -> float | None:
-    return (
-        float(value)
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
-        else None
+        ticker=ticker,
+        name=_text(master.get("name")),
+        sector=sector,
+        paths=tuple(paths),
+        context=context,
+        model_revisions={key: model.calculation_revision for key, model in index.items()},
+        not_generated=tuple(model for model in expected if model not in index),
     )
 
 
@@ -385,10 +299,6 @@ def _positive(value: JsonValue | None) -> float | None:
 
 def _is_positive(value: float | None) -> bool:
     return value is not None and value > 0
-
-
-def _text(value: JsonValue | None) -> str | None:
-    return value if isinstance(value, str) else None
 
 
 def _ratio(numerator: float | None, denominator: float | None) -> float | None:
@@ -432,8 +342,16 @@ def _change(
         and item.get("to_start") == observation.get("period_start")
         and item.get("to_end") == observation.get("period_end")
     ]
-    if len(matches) > 1:
-        raise ValueError("ambiguous growth comparison in fixed model")
+    if matches and any(item != matches[0] for item in matches[1:]):
+        return {
+            "metric": metric,
+            "measurement": observation.get("measurement"),
+            "comparison": "year_over_year",
+            "to_start": observation.get("period_start"),
+            "to_end": observation.get("period_end"),
+            "reason": "ambiguous_growth_comparison",
+            "matching_comparison_count": len(matches),
+        }
     return matches[0] if matches else {}
 
 
@@ -462,20 +380,3 @@ def _earnings_period(earnings: dict[str, JsonValue]) -> tuple[str | None, str | 
                 item for item in endpoints if item is not None
             )
     return None, None
-
-
-def _growth_coverage(coverage: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    summary = {
-        key: coverage.get(key)
-        for key in (
-            "status",
-            "reason",
-            "observed_start",
-            "observed_end",
-            "excluded_document_count",
-        )
-    }
-    for field in ("observed_period_ends", "gaps_between_observations"):
-        values = coverage.get(field)
-        summary[f"{field}_count"] = len(values) if isinstance(values, list) else None
-    return summary
