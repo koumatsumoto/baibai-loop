@@ -45,7 +45,7 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 _ASSESSMENT_DRAFT_HEADER = (
     "# 銘柄評価 draft。重要な支持・相反・不足をfindings、investment_case、"
     "conclusion.strongest_countercaseへつなぐ。\n"
-    "# 五モデルの問い・basis・欠測: "
+    "# 解析モデルの問い・basis・欠測: "
     "docs/reference/stock-assessment.md#analysis-domain-integration\n"
     "# model・期間・要求率・Base/Downside: "
     "docs/reference/stock-assessment.md#scenario-arithmetic\n"

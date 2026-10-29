@@ -13,10 +13,10 @@ description: 人間が確認した注文・約定・資金の事実をdraftで�
 
 | 報告 | 入口 |
 | --- | --- |
-| 買付注文・約定、売付の未約定注文 | `position broker-fact-draft`（売付は`--side sell`） |
-| 売却・部分売却の約定 | `position sell-execution-draft` |
-| 入出金・income・費用・確定税 | `position event-draft` |
-| 人間のwarning受容・税の見積り | `position override-draft`・`position meta-draft` |
+| 買付注文・約定、売付の未約定注文 | `portfolio broker-fact-draft`（売付は`--side sell`） |
+| 売却・部分売却の約定 | `portfolio sell-execution-draft` |
+| 入出金・income・費用・確定税 | `portfolio event-draft` |
+| 人間のwarning受容・税の見積り | `portfolio override-draft`・`portfolio meta-draft` |
 
 このskillは初期化済み台帳への追記を対象とする。初回残高・既存保有を一括登録するbootstrap CLIは現状未提供であり、通常の入金・約定として再登録しない。
 
@@ -43,7 +43,7 @@ uv run baibai-engine portfolio sell-execution-draft --db stores/application/baib
 
 ## 確認と反映
 
-payloadとcash・予約・holdingの差分を人間に確認し、`position apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。staleなら新しい入力からdraftを作り直して再確認する。取引記録のためにOperationを開始せず、無関係なmarket不足で止めない。
+payloadとcash・予約・holdingの差分を人間に確認し、`portfolio apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。staleなら新しい入力からdraftを作り直して再確認する。取引記録のためにOperationを開始せず、無関係なmarket不足で止めない。
 
 本番への反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。作業コピーへの適用とクラウド正本の更新を区別する。
 

@@ -93,8 +93,13 @@ def project_company(
             for metric in ("sales", "operating_profit", "operating_margin")
         }
     # Do not escape an observed deterioration through a missing companion metric.
+    quarter_sales = changes["quarter"]["sales"]
+    quarter_sales_difference = _number(quarter_sales.get("difference"))
     expansion_variant = (
-        "quarter" if _number(changes["quarter"]["sales"].get("rate")) is not None else "annual_ttm"
+        "quarter"
+        if _number(quarter_sales.get("rate")) is not None
+        or (quarter_sales_difference is not None and quarter_sales_difference <= 0)
+        else "annual_ttm"
     )
     quarter_deterioration = any(
         value is not None and value <= 0

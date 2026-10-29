@@ -191,6 +191,20 @@ def test_latest_nonpositive_quarter_does_not_choose_positive_annual(difference, 
     )
 
 
+def test_zero_quarter_sales_comparison_does_not_use_positive_annual():
+    data = payloads()
+    for observation in data["company_growth"]["periods"][0]["observations"]:
+        if observation["measurement"] == "quarter":
+            observation["metrics"]["sales"]["value"] = 0.0
+    for change in data["company_growth"]["changes"]:
+        if change["measurement"] == "quarter" and change["metric"] == "sales":
+            change.update(difference=0.0, rate=None, reason="nonpositive_base")
+    result = project(data)
+    assert active(result, "business_expansion") is None
+    assert result.context["latest_growth_changes"]["sales"]["selected_variant"] == "quarter"
+    assert active(result, "operating_recovery") is not None
+
+
 def test_missing_quarter_uses_same_anchor_annual_not_old_good_quarter():
     data = payloads()
     for change in data["company_growth"]["changes"]:
