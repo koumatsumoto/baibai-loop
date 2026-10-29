@@ -265,8 +265,8 @@ def test_saved_card_coordinates_must_remain_finite_numbers(invalid):
         codec.validate_python(payload)
 
 
-@pytest.mark.parametrize("economic", [False, True])
-def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_path, economic):
+@pytest.mark.parametrize("method", ["two-view", "best-economic-path-v1", "best-economic-path-v2"])
+def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_path, method):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
     ModelGenerationStore(path).publish(fixed)
@@ -274,7 +274,11 @@ def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_pat
         [ScreeningCoordinates(ticker="1001", earnings_yield=0.100049, price_momentum=None)],
         policy=TwoViewPolicy(earnings_limit=1, combined_limit=1),
     )
-    result = select(row("1001", 0.100049, 0.2)) if economic else old
+    result = (
+        replace(select(row("1001", 0.100049, 0.2)), policy=EconomicPathPolicy(method=method))
+        if method != "two-view"
+        else old
+    )
     selection = ScreeningSelection(fixed.generation_id, ("1001",), result)
     # 旧結果は新unionのschemaを使わず保存し、既存bytesのまま読めることを確認する。
     expected = {
@@ -306,3 +310,8 @@ def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_pat
     assert gzip.decompress(saved) == payload
     assert store.publish("new-selection", selection)
     assert store.read("new-selection") == selection
+
+
+def test_historical_economic_method_is_read_only_not_relabelled_with_current_behavior():
+    with pytest.raises(ValueError, match="read-only"):
+        select_economic_paths((), policy=EconomicPathPolicy(method="best-economic-path-v1"))
