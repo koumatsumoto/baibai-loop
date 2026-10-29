@@ -323,10 +323,11 @@ forbidden_modules = [
 
 allow_indirect_imports = true
 ignore_imports = [
-  # New saved policy results and pure view contracts; not the writer.
+  # Saved policy results and pure contracts; not the writer.
   "baibai_engine.investment_judgment.workflow.selection -> baibai_engine.machine_analysis.screening.contracts",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.selection_query",
-  "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.policies.two_views",
+  "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.policies.economic_paths",
+  "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.contracts",
   "baibai_engine.investment_judgment.workflow.operation.service -> baibai_engine.machine_analysis.screening.selection_query",
   "baibai_engine.investment_judgment.workflow.workspace.selected_prepare -> baibai_engine.machine_analysis.screening.selection_query",
 ]

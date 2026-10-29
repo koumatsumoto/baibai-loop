@@ -4,7 +4,7 @@
 厳密な point-in-time データセットではない。
 
 旧run契約の部品 (`build_metrics` / `stock_analysis_payload` /
-`build_candidate_contexts`) を使う。新しい五モデル・二view政策の成績ではない。
+`build_candidate_contexts`) を使う。現行のモデル生成・候補政策の成績ではない。
 旧runとの相違点は入力の中立化:
 
 - 市場環境判断は候補順位の入力にしない

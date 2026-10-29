@@ -19,9 +19,9 @@ uv run baibai-engine investment-judgment selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
-指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、五モデル・保有・既存調査を比較する。必要な候補外の対照も同じ固定generationから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。選定は購入順位でなく、次に調べる価値の比較である。価値差と損失経路、答えによって採否・価格条件が変わる大きさ、調査で答えが得られる見込みを既存のselection_summary・rationale・research_questionへ記す。開示が豊富なだけで優先せず、同じ未解決の問いを繰り返すだけなら他の対象と比較する。
+指定は`--scope specified_stocks --ticker <TICKER>`、保有は`--scope review_positions`を使う。ユーザーの目的から価値獲得の仮説を立て、生成済みモデル・保有・既存調査を比較する。必要な候補外の対照も同じ固定generationから有限に読む。機械順位の極端値だけを順に選ばず、capacityを弱い対象で埋めない。選定は購入順位でなく、次に調べる価値の比較である。価値差と損失経路、答えによって採否・価格条件が変わる大きさ、調査で答えが得られる見込みを既存のselection_summary・rationale・research_questionへ記す。開示が豊富なだけで優先せず、同じ未解決の問いを繰り返すだけなら他の対象と比較する。
 
-selection-contextは発行済みの候補政策と、そのgenerationのモデルを返す。未生成とpayload内の欠測を区別し、欠測を正常値へ補わない。prepareは選定した対象のモデルと政策本文を固定保存し、可変storeから再計算しない。
+新政策のselection-contextは保存済み候補政策の比較用要約と共有文脈を返し、表示省略は欠測や反対材料の不存在を意味しない。経路のraw値・符号・対象期と借入/現金/投資/希薄化等の反対材料を読み、候補入りを絶対的割安・健全・買付資格と扱わない。候補の順位低下だけを保有売却の理由にしない。未生成とpayload内の欠測を区別し、欠測を正常値へ補わない。prepareは選定した対象のモデルと政策本文を固定保存し、可変storeから再計算しない。
 
 調査対象と採否は[投資戦略](../../../docs/doctrine.md#economic-return-policy)に照らして判断し、統合の進め方は下記のCompany Researchへ進む。
 
@@ -56,7 +56,7 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 1. `investment-judgment stock-assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。[直近ニュース・カタリストの確認](../../../docs/reference/stock-assessment.md#recent-news-research)をCompany Researchの基本手順として行う。
 
-   [五モデルの統合](../../../docs/reference/stock-assessment.md#analysis-domain-integration)に従い、重要な支持・相反・不足を個社の仮定へ接続する。価格contextもその一材料であり、必要なら同端点の市場比較とニュースを照合する。価格注記だけを調査の起点に固定せず、全シグナルの追加調査を義務にしない。
+   [解析モデルの統合](../../../docs/reference/stock-assessment.md#analysis-domain-integration)に従い、重要な支持・相反・不足を個社の仮定へ接続する。価格contextもその一材料であり、必要なら同端点の市場比較とニュースを照合する。価格注記だけを調査の起点に固定せず、全シグナルの追加調査を義務にしない。
 2. [条件付き価値](../../../docs/reference/stock-assessment.md#scenario-arithmetic)を組み立て、数値計算には`investment-judgment calculate <INPUTS>`を使える。PDFの抽出が空・崩れた場合は原ページへ戻り、記載なしやゼロとしない。
 3. `investment-judgment stock-assessment-evaluate <DRAFT>`で確認する。`investment-judgment independent-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。[不確実性の受容](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)に従い、未知を一律保留にせず、受けるリスクと見返りの根拠を確認する。
 4. `investment-judgment stock-assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`investment-judgment stock-assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。
