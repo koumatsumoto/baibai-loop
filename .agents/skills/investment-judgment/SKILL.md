@@ -117,6 +117,8 @@ uv run baibai-engine investment-judgment trade-proposal-check <DRAFT> --db store
 uv run baibai-engine investment-judgment trade-proposal-publish <REVIEWED_DRAFT> --db stores/application/baibai.sqlite
 ```
 
+売却は[保有継続と回収](../../../docs/reference/trade-proposal.md#holding)に従い、回収・保有継続・回復待ちの理由を内容Reviewへ渡す。残存見返り不足による売却では、実quoteと作者下限の比較をcheckの算術と照合する。重要仮説の破綻による売却では、未確定・無効となったvaluationの下限算術を必須にしない。
+
 checkのvalidとreview_bindingを別に読み、作者と別の作業者が正規modelのdraft_sha256へ内容Reviewを束縛する。[Review・保存・preview](../../../docs/reference/trade-proposal.md#publication-review)に従い、入力事実が変わればsnapshotとReviewを取り直す。
 
 ## 判断の振り返り

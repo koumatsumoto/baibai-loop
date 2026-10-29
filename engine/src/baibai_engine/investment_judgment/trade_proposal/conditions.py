@@ -79,6 +79,7 @@ def buy_evaluation(
     sqlite_path: Path,
     now: datetime,
     market_connection: sqlite3.Connection | None,
+    selected_quantity: int | None = None,
 ) -> BuyTermsEvaluation:
     quote = proposal_quote(inputs, pair.document.input_snapshot.ticker)
     ticker = pair.document.input_snapshot.ticker
@@ -89,6 +90,7 @@ def buy_evaluation(
         as_of=now.astimezone(JST).date(),
         quote=quote,
         proposed_limit_yen=proposed_limit_yen,
+        selected_quantity=selected_quantity,
         basis_confirmed=assessment_quote_basis(
             pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
         ),
@@ -113,6 +115,7 @@ def buy_evaluation_payload(result: BuyTermsEvaluation) -> dict[str, object]:
         if result.maximum_price_yen is None
         else str(result.maximum_price_yen),
         "quantity": result.quantity,
+        "maximum_quantity": result.maximum_quantity,
         "current_price_above_maximum": result.current_price_above_maximum,
         "current_price_projection": result.current_price_projection,
         "limit_price_projection": result.limit_price_projection,

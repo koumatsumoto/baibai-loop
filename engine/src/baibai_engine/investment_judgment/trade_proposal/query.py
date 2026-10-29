@@ -178,19 +178,13 @@ def _preview_buy(
         pair,
         inputs=inputs,
         proposed_limit_yen=ceiling,
+        selected_quantity=None if item.terms is None else item.terms.quantity,
         latest=latest,
         sqlite_path=sqlite_path,
         now=now,
         market_connection=market_connection,
     )
     blockers = list(result.hard_blockers)
-    if item.terms is not None and item.terms.notional_yen > inputs.available_cash_yen:
-        blockers.append(
-            GateReason(
-                code="available_cash_below_board_lot",
-                message="保存した買付数量全体を賄うcashが不足しています。",
-            )
-        )
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
     trial: dict[str, object] | None = None
     if quote is not None:
@@ -267,6 +261,9 @@ def _preview_holding(
         reviewed=True,
         latest=latest,
         max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+        proposed_sell_limit_yen=(
+            item.terms.limit_price_yen if item.action == "sell" and item.terms is not None else None
+        ),
     )
     blockers = list(result.hard_blockers)
     if result.action != item.action:
@@ -294,7 +291,14 @@ def _preview_holding(
             "current_price_projection": result.current_price_projection,
             "return_calculation_unavailable_reason": result.return_calculation_unavailable_reason,
             "current_position": position.model_dump(mode="json"),
+        },
+        "saved_limit_revalidation": {
+            "limit_price_yen": None if item.terms is None else str(item.terms.limit_price_yen),
+            "quantity": None if item.terms is None else item.terms.quantity,
+            "sell_limit_projection": result.sell_limit_projection,
         }
+        if item.action == "sell"
+        else None,
     }, blockers
 
 
@@ -377,7 +381,15 @@ def preview_current_terms(
                 if item.action in {"buy", "sell"} and item.terms is not None
                 else None,
                 "current_quote_calculation": None,
-                "saved_limit_revalidation": None,
+                "saved_limit_revalidation": {
+                    "limit_price_yen": None
+                    if item.terms is None
+                    else str(item.terms.limit_price_yen),
+                    "quantity": None if item.terms is None else item.terms.quantity,
+                    "sell_limit_projection": None,
+                }
+                if item.action == "sell"
+                else None,
                 "current_terms_warnings": [],
             }
             if item.assessment_ref is not None:
@@ -445,13 +457,6 @@ def preview_current_terms(
                             message="保存条件の対象日が次の注文可能sessionと異なります。",
                         )
                     )
-                if item.action == "sell":
-                    row["saved_limit_revalidation"] = {
-                        "limit_price_yen": None
-                        if item.terms is None
-                        else str(item.terms.limit_price_yen),
-                        "quantity": None if item.terms is None else item.terms.quantity,
-                    }
                 revalidation = row["saved_limit_revalidation"]
                 if isinstance(revalidation, dict):
                     revalidation["hard_blockers"] = [

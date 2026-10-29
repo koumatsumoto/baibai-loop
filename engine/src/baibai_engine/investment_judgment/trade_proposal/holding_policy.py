@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
@@ -41,6 +42,7 @@ class HoldingProposalEvaluation:
     sell_quantity: int | None
     current_price_projection: dict[str, object] | None
     return_calculation_unavailable_reason: str | None
+    sell_limit_projection: dict[str, object] | None = None
 
 
 def evaluate_holding_proposal(
@@ -56,6 +58,7 @@ def evaluate_holding_proposal(
     reviewed: bool,
     latest: bool,
     max_quote_age_days: int,
+    proposed_sell_limit_yen: Decimal | None = None,
 ) -> HoldingProposalEvaluation:
     """Broken verified cases sell without quotes; intact holds need an explicit current check."""
     ticker = assessment.input_snapshot.ticker
@@ -142,6 +145,36 @@ def evaluate_holding_proposal(
             projection,
             None,
         )
+    sell_projection = None
+    if proposed_sell_limit_yen is not None:
+        # The actual quote establishes freshness/basis; the author's floor is not an observation.
+        limit_projection = current_price_projection(
+            assessment,
+            price_yen=proposed_sell_limit_yen,
+            price_as_of=None if quote is None else quote.price_as_of,
+            as_of=as_of,
+            basis_confirmed=unavailable_code is None,
+            max_quote_age_days=max_quote_age_days,
+            price_basis="last_close_unadjusted" if quote is None else quote.price_basis,
+        )
+        if limit_projection is not None:
+            sell_projection = {
+                key: value
+                for key, value in limit_projection.items()
+                if key not in {"price_yen", "price_as_of", "price_basis"}
+            }
+            sell_projection.update(
+                price_context="author_sell_minimum",
+                calculation_price_yen=str(proposed_sell_limit_yen),
+                observed_quote=None if quote is None else quote.model_dump(mode="json"),
+            )
     return HoldingProposalEvaluation(
-        "sell", "insufficient_remaining_reward", (), None, position.quantity, projection, None
+        "sell",
+        "insufficient_remaining_reward",
+        (),
+        None,
+        position.quantity,
+        projection,
+        None,
+        sell_projection,
     )

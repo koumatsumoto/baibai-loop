@@ -185,3 +185,40 @@ def test_hold_contract_rejects_known_insufficient_and_never_accepts_order_terms(
 def test_position_ticker_cannot_be_rebound_to_another_assessment():
     with pytest.raises(ValueError, match="ticker differ"):
         evaluate(position=position(ticker="5678"))
+
+
+@pytest.mark.parametrize("limit", [Decimal(900), Decimal(1200)])
+def test_sell_floor_is_a_separate_continuation_projection_not_an_observed_quote(limit):
+    result = evaluate(remaining_reward=reward("insufficient"), proposed_sell_limit_yen=limit)
+    assert result.action == "sell"
+    assert result.hard_blockers == ()
+    assert result.current_price_projection["price_yen"] == 1000
+    floor = result.sell_limit_projection
+    assert floor["price_context"] == "author_sell_minimum"
+    assert Decimal(floor["calculation_price_yen"]) == limit
+    assert Decimal(floor["observed_quote"]["price_yen"]) == 1000
+    assert not {"price_yen", "price_as_of", "price_basis"} & floor.keys()
+    assert floor["base"]["total_return_pct"] == pytest.approx(
+        float((Decimal(1100) / limit - 1) * 100), abs=0.0001
+    )
+    assert floor["horizon_months"] == result.current_price_projection["horizon_months"]
+    # A high limit does not introduce a future/target-only insufficient-reward policy.
+    assert (
+        evaluate(remaining_reward=reward("sufficient"), proposed_sell_limit_yen=limit).action
+        == "hold"
+    )
+
+
+def test_sell_floor_never_requires_invalidated_valuation_or_replaces_missing_current_basis():
+    broken = evaluate(
+        assessment(case="broken", as_of=date(2026, 10, 1)),
+        proposed_sell_limit_yen=Decimal(900),
+    )
+    assert broken.action == "sell"
+    assert broken.hard_blockers == ()
+    assert broken.sell_limit_projection is None
+    insufficient = evaluate(
+        quote=None, remaining_reward=reward("insufficient"), proposed_sell_limit_yen=Decimal(900)
+    )
+    assert insufficient.action == "defer"
+    assert insufficient.sell_limit_projection is None
