@@ -10,6 +10,17 @@ from math import isclose
 from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
+from baibai_engine.machine_analysis.models.company_financials.earnings import read_earnings_price
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    Change,
+    Metric,
+    Observation,
+    PeriodState,
+)
+from baibai_engine.machine_analysis.models.company_growth.reading import (
+    CompanyGrowthReader,
+    metric_value,
+)
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     is_annual_period,
 )
@@ -18,13 +29,20 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_context imp
     _growth_coverage,
     _number,
     _object,
-    _objects,
     _text,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
     PathCoordinates,
 )
+
+_PATH_METRICS: tuple[Metric, ...] = (
+    "sales",
+    "operating_profit",
+    "operating_margin",
+    "parent_profit",
+)
+_INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
 
 
 def project_company(
@@ -35,7 +53,9 @@ def project_company(
     valuation = payloads.get("company_valuation", {})
     financial = _object(valuation.get("financial"))
     earnings = _object(valuation.get("earnings_price"))
+    earnings_read = read_earnings_price(earnings) if earnings else None
     growth = payloads.get("company_growth", {})
+    growth_read = CompanyGrowthReader(payloads.get("company_growth"))
     market = payloads.get("market_context", {})
     master = _object(market.get("master"))
     sector = _text(master.get("sector_33"))
@@ -53,57 +73,56 @@ def project_company(
     if not pricing_valid:
         cap = None
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None
-    periods = _objects(growth.get("periods"))
-    # The owner preserves accounting_period_identity order, including tied period ends.
-    anchor = periods[-1] if periods else {}
-    observations = {
-        _text(item.get("measurement")): item for item in _objects(anchor.get("observations"))
-    }
-    annual = observations.get("annual_ttm", {})
-    quarter = observations.get("quarter", {})
-    full_fy = _latest_full_fy(periods)
+    anchor = growth_read.latest_period
+    annual = growth_read.observation(anchor, "annual_ttm")
+    quarter = growth_read.observation(anchor, "quarter")
+    reported = growth_read.observation(anchor, "reported")
+    full_fy = growth_read.latest_full_fy
     use_full_fy = _can_use_full_fy(anchor, annual, full_fy)
     annual_variant = "full_fy" if use_full_fy else "annual_ttm"
-    annual_observations = {"annual_ttm": annual}
-    if full_fy:
+    annual_observations: dict[str, Observation | None] = {"annual_ttm": annual}
+    if full_fy is not None:
         annual_observations["full_fy"] = full_fy
-    changes = {
+    changes: dict[str, dict[str, dict[str, JsonValue]]] = {
         variant: {
-            metric: _full_fy_change(growth, observation, metric, metadata.as_of)
-            if variant == "full_fy"
-            else _change(growth, observation, metric)
-            for metric in ("sales", "operating_profit", "operating_margin", "parent_profit")
+            metric: _change(
+                growth_read,
+                observation,
+                metric,
+                disclosed_by=metadata.as_of if variant == "full_fy" else None,
+            )
+            for metric in _PATH_METRICS
         }
         for variant, observation in {"quarter": quarter, **annual_observations}.items()
     }
     # A historical FY cannot restore positive earning power after observed newer weakness.
     full_fy_income_adverse = any(
         value is not None and value <= 0
-        for metric in ("operating_profit", "operating_margin", "parent_profit")
+        for metric in _INCOME_METRICS
         for value in (
-            _fy_metric(quarter, metric, metadata.as_of),
-            _fy_metric(observations.get("reported", {}), metric, metadata.as_of),
+            metric_value(quarter, metric, disclosed_by=metadata.as_of),
+            metric_value(reported, metric, disclosed_by=metadata.as_of),
         )
     )
-    earnings_period = _earnings_period(earnings)
+    earnings_period = earnings_read.profit_period if earnings_read is not None else (None, None)
     paths = []
     for variant, observation in annual_observations.items():
         fy = variant == "full_fy"
         profit_yield = (
-            _ratio(_fy_metric(observation, "parent_profit", metadata.as_of), cap) if fy else y
-        )
-        margin = (
-            _fy_metric(observation, "operating_margin", metadata.as_of)
+            _ratio(metric_value(observation, "parent_profit", disclosed_by=metadata.as_of), cap)
             if fy
-            else _metric(observation, "operating_margin")
+            else y
         )
-        income_aligned = (
-            observation.get("statement_basis") == "consolidated"
+        margin = metric_value(
+            observation, "operating_margin", disclosed_by=metadata.as_of if fy else None
+        )
+        income_aligned = observation is not None and (
+            observation.statement_basis == "consolidated"
             if fy
-            else earnings_period == _period(observation)
-            and earnings.get("statement_basis") in {"consolidated", "nonconsolidated"}
-            and earnings.get("statement_basis") == observation.get("statement_basis")
-            and all(isinstance(value, str) for value in _period(observation))
+            else earnings_period == (observation.period_start, observation.period_end)
+            and earnings_read is not None
+            and earnings_read.statement_basis in {"consolidated", "nonconsolidated"}
+            and earnings_read.statement_basis == observation.statement_basis
         )
         paths.append(
             PathCoordinates(
@@ -123,16 +142,20 @@ def project_company(
                     "earnings_basis": (
                         "reported_parent_profit" if fy else valuation.get("earnings_basis")
                     ),
-                    "earnings_period_start": observation.get("period_start")
-                    if fy
-                    else earnings_period[0],
-                    "earnings_period_end": observation.get("period_end")
-                    if fy
-                    else earnings_period[1],
-                    "profit_observation": _observation(observation, "parent_profit")
+                    "earnings_period_start": _date_text(observation.period_start)
+                    if fy and observation is not None
+                    else _date_text(earnings_period[0]),
+                    "earnings_period_end": _date_text(observation.period_end)
+                    if fy and observation is not None
+                    else _date_text(earnings_period[1]),
+                    "profit_observation": _observation(
+                        growth_read.saved_observation(observation), "parent_profit"
+                    )
                     if fy
                     else None,
-                    "business_observation": _observation(observation, "operating_margin"),
+                    "business_observation": _observation(
+                        growth_read.saved_observation(observation), "operating_margin"
+                    ),
                     "same_period_and_statement_basis": income_aligned,
                     "selected_variant": annual_variant,
                     "newer_earning_weakness": full_fy_income_adverse if fy else None,
@@ -163,10 +186,10 @@ def project_company(
     for variant, observation in {"quarter": quarter, **annual_observations}.items():
         sales_variant = annual_variant if variant == "quarter" else variant
         sales_observation = annual_observations[sales_variant]
-        sales = (
-            _fy_metric(sales_observation, "sales", metadata.as_of)
-            if sales_variant == "full_fy"
-            else _metric(sales_observation, "sales")
+        sales = metric_value(
+            sales_observation,
+            "sales",
+            disclosed_by=metadata.as_of if sales_variant == "full_fy" else None,
         )
         sales_price = _ratio(sales, cap)
         change = changes[variant]
@@ -184,9 +207,13 @@ def project_company(
                 and _is_positive(sales_price)
                 and _is_positive(rate),
                 evidence={
-                    "sales_observation": _observation(sales_observation, "sales"),
+                    "sales_observation": _observation(
+                        growth_read.saved_observation(sales_observation), "sales"
+                    ),
                     "sales_change": sales_change,
-                    "change_observation": _observation(observation, "sales"),
+                    "change_observation": _observation(
+                        growth_read.saved_observation(observation), "sales"
+                    ),
                     "selected_variant": expansion_variant,
                 },
             )
@@ -212,8 +239,12 @@ def project_company(
                 evidence={
                     "operating_change": op_change,
                     "margin_change": margin_change,
-                    "operating_observation": _observation(observation, "operating_profit"),
-                    "margin_observation": _observation(observation, "operating_margin"),
+                    "operating_observation": _observation(
+                        growth_read.saved_observation(observation), "operating_profit"
+                    ),
+                    "margin_observation": _observation(
+                        growth_read.saved_observation(observation), "operating_margin"
+                    ),
                     "selected_variant": recovery_variant,
                 },
             )
@@ -267,6 +298,8 @@ def project_company(
     expected = () if definition is None else definition.model_ids
     technical = payloads.get("technical_analysis", {})
     external = payloads.get("external_assessment", {})
+    saved_annual = growth_read.saved_observation(annual)
+    saved_full_fy = growth_read.saved_observation(full_fy)
     context: dict[str, JsonValue] = {
         "generation_id": metadata.generation_id,
         "related_subjects": [] if definition is None else list(definition.related_subjects),
@@ -274,21 +307,21 @@ def project_company(
         "expected_price_date": valuation.get("expected_price_date"),
         "market_cap_yen": cap,
         "pricing_valid": pricing_valid,
-        "latest_growth_period": anchor.get("period_end"),
+        "latest_growth_period": _date_text(anchor.period_end) if anchor is not None else None,
         "annual_observation": {
             "selected_variant": annual_variant,
-            "full_fy_observation": full_fy,
-            "full_fy_period_start": full_fy.get("period_start"),
-            "full_fy_period_end": full_fy.get("period_end"),
+            "full_fy_observation": saved_full_fy,
+            "full_fy_period_start": saved_full_fy.get("period_start"),
+            "full_fy_period_end": saved_full_fy.get("period_end"),
             "full_fy_age_days": (
-                (metadata.as_of - date.fromisoformat(end)).days
-                if (end := _text(full_fy.get("period_end"))) is not None
-                else None
+                (metadata.as_of - full_fy.period_end).days if full_fy is not None else None
             ),
-            "latest_ttm_period_status": annual.get("period_status"),
-            "latest_ttm_metrics": annual.get("metrics"),
-            "latest_reported_observation": observations.get("reported"),
-            "latest_quarter_observation": quarter,
+            "latest_ttm_period_status": saved_annual.get("period_status"),
+            "latest_ttm_metrics": saved_annual.get("metrics"),
+            "latest_reported_observation": (
+                growth_read.saved_observation(reported) if reported is not None else None
+            ),
+            "latest_quarter_observation": growth_read.saved_observation(quarter),
             "capital_fallback": "not_used_without_same_fy_book_provenance",
         },
         "turnover_20d_oku": _object(market.get("price")).get("avg_turnover_20d_oku"),
@@ -371,77 +404,44 @@ def project_company(
     )
 
 
-def _latest_full_fy(periods: Sequence[dict[str, JsonValue]]) -> dict[str, JsonValue]:
-    # Fix the latest FY before reading values; never search backwards for a good year.
-    state = next((item for item in reversed(periods) if item.get("fiscal_period") == "FY"), {})
-    observations = {
-        _text(item.get("measurement")): item for item in _objects(state.get("observations"))
-    }
-    reported = observations.get("reported", {})
-    annual = observations.get("annual_ttm", {})
-    # The observation owner already verified the actual approximately-one-year interval.
-    if (
-        annual
-        and _period(annual) == _period(reported)
-        and annual.get("period_end") == state.get("fiscal_year_end")
-        and annual.get("statement_basis") in {"consolidated", "nonconsolidated"}
-    ):
-        return annual
-    return {}
-
-
 def _can_use_full_fy(
-    anchor: dict[str, JsonValue], annual: dict[str, JsonValue], full_fy: dict[str, JsonValue]
+    anchor: PeriodState | None, annual: Observation | None, full_fy: Observation | None
 ) -> bool:
-    fy_end = _text(full_fy.get("period_end"))
-    if fy_end is None or annual.get("statement_basis") != full_fy.get("statement_basis"):
+    if (
+        anchor is None
+        or annual is None
+        or full_fy is None
+        or annual.statement_basis != full_fy.statement_basis
+    ):
         return False
     # Legacy models have no interval status: never infer one from missing metric operands.
-    if annual.get("period_status") != "matching_period_not_observed":
+    if annual.period_status != "matching_period_not_observed":
         return False
-    end = date.fromisoformat(fy_end)
-    current_start = end + timedelta(days=1)
-    current_fy_end = _text(anchor.get("fiscal_year_end"))
+    current_start = full_fy.period_end + timedelta(days=1)
     return (
-        anchor.get("period_start") == current_start.isoformat()
-        and current_fy_end is not None
-        and is_annual_period(current_start, date.fromisoformat(current_fy_end))
+        anchor.period_start == current_start
+        and anchor.fiscal_year_end is not None
+        and is_annual_period(current_start, anchor.fiscal_year_end)
     )
 
 
-def _fy_metric(observation: dict[str, JsonValue], metric: str, as_of: date) -> float | None:
-    value = _object(_object(observation.get("metrics")).get(metric))
-    documents = _objects(value.get("documents"))
-    # Growth keeps retrospective corrections; new FY coordinates cannot use future disclosures.
-    if not documents or any(
-        (disclosed := _text(document.get("disclosed_at"))) is None or disclosed > as_of.isoformat()
-        for document in documents
-    ):
-        return None
-    return _number(value.get("value"))
-
-
 def _full_fy_change(
-    growth: dict[str, JsonValue], observation: dict[str, JsonValue], metric: str, as_of: date
+    growth: CompanyGrowthReader,
+    observation: Observation,
+    change: Change,
+    as_of: date,
 ) -> dict[str, JsonValue]:
-    change = _change(growth, observation, metric)
-    if _number(change.get("difference")) is None:
-        return change
-    prior = [
-        item
-        for state in _objects(growth.get("periods"))
-        for item in _objects(state.get("observations"))
-        if item.get("measurement") == observation.get("measurement")
-        and item.get("statement_basis") == observation.get("statement_basis")
-        and _period(item) == (change.get("from_start"), change.get("from_end"))
-    ]
+    saved = growth.saved_change(change)
+    if change.difference is None:
+        return saved
+    prior = growth.comparison_prior(observation, change)
     if (
-        _fy_metric(observation, metric, as_of) is None
+        metric_value(observation, change.metric, disclosed_by=as_of) is None
         or not prior
-        or any(_fy_metric(item, metric, as_of) is None for item in prior)
+        or any(metric_value(item, change.metric, disclosed_by=as_of) is None for item in prior)
     ):
         return {
-            **change,
+            **saved,
             "from_value": None,
             "to_value": None,
             "difference": None,
@@ -450,7 +450,7 @@ def _full_fy_change(
             "sign_change": None,
             "reason": "comparison_sources_not_observed_by_as_of",
         }
-    return change
+    return saved
 
 
 def _positive(value: JsonValue | None) -> float | None:
@@ -470,12 +470,8 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
     )
 
 
-def _period(observation: dict[str, JsonValue]) -> tuple[JsonValue | None, JsonValue | None]:
-    return observation.get("period_start"), observation.get("period_end")
-
-
-def _metric(observation: dict[str, JsonValue], name: str) -> float | None:
-    return _number(_object(_object(observation.get("metrics")).get(name)).get("value"))
+def _date_text(value: date | None) -> str | None:
+    return value.isoformat() if value is not None else None
 
 
 def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
@@ -490,30 +486,29 @@ def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, Json
 
 
 def _change(
-    growth: dict[str, JsonValue], observation: dict[str, JsonValue], metric: str
+    growth: CompanyGrowthReader,
+    observation: Observation | None,
+    metric: Metric,
+    *,
+    disclosed_by: date | None = None,
 ) -> dict[str, JsonValue]:
-    if not observation or not all(isinstance(value, str) for value in _period(observation)):
+    matches = growth.year_over_year(observation, metric)
+    if not matches or observation is None:
         return {}
-    matches = [
-        item
-        for item in _objects(growth.get("changes"))
-        if item.get("metric") == metric
-        and item.get("comparison") == "year_over_year"
-        and item.get("measurement") == observation.get("measurement")
-        and item.get("to_start") == observation.get("period_start")
-        and item.get("to_end") == observation.get("period_end")
-    ]
-    if matches and any(item != matches[0] for item in matches[1:]):
+    saved = growth.saved_change(matches[0])
+    if any(growth.saved_change(item) != saved for item in matches[1:]):
         return {
             "metric": metric,
-            "measurement": observation.get("measurement"),
+            "measurement": observation.measurement,
             "comparison": "year_over_year",
-            "to_start": observation.get("period_start"),
-            "to_end": observation.get("period_end"),
+            "to_start": observation.period_start.isoformat(),
+            "to_end": observation.period_end.isoformat(),
             "reason": "ambiguous_growth_comparison",
             "matching_comparison_count": len(matches),
         }
-    return matches[0] if matches else {}
+    if disclosed_by is not None:
+        return _full_fy_change(growth, observation, matches[0], disclosed_by)
+    return saved
 
 
 def _recovery_available(changes: dict[str, dict[str, JsonValue]]) -> bool:
@@ -525,19 +520,3 @@ def _recovery_available(changes: dict[str, dict[str, JsonValue]]) -> bool:
         and _number(margin.get("difference")) is not None
         and all(op.get(key) is not None and op.get(key) == margin.get(key) for key in dates)
     )
-
-
-def _earnings_period(earnings: dict[str, JsonValue]) -> tuple[str | None, str | None]:
-    components = _objects(earnings.get("profit_components"))
-    positive = [item for item in components if item.get("coefficient") == 1]
-    negative = [item for item in components if item.get("coefficient") == -1]
-    if len(positive) == 1 and not negative:
-        return _text(positive[0].get("period_start")), _text(positive[0].get("period_end"))
-    if len(positive) == 2 and len(negative) == 1:
-        prior_end = _text(negative[0].get("period_end"))
-        endpoints = [_text(item.get("period_end")) for item in positive]
-        if prior_end is not None and all(item is not None for item in endpoints):
-            return (date.fromisoformat(prior_end) + timedelta(days=1)).isoformat(), max(
-                item for item in endpoints if item is not None
-            )
-    return None, None

@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
+from pydantic import TypeAdapter
 
 import baibai_jobs.integration.models as job
 from baibai_engine.machine_analysis.generation.contracts import (
@@ -12,6 +13,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_jobs.observability.discord import render_generation
@@ -65,13 +67,21 @@ def integration(tmp_path, monkeypatch):
                         calculation_revision="v1",
                         payload={
                             "expected_price_date": "2026-10-23",
-                            "earnings_price": {
-                                "earnings_yield": 0.1,
-                                "price_date": "2026-10-23",
-                                "price_yen": 100.0,
-                                "shares_ex_treasury": 100.0,
-                                "market_cap_yen": 10000.0,
-                            },
+                            "earnings_price": TypeAdapter(EarningsPrice).dump_python(
+                                EarningsPrice(
+                                    as_of=date(2026, 10, 23),
+                                    earnings_yield=0.1,
+                                    price_date=date(2026, 10, 23),
+                                    price_yen=100.0,
+                                    shares_ex_treasury=100.0,
+                                    market_cap_yen=10000.0,
+                                    profit_ttm_yen=1000.0,
+                                    statement_basis="consolidated",
+                                    profit_components=(),
+                                    unavailable_reason=None,
+                                ),
+                                mode="json",
+                            ),
                             "financial": {"pbr": 0.5, "market_cap": 10000.0},
                         },
                     ),

@@ -29,6 +29,7 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     select_economic_paths,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.primitives.json import canonical_json
 
 AS_OF = date(2025, 8, 31)
 
@@ -375,6 +376,48 @@ def test_new_fy_income_veto_uses_disclosure_cutoff_but_keeps_retrospective_conte
     else:
         assert brief_income["evidence"]["newer_earning_weakness"] is False
     assert saved == original
+
+
+def test_quarter_and_ttm_keep_retrospective_corrections_without_a_disclosure_cutoff():
+    rows = [*documents(prior_quarter=True), document(2023, "1Q", 300.0, 50.0, 40.0)]
+    correction = replace(
+        rows[2],
+        disclosed_at=date(2025, 9, 1),
+        disclosure_number="future-current-quarter-correction",
+        sales=800.0,
+        operating_profit=180.0,
+        profit=200.0,
+    )
+    fixed = generation([*rows, correction])
+    saved = canonical_json(fixed.model_dump(mode="json"))
+    result = project(fixed)
+    income = active(result, "earning_power")
+    assert income.variant == "annual_ttm"
+    # EarningsPrice retains its own as_of contract; growth retains the release's correction.
+    assert income.price_value == pytest.approx(120.0 / 800.0)
+    assert income.business_value == pytest.approx(260.0 / 1500.0)
+    expansion = active(result, "business_expansion")
+    assert expansion.variant == "quarter"
+    assert expansion.price_value == pytest.approx(1500.0 / 800.0)
+    assert expansion.business_value == pytest.approx(0.6)
+    recovery = active(result, "operating_recovery")
+    assert recovery.variant == "quarter"
+    assert recovery.price_value == pytest.approx(80.0 / 800.0)
+    assert recovery.business_value == pytest.approx(180.0 / 800.0 - 100.0 / 500.0)
+    annual = next(
+        path
+        for path in result.paths
+        if path.path_id == "business_expansion" and path.variant == "annual_ttm"
+    )
+    assert annual.business_value == pytest.approx(0.25)
+    raw = fixed.result("company_growth", "1001").payload
+    quarter = next(
+        item for item in raw["periods"][-1]["observations"] if item["measurement"] == "quarter"
+    )
+    assert result.context["annual_observation"]["latest_quarter_observation"] == quarter
+    assert expansion.evidence["change_observation"]["observation"] == quarter["metrics"]["sales"]
+    assert quarter["metrics"]["sales"]["documents"][0]["disclosed_at"] == "2025-09-01"
+    assert canonical_json(fixed.model_dump(mode="json")) == saved
 
 
 def test_fy_reference_populations_include_companies_that_select_ttm():
