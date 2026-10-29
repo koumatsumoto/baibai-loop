@@ -76,8 +76,9 @@ def _quoted_payload(value: object) -> object:
 def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     """Serialize one analyzed security to its YAML entry shape.
 
-    旧保存形式とcalibrationの丸め済み座標を維持する。新しい五モデルの
-    payloadへこの丸めや旧候補契約を適用しない。
+    calibrationで使う丸め済み座標を維持する。保存済みrunのexportは
+    published_run_payloadでraw値を返し、この再計算用のshapeへ変換しない。
+    新しい五モデルへこの丸めや旧候補契約を適用しない。
     """
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(analysis.ticker)
@@ -95,15 +96,8 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
     )
     entry["price_history_span_days"] = analysis.price_history_span_days
     entry["jpx_flags"] = [QuotedString(flag) for flag in analysis.jpx_flags]
-    entry["price_change_1d"] = _round_ratio(analysis.price_change_1d)
-    entry["price_change_5d"] = _round_ratio(analysis.price_change_5d)
-    entry["price_change_20d"] = _round_ratio(analysis.price_change_20d)
     entry["price_change_60d"] = _round_ratio(analysis.price_change_60d)
     entry["gap_from_52w_low"] = _round_ratio(analysis.gap_from_52w_low)
-    entry["turnover_spike_5d"] = _round_ratio(analysis.turnover_spike_5d)
-    entry["sector_relative_strength_percentile"] = _round_ratio(
-        analysis.sector_relative_strength_percentile
-    )
     entry["price_history_sessions_750d"] = analysis.price_history_sessions_750d
     entry["price_history_coverage_750d"] = _round_ratio(analysis.price_history_coverage_750d)
     entry["metrics"] = _round_metrics(analysis.metrics)

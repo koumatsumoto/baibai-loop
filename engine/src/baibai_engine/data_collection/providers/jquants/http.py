@@ -12,7 +12,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
     JQuantsSource,
-    _envelope,
+    page_envelope,
 )
 from baibai_engine.data_collection.transport.http import ReadRetry, check_acquisition_deadline
 
@@ -101,7 +101,7 @@ class JQuantsHTTP:
                 raise JQuantsAcquisitionError(f"J-Quants request failed: {failure_kind}")
             assert page is not None
             yield page
-            payload = _envelope(page)
+            payload = page_envelope(page)
             cursor = payload.get("pagination_key")
             if cursor is None or cursor == "":
                 return

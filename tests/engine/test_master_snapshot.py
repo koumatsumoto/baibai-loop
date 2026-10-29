@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 import requests
+from pydantic import ValidationError
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
@@ -635,3 +636,23 @@ def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
         masters_from_payloads(["{broken"])
     assert failure_category(caught.value) == "storage"
     assert isinstance(caught.value.__cause__, json.JSONDecodeError)
+
+
+@pytest.mark.parametrize("field", ["CoName", "MktNm", "S33Nm"])
+@pytest.mark.parametrize("missing", [False, True])
+def test_invalid_stored_master_projection_is_a_source_error(field, missing):
+    record = {
+        "Date": "2026-07-20",
+        "Code": "23310",
+        "CoName": "保有企業",
+        "MktNm": "Prime",
+        "S33Nm": "サービス業",
+        "ProdCat": "011",
+    }
+    if missing:
+        del record[field]
+    else:
+        record[field] = " "
+    with pytest.raises(JQuantsProviderError, match="invalid security fields") as caught:
+        masters_from_payloads([json.dumps(record)])
+    assert isinstance(caught.value.__cause__, ValidationError)

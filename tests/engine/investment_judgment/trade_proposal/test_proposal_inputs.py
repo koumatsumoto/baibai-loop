@@ -447,3 +447,151 @@ def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
     assert quote is not None
     assert quote.close_yen == 9999.0
     assert not confirmed
+
+
+@pytest.mark.parametrize(
+    ("consumer", "action"),
+    [
+        ("context", "buy"),
+        ("context", "hold"),
+        ("check", "buy"),
+        ("check", "hold"),
+        ("preview", "buy"),
+        ("preview", "hold"),
+        ("preview", "no_action"),
+    ],
+)
+def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
+    tmp_path, monkeypatch, consumer, action
+):
+    from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
+    from baibai_engine.investment_judgment.trade_proposal import service as proposal_service
+    from baibai_engine.investment_judgment.trade_proposal.query import preview_current_terms
+
+    case = backend_case(tmp_path, holding=action == "hold", assessment_quote_as_of="2026-10-13")
+    proposal = reviewed_proposal(case, action=action)
+    if action == "hold":
+        raw = proposal.payload()
+        raw["items"][0]["remaining_reward"] = {
+            "status": "sufficient",
+            "reason": "同日起点の現在算術による残存見返りを主張する。",
+        }
+        proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    if consumer == "preview":
+        service.publish(proposal)
+    with closing(sqlite3.connect(case.market)) as writer, writer:
+        assert writer.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
+        writer.execute("UPDATE jquants_daily_bars SET adjustment_factor = 0.5, ex_right_type = '1'")
+
+    collect = input_reader.collect_proposal_inputs
+    observed = []
+
+    def collect_then_correct(*args, **kwargs):
+        inputs = collect(*args, **kwargs)
+        observed.append(inputs)
+        with closing(sqlite3.connect(case.market)) as writer, writer:
+            writer.execute(
+                "UPDATE jquants_daily_bars SET close = 2200, "
+                "adjustment_factor = 1.0, ex_right_type = NULL"
+            )
+        return inputs
+
+    owner = proposal_service if consumer == "check" else input_reader
+    monkeypatch.setattr(owner, "collect_proposal_inputs", collect_then_correct)
+    if consumer == "context":
+        context = build_proposal_context(
+            operation_id=case.operation.operation_id,
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=PUBLISHED,
+        )
+        row = context.calculations["1234"]
+        assert row["current_quote_projection"] is None
+        if action == "buy":
+            result = row["buy_at_actual_quote"]
+            assert result["current_price_projection"] is None
+            assert result["quantity"] == 0
+            assert "corporate_action_unresolved" in {row["code"] for row in result["hard_blockers"]}
+    elif consumer == "check":
+        validation = service.check(proposal)
+        assert not validation.valid
+        assert "corporate_action_unresolved" in {reason.code for reason in validation.blockers}
+    else:
+        preview = preview_current_terms(
+            proposal_id=proposal.proposal_id,
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=PUBLISHED,
+        )
+        result = preview.items[0]["current_quote_calculation"]
+        if action == "no_action":
+            # An unavailable current projection does not invalidate an economic
+            # decision to do nothing, nor rewrite its saved assessment.
+            assert preview.status == "unchanged"
+            assert result is None
+        else:
+            assert preview.status == "blocked"
+            assert result["current_price_projection"] is None
+            assert "corporate_action_unresolved" in {
+                reason["code"] for reason in preview.items[0]["blockers"]
+            }
+            if action == "buy":
+                assert Decimal(result["calculation_price_yen"]) == Decimal(1100)
+                assert result["quantity"] == 0
+            else:
+                assert result["current_position"]["quantity"] == 100
+                assert result["current_position"]["quantity_basis_confirmed"]
+                assert (
+                    result["return_calculation_unavailable_reason"] == "corporate_action_unresolved"
+                )
+        assert (
+            get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+        )
+    assert len(observed) == 1
+    assert observed[0].quotes[0].price_yen == Decimal(1100)
+    monkeypatch.setattr(owner, "collect_proposal_inputs", collect)
+    # A separate evaluation sees all of the correction, not the old cheap quote
+    # combined with the corrected unit factor. The saved assessment is unchanged.
+    corrected = build_proposal_context(
+        operation_id=case.operation.operation_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED,
+    )
+    assert corrected.inputs.quotes[0].price_yen == Decimal(2200)
+    projection = corrected.calculations["1234"]["current_quote_projection"]
+    assert projection["price_yen"] == 2200
+    assert corrected.assessments[case.pair.assessment_id] == case.pair
+
+
+@pytest.mark.parametrize(("kind", "unchanged"), [("1", False), ("2", False), ("3", True)])
+def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
+    tmp_path, kind, unchanged
+):
+    from baibai_engine.investment_judgment.trade_proposal.conditions import (
+        terms_unavailable_reasons,
+    )
+
+    case = backend_case(tmp_path, holding=True, broken=True)
+    proposal = reviewed_proposal(case, action="sell")
+    now = (PUBLISHED + timedelta(days=1)).replace(hour=10)
+    with closing(sqlite3.connect(case.market)) as connection, connection:
+        connection.execute(
+            "INSERT INTO jquants_daily_bars "
+            "(ticker, traded_at, close, adjustment_factor, ex_right_type) "
+            "VALUES ('1234', '2026-10-15', NULL, 0.5, ?)",
+            (kind,),
+        )
+    inputs = _collect(case, now=now)
+    assert inputs.quotes[0].price_as_of == PREPARED.date()
+    assert inputs.quotes[0].price_yen == Decimal(1100)
+    assert inputs.positions[0].quantity == 100
+    assert inputs.positions[0].cost_yen == Decimal(90000)
+    assert inputs.positions[0].quantity_basis_confirmed is unchanged
+    assert inputs.available_cash_yen == Decimal(210000)
+    assert inputs.total_capital_yen == (Decimal(320000) if unchanged else None)
+    reasons = terms_unavailable_reasons(proposal.items[0], inputs, sqlite_path=case.market, now=now)
+    assert {reason.code for reason in reasons} == (
+        set() if unchanged else {"quantity_basis_unconfirmed"}
+    )

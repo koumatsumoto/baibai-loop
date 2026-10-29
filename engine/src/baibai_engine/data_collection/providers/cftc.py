@@ -55,6 +55,7 @@ class CftcSource:
             },
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         return parse_cftc_records(series, text, start=start, end=end)
 

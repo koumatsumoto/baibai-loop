@@ -114,9 +114,16 @@ def _export(
     write_json_atomic(directory / "result.json", report)
 
 
+def _handoff_ids(report: dict[str, object], field: str) -> tuple[str, ...]:
+    values = report.get(field)
+    if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+        raise ValueError(f"invalid handoff {field}")
+    return tuple(values)
+
+
 def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
-    if report["source"] != source:
+    if not isinstance(report, dict) or report.get("source") != source:
         raise ValueError("handoff source differs from the publication plan")
     path = directory / "receipts.sqlite"
     if source == "tradingview":
@@ -125,10 +132,12 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
-        return import_jquants_handoff(path, database, report["request_ids"], sources=selected)
+        return import_jquants_handoff(
+            path, database, _handoff_ids(report, "request_ids"), sources=selected
+        )
     if source in _JPX_COLLECTION:
         return import_jpx_handoff(
-            path, database, tuple(report["bundle_ids"]), collection=_JPX_COLLECTION[source]
+            path, database, _handoff_ids(report, "bundle_ids"), collection=_JPX_COLLECTION[source]
         )
     return import_edinet_handoff(path, database)
 

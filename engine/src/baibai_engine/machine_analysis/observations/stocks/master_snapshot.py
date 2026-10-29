@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Final
 
+from pydantic import ValidationError
+
 from baibai_engine.machine_analysis.observations.jquants_decode import (
     JQuantsProviderError,
     parse_jquants_code_parts,
@@ -77,7 +79,10 @@ def masters_from_payloads(payloads: Sequence[str]) -> list[SecurityMaster]:
             raise JQuantsProviderError("stored master record is not valid JSON") from exc
         if not isinstance(record, dict) or not _nonempty(record.get("ProdCat")):
             raise JQuantsProviderError("master record has no native product category")
-        security = normalize_master_record(record)
+        try:
+            security = normalize_master_record(record)
+        except ValidationError as exc:
+            raise JQuantsProviderError("stored master record has invalid security fields") from exc
         if security is not None:
             result.append(security)
     return sorted(result, key=lambda security: security.ticker)

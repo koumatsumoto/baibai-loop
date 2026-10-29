@@ -54,11 +54,11 @@ class EdinetDocumentCandidate:
 class DocumentSelection:
     """Selected filings plus operation rows quarantined without an origin filing.
 
-    EDINET lists an edit or withdrawal on the day it happens, so an operation on
-    a filing older than the lookback window arrives with its origin absent. Such
-    an event cannot safely mutate a candidate. The structured quarantine keeps
-    its identity and any usable ticker visible so extraction can fail-close that
-    ticker without letting one external inconsistency stop the whole batch.
+    EDINET lists an edit or withdrawal on the day it happens. Retained origins
+    outside the candidate window still resolve those operations. If the origin
+    is genuinely absent, the structured quarantine keeps the event identity and
+    any usable ticker visible so extraction can fail-close that ticker without
+    letting one external inconsistency stop the whole batch.
     """
 
     candidates: dict[str, EdinetDocumentCandidate]

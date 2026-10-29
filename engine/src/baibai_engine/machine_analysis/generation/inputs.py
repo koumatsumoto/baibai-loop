@@ -38,7 +38,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 )
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    price_calendar_basis,
     read_price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -113,7 +112,6 @@ def read_and_generate_models(
         for row in read_financial_documents(connection, start=date.min, end=date.max):
             documents[row.ticker].append(row)
         calendar = read_price_calendar(connection, as_of=as_of)
-        expected_price_date, trading_dates = price_calendar_basis(calendar, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
             (window[0] for window in path_calendar.windows.values() if window is not None),
@@ -205,8 +203,8 @@ def read_and_generate_models(
         },
         financial_release=market_release,
         companies=companies,
-        trading_dates=trading_dates,
-        expected_price_date=expected_price_date,
+        trading_dates=path_calendar.trading_dates,
+        expected_price_date=path_calendar.expected_price_date,
         ttm_rules=ttm_rules,
         external_observations=histories,
         market_context={

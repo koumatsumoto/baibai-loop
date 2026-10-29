@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date
-from math import sqrt
-from statistics import mean
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
@@ -127,14 +125,3 @@ def self_range_position(history: Sequence[float], current: float | None) -> floa
     if high == low:
         return 0.0
     return (current - low) / (high - low)
-
-
-def sigma_gap(history: Sequence[float], current: float | None) -> float | None:
-    if current is None or len(history) < 2:
-        return None
-    avg = mean(history)
-    variance = sum((value - avg) ** 2 for value in history) / len(history)
-    stddev = sqrt(variance)
-    if stddev == 0:
-        return 0.0
-    return (current - avg) / stddev

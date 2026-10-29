@@ -119,6 +119,8 @@ class ScreeningMetricsTests(SnapshotFixtures):
                 date(year, 4, 10),
                 fiscal_period="FY",
                 fiscal_year_end=date(year, 2, 29 if year == 2024 else 28),
+                period_start=date(year - 1, 3, 1),
+                period_end=date(year, 2, 29 if year == 2024 else 28),
                 dps_actual_annual=0.0,
                 dps_forecast_annual=0.0,
                 shares_outstanding=100.0,

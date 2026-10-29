@@ -128,6 +128,7 @@ def _preview_buy(
     latest: bool,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> tuple[dict[str, object], list[GateReason]]:
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
         buy_evaluation,
@@ -145,6 +146,7 @@ def _preview_buy(
         latest=latest,
         sqlite_path=sqlite_path,
         now=now,
+        market_connection=market_connection,
     )
     blockers = list(result.hard_blockers)
     if item.terms is not None and item.terms.notional_yen > inputs.available_cash_yen:
@@ -178,6 +180,7 @@ def _preview_buy(
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
+            market_connection=market_connection,
         )
         trial = {
             **buy_evaluation_payload(current),
@@ -198,6 +201,7 @@ def _preview_holding(
     latest: bool,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> tuple[dict[str, object], list[GateReason]]:
     from baibai_engine.investment_judgment.trade_proposal.conditions import assessment_quote_basis
     from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
@@ -219,7 +223,9 @@ def _preview_holding(
         position=position,
         as_of=now.astimezone(JST).date(),
         quote=quote,
-        price_basis_confirmed=assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path),
+        price_basis_confirmed=assessment_quote_basis(
+            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+        ),
         remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
         primary_verified=pair.review.primary_source_check == "verified",
@@ -274,6 +280,7 @@ def preview_current_terms(
         DEFAULT_BUDGET_MAX_YEN,
         DEFAULT_BUDGET_MIN_YEN,
         collect_proposal_inputs,
+        proposal_market_snapshot,
     )
     from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
     from baibai_engine.portfolio.holdings.market_observations import next_order_session
@@ -282,7 +289,10 @@ def preview_current_terms(
 
     if now.utcoffset() is None:
         raise ValueError("proposal preview time requires a timezone")
-    with closing(connect_read_only(db_path)) as connection:
+    with (
+        closing(connect_read_only(db_path)) as connection,
+        proposal_market_snapshot(sqlite_path) as market_connection,
+    ):
         connection.execute("BEGIN")
         proposal = load_investment_proposal(connection, proposal_id)
         inputs = collect_proposal_inputs(
@@ -293,6 +303,7 @@ def preview_current_terms(
             sqlite_path=sqlite_path,
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+            market_connection=market_connection,
         )
         changes: list[GateReason] = []
         baseline = proposal_inputs_fingerprint(proposal.inputs)
@@ -340,12 +351,24 @@ def preview_current_terms(
                 latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
                 if item.action == "buy":
                     calculation, blockers = _preview_buy(
-                        item, pair, inputs, latest=latest, sqlite_path=sqlite_path, now=now
+                        item,
+                        pair,
+                        inputs,
+                        latest=latest,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        market_connection=market_connection,
                     )
                     row.update(calculation)
                 elif item.action in {"hold", "sell"}:
                     calculation, blockers = _preview_holding(
-                        item, pair, inputs, latest=latest, sqlite_path=sqlite_path, now=now
+                        item,
+                        pair,
+                        inputs,
+                        latest=latest,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        market_connection=market_connection,
                     )
                     row.update(calculation)
                 elif item.action == "no_action":
@@ -358,7 +381,10 @@ def preview_current_terms(
                         price_as_of=None if quote is None else quote.price_as_of,
                         as_of=now.astimezone(JST).date(),
                         basis_confirmed=assessment_quote_basis(
-                            pair.document, quote, sqlite_path=sqlite_path
+                            pair.document,
+                            quote,
+                            sqlite_path=sqlite_path,
+                            market_connection=market_connection,
                         ),
                         max_quote_age_days=PORTFOLIO_POLICY["valuation"][
                             "market_price_max_age_days"

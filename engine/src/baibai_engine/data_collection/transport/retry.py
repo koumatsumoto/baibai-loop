@@ -4,17 +4,26 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from types import TracebackType
 from typing import Any, Self, cast
 
 from requests import PreparedRequest, Response, Session
 from requests.adapters import HTTPAdapter
-from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
-from urllib3.exceptions import DecodeError, HTTPError, InvalidHeader, ProtocolError
+from urllib3.connectionpool import ConnectionPool, HTTPConnectionPool, HTTPSConnectionPool
+from urllib3.exceptions import DecodeError, HTTPError, MaxRetryError, ProtocolError
 from urllib3.response import BaseHTTPResponse, HTTPResponse
 from urllib3.util import Retry
 
-from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
-from baibai_engine.data_collection.transport.http import check_acquisition_deadline
+from baibai_engine.data_collection.transport.context import (
+    FetchContext,
+    ProviderFetchStoppedError,
+    ProviderRateLimitError,
+)
+from baibai_engine.data_collection.transport.http import (
+    AcquisitionDeadlineExceeded,
+    check_acquisition_deadline,
+    retry_after_delay,
+)
 
 _RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -51,6 +60,25 @@ class ReadRetry(Retry):
     def new(self, **kw: Any) -> Self:
         return super().new(deadline=self.deadline, **kw)
 
+    def increment(
+        self,
+        method: str | None = None,
+        url: str | None = None,
+        response: BaseHTTPResponse | None = None,
+        error: Exception | None = None,
+        _pool: ConnectionPool | None = None,
+        _stacktrace: TracebackType | None = None,
+    ) -> Self:
+        try:
+            return super().increment(method, url, response, error, _pool, _stacktrace)
+        except MaxRetryError:
+            if response is not None and response.status == 429:
+                response.drain_conn()
+                raise ProviderRateLimitError(
+                    f"{self.deadline.provider} rate-limited (HTTP 429): retries exhausted"
+                ) from None
+            raise
+
     def get_backoff_time(self) -> float:
         if not self.history:
             return 0.0
@@ -59,13 +87,15 @@ class ReadRetry(Retry):
     def sleep(self, response: BaseHTTPResponse | None = None) -> None:
         waiting = self.get_backoff_time()
         if response is not None and self.respect_retry_after_header:
-            try:
-                retry_after = self.get_retry_after(response)
-            except InvalidHeader:
-                retry_after = None
-            if retry_after is not None:
-                waiting = retry_after
-        self.deadline.wait(waiting)
+            waiting = retry_after_delay(response.headers.get("Retry-After"), fallback=waiting)
+        try:
+            self.deadline.wait(waiting)
+        except (ProviderFetchStoppedError, AcquisitionDeadlineExceeded) as exc:
+            if response is not None and response.status == 429:
+                raise ProviderRateLimitError(
+                    f"{self.deadline.provider} rate-limited (HTTP 429): {exc}"
+                ) from None
+            raise
 
 
 def read_deadline(provider: str, context: FetchContext | None) -> ReadDeadline:

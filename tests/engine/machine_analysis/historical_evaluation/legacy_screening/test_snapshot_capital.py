@@ -1125,13 +1125,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
 
         derived = result.derived["130A"]
         # adjusted close history [80, 100, 120] -> EV/EBITDA history [5.0, 6.0, 7.0]
-        expected_history = [
-            ((price * 10.0) + 300.0 - 100.0) / 200.0 for price in (80.0, 100.0, 120.0)
-        ]
-        avg = sum(expected_history) / len(expected_history)
-        variance = sum((value - avg) ** 2 for value in expected_history) / len(expected_history)
-        expected_sigma_gap = (expected_history[-1] - avg) / (variance**0.5)
-        self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
         # If raw close were used the second sample (200.0 -> 21/2 = 10.5) would
         # dominate the percentile and push latest off the upper boundary.
         self.assertAlmostEqual(derived.self_range_position["ev_ebitda"], 1.0)

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from hashlib import sha256
@@ -135,6 +136,21 @@ def _original_assessment(
     return None, f"{label}の当初評価・投資理由を確認できない。現在評価では補完しない。"
 
 
+@contextmanager
+def proposal_market_snapshot(
+    sqlite_path: Path, *, connection: sqlite3.Connection | None = None
+) -> Iterator[sqlite3.Connection | None]:
+    """Keep quote, share units and assessment price basis on the same read snapshot."""
+    if connection is not None:
+        yield connection
+    elif sqlite_path.exists():
+        with closing(connect_market_read_only(sqlite_path)) as market_connection:
+            market_connection.execute("BEGIN")
+            yield market_connection
+    else:
+        yield None
+
+
 def collect_proposal_inputs(
     connection: sqlite3.Connection,
     *,
@@ -144,6 +160,7 @@ def collect_proposal_inputs(
     sqlite_path: Path,
     budget_min_yen: int,
     budget_max_yen: int,
+    market_connection: sqlite3.Connection | None = None,
 ) -> ProposalInputs:
     """台帳head/metaはcallerのtransaction、quote/basisは一つのmarket snapshotから読む。"""
     if not connection.in_transaction:
@@ -158,9 +175,8 @@ def collect_proposal_inputs(
     quotes: list[QuoteInput] = []
     quantity_basis: dict[str, bool] = {}
     prices: dict[str, MarketPrice] = {}
-    if sqlite_path.exists():
-        with closing(connect_market_read_only(sqlite_path)) as market_connection:
-            market_connection.execute("BEGIN")
+    with proposal_market_snapshot(sqlite_path, connection=market_connection) as market_connection:
+        if market_connection is not None:
             for ticker in sorted(set(tickers) | held_tickers):
                 if ticker in held_tickers:
                     observed, confirmed = holding_quote(
@@ -363,6 +379,7 @@ def _context_calculations(
     sqlite_path: Path,
     now: datetime,
     session: date | None,
+    market_connection: sqlite3.Connection | None,
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
     from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
@@ -379,7 +396,9 @@ def _context_calculations(
             continue
         pair = assessments[outcome.assessment_ref.assessment_id]
         quote = next((quote for quote in inputs.quotes if quote.ticker == outcome.ticker), None)
-        basis = assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path)
+        basis = assessment_quote_basis(
+            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+        )
         row: dict[str, object] = {
             "current_quote_projection": current_price_projection(
                 pair.document,
@@ -400,6 +419,7 @@ def _context_calculations(
                     latest=latest[outcome.ticker] == pair.assessment_id,
                     sqlite_path=sqlite_path,
                     now=now,
+                    market_connection=market_connection,
                 )
             )
             valuation = pair.document.valuation
@@ -423,6 +443,7 @@ def _context_calculations(
                         latest=latest[outcome.ticker] == pair.assessment_id,
                         sqlite_path=sqlite_path,
                         now=now,
+                        market_connection=market_connection,
                     )
                 )
                 classification = next(
@@ -454,7 +475,10 @@ def build_proposal_context(
 ) -> ProposalAuthoringContext:
     from baibai_engine.portfolio.holdings.market_observations import next_order_session
 
-    with closing(connect_read_only(db_path)) as connection:
+    with (
+        closing(connect_read_only(db_path)) as connection,
+        proposal_market_snapshot(sqlite_path) as market_connection,
+    ):
         connection.execute("BEGIN")
         row = connection.execute(
             "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
@@ -478,6 +502,7 @@ def build_proposal_context(
             sqlite_path=sqlite_path,
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+            market_connection=market_connection,
         )
         assessments = {
             outcome.assessment_ref.assessment_id: require_assessment_ref(
@@ -514,5 +539,6 @@ def build_proposal_context(
                 sqlite_path=sqlite_path,
                 now=now,
                 session=session,
+                market_connection=market_connection,
             ),
         )

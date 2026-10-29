@@ -70,12 +70,10 @@ class PreparedMarketContext:
     sqlite_path: Path
     asof_date: date
     history_weeks: int
-    start: date
     master: MasterSnapshot | None
     common_stock_tickers_by_sector: dict[str, tuple[str, ...]]
     series_by_ticker: Mapping[str, _Series]
     benchmark_ticker: str
-    benchmark_start: date
     benchmark_prices: dict[date, float]
     benchmark_trend: BenchmarkTrendSnapshot | None
 
@@ -124,12 +122,10 @@ def prepare_market_context_from_bars(
         sqlite_path=sqlite_path,
         asof_date=asof_date,
         history_weeks=history_weeks,
-        start=start,
         master=master,
         common_stock_tickers_by_sector={key: tuple(value) for key, value in sectors.items()},
         series_by_ticker=series,
         benchmark_ticker=benchmark_ticker,
-        benchmark_start=start,
         benchmark_prices={day: price for day, price in benchmark_rows if day >= start},
         benchmark_trend=benchmark_trend_from_series(
             [(day, price) for day, price in benchmark_rows if day >= trend_start],

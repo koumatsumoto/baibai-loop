@@ -201,7 +201,6 @@ def hydrate_market_store(
     plan, partitions = plan_release_load(release, dataset_names=dataset_names, catalog=catalog)
     require_still_current(still_current, release)
     with exclusive_lock(store.with_name(f".{store.name}.lock"), subject="market store"):
-        schema_version = validate_snapshot(store)
         require_row_counts_within_release(store, plan, catalog=catalog)
         require_safe_hydrate_transition(store, release=release, plan=plan, catalog=catalog)
         require_free_capacity(store.parent, store=store)
@@ -209,7 +208,7 @@ def hydrate_market_store(
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
         rows: dict[str, int] = {}
         try:
-            create_snapshot(store, temporary)
+            schema_version = create_snapshot(store, temporary)
             connection = sqlite3.connect(temporary)
             try:
                 connection.execute("PRAGMA journal_mode=OFF")
@@ -238,12 +237,13 @@ def hydrate_market_store(
                     ),
                 )
                 connection.commit()
-                if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
-                    raise LakeHydrateError("hydrated market store failed quick_check")
             finally:
                 connection.close()
             _require_published_rows(rows, expected_row_totals(plan))
-            filled_version = validate_snapshot(temporary)
+            try:
+                filled_version = validate_snapshot(temporary)
+            except sqlite3.DatabaseError as error:
+                raise LakeHydrateError("hydrated market store failed validation") from error
             if filled_version != schema_version:
                 raise LakeHydrateError(
                     f"hydration moved the market schema version from {schema_version} "

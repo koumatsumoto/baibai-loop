@@ -144,7 +144,7 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
     assert available_handoffs(store)[0]["late_before_integrated"] is (not projection_failed)
 
 
-def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False):
+def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False, market_report=None):
     store = Store()
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     for path, initialize in ((market, open_connection), (economic, initialize_database)):
@@ -159,7 +159,8 @@ def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False):
             pass
     (packet / "result.json").write_text(
         json.dumps(
-            {
+            market_report
+            or {
                 "source": "edinet-list",
                 "asof": "2026-10-24",
                 "started_at": FIRST_AT.isoformat(),
@@ -230,3 +231,75 @@ def test_invalid_receipt_sqlite_is_local_and_other_source_still_integrates(tmp_p
     assert report["handoffs"][0]["result"] == {"reason": "ValueError"}
     assert report["handoffs"][0]["failed"] is True
     assert report["handoffs"][1]["failed"] is False
+
+
+@pytest.mark.parametrize("field", ["receipt_sha256", "receipt_bytes", "receipt_key"])
+def test_incomplete_handoff_manifest_is_local_and_other_source_still_integrates(
+    tmp_path, monkeypatch, field
+):
+    store, work, market, economic = _mixed_handoffs(tmp_path, monkeypatch)
+    key = "coordination/market-sources/edinet-list-fault/handoff.json"
+    manifest = json.loads(store.values[key].body)
+    del manifest[field]
+    store.store_object(key, json.dumps(manifest).encode())
+    entries = available_handoffs(store)
+    entries.sort(key=lambda entry: not entry["market"])
+    (work / "plan.json").write_text(json.dumps({"handoffs": entries}))
+
+    report = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))
+    bad, good = report["handoffs"]
+    assert bad["result"] == {"reason": "ValueError"}
+    assert bad["applied"] is False
+    assert bad["failed"] is bad["recovery"] is True
+    assert good["applied"] is True
+    assert good["failed"] is False
+    with closing(initialize_database(economic)) as conn:
+        assert next(
+            read_snapshots(conn, date(2026, 10, 24), date(2026, 10, 24), source_id="fred-payems")
+        ).records == ({"value": "independent receipt"},)
+
+
+@pytest.mark.parametrize(
+    ("source", "metadata"),
+    [
+        ("jquants-market", {}),
+        ("jquants-financial", {"request_ids": [{}]}),
+        ("jpx-regulations", {}),
+        ("jpx-earnings", {"bundle_ids": "not-an-id-list"}),
+        ("tradingview", {"symbols": [], "receipt_ids": [], "master_request_ids": []}),
+        (
+            "tradingview",
+            {
+                "snapshot_date": "2026-10-24",
+                "master_asof": "2026-10-23",
+                "symbols": [],
+                "receipt_ids": [None],
+                "master_request_ids": [],
+            },
+        ),
+    ],
+)
+def test_invalid_market_metadata_is_local_and_other_source_still_integrates(
+    tmp_path, monkeypatch, source, metadata
+):
+    store, work, market, economic = _mixed_handoffs(
+        tmp_path,
+        monkeypatch,
+        market_report={
+            "source": source,
+            "asof": "2026-10-24",
+            "started_at": FIRST_AT.isoformat(),
+            **metadata,
+        },
+    )
+    report = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))
+    bad, good = report["handoffs"]
+    assert bad["result"] == {"reason": "ValueError"}
+    assert bad["applied"] is False
+    assert bad["failed"] is bad["recovery"] is True
+    assert good["applied"] is True
+    assert good["failed"] is False
+    with closing(initialize_database(economic)) as conn:
+        assert next(
+            read_snapshots(conn, date(2026, 10, 24), date(2026, 10, 24), source_id="fred-payems")
+        ).records == ({"value": "independent receipt"},)

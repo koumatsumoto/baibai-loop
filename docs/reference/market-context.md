@@ -7,11 +7,10 @@
 
 | 出力 | 比較対象 |
 | --- | --- |
-| 旧Stock Analysisの業種relative strength | 旧Screeningが渡す母集団で業種平均と市場平均を比較。個別対業種の差ではない |
 | market snapshot | benchmarkと同じ観測日の普通株breadth・業種中央値。過去の各時点以下のmasterを使う |
 | security context | 指定銘柄と同じ開始・終了日のbenchmark、自己を除いた同業peer。端点不足を補間しない |
 
-masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値、市場の業種中央値、旧Screeningの業種平均は別母集団である。
+masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値と市場の業種中央値は別母集団である。保存旧runの業種relative strengthは当時のScreening母集団で業種平均と市場平均を比較した値で、個別対業種の差ではない。旧値はrawのまま読み、現行生成や較正で再計算しない。
 
 価格は[調整済み価格reader](../../engine/src/baibai_engine/machine_analysis/observations/prices/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
 

@@ -17,6 +17,7 @@ from baibai_engine.data_collection.transport.context import (
     HttpSession,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
+    ProviderRateLimitError,
     fetch_text,
 )
 from baibai_engine.data_collection.transport.retry import mount_read_retry, read_deadline
@@ -58,6 +59,10 @@ class FredSource:
             )
             return parse_fred_csv(series, text, start=start, end=end)
         except (IndicatorsProviderError, RequestException, ValueError) as exc:
+            if context is not None:
+                context.discard_cached_bytes(series.source_url, None)
+            if isinstance(exc, ProviderRateLimitError):
+                raise
             raise ProviderFetchStoppedError(str(exc)) from None
 
 

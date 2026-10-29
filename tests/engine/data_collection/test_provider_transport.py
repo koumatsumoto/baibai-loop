@@ -110,8 +110,7 @@ class IndicatorsProviderParserTests(TestCase):
     def test_fetch_text_reports_a_non_utf8_response_as_a_provider_failure(self) -> None:
         session = _StaticSession(_FakeResponse(b"\xff\xfe\x00garbage"))
 
-        # A raw UnicodeDecodeError escapes the refresh's retry, which only knows
-        # about provider errors, leaving the bytes cached for every later series.
+        # Text decoding is a provider failure, not a reason to resend the GET.
         with self.assertRaisesRegex(IndicatorsProviderError, r"is not UTF-8"):
             fetch_text(
                 cast(HttpSession, session),
@@ -146,16 +145,19 @@ class IndicatorsProviderParserTests(TestCase):
                 b"ok",
             )
 
-    def test_discard_cached_bytes_keeps_the_blocked_browser_record(self) -> None:
+    def test_discard_cached_bytes_keeps_other_responses_and_browser_evidence(self) -> None:
         with FetchContext() as context:
-            store_fetched_bytes(context, "https://example.test/data", None, b"ok", max_bytes=1000)
+            store_fetched_bytes(context, "https://example.test/data", None, b"bad", max_bytes=1000)
+            store_fetched_bytes(
+                context, "https://example.test/data", {"month": "1"}, b"ok", max_bytes=1000
+            )
             context.blocked_browser_urls["https://example.test/data"] = "turned away"
 
-            context.discard_cached_bytes()
+            context.discard_cached_bytes("https://example.test/data", None)
 
-            # A retry is worth re-testing the plain request, not a navigation that
-            # already spent a timeout failing against the same edge.
-            self.assertEqual(context.bytes_cache, {})
+            self.assertEqual(
+                context.bytes_cache, {("https://example.test/data", (("month", "1"),)): b"ok"}
+            )
             self.assertEqual(
                 context.blocked_browser_urls, {"https://example.test/data": "turned away"}
             )
@@ -186,8 +188,7 @@ class IndicatorsProviderParserTests(TestCase):
                 "baibai_engine.data_collection.transport.browser.tempfile.TemporaryDirectory",
                 side_effect=OSError("No space left on device"),
             ),
-            # A bare OSError would escape every handler that knows what a provider
-            # failure means, taking the refresh's retry and cache discard with it.
+            # A launch failure must not be mistaken for a refusal by the source.
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
         ):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)

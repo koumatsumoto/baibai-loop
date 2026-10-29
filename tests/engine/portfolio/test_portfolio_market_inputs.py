@@ -254,15 +254,16 @@ def test_basis_calendar_and_action_rows_share_one_read_snapshot(tmp_path, monkey
         assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
     read_calendar = market_store._read_calendar
 
-    def remove_action_after_calendar(connection, start, end):
-        calendar = read_calendar(connection, start, end)
+    def remove_calendar_before_read(connection, start, end):
+        # Action rows are already materialized; commit before the calendar read
+        # so removing BEGIN exposes mixed snapshots in the first assertion.
         with closing(sqlite3.connect(database)) as writer, writer:
             writer.execute(
-                "DELETE FROM jquants_daily_bars WHERE traded_at = ?", (START.isoformat(),)
+                "DELETE FROM jquants_market_calendar WHERE day = ?", (START.isoformat(),)
             )
-        return calendar
+        return read_calendar(connection, start, end)
 
-    monkeypatch.setattr(market_store, "_read_calendar", remove_action_after_calendar)
+    monkeypatch.setattr(market_store, "_read_calendar", remove_calendar_before_read)
     assert market_basis_is_confirmed(
         basis="shares", sqlite_path=database, ticker="1301", from_date=first, through_date=END
     )

@@ -85,6 +85,7 @@ def load_generated_selection_context(
     app_path = database_path(db_path)
     if app_path.exists():
         with closing(connect_read_only(app_path)) as connection:
+            connection.execute("BEGIN")
             ledger = load_ledger_document(connection)
             if ledger is not None:
                 state = replay_events_through(ledger.events, known_at)

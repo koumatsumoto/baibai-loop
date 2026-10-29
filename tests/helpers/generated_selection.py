@@ -14,8 +14,11 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    EconomicPathPolicy,
+    EconomicPathSelection,
+)
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
@@ -23,7 +26,9 @@ from baibai_engine.primitives.time import JST
 from tests.helpers.research_selection import selected_target
 
 
-def seed_generated_selection(*, runs, now, tickers=(), scope="discover_new", models=()):
+def seed_generated_selection(
+    *, runs, now, tickers=(), scope="discover_new", models=(), screening_result=None
+):
     """初回setup専用。sourceを削除した再開前には呼ばない。"""
     as_of = now.astimezone(JST).date()
     token = sha256(
@@ -49,8 +54,12 @@ def seed_generated_selection(*, runs, now, tickers=(), scope="discover_new", mod
     identity = f"policy-{token}"
     ScreeningSelectionStore(runs).publish(
         identity,
-        select_generation(
-            generation, tickers=tickers, policy=TwoViewPolicy(earnings_limit=20, combined_limit=20)
+        ScreeningSelection(
+            generation.generation_id,
+            tickers,
+            screening_result
+            if screening_result is not None
+            else EconomicPathSelection(EconomicPathPolicy(candidate_limit=20), 0, ()),
         ),
     )
     with closing(sqlite3.connect(runs)) as connection, connection:

@@ -86,6 +86,7 @@ def holding_quote(
                 ticker=ticker,
                 from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
                 through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
+                known_actions_through=now.astimezone(JST).date(),
                 connection=connection,
             )
         )

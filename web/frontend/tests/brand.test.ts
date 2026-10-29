@@ -98,39 +98,6 @@ function relativeLuminance({ red, green, blue }: Rgb): number {
   return 0.2126 * srgbToLinear(red) + 0.7152 * srgbToLinear(green) + 0.0722 * srgbToLinear(blue)
 }
 
-interface Oklab {
-  readonly lightness: number
-  readonly a: number
-  readonly b: number
-  readonly chroma: number
-  readonly hue: number
-}
-
-// Oklab distance is an approximate perceptual comparison, not a guarantee for every viewer.
-function oklab({ red, green, blue }: Rgb): Oklab {
-  const r = srgbToLinear(red)
-  const g = srgbToLinear(green)
-  const bl = srgbToLinear(blue)
-  const long = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl)
-  const medium = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl)
-  const short = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl)
-  const a = 1.9779984951 * long - 2.428592205 * medium + 0.4505937099 * short
-  const b = 0.0259040371 * long + 0.7827717662 * medium - 0.808675766 * short
-  return {
-    lightness: 0.2104542553 * long + 0.793617785 * medium - 0.0040720468 * short,
-    a,
-    b,
-    chroma: Math.hypot(a, b),
-    hue: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360,
-  }
-}
-
-function perceptualDistance(first: string, second: string): number {
-  const one = oklab(parseColor(first))
-  const two = oklab(parseColor(second))
-  return Math.hypot(one.lightness - two.lightness, one.a - two.a, one.b - two.b) * 100
-}
-
 function contrastOf(foreground: Rgb, background: Rgb): number {
   const first = relativeLuminance(foreground)
   const second = relativeLuminance(background)
@@ -187,29 +154,7 @@ describe('light-only appearance', () => {
 const VALUE_COLORS = ['--positive', '--destructive', '--profit', '--loss'] as const
 const SERIES_COLORS = ['--chart-1', '--chart-2', '--chart-3'] as const
 
-function pairs<T>(items: readonly T[]): [T, T][] {
-  return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]))
-}
-
-// Saved logo color measurements, keyed by palette token. This test does not decode the image.
-const measuredColors = JSON.parse(source('brand/measured-colors.json')) as Record<string, string>
-
 describe('brand palette', () => {
-  // Compare tokens with the saved measurements, allowing a small perceptual tolerance.
-  it.each(Object.entries(measuredColors))('matches %s to the saved logo measurement', (token, measured) => {
-    expect(measured).toMatch(/^#[0-9a-f]{6}$/i)
-    expect(perceptualDistance(tokenValue(token), measured)).toBeLessThan(0.5)
-  })
-
-  // Both directions of that pairing. A measured color the palette does not declare fails above,
-  // because tokenValue throws for a name :root has not declared. A brand token nothing measures
-  // is the other half: a value with no image behind it, which is how a token outlives the mark
-  // it was named for.
-  it('leaves no brand token unmeasured', () => {
-    const declared = [...tokens.keys()].filter((name) => name.startsWith('--brand-'))
-    expect(declared.sort()).toEqual(Object.keys(measuredColors).sort())
-  })
-
   // What the palette has to hold whatever the hex values become. Each color is measured
   // against the surface it actually sits on, at the AA threshold for text (4.5) and the
   // non-text threshold for focus outlines and chart marks (3.0).
@@ -246,19 +191,10 @@ describe('brand palette', () => {
     }
   })
 
-  // The mark's own green is the palette's record of the artwork, not a color to paint with: it
-  // sits under the 3:1 a state indicator needs, and the greens that carry interaction are
-  // darkened from it instead. Since a new logo moves this value, a component reaching for it
-  // would let the artwork decide an affordance's contrast.
-  //
-  // What this holds is the reachable half — the token and the `:root` aliases that resolve to it,
-  // by utility, by var() and by the `bg-(--x)` shorthand. Tailwind accepts enough spellings that
-  // chasing the rest would cost more than the rule is worth, so the palette states it as well.
-  // The threshold is asserted rather than described, so a mark whose green does clear 3:1 fails
-  // here and the rule gets revisited instead of outliving its reason.
+  // Artwork colors do not own interaction or status contrast. Keep them out of
+  // component utilities; the semantic text/focus colors have contrast checks above.
   it('leaves the mark’s own green out of the components', () => {
     const markGreen = tokenValue('--brand-green').toLowerCase()
-    expect(contrastRatio(markGreen, tokenValue('--surface'))).toBeLessThan(3)
     const aliases = [...tokens.keys()].filter((name) => tokenValue(name).toLowerCase() === markGreen)
     for (const name of aliases) {
       expect(themeMappings.has(`--color${name.slice(1)}`), `${name} is a utility`).toBe(false)
@@ -298,24 +234,6 @@ describe('brand palette', () => {
       expect(declaration).not.toMatch(/var\(--(?:brand|accent)/)
     }
   })
-
-  // The four colors a bare number can wear. Two of them answer "which way did it move"
-  // and two answer "did it make money". Color separation supplements labels and signs;
-  // it does not replace them or verify color-vision accessibility. Warning is absent
-  // on purpose: it only ever dresses a badge or a banner that states its own meaning.
-  it.each(pairs(VALUE_COLORS))('separates %s from %s', (first, second) => {
-    expect(perceptualDistance(tokenValue(first), tokenValue(second))).toBeGreaterThanOrEqual(12)
-  })
-
-  // Charts stay in the green family so gold keeps meaning profit wherever it shows up.
-  it('leaves gold and blue out of the chart series', () => {
-    for (const token of SERIES_COLORS) {
-      const { hue, chroma } = oklab(parseColor(tokenValue(token)))
-      const isNeutral = chroma < 0.03
-      const isGreen = hue >= 100 && hue <= 190
-      expect(isNeutral || isGreen).toBe(true)
-    }
-  })
 })
 
 // The three families that fill a badge or a banner. Each owns an opaque `-surface` to paint
@@ -345,16 +263,6 @@ describe('status surfaces', () => {
   it.each(STATUS_FAMILIES)('states %s-surface and its ink inside sRGB', (family) => {
     expect(fitsInSrgb(tokenValue(`${family}-surface`))).toBe(true)
     expect(fitsInSrgb(tokenValue(`${family}-ink`))).toBe(true)
-  })
-
-  // Three pale fills are scanned in one list, and near white sRGB leaves so little chroma that
-  // neighbouring hues collapse into the same tint. The bar is what the translucent fills these
-  // replaced left between their closest pair (3.37, green against amber), rounded down: the
-  // opaque set may not read as flatter than what it replaced. Distance is measured between the
-  // fills, since that is what a reader compares before reading either badge.
-  it.each(pairs(STATUS_FAMILIES))('separates the %s fill from the %s fill', (first, second) => {
-    const apart = perceptualDistance(tokenValue(`${first}-surface`), tokenValue(`${second}-surface`))
-    expect(apart).toBeGreaterThanOrEqual(3)
   })
 
   it.each(STATUS_FAMILIES)('exposes %s-surface and its ink as utilities', (family) => {

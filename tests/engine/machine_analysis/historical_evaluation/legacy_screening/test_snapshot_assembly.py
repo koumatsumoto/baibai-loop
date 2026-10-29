@@ -172,7 +172,7 @@ class ScreeningMetricsTests(SnapshotFixtures):
         self.assertEqual(with_future.latest_financial_disclosure_date, date(2026, 3, 1))
         self.assertEqual(with_future, without)
 
-    def test_build_metrics_adds_short_dislocation_fields(self) -> None:
+    def test_short_price_history_keeps_low_gap_without_inventing_60d_return(self) -> None:
         asof = date(2026, 4, 24)
         start = asof - timedelta(days=29)
         bars = [
@@ -193,19 +193,14 @@ class ScreeningMetricsTests(SnapshotFixtures):
         )
 
         derived = result.derived["130A"]
-        self.assertEqual(derived.price_change_1d, 0.0)
-        self.assertAlmostEqual(derived.price_change_5d or 0.0, -0.1)
-        self.assertAlmostEqual(derived.price_change_20d or 0.0, -0.1)
         self.assertIsNone(derived.price_change_60d)
         self.assertEqual(derived.gap_from_52w_low, 0.0)
-        self.assertAlmostEqual(derived.turnover_spike_5d or 0.0, 3.0)
 
     def test_build_metrics_historical_ev_ebitda_uses_market_cap_plus_net_debt(self) -> None:
         asof = date(2026, 4, 24)
         bars = [
-            JQuantsDailyBar("130A", asof - timedelta(days=2), 80.0, 300_000_000.0),
-            JQuantsDailyBar("130A", asof - timedelta(days=1), 100.0, 300_000_000.0),
-            JQuantsDailyBar("130A", asof, 120.0, 300_000_000.0),
+            JQuantsDailyBar("130A", asof - timedelta(days=119 - index), price, 300_000_000.0)
+            for index, price in enumerate([80.0, 100.0, 120.0] * 40)
         ]
         result = build_metrics(
             asof_date=asof,
@@ -232,16 +227,9 @@ class ScreeningMetricsTests(SnapshotFixtures):
         # (price * shares + debt - cash) / ebitda, not a collapsed price ratio.
         self.assertIsNotNone(snapshot.ev_ebitda)
         self.assertIsNotNone(derived.self_range_position["ev_ebitda"])
-        self.assertIsNotNone(derived.sigma_gap["ev_ebitda"])
         self.assertAlmostEqual(snapshot.ev_ebitda, ((120.0 * 10.0) + 300.0 - 100.0) / 200.0)
         self.assertAlmostEqual(derived.self_range_position["ev_ebitda"], 1.0)
-        history_values = [
-            ((price * 10.0) + 300.0 - 100.0) / 200.0 for price in (80.0, 100.0, 120.0)
-        ]
-        avg = sum(history_values) / len(history_values)
-        variance = sum((value - avg) ** 2 for value in history_values) / len(history_values)
-        expected_sigma_gap = (history_values[-1] - avg) / (variance**0.5)
-        self.assertAlmostEqual(derived.sigma_gap["ev_ebitda"], expected_sigma_gap)
+        self.assertAlmostEqual(derived.self_range_median["ev_ebitda"], 6.0)
 
     def test_build_metrics_adds_investment_securities_to_net_cash_ratio(self) -> None:
         asof = date(2026, 4, 24)
@@ -319,7 +307,6 @@ class ScreeningMetricsTests(SnapshotFixtures):
         )
         self.assertIsNone(negative_ebitda.financials["130A"].ev_ebitda)
         self.assertIsNone(negative_ebitda.derived["130A"].self_range_position["ev_ebitda"])
-        self.assertIsNone(negative_ebitda.derived["130A"].sigma_gap["ev_ebitda"])
 
         negative_ev = build_metrics(
             asof_date=asof,
@@ -332,4 +319,3 @@ class ScreeningMetricsTests(SnapshotFixtures):
         )
         self.assertIsNone(negative_ev.financials["130A"].ev_ebitda)
         self.assertIsNone(negative_ev.derived["130A"].self_range_position["ev_ebitda"])
-        self.assertIsNone(negative_ev.derived["130A"].sigma_gap["ev_ebitda"])

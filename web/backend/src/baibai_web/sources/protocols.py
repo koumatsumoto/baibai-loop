@@ -1,6 +1,7 @@
 """表示builderの小さな読取契約。"""
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
 
@@ -8,9 +9,15 @@ from baibai_engine.portfolio.ledger.events import PortfolioSnapshot
 from baibai_engine.tasks.models import Task
 
 
+@dataclass(frozen=True, slots=True)
+class PortfolioRead:
+    snapshot: PortfolioSnapshot
+    valuation_error: str | None = None
+
+
 class LedgerSource(Protocol):
     def exists(self) -> bool: ...
-    def snapshot(self) -> PortfolioSnapshot: ...
+    def snapshot(self) -> PortfolioRead: ...
 
 
 class LedgerFactsSource(Protocol):

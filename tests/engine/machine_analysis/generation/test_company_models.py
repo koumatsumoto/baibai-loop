@@ -23,8 +23,6 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 
 ASOF = date(2026, 8, 31)
 CALENDAR = tuple(ASOF - timedelta(days=252 - index) for index in range(253))
@@ -120,11 +118,6 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
     technical = saved.result("technical_analysis", "1001").payload
     assert technical["price_momentum"]["value"] == 0
     assert technical["moving_averages"]["sma_200bar"]["value"] == 10
-    selection = select_generation(
-        saved, tickers=("1001",), policy=TwoViewPolicy(earnings_limit=1, combined_limit=1)
-    )
-    assert selection.result.tickers == ("1001",)
-    assert selection.result.views[0].companies[0].ranking_value == profit / 800
 
 
 def test_missing_price_does_not_erase_the_financial_history_or_invent_zero_yield():

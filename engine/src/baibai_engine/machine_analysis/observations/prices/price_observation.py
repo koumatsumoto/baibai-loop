@@ -26,6 +26,7 @@ class PriceCalendar:
     as_of: date
     expected_price_date: date | None
     windows: Mapping[int, tuple[date, ...] | None]
+    trading_dates: tuple[date, ...]
 
 
 def price_calendar(calendar: Mapping[date, bool], *, as_of: date) -> PriceCalendar:
@@ -44,7 +45,12 @@ def price_calendar(calendar: Mapping[date, bool], *, as_of: date) -> PriceCalend
             and _continuous(calendar, window[0], as_of)
             else None
         )
-    return PriceCalendar(as_of, expected, windows)
+    # Short histories retain their latest date for momentum's diagnostic. A
+    # gap in the required long window must not erase the independent short ones.
+    trading_dates = (
+        dates if expected is not None and (len(dates) < 253 or windows[252] is not None) else ()
+    )
+    return PriceCalendar(as_of, expected, windows, trading_dates)
 
 
 def classify_price_day(values: Sequence[float | None]) -> PriceDayState:

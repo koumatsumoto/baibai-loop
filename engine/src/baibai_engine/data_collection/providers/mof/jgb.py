@@ -50,6 +50,7 @@ class MofJgbSource:
                 params=None,
                 max_bytes=MAX_CSV_RESPONSE_BYTES,
                 context=context,
+                retry_transient=True,
             )
             native = parse_mof_jgb_csv(
                 replace(series, source_url=url),

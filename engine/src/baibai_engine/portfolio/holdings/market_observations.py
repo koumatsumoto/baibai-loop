@@ -122,6 +122,7 @@ def market_basis_is_confirmed(
     from_date: date,
     through_date: date,
     connection: sqlite3.Connection | None = None,
+    known_actions_through: date | None = None,
 ) -> bool:
     """Confirm unchanged price or share basis across the retained calendar range.
 
@@ -132,10 +133,15 @@ def market_basis_is_confirmed(
     ExRT: rights-issue price adjustments do not rescale existing shares. Missing
     rows/factors and unknown non-unit action kinds remain unresolved. Historical
     closes are irrelevant to this check; the current quote is checked separately.
+
+    ``known_actions_through`` also rejects received actions after the fully covered
+    quote/trade interval. This does not require an intraday bar or holiday close,
+    nor certify unseen actions; freshness remains a separate quote constraint.
     """
     if from_date > through_date:
         return False
-    if from_date == through_date:
+    action_cutoff = max(through_date, known_actions_through or through_date)
+    if from_date == action_cutoff:
         return True
     conn = connection
     owns_connection = conn is None
@@ -150,23 +156,27 @@ def market_basis_is_confirmed(
         if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
             raise SQLiteSchemaError("market quote requires the current market schema")
         start = from_date + timedelta(days=1)
-        calendar = _read_calendar(conn, start, through_date)
         bar_rows = conn.execute(
             "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
             "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? ORDER BY traded_at",
-            (ticker, from_date.isoformat(), through_date.isoformat()),
+            (ticker, from_date.isoformat(), action_cutoff.isoformat()),
         ).fetchall()
-        if calendar is None or len(calendar) != (through_date - start).days + 1:
-            return False
-        if any(day.day != start + timedelta(days=index) for index, day in enumerate(calendar)):
-            return False
-        # Price-row dates cannot prove session completeness: a missing whole
-        # exchange session could otherwise hide its corporate action.
-        sessions = tuple(day.day.isoformat() for day in calendar if day.is_business_day)
-        if not sessions or sessions[-1] != through_date.isoformat():
-            return False
-        if tuple(str(row[0]) for row in bar_rows) != sessions:
-            return False
+        if from_date < through_date:
+            calendar = _read_calendar(conn, start, through_date)
+            if calendar is None or len(calendar) != (through_date - start).days + 1:
+                return False
+            if any(day.day != start + timedelta(days=index) for index, day in enumerate(calendar)):
+                return False
+            # Price-row dates cannot prove session completeness: a missing whole
+            # exchange session could otherwise hide its corporate action.
+            sessions = tuple(day.day.isoformat() for day in calendar if day.is_business_day)
+            if not sessions or sessions[-1] != through_date.isoformat():
+                return False
+            covered_dates = tuple(
+                str(row[0]) for row in bar_rows if str(row[0]) <= through_date.isoformat()
+            )
+            if covered_dates != sessions:
+                return False
     finally:
         if owns_connection:
             conn.close()
