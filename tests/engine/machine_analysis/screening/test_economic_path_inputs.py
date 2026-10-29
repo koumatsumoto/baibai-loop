@@ -758,7 +758,9 @@ def test_generated_unavailable_growth_reason_is_not_not_generated():
     assert "status" not in result.context["external_assessment"]
 
 
-def owner_generation(*, alternate_quarter_profit=None):
+def owner_generation(
+    *, alternate_quarter_profit=None, alternate_prior_quarter_profit=None, reverse_documents=False
+):
     as_of = date(2026, 8, 31)
     release = InputRelease(release_id="owner-economic-fixture", manifest_sha256="b" * 64)
 
@@ -818,6 +820,17 @@ def owner_generation(*, alternate_quarter_profit=None):
                 disclosure_number="owner-fy-end-change",
             )
         )
+    if alternate_prior_quarter_profit is not None:
+        documents.append(
+            replace(
+                documents[0],
+                fiscal_year_end=date(2026, 6, 30),
+                operating_profit=alternate_prior_quarter_profit,
+                disclosure_number="owner-prior-fy-end-change",
+            )
+        )
+    if reverse_documents:
+        documents.reverse()
     return generate_models(
         generation_id="owner-economic-generation",
         as_of=as_of,
@@ -906,6 +919,63 @@ def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity(t
         policy=EconomicPathPolicy(),
         path=path,
     )
+
+
+@pytest.mark.parametrize("alternate_prior_profit", [10.0, 50.0])
+def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
+    alternate_prior_profit,
+):
+    generation = owner_generation(alternate_prior_quarter_profit=alternate_prior_profit)
+    reversed_generation = owner_generation(
+        alternate_prior_quarter_profit=alternate_prior_profit, reverse_documents=True
+    )
+    growth_model = generation.result("company_growth", "1001")
+    assert growth_model == reversed_generation.result("company_growth", "1001")
+    assert growth_model.calculation_revision == "company_growth_retrospective_v6"
+    growth = growth_model.payload
+    before = canonical_json(growth)
+    priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]
+    assert [state["fiscal_year_end"] for state in priors] == ["2026-03-31", "2026-06-30"]
+    quarters = [
+        next(item for item in state["observations"] if item["measurement"] == "quarter")
+        for state in priors
+    ]
+    assert [item["metrics"]["operating_profit"]["value"] for item in quarters] == [
+        10.0,
+        alternate_prior_profit,
+    ]
+    assert [
+        item["metrics"]["operating_profit"]["documents"][0]["disclosure_number"]
+        for item in quarters
+    ] == ["owner-2025-1Q", "owner-prior-fy-end-change"]
+    row = project_company("1001", models=generation.models, metadata=generation)
+    reversed_row = project_company(
+        "1001", models=reversed_generation.models, metadata=reversed_generation
+    )
+    assert row == reversed_row
+    latest = row.context["latest_growth_changes"]
+    sales = latest["sales"]["latest_quarter"]
+    assert (sales["from_value"], sales["to_value"], sales["difference"]) == (250.0, 400.0, 150.0)
+    assert sales["rate"] == pytest.approx(0.6)
+    assert active(row, "business_expansion") is not None
+    for metric, expected in (
+        ("operating_profit", 20.0),
+        ("operating_margin", 30.0 / 400.0 - 10.0 / 250.0),
+    ):
+        comparison = latest[metric]["latest_quarter"]
+        assert comparison["from_start"] == "2025-04-01"
+        assert comparison["from_end"] == "2025-06-30"
+        if alternate_prior_profit == 50.0:
+            assert comparison["reason"] == "ambiguous_growth_comparison"
+            assert all(
+                comparison[field] is None
+                for field in ("from_value", "difference", "rate", "margin_points", "sign_change")
+            )
+        else:
+            assert comparison["reason"] is None
+            assert comparison["difference"] == pytest.approx(expected)
+    assert (active(row, "operating_recovery") is None) == (alternate_prior_profit == 50.0)
+    assert canonical_json(growth) == before
 
 
 def test_cash_investment_components_and_source_survive_the_same_fcf():

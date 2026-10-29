@@ -29,7 +29,7 @@ PmaxはBaseの条件付き年率が要求率を満たす価格上限で、期待
 
 許容価格域の中で、見返り・単元数/cash・既知イベントによって判断が変わる少数のlimit候補を、現金維持や他の完成案と比較する。高い上限、低い指値待ち、見送りのいずれも選べ、全呼値の探索や固定数の候補を要求しない。採用理由と、採らない案の重要な差・選択が反転する条件を既存rationale・comparison・forgoneへ記し、同文を各欄へ複写しない。
 
-候補比較は[同じ提案context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)から[正準の購入算術](../../engine/src/baibai_engine/investment_judgment/trade_proposal/conditions.py)へ渡し、limitだけを変える。引数・型・戻り値は実装を見る。観測価格と鮮度はquote、支出上限と提案利回りはlimitであり、quote/Pmaxの計算を任意limitの計算としない。株式basisは市場入力から再確認されるため、入力が変わればcontextから比較を取り直す。算式の複製や比較途中の異なる入力混在を避ける。
+候補比較は[同じ提案context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)から[正準の購入算術](../../engine/src/baibai_engine/investment_judgment/trade_proposal/conditions.py)へ渡し、limitだけを変える。引数・型・戻り値は実装を見る。観測価格と鮮度はquote、支出上限と提案利回りはlimitであり、quote/Pmaxの計算を任意limitの計算としない。quote・保有株数basis・評価価格basisは一回のcontext/check/preview内で同じ市場snapshotから確認する。市場入力が変わればcontextから比較を取り直す。算式の複製や比較途中の異なる入力混在を避ける。
 
 未約定で失い得る利益だけでなく、保持cash・他の投資機会・回避できる損失と、待って得られる情報を比べる。悪材料の時だけ指値が成立する逆選択やevent gapも考え、約定率×Base利益だけで選ばない。同じ毀損を価値と別penaltyで二重控除せず、機会損失を未約定後の最高値で事後定義しない。ADVや日足から板・queue・価格impact・精密な約定確率を創作せず、`low <= limit`も約定保証にしない。精密確率や全リスク解消を要件にせず、推定を使う場合は[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
@@ -56,7 +56,7 @@ PmaxはBaseの条件付き年率が要求率を満たす価格上限で、期待
 <a id="publication-review"></a>
 ## Review・保存・preview
 
-scaffoldで入力とIDを固定し、正規checkが返すdraft_sha256へ作者と別の内容Reviewを束縛する。checkのvalidとreview_bindingは別で、staleやfile hashをReview完了としない。価格・数量・cash・scope・warningを含む内容を変えたら再Reviewする。初回発行直前のpublished_atを使い、Review時刻を付け替えて順序を作らない。
+scaffoldで入力とIDを固定し、正規checkが返すdraft_sha256へ作者と別の内容Reviewを束縛する。checkのvalidとreview_bindingは別で、staleやfile hashをReview完了としない。価格・数量・cash・scope・warningを含む内容を変えたら再Reviewする。published_atは初回発行時にエンジンが付けるためdraftへ記入しない。Reviewには実際の検証時刻を記し、時刻を付け替えて順序を作らない。
 
 公開時は固定scope・exact評価pair・現在の入力事実を照合する。checked_atの経過だけをdriftとせず、実際の入力変化でsnapshotとReviewを取り直す。同ID同内容の再送は保存済み結果を返し、異内容は拒否する。読取へ現在termsの適格性を追加して過去本文を書き換えない。
 

@@ -76,6 +76,13 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           {data.valuation_as_of !== null && (
             <p className="text-xs text-muted-foreground">株価基準 {data.valuation_as_of.slice(0, 10)}</p>
           )}
+          {data.valuation_error !== null && (
+            <Alert className="mt-2" variant="destructive">
+              <CircleAlert />
+              <AlertTitle>市場評価を読み込めません。台帳の現金・保有数量・未約定注文は表示しています。</AlertTitle>
+              <AlertDescription>{data.valuation_error}</AlertDescription>
+            </Alert>
+          )}
           {unvaluedHoldings.length > 0 && (
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground" role="status">
               一部の保有株式が未評価のため、総資産・評価損益・資産配分を表示できません。未評価: {unvaluedHoldings.map((holding) => holding.ticker).join('、')}
@@ -312,6 +319,7 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
                 <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
                 <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
+              <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
               {/* The benchmark is a market index, but here it exists only to be read
                   against the portfolio's own return — the pair is one comparison, so both
                   wear the money colors rather than splitting across two systems. */}

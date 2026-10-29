@@ -370,7 +370,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
             case "trade-proposal-check" | "trade-proposal-publish":
                 from baibai_engine.investment_judgment.trade_proposal.contracts import (
-                    TradeProposal,
+                    load_proposal_draft,
                     proposal_draft_sha256,
                 )
                 from baibai_engine.investment_judgment.trade_proposal.service import (
@@ -381,7 +381,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     payload = safe_load(args.draft.read_text(encoding="utf-8"))
                 except yaml.YAMLError as error:
                     raise ValueError(f"invalid proposal YAML: {args.draft}: {error}") from error
-                proposal = TradeProposal.model_validate(payload)
+                proposal = load_proposal_draft(payload)
                 service = TradeProposalService(
                     args.db,
                     sqlite_path=args.sqlite_path,

@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.prices.benchmark_observation im
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
     DailyNav,
     PortfolioOutcomeError,
@@ -707,23 +708,9 @@ def test_outcome_market_scope_respects_reported_day_at_the_ending_close(date_onl
     ) == (("1234",) if date_only else ())
 
 
-@pytest.mark.parametrize(
-    "history",
-    [
-        "unfilled_order",
-        "closed_before_start",
-        "closed_on_start",
-        "future_purchase",
-        "after_end_close_purchase",
-        "unreported_expiry",
-    ],
-)
-def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, history):
+def _prepare_outcome_cli(tmp_path: Path, ledger: PortfolioLedgerDocument) -> tuple[list[str], Path]:
     import yaml
 
-    # Real CLI -> ledger/calendar readers -> calculation -> immutable publication.
-    # Old/future trades are not dependencies of the requested cash-only period.
-    ledger = _cash_only_period_ledger(history)
     benchmark = _benchmark()
     observation = tmp_path / "benchmark.yaml"
     observation.write_text(yaml.safe_dump(benchmark.model_dump(mode="json")), encoding="utf-8")
@@ -745,9 +732,7 @@ def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, 
         )
     application = tmp_path / "application.sqlite"
     seed_ledger(application, ledger)
-    before = PortfolioOutcomeStore(application).list()
-
-    result = main(
+    return (
         [
             "outcome",
             "--db",
@@ -756,8 +741,31 @@ def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, 
             str(market),
             "--benchmark-observation",
             str(observation),
-        ]
+        ],
+        application,
     )
+
+
+@pytest.mark.parametrize(
+    "history",
+    [
+        "unfilled_order",
+        "closed_before_start",
+        "closed_on_start",
+        "future_purchase",
+        "after_end_close_purchase",
+        "unreported_expiry",
+    ],
+)
+def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, history):
+    import yaml
+
+    # Real CLI -> ledger/calendar readers -> calculation -> immutable publication.
+    # Old/future trades are not dependencies of the requested cash-only period.
+    args, application = _prepare_outcome_cli(tmp_path, _cash_only_period_ledger(history))
+    before = PortfolioOutcomeStore(application).list()
+
+    result = main(args)
     output = capsys.readouterr()
     if history == "unreported_expiry":
         assert result == 2
@@ -773,3 +781,58 @@ def test_outcome_cli_cash_only_period_needs_no_price_coverage(tmp_path, capsys, 
     assert len(saved) == 1
     assert saved[0]["portfolio_twr_pct"] == 0.0
     assert saved[0]["ending_holdings_market_value_yen"] == 0
+
+
+def test_outcome_cli_preserves_same_period_publications_after_delayed_cost(tmp_path, capsys):
+    import yaml
+
+    ledger = _ledger()
+    args, application = _prepare_outcome_cli(
+        tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
+    )
+    store = PortfolioOutcomeStore(application)
+    assert main(args) == 0
+    original = yaml.safe_load(capsys.readouterr().out)
+    assert original["outcome_id"] == "outcome-1y-2026-01-06"
+    assert original["ending_cash_yen"] == 1_000
+    assert original["confirmed_cost_yen"] == 0
+    assert original["portfolio_twr_pct"] == 0.0
+    assert store.list() == (original,)
+
+    # A confirmed cost arrives only after the first publication, for the same period.
+    service = LedgerStoreService(application)
+    current, head = service.load_with_head()
+    raw = current.model_dump(mode="json")
+    raw["events"].append(
+        {
+            "event_id": "delayed-cost",
+            "type": "cost",
+            "occurred_at": "2026-01-06T09:00:00+09:00",
+            "cost_kind": "commission",
+            "amount_yen": 10,
+        }
+    )
+    service.apply_document(
+        expected_head=head,
+        expected_document=current,
+        replacement=PortfolioLedgerDocument.model_validate(raw),
+    )
+
+    assert main(args) == 2
+    assert "outcome_id has different content" in capsys.readouterr().err
+    assert store.list() == (original,)
+
+    revised_args = [*args, "--outcome-id", "outcome-1y-2026-01-06-delayed-cost"]
+    assert main(revised_args) == 0
+    revised = yaml.safe_load(capsys.readouterr().out)
+    assert revised["outcome_id"] == "outcome-1y-2026-01-06-delayed-cost"
+    assert revised["period_start_date"] == original["period_start_date"]
+    assert revised["period_end_date"] == original["period_end_date"]
+    assert revised["ending_cash_yen"] == 990
+    assert revised["confirmed_cost_yen"] == 10
+    assert revised["portfolio_twr_pct"] == pytest.approx(-1.0)
+    assert store.list() == (revised, original)
+
+    assert main(revised_args) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == revised
+    assert store.list() == (revised, original)

@@ -11,7 +11,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     GateReason,
     ProposalContentReview,
     ProposalItem,
-    TradeProposal,
+    TradeProposalDraft,
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
@@ -76,11 +76,10 @@ def scaffold_proposal(
         context.liquidity_context,
         assessments={identity: pair.document for identity, pair in context.assessments.items()},
     )
-    proposal = TradeProposal(
+    proposal = TradeProposalDraft(
         proposal_id=proposal_id,
         as_of=now.astimezone(JST).date(),
         prepared_at=now,
-        published_at=now,
         request_scope=context.request_scope,
         research_scope=context.research_scope,
         headline="提案の要点を記述してください。",

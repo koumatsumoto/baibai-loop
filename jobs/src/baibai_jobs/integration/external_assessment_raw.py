@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gzip
 import hashlib
 import io
 import json
@@ -13,6 +14,7 @@ import sys
 import tarfile
 import tempfile
 import uuid
+import zlib
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -221,6 +223,15 @@ def read_raw_bundle(
 ) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
     """Validate canonical v2 receipts and bytes without extracting paths to disk."""
     payload = store.get_bytes(key)
+    try:
+        return _decode_raw_bundle(payload, key)
+    except (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error) as error:
+        raise ValueError("invalid external assessment raw container") from error
+
+
+def _decode_raw_bundle(
+    payload: bytes, key: str
+) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
         manifest_stream = archive.extractfile("manifest.json")
         if manifest_stream is None:

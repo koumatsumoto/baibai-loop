@@ -18,10 +18,11 @@ export function NextTaskCard({ task, today }: { task: TaskView | null; today: st
   return <SectionCard meta={task !== null && task.due_date < today && <Badge variant="destructive">期限超過</Badge>} padded title="期限が近い用件">{task === null ? <p className="text-sm text-muted-foreground">未完了のタスクはありません。</p> : <div className="flex flex-wrap items-center gap-x-4 gap-y-2"><time className="shrink-0 font-mono text-sm font-semibold" dateTime={task.due_date}>期限 {formatJstDate(task.due_date)}</time><p className="min-w-[16rem] flex-1 font-medium">{task.title}</p></div>}</SectionCard>
 }
 
-export function EventsCard({ events, ledgerError, earningsCalendarAvailable = null, today }: {
+export function EventsCard({ events, ledgerError, earningsCalendarAvailable = null, earningsCalendarError = null, today }: {
   events: UpcomingEventView[]
   ledgerError: string | null
   earningsCalendarAvailable?: boolean | null
+  earningsCalendarError?: string | null
   today: string
 }) {
   const complete = ledgerError === null && earningsCalendarAvailable !== false
@@ -39,7 +40,10 @@ export function EventsCard({ events, ledgerError, earningsCalendarAvailable = nu
       {earningsCalendarAvailable === false && (
         <Alert className="m-5" variant="destructive">
           <CircleAlert /><AlertTitle>決算予定を確認できません</AlertTitle>
-          <AlertDescription>有効な決算カレンダーを確認できていません。確認できた予約期限だけを表示しています。</AlertDescription>
+          <AlertDescription>
+            <p>有効な決算カレンダーを確認できていません。確認できた予約期限だけを表示しています。</p>
+            {earningsCalendarError !== null && <p>{earningsCalendarError}</p>}
+          </AlertDescription>
         </Alert>
       )}
       {events.length === 0 && complete ? (
@@ -87,7 +91,7 @@ export function TasksPage() {
   if (data === null) return <LoadingPage label="Tasks を読み込んでいます" />
   return <PageShell lead="期限付きの用件と、近い決算・予約期限を確認します。" meta={<span className="text-xs text-muted-foreground">表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>} title="Tasks">
     <NextTaskCard task={data.next_task} today={today} />
-    <EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} earningsCalendarAvailable={data.earnings_calendar_available} today={today} />
+    <EventsCard events={data.upcoming_events} ledgerError={data.ledger_error} earningsCalendarAvailable={data.earnings_calendar_available} earningsCalendarError={data.earnings_calendar_error} today={today} />
     <TaskList data={data} today={today} />
   </PageShell>
 }

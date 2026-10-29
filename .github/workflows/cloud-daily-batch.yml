@@ -122,7 +122,6 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           jobs/scripts/r2_transfer.sh pull-machine
-          jobs/scripts/r2_transfer.sh pull-app
 
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
@@ -225,6 +224,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
+          jobs/scripts/r2_transfer.sh pull-app
           uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
           jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
 

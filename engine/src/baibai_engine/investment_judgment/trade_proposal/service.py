@@ -29,6 +29,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalError,
     SellItem,
     TradeProposal,
+    TradeProposalDraft,
+    load_proposal_draft,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
@@ -40,6 +42,7 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
     DEFAULT_BUDGET_MIN_YEN,
     collect_proposal_inputs,
     proposal_liquidity_context,
+    proposal_market_snapshot,
 )
 from baibai_engine.investment_judgment.trade_proposal.policy import validate_proposal_policy
 from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
@@ -67,12 +70,13 @@ def _limit_for_partial_buy(item: BuyItem) -> Decimal:
 
 def _validate_action(
     connection: sqlite3.Connection,
-    proposal: TradeProposal,
+    proposal: TradeProposalDraft,
     item: BuyItem | HoldItem | SellItem,
     pair: ReviewedAssessment,
     *,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> tuple[GateReason, ...]:
     latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
     inputs = proposal.inputs
@@ -85,6 +89,7 @@ def _validate_action(
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
+            market_connection=market_connection,
         )
         blockers.extend(result.hard_blockers)
         if item.terms is not None and (
@@ -106,7 +111,7 @@ def _validate_action(
             as_of=now.astimezone(JST).date(),
             quote=quote,
             price_basis_confirmed=assessment_quote_basis(
-                pair.document, quote, sqlite_path=sqlite_path
+                pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
             ),
             remaining_reward=item.remaining_reward,
             case_reassessment_reason=item.case_reassessment_reason,
@@ -175,13 +180,33 @@ class ProposalValidation:
 
 def check_proposal(
     connection: sqlite3.Connection,
-    proposal: TradeProposal,
+    proposal: TradeProposalDraft,
     *,
     sqlite_path: Path,
     now: datetime,
     require_review: bool = True,
 ) -> ProposalValidation:
-    proposal = TradeProposal.model_validate(proposal.model_dump(mode="python"))
+    with proposal_market_snapshot(sqlite_path) as market_connection:
+        return _check_proposal(
+            connection,
+            proposal,
+            sqlite_path=sqlite_path,
+            now=now,
+            require_review=require_review,
+            market_connection=market_connection,
+        )
+
+
+def _check_proposal(
+    connection: sqlite3.Connection,
+    proposal: TradeProposalDraft,
+    *,
+    sqlite_path: Path,
+    now: datetime,
+    require_review: bool,
+    market_connection: sqlite3.Connection | None,
+) -> ProposalValidation:
+    proposal = load_proposal_draft(proposal)
     validate_proposal_policy(proposal)
     if now.utcoffset() is None:
         raise ProposalError("proposal clock requires a timezone")
@@ -212,6 +237,7 @@ def check_proposal(
         sqlite_path=sqlite_path,
         budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
         budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+        market_connection=market_connection,
     )
     if proposal_inputs_fingerprint(actual) != proposal_inputs_fingerprint(proposal.inputs):
         raise ProposalConflictError(
@@ -275,7 +301,15 @@ def check_proposal(
             )
         if item.action in {"buy", "hold", "sell"}:
             blockers.extend(
-                _validate_action(connection, proposal, item, pair, sqlite_path=sqlite_path, now=now)
+                _validate_action(
+                    connection,
+                    proposal,
+                    item,
+                    pair,
+                    sqlite_path=sqlite_path,
+                    now=now,
+                    market_connection=market_connection,
+                )
             )
     warnings = build_proposal_warnings(
         proposal.inputs,
@@ -312,7 +346,9 @@ class TradeProposalService:
         self._sqlite_path = sqlite_path
         self._clock = clock or (lambda: datetime.now(JST))
 
-    def check(self, proposal: TradeProposal, *, require_review: bool = True) -> ProposalValidation:
+    def check(
+        self, proposal: TradeProposalDraft, *, require_review: bool = True
+    ) -> ProposalValidation:
         with closing(connect_read_only(self._db_path)) as connection:
             connection.execute("BEGIN")
             return check_proposal(
@@ -323,9 +359,9 @@ class TradeProposalService:
                 require_review=require_review,
             )
 
-    def publish(self, proposal: TradeProposal) -> TradeProposal:
+    def publish(self, proposal: TradeProposalDraft) -> TradeProposal:
         # Revalidate even callers using model_copy/model_construct; these APIs bypass validators.
-        proposal = TradeProposal.model_validate(proposal.model_dump(mode="python"))
+        proposal = load_proposal_draft(proposal)
         now = self._clock()
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
@@ -349,7 +385,9 @@ class TradeProposalService:
                 )
                 if not validation.valid:
                     raise ProposalError("; ".join(reason.message for reason in validation.blockers))
-                published = proposal.model_copy(update={"published_at": now})
+                published = TradeProposal.model_validate(
+                    {**proposal.model_dump(mode="python"), "published_at": now}
+                )
                 connection.execute(
                     "INSERT INTO investment_proposal(proposal_id,as_of,prepared_at,published_at,"
                     "request_scope,payload,draft_sha256) VALUES (?,?,?,?,?,?,?)",

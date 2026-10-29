@@ -1,11 +1,9 @@
-import sqlite3
-from contextlib import closing
+from contextlib import contextmanager
 
 import pytest
 from tests.model_generation_fixtures import generation
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies import economic_path_selection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
@@ -14,11 +12,10 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     PathCoordinates,
     select_economic_paths,
 )
-from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
 
 @pytest.mark.parametrize("subjects", [("5678", "1234", "0000"), ()])
-def test_reader_filters_universe_and_reads_only_fixed_generation_payloads(
+def test_saved_generation_projects_candidates_and_missing_companies(
     tmp_path, monkeypatch, subjects
 ):
     path = tmp_path / "runs.sqlite"
@@ -49,17 +46,6 @@ def test_reader_filters_universe_and_reads_only_fixed_generation_payloads(
         ),
     )
     fixed = generation().model_copy(update={"models": models})
-    store = ModelGenerationStore(path)
-    store.publish(fixed)
-    other = fixed.model_copy(update={"generation_id": "other-generation"})
-    store.publish(other)
-    # 範囲外の企業・別世代を展開した場合はgzip読取が失敗するfixture。
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "UPDATE generated_model SET payload_gzip=? WHERE subject='9999' OR generation_id=?",
-            (b"not-gzip", other.generation_id),
-        )
-
     projected = []
 
     def project_fixture(ticker, *, models, metadata):
@@ -115,14 +101,22 @@ def test_reader_filters_universe_and_reads_only_fixed_generation_payloads(
         ),
     )
     projected.clear()
-    statements = []
 
-    def traced_connection(path):
-        connection = connect_read_only(path)
-        connection.set_trace_callback(statements.append)
-        return connection
+    @contextmanager
+    def saved_companies(generation_id, *, subjects, path):
+        assert generation_id == fixed.generation_id
+        assert subjects == universe
+        assert path == tmp_path / "runs.sqlite"
+        yield (
+            fixed,
+            (
+                (ticker, tuple(sorted(company_models, key=lambda model: model.model_id)))
+                for ticker in subjects
+                if (company_models := [model for model in models if model.subject == ticker])
+            ),
+        )
 
-    monkeypatch.setattr(economic_path_selection, "connect_read_only", traced_connection)
+    monkeypatch.setattr(economic_path_selection, "stream_generation_subjects", saved_companies)
     monkeypatch.setattr(economic_path_selection, "project_company", project_fixture)
     actual = economic_path_selection.select_saved_economic_generation(
         fixed.generation_id,
@@ -139,18 +133,3 @@ def test_reader_filters_universe_and_reads_only_fixed_generation_payloads(
             ("0000", ()),
         ]
         assert tuple(card.ticker for card in actual.result.cards) == ("5678", "1234")
-
-    queries = [statement for statement in statements if "FROM generated_model" in statement]
-    key_query = next(statement for statement in queries if "ORDER BY" in statement)
-    assert key_query.startswith("SELECT subject,model_id FROM generated_model")
-    assert "subject IN (SELECT value FROM json_each(" in key_query
-    assert "payload_gzip" not in key_query
-    payload_queries = [statement for statement in queries if "payload_gzip" in statement]
-    assert len(payload_queries) == (3 if subjects else 0)
-    assert all("ORDER BY" not in statement for statement in payload_queries)
-    assert all(
-        "WHERE generation_id='synthetic-generation' AND model_id=" in statement
-        and " AND subject=" in statement
-        for statement in payload_queries
-    )
-    assert statements[0] == "BEGIN"

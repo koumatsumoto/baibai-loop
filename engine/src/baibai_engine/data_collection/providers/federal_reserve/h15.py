@@ -17,6 +17,7 @@ from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
     SourceWithheldError,
     fetch_text,
     store_fetched_bytes,
@@ -91,6 +92,7 @@ def _fetch_h15_csv(
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             headers=_BROWSER_HEADERS,
             context=context,
+            retry_transient=True,
         )
     except SourceWithheldError as exc:
         if context is None:
@@ -103,6 +105,7 @@ def _fetch_h15_csv(
         return text
     if plain_failure is None:
         plain_failure = f"response without the CSV header: {snippet(text)!r}"
+    context.discard_cached_bytes(url, params)
     return _fetch_h15_csv_via_browser(url, params, context=context, plain_failure=plain_failure)
 
 
@@ -136,14 +139,16 @@ def _fetch_h15_csv_via_browser(
             raise IndicatorsProviderError(
                 f"browser response without the CSV header: {snippet(text)!r}"
             )
+    except ProviderFetchStoppedError:
+        # A job cutoff says nothing about the source or whether a browser ran.
+        raise
     except (IndicatorsProviderError, UnicodeDecodeError) as exc:
         # An edge that turned this navigation away turns the next one away too,
         # and each attempt costs a navigation timeout, so what the edge answered
         # is recorded and the remaining series report it without paying again. A
         # browser that never started says nothing about the edge, so it is not
-        # recorded and the next series still tries. The decode is wrapped here so
-        # a non-UTF-8 answer fails like every other bad response rather than
-        # escaping as an error the refresh cannot retry.
+        # recorded and the next series still tries. A non-UTF-8 answer is a
+        # failed response, not a transient transport failure to retry.
         if not isinstance(exc, BrowserUnavailableError):
             context.blocked_browser_urls[navigation_url] = str(exc)
         raise IndicatorsProviderError(

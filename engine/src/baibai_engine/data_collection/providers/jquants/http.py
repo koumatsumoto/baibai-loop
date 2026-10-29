@@ -11,8 +11,9 @@ from requests.adapters import HTTPAdapter
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
+    JQuantsRateLimitError,
     JQuantsSource,
-    _envelope,
+    page_envelope,
 )
 from baibai_engine.data_collection.transport.http import ReadRetry, check_acquisition_deadline
 
@@ -55,6 +56,9 @@ class JQuantsHTTP:
                         total=5,
                         allowed_methods=frozenset({"GET"}),
                         status_forcelist=(429, 500, 502, 503, 504),
+                        # Keep the final status after this GET's retry budget,
+                        # rather than losing shared quota exhaustion in RetryError.
+                        raise_on_status=False,
                     )
                 ),
             )
@@ -88,12 +92,18 @@ class JQuantsHTTP:
                     headers={"x-api-key": self._api_key},
                     timeout=30,
                     allow_redirects=False,
+                    stream=True,
                 ) as response:
+                    # Inspect status before reading an error body: a body timeout
+                    # must not hide the final 429 from the acquisition caller.
+                    if response.status_code == 429:
+                        raise JQuantsRateLimitError("J-Quants rate-limited (HTTP 429)")
                     if response.status_code != 200:
                         raise JQuantsAcquisitionError(
                             f"J-Quants HTTP status {response.status_code}"
                         )
-                    page = JQuantsPage(source, query, self._clock(), response.content)
+                    body = response.content
+                    page = JQuantsPage(source, query, self._clock(), body)
             except requests.RequestException as exc:
                 # Exception text may contain request headers or other credential data.
                 failure_kind = type(exc).__name__
@@ -101,7 +111,7 @@ class JQuantsHTTP:
                 raise JQuantsAcquisitionError(f"J-Quants request failed: {failure_kind}")
             assert page is not None
             yield page
-            payload = _envelope(page)
+            payload = page_envelope(page)
             cursor = payload.get("pagination_key")
             if cursor is None or cursor == "":
                 return

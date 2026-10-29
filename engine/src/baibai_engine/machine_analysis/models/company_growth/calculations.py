@@ -379,10 +379,19 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
     changes: list[Change] = []
     for current in observations:
         candidates = [p for p in observations if _observation_matches(p, current)]
-        prior = max(candidates, key=lambda o: o.period_end, default=None)
+        prior_end = max((p.period_end for p in candidates), default=None)
+        # Native accounting identities can share an actual interval. Keep every
+        # candidate at the selected end before inspecting metric values; neither
+        # input order nor an older good value may resolve a conflicting prior.
+        priors = [p for p in candidates if p.period_end == prior_end]
+        prior_starts = {p.period_start for p in priors}
+        prior_start = next(iter(prior_starts)) if len(prior_starts) == 1 else None
         for metric, value in current.metrics.items():
-            previous = prior.metrics.get(metric) if prior is not None else None
-            before = previous.value if previous is not None else None
+            prior_values = {
+                previous.value if (previous := p.metrics.get(metric)) is not None else None
+                for p in priors
+            }
+            before = next(iter(prior_values)) if len(prior_values) == 1 else None
             after = value.value
             reason = None
             if metric in {
@@ -392,8 +401,10 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                 "treasury_shares",
             }:
                 reason = "share_basis_unverified"
-            elif prior is None:
+            elif not priors:
                 reason = "comparable_prior_period_not_observed"
+            elif len(prior_starts) != 1 or len(prior_values) != 1:
+                reason = "ambiguous_growth_comparison"
             elif before is None or after is None:
                 reason = "operand_unavailable"
             difference = (
@@ -405,8 +416,8 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                 Change(
                     metric=metric,
                     measurement=current.measurement,
-                    from_start=prior.period_start if prior else None,
-                    from_end=prior.period_end if prior else None,
+                    from_start=prior_start,
+                    from_end=prior_end,
                     to_start=current.period_start,
                     to_end=current.period_end,
                     from_value=before,

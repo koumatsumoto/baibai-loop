@@ -18,4 +18,4 @@ class MasterSnapshotRead:
 @dataclass(frozen=True, slots=True)
 class MasterSnapshot:
     as_of: date
-    securities: dict[str, dict[str, object]]
+    securities: dict[str, SecurityMaster]

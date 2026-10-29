@@ -20,6 +20,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
     JQuantsSource,
+    page_envelope,
     page_records,
 )
 
@@ -115,8 +116,7 @@ def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
     for index, page in enumerate(pages):
         if page.source != source or dict(page.query) != expected_query:
             raise JQuantsAcquisitionError("J-Quants request pagination identity differs")
-        page_records(page)
-        payload = json.loads(page.body)
+        payload = page_envelope(page)
         cursor = payload.get("pagination_key")
         if cursor is None or cursor == "":
             if index != len(pages) - 1:

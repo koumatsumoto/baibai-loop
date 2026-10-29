@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
-    TradeProposal,
+    load_proposal_draft,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
@@ -42,6 +42,7 @@ def backend_case(
     cash_yen=300000,
     opening_at="2026-10-14T09:00:00+09:00",
     assessment_as_of="2026-10-14",
+    assessment_quote_as_of=None,
     valuation_unresolved=False,
     required_rate=None,
     horizon_months=None,
@@ -144,7 +145,7 @@ def backend_case(
             max_date=(PREPARED.date() + timedelta(days=15)).isoformat(),
             record_count=16,
         )
-    document, review = pair_payload(as_of=assessment_as_of)
+    document, review = pair_payload(as_of=assessment_as_of, quote_as_of=assessment_quote_as_of)
     if required_rate is not None:
         document["valuation"]["required_annual_return_pct"] = required_rate
         update_review_hash(document, review)
@@ -257,7 +258,6 @@ def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
                 {"code": "quantity_basis_unconfirmed", "message": "数量basisを確認できない"},
             ],
         )
-    raw["published_at"] = PUBLISHED.isoformat()
     raw["review"].update(
         reviewer_identity="synthetic-independent-reviewer", reviewed_at="2026-10-14T16:15:00+09:00"
     )
@@ -265,7 +265,7 @@ def reviewed_proposal(case, *, action="buy", proposal_id=PROPOSAL_ID):
 
 
 def bind_review(raw, assessments: dict[str, StockAssessmentDocument]):
-    proposal = TradeProposal.model_validate(raw)
+    proposal = load_proposal_draft(raw)
     warnings = build_proposal_warnings(
         proposal.inputs, proposal.items, proposal.liquidity_context, assessments=assessments
     )
@@ -274,6 +274,6 @@ def bind_review(raw, assessments: dict[str, StockAssessmentDocument]):
     for item in raw["items"]:
         if item["action"] in {"buy", "sell"} and item["terms"] is not None:
             item["terms"]["warnings"] = list(warnings.terms_warnings.get(item["ticker"], ()))
-    proposal = TradeProposal.model_validate(raw)
+    proposal = load_proposal_draft(raw)
     raw["review"]["draft_sha256"] = proposal_draft_sha256(proposal)
-    return TradeProposal.model_validate(raw)
+    return load_proposal_draft(raw)

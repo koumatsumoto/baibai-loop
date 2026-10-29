@@ -118,6 +118,11 @@ def snapshot(rows: list[JQuantsFinancialSummary]):
 
 
 def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
+    from baibai_engine.machine_analysis.generation.financial_models import (
+        generate_financial_and_price_models,
+    )
+    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+
     db = tmp_path / "market.sqlite"
     records = documents()
     # Repeated complete-range replacement preserves documents and coverage.
@@ -133,6 +138,9 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     stored = read_fin_summaries(db, date(2026, 8, 10), ASOF)
     assert stored is not None
     assert len(stored) == 4
+    income = latest_forecast_source(stored)
+    assert income is not None
+    assert income.forecast_eps == 31.9
     assert snapshot(stored) == snapshot(decode(records))
     result = snapshot(stored)
     assert (result.dps_forecast_annual, result.dividend_yield) == (0, 0)
@@ -144,12 +152,119 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
     assert stored[0].cumulative_eps == 33.3
     assert db.read_bytes() == before
     with closing(sqlite3.connect(db)) as conn, conn:
+        raw = read_financial_documents(conn, start=date.min, end=date.max)
         values = conn.execute("SELECT document_payload FROM jquants_fin_summaries").fetchall()
         columns = {row[1] for row in conn.execute("PRAGMA table_info(jquants_fin_summaries)")}
+    assert all(row.forecast_eps is None for row in raw)
+    assert snapshot(raw) == snapshot(stored)
+    arguments = dict(
+        ticker="9999",
+        adjusted_bars=(),
+        adjustment_events=(),
+        trading_dates=(),
+        expected_price_date=None,
+        sector=None,
+        as_of=ASOF,
+        input_release=InputRelease(release_id="synthetic-release", manifest_sha256="a" * 64),
+        ttm_rules=load_screening_rules().ttm,
+    )
+    assert generate_financial_and_price_models(
+        documents=raw, **arguments
+    ) == generate_financial_and_price_models(documents=decode(records), **arguments)
     assert columns == {"ticker", "disclosed_at", "disclosure_number", "document_payload"}
     assert {json.loads(row[0])["DiscNo"]: json.loads(row[0]) for row in values} == {
         record["DiscNo"]: record for record in records
     }
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "duckdb"])
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_raw_document_batches_preserve_order_and_reject_late_corruption(backend, corrupt, mocker):
+    import duckdb
+
+    records = [
+        document(
+            f"document-{index:03d}",
+            Code="99990" if index % 2 else "99980",
+            time=("", "16:00:00", "19:00:00")[index % 3],
+            NP="0" if index % 2 else "100",
+            FEPS="0",
+            FDivAnn="0",
+        )
+        for index in range(257)
+    ]
+    batches = []
+    connect = sqlite3.connect if backend == "sqlite" else duckdb.connect
+    with closing(connect(":memory:")) as connection:
+        connection.execute(
+            "CREATE TABLE jquants_fin_summaries (ticker TEXT, disclosed_at TEXT, "
+            "disclosure_number TEXT, document_payload TEXT)"
+        )
+        connection.executemany(
+            "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
+            [
+                (record["Code"][:4], record["DiscDate"], record["DiscNo"], json.dumps(record))
+                for record in reversed(records)
+            ],
+        )
+        if corrupt:
+            connection.execute(
+                "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
+                ("9999", ASOF.isoformat(), "late-corrupt", "[]"),
+            )
+
+        def execute(*args):
+            cursor = connection.execute(*args)
+
+            def fetchmany(size):
+                assert 0 < size < len(records)
+                batch = cursor.fetchmany(size)
+                batches.append(len(batch))
+                return batch
+
+            wrapped = mocker.Mock()
+            wrapped.fetchmany.side_effect = fetchmany
+            wrapped.fetchall.side_effect = AssertionError("raw documents must be read in batches")
+            return wrapped
+
+        reader_connection = mocker.Mock()
+        reader_connection.execute.side_effect = execute
+        if corrupt:
+            with pytest.raises(JQuantsProviderError, match="financial document must be a provider"):
+                read_financial_documents(reader_connection, start=date.min, end=date.max)
+            assert len(batches) > 1
+            return
+        rows = read_financial_documents(reader_connection, start=date.min, end=date.max)
+
+    assert len(batches) > 2
+    assert batches[-1] == 0
+    sql_order = sorted(
+        records, key=lambda record: (record["Code"], record["DiscDate"], record["DiscNo"])
+    )
+    expected = sorted(
+        decode(sql_order), key=lambda row: (row.disclosed_at, row.disclosed_time or "")
+    )
+    assert rows == expected
+    projected = project_financial_documents(expected, ASOF)
+    assert [(row.ticker, row.disclosure_number) for row in rows] == [
+        (row.ticker, row.disclosure_number) for row in projected
+    ]
+
+
+def test_covered_projection_keeps_cross_company_disclosure_tie_order(tmp_path):
+    records = [
+        document("first-company", Code="99980", FEPS="1"),
+        document("second-company", FEPS="2"),
+        document("second-company-earlier", day="2026-08-10", FEPS="3"),
+    ]
+    path = tmp_path / "market.sqlite"
+    start = date(2026, 8, 10)
+    store_jquants_fin_summaries(path, records, requested_start=start, requested_end=ASOF)
+    sql_order = sorted(
+        records, key=lambda record: (record["Code"], record["DiscDate"], record["DiscNo"])
+    )
+    expected = project_financial_documents(decode(sql_order), ASOF)
+    assert read_fin_summaries(path, start, ASOF) == expected
 
 
 def test_asof_excludes_later_revision() -> None:

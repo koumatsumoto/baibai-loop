@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 from itertools import pairwise
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
@@ -25,6 +25,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    is_annual_period,
     period_days,
     resolve_actual_conflicts,
 )
@@ -39,7 +40,6 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
 )
-from baibai_engine.primitives.dates import add_months_clamped
 
 # 5 年 carry へ反復させる会社予想の上限。直近実績の 2 倍を超える進行期予想は、
 # 特別配当か未実現の還元転換かを機械入力から区別できない。実績が正なら既存の実績経路へ
@@ -219,8 +219,8 @@ def build_shareholder_return_change_signals(
     fy_rows = _latest_fy_revisions(normalized)
 
     dps_values = _asof_basis_fy_dps(fy_rows, ticker_bars, asof_date)
-    latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2)
-    latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3)
+    latest_pair = _latest_consecutive_values(fy_rows, dps_values, count=2, annual=True)
+    latest_three = _latest_consecutive_values(fy_rows, dps_values, count=3, annual=True)
 
     dps_streak_up = (
         latest_three[0] <= latest_three[1] <= latest_three[2] if latest_three is not None else None
@@ -258,7 +258,7 @@ def build_shareholder_return_change_signals(
         and row.shares_outstanding is not None
         and row.shares_outstanding > 0
     }
-    latest_share_three = _latest_consecutive_values(fy_rows, share_values, count=3)
+    latest_share_three = _latest_consecutive_values(fy_rows, share_values, count=3, annual=False)
     share_count_reduction_streak: int | None = None
     if latest_share_three is not None:
         share_count_reduction_streak = 0
@@ -327,6 +327,8 @@ def _latest_fy_revisions(
             result.append(
                 replace(
                     representative,
+                    period_start=None,
+                    period_end=None,
                     cumulative_eps=None,
                     dps_actual_annual=0.0
                     if all(row.dps_actual_annual == 0 for row in tied)
@@ -404,20 +406,30 @@ def _latest_consecutive_values(
     values: Mapping[date, float],
     *,
     count: int,
+    annual: bool,
 ) -> tuple[float, ...] | None:
+    """実期間が隣接する直近FY。年間flowと期末株数の適格性は分ける。"""
     if len(fy_rows) < count:
         return None
-    selected = list(fy_rows[-count:])
-    for prior, current in pairwise(selected):
-        if current.fiscal_year_end is None or prior.fiscal_year_end is None:
-            return None
-        if add_months_clamped(current.fiscal_year_end, -12) != prior.fiscal_year_end:
-            return None
+    selected = fy_rows[-count:]
     resolved: list[float] = []
     for row in selected:
-        if row.fiscal_year_end is None or row.fiscal_year_end not in values:
+        if (
+            row.fiscal_year_end is None
+            or row.fiscal_year_end not in values
+            or row.period_end != row.fiscal_year_end
+            or period_days(row) is None
+        ):
+            return None
+        assert row.period_start is not None
+        assert row.period_end is not None
+        if annual and not is_annual_period(row.period_start, row.period_end):
             return None
         resolved.append(values[row.fiscal_year_end])
+    for prior, current in pairwise(selected):
+        assert prior.period_end is not None
+        if current.period_start != prior.period_end + timedelta(days=1):
+            return None
     return tuple(resolved)
 
 

@@ -181,14 +181,15 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
       exit 255
     fi
   fi
+  # Inject a rejected PUT: neither its body nor its generation is committed.
+  if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}" && "$key" == "${AWS_FAKE_FAIL_PUT_KEY}" ]]; then
+    printf 'An error occurred (InternalError) when calling PutObject\n' >&2
+    exit 253
+  fi
   # Every uploaded body is kept so a test can read what was actually published
   # rather than only that a call was made.
   if [[ -n "$body" && -f "$body" ]]; then
     cp "$body" "${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
-  fi
-  if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}" && "$key" == "${AWS_FAKE_FAIL_PUT_KEY}" ]]; then
-    printf 'An error occurred (InternalError) when calling PutObject\n' >&2
-    exit 253
   fi
   slug="$(printf '%s' "$key" | tr / _)"
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
@@ -813,6 +814,18 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     env = _environment(bin_dir, log)
     state = Path(env["AWS_FAKE_STATE"])
     script = root / "jobs/scripts/r2_transfer.sh"
+    env["SNAPSHOT_FAKE_COPY"] = "1"
+    local_stores = [
+        root / "stores" / relative
+        for relative in (
+            "market/market.sqlite",
+            "screening/runs.sqlite",
+            "market_context/indicators.sqlite",
+        )
+    ]
+    for path in local_stores:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"old-store")
 
     def run(command: str, **overrides: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -836,8 +849,13 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     assert '"market.sqlite": "etag-put-1"' in settled
 
     # The failure this recovers from: the second key's PUT does not land.
+    for path in local_stores:
+        path.write_bytes(b"new-store")
     partial = run("push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="runs.sqlite")
     assert partial.returncode != 0
+    assert (state / "put-market.sqlite").read_bytes() == b"new-store"
+    assert (state / "put-runs.sqlite").read_bytes() == b"old-store"
+    assert (state / "generation-runs.sqlite").read_bytes() == b"x"
     # The receipt still names the previous set, which is now not what the bucket holds.
     assert _receipt(state) == settled
 

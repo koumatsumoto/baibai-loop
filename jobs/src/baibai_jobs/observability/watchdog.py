@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from baibai_jobs.observability.discord import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -32,7 +33,13 @@ from baibai_jobs.observability.discord import (
     run_url,
     sanitize_one_line,
 )
-from baibai_jobs.schedule import acquisition_target_date, batch_target_date
+from baibai_jobs.schedule import (
+    MARKET_SOURCE_SCHEDULES,
+    acquisition_target_date,
+    batch_target_date,
+    integration_target_date,
+    market_source_target_date,
+)
 
 WATCHED_WORKFLOW = "cloud-daily-batch"
 RUNS_SHOWN = 5
@@ -46,29 +53,43 @@ ACQUISITION_WATCHDOG_FIRE_TIME = time(12, 0, tzinfo=UTC)
 # alone, decides whether a successful run answers the scheduled day.
 DEFAULT_WINDOW_HOURS = 20
 
-# Only explicit recovery inputs can identify the intended day before completion.
+# In-flight runs use explicit recovery inputs or the original run clock.
 # Success is bound to the notice as-of carried by the actual terminal step result.
 RUN_NAME_PREFIX = "daily"
 RESULT_STEP_PREFIX = "Notify Discord #batch-runs for "
+MARKET_SCOPE_SCHEDULES = {
+    "inputs": "43 7 * * *",
+    "edinet-metrics": "43 8 * * *",
+    "edinet-facts": "13 9 * * *",
+}
 
 
 class WatchdogInputError(ValueError):
     """The run listing does not satisfy the shape this adapter reads."""
 
 
-def run_target_date(*, event: str, display_title: str) -> date | None:
-    """Read an explicitly requested day for an in-flight recovery only."""
+def run_target_date(*, event: str, display_title: str, created_at: datetime) -> date | None:
+    """Resolve known in-flight runs without advancing an old run on rerun."""
 
-    if event != "workflow_dispatch":
+    if event == "workflow_dispatch":
+        match display_title.split():
+            case ["daily", day] | ["economic", _, _, day] | ["market-acquisition", _, day]:
+                try:
+                    return date.fromisoformat(day)
+                except ValueError:
+                    return None
+            case ["daily"] | ["economic", _, _] | ["market-acquisition", _]:
+                return created_at.astimezone(ZoneInfo("Asia/Tokyo")).date()
         return None
-    title = display_title.strip()
-    prefix = f"{RUN_NAME_PREFIX} "
-    if not title.startswith(prefix):
-        return None
-    try:
-        return date.fromisoformat(title[len(prefix) :].strip())
-    except ValueError:
-        return None
+    if event == "schedule":
+        match display_title.split():
+            case ["daily"]:
+                return integration_target_date(created_at, scheduled=True)
+            case ["economic", "all", "all"]:
+                return acquisition_target_date(created_at)
+            case ["market-acquisition", scope] if scope in MARKET_SCOPE_SCHEDULES:
+                return market_source_target_date(created_at, schedule=MARKET_SCOPE_SCHEDULES[scope])
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +196,9 @@ def parse_runs(payload: object) -> tuple[WorkflowRun, ...]:
                 raise WatchdogInputError("batch as-of must be a YYYY-MM-DD string") from exc
         elif status != "completed":
             target = run_target_date(
-                event=event, display_title=str(entry.get("display_title") or "")
+                event=event,
+                display_title=str(entry.get("display_title") or ""),
+                created_at=created_at,
             )
         run_id, attempt = entry.get("id"), entry.get("run_attempt")
         if type(run_id) is not int or run_id <= 0 or type(attempt) is not int or attempt <= 0:
@@ -409,7 +432,7 @@ def main(
             retained = []
             for row in payload["workflow_runs"]:
                 title = str(row.get("display_title", ""))
-                for scope in ("inputs", "edinet-metrics", "edinet-facts", "all"):
+                for scope in (*MARKET_SCOPE_SCHEDULES, "all"):
                     if title.startswith("market-acquisition " + scope):
                         scopes[row["id"]] = scope
                         retained.append(row)
@@ -444,13 +467,11 @@ def main(
                     tuple(run for run in runs if scopes.get(run.run_id) in {scope, "all"}),
                     window_end=window_end,
                     window_hours=args.window_hours,
-                    target_date=acquisition_target_date(window_end, fire),
+                    target_date=acquisition_target_date(
+                        window_end, MARKET_SOURCE_SCHEDULES[schedule]
+                    ),
                 )
-                for scope, fire in (
-                    ("inputs", time(7, 43, tzinfo=UTC)),
-                    ("edinet-metrics", time(8, 43, tzinfo=UTC)),
-                    ("edinet-facts", time(9, 13, tzinfo=UTC)),
-                )
+                for scope, schedule in MARKET_SCOPE_SCHEDULES.items()
             ]
             verdict = replace(
                 verdict,

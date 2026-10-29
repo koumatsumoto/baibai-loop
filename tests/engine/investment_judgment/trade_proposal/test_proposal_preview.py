@@ -53,9 +53,9 @@ def test_preview_separates_actual_quote_and_saved_limit_without_writes(tmp_path)
 def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     before = _snapshot(case.app)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
@@ -168,9 +168,9 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
             "reason": "同日起点で残存見返りが十分と確認した。",
         }
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
@@ -227,7 +227,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
-    service.publish(proposal)
+    proposal = service.publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,

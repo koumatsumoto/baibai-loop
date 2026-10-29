@@ -61,13 +61,8 @@ def build_stock_analysis(
         avg_turnover_oku=universe_snapshot.avg_turnover_oku,
         price_history_span_days=universe_snapshot.price_history_span_days,
         jpx_flags=universe_snapshot.jpx_flags,
-        price_change_1d=derived.price_change_1d,
-        price_change_5d=derived.price_change_5d,
-        price_change_20d=derived.price_change_20d,
         price_change_60d=derived.price_change_60d,
         gap_from_52w_low=derived.gap_from_52w_low,
-        turnover_spike_5d=derived.turnover_spike_5d,
-        sector_relative_strength_percentile=derived.sector_relative_strength_percentile,
         price_history_sessions_750d=derived.price_history_sessions_750d,
         price_history_coverage_750d=derived.price_history_coverage_750d,
         metrics=build_stock_analysis_metrics(

@@ -55,13 +55,8 @@ class UniverseSnapshot:
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class DerivedMetrics:
-    price_change_1d: float | None = None
-    price_change_5d: float | None = None
-    price_change_20d: float | None = None
     price_change_60d: float | None = None
     gap_from_52w_low: float | None = None
-    turnover_spike_5d: float | None = None
-    sector_relative_strength_4w: float | None = None
     sector_median_gap: NullableFloatMap = Field(default_factory=dict)
     # sector 中央値倍率の絶対値と自己レンジ (750 営業日) の中央値倍率。
     # 機械 E[r] / FV アンカーの入力 (gap / percentile と違い水準そのもの)。
@@ -74,11 +69,6 @@ class DerivedMetrics:
     sector_median_basis: StringMap = Field(default_factory=dict)
     self_range_position: NullableFloatMap = Field(default_factory=dict)
     self_range_median: NullableFloatMap = Field(default_factory=dict)
-    sigma_gap: NullableFloatMap = Field(default_factory=dict)
-    sector_relative_strength_percentile: float | None = None
-    ticker_return_4w: float | None = None
-    sector_return_4w: float | None = None
-    short_history_flag: bool = False
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     # Supply/demand read from the exchange's published margin balances. Definitions
@@ -99,16 +89,8 @@ class DerivedMetrics:
     realized_volatility_60d: float | None = None
 
     @field_validator(
-        "price_change_1d",
-        "price_change_5d",
-        "price_change_20d",
         "price_change_60d",
         "gap_from_52w_low",
-        "turnover_spike_5d",
-        "sector_relative_strength_4w",
-        "sector_relative_strength_percentile",
-        "ticker_return_4w",
-        "sector_return_4w",
         "price_history_coverage_750d",
         "margin_long_to_adv",
         "margin_short_to_adv",
@@ -138,13 +120,8 @@ class StockAnalysis:
     avg_turnover_oku: float | None = None
     price_history_span_days: int | None = None
     jpx_flags: tuple[str, ...] = ()
-    price_change_1d: float | None = None
-    price_change_5d: float | None = None
-    price_change_20d: float | None = None
     price_change_60d: float | None = None
     gap_from_52w_low: float | None = None
-    turnover_spike_5d: float | None = None
-    sector_relative_strength_percentile: float | None = None
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     metrics: MetricValueMap = Field(default_factory=dict)
@@ -168,13 +145,8 @@ class StockAnalysis:
         "p_s",
         "pcfr",
         "avg_turnover_oku",
-        "price_change_1d",
-        "price_change_5d",
-        "price_change_20d",
         "price_change_60d",
         "gap_from_52w_low",
-        "turnover_spike_5d",
-        "sector_relative_strength_percentile",
         "price_history_coverage_750d",
     )
     @classmethod

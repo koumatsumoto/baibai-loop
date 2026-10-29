@@ -28,6 +28,7 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     DIAGNOSTIC_FIELD_NAMES,
+    PANEL_CALCULATION_REVISION,
     PANEL_FIELD_NAMES,
     PanelDiagnostics,
     PanelRow,
@@ -57,6 +58,7 @@ def _derive_cache_schema_version() -> str:
         ",".join(FORWARD_FIELD_NAMES),
         VALUATION_CALCULATION_REVISION,
         MARKET_CONTEXT_CALCULATION_REVISION,
+        PANEL_CALCULATION_REVISION,
         FORWARD_CALCULATION_REVISION,
     )
 

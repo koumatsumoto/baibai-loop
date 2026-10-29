@@ -39,5 +39,5 @@ def test_rendered_index_route_remains_explicit_for_unusable_success_or_withheld(
         session=object(), browser_fetcher=Mock(return_value=browser), discard_cached_bytes=Mock()
     )
     assert pmi_manifest.release_index_entries(context) == ()
-    context.discard_cached_bytes.assert_called_once_with()
+    context.discard_cached_bytes.assert_called_once_with(pmi_manifest.RELEASE_INDEX_URL, None)
     browser.fetch_html.assert_called_once_with(pmi_manifest.RELEASE_INDEX_URL)

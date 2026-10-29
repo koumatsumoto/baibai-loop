@@ -12,6 +12,7 @@ from typing import TextIO
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
+    JQuantsRateLimitError,
 )
 from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     BARS_INPUT_WINDOW_DAYS,
@@ -161,10 +162,9 @@ def backfill_history_command(
     re-fetch per as-of; naming the window once costs one pass, and the coverage merge
     joins it to what is already held.
 
-    Each source is fetched independently and reported on its own line, because a
-    provider that cannot answer for one of them says nothing about the others. Chunks
-    already covered are skipped, so a run interrupted after hours resumes where it
-    stopped rather than starting over.
+    Source-specific failures are independent, but exhausted shared quota ends the
+    pass. Chunks already covered are skipped, so a run interrupted after hours
+    resumes where it stopped rather than starting over.
 
     Bars come first: the month-end grid that ``backfill-master`` fills is derived from
     the bar store, so snapshots for months without bars cannot be requested yet.
@@ -207,6 +207,8 @@ def backfill_history_command(
                 file=sys.stderr,
             )
             failures.append(name)
+            if isinstance(exc, JQuantsRateLimitError):
+                return 1
             continue
         print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
     if start <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
@@ -230,6 +232,8 @@ def backfill_history_command(
                 file=sys.stderr,
             )
             failures.append(weekly_margin_source)
+            if isinstance(exc, JQuantsRateLimitError):
+                return 1
         else:
             print(
                 f"backfill-history {weekly_margin_source}: {len(weeks)} week(s), "
@@ -320,8 +324,9 @@ def backfill_master_command(
     whose exact snapshot is already stored is served from the cache and prints
     ``cached``, so re-running a pass costs nothing; replacing a stored snapshot
     requires ``invalidate-coverage --source jquants_master_snapshots`` first.
-    Enough consecutive failures end the pass, because a systemic failure fails
-    every remaining date the same way.
+    Exhausted shared quota ends the pass immediately. Enough consecutive other
+    failures also end the pass, because a systemic failure fails every remaining
+    date the same way.
     """
     out = stdout if stdout is not None else sys.stdout
     refresh = _maintenance(providers)
@@ -342,11 +347,18 @@ def backfill_master_command(
             print(f"backfill-master {iso}: {type(exc).__name__}: {exc}", file=sys.stderr)
             failures.append(asof_date)
             consecutive += 1
-            if consecutive >= BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT:
+            if (
+                isinstance(exc, JQuantsRateLimitError)
+                or consecutive >= BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT
+            ):
                 remaining = len(asof_dates) - index - 1
+                reason = (
+                    "J-Quants rate limit"
+                    if isinstance(exc, JQuantsRateLimitError)
+                    else f"{consecutive} consecutive failures"
+                )
                 print(
-                    f"backfill-master: {consecutive} consecutive failures; "
-                    f"stopping with {remaining} date(s) not attempted",
+                    f"backfill-master: {reason}; stopping with {remaining} date(s) not attempted",
                     file=sys.stderr,
                 )
                 break
@@ -395,7 +407,11 @@ def bootstrap_cache_command(
         if source_group == "all"
         else (source_group,)
     )
+    jquants_rate_limited = False
     for group in selected:
+        if jquants_rate_limited and group in {"jquants-market", "jquants-financial"}:
+            print(f"{group}: skipped after J-Quants rate limit", file=sys.stderr)
+            continue
         acquire = groups[group]
         try:
             acquire(asof_date, providers, sqlite_path, out)
@@ -408,6 +424,8 @@ def bootstrap_cache_command(
             sqlite3.Error,
         ) as exc:
             failed = True
+            if isinstance(exc, JQuantsRateLimitError):
+                jquants_rate_limited = True
             print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
     print("bootstrap-cache incomplete" if failed else "bootstrap-cache done", file=out, flush=True)
     return 1 if failed else 0

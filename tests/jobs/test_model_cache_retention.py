@@ -3,11 +3,9 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.model_generation_fixtures import generation
+from tests.model_generation_fixtures import empty_selection, generation
 
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 
@@ -16,7 +14,6 @@ def test_cache_retention_uses_policy_publication_and_preserves_manual_generation
     path = tmp_path / "runs"
     store = ModelGenerationStore(path)
     policy_store = ScreeningSelectionStore(path)
-    policy = TwoViewPolicy(earnings_limit=1, combined_limit=0)
     for name, day in (("older", 20), ("a", 23), ("b", 23), ("c", 23), ("bare", 24)):
         item = generation().model_copy(
             update={
@@ -29,16 +26,14 @@ def test_cache_retention_uses_policy_publication_and_preserves_manual_generation
         )
         store.publish(item)
         if name != "bare":
-            policy_store.publish(name, select_generation(item, tickers=("1234",), policy=policy))
+            policy_store.publish(name, empty_selection(item.generation_id))
     with closing(sqlite3.connect(path)) as connection, connection:
         for name, hour in (("a", 3), ("b", 2), ("c", 1), ("older", 4)):
             connection.execute(
                 "UPDATE screening_selection SET published_at=? WHERE selection_id=?",
                 (f"2026-10-25T{hour:02}:00:00+00:00", name),
             )
-    policy_store.publish(
-        "a-repeated-policy", select_generation(store.read("a"), tickers=("1234",), policy=policy)
-    )
+    policy_store.publish("a-repeated-policy", empty_selection("a"))
     # Multiple policies for one generation count as one retained generation.
     # A newer bare header cannot displace the operative policy publication.
     assert set(prune_model_cache(path, keep=2, preserve=("older",))) == {"c", "bare"}
@@ -64,11 +59,10 @@ def test_cache_retention_rolls_back_policy_and_model_deletion_together(tmp_path)
     path = tmp_path / "runs"
     store = ModelGenerationStore(path)
     policies = ScreeningSelectionStore(path)
-    policy = TwoViewPolicy(earnings_limit=1, combined_limit=0)
     for name, day in (("older", 20), ("current", 23)):
         item = generation().model_copy(update={"generation_id": name, "as_of": date(2026, 10, day)})
         store.publish(item)
-        policies.publish(name, select_generation(item, tickers=("1234",), policy=policy))
+        policies.publish(name, empty_selection(item.generation_id))
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "CREATE TRIGGER stop_cache_delete BEFORE DELETE ON model_generation "

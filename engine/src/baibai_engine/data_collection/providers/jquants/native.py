@@ -6,7 +6,10 @@ from collections.abc import Mapping
 from contextlib import closing
 from typing import Any
 
-from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
+from baibai_engine.data_collection.transport.context import (
+    ProviderFetchStoppedError,
+    ProviderRateLimitError,
+)
 
 
 def read_native_pages(
@@ -41,6 +44,9 @@ def read_native_pages(
             params["pagination_key"] = key
     except Exception as exc:
         sanitized = str(exc).replace(api_key, "***") if api_key else str(exc)
-        raise ProviderFetchStoppedError(
-            f"failed to fetch {provider}: {type(exc).__name__}: {sanitized}"
-        ) from None
+        error_type = (
+            ProviderRateLimitError
+            if isinstance(exc, ProviderRateLimitError)
+            else ProviderFetchStoppedError
+        )
+        raise error_type(f"failed to fetch {provider}: {type(exc).__name__}: {sanitized}") from None

@@ -285,33 +285,21 @@ def _mof_rows(day, value):
     return {day: [{"row": {"10年": str(value)}, "source_url": definition.source_url}]}
 
 
-def test_native_refresh_retries_transport_without_discarding_the_success(tmp_path, monkeypatch):
+def test_native_refresh_does_not_replay_a_failed_provider(tmp_path, monkeypatch):
     database = tmp_path / "indicators.sqlite"
     day = date(2026, 7, 20)
-    contexts = []
-
-    def fetch(source, **kwargs):
-        context = kwargs["context"]
-        contexts.append(context)
-        if len(contexts) == 1:
-            context.bytes_cache[("fixture", ())] = b"unusable"
-            raise IndicatorsProviderError("temporary upstream error")
-        assert context.bytes_cache == {}
-        return _mof_rows(day, 1.5)
-
+    fetch = Mock(side_effect=IndicatorsProviderError("upstream request exhausted"))
     monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
-    sleep = Mock()
-    monkeypatch.setattr(acquisition.time, "sleep", sleep)
     source_id = load_definitions().by_id()["jp.10y"].source_id
+
     outcome = acquisition.refresh_sources([source_id], db_path=database, start=day, end=day)[0]
-    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
-    result = IndicatorsService(database).get_range("jp.10y", start=day, end=day)
-    assert [item.value for item in result.observations] == [1.5]
-    assert len(contexts) == 2
-    sleep.assert_called_once()
+
+    assert isinstance(outcome, acquisition.SourceRefreshFailure)
+    assert outcome.message == "upstream request exhausted"
+    fetch.assert_called_once()
     with closing(sqlite3.connect(database)) as conn:
         assert conn.execute("SELECT status, record_count FROM economic_source_runs").fetchall() == [
-            ("ok", 1)
+            ("failed", 0)
         ]
 
 

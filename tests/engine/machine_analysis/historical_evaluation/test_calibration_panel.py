@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -349,6 +350,19 @@ class CalibrationPanelTest(unittest.TestCase):
             second = rules_content_hash(rules)
 
         self.assertNotEqual(first, second)
+
+    def test_annual_fy_revision_changes_only_new_panel_identity(self) -> None:
+        rules = load_screening_rules()
+        with patch(
+            "baibai_engine.machine_analysis.historical_evaluation.panel.PANEL_CALCULATION_REVISION",
+            "",
+        ):
+            prior_panel_identity = rules_content_hash(rules)
+            saved_run_identity = production_rules_contract_hash(rules.model_dump_json())
+        self.assertNotEqual(rules_content_hash(rules), prior_panel_identity)
+        self.assertEqual(
+            production_rules_contract_hash(rules.model_dump_json()), saved_run_identity
+        )
 
     def test_candidate_discovery_identity_does_not_change_production_hash(self) -> None:
         rules = load_screening_rules()
@@ -1226,6 +1240,13 @@ class DerivedCacheIdentityTests(unittest.TestCase):
                 True,
             ),
             (
+                "a_new_annual_fy_revision",
+                lambda: patch.object(
+                    calibration_store, "PANEL_CALCULATION_REVISION", "next-revision"
+                ),
+                True,
+            ),
+            (
                 "a_new_gate_axis",
                 lambda: patch.object(
                     evaluation, "GATE_BASE_AXES", (*evaluation.GATE_BASE_AXES, "p_s")
@@ -1258,9 +1279,18 @@ def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
 
     sqlite_path = tmp_path / "market.sqlite"
     build_calibration_fixture_sqlite(sqlite_path)
-    result = build_panel(ASOF, sqlite_path=sqlite_path, rules=load_screening_rules())
+    rules = load_screening_rules()
+    result = build_panel(ASOF, sqlite_path=sqlite_path, rules=rules)
     golden = ROOT / "tests/fixtures/screening/calibration-panel-golden.json"
-    assert canonical_json(asdict(result)) + "\n" == golden.read_text(encoding="utf-8")
+    actual = asdict(result)
+    expected = json.loads(golden.read_text(encoding="utf-8"))
+    # 保存baselineのidentityを付け替えず、新規計算のrevisionと数値を別に比較する。
+    assert actual["diagnostics"].pop("rules_hash") == rules_content_hash(rules)
+    with patch(
+        "baibai_engine.machine_analysis.historical_evaluation.panel.PANEL_CALCULATION_REVISION", ""
+    ):
+        assert expected["diagnostics"].pop("rules_hash") == rules_content_hash(rules)
+    assert canonical_json(actual) == canonical_json(expected)
 
 
 if __name__ == "__main__":

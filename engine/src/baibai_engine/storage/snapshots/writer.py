@@ -501,7 +501,9 @@ def _validate_parquet(
     pk_indexes = _pk_indexes(dataset)
     prefix = f"{period_label(period)}-"
     expected = iter(expected_rows)
-    keys: set[tuple[str, ...]] = set()
+    previous_key: tuple[str, ...] | None = None
+    min_key: tuple[str, ...] | None = None
+    max_key: tuple[str, ...] | None = None
     count = 0
     with pq.ParquetFile(path, pre_buffer=False) as parquet:
         if not parquet.schema_arrow.equals(dataset.arrow_schema, check_metadata=True):
@@ -513,16 +515,20 @@ def _validate_parquet(
             count += len(actual)
             for row in actual:
                 key = tuple(str(row[index]) for index in pk_indexes)
-                if key in keys:
+                # Row parity above preserves SQLite primary-key order, so duplicates
+                # are adjacent even across Parquet batches.
+                if key == previous_key:
                     raise LakeBuildError(f"Parquet primary key is not unique: {path}")
-                keys.add(key)
+                previous_key = key
+                min_key = key if min_key is None else min(min_key, key)
+                max_key = key if max_key is None else max(max_key, key)
                 if not str(row[date_index]).startswith(prefix):
                     raise LakeBuildError(f"Parquet row escapes its calendar partition: {path}")
     if next(expected, None) is not None:
         raise LakeBuildError(f"Parquet values or row order differ from SQLite: {path}")
     if count != expected_object.rows:
         raise LakeBuildError(f"Parquet row count mismatch: {path}")
-    if not keys or min(keys) != expected_object.min_key or max(keys) != expected_object.max_key:
+    if min_key is None or min_key != expected_object.min_key or max_key != expected_object.max_key:
         raise LakeBuildError(f"Parquet min/max primary key mismatch: {path}")
 
 

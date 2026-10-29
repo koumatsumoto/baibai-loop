@@ -120,8 +120,8 @@ def build_normalized_profit_signals(
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
         and statement_basis(row) == latest_basis
     }
-    latest_three = _latest_consecutive_values(fy_rows, eps_values, count=3)
-    latest_five = _latest_consecutive_values(fy_rows, eps_values, count=5)
+    latest_three = _latest_consecutive_values(fy_rows, eps_values, count=3, annual=True)
+    latest_five = _latest_consecutive_values(fy_rows, eps_values, count=5, annual=True)
 
     def normalized_per(values: tuple[float, ...] | None) -> float | None:
         if values is None or close is None or close <= 0:

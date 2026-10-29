@@ -120,6 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_parser.add_argument("--db", type=Path)
     outcome_parser.add_argument("--benchmark-observation", type=Path, required=True)
     outcome_parser.add_argument(
+        "--outcome-id",
+        help="immutable publication ID; defaults to outcome-<horizon>-<period-end-date>",
+    )
+    outcome_parser.add_argument(
         "--sqlite",
         type=Path,
         default=DEFAULT_SQLITE_CACHE_DIR / "market.sqlite",
@@ -296,6 +300,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             sqlite_path,
             out_path,
             db_path=args.db,
+            outcome_id=args.outcome_id,
         )
     raise AssertionError(f"unreachable command: {args.command!r}")
 
@@ -431,6 +436,7 @@ def _run_outcome(
     out_path: Path | None,
     *,
     db_path: Path | None = None,
+    outcome_id: str | None = None,
 ) -> int:
     """Emit TWR from one market snapshot without fetching data at runtime."""
 
@@ -509,7 +515,8 @@ def _run_outcome(
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
     )
     payload["benchmark_observation"] = benchmark.model_dump(mode="json")
-    outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
+    if outcome_id is None:
+        outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
     if out_path is not None and out_path.exists():
         print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
         return 2

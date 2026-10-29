@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_contract
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
     MasterSnapshotRead,
@@ -114,16 +115,16 @@ def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
     )
     if not rows:
         return None
+    try:
+        snapshot_date = date.fromisoformat(str(rows[0]["snapshot_date"]))
+    except ValueError as error:
+        raise JQuantsProviderError(
+            f"stored master snapshot has invalid date: {rows[0]['snapshot_date']!r}"
+        ) from error
     return MasterSnapshot(
-        date.fromisoformat(str(rows[0]["snapshot_date"])),
+        snapshot_date,
         {
-            security.ticker: {
-                "name": security.name,
-                "market_segment": security.market_segment,
-                "sector_33": security.sector_33,
-                "is_common_stock": security.is_common_stock,
-                "snapshot_date": str(rows[0]["snapshot_date"]),
-            }
+            security.ticker: security
             for security in masters_from_payloads([row["record_json"] for row in rows])
         },
     )

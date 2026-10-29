@@ -38,6 +38,16 @@ def wait_for_read_retry(seconds: float) -> None:
     check_acquisition_deadline()
 
 
+def retry_after_delay(value: str | None, *, fallback: float) -> float:
+    """Use the provider's full Retry-After, or the caller's finite backoff."""
+    if value is not None:
+        try:
+            return Retry().parse_retry_after(value)
+        except InvalidHeader:
+            pass
+    return fallback
+
+
 class ReadRetry(Retry):
     """One GET owns its retries; Retry-After is never shortened to fit the job."""
 
@@ -49,10 +59,5 @@ class ReadRetry(Retry):
     def sleep(self, response: BaseHTTPResponse | None = None) -> None:
         delay = self.get_backoff_time()
         if response is not None and self.respect_retry_after_header:
-            try:
-                retry_after = self.get_retry_after(response)
-            except InvalidHeader:
-                retry_after = None
-            if retry_after is not None:
-                delay = retry_after
+            delay = retry_after_delay(response.headers.get("Retry-After"), fallback=delay)
         wait_for_read_retry(delay)

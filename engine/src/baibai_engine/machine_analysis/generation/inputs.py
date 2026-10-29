@@ -38,7 +38,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 )
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    price_calendar_basis,
     read_price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -98,8 +97,8 @@ def read_and_generate_models(
         subjects = tuple(
             sorted(
                 ticker
-                for ticker, row in master.securities.items()
-                if row["is_common_stock"] and str(row["market_segment"]).upper() in ELIGIBLE_MARKETS
+                for ticker, security in master.securities.items()
+                if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
             )
         )
         if not subjects:
@@ -113,7 +112,6 @@ def read_and_generate_models(
         for row in read_financial_documents(connection, start=date.min, end=date.max):
             documents[row.ticker].append(row)
         calendar = read_price_calendar(connection, as_of=as_of)
-        expected_price_date, trading_dates = price_calendar_basis(calendar, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
             (window[0] for window in path_calendar.windows.values() if window is not None),
@@ -180,7 +178,9 @@ def read_and_generate_models(
             financial_documents=documents.get(ticker, ()),
             adjusted_bars=prices.get(ticker, ()),
             adjustment_events=events.get(ticker, ()),
-            sector=None if master is None else _sector(master.securities.get(ticker)),
+            sector=master.securities[ticker].sector_33
+            if master is not None and ticker in master.securities
+            else None,
             edinet=edinet.get(ticker),
             price_path=price_paths[ticker],
         )
@@ -205,8 +205,8 @@ def read_and_generate_models(
         },
         financial_release=market_release,
         companies=companies,
-        trading_dates=trading_dates,
-        expected_price_date=expected_price_date,
+        trading_dates=path_calendar.trading_dates,
+        expected_price_date=path_calendar.expected_price_date,
         ttm_rules=ttm_rules,
         external_observations=histories,
         market_context={
@@ -219,8 +219,3 @@ def read_and_generate_models(
         market_context_revision="shared-market-context-price-path-v2",
         growth_start=growth_start,
     )
-
-
-def _sector(security: dict[str, object] | None) -> str | None:
-    value = None if security is None else security.get("sector_33")
-    return value if isinstance(value, str) else None
