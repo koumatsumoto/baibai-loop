@@ -29,7 +29,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-手動asofの空欄は元run作成時刻のJST日であり、直近の完了日や利用可能な終値を自動選択しない。寄前・場中に完了済みの日次モデルを使うならJSTの前日を指定し、前営業日まで戻さず週末の経済・外部評価も対象に残す。同日引後でも共通calendarが要求する価格日の入力が未反映ならYは欠測となり、候補0件になり得る。この0件を「買う対象がない」という投資判断に読み替えず、入力不足の理由を確認する。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。生成as_ofと価格観測日は別で、休場日に価格日を繰り上げない。原本の取得は独立scheduleのsource workflowが所有する。
+手動asofの空欄は元run作成時刻のJST日であり、直近の完了日や利用可能な終値を自動選択しない。寄前・場中に完了済みの日次モデルを使うならJSTの前日を指定し、前営業日まで戻さず週末の経済・外部評価も対象に残す。同日引後でも共通calendarが要求する価格日と有効な株式分母が揃わなければ価格座標を計算できず、候補0件になり得る。この0件を「買う対象がない」という投資判断に読み替えず、入力不足の理由を確認する。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。生成as_ofと価格観測日は別で、休場日に価格日を繰り上げない。原本の取得は独立scheduleのsource workflowが所有する。
 
 既定読取は発行時刻よりas_ofの新しさを優先し、古い非空候補へ自動fallbackしない。過去日を後から再計算しても新しいas_ofの結果は置換しないため、その日を分析するときは対象のgeneration/selection IDを明示する。
 
@@ -533,7 +533,7 @@ uv run baibai-jobs tradingview-source rebuild --sqlite /tmp/market-rebuild.sqlit
 
 既存のdue taskを使い、同じ期限・対象・問いのopen taskを重複登録しない。実行後は完了を記録し、必要な次回分だけ作る。開発変更はGitHub Issueで管理する。
 
-旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しい五モデル・Y/M二viewの通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
+旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しいモデル生成・候補政策の通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
 
 ```bash
 uv run baibai-engine historical-evaluation calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>

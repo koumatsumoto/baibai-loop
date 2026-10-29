@@ -25,7 +25,7 @@ Yは報告された年間利益総額を現在の普通株時価総額で割る�
 
 合成は円総額で行い、1株換算は最後に一度だけ行う。各期EPSは異なる平均株数で割られており、EPSの和差では株式数が変わった企業を誤る。FinancialSnapshotのEPSは時価総額と同じ自己株控除後分母で組み直した値で、会社開示の期中平均株数EPSとは別である。
 
-3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。旧Normalized Earningsの候補抽出で使っていたが、新しい二viewのmembershipや順位へは使わない。旧機械ER/FV anchorへも投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
+3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。旧Normalized Earningsの候補抽出で使っていたが、現行の候補政策のmembershipや順位へは使わない。旧機械ER/FV anchorへも投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
 
 YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。旧指標の選択利益に経常/純利益fallbackがあっても、営業利益を代替しない。新しい五モデルの成長変化はcompany_growthが所有し、負基準の旧前年比を併記しない。
 

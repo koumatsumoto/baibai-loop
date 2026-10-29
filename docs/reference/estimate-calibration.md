@@ -1,6 +1,6 @@
 # 見積り較正
 
-現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しいY/M二viewを較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。実装の入口は[較正処理](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/)と[保存文脈](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/)。本書は測定値の解釈と採否の制約を残し、CLI・field・検証分岐は転記しない。
+現行の較正実装は旧ER/FV・四Approachを対象に、保存入力から過去as-ofを再構成しforward outcomeと照合する。新しい経済経路の候補政策を較正済みと扱わず、新Selectionへ旧ER分布を付けずnot_applicableを返す。資産全体の運用成績やL3銘柄評価の正しさとは別の横断診断である。実装の入口は[較正処理](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/)と[保存文脈](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/)。本書は測定値の解釈と採否の制約を残し、CLI・field・検証分岐は転記しない。
 
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味
@@ -55,7 +55,7 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 <a id="er-level-distribution-context"></a>
 ## 判断へ渡す歴史分布
 
-配布文脈は企業価値モデルに近接する[published YAML](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
+配布文脈は旧ER/FVの歴史評価が所有する[published YAML](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml)。Gitでreview・同梱する単一artifactで、再生成用のcalibration snapshotとは役割が異なる。正常な結果観測不能では宣言月・母数と理由を保ち、観測分布とformal evidence不成立を別に渡す。panel欠落・集合不整合・未知状態・method不一致をpartialと呼んで許容しない。
 
 結果が観測できた集合から予測帯を作らず、宣言した有限ER全対象から固定境界を求め、同じ境界で両horizon・basisと現在候補を分類する。未評価を0損益へ入れず、観測なしの分布はnull。ticker-asof等重みとcohort等重み、宣言/観測月数、各母数を区別する。固定8.5%帯は比較座標で、[L3の要求率](../doctrine.md#required-return-policy)に連動させない。
 
@@ -69,7 +69,7 @@ FY実績配当込みは期間内に期末を迎えた対象年度のDivAnnを共
 
 ## methodと再構築
 
-旧run経路と旧較正は同じ丸め済みStock Analysisと候補純関数を使う。新しいモデル生成・二view政策とは別契約であり、旧較正の成績を新政策へ転用しない。rules/method/calculation revisionや入力窓・forward規約が異なるcacheを読み替えず、現在入力から再構築する。意味変更はownerのrevisionへ反映するが、文書・配置・importだけで進めない。field順や無効knob削除でも現行rules hashが変わる場合があり、再構築費用と便益を比較する。
+旧run経路と旧較正は同じ丸め済みStock Analysisと候補純関数を使う。現行のモデル生成・候補政策とは別契約であり、旧較正の成績を新政策へ転用しない。rules/method/calculation revisionや入力窓・forward規約が異なるcacheを読み替えず、現在入力から再構築する。意味変更はownerのrevisionへ反映するが、文書・配置・importだけで進めない。field順や無効knob削除でも現行rules hashが変わる場合があり、再構築費用と便益を比較する。
 
 calibrationは再生成可能なローカルsnapshot。generation graph・remote pointer・過去世代保持を持たず、temporary buildからatomic replaceする。全再構築は保持する全cohortを覆う範囲とforceを指定し、先に現snapshotを消さない。forceは指定範囲だけから新snapshotを作る。不足coverageは再実行だけでは解消しない。
 

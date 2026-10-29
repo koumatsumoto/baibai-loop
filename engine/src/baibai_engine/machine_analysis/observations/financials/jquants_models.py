@@ -85,6 +85,7 @@ class JQuantsFinancialSummary:
     unresolved_actual_fields: tuple[str, ...] = ()
     forecast_source_documents: tuple[str, ...] = ()
     forecast_field_sources: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    forecast_scope_conflict_sources: tuple[str, ...] = ()
     forecast_status: str = "not_applicable"
     dividend_forecast_status: str = "not_applicable"
 
