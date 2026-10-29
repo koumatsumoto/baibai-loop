@@ -4,9 +4,30 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 25
+APPLICATION_SCHEMA_VERSION = 26
 
-SCHEMA_SQL = """
+COMPANY_RESEARCH_SCHEMA_SQL = """
+CREATE TABLE company_research (
+    research_id TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    prior_research_id TEXT REFERENCES company_research(research_id),
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    payload_sha256 TEXT NOT NULL,
+    CHECK (prior_research_id IS NULL OR prior_research_id <> research_id)
+) STRICT;
+CREATE INDEX company_research_latest_idx
+ON company_research(ticker, as_of, recorded_at, research_id);
+CREATE TRIGGER company_research_immutable
+BEFORE UPDATE ON company_research
+BEGIN
+    SELECT RAISE(ABORT, 'saved Company Research is immutable');
+END;
+"""
+
+SCHEMA_SQL = (
+    """
 CREATE TABLE task (
     task_id TEXT PRIMARY KEY,
     status TEXT NOT NULL CHECK (status IN ('open', 'done', 'dropped')),
@@ -192,5 +213,7 @@ CREATE TABLE portfolio_outcome (
 CREATE INDEX portfolio_outcome_period_idx
 ON portfolio_outcome(period_end_date, horizon, outcome_id);
 """
+    + COMPANY_RESEARCH_SCHEMA_SQL
+)
 
-__all__ = ["APPLICATION_SCHEMA_VERSION", "SCHEMA_SQL"]
+__all__ = ["APPLICATION_SCHEMA_VERSION", "COMPANY_RESEARCH_SCHEMA_SQL", "SCHEMA_SQL"]

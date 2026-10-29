@@ -8,6 +8,7 @@ from pathlib import Path
 
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
+    GeneratedResearchSelectionV4,
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -24,7 +25,7 @@ def research_calibration_context(
 ) -> dict[str, object]:
     """Read a diagnostic only; never change Selection, candidate order or decisions."""
 
-    if isinstance(selection, GeneratedResearchSelection):
+    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         return {
             "selection_sha256": selection_sha256(selection),
             "generation_id": selection.inputs.generation.generation_id,

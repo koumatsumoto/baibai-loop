@@ -34,6 +34,15 @@ uv run baibai-engine investment-judgment selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
+以前の候補外・非保有企業を再訪するときは、保存済みResearchとAssessmentの企業一覧を有限に読む。これは買付順位ではない。続きのページは返された`known_at`を固定し、`--after-ticker <NEXT_AFTER_TICKER>`を渡す。気になる企業だけ上の`--compare-ticker`へ接続し、全履歴を自動投入しない。
+
+```bash
+uv run baibai-engine investment-judgment company-research catalog \
+  --asof <ASOF> --known-at <INPUT_KNOWN_AT> --limit 20 --db stores/application/baibai.sqlite
+```
+
+`selection-context`の既存研究は薄い表示で、未review Researchと過去のreview済みAssessmentを分ける。`unreadable`を「調査なし」にせず、briefの省略を反証なしと扱わない。全文は`company-research get --research-id <ID> --sha256 <DIGEST>`または`--assessment-id <ID>`で読む。通常prepareは選定対象だけの開始材料をSelection V4へ固定し、再開時にlatestへ付け替えない。調査中に追加した根拠はAssessment V1へ必要部分をコピーしてReviewする。開始時Selectionは最終評価の全provenanceではない。
+
 低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。候補抽出の名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
 企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。通常生成は全保持範囲であり、長期の読取は下記の表示期数と完全結果を使う。prepare中に生成範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
@@ -62,6 +71,14 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 4. `investment-judgment stock-assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`investment-judgment stock-assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。
 
 別日の当日算術は`stock-assessment-scaffold --from-assessment-id <ID>`から[差分refresh](../../../docs/reference/stock-assessment.md#assessment-refresh)を作り、新しいReviewを取る。
+
+### 途中成果の保存と再訪
+
+評価に不足する段階でも、`company-research scaffold --ticker <TICKER> --asof <ASOF> --db <APPLICATION_DB> --out <DRAFT>`から独立Researchを保存できる。既存latestの出典・事実・仮説・問いをコピーする。特定の元記録なら`--from-research-id <ID> --from-sha256 <DIGEST>`を指定する。`investigated_scope`へ今回確認した範囲を記し、必要な追加・訂正・削除を行って`company-research save <DRAFT> --db <APPLICATION_DB>`へ渡す。検索不発も試した範囲と残る問いで保存でき、価値差・買付価格・Reviewを創作しない。
+
+保存は差分メモでなく、その時点で保持する部分的な企業理解のsnapshot。recordの`as_of`は情報境界であり、全内容の再確認日ではない。元source/factの日付と取得時刻を今日へ変えず、引き継いだsupportedを本日再検証済みと扱わない。scaffoldはコピーだけを保証し、著者の削除が意味的に安全かは認定しない。stale priorの競合はlatestを読み直して著者が統合し、blind retryしない。同ID同内容の再送は元の保存時刻を返す。
+
+Research保存はOperation完了やreviewed outcomeではない。中断するときは既存`record-unfinished`へ理由とResearch ID/digestを参照として残せるが、その文字列参照を自動検証済みリンクとは扱わない。
 
 ## Trade Proposal
 

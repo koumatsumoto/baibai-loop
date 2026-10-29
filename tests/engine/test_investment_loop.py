@@ -56,7 +56,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             # A new explicit request follows the first proposal's completion and
             # human report. The already held/reserved ticker is not selected again.
             selected = seed_generated_selection(
-                runs=case.runs, now=now, tickers=(ticker,), scope="specified_stocks"
+                runs=case.runs, db=case.app, now=now, tickers=(ticker,), scope="specified_stocks"
             )
             operation = case.operations.start(
                 session_kind="capital-allocation",

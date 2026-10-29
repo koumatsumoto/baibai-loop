@@ -1,0 +1,56 @@
+{
+  "fixture_notice": "b336873時点のV3 field契約を手で記した固定合成例。現行modelのdump生成ではない。原資料・実Operationではない。",
+  "selection": {
+    "kind": "research_selection",
+    "schema_version": 3,
+    "request": {
+      "text": "保存済み企業の再調査",
+      "scope": "specified_stocks",
+      "requested_tickers": [
+        "1234"
+      ],
+      "trigger": "user_request"
+    },
+    "research_as_of": "2026-10-14",
+    "input_known_at": "2026-10-14T18:00:00+09:00",
+    "selection_summary": "旧V3の固定入力を保持",
+    "targets": [
+      {
+        "ticker": "1234",
+        "purpose": "new",
+        "rationale": "利益の反復性を確認する",
+        "research_question": "更新契約の採算を確認できるか",
+        "key_risk": "顧客依存"
+      }
+    ],
+    "capacity": {
+      "policy_id": "research-capacity-v1",
+      "max_deep_research_targets": 3
+    },
+    "inputs": {
+      "generation": {
+        "schema_version": 1,
+        "generation_id": "synthetic-legacy-v3",
+        "as_of": "2026-10-14",
+        "evaluation_time": "2026-10-14T17:00:00+09:00",
+        "inputs": {
+          "market": {
+            "kind": "lake_release",
+            "reference": "synthetic",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "models": [],
+        "subjects": [
+          "1234",
+          "market"
+        ]
+      },
+      "screening_selection_id": null,
+      "screening_selection": null,
+      "screening_published_at": null,
+      "saved_market_context_assessment": null
+    }
+  },
+  "sha256": "990e5222196e9673d7c82df64a3462e0466595c6a166e8fd89ecd2a60a47a2da"
+}

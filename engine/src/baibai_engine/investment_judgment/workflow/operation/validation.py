@@ -5,17 +5,19 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
+from baibai_engine.investment_judgment.company_research.query import company_context
 from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ResearchProgress,
     require_coverage,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
-    ResearchSelectionRecord as ResearchSelection,
-)
-from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionV4,
     ResearchTarget,
     selection_targets,
+)
+from baibai_engine.investment_judgment.workflow.selection import (
+    ResearchSelectionRecord as ResearchSelection,
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
@@ -25,6 +27,18 @@ def validate_selection(
     connection: sqlite3.Connection, selection: ResearchSelection, *, now: datetime
 ) -> None:
     validate_target_purposes(connection, selection_targets(selection), now=now)
+    if isinstance(selection, GeneratedResearchSelectionV4):
+        expected = {
+            target.ticker: company_context(
+                connection,
+                target.ticker,
+                as_of=selection.research_as_of,
+                known_at=selection.input_known_at,
+            )
+            for target in selection.targets
+        }
+        if selection.inputs.saved_company_context != expected:
+            raise ValueError("saved company context differs from the selected cutoff")
 
 
 def validate_target_purposes(

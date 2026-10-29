@@ -175,6 +175,7 @@ def backend_case(
     ).publish_reviewed_assessment(assessment_id(), document, review)
     runs = tmp_path / "runs.sqlite"
     selected = seed_generated_selection(
+        db=app,
         runs=runs,
         now=datetime.fromisoformat("2026-10-14T16:07:00+09:00"),
         tickers=tickers,

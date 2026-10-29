@@ -36,6 +36,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
+    GeneratedResearchSelectionV4,
     saved_market_assessment,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -281,7 +282,7 @@ def collect_proposal_inputs(
 def proposal_liquidity_context(
     selection: ResearchSelection,
 ) -> tuple[LiquidityContext | GeneratedLiquidityContext, ...]:
-    if isinstance(selection, GeneratedResearchSelection):
+    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         generation = selection.inputs.generation
         generated: list[LiquidityContext | GeneratedLiquidityContext] = []
         for target in selection.targets:
