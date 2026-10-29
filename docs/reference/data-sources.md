@@ -58,6 +58,8 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 
 2026-10-29の有限確認では、認証・偽装User-AgentなしのPython urllibでTEの公開4記事と日本製造業indexをHTTP 200で受領した。一方、通常adapterのFetchContext（requests）による日本製造業indexの最初のGETはHTTP 403だった。別header・transport・proxyへの切替や反復取得はしていない。**公開記事の解析成功と通常取得の復旧は別であり、本番取得・保存・公開・読戻しは未検証**。
 
+別の公式配信候補も有限確認した。[auじぶん銀行の既知PMI landing](https://www.jibunbank.co.jp/landing/jibunbank_japan_pmi/)は通常GETで200だったが、現行PMI記事・公表linkのない銀行汎用ページだった。S&Pの[日本10月commentary](https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/10/japans-october-flash-pmi-points-to-sustained-solid-growth-and-rising-cost-pressures)と[米10月commentary](https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/10/us-flash-pmi-signals-sustained-strong-growth-but-also-further-inflation-uplift-in-october)本文は読めるが、4つのheadline確報表ではなく、Composite/Outputを代用しない。米記事が案内する新しい[10月速報原本](https://www.pmi.spglobal.com/Public/Home/PressRelease/07d16568e63346999890940d47639cd9)を通常FetchContextで一度GETすると403 Forbiddenで停止した。TEだけの障害から全PMI経路の不可能を推定せず、確認済み候補と未確認の継続coverageを区別する。
+
 | 2026年9月確報 | TE記事 | 別編集・配信経路での同月照合 |
 | --- | --- | --- |
 | 日本製造業 54.1 | [10月1日記事](https://tradingeconomics.com/japan/manufacturing-pmi/news/588414) | [Reuters](https://ca.marketscreener.com/news/japan-september-factory-growth-slows-to-6-month-low-pmi-shows-ce785ad3da8cf024) |

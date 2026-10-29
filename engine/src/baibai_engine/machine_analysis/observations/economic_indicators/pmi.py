@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 
 from pypdf import PdfReader
 
-from baibai_engine.data_collection.providers.tradingeconomics.pmi import (
+from baibai_engine.data_collection.providers.tradingeconomics.pmi_contract import (
     MONTHS,
     STREAM_NAMES,
     parse_article,
@@ -146,11 +146,13 @@ def read_pmi_documents(
                 source_url=document.source_url,
                 quality_flags=("secondary_delivery", article.phase),
                 notes=(
-                    "measurement_provider=spglobal; delivery_provider=tradingeconomics; primary_unverified",
+                    "measurement_provider=spglobal; delivery_provider=tradingeconomics; "
+                    "primary_unverified",
                     f"phase={article.phase}",
                     f"delivery_published_at={article.published_at.isoformat()}",
                     f"delivery_modified_at={article.modified_at.isoformat()}",
-                    "S&P release publication timestamp is not established by the TE article timestamp",
+                    "S&P release publication timestamp is not established "
+                    "by the TE article timestamp",
                 ),
             )
         )

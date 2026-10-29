@@ -170,7 +170,7 @@ def test_four_series_primary_article_excludes_newer_related_month(tmp_path, stre
     ],
 )
 def test_wrong_country_index_month_or_unestablished_phase_is_not_repaired(lead):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="TE PMI"):
         te.parse_article(html(lead), stream="jp_manufacturing", url=URL)
 
 
@@ -389,16 +389,18 @@ def test_malformed_same_url_outside_index_stays_recheckable_and_can_repair(
     original = document(html(FINAL))
     received = []
     with FetchContext() as context, pytest.raises(IndicatorsProviderError, match="missing"):
-        for doc in te.TradingEconomicsPmiSource().fetch_documents(
-            source,
-            start=SEP,
-            end=END,
-            session=context.session,
-            context=context,
-            existing={original.request_key: original},
-            force=False,
-        ):
-            received.append(replace(doc, fetched_at=WHEN + timedelta(seconds=1)))
+        received.extend(
+            replace(doc, fetched_at=WHEN + timedelta(seconds=1))
+            for doc in te.TradingEconomicsPmiSource().fetch_documents(
+                source,
+                start=SEP,
+                end=END,
+                session=context.session,
+                context=context,
+                existing={original.request_key: original},
+                force=False,
+            )
+        )
     malformed = next(doc for doc in received if doc.source_url == URL)
     assert malformed.metadata["requested_observed_at"] == SEP.isoformat()
     assert "observed_at" not in malformed.metadata
@@ -443,7 +445,10 @@ def test_comparison_month_cannot_become_current_headline_month():
         te.parse_article(html(lead), stream="us_services", url=URL)
 
 
-def test_known_url_corrected_to_out_of_range_month_removes_stale_month(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recheck_existing", [True, False])
+def test_known_url_corrected_to_out_of_range_month_removes_stale_month(
+    tmp_path, monkeypatch, recheck_existing
+):
     index = te.BASE_URL + te.STREAM_PATHS["jp_manufacturing"]
     october = URL[:-3] + "102"
     replies = {
@@ -464,16 +469,18 @@ def test_known_url_corrected_to_out_of_range_month_removes_stale_month(tmp_path,
     source = require_source("spglobal-jp-pmi-mfg")
     received = []
     with FetchContext() as context, pytest.raises(IndicatorsProviderError, match="2026-09-01"):
-        for doc in te.TradingEconomicsPmiSource().fetch_documents(
-            source,
-            start=SEP,
-            end=END,
-            session=context.session,
-            context=context,
-            existing={original.request_key: original},
-            force=False,
-        ):
-            received.append(replace(doc, fetched_at=WHEN + timedelta(seconds=1)))
+        received.extend(
+            replace(doc, fetched_at=WHEN + timedelta(seconds=1))
+            for doc in te.TradingEconomicsPmiSource().fetch_documents(
+                source,
+                start=SEP,
+                end=END,
+                session=context.session,
+                context=context,
+                existing={original.request_key: original},
+                force=False,
+            )
+        )
     changed = next(doc for doc in received if doc.source_url == URL)
     assert changed.metadata["observed_at"] == "2026-08-01"
     assert changed.metadata["requested_observed_at"] == "2026-09-01"
@@ -496,6 +503,7 @@ def test_known_url_corrected_to_out_of_range_month_removes_stale_month(tmp_path,
                     context=context,
                     existing=existing,
                     force=False,
+                    recheck_existing=recheck_existing,
                 )
             )
         assert URL in calls
