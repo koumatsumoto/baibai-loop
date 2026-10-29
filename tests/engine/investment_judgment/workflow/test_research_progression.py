@@ -760,14 +760,15 @@ def test_notes_cannot_overwrite_an_outcome_recorded_after_its_read(case, monkeyp
         return before
 
     monkeypatch.setattr(service, "get", read_then_record)
-    with pytest.raises(OperationConflictError, match="progress changed"):
-        if command == "checkpoint":
+    if command == "checkpoint":
+        with pytest.raises(OperationConflictError, match="progress changed"):
             service.checkpoint(
                 operation.operation_id,
                 operation.payload.model_copy(update={"checkpoint": "調査メモを保存する"}),
                 now=PUBLISHED,
             )
-        else:
+    else:
+        with pytest.raises(OperationConflictError, match="progress changed"):
             service.complete(
                 operation.operation_id,
                 result="調査結果を保存した",

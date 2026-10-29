@@ -421,7 +421,8 @@ def _latest_consecutive_values(
             or period_days(row) is None
         ):
             return None
-        assert row.period_start is not None and row.period_end is not None
+        assert row.period_start is not None
+        assert row.period_end is not None
         if annual and not is_annual_period(row.period_start, row.period_end):
             return None
         resolved.append(values[row.fiscal_year_end])

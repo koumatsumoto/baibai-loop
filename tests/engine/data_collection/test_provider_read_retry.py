@@ -163,7 +163,7 @@ def test_one_get_owns_the_initial_plus_five_attempts(wire, series_id, failures):
         (429, {}, {}) if len(wire.calls) <= failures else (200, {}, payload(sid))
     )
     if failures == 6:
-        with pytest.raises(ProviderRateLimitError, match="HTTP 429.*retries exhausted"):
+        with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*retries exhausted"):
             wire.fetch(series_id)
     else:
         records = wire.fetch(series_id)
@@ -203,7 +203,7 @@ def test_retry_after_is_respected_by_sdk_and_plain_http(wire, series_id, header,
 @pytest.mark.parametrize("series_id", IDS)
 def test_long_sdk_or_http_wait_cannot_bypass_the_process_deadline(wire, series_id):
     wire.reply = lambda sid, url: (429, {"Retry-After": "900"}, {})
-    with pytest.raises(ProviderRateLimitError, match="HTTP 429.*deadline exhausted"):
+    with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*deadline exhausted"):
         wire.fetch(series_id)
     assert len(wire.calls) == 2
     assert wire.waits == [900]

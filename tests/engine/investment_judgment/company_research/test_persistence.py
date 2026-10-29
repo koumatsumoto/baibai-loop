@@ -52,6 +52,7 @@ from baibai_engine.investment_judgment.workflow.workspace import (
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
+AS_OF = NOW.date()
 
 
 def draft(identity="r1", *, ticker="1234", as_of="2026-10-14", prior=None, evidence=False):
@@ -103,7 +104,7 @@ def draft(identity="r1", *, ticker="1234", as_of="2026-10-14", prior=None, evide
     )
 
 
-def read(path, ticker="1234", *, as_of=NOW.date(), known_at=NOW):
+def read(path, ticker="1234", *, as_of=AS_OF, known_at=NOW):
     return read_company_contexts(path, tickers=(ticker,), as_of=as_of, known_at=known_at)[ticker]
 
 
@@ -186,7 +187,7 @@ def test_evidence_reference_and_date_integrity(change):
         document["sources"][0]["as_of"] = "2026-10-15"
     else:
         document["facts"][0]["as_of"] = "2026-10-15"
-    with pytest.raises(ValueError, match="source|fact"):
+    with pytest.raises(ValueError, match=r"source|fact"):
         ResearchDraft.model_validate(raw)
 
 
@@ -224,7 +225,7 @@ def test_corrupt_latest_is_isolated_but_broken_database_is_not_absence(tmp_path)
             "UPDATE company_research SET payload=json_set(payload, '$.schema_version', 999) WHERE research_id='r2'"
         )
     results = read_company_contexts(
-        path, tickers=("1234", "5678", "9999"), as_of=NOW.date(), known_at=NOW
+        path, tickers=("1234", "5678", "9999"), as_of=AS_OF, known_at=NOW
     )
     assert isinstance(results["1234"].research, Unreadable)
     assert results["1234"].research.record_id == "r2"
@@ -243,9 +244,9 @@ def test_catalog_includes_assessment_only_and_revisits_noncandidate(tmp_path):
         assessment_id(), document, review
     )
     ResearchStoreService(path, clock=lambda: NOW).save(draft())
-    first = research_catalog(path, as_of=NOW.date(), known_at=NOW, limit=1)
+    first = research_catalog(path, as_of=AS_OF, known_at=NOW, limit=1)
     second = research_catalog(
-        path, as_of=NOW.date(), known_at=NOW, after_ticker=first["next_after_ticker"], limit=1
+        path, as_of=AS_OF, known_at=NOW, after_ticker=first["next_after_ticker"], limit=1
     )
     assert [first["items"][0]["ticker"], second["items"][0]["ticker"]] == ["1234", "5678"]
     assert second["next_after_ticker"] is None
@@ -319,9 +320,9 @@ def test_selection_v4_freezes_only_selected_context_and_resume_never_reads_lates
         )
         == digest
     )
+    raw = saved.model_dump(mode="json")
+    raw["inputs"]["saved_company_context"].clear()
     with pytest.raises(ValueError, match="exactly cover"):
-        raw = saved.model_dump(mode="json")
-        raw["inputs"]["saved_company_context"].clear()
         parse_selection(raw)
 
 
@@ -377,7 +378,7 @@ def test_unwritten_store_is_absence_but_missing_current_table_is_not(tmp_path):
     with closing(sqlite3.connect(path)):
         pass
     assert read(path).research.status == "not_found"
-    assert research_catalog(path, as_of=NOW.date(), known_at=NOW)["items"] == []
+    assert research_catalog(path, as_of=AS_OF, known_at=NOW)["items"] == []
     ResearchStoreService(path, clock=lambda: NOW).save(draft())
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("DROP TABLE company_research")

@@ -144,7 +144,7 @@ def success(day=ASOF, *, rows=None, next_page=None):
 def test_same_get_has_initial_plus_five_retries_and_keeps_success_value(wire, failures):
     wire.reply = lambda url: (429, {}, {}) if len(wire.calls) <= failures else success()
     if failures == 6:
-        with pytest.raises(ProviderRateLimitError, match="HTTP 429.*retries exhausted"):
+        with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*retries exhausted"):
             wire.acquire()
     else:
         wire.acquire()
@@ -321,7 +321,7 @@ def test_retry_after_seconds_or_date_precedes_fallback(wire, header, delay):
 
 def test_sdk_retry_after_wait_is_inside_one_elapsed_deadline(wire):
     wire.reply = lambda url: (429, {"Retry-After": "900"}, {})
-    with pytest.raises(ProviderRateLimitError, match="HTTP 429.*deadline exhausted"):
+    with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*deadline exhausted"):
         wire.acquire()
     assert all(wire.read(series_id) == () for series_id in READINGS)
     assert len(wire.calls) == 2
@@ -330,7 +330,7 @@ def test_sdk_retry_after_wait_is_inside_one_elapsed_deadline(wire):
 
 def test_retry_after_beyond_deadline_is_not_shortened_or_retried(wire):
     wire.reply = lambda url: (429, {"Retry-After": "1201"}, {})
-    with pytest.raises(ProviderRateLimitError, match="HTTP 429.*deadline exhausted"):
+    with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*deadline exhausted"):
         wire.acquire()
     assert len(wire.calls) == 1
     assert wire.waits == []
