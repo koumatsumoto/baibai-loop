@@ -3,8 +3,8 @@ from contextlib import closing
 
 import pytest
 
-from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_jobs.jobs import source_integration
+import baibai_jobs.integration.sources as source_integration
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 
 pytestmark = pytest.mark.usefixtures("_no_r2")
 

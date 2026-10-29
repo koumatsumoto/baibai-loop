@@ -13,17 +13,17 @@ description: 人間が確認した注文・約定・資金の事実をdraftで�
 
 | 報告 | 入口 |
 | --- | --- |
-| 買付注文・約定、売付の未約定注文 | `position broker-fact-draft`（売付は`--side sell`） |
-| 売却・部分売却の約定 | `position sell-execution-draft` |
-| 入出金・income・費用・確定税 | `position event-draft` |
-| 人間のwarning受容・税の見積り | `position override-draft`・`position meta-draft` |
+| 買付注文・約定、売付の未約定注文 | `portfolio broker-fact-draft`（売付は`--side sell`） |
+| 売却・部分売却の約定 | `portfolio sell-execution-draft` |
+| 入出金・income・費用・確定税 | `portfolio event-draft` |
+| 人間のwarning受容・税の見積り | `portfolio override-draft`・`portfolio meta-draft` |
 
 このskillは初期化済み台帳への追記を対象とする。初回残高・既存保有を一括登録するbootstrap CLIは現状未提供であり、通常の入金・約定として再登録しない。
 
 提案に対応する注文は公開したTrade Proposal IDと、人間が確認した実注文条件を使う。
 
 ```bash
-uv run baibai-engine position broker-fact-draft --db stores/application/baibai.sqlite \
+uv run baibai-engine portfolio broker-fact-draft --db stores/application/baibai.sqlite \
   --decision-reference <INVESTMENT_PROPOSAL_ID> --status open \
   --ticker <TICKER> --quantity <QTY> --price-guard-yen <GUARD> \
   --occurred-on <YYYY-MM-DD> --sector <SECTOR> --out <DRAFT>
@@ -34,7 +34,7 @@ uv run baibai-engine position broker-fact-draft --db stores/application/baibai.s
 約定の日付・銘柄・数量・単価と報告されたbroker execution IDを使い、保存注文があれば同じreservationと参照へ束縛する。[事実と再送](../../../docs/reference/portfolio-ledger.md#事実と再送)に従い、同日別約定を区別できない場合だけ確認する。正確な報告時刻は`--occurred-at`へ渡せる。
 
 ```bash
-uv run baibai-engine position sell-execution-draft --db stores/application/baibai.sqlite \
+uv run baibai-engine portfolio sell-execution-draft --db stores/application/baibai.sqlite \
   --ticker <TICKER> --quantity <QTY> --price-yen <PRICE> \
   --occurred-on <YYYY-MM-DD> --execution-id <BROKER_EXECUTION_ID> --out <DRAFT>
 ```
@@ -43,16 +43,16 @@ uv run baibai-engine position sell-execution-draft --db stores/application/baiba
 
 ## 確認と反映
 
-payloadとcash・予約・holdingの差分を人間に確認し、`position apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。staleなら新しい入力からdraftを作り直して再確認する。取引記録のためにOperationを開始せず、無関係なmarket不足で止めない。
+payloadとcash・予約・holdingの差分を人間に確認し、`portfolio apply-draft <DRAFT> --db stores/application/baibai.sqlite --confirmed`で適用する。staleなら新しい入力からdraftを作り直して再確認する。取引記録のためにOperationを開始せず、無関係なmarket不足で止めない。
 
 本番への反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。作業コピーへの適用とクラウド正本の更新を区別する。
 
 ## Historical Outcome
 
-Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の比較basisに従い、同期間のJPX TOPIX gross total returnを確認した[BenchmarkObservation](../../../engine/src/baibai_engine/market/benchmark_observation.py)形式のYAMLを用意する。[fixture](../../../tests/fixtures/benchmark-observation/topix-1y.yaml)は形式例であり、実績観測として流用しない。期間・horizon・公表日・受領時刻・公式sourceを揃え、1yの年率はnull、3y/5yは累積returnと整合する年率を記す。
+Outcomeが依頼された場合は[historical outcome](../../../docs/reference/portfolio-ledger.md#historical-outcome)の比較basisに従い、同期間のJPX TOPIX gross total returnを確認した[BenchmarkObservation](../../../engine/src/baibai_engine/machine_analysis/observations/prices/benchmark_observation.py)形式のYAMLを用意する。[fixture](../../../tests/fixtures/benchmark-observation/topix-1y.yaml)は形式例であり、実績観測として流用しない。期間・horizon・公表日・受領時刻・公式sourceを揃え、1yの年率はnull、3y/5yは累積returnと整合する年率を記す。
 
 ```bash
-uv run baibai-engine position outcome --db stores/application/baibai.sqlite \
+uv run baibai-engine portfolio outcome --db stores/application/baibai.sqlite \
   --sqlite stores/market/market.sqlite --benchmark-observation <BENCHMARK_YAML> \
   --out <NEW_OUTCOME_YAML>
 ```

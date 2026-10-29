@@ -16,15 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.storage.lake import models
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.keys import (
+from baibai_engine.storage.snapshots.keys import (
     canonical_object_key,
     current_release_pointer_key,
     dataset_manifest_key,
     release_manifest_key,
 )
-from baibai_engine.storage.lake.models import (
+from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
     LakeObject,
     LakeReleaseSourceRef,
@@ -35,11 +33,19 @@ from baibai_engine.storage.lake.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
 )
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.publication import policy as snapshot_policy
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 from tests.helpers.lake_policy import narrow_release_policy
 
 
@@ -226,9 +232,9 @@ def lake(tmp_path, monkeypatch):
     datasets = ("jquants.daily_bars", "jquants.short_sale_reports", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=datasets)
     # A narrow fixture permits partial calendar coverage to exercise consumer reporting.
-    policy = models.PRODUCTION_RELEASE_POLICY
+    policy = snapshot_policy.PRODUCTION_RELEASE_POLICY
     monkeypatch.setattr(
-        models,
+        snapshot_policy,
         "PRODUCTION_RELEASE_POLICY",
         policy.model_copy(
             update={
@@ -260,7 +266,7 @@ def lake(tmp_path, monkeypatch):
     ) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,
@@ -274,6 +280,8 @@ def lake(tmp_path, monkeypatch):
         mirror_root=mirror,
         release_id="test-release",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer = LakeReleasePointer(
         release_id=release.release_id,
@@ -303,7 +311,7 @@ def publish_market_fixture(path: Path, release: str, *, created_at: datetime) ->
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
         reports = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,

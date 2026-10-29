@@ -123,12 +123,12 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
     from tests.helpers.r2_store import MemoryR2Store
 
-    from baibai_engine.data_collection.tradingview.collector import collect
-    from baibai_engine.data_collection.tradingview.handoff import export_handoff, import_handoff
-    from baibai_engine.machine_analysis.external_assessment.tradingview.observations import (
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         FetchError,
     )
-    from baibai_jobs.storage.economic_staging import load_handoff, save_handoff
+    from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+    from baibai_jobs.acquisition.tradingview.collector import collect
+    from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
 
     local, canonical = (
         store(tmp_path / "local.sqlite", 51),

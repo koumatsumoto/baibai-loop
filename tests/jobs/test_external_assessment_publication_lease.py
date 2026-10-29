@@ -6,9 +6,10 @@ import pytest
 from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 
-from baibai_jobs.storage import lake_publish, publication_lease
-from baibai_jobs.storage import publish_market_lake as publisher
-from baibai_jobs.storage.publication_lease import LeaseError
+import baibai_jobs.publication.lease as publication_lease
+import baibai_jobs.publication.snapshot_publication as publisher
+import baibai_jobs.publication.snapshot_release as lake_publish
+from baibai_jobs.publication.lease import LeaseError
 
 
 @pytest.mark.parametrize("failure", ["expired", "replaced"])

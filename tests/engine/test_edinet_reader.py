@@ -9,12 +9,17 @@ from unittest.mock import patch
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
-from baibai_engine.market.edinet_metrics.store import read_edinet_documents, read_edinet_metrics
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_documents,
+    read_edinet_metrics,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
+    store_edinet_metrics,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_missing_reader_inputs_never_create_a_store_or_connect(tmp_path):

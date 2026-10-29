@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_engine.data_collection.identifiers import (
+from baibai_engine.machine_analysis.observations.normalization import (
+    code_quality,
+    normalize_ticker_or_none,
+)
+from baibai_engine.primitives.stocks import (
     SecurityCodeError,
     normalize_ticker,
     parse_security_code_parts,
 )
-from baibai_engine.market.normalization import code_quality, normalize_ticker_or_none
 
 
 @pytest.mark.parametrize("code", ["12!4", "１２３４", "株式銘柄", "12ß", "130A!", "１２３４0"])

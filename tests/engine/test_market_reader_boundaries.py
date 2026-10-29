@@ -10,22 +10,34 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import insert_financial_record
 
-from baibai_engine.machine_analysis.screening.calibration.grid import (
+import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
+import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
+import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
+from baibai_engine.machine_analysis.historical_evaluation.grid import (
     days_with_bars,
     month_end_asof_grid,
 )
-from baibai_engine.machine_analysis.screening.calibration.panel import _coverage_floors
-from baibai_engine.market import jpx_reader, jquants_reader, margin_reader, price_reader
-from baibai_engine.market.edinet_metrics import store as edinet_store
-from baibai_engine.market.jpx_reader import read_next_earnings_dates
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.price_reader import read_daily_bars, read_daily_bars_for_tickers
-from baibai_engine.storage.observations.coverage import (
+from baibai_engine.machine_analysis.historical_evaluation.panel import _coverage_floors
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_next_earnings_dates,
+)
+from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
+    store as edinet_store,
+)
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.prices import calendar_reader
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_daily_bars,
+    read_daily_bars_for_tickers,
+)
+from baibai_engine.machine_analysis.observations.stocks import reader as stock_reader
+from baibai_engine.storage.sqlite.source_cache.coverage import (
     record_range_source_coverage,
     record_source_coverage,
 )
-from baibai_engine.storage.observations.readiness import unreadable_store_reason
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
 
 
 @pytest.mark.parametrize(
@@ -153,9 +165,9 @@ def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeyp
     path = tmp_path / "existing.sqlite"
     path.touch()
     conn = sqlite3.connect(":memory:")
-    monkeypatch.setattr(jquants_reader, "connect_current", lambda path: conn)
+    monkeypatch.setattr(stock_reader, "connect_current", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        jquants_reader.read_eq_master_exact(path, date(2026, 10, 15))
+        stock_reader.read_eq_master_exact(path, date(2026, 10, 15))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         conn.execute("SELECT 1")
 
@@ -238,7 +250,8 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
             fetched_at_utc="2026-01-30T00:00:00Z",
             record_count=1,
         )
-    original = jquants_reader.range_covered
+    owner = financial_reader if source == "jquants_fin_summaries" else calendar_reader
+    original = owner.range_covered
     changed = False
 
     def covered_then_refresh(conn, selected_source, start, end):
@@ -252,11 +265,11 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
                 writer.execute("UPDATE source_coverage SET status = 'partial'")
         return result
 
-    monkeypatch.setattr(jquants_reader, "range_covered", covered_then_refresh)
+    monkeypatch.setattr(owner, "range_covered", covered_then_refresh)
     reader = (
-        jquants_reader.read_fin_summaries
+        financial_reader.read_fin_summaries
         if source == "jquants_fin_summaries"
-        else jquants_reader.read_market_calendar
+        else calendar_reader.read_market_calendar
     )
     rows = reader(path, day, day)
     assert rows is not None
@@ -295,7 +308,7 @@ def test_margin_coverage_and_observations_share_a_snapshot(
 ):
     from tests.engine.test_jquants_projection import FIRST_AT, body, receive, source_record
 
-    from baibai_engine.market.jquants_projection import project_request
+    from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 
     path = tmp_path / "market.sqlite"
     query = {"disc_date" if source == "short_sale_reports" else "date": day}

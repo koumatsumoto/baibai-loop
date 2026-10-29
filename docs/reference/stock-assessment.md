@@ -1,6 +1,6 @@
 # Stock Assessment
 
-企業の事業理解・価値・反証を独立検証と一組で保存する。銘柄評価は現在cashや注文から独立し、行動と具体条件は[Trade Proposal](trade-proposal.md)、取引事実は[Portfolio Ledger](portfolio-ledger.md)が所有する。作業順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)。型と保存条件は`investment_judgment/stock_assessment.py`・`stock_assessment_store.py`が正本である。
+企業の事業理解・価値・反証を独立検証と一組で保存する。銘柄評価は現在cashや注文から独立し、行動と具体条件は[Trade Proposal](trade-proposal.md)、取引事実は[Portfolio Ledger](portfolio-ledger.md)が所有する。作業順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)。
 
 ## 観測と根拠
 
@@ -38,9 +38,9 @@ Company Researchでは価格急変の有無にかかわらず、判断cutoffま�
 入口の指標に対しては、現在利益の反復性、3FY平均が循環を代表するか、資産の帰属と回収可能性、再投資の追加支出と限界収益を問う。過去のcapital proxyや会社ROIC目標を新規投資の限界収益率としない。KPIの期間・分母・定義変更とM&A影響を揃える。
 
 <a id="analysis-domain-integration"></a>
-## 五モデルの統合
+## 解析モデルの統合
 
-[五モデルの役割](../architecture.md#責務と配置)を踏まえ、企業価値の仮定へ企業成長の実績経路、市場環境の個社への伝達、外部評価との相違、テクニカル分析の価格反応を接続する。個社の価格と事業の重要な不一致から必要なモデルへ往復する。重要な支持・相反・不足を既存の所見・仮説・最強反証へ接続し、固定のマクロ起点や全指標のコメント・支持票数を要求しない。悪材料を探すだけでなく、過度な悲観や一時悪化という反対仮説を企業成長・市場環境から検証し、価値機会の根拠にも使う。
+[解析モデルの役割](../architecture.md#責務と配置)を踏まえ、企業価値の仮定へ企業成長の実績経路、市場環境の個社への伝達、外部評価との相違、テクニカル分析の価格反応を接続する。個社の価格と事業の重要な不一致から必要なモデルへ往復する。重要な支持・相反・不足を既存の所見・仮説・最強反証へ接続し、固定のマクロ起点や全指標のコメント・支持票数を要求しない。悪材料を探すだけでなく、過度な悲観や一時悪化という反対仮説を企業成長・市場環境から検証し、価値機会の根拠にも使う。
 
 企業成長は[保存された実績状態・変化](company-growth.md)から問いを具体化する。累計・単独四半期・年間/TTM・期末残高を区別し、取得済み最新版による事後の振り返りを当時判断へ転用しない。年間の収益水準と直近同四半期の変化を併読し、前年や2年前を無条件に正常値としない。連続回復を主張する時は該当履歴を開く。一時利益が複数TTMに残ることを複数回の持続成長確認とせず、Q1の差とTTMの直前FY比を独立した変化に数えない。報告増加を有機成長と認定せず、営業CFの低下だけで正常FCF悪化や評価不能にしない。同じ利益を利益増・EPS増・低PER・外部目標の独立した支持票へ加算しない。補助機能の未提供と科目欠測を区別し、不足だけで企業価値・一次資料の調査を止めない。
 
@@ -57,7 +57,7 @@ resolved valuationは原価格、比較期間、案件ごとの[要求年率](..
 
 terminalは分配後に残る価値、cashは比較期間の累積分配。同じ起点の未調整1株へ揃える。配当・資産売却・買戻しを二重算入せず、終期の権利落ち後価格と未入金配当権利を分ける。権利確定前の未公表配当は仮定とし、公表済みだけの条件と混ぜない。
 
-純粋算術は[investment_judgment/scenario.py](../../engine/src/baibai_engine/investment_judgment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
+純粋算術は[investment_judgment/scenario.py](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
 
 <a id="valuation-model-choice"></a>
 ### modelと期間

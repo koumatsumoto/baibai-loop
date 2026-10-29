@@ -12,9 +12,9 @@ import pytest
 import requests
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.data_collection.edinet.receipts import retain_list_response
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market import cli as app
 
 
 def _wire(rows: list[dict[str, object]]) -> bytes:

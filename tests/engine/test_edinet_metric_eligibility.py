@@ -9,18 +9,28 @@ from unittest.mock import patch
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.machine_analysis.screening.sqlite_coverage.edinet import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.edinet import (
     _append_edinet_metrics_coverage_issues,
 )
-from baibai_engine.market.edinet_document_store import read_observed_documents
-from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.edinet_metrics.store import EDINETMetricBaselineError
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_selection import select_document_candidates
-from baibai_engine.storage.observations.coverage import record_source_coverage
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_observed_documents,
+)
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+    select_document_candidates,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    EDINET_METRIC_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    EDINETMetricBaselineError,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
+    store_edinet_metrics,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 BASE = date(2026, 4, 24)
 TARGET = date(2026, 4, 27)

@@ -22,26 +22,16 @@ from typing import cast
 # させると配下の subcommand が丸ごと未検査になるので、未登録の stub は error にする。
 # 表を更新し忘れた delegation は gate をすり抜けない。
 DELEGATED_GROUPS: Mapping[str, str] = {
-    "baibai-engine data-collection market": "baibai_engine.source_maintenance.cli",
-    "baibai-engine data-collection economic": "baibai_engine.data_collection.economic.cli",
-    "baibai-engine market-context snapshot": (
-        "baibai_engine.machine_analysis.market_context.snapshot_cli"
-    ),
-    "baibai-engine market-context indicators": (
-        "baibai_engine.machine_analysis.market_context.indicator_cli"
-    ),
-    "baibai-engine market-context reading": (
-        "baibai_engine.machine_analysis.market_context.reading.cli"
-    ),
-    "baibai-engine investment-judgment market-context": (
-        "baibai_engine.investment_judgment.market_context.cli"
-    ),
+    "baibai-jobs maintain-market": "baibai_jobs.maintenance.market.cli",
+    "baibai-jobs acquire-economic": "baibai_jobs.acquisition.economic_cli",
+    "baibai-engine market-context snapshot": ("baibai_engine.cli.market_snapshot"),
+    "baibai-engine market-context indicators": ("baibai_engine.cli.economic_indicators"),
+    "baibai-engine market-context reading": ("baibai_engine.cli.market_reading"),
+    "baibai-engine investment-judgment market-context": ("baibai_engine.cli.market_assessment"),
     "baibai-engine investment-judgment stock-assessment-evaluate": (
-        "baibai_engine.investment_judgment.stock_assessment_evaluation_cli"
+        "baibai_engine.cli.stock_assessment"
     ),
-    "baibai-engine investment-judgment calculate": (
-        "baibai_engine.investment_judgment.calculation_cli"
-    ),
+    "baibai-engine investment-judgment calculate": ("baibai_engine.cli.assessment_calculation"),
 }
 
 
@@ -84,7 +74,7 @@ def undescribed_subcommands(path: str, parser: argparse.ArgumentParser) -> list[
 
 def check(root: Path) -> list[str]:
     del root  # the CLI surface is the installed package, not a path in the tree
-    from baibai_engine.cli import DOMAINS
+    from baibai_engine.cli.app import DOMAINS
 
     errors: list[str] = []
     for name, domain in DOMAINS.items():

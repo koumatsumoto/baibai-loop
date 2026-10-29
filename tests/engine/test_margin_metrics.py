@@ -8,20 +8,24 @@ from dataclasses import asdict, fields
 from datetime import date, timedelta
 from pathlib import Path
 
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.market_context.margin import (
-    MarginBalance,
-    MarginSupplyDemand,
-    margin_supply_demand,
+from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
 )
-from baibai_engine.machine_analysis.screening.calibration import store as calibration_store
-from baibai_engine.machine_analysis.screening.calibration.store import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.store import (
     CalibrationCacheError,
     read_panel,
 )
-from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
-    build_stock_analysis_metrics,
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MarginBalance,
+    MarginSupplyDemand,
+    margin_supply_demand,
 )
 
 WEEK = date(2026, 7, 24)
@@ -164,8 +168,10 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
 
     @staticmethod
     def _seed(db: Path, week_ends: list[date], trading_days: list[date]) -> None:
-        from baibai_engine.market.jquants_writer import store_jquants_weekly_margin
-        from baibai_engine.storage.observations.schema import open_connection
+        from baibai_engine.machine_analysis.observations.jquants_writer import (
+            store_jquants_weekly_margin,
+        )
+        from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         for week_end in week_ends:
             store_jquants_weekly_margin(
@@ -188,7 +194,9 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # A store filled past the decision date holds balance dates the market has not
         # reached. Listing one would put a future week at the head of the cohort, which
         # is the point-in-time break this reader exists to prevent.
-        from baibai_engine.market.margin_reader import published_margin_week_ends
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+            published_margin_week_ends,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -212,11 +220,13 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
         # the reader refuses. If the published list still named it, the newest entry
         # would read back empty and every axis would be None for the whole cohort
         # even though every earlier week is intact.
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
-        from baibai_engine.market.margin_reader import published_margin_week_ends
-        from baibai_engine.storage.observations.schema import open_connection
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+            published_margin_week_ends,
+        )
+        from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -244,7 +254,7 @@ class PublishedWeekReadabilityTest(unittest.TestCase):
             self.assertEqual(sorted(latest), ["7203"])
 
     def test_a_balance_date_too_old_to_describe_the_asof_is_refused(self) -> None:
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
 
@@ -286,11 +296,11 @@ class MarginPublicationSeamTest(unittest.TestCase):
     @classmethod
     def _seed(cls, db: Path, *, weekly_from: date, daily_through: date) -> None:
         """Weekly balances through the freeze, daily balances after it, bars for both."""
-        from baibai_engine.market.jquants_writer import (
+        from baibai_engine.machine_analysis.observations.jquants_writer import (
             store_jquants_all_issues_daily_margin,
             store_jquants_weekly_margin,
         )
-        from baibai_engine.storage.observations.schema import open_connection
+        from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
         trading = cls._weekdays(weekly_from, daily_through)
         conn = open_connection(db)
@@ -344,7 +354,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_daily_series_keeps_the_axes_current_after_the_weekly_freeze(self) -> None:
         """The published daily balance keeps the axes current after the weekly freeze."""
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
 
@@ -361,7 +371,9 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_a_daily_balance_is_unusable_until_its_publication_day_has_closed(self) -> None:
         """Next business day, and not at that day's own close."""
-        from baibai_engine.market.margin_reader import published_margin_balance_dates
+        from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+            published_margin_balance_dates,
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -381,7 +393,7 @@ class MarginPublicationSeamTest(unittest.TestCase):
 
     def test_the_delta_uses_weekly_steps_across_the_cadence_change(self) -> None:
         """In this continuous fixture, 26 observed weekly steps span about half a year."""
-        from baibai_engine.machine_analysis.screening.margin_inputs import (
+        from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
             read_margin_supply_demand_inputs,
         )
 

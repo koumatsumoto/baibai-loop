@@ -4,9 +4,15 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.market_context.history import avg_daily_volume
-from baibai_engine.machine_analysis.market_context.margin import MarginBalance, margin_supply_demand
-from baibai_engine.market.price_models import JQuantsAdjustmentFactorEvent, JQuantsDailyBar
+from baibai_engine.machine_analysis.models.market_context.history import avg_daily_volume
+from baibai_engine.machine_analysis.models.market_context.margin import (
+    MarginBalance,
+    margin_supply_demand,
+)
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 
 
 @pytest.mark.parametrize(
@@ -71,12 +77,14 @@ def test_volume_mean_uses_the_same_asof_share_unit(kind, factor):
 
 
 def test_market_context_calculation_revision_changes_run_and_panel_identity(monkeypatch):
-    from baibai_engine.machine_analysis.market_context import margin
-    from baibai_engine.machine_analysis.screening.calibration import panel, store
-    from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-    from baibai_engine.machine_analysis.screening.rules_identity import (
+    from baibai_engine.machine_analysis.historical_evaluation import panel, store
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+        load_screening_rules,
+    )
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
+    from baibai_engine.machine_analysis.models.market_context import margin
 
     rules = load_screening_rules()
     run_before = production_rules_contract_hash(rules.model_dump_json())
@@ -105,9 +113,14 @@ def test_observed_zero_balance_needs_no_share_conversion_but_missing_stays_missi
 
 
 def test_screening_assembles_margin_and_volume_on_one_basis():
-    from tests.engine.screening.metric_fixtures import _security, _summary
+    from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+        _security,
+        _summary,
+    )
 
-    from baibai_engine.machine_analysis.screening.metric_builder import build_metrics
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
+        build_metrics,
+    )
 
     start, action, end = date(2026, 1, 1), date(2026, 1, 20), date(2026, 1, 21)
     # Publish the share count after the action, not on an ambiguous disclosure boundary.

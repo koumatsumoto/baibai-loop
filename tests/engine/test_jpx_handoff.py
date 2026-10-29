@@ -3,16 +3,19 @@ from datetime import UTC, date, datetime, timedelta
 
 from tests.engine.test_jpx_refresh import FILE_A, FIXTURES, SOURCE_FILES, _workbook
 
-from baibai_engine.data_collection.jpx.models import JPXResponse
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+from baibai_engine.data_collection.providers.jpx.receipts import (
     complete_bundle,
     create_bundle,
     retain_bundle_response,
 )
-from baibai_engine.market.jpx_handoff import export_handoff, import_handoff
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_sources import JPX_EARNINGS_CALENDAR_INDEX_URL, JPX_REGULATION_URLS
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
+    JPX_EARNINGS_CALENDAR_INDEX_URL,
+    JPX_REGULATION_URLS,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.jpx_handoff import export_handoff, import_handoff
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)

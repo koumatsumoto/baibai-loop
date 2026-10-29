@@ -7,17 +7,18 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_weekly_margin,
 )
-from baibai_engine.market.margin_reader import (
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     published_margin_balance_dates,
     read_all_issues_daily_margin,
 )
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -67,7 +68,7 @@ def test_daily_margin_publication_and_values_survive_sqlite_and_lake(tmp_path, m
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name="jquants.all_issues_daily_margin",
+            dataset=LAKE_DATASETS["jquants.all_issues_daily_margin"],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
@@ -173,7 +174,7 @@ def test_missing_publication_retains_the_existing_lag_rule(tmp_path):
 
 
 def test_screening_applies_publication_cutoff_to_latest_and_prior_rows(tmp_path, monkeypatch):
-    from baibai_engine.machine_analysis.screening import margin_inputs
+    import baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs as margin_inputs
 
     database = tmp_path / "market.sqlite"
     prior, latest, asof = date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 6)

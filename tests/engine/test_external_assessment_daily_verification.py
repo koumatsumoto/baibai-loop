@@ -13,37 +13,48 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.master import TSE_33_SECTORS, insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.external_assessment.universe import (
-    frozen_lake_universe,
-    frozen_universe,
-)
-from baibai_engine.data_collection.external_assessment.verification import (
-    history_digests,
-    verify_observations,
-)
-from baibai_engine.machine_analysis.external_assessment.observations.contract import (
+from baibai_engine.machine_analysis.observations.external_assessments.contract import (
     ANALYST_FORECAST_TABLE,
     ANALYST_RATING_TABLE,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_TABLE,
 )
-from baibai_engine.machine_analysis.external_assessment.observations.models import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystRatingObservation,
     ModelValuationObservation,
 )
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.store import save_observations
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.keys import current_release_pointer_key
-from baibai_engine.storage.lake.models import canonical_lake_model_bytes
-from baibai_engine.storage.lake.objects import LakeObjectCache, LakeObjectError, LocalMirrorSource
-from baibai_engine.storage.lake.reader import LakeReadError, resolve_current_release
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
+from baibai_engine.storage.snapshots.objects import (
+    LakeObjectCache,
+    LakeObjectError,
+    LocalMirrorSource,
+)
+from baibai_engine.storage.snapshots.reader import LakeReadError, resolve_current_release
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.acquisition.external_assessments.universe import (
+    frozen_lake_universe,
+    frozen_universe,
+)
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.external_assessment_verification import (
+    history_digests,
+    verify_observations,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 11)
 RECEIVED = datetime(2026, 10, 11, 0, 0, 1, 123456, tzinfo=UTC)
@@ -139,7 +150,7 @@ def build_master_lake(
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot_source:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot_source,
@@ -153,6 +164,8 @@ def build_master_lake(
         mirror_root=mirror,
         release_id="synthetic-master-only",
         created_at=RECEIVED,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer = LakeReleasePointer(
         release_id=release.release_id,
@@ -162,7 +175,11 @@ def build_master_lake(
     pointer_path = mirror / current_release_pointer_key()
     pointer_path.parent.mkdir(parents=True, exist_ok=True)
     pointer_path.write_bytes(canonical_lake_model_bytes(pointer))
-    fixed = resolve_current_release(LocalMirrorSource(mirror))
+    fixed = resolve_current_release(
+        LocalMirrorSource(mirror),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
+    )
     store = MemoryR2Store()
     for item in mirror.rglob("*"):
         if item.is_file():

@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from baibai_engine.foundation.filesystem import write_text_atomic
-from baibai_engine.foundation.repository_layout import (
+from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.storage.paths import (
     APPLICATION_DB_PATH,
     MARKET_DB_PATH,
     reject_noncanonical_store_paths,

@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_jobs.jobs.schedule import resolve_tradingview_target
+from baibai_jobs.schedule import resolve_tradingview_target
 
 
 def test_scheduled_slot_uses_actual_jst_day():

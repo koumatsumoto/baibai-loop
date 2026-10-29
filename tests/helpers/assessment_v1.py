@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
-from baibai_engine.investment_judgment.stock_assessment import (
+from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     assessment_core_hash,
 )

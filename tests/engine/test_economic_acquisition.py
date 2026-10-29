@@ -3,12 +3,15 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from baibai_engine.data_collection.economic import acquisition as acquisition
-from baibai_engine.data_collection.economic import store as store
-from baibai_engine.data_collection.economic.documents import SourceDocument, read_documents
-from baibai_engine.data_collection.economic.providers.base import ProviderFetchStoppedError
-from baibai_engine.data_collection.economic.records import read_snapshots
-from baibai_engine.data_collection.economic.sources import load_sources
+import baibai_engine.data_collection.acquisition.refresh as acquisition
+from baibai_engine.data_collection.catalog import load_sources
+from baibai_engine.data_collection.receipts.native_sources import store as store
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    read_documents,
+)
+from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
 
 DAY = date(2026, 7, 20)
 
@@ -152,9 +155,9 @@ def test_source_store_rejects_unexpected_trigger_without_running_it(tmp_path):
 
 
 def test_old_pdf_failure_keeps_original_and_does_not_block_new_month(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.economic.documents import store_document
-    from baibai_engine.data_collection.economic.providers import spglobal_pmi as pmi
-    from baibai_engine.data_collection.economic.providers.base import IndicatorsProviderError
+    import baibai_engine.data_collection.providers.spglobal.pmi as pmi
+    from baibai_engine.data_collection.receipts.native_sources.documents import store_document
+    from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 
     source_id = "spglobal-jp-pmi-mfg"
     old, new = date(2026, 7, 1), date(2026, 9, 1)
@@ -207,8 +210,8 @@ def test_old_pdf_failure_keeps_original_and_does_not_block_new_month(tmp_path, m
 
 
 def test_pmi_rate_limit_stops_new_requests_to_sibling_series(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.economic.providers import spglobal_pmi as pmi
-    from baibai_engine.data_collection.economic.providers.base import ProviderRateLimitError
+    import baibai_engine.data_collection.providers.spglobal.pmi as pmi
+    from baibai_engine.data_collection.transport.context import ProviderRateLimitError
 
     sources = [s for s in load_sources().values() if s.provider == "spglobal_pmi"]
     month = date(2026, 9, 1)
@@ -236,8 +239,8 @@ def test_pmi_rate_limit_stops_new_requests_to_sibling_series(tmp_path, monkeypat
 def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(
     tmp_path, monkeypatch
 ):
-    from baibai_engine.data_collection.economic.providers import spglobal_pmi as pmi
-    from baibai_engine.data_collection.economic.providers.base import SourceWithheldError
+    import baibai_engine.data_collection.providers.spglobal.pmi as pmi
+    from baibai_engine.data_collection.transport.context import SourceWithheldError
 
     sources = [s for s in load_sources().values() if s.provider == "spglobal_pmi"]
     month = date(2026, 9, 1)
@@ -263,7 +266,7 @@ def test_pmi_refusal_stops_this_route_without_changing_other_provider_fallbacks(
 
 
 def test_pmi_missing_middle_manifest_month_is_not_complete_coverage(tmp_path, monkeypatch):
-    from baibai_engine.data_collection.economic.providers import spglobal_pmi as pmi
+    import baibai_engine.data_collection.providers.spglobal.pmi as pmi
 
     source_id = "spglobal-jp-pmi-mfg"
     months = (date(2026, 7, 1), date(2026, 9, 1))

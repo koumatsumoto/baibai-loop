@@ -12,11 +12,15 @@ from tests.engine.test_external_assessment_sources import (
     rakuten_no_estimates_html,
 )
 
-from baibai_engine import job_api
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
-from baibai_engine.machine_analysis.external_assessment.normalization import monex, rakuten
-from baibai_engine.machine_analysis.external_assessment.normalization.decode import decode_attempt
+import baibai_engine.data_collection.transport.public_pages as source_http
+import baibai_jobs.acquisition.external_assessments.collection as collection
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    monex,
+    rakuten,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt,
+)
 
 
 class Clock:
@@ -239,15 +243,12 @@ def test_pair_invalid_limits_or_identity_never_request(clock, kwargs):
 
 
 @pytest.mark.parametrize("parser", [monex, rakuten])
-def test_facade_and_policy_binding_are_deterministic_and_parser_sensitive(monkeypatch, parser):
-    assert job_api.external_assessment_collect_pair is collection.collect_pair
-    assert job_api.ExternalAssessmentCollectionResult is collection.CollectionResult
-    assert job_api.external_assessment_parse_failure_reasons is collection.PARSE_FAILURE_REASONS
-    binding = job_api.external_assessment_collector_binding()
+def test_policy_binding_is_deterministic_and_parser_sensitive(monkeypatch, parser):
+    binding = collection.collector_binding()
     assert len(binding) == 64
-    assert binding == job_api.external_assessment_collector_binding()
+    assert binding == collection.collector_binding()
     monkeypatch.setattr(parser, "PARSER_VERSION", "synthetic-next-parser")
-    assert binding != job_api.external_assessment_collector_binding()
+    assert binding != collection.collector_binding()
 
 
 def test_two_http_receipt_times_and_content_accounting_without_durable_callbacks(clock):

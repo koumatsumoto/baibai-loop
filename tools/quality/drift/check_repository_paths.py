@@ -8,31 +8,23 @@ from pathlib import Path
 
 _RUNTIME_ROOTS = ("engine/src", "jobs/src")
 _CONTEXT_PATH = (
-    "engine/src/baibai_engine/machine_analysis/company_valuation/"
-    "calibration/published/er-level-calibration-latest.yaml"
+    "engine/src/baibai_engine/machine_analysis/historical_evaluation/"
+    "context/published/er-level-calibration-latest.yaml"
 )
 _OWNERS = {
-    "stores/application/baibai.sqlite": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
-    "stores/market/market.sqlite": Path("engine/src/baibai_engine/foundation/repository_layout.py"),
-    "stores/market_context/indicators.sqlite": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
-    "stores/screening/runs.sqlite": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
-    "stores/screening/calibration": Path(
-        "engine/src/baibai_engine/foundation/repository_layout.py"
-    ),
-    _CONTEXT_PATH: Path("engine/src/baibai_engine/foundation/repository_layout.py"),
+    "stores/application/baibai.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
+    "stores/market/market.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
+    "stores/market_context/indicators.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
+    "stores/screening/runs.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
+    "stores/screening/calibration": Path("engine/src/baibai_engine/storage/paths.py"),
+    _CONTEXT_PATH: Path("engine/src/baibai_engine/storage/paths.py"),
 }
 
 _RULE_DIRECTORIES = (
-    "engine/src/baibai_engine/machine_analysis/screening/rules/",
-    "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/",
+    "engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/rules/",
+    "engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/",
 )
-_RULE_OWNER = Path("engine/src/baibai_engine/foundation/repository_layout.py")
+_RULE_OWNER = Path("engine/src/baibai_engine/storage/paths.py")
 
 
 def check(root: Path) -> list[str]:

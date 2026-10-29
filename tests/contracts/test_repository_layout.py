@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.cli import main as engine_main
-from baibai_engine.foundation.repository_layout import (
+from baibai_engine.cli.app import main as engine_main
+from baibai_engine.storage.paths import (
     StoreLayoutError,
     reject_noncanonical_store_paths,
     repository_root_error,

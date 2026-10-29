@@ -5,25 +5,27 @@ from importlib.resources import files
 
 import pytest
 
-from baibai_engine.data_collection.economic.sources import SourceDefinition, load_sources
+from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
 
 
 def test_relocated_economic_resources_resolve_from_their_owner_packages():
-    from baibai_engine.data_collection.economic.providers.spglobal_pmi import MANIFEST_PATH
-    from baibai_engine.data_collection.economic.sources import SOURCE_CATALOG
-    from baibai_engine.data_collection.economic.store import SCHEMA_PATH
+    from baibai_engine.data_collection.catalog import SOURCE_CATALOG
+    from baibai_engine.data_collection.providers.spglobal.pmi import MANIFEST_PATH
+    from baibai_engine.data_collection.receipts.native_sources.store import SCHEMA_PATH
 
     assert (
         SOURCE_CATALOG.read_bytes()
-        == files("baibai_engine.data_collection.economic").joinpath("sources.yaml").read_bytes()
+        == files("baibai_engine.data_collection").joinpath("catalog.yaml").read_bytes()
     )
     assert (
         SCHEMA_PATH.read_bytes()
-        == files("baibai_engine.data_collection.economic").joinpath("store.sql").read_bytes()
+        == files("baibai_engine.data_collection.receipts.native_sources")
+        .joinpath("store.sql")
+        .read_bytes()
     )
     assert (
         MANIFEST_PATH.read_bytes()
-        == files("baibai_engine.data_collection.economic.providers")
+        == files("baibai_engine.data_collection.providers.spglobal")
         .joinpath("pmi_release_urls.yaml")
         .read_bytes()
     )
@@ -33,8 +35,8 @@ def test_collection_list_and_help_do_not_load_env_or_create_a_store(tmp_path, mo
     import json
     import sqlite3
 
-    from baibai_engine import data_collection_cli as cli
-    from baibai_engine.data_collection.economic import cli as economic_cli
+    import baibai_jobs.acquisition.economic_cli as economic_cli
+    from baibai_jobs import cli
 
     def unexpected(*args, **kwargs):
         raise AssertionError("read-only Collection command opened a store or loaded env")
@@ -43,11 +45,11 @@ def test_collection_list_and_help_do_not_load_env_or_create_a_store(tmp_path, mo
     monkeypatch.setattr(economic_cli, "load_project_env", unexpected)
     monkeypatch.chdir(tmp_path)
     before = set(tmp_path.rglob("*"))
-    assert cli.main(["economic", "list", "--format", "json"]) == 0
+    assert cli.main(["acquire-economic", "list", "--format", "json"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert "fed-h15" in {item["source_id"] for item in listed}
     with pytest.raises(SystemExit) as help_exit:
-        cli.main(["economic", "--help"])
+        cli.main(["acquire-economic", "--help"])
     assert help_exit.value.code == 0
     assert "refresh" in capsys.readouterr().out
     assert set(tmp_path.rglob("*")) == before
@@ -80,12 +82,12 @@ def test_derived_source_is_rejected(tmp_path):
 def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
     from datetime import date
 
-    from baibai_engine.data_collection.economic.providers.mof_jgb import parse_mof_jgb_csv
-    from baibai_engine.data_collection.economic.sources import require_source
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    from baibai_engine.data_collection.catalog import require_source
+    from baibai_engine.data_collection.providers.mof.jgb import parse_mof_jgb_csv
+    from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
-    from baibai_engine.machine_analysis.market_context.reading.native import _one_value
+    from baibai_engine.machine_analysis.observations.economic_indicators.native import _one_value
 
     day = date(2026, 5, 1)
     source = require_source("mof-jgbcm-all")
@@ -103,12 +105,14 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
 def test_umich_acquisition_preserves_other_columns_before_l2_selection():
     from datetime import date
 
-    from baibai_engine.data_collection.economic.providers.umich_sca import parse_umich_table
-    from baibai_engine.data_collection.economic.sources import load_sources
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    from baibai_engine.data_collection.catalog import load_sources
+    from baibai_engine.data_collection.providers.university_of_michigan.sentiment import (
+        parse_umich_table,
+    )
+    from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
-    from baibai_engine.machine_analysis.market_context.reading.native import _one_value
+    from baibai_engine.machine_analysis.observations.economic_indicators.native import _one_value
 
     day = date(2026, 5, 1)
     source = next(item for item in load_sources().values() if item.provider == "umich_sca")
@@ -125,11 +129,11 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
     from contextlib import closing
     from datetime import date
 
-    from baibai_engine.data_collection.economic import acquisition as economic_acquisition
-    from baibai_engine.data_collection.economic import store as economic_store
-    from baibai_engine.data_collection.economic.records import read_snapshots
-    from baibai_engine.machine_analysis.market_context import indicator_service
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    import baibai_engine.data_collection.acquisition.refresh as economic_acquisition
+    import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
+    from baibai_engine.data_collection.receipts.native_sources import store as economic_store
+    from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+    from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
 
@@ -167,7 +171,7 @@ def test_projection_failure_does_not_relabel_or_refetch_successful_acquisition(
 def test_l2_resolves_shared_source_metadata_from_one_catalog(monkeypatch):
     from dataclasses import replace
 
-    from baibai_engine.machine_analysis.market_context.indicators import definitions
+    from baibai_engine.machine_analysis.observations.economic_indicators import definitions
 
     sources = load_sources()
     sources["fed-h15"] = replace(sources["fed-h15"], source_url="https://example.com/new-h15.csv")
@@ -182,7 +186,7 @@ def test_l2_resolves_shared_source_metadata_from_one_catalog(monkeypatch):
 
 
 def test_l2_registry_rejects_inline_external_source_configuration(tmp_path):
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
 
@@ -193,7 +197,7 @@ def test_l2_registry_rejects_inline_external_source_configuration(tmp_path):
 
 
 def test_l2_registry_rejects_an_unknown_source_binding(tmp_path):
-    from baibai_engine.machine_analysis.market_context.indicators.definitions import (
+    from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
         load_definitions,
     )
 

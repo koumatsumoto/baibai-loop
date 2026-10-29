@@ -2,12 +2,19 @@ import json
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.edinet.receipts import retain_list_response
-from baibai_engine.market.edinet_handoff import archive_keys, export_handoff, import_handoff
-from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
-from baibai_engine.market.edinet_metrics.store import read_edinet_documents
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.data_collection.providers.edinet.archives import (
+    archive_keys,
+    retain_source_archive,
+)
+from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    rebuild_edinet_document_day,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_documents,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.edinet_handoff import export_handoff, import_handoff
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
@@ -52,7 +59,9 @@ def test_edinet_archive_first_retained_bytes_are_preserved_and_conflict_reported
     with closing(open_connection(target)) as conn:
         retain_source_archive(conn, "S100SAME", 5, b"canonical", stored_on=DAY)
         retain_source_archive(conn, "S100OTHER", 5, b"unrelated", stored_on=DAY)
-    export_handoff(source, stage, since=STAMP, archives=archive_keys(source))
+    with closing(open_connection(source)) as connection:
+        keys = archive_keys(connection)
+    export_handoff(source, stage, since=STAMP, archives=keys)
     result = import_handoff(stage, target)
     assert result["archive_conflicts"] == [["S100SAME", 5]]
     with closing(open_connection(target)) as conn:

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Protocol
 
-from baibai_engine.position.ledger import PortfolioSnapshot
+from baibai_engine.portfolio.ledger.events import PortfolioSnapshot
 from baibai_engine.tasks.models import Task
 
 

@@ -8,9 +8,13 @@ from io import BytesIO, StringIO
 
 import pytest
 
-from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
-from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
+    parse_csv_zip_metric_record,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    EDINET_METRIC_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -97,11 +101,11 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
         FakeEDINETMetricReader,
         _edinet_document,
     )
-    from tests.engine.test_source_maintenance_cli import (
-        _edinet_csv_zip as csv_zip,
-    )
+    from tests.engine.test_source_maintenance_cli import _edinet_csv_zip as csv_zip
 
-    from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
+        extract_edinet_metrics_command,
+    )
 
     db = tmp_path / "market.sqlite"
     document = _edinet_document(ticker="72030", doc_id="S100BASELINE")

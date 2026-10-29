@@ -10,10 +10,10 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from baibai_engine.data_collection.jpx import http as jpx_http
-from baibai_engine.data_collection.jpx import receipts as jpx_receipts
-from baibai_engine.data_collection.jpx.models import JPXAcquisitionError, JPXResponse
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx import http as jpx_http
+from baibai_engine.data_collection.providers.jpx import receipts as jpx_receipts
+from baibai_engine.data_collection.providers.jpx.models import JPXAcquisitionError, JPXResponse
+from baibai_engine.data_collection.providers.jpx.receipts import (
     JPXBundleError,
     complete_bundle,
     create_bundle,
@@ -22,7 +22,7 @@ from baibai_engine.data_collection.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 INDEX = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
 FILE = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
@@ -293,8 +293,8 @@ def test_offline_jpx_models_and_receipts_do_not_import_requests() -> None:
 
     script = (
         "import sys; "
-        "import baibai_engine.data_collection.jpx.models; "
-        "import baibai_engine.data_collection.jpx.receipts; "
+        "import baibai_engine.data_collection.providers.jpx.models; "
+        "import baibai_engine.data_collection.providers.jpx.receipts; "
         "assert 'requests' not in sys.modules"
     )
     subprocess.run([sys.executable, "-c", script], check=True)

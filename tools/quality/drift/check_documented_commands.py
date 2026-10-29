@@ -154,16 +154,11 @@ def _tool_parser(
 def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, list[str]]:
     rest = list(tokens[2:])  # drop `uv run`
     if rest[:1] == ["baibai-engine"]:
-        from baibai_engine.cli import DOMAINS
+        from baibai_engine.cli.app import DOMAINS
 
         if len(rest) < 2 or rest[1] not in DOMAINS:
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
         module = DOMAINS[rest[1]].module
-        if rest[1] == "lake":
-            from baibai_engine.storage.lake.write_cli import WRITE_COMMANDS
-
-            if len(rest) > 2 and rest[2] in WRITE_COMMANDS:
-                module = "baibai_engine.storage.lake.write_cli"
         return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
     if rest[:1] == ["baibai-web"]:
         return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])
@@ -172,7 +167,7 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
 
         if len(rest) < 2 or rest[1] not in _COMMANDS:
             raise _Unresolvable(f"baibai-jobs: unknown command {' '.join(rest[1:2])}")
-        return _tool_parser(_COMMANDS[rest[1]].__module__, f"baibai-jobs {rest[1]}", rest[2:])
+        return _tool_parser(_COMMANDS[rest[1]], f"baibai-jobs {rest[1]}", rest[2:])
     if rest[:1] != ["python"] or len(rest) < 2:
         raise _Unresolvable(f"unrecognised entry point: {' '.join(rest[:3])}")
     module_prefixes = ("baibai_jobs.", "baibai_engine.", "baibai_web.", "tools.")

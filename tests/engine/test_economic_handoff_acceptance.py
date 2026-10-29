@@ -3,10 +3,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.data_collection.economic.documents import SourceDocument, store_document
-from baibai_engine.data_collection.economic.handoff import EconomicReceiptConflict, accept_rechecks
-from baibai_engine.data_collection.economic.records import store_snapshot
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    store_document,
+)
+from baibai_engine.data_collection.receipts.native_sources.handoff import (
+    EconomicReceiptConflict,
+    accept_rechecks,
+)
+from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 
 
 @pytest.mark.parametrize("kind", ["record", "document", "run"])

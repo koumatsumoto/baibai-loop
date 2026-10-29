@@ -5,12 +5,19 @@ import pytest
 import requests
 from tests.engine.test_jquants_projection import DAY, FIRST_AT, Session, body, receive
 
-from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.data_collection.jquants.receipts import acquire_request
-from baibai_engine.market.jquants_handoff import MARKET_SOURCES, export_handoff, import_handoff
-from baibai_engine.market.jquants_projection import project_request
-from baibai_engine.storage.observations.coverage import range_covered
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.data_collection.providers.jquants.acquisition import (
+    acquire_request,
+)
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsHTTP,
+)
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff, import_handoff
 
 
 def calendar(path, first, last, division, received):
@@ -148,7 +155,7 @@ def test_latest_rolling_calendar_does_not_reproject_older_history(tmp_path, monk
         calls.append(request_id)
         return project_request(path, request_id, **kwargs)
 
-    monkeypatch.setattr("baibai_engine.market.jquants_handoff.project_request", project)
+    monkeypatch.setattr("baibai_jobs.integration.jquants_handoff.project_request", project)
     result = import_handoff(stage, target, selected, sources=MARKET_SOURCES)
     assert result["replayed_requests"] == calls == [latest]
     with closing(open_connection(target)) as conn:
@@ -186,7 +193,7 @@ def test_failed_newer_replay_rolls_back_the_whole_projection_but_keeps_originals
             raise ValueError("later canonical receipt fails current parser")
         return project_request(path, request_id, **kwargs)
 
-    monkeypatch.setattr("baibai_engine.market.jquants_handoff.project_request", project)
+    monkeypatch.setattr("baibai_jobs.integration.jquants_handoff.project_request", project)
     with pytest.raises(ValueError, match="later canonical"):
         import_handoff(stage, target, selected, sources=MARKET_SOURCES)
     assert calls == [old, newer]

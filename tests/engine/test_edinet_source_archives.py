@@ -15,20 +15,27 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.data_collection.edinet import http as edinet_http
-from baibai_engine.data_collection.edinet.archives import read_source_archive, retain_source_archive
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
-from baibai_engine.storage.lake.datasets import EDINET_SOURCE_ARCHIVES
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import iter_partition_rows, resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.read import connect_read_only
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.data_collection.providers.edinet import http as edinet_http
+from baibai_engine.data_collection.providers.edinet.archives import (
+    read_source_archive,
+    retain_source_archive,
+)
+from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
+    EDINET_SOURCE_ARCHIVES,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import iter_partition_rows, resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 
 def _zip(content: bytes) -> bytes:
@@ -160,7 +167,7 @@ def test_retention_rolls_back_insert_when_readback_fails(tmp_path):
     with closing(open_connection(path)) as connection:
         with (
             patch(
-                "baibai_engine.data_collection.edinet.archives.read_source_archive",
+                "baibai_engine.data_collection.providers.edinet.archives.read_source_archive",
                 side_effect=RuntimeError("readback failed"),
             ),
             pytest.raises(RuntimeError, match="readback failed"),
@@ -205,7 +212,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         sqlite_path=db, mirror_root=mirror, snapshot_id="sources"
     ) as snapshot:
         built = export_dataset_snapshot(
-            dataset_name=name,
+            dataset=LAKE_DATASETS[name],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
@@ -223,6 +230,8 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         mirror_root=mirror,
         release_id="source-archives",
         created_at=stamp,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(
@@ -250,6 +259,7 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
             cache=LakeObjectCache(root=mirror, source=source),
             store=target,
             dataset_names=(name,),
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {name: 2}
     for source_type, content in originals.items():
@@ -305,7 +315,7 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
         sqlite_path=db, mirror_root=mirror, snapshot_id="listings-source"
     ) as snapshot:
         built = export_dataset_snapshot(
-            dataset_name=name,
+            dataset=LAKE_DATASETS[name],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,
@@ -317,6 +327,8 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
         mirror_root=mirror,
         release_id="listings",
         created_at=stamp,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     fixed = resolve_release(
@@ -333,6 +345,7 @@ def test_native_listing_response_survives_lake_roundtrip(tmp_path, monkeypatch):
             cache=LakeObjectCache(root=mirror, source=source),
             store=target,
             dataset_names=(name,),
+            catalog=LAKE_DATASETS,
         )
     with closing(sqlite3.connect(target)) as connection:
         assert connection.execute(

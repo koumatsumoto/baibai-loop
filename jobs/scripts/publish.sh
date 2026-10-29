@@ -17,7 +17,7 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${repo_root}"
-uv run baibai-engine position ledger \
+uv run baibai-engine portfolio ledger \
   --db "${repo_root}/stores/application/baibai.sqlite" >/dev/null
 "${repo_root}/jobs/scripts/r2_transfer.sh" push-app
 gh workflow run cloud-materialize.yml --ref main

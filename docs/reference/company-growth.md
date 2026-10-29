@@ -1,6 +1,6 @@
 # 企業成長
 
-企業価値と兄弟のL2として、過去実績の状態と変化から調査の問いを作る。将来成長の認定・総合点・候補の足切りはしない。算式・field・期間条件は[所有実装](../../engine/src/baibai_engine/machine_analysis/company_growth/)が正本である。
+企業財務と並ぶL2モデルとして、過去実績の状態と変化から調査の問いを作る。将来成長の認定・総合点・候補の足切りはしない。算式・field・期間条件は[所有実装](../../engine/src/baibai_engine/machine_analysis/models/company_growth/)が正本である。
 
 ## 入力と時間
 

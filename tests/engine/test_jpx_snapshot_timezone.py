@@ -3,14 +3,16 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.screening.sqlite_coverage.jpx import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jpx import (
     _append_jpx_earnings_calendar_issues,
     _append_jpx_freshness_issues,
 )
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_reader import read_jpx_earnings_calendar_snapshot
-from baibai_engine.storage.observations.coverage import record_source_coverage
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_jpx_earnings_calendar_snapshot,
+)
+from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 @pytest.mark.parametrize("allow_stale", [False, True])

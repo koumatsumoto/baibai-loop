@@ -20,17 +20,17 @@ from tests.jobs.test_external_assessment_daily import (
     wire_success,
 )
 
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
-from baibai_engine.storage.lake.keys import current_release_pointer_key
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs import external_assessment_sources as sources
-from baibai_jobs.jobs.external_assessment_cohorts import new_result
-from baibai_jobs.jobs.schedule import (
+import baibai_engine.data_collection.transport.public_pages as source_http
+import baibai_jobs.acquisition.external_assessments.collection as collection
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.sources as sources
+import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_engine.storage.snapshots.keys import current_release_pointer_key
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result
+from baibai_jobs.schedule import (
     EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME,
     external_assessment_target_date,
 )
-from baibai_jobs.storage import external_assessment_staging as staging
 
 CREATED = datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
 FRIDAY = date(2026, 10, 9)
@@ -267,7 +267,7 @@ def test_workflow_pins_original_clock_and_passes_inputs_through_env(tmp_path, ev
     }
     subprocess.run(["bash", "-euo", "pipefail", "-c", steps["plan"]["run"]], env=env, check=True)
     args = arguments.read_text().splitlines()
-    assert "external_assessment_sources" in " ".join(args)
+    assert "acquisition.external_assessments.sources" in " ".join(args)
     assert "monex" in args
     if event == "schedule":
         assert "--run-created-at" in args

@@ -7,23 +7,29 @@ from pathlib import Path
 
 import pytest
 
-from baibai_engine.machine_analysis.screening.calibration.forward import latest_market_data_date
-from baibai_engine.machine_analysis.screening.sqlite_coverage.core import _connect_readonly
-from baibai_engine.market import jquants_reader
-from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.historical_evaluation.forward import latest_market_data_date
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.core import (
+    _connect_readonly,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
 )
-from baibai_engine.market.jpx_reader import read_next_earnings_dates
-from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
-from baibai_engine.position.market_source import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_next_earnings_dates,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
+    store_jpx_earnings_calendar_snapshot,
+)
+from baibai_engine.machine_analysis.observations.prices import calendar_reader
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.portfolio.holdings.market_observations import (
     market_basis_is_confirmed,
     next_order_session,
     read_unadjusted_close,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _seed_bars(path: Path, rows: list[tuple[str, str, float | None]]) -> None:
@@ -252,13 +258,13 @@ def test_calendar_query_failure_is_not_reported_as_missing_data(tmp_path, monkey
     database = tmp_path / "market.sqlite"
     _seed_calendar(database, [("2026-07-28", 1)])
     connection = sqlite3.connect(database)
-    monkeypatch.setattr(jquants_reader, "connect_current", lambda _: connection)
+    monkeypatch.setattr(calendar_reader, "connect_current", lambda _: connection)
 
     def failed_coverage_query(conn, *_args):
         return conn.execute("SELECT * FROM missing_coverage_table").fetchone()
 
-    monkeypatch.setattr(jquants_reader, "range_covered", failed_coverage_query)
+    monkeypatch.setattr(calendar_reader, "range_covered", failed_coverage_query)
     with pytest.raises(sqlite3.OperationalError, match="missing_coverage_table"):
-        jquants_reader.read_market_calendar(database, date(2026, 7, 28), date(2026, 7, 28))
+        calendar_reader.read_market_calendar(database, date(2026, 7, 28), date(2026, 7, 28))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")

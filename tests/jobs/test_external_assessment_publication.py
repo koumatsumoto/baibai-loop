@@ -15,16 +15,19 @@ import yaml
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tools.quality.drift.check_workflow_trust import check_workflow
 
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystRatingObservation,
-    LakeObjectCache,
-    LocalMirrorSource,
-    external_assessment_history_digests,
-    external_assessment_verify_release_history,
-    lake_session,
+import baibai_jobs.integration.external_assessments as external_assessment
+import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
 )
-from baibai_jobs.jobs import external_assessment_integration as external_assessment
-from baibai_jobs.storage import publish_market_lake as publisher
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_jobs.publication.external_assessment_verification import (
+    history_digests as external_assessment_history_digests,
+)
+from baibai_jobs.publication.external_assessment_verification import (
+    verify_release_history as external_assessment_verify_release_history,
+)
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/cloud-external-assessment.yml"
 
@@ -144,7 +147,7 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     handoff = child["jobs"]["handoff"]
     assert "always()" in handoff["if"]
     runs = [step.get("run", "") for step in handoff["steps"]]
-    assert any("external_assessment_sources ready" in text for text in runs)
+    assert any("acquisition.external_assessments.sources ready" in text for text in runs)
     assert any("--confirmed-partial" in text for text in runs)
     assert not any("hydrate-market" in text or "publication_lease" in text for text in runs)
     common = yaml.load(

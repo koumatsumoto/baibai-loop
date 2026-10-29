@@ -5,8 +5,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from baibai_jobs.storage import tradingview_cooldown as cooldown
-from baibai_jobs.storage.lake_publish import LakeCASConflict, LakePublishError, RemoteObject
+import baibai_jobs.acquisition.tradingview.cooldown as cooldown
+from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
 
 NOW = datetime(2026, 10, 13, 7, tzinfo=UTC)
 

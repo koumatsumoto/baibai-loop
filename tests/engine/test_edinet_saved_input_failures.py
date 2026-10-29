@@ -11,20 +11,30 @@ from tests.engine.test_edinet_saved_integration import _next_listing
 from tests.engine.test_source_maintenance_cli import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 
-from baibai_engine.data_collection.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.edinet.receipts import retain_list_response
-from baibai_engine.market.edinet_integration import extract_saved_edinet
-from baibai_engine.market.edinet_list_rebuild import rebuild_edinet_document_day
-from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
-from baibai_engine.market.edinet_metrics.revision import DEFERRED_CSV_REASON
-from baibai_engine.market.edinet_metrics.service import prepare_edinet_metric_plan
-from baibai_engine.market.edinet_metrics.store import (
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    rebuild_edinet_document_day,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
+    extract_saved_edinet,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
+    parse_csv_zip_metric_record,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    DEFERRED_CSV_REASON,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
+    prepare_edinet_metric_plan,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     EDINETMetricBaselineError,
     read_edinet_metric_baseline,
     read_edinet_metrics,
 )
-from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def _mixed_inputs(path, content):
@@ -79,7 +89,7 @@ def test_partial_inputs_update_ready_issuer_and_retry_missing_archive_after_arri
     with closing(open_connection(path)) as conn:
         retain_source_archive(conn, "S100NEXT", 5, _edinet_csv_zip(), stored_on=TARGET)
     with patch(
-        "baibai_engine.market.edinet_metrics.service.parse_csv_zip_metric_record",
+        "baibai_engine.machine_analysis.observations.financials.edinet_metrics.service.parse_csv_zip_metric_record",
         wraps=parse_csv_zip_metric_record,
     ) as parse:
         recovered = extract_saved_edinet(path, asof=TARGET + timedelta(days=1), lookback_days=3)
