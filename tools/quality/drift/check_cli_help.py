@@ -32,6 +32,9 @@ DELEGATED_GROUPS: Mapping[str, str] = {
         "baibai_engine.cli.stock_assessment"
     ),
     "baibai-engine investment-judgment company-research": "baibai_engine.cli.company_research",
+    "baibai-engine investment-judgment judgment-retrospective": (
+        "baibai_engine.cli.judgment_retrospective"
+    ),
     "baibai-engine investment-judgment calculate": ("baibai_engine.cli.assessment_calculation"),
 }
 

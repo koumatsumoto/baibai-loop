@@ -79,6 +79,8 @@ flowchart TB
 
 Company Researchは一次資料から事業・財務・競争力・経営を調べる。Stock Assessmentは調査と機械観測を統合し、価値・価格・成立条件・リスクリワードを評価する。Independent Reviewは作者と独立して根拠・仮定・算術・反証を検証する。Trade Proposalは検証された評価を価格・cash・保有へ適用する。これらは無リスク認定や、全事実の完全証明を意味しない。
 
+`investment_judgment/judgment_retrospective/`は特定の旧判断と後日根拠の照合・学びをapplication DBへ保存し、企業知識の更新・現在評価・Portfolioの損益・機械手法の歴史較正とは分ける。
+
 解釈と判断はAI、算術・保存・状態管理はエンジンが担当する。Selectionは人間が明示した有限対象・問い・入力を固定する。不足や反証があれば調査・評価へ戻り、工程名だけを理由に必須DAGや承認を増やさない。市場全体の判断は個別企業から独立した入口を持つ。
 
 Operation完了、提案公開、人間の採用、注文、約定は別の状態である。確認済み取引の記帳を現在の候補政策へ従属させない。操作と完了・再開の手順は[投資判断](../.agents/skills/investment-judgment/SKILL.md)、[市場判断](../.agents/skills/market-context-assessment/SKILL.md)、[取引事実の記録](../.agents/skills/ledger-record/SKILL.md)が所有する。

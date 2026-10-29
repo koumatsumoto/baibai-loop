@@ -12,6 +12,7 @@ from baibai_engine.storage.sqlite.application.write import initialize_database
 EXPECTED_TABLES = (
     "task",
     "company_research",
+    "judgment_retrospective",
     "market_context_assessment",
     "market_context_assessment_head",
     "ledger_event",
@@ -105,6 +106,30 @@ def test_company_research_is_immutable_and_prior_is_an_existing_other_record(con
                 "INSERT INTO company_research VALUES (?,?,?,?,?,?,?)",
                 ("research-two", *values[1:], prior, "{}", "0" * 64),
             )
+
+
+def test_judgment_retrospective_has_only_record_headers_and_is_immutable(connection):
+    assert [row[1] for row in connection.execute("PRAGMA table_info(judgment_retrospective)")] == [
+        "retrospective_id",
+        "ticker",
+        "as_of",
+        "recorded_at",
+        "payload",
+        "payload_sha256",
+    ]
+    assert [
+        row[2]
+        for row in connection.execute(
+            "PRAGMA index_info(judgment_retrospective_ticker_recorded_idx)"
+        )
+    ] == ["ticker", "recorded_at", "retrospective_id"]
+    connection.execute(
+        "INSERT INTO judgment_retrospective VALUES (?,?,?,?,?,?)",
+        ("retrospective-one", "1234", "2026-10-29", "2026-10-29T08:00:00+00:00", "{}", "0" * 64),
+    )
+    for column, value in (("payload", '{"changed":true}'), ("ticker", "5678")):
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(f'UPDATE judgment_retrospective SET "{column}"=?', (value,))
 
 
 def test_exactly_one_review_and_reference_fk_protects_assessment(connection):
