@@ -582,3 +582,125 @@ def test_review_scaffold_rejects_an_incomplete_assessment_without_writing_review
     with pytest.raises(AssessmentError):
         scaffold_review(workspace=workspace, ticker="1234", db_path=db)
     assert not (workspace / "1234/assessment-review.yaml").exists()
+
+
+def save_research_seed(case, *, ticker="1234", recorded_at=NOW, questions_only=False):
+    from baibai_engine.investment_judgment.company_research.document import ResearchDraft
+    from baibai_engine.investment_judgment.company_research.store import ResearchStoreService
+
+    document = {
+        "ticker": ticker,
+        "as_of": NOW.date().isoformat(),
+        "investigated_scope": "受注と顧客依存を確認",
+        "unresolved_questions": ["更新契約の採算は維持されるか"],
+    }
+    if not questions_only:
+        document.update(
+            sources=[
+                {
+                    "source_id": "market_close",
+                    "ticker": ticker,
+                    "source_tier": "primary",
+                    "ref": "https://example.test/ir",
+                    "retrieved_at": NOW.isoformat(),
+                    "as_of": "2026-10-13",
+                    "used_for": "受注",
+                }
+            ],
+            facts=[
+                {
+                    "fact_id": "market_price_close",
+                    "fact_kind": "other",
+                    "value": 42,
+                    "unit": "contracts",
+                    "as_of": "2026-10-13",
+                    "source_ids": ["market_close"],
+                }
+            ],
+            business_understanding={"text": "継続契約が中心", "source_ids": ["market_close"]},
+            value_capture_hypothesis={"text": "採算改善の可能性", "source_ids": ["market_close"]},
+            hypotheses=[
+                {
+                    "statement": "顧客依存が小さい",
+                    "origin": "research",
+                    "result": "refuted",
+                    "reason": "大口顧客へ集中",
+                    "source_ids": ["market_close"],
+                }
+            ],
+        )
+    return ResearchStoreService(case[0], clock=lambda: recorded_at).save(
+        ResearchDraft.model_validate({"research_id": "seed-r1", "document": document})
+    )
+
+
+def test_research_seed_preserves_evidence_without_authoring_value_or_review(case):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+    from baibai_engine.investment_judgment.company_research.store import load_research
+    from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+    record = save_research_seed(case)
+    db, workspace, _ = case
+    market = workspace / "market.sqlite"
+    seed_daily_bars(market, [("1234", NOW.date().isoformat(), 100.0, 1.0)])
+    result = scaffold_assessment(
+        workspace=workspace,
+        ticker="1234",
+        sqlite_path=market,
+        as_of=NOW.date(),
+        retrieved_at=NOW,
+        db_path=db,
+        from_research_id="seed-r1",
+    )
+    text = Path(result["assessment_draft"]).read_text()
+    raw = yaml.safe_load(text)
+    assert record.reference.payload_sha256 in text
+    assert result["from_research_id"] == "seed-r1"
+    assert [s["source_id"] for s in raw["input_snapshot"]["sources"]] == [
+        "research_market_close",
+        "market_close",
+    ]
+    fact = raw["input_snapshot"]["facts"][0]
+    assert fact["fact_id"] == "research_market_price_close"
+    assert fact["source_ids"] == ["research_market_close"]
+    assert fact["as_of"] == "2026-10-13"
+    assert raw["valuation"]["market_price_fact_id"] == "market_price_close"
+    assert raw["valuation"]["status"] == "unresolved"
+    assert raw["valuation"]["base"] is None
+    assert raw["conclusion"]["stance"] == "uncertain"
+    assert raw["findings"]["value_gap_explanation"] is None
+    assert raw["findings"]["business_understanding"] == "継続契約が中心"
+    assert raw["findings"]["hypotheses"][0]["source_ids"] == ["research_market_close"]
+    assert raw["findings"]["unresolved_questions"] == ["更新契約の採算は維持されるか"]
+    assert not (workspace / "1234/assessment-review.yaml").exists()
+    with closing(connect_read_only(db)) as connection:
+        assert load_research(connection, "seed-r1") == record
+
+
+def test_question_only_research_seed_is_allowed(case):
+    save_research_seed(case, questions_only=True)
+    result = scaffold(case, from_research_id="seed-r1")
+    raw = yaml.safe_load(Path(result["assessment_draft"]).read_text())
+    assert raw["input_snapshot"]["sources"] == []
+    assert raw["findings"]["business_understanding"] is None
+    assert raw["findings"]["unresolved_questions"] == ["更新契約の採算は維持されるか"]
+
+
+@pytest.mark.parametrize("invalid", ["ticker", "future", "both", "unknown"])
+def test_research_seed_rejects_wrong_identity_or_time_before_writing(case, invalid):
+    from baibai_engine.investment_judgment.company_research.store import ResearchReadError
+
+    save_research_seed(
+        case,
+        ticker="5678" if invalid == "ticker" else "1234",
+        recorded_at=NOW + timedelta(seconds=1) if invalid == "future" else NOW,
+    )
+    with pytest.raises(
+        (ResearchWorkspaceDataError, ResearchWorkspaceConflictError, ResearchReadError)
+    ):
+        scaffold(
+            case,
+            from_research_id="missing" if invalid == "unknown" else "seed-r1",
+            from_assessment_id="unused" if invalid == "both" else None,
+        )
+    assert not (case[1] / "1234/assessment-draft.yaml").exists()

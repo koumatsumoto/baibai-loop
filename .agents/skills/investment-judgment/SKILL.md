@@ -79,6 +79,8 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 3. `investment-judgment stock-assessment-evaluate <DRAFT>`で確認する。`investment-judgment independent-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。[不確実性の受容](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)に従い、未知を一律保留にせず、受けるリスクと見返りの根拠を確認する。
 4. `investment-judgment stock-assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`investment-judgment stock-assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。
 
+初回draftへ保存Researchを転記する場合は`stock-assessment-scaffold --from-research-id <RESEARCH_ID>`を任意指定する。同社・判断時点以前の原資料/事実/事業理解/仮説検討/未解決問いだけを元日付でコピーし、Research ID/hashをdraftのコメントへ残す。source/fact IDは`research_`付きとなり現在quoteと衝突しない。価値獲得仮説を価値差や評価済み結論へ自動昇格せず、価値・結論・Reviewは作者が別途作る。転記元Researchの保存内容は変わらない。既存Assessmentのrefreshとは併用しない。
+
 別日の当日算術は`stock-assessment-scaffold --from-assessment-id <ID>`から[差分refresh](../../../docs/reference/stock-assessment.md#assessment-refresh)を作り、新しいReviewを取る。
 
 ### 途中成果の保存と再訪
