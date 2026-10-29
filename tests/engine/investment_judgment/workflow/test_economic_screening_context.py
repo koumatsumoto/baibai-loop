@@ -158,6 +158,10 @@ def seed_economic_generation(path, *, scoped=True):
             "difference": 30.0,
             "reason": "nonpositive_base",
             "measurement": "quarter",
+            "from_start": "2025-07-01",
+            "from_end": "2025-09-30",
+            "to_start": "2026-07-01",
+            "to_end": "2026-09-30",
         },
         "book_provenance": "individual_book_source_scope_and_measurement_date_not_exposed",
     }
@@ -176,7 +180,13 @@ def seed_economic_generation(path, *, scoped=True):
             },
         },
         "growth_comparison_basis": "source_reported_economic_scope_unverified",
-        "latest_growth_changes": {"operating_profit": evidence["operating_change"]},
+        "latest_growth_changes": {
+            "operating_profit": {
+                "latest_quarter": evidence["operating_change"],
+                "selected_variant": "quarter",
+                "selected_comparison": evidence["operating_change"],
+            }
+        },
         "price_momentum": {
             "value": None,
             "status": "unavailable",
@@ -275,6 +285,7 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
 
     runs = tmp_path / "runs"
     _, screening = seed_economic_generation(runs, scoped=scoped)
+    stored_before = runs.read_bytes()
     actual_read = query.read_model_inputs
     read_subjects = []
 
@@ -295,32 +306,46 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
     assert [card["rank"] for card in result["screening"]["cards"]] == [1, 2]
     if scoped:
         assert set(result["model_inputs"]["shared_subjects"]) == expected
-    assert (
-        result["screening"]["cards"]
-        == TypeAdapter(type(screening.result)).dump_python(screening.result, mode="json")["cards"]
-    )
+    full_cards = TypeAdapter(type(screening.result)).dump_python(screening.result, mode="json")[
+        "cards"
+    ]
+    for brief, full in zip(result["screening"]["cards"], full_cards, strict=True):
+        for key in ("ticker", "rank", "priority", "strongest_path", "not_generated"):
+            assert brief[key] == full[key]
+        assert result["screening"]["common_model_revisions"] == full["model_revisions"]
+        assert brief["paths"][0]["price_value"] == full["paths"][0]["price_value"]
     card = result["screening"]["cards"][0]
-    assert card["paths"][0]["evidence"]["operating_observation"]["observation"]["value"] == -40.0
+    assert card["paths"][0]["evidence"]["period_basis"][0]["statement_basis"] == "consolidated"
+    change = card["context"]["latest_growth_changes"]["latest_quarter"][0]["metrics"][
+        "operating_profit"
+    ]
+    assert change["from_value"] == -70.0
+    assert change["to_value"] == -40.0
     assert card["context"]["price_momentum"]["reason"] == "missing_endpoint"
     assert card["context"]["price_momentum"]["end_date"] == "2026-09-30"
     assert (
         card["context"]["financial"]["earnings_forecast_source"]["fiscal_year_end"] == "2027-03-31"
     )
-    comparisons = card["context"]["external_assessment"]["comparisons"]
-    assert [item["state"] for item in comparisons] == [
-        "first_observation",
-        "increased",
-        "recovered",
-        "count_changed",
-        "not_comparable",
-    ]
-    assert [item["delta"] for item in comparisons] == [None, 10.0, None, None, None]
+    external = card["context"]["external_assessment"]
+    assert external["state_counts"] == dict.fromkeys(
+        (
+            "first_observation",
+            "increased",
+            "recovered",
+            "count_changed",
+            "not_comparable",
+        ),
+        1,
+    )
+    assert [item["delta"] for item in external["comparable_changes"]] == [10.0]
     # 表示を編集しても保存政策の観測やidentityを変更しない。
-    card["paths"][0]["evidence"]["operating_observation"]["observation"]["value"] = 999
+    change["to_value"] = 999
     assert (
         screening.result.cards[0].paths[0].evidence["operating_observation"]["observation"]["value"]
         == -40.0
     )
+    assert runs.read_bytes() == stored_before
+    assert ScreeningSelectionStore(runs).read("economic-policy") == screening
 
 
 @pytest.mark.parametrize("specified", [False, True])

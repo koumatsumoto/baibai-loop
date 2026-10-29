@@ -14,6 +14,7 @@ from baibai_engine.investment_judgment.market_assessment.projection import asses
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.portfolio.ledger.events import replay_events_through
@@ -162,15 +163,8 @@ def load_generated_selection_context(
 
 
 def _project_screening(result: ScreeningResult) -> dict[str, Any]:
-    # 新政策のcontext/evidenceは既に有限の観測要約。ここで別のカードschemaへ
-    # 縮め直すと、期間・basis・出所・欠測や比較不能の理由を落としてしまう。
     adapter = TypeAdapter[ScreeningResult](ScreeningResult)
     projection = cast(dict[str, Any], adapter.dump_python(result, mode="json"))
     if isinstance(result, EconomicPathSelection):
-        projection["interpretation"] = (
-            "screening_priority_not_expected_return_or_buy_recommendation"
-        )
-        projection["detail_read"] = (
-            "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>"
-        )
+        return economic_screening_brief(projection)
     return projection

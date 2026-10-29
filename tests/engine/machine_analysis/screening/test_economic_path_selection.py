@@ -131,7 +131,7 @@ def test_reader_filters_universe_and_reads_only_fixed_generation_payloads(
         path=path,
     )
     assert actual == expected
-    assert set(ticker for ticker, _ in projected) == set(subjects)
+    assert {ticker for ticker, _ in projected} == set(subjects)
     if subjects:
         assert projected == [
             ("1234", ("context_fixture", "coordinate_fixture")),
