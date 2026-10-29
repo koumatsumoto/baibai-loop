@@ -236,7 +236,8 @@ def test_raw_document_batches_preserve_order_and_reject_late_corruption(backend,
             return
         rows = read_financial_documents(reader_connection, start=date.min, end=date.max)
 
-    assert len(batches) > 2 and batches[-1] == 0
+    assert len(batches) > 2
+    assert batches[-1] == 0
     sql_order = sorted(
         records, key=lambda record: (record["Code"], record["DiscDate"], record["DiscNo"])
     )

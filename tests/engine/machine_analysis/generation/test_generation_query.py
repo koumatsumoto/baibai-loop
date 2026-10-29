@@ -104,14 +104,20 @@ def test_subject_stream_closes_when_consumer_stops_before_the_next_company(tmp_p
     connection = connect_read_only(path)
     monkeypatch.setattr(query, "connect_read_only", lambda _path: connection)
 
-    with pytest.raises(ValueError, match="projection failed"):
+    streams = []
+
+    def consume_and_fail():
         with query.stream_generation_subjects(
             fixed.generation_id, subjects=("1234", "market"), path=path
         ) as saved:
             _, companies = saved
+            streams.append(companies)
             assert next(companies)[0] == "1234"
             raise ValueError("projection failed")
 
-    assert next(companies, None) is None
+    with pytest.raises(ValueError, match="projection failed"):
+        consume_and_fail()
+
+    assert next(streams[0], None) is None
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")
