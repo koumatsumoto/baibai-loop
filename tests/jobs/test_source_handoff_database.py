@@ -285,3 +285,13 @@ def test_resume_replays_integrated_intermediate_receipts_but_not_unintegrated_la
             ).fetchall() == [(receipt_id,) for receipt_id in sorted(receipt_ids)]
     assert (scoped_input / "result.json").read_bytes() == saved_input
     assert {key: value.body for key, value in store.values.items()} == originals
+
+
+@pytest.mark.parametrize("source", ["unknown", "jquants-typo", "edinet-typo", "article-unknown"])
+def test_unknown_source_never_reaches_an_existing_owner(source, tmp_path, mocker):
+    edinet = mocker.patch.object(source_handoff, "import_edinet_handoff")
+    jquants = mocker.patch.object(source_handoff, "import_jquants_handoff")
+    with pytest.raises(ValueError, match="unsupported"):
+        source_handoff._replay(source, tmp_path / "market.sqlite", tmp_path)
+    edinet.assert_not_called()
+    jquants.assert_not_called()

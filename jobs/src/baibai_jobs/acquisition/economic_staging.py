@@ -20,7 +20,7 @@ def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None =
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,119}", stage_id) is None:
         raise ValueError("invalid source handoff identity")
     namespace = namespace or ("market-sources" if market else "economic-sources")
-    if namespace not in {"market-sources", "economic-sources", "source-inputs"}:
+    if namespace not in {"market-sources", "economic-sources", "source-inputs", "article-sources"}:
         raise ValueError("invalid source handoff namespace")
     return f"coordination/{namespace}/{stage_id}"
 

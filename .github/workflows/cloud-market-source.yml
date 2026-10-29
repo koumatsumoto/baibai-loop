@@ -25,12 +25,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     concurrency:
-      group: source-acquire-${{ startsWith(inputs.source, 'jquants-') && 'jquants' || startsWith(inputs.source, 'edinet-') && 'edinet' || 'jpx' }}
+      group: source-acquire-${{ startsWith(inputs.source, 'jquants-') && 'jquants' || startsWith(inputs.source, 'edinet-') && 'edinet' || startsWith(inputs.source, 'jpx-') && 'jpx' || format('unsupported-{0}', inputs.source) }}
       queue: max
       cancel-in-progress: false
     outputs:
       handoff: ${{ steps.stage.outputs.handoff }}
     steps:
+      - name: Reject unsupported source before acquisition
+        env:
+          SOURCE: ${{ inputs.source }}
+        run: |
+          case "$SOURCE" in
+            jquants-market|jquants-financial|jpx-earnings|jpx-regulations|edinet-list|edinet-metrics|edinet-facts) ;;
+            *) echo 'Unsupported market acquisition source' >&2; exit 2 ;;
+          esac
       - name: Reserve time to save successful partial originals
         run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 60 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
