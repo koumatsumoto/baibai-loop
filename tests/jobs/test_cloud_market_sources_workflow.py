@@ -26,6 +26,15 @@ def _workflow():
     return yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
 
 
+def _planned_sources(output):
+    sources = [entry["source"] for entry in json.loads(output["sources"])]
+    if output["edinet_all"] == "true":
+        jobs = _workflow()["jobs"]
+        sources.append(jobs["edinet-list"]["with"]["source"])
+        sources.extend(jobs["edinet-archives"]["strategy"]["matrix"]["source"])
+    return sources
+
+
 def _run_plan(
     tmp_path,
     *,
@@ -119,7 +128,8 @@ def test_delayed_schedule_preserves_slot_date_and_weekday(
     result, output = _run_plan(tmp_path, created_at=created_at, schedule=schedule)
     assert result.returncode == 0, result.stderr
     assert output["asof"] == expected_day
-    assert json.loads(output["sources"]) == [{"source": source} for source in expected_sources]
+    assert _planned_sources(output) == expected_sources
+    assert output["edinet_all"] == "false"
 
 
 @pytest.mark.parametrize("attempt", ["1", "2"])
@@ -185,7 +195,47 @@ def test_manual_explicit_and_empty_asof_remain_distinct(
     result, output = _run_plan(tmp_path, created_at=created_at, asof=asof, source=source)
     assert result.returncode == 0, result.stderr
     assert output["asof"] == expected_day
-    assert json.loads(output["sources"]) == [{"source": source} for source in expected_sources]
+    assert _planned_sources(output) == expected_sources
+    assert output["edinet_all"] == str(source == "all").lower()
+
+
+@pytest.mark.parametrize("attempt", ["1", "2"])
+def test_manual_all_waits_for_list_only_at_the_archive_boundary(tmp_path, attempt):
+    result, output = _run_plan(
+        tmp_path,
+        created_at="2026-10-29T12:00:00Z",
+        started_at="2026-10-30T16:00:00Z",
+        attempt=attempt,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output["asof"] == "2026-10-29"
+    assert json.loads(output["sources"]) == [{"source": source} for source in INPUT_SOURCES[:-1]]
+    jobs = _workflow()["jobs"]
+    assert jobs["plan"]["outputs"]["edinet_all"] == "${{ steps.plan.outputs.edinet_all }}"
+    assert jobs["source"]["needs"] == "plan"
+    assert jobs["edinet-list"]["needs"] == "plan"
+    archives = jobs["edinet-archives"]
+    assert archives["needs"] == ["plan", "edinet-list"]
+    assert archives["strategy"]["fail-fast"] == "false"
+    assert archives["strategy"]["matrix"]["source"] == ["edinet-metrics", "edinet-facts"]
+    for name in ("edinet-list", "edinet-archives"):
+        job = jobs[name]
+        # Keep GitHub's default success gate: failed list acquisition must not
+        # launch archives against old inputs and present them as today's work.
+        assert job["if"] == "${{ needs.plan.outputs.edinet_all == 'true' }}"
+        assert job["uses"] == jobs["source"]["uses"]
+        assert job["with"]["asof"] == "${{ needs.plan.outputs.asof }}"
+
+
+@pytest.mark.parametrize("source", ["edinet-list", "edinet-metrics", "edinet-facts"])
+def test_manual_single_edinet_source_remains_independent(tmp_path, source):
+    result, output = _run_plan(
+        tmp_path, created_at="2026-10-29T12:00:00Z", asof="2026-10-28", source=source
+    )
+    assert result.returncode == 0, result.stderr
+    assert output["asof"] == "2026-10-28"
+    assert output["edinet_all"] == "false"
+    assert json.loads(output["sources"]) == [{"source": source}]
 
 
 @pytest.mark.parametrize("asof", ["", "2026-10-26"])

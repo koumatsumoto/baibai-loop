@@ -128,6 +128,61 @@ def test_resume_accepts_plain_saved_report_and_retains_incomplete_replay(tmp_pat
         ]
 
 
+@pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
+def test_archive_resume_projects_staged_list_without_common_integration(tmp_path, mocker, group):
+    from contextlib import closing
+    from datetime import UTC, datetime
+
+    from tests.engine.test_edinet_handoff import receive
+    from tests.jobs.test_source_receipts import Store
+
+    from baibai_engine.machine_analysis.observations.financials.edinet_models import (
+        EDINETProviderError,
+    )
+    from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+    from baibai_jobs.acquisition.economic_staging import save_handoff
+
+    store = Store()
+    mocker.patch.object(source_handoff, "Boto3R2Store", return_value=store)
+    stamp = datetime(2026, 10, 29, 7, tzinfo=UTC)
+    source, target = tmp_path / "list.sqlite", tmp_path / "scoped.sqlite"
+    with closing(open_connection(target)):
+        pass
+    with pytest.raises(EDINETProviderError, match="2026-10-29"):
+        EDINETReader(target).list_documents(stamp.date())
+    receive(source, "S100TODAY", stamp, day=stamp.date())
+    packet = tmp_path / "packet"
+    source_handoff._export("edinet-list", stamp.date(), stamp, source, packet)
+    save_handoff(store, "edinet-list-today", packet, market=True)
+    originals = {key: value.body for key, value in store.values.items()}
+    scoped_input = tmp_path / "input"
+    scoped_input.mkdir()
+    (scoped_input / "result.json").write_text('{"created_at":"2026-10-28T14:00:00+00:00"}')
+
+    assert (
+        source_handoff.main(
+            [
+                "resume",
+                "--source",
+                group,
+                "--asof",
+                stamp.date().isoformat(),
+                "--database",
+                str(target),
+                "--directory",
+                str(scoped_input),
+            ]
+        )
+        == 0
+    )
+    assert [item["docID"] for item in EDINETReader(target).list_documents(stamp.date())] == [
+        "S100TODAY"
+    ]
+    assert not any(key.endswith("/integrated.json") for key in store.values)
+    assert {key: value.body for key, value in store.values.items()} == originals
+
+
 @pytest.mark.parametrize("input_after", [0, 1, 2], ids=["stale", "intermediate", "latest"])
 def test_resume_replays_integrated_intermediate_receipts_but_not_unintegrated_late_stage(
     tmp_path, mocker, monkeypatch, input_after
