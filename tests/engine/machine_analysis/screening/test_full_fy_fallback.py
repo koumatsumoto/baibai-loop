@@ -307,3 +307,68 @@ def test_legacy_growth_does_not_gain_an_inferred_interval_status():
     row = project(with_growth(generation(documents()), update))
     assert row.context["annual_observation"]["latest_ttm_period_status"] is None
     assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+
+
+@pytest.mark.parametrize("corrected_index", [0, 1])
+def test_future_fy_correction_is_context_not_a_coordinate_or_reference_vote(corrected_index):
+    rows = documents()
+    correction = replace(
+        rows[corrected_index],
+        disclosed_at=date(2025, 9, 1),
+        disclosure_number="future-fy-correction",
+        sales=1000000.0,
+        operating_profit=900000.0,
+        profit=900000.0,
+    )
+    future = project(generation([*rows, correction]))
+    known = replace(project(generation(rows)), ticker="1002")
+    fy_paths = [path for path in future.paths if path.variant == "full_fy"]
+    if corrected_index == 1:
+        assert all(path.price_value is None and path.business_value is None for path in fy_paths)
+        assert not any(path.eligible for path in future.paths)
+        # Keep the selected corrected FY, never fall back to the older pre-correction FY.
+        saved = future.context["annual_observation"]["full_fy_observation"]
+        assert saved["period_end"] == "2025-03-31"
+        assert saved["metrics"]["parent_profit"]["value"] == 900000.0
+    else:
+        assert active(future, "earning_power") is not None  # This year's source is still known.
+        assert active(future, "business_expansion") is None
+        assert active(future, "operating_recovery") is None
+    selection = select_economic_paths((future, known), policy=EconomicPathPolicy())
+    card = next(card for card in selection.cards if card.ticker == "1002")
+    paths = {path.path_id: path for path in card.paths}
+    assert paths["business_expansion"].business_population == 1
+    assert paths["operating_recovery"].price_population == 1
+    assert paths["operating_recovery"].business_population == 1
+    if corrected_index == 1:
+        assert all(
+            path.price_population == 1 and path.business_population == 1 for path in card.paths
+        )
+
+
+@pytest.mark.parametrize("future_profit", [True, False])
+def test_future_fy_source_removes_only_its_axis_not_the_independent_reference(future_profit):
+    rows = documents()
+    correction = replace(
+        rows[1],
+        disclosed_at=date(2025, 9, 1),
+        disclosure_number="future-partial-correction",
+        sales=None if future_profit else 1000000.0,
+        operating_profit=None if future_profit else 900000.0,
+        profit=900000.0 if future_profit else None,
+    )
+    future = project(generation([*rows, correction]))
+    income = next(
+        path
+        for path in future.paths
+        if path.path_id == "earning_power" and path.variant == "full_fy"
+    )
+    assert (income.price_value is None) == future_profit
+    assert (income.business_value is None) != future_profit
+    assert not income.eligible
+    known = replace(project(generation(rows)), ticker="1002")
+    selection = select_economic_paths((future, known), policy=EconomicPathPolicy())
+    card = next(card for card in selection.cards if card.ticker == "1002")
+    income = next(path for path in card.paths if path.path_id == "earning_power")
+    assert income.price_population == (1 if future_profit else 2)
+    assert income.business_population == (2 if future_profit else 1)

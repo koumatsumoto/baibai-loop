@@ -67,7 +67,9 @@ def project_company(
         annual_observations["full_fy"] = full_fy
     changes = {
         variant: {
-            metric: _change(growth, observation, metric)
+            metric: _full_fy_change(growth, observation, metric, metadata.as_of)
+            if variant == "full_fy"
+            else _change(growth, observation, metric)
             for metric in ("sales", "operating_profit", "operating_margin", "parent_profit")
         }
         for variant, observation in {"quarter": quarter, **annual_observations}.items()
@@ -85,8 +87,14 @@ def project_company(
     paths = []
     for variant, observation in annual_observations.items():
         fy = variant == "full_fy"
-        profit_yield = _ratio(_metric(observation, "parent_profit"), cap) if fy else y
-        margin = _metric(observation, "operating_margin")
+        profit_yield = (
+            _ratio(_fy_metric(observation, "parent_profit", metadata.as_of), cap) if fy else y
+        )
+        margin = (
+            _fy_metric(observation, "operating_margin", metadata.as_of)
+            if fy
+            else _metric(observation, "operating_margin")
+        )
         income_aligned = (
             observation.get("statement_basis") == "consolidated"
             if fy
@@ -153,7 +161,12 @@ def project_company(
     for variant, observation in {"quarter": quarter, **annual_observations}.items():
         sales_variant = annual_variant if variant == "quarter" else variant
         sales_observation = annual_observations[sales_variant]
-        sales_price = _ratio(_metric(sales_observation, "sales"), cap)
+        sales = (
+            _fy_metric(sales_observation, "sales", metadata.as_of)
+            if sales_variant == "full_fy"
+            else _metric(sales_observation, "sales")
+        )
+        sales_price = _ratio(sales, cap)
         change = changes[variant]
         sales_change = change["sales"]
         rate = _number(sales_change.get("rate"))
@@ -262,6 +275,7 @@ def project_company(
         "latest_growth_period": anchor.get("period_end"),
         "annual_observation": {
             "selected_variant": annual_variant,
+            "full_fy_observation": full_fy,
             "full_fy_period_start": full_fy.get("period_start"),
             "full_fy_period_end": full_fy.get("period_end"),
             "full_fy_age_days": (
@@ -351,7 +365,7 @@ def project_company(
     )
 
 
-def _latest_full_fy(periods: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
+def _latest_full_fy(periods: Sequence[dict[str, JsonValue]]) -> dict[str, JsonValue]:
     # Fix the latest FY before reading values; never search backwards for a good year.
     state = next((item for item in reversed(periods) if item.get("fiscal_period") == "FY"), {})
     observations = {
@@ -384,6 +398,50 @@ def _can_use_full_fy(
         anchor.get("period_start") == (end + timedelta(days=1)).isoformat()
         and anchor.get("fiscal_year_end") == add_months_clamped(end, 12).isoformat()
     )
+
+
+def _fy_metric(observation: dict[str, JsonValue], metric: str, as_of: date) -> float | None:
+    value = _object(_object(observation.get("metrics")).get(metric))
+    documents = _objects(value.get("documents"))
+    # Growth keeps retrospective corrections; new FY coordinates cannot use future disclosures.
+    if not documents or any(
+        (disclosed := _text(document.get("disclosed_at"))) is None or disclosed > as_of.isoformat()
+        for document in documents
+    ):
+        return None
+    return _number(value.get("value"))
+
+
+def _full_fy_change(
+    growth: dict[str, JsonValue], observation: dict[str, JsonValue], metric: str, as_of: date
+) -> dict[str, JsonValue]:
+    change = _change(growth, observation, metric)
+    if _number(change.get("difference")) is None:
+        return change
+    prior = [
+        item
+        for state in _objects(growth.get("periods"))
+        for item in _objects(state.get("observations"))
+        if item.get("measurement") == observation.get("measurement")
+        and item.get("statement_basis") == observation.get("statement_basis")
+        and _period(item) == (change.get("from_start"), change.get("from_end"))
+    ]
+    if (
+        _fy_metric(observation, metric, as_of) is None
+        or not prior
+        or any(_fy_metric(item, metric, as_of) is None for item in prior)
+    ):
+        return {
+            **change,
+            "from_value": None,
+            "to_value": None,
+            "difference": None,
+            "rate": None,
+            "margin_points": None,
+            "sign_change": None,
+            "reason": "comparison_sources_not_observed_by_as_of",
+        }
+    return change
 
 
 def _positive(value: JsonValue | None) -> float | None:
