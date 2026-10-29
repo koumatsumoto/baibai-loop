@@ -275,10 +275,10 @@ uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores \
 
 resolveはmanifestの解決で、data objectの検証や任意SQL実行ではない。
 
-objectのdigest・bytes・row数・schemaを通常のlake readerで照合する。Webの旧L1 gatewayは廃止したため、認可済みR2読取か完全なローカルmirrorを使う。固定objectを取得できなければ別releaseの値で埋めず、再開時に同じ固定releaseを復元できるか確認する。新しいcurrentを採る場合は別の分析入力として固定し直す。
+objectのdigest・bytes・row数・schemaを通常のlake readerで照合する。R2転送は共通object store、DuckDBのqueryは検証済みlocal fileが担当し、remote拡張の導入は不要。Webの旧L1 gatewayは廃止したため、認可済みR2読取か完全なローカルmirrorを使う。固定objectを取得できなければ別releaseの値で埋めず、再開時に同じ固定releaseを復元できるか確認する。新しいcurrentを採る場合は別の分析入力として固定し直す。
 
 <a id="local-release-hydrate"></a>
-### remote拡張なしのhydrate
+### 完全local mirrorからのhydrate
 
 必要量とsnapshot用容量を確認し、manifest/objectの完全mirrorを認可済み読取で揃える。部分JSON exportで正規market readerを代用しない。
 

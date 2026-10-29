@@ -3,13 +3,11 @@
 set -euo pipefail
 
 browser=false
-httpfs=false
 for argument in "$@"; do
   case "$argument" in
     --with-browser) browser=true ;;
-    --with-httpfs) httpfs=true ;;
     --help|-h)
-      echo 'Usage: bash tools/setup-dev.sh [--with-browser] [--with-httpfs]'
+      echo 'Usage: bash tools/setup-dev.sh [--with-browser]'
       exit 0 ;;
     *) echo "Unknown option: $argument" >&2; exit 2 ;;
   esac
@@ -65,12 +63,6 @@ result=0
 if "$browser"; then
   if ! uv run playwright install chromium; then
     echo 'Chromium install failed; browser provisioning is incomplete.' >&2
-    result=1
-  fi
-fi
-if "$httpfs"; then
-  if ! uv run python -m tools.diagnostics.provision_duckdb_httpfs; then
-    echo 'DuckDB httpfs install failed; remote lake provisioning is incomplete.' >&2
     result=1
   fi
 fi

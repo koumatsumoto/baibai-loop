@@ -14,15 +14,15 @@ uv run baibai-engine --help
 
 setupは`.cache/dev/`へPython開発環境を用意する。shellごとにenv.shをsourceし、checkoutを移したらsetupを再実行する。secretや実storeがなくてもfixtureを使える。Windowsでの編集・依存導入はPOSIX運用scriptの動作確認とは別である。
 
-browser・DuckDB httpfsが必要な場合だけ追加する。
+browserが必要な場合だけ追加する。
 
 ```bash
-bash tools/setup-dev.sh --with-browser --with-httpfs
+bash tools/setup-dev.sh --with-browser
 ```
 
 Webを編集する場合だけ`.node-version`のNodeとnpmを用意し、`npm --prefix web/frontend ci`、`npm --prefix web/edge ci`で依存を導入する。build・testは対象HEADのCIで確認する。
 
-基本setupと追加downloadの成功を区別する。httpfsはDuckDBが使うextension cacheに導入する必要があり、任意pathへの配置だけでは使えない。remote拡張を使えない場合は[固定releaseのローカルhydrate](../jobs/OPERATIONS.md#local-release-hydrate)を使える。403をproxy解除・TLS無効化で迂回しない。
+基本setupと追加downloadの成功を区別する。403をproxy解除・TLS無効化で迂回しない。
 
 ## 実行環境と接続
 

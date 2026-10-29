@@ -92,7 +92,9 @@ class Boto3R2Store:
         cached = self._clients.get(timeout)
         if cached is not None:
             return cached
-        client = boto3.client(
+        # A store can be owned by a prefetch worker; never share boto3's default
+        # session while separate workers construct their clients.
+        client = boto3.session.Session().client(
             "s3",
             endpoint_url=self.endpoint,
             region_name="auto",
@@ -108,6 +110,12 @@ class Boto3R2Store:
         )
         self._clients[timeout] = client
         return client
+
+    def close(self) -> None:
+        """Release the connections owned by this store."""
+        for client in self._clients.values():
+            client.close()
+        self._clients.clear()
 
     def head(self, key: str) -> RemoteObject | None:
         try:
@@ -157,7 +165,14 @@ class Boto3R2Store:
         except BotoCoreError as exc:
             raise R2Error("R2 get-object failed") from exc
 
-    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+    def download_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        expect_bytes: int | None = None,
+        max_bytes: int | None = None,
+    ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=path.parent,
@@ -173,8 +188,10 @@ class Boto3R2Store:
                 written = 0
                 with temporary_path.open("wb") as target:
                     while chunk := body.read(8 * 1024 * 1024):
-                        target.write(chunk)
                         written += len(chunk)
+                        if max_bytes is not None and written > max_bytes:
+                            raise R2Error(f"R2 get-object exceeds size limit: {max_bytes}")
+                        target.write(chunk)
                     target.flush()
                     os.fsync(target.fileno())
             finally:

@@ -95,9 +95,6 @@ class _MasterSource:
     def read_bytes(self, key: str) -> bytes:
         return self.store.get_bytes(key)
 
-    def uri(self, key: str) -> str:
-        raise ValueError("external assessment master source requires materialized local objects")
-
 
 def initialize(
     store: ObjectStore,

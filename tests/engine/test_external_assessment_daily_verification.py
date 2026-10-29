@@ -196,9 +196,6 @@ class MasterOnlySource:
         assert "/year=2026/" in key
         return self.store.get_bytes(key)
 
-    def uri(self, key):
-        raise AssertionError("master objects must pass the digest-verifying cache")
-
 
 def test_lake_master_only_keeps_all_sectors_alpha_and_exact_release_binding(tmp_path, monkeypatch):
     store, release, database = build_master_lake(tmp_path, monkeypatch)
