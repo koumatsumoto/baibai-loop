@@ -1,4 +1,4 @@
-// Generated from web/backend/src/baibai_web/readmodel/models.py.
+// Generated from the Python models in web/backend/src/baibai_web/readmodel/.
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 
@@ -42,6 +42,13 @@ export interface HoldingView {
   unrealized_pnl_pct: number | null
 }
 
+export interface LatestProposalView {
+  generated_at: string
+  status: 'ready' | 'empty' | 'unavailable'
+  error: string | null
+  proposal: SavedProposalView | null
+}
+
 export interface OutcomesView {
   outcomes: PortfolioOutcomeView[]
 }
@@ -73,6 +80,166 @@ export interface ReservationView {
   route_label: string | null
 }
 
+export interface SavedAssessmentReviewView {
+  reviewed_at: string
+  primary_source_check: 'verified' | 'partially_verified' | 'unverified'
+  review_scope: string
+  strongest_countercase: string
+  uncertainty_acceptance_reason: string | null
+}
+
+export interface SavedAssessmentView {
+  assessment_id: string
+  core_sha256: string
+  review_id: string
+  as_of: string
+  stance: 'supported' | 'uncertain' | 'unsupported'
+  investment_case_explanation: string
+  investment_case_status: 'intact' | 'broken' | 'uncertain'
+  investment_case_status_reason: string
+  invalidation_conditions: string[]
+  review: SavedAssessmentReviewView
+}
+
+export interface SavedBuyItemView {
+  ticker: string
+  rationale: string
+  review_conditions: string[]
+  assessment: SavedAssessmentView | null
+  saved_quote: SavedQuoteView | null
+  liquidity: SavedLiquidityView | null
+  unfinished: UnfinishedResearchView | null
+  action: 'buy'
+  timing: 'at_current_limit' | 'wait_limit' | 'place_limit'
+  terms: SavedLimitTermsView | null
+  proposed_limit_yen: string | null
+  terms_unavailable_reasons: SavedReasonView[]
+}
+
+export interface SavedDeferItemView {
+  ticker: string
+  rationale: string
+  review_conditions: string[]
+  assessment: SavedAssessmentView | null
+  saved_quote: SavedQuoteView | null
+  liquidity: SavedLiquidityView | null
+  unfinished: UnfinishedResearchView | null
+  action: 'defer'
+  blockers: SavedReasonView[]
+  resume_conditions: string[]
+}
+
+export interface SavedExposureRowView {
+  key: string
+  prospective_pct: string
+  warning_pct: string
+}
+
+export interface SavedHoldItemView {
+  ticker: string
+  rationale: string
+  review_conditions: string[]
+  assessment: SavedAssessmentView | null
+  saved_quote: SavedQuoteView | null
+  liquidity: SavedLiquidityView | null
+  unfinished: UnfinishedResearchView | null
+  original_assessment: SavedAssessmentView | null
+  original_investment_reason: string | null
+  original_reason_unavailable_reason: string | null
+  case_reassessment_reason: string
+  remaining_reward: SavedRemainingRewardView | null
+  action: 'hold'
+  holding_basis: 'investment_case_intact' | 'sufficient_remaining_reward'
+  return_calculation_unavailable_reason: string | null
+}
+
+export interface SavedLimitTermsView {
+  limit_price_yen: string
+  quantity: number
+  notional_yen: string
+  target_session: string
+  valuation_as_of: string
+  maximum_entry_price_yen: string | null
+  conditions: string[]
+  warnings: string[]
+}
+
+export interface SavedLiquidityView {
+  analysis_as_of: string | null
+  adv_yen: string | null
+  unavailable_reason: string | null
+}
+
+export interface SavedNoActionItemView {
+  ticker: string
+  rationale: string
+  review_conditions: string[]
+  assessment: SavedAssessmentView | null
+  saved_quote: SavedQuoteView | null
+  liquidity: SavedLiquidityView | null
+  unfinished: UnfinishedResearchView | null
+  action: 'no_action'
+}
+
+export interface SavedPortfolioExposureView {
+  total_capital_yen: string | null
+  ticker: SavedExposureRowView | null
+  sector: SavedExposureRowView | null
+  common_factors: SavedExposureRowView[]
+  common_factor_unclassified_tickers: string[]
+}
+
+export type SavedProposalItemView = SavedBuyItemView | SavedHoldItemView | SavedSellItemView | SavedNoActionItemView | SavedDeferItemView
+
+export interface SavedProposalView {
+  proposal_id: string
+  as_of: string
+  prepared_at: string
+  published_at: string
+  request_scope: 'discover_new' | 'specified_stocks' | 'review_positions'
+  headline: string
+  comparison: string
+  forgone: string
+  warnings: string[]
+  items: SavedProposalItemView[]
+  portfolio_exposure: SavedPortfolioExposureView
+}
+
+export interface SavedQuoteView {
+  price_yen: string
+  price_as_of: string
+  price_basis: 'last_close_unadjusted'
+}
+
+export interface SavedReasonView {
+  code: string
+  message: string
+}
+
+export interface SavedRemainingRewardView {
+  status: 'sufficient' | 'insufficient' | 'uncertain'
+  reason: string
+}
+
+export interface SavedSellItemView {
+  ticker: string
+  rationale: string
+  review_conditions: string[]
+  assessment: SavedAssessmentView | null
+  saved_quote: SavedQuoteView | null
+  liquidity: SavedLiquidityView | null
+  unfinished: UnfinishedResearchView | null
+  original_assessment: SavedAssessmentView | null
+  original_investment_reason: string | null
+  original_reason_unavailable_reason: string | null
+  case_reassessment_reason: string
+  remaining_reward: SavedRemainingRewardView | null
+  action: 'sell'
+  reason_code: 'economic_invalidation' | 'insufficient_remaining_reward'
+  terms: SavedLimitTermsView | null
+  terms_unavailable_reasons: SavedReasonView[]
+}
+
 export interface TaskView {
   task_id: string
   title: string
@@ -102,6 +269,11 @@ export interface TasksView {
    */
   earnings_calendar_error: string | null
   ledger_error: string | null
+}
+
+export interface UnfinishedResearchView {
+  reason: string
+  references: string[]
 }
 
 export interface UpcomingEventView {

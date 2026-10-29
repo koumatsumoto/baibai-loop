@@ -10,6 +10,8 @@ describe('NAV_TABS active matching', () => {
   it.each<[string, string[]]>([
     ['/', ['Dashboard']],
     ['/tasks', ['Tasks']],
+    ['/proposal', ['売買提案']],
+    ['/proposal/unknown', []],
     ['/nowhere', []],
     ['/tasks/unknown', []],
   ])('selects only the current page for %s', (pathname, labels) => {

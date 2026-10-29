@@ -7,6 +7,7 @@ from typing import Protocol
 
 from baibai_engine.portfolio.ledger.events import PortfolioSnapshot
 from baibai_engine.tasks.models import Task
+from baibai_web.readmodel.proposal_models import SavedProposalView
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,3 +38,9 @@ class MarketSource(Protocol):
 class TaskSource(Protocol):
     def exists(self) -> bool: ...
     def list_tasks(self) -> list[Task]: ...
+
+
+class ProposalSource(Protocol):
+    def latest(self) -> SavedProposalView | None:
+        """Return None only for a valid store with no saved proposal; read failures raise."""
+        ...

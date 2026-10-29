@@ -1,4 +1,4 @@
-/** 保有・運用成績・タスクの読取専用配信。認証方式は既存のまま。 */
+/** 保有・運用成績・タスク・保存提案の読取専用配信。認証方式は既存のまま。 */
 
 const API_HEADERS = {
   'Cache-Control': 'no-store',
@@ -62,6 +62,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     '/api/dashboard': 'views/portfolio-dashboard.json',
     '/api/tasks': 'views/tasks.json',
     '/api/outcomes': 'views/outcomes.json',
+    '/api/proposal/latest': 'views/latest-proposal.json',
   }
   const key = keys[url.pathname]
   if (!key) return jsonResponse({ detail: 'unknown API endpoint' }, 404)
