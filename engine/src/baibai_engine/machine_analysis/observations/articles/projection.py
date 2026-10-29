@@ -47,7 +47,10 @@ def native_time(value: str | None, *, source: str) -> ArticleTime:
         parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
         origin = "provider_japan_local_time"
     return ArticleTime(
-        raw=value, value=parsed.isoformat(), precision="second", timezone_origin=origin
+        raw=value,
+        value=parsed.isoformat(),
+        precision="second" if re.search(r"\d{2}:\d{2}:\d{2}", value) else "minute",
+        timezone_origin=origin,
     )
 
 

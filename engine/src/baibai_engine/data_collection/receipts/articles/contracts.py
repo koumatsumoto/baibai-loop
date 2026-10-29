@@ -17,7 +17,7 @@ import json
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 
 def digest_json(value: object) -> str:
@@ -78,6 +78,18 @@ class ArticleEvidenceRef(ArticleValue):
     observation_sha256: str | None = None
     artifact_id: str | None = None
     artifact_sha256: str | None = None
+
+    @model_validator(mode="after")
+    def paired_refs(self) -> ArticleEvidenceRef:
+        for identity, digest in (
+            (self.observation_id, self.observation_sha256),
+            (self.artifact_id, self.artifact_sha256),
+        ):
+            if (identity is None) != (digest is None):
+                raise ValueError("exact identity and digest must be supplied together")
+        if self.artifact_id is not None and self.observation_id is None:
+            raise ValueError("exact artifact requires its exact observation")
+        return self
 
 
 def utc_day(value: datetime) -> str:

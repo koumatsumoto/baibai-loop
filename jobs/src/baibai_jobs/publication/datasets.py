@@ -2,12 +2,6 @@
 
 from types import MappingProxyType
 
-from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
-from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
-    ARTICLE_PROJECTION_RUNS,
-    ARTICLE_OBSERVATIONS,
-    ARTICLE_EXTRACTION_ARTIFACTS,
-)
 from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
     EDINET_LIST_RESPONSES,
     EDINET_SOURCE_ARCHIVES,
@@ -22,8 +16,14 @@ from baibai_engine.data_collection.providers.jquants.snapshot_contracts import (
 from baibai_engine.data_collection.providers.tradingview.snapshot_contracts import (
     TRADINGVIEW_SOURCE_RECEIPTS,
 )
+from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
 from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts import (
     EQUITY_WEB_SOURCE_RESPONSES,
+)
+from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
+    ARTICLE_PROJECTION_RUNS,
+    ARTICLE_OBSERVATIONS,
+    ARTICLE_EXTRACTION_ARTIFACTS,
 )
 from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
     EDINET_DOCUMENT_LISTS,

@@ -50,6 +50,8 @@ def save_projection(
             )
         )
     # A failed write must not leave only half of a native projection in a caller transaction.
+    if not conn.in_transaction:
+        conn.execute("BEGIN")
     conn.execute("SAVEPOINT article_projection")
     try:
         for row in rows:

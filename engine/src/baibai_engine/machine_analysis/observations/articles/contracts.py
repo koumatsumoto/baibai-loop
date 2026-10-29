@@ -57,6 +57,26 @@ class ArticleObservation(ArticleValue):
     native_metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @property
+    def article_version_id(self) -> str:
+        """Native content version separate from GET identity and HTML decoration.
+
+        A reorder of an index or same-value 200/304 is a new receipt, not a new
+        article content version. Parser/text revisions remain explicit; semantic
+        extraction revision belongs to its separate artifact.
+        """
+        return "article-version-" + digest_json(
+            self.model_dump(
+                mode="json",
+                exclude={
+                    "receipt_id",
+                    "receipt_sha256",
+                    "body_ref",
+                    "native_locator",
+                },
+            )
+        )
+
+    @property
     def text_sha256(self) -> str:
         return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
