@@ -411,6 +411,8 @@ def test_malformed_same_url_outside_index_stays_recheckable_and_can_repair(
             store_document(conn, doc)
         with pytest.raises(ValueError, match="main article"):
             read_document_series(conn, series, start=SEP, end=SEP)
+        october_values = read_document_series(conn, series, start=date(2026, 10, 1), end=END)
+        assert [value.observed_at for value in october_values] == [date(2026, 10, 1)]
         assert _missing_ranges(conn, source, SEP, date(2026, 9, 30), []) == (
             (SEP, date(2026, 9, 30)),
         )

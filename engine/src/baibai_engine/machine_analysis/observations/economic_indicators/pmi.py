@@ -94,6 +94,12 @@ def read_pmi_documents(
             # Legacy metadata has no source publication timestamp. Do not invent one.
             published = datetime.min.replace(tzinfo=UTC)
         elif document.content_type == "text/html":
+            binding = document.metadata.get(
+                "observed_at", document.metadata.get("requested_observed_at")
+            )
+            if isinstance(binding, str) and not start <= date.fromisoformat(binding) <= end:
+                # A known older malformed receipt must not block another month's reading.
+                continue
             article = parse_article(
                 document.payload, stream=series.reading_key, url=document.source_url
             )
@@ -146,13 +152,13 @@ def read_pmi_documents(
                 source_url=document.source_url,
                 quality_flags=("secondary_delivery", article.phase),
                 notes=(
-                    "measurement_provider=spglobal; delivery_provider=tradingeconomics; "
+                    "measurement_provider=spglobal",
+                    "delivery_provider=tradingeconomics",
                     "primary_unverified",
                     f"phase={article.phase}",
                     f"delivery_published_at={article.published_at.isoformat()}",
                     f"delivery_modified_at={article.modified_at.isoformat()}",
-                    "S&P release publication timestamp is not established "
-                    "by the TE article timestamp",
+                    "S&P publication time is not established by the TE article timestamp",
                 ),
             )
         )
