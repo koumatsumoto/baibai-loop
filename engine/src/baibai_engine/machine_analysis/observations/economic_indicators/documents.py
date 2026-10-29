@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.matsui_marg
 from baibai_engine.machine_analysis.observations.economic_indicators.observations import (
     ObservationRecord,
 )
-from baibai_engine.machine_analysis.observations.economic_indicators.pmi import read_pmi_document
+from baibai_engine.machine_analysis.observations.economic_indicators.pmi import read_pmi_documents
 from baibai_engine.machine_analysis.observations.economic_indicators.tsr_bankruptcies import (
     parse_tsr_bankruptcies_json,
 )
@@ -32,12 +32,8 @@ def read_document_series(
     documents = read_documents(connection, series.source_id)
     if series.provider == "matsui_margin":
         return read_matsui_margin_documents(series, documents, start=start, end=end)
-    if series.provider == "spglobal_pmi":
-        return tuple(
-            read_pmi_document(series, document)
-            for document in documents
-            if start <= date.fromisoformat(document.request_key) <= end
-        )
+    if series.provider in {"spglobal_pmi", "tradingeconomics_pmi"}:
+        return read_pmi_documents(series, documents, start=start, end=end)
     if series.provider != "tsr_bankruptcies":
         raise ValueError(f"unsupported document reading: {series.provider}")
     values: list[ObservationRecord] = []
