@@ -22,8 +22,9 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 def digest_json(value: object) -> str:
     return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        .encode("utf-8")
+        json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode("utf-8")
     ).hexdigest()
 
 
