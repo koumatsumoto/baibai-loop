@@ -130,6 +130,15 @@ malformed leaseは自動修復しない。GitHubとlocalにactive/pending writer
 
 ## application DB を反映する
 
+### 判断振り返り保存のschema 26→27切替
+
+この切替は通常runtimeの自動移行ではない。Researchのschema26切替と読戻しが完了した正本を起点にする。取得ETagと対応するschema26作業コピーを保全し、`uv run python -m tools.cutover_application_v26_to_v27 --source <schema26.sqlite> --destination <new-schema27.sqlite>`で別ファイルを作る。Researchのpriorを含む既存行・payload・hashを再計算せず、判断振り返りのtable・index・immutable triggerだけを追加する。source25や移行済み27を受け付けない。
+
+共通のpublication leaseはapplication writerを排他しない。切替前に全application writerの更新を止める段取りを確定し、対応コードとschema27正本を一組で反映する。取得ETagへの条件付き反映が競合した場合は、最新schema26コピーから移行し直し、古い移行コピーを押し込まない。反映前に既存の同日backupを独立した退避先へ保全するか、上書きしない方法を確定する。`R2_APP_BACKUP_PRUNE=skip`だけでは同日backup置換を防げず、backup失敗時は反映へ進まない。
+
+反映後にschema27と既存Research・評価・提案・Selection・台帳の保持、新しい判断振り返りの保存・exact再読、viewの読戻しを確認してwriterを再開する。コードmergeやfixture成功だけをstore切替完了とは扱わない。移行完了後はこの一回用tool・専用test・手順を撤去し、経緯をIssue #1652へ残す。
+
+
 ### 通常のapplication更新
 
 作業開始前に、空の作業領域へpull-appしてDBとstores/.r2-generations/baibai.sqlite.etagを一組で取得する。そのDBを正規CLIで更新し、取得ETagを保持する。
