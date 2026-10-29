@@ -148,9 +148,9 @@ def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> Non
     assert [step.get("uses") or step.get("run") for step in smoke["steps"]] == [
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
-        "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884",
+        "astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e",
         "uv sync --locked",
-        "uv run baibai-engine tradingview smoke",
+        "uv run baibai-jobs tradingview-source smoke",
     ]
     for job in (quality, smoke):
         assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))

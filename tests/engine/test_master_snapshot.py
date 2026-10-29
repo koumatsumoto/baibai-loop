@@ -15,23 +15,28 @@ import pytest
 import requests
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
-from baibai_engine.data_collection.jquants.http import JQuantsHTTP
-from baibai_engine.foundation.time import JST
-from baibai_engine.machine_analysis.screening.sqlite_coverage.jquants import (
+from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jquants import (
     _append_master_snapshot_issues,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_reader import (
-    JQuantsReader,
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_master
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
+    masters_from_payloads,
+    validate_master_snapshot,
+)
+from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
     read_eq_master_exact,
 )
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
-from baibai_engine.market.jquants_writer import store_jquants_master
-from baibai_engine.market.master_snapshot import masters_from_payloads, validate_master_snapshot
-from baibai_engine.source_maintenance.cache import backfill_master_command, bootstrap_cache_command
-from baibai_engine.source_maintenance.providers import ProviderBundle
-from baibai_engine.storage.observations.schema import SQLiteSchemaError, open_connection
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
+from baibai_jobs.maintenance.jquants_inputs import (
+    JQuantsReader,
+)
+from baibai_jobs.maintenance.market.cache import backfill_master_command, bootstrap_cache_command
+from baibai_jobs.maintenance.market.providers import ProviderBundle
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 
 class _MasterClient(requests.Session):
@@ -57,32 +62,16 @@ def _refresh(db: Path, session: _MasterClient) -> JQuantsRefresh:
 
 
 class _BootstrapJQuants:
-    def __init__(self, reader: JQuantsReader, refresh: JQuantsRefresh, sqlite_path: Path) -> None:
-        self.reader = reader
+    def __init__(self, refresh: JQuantsRefresh, sqlite_path: Path) -> None:
         self.refresh = refresh
         self.sqlite_path = sqlite_path
-
-    def get_eq_master(self, requested_asof: date):
-        return self.reader.get_eq_master(requested_asof)
 
     def ensure_master(self, day: date) -> int:
         return self.refresh.ensure_master(day)
 
-    def get_eq_bars_daily_range(self, start: date, end: date):
-        del start, end
-        return []
-
     def ensure_daily_bars(self, start: date, end: date) -> int:
         del start, end
         return 0
-
-    def get_adjustment_factor_bars_range(self, start: date, end: date):
-        del start, end
-        return []
-
-    def get_fin_summary_range(self, start: date, end: date):
-        del start, end
-        return []
 
     def refresh_fin_summaries(
         self,
@@ -119,14 +108,6 @@ class _BootstrapJQuants:
         if progress is not None:
             progress(1, 1, end, end)
         return len(tickers)
-
-    def get_fy_summary_range(self, start: date, end: date):
-        del start, end
-        return []
-
-    def get_mkt_calendar(self, start: date, end: date):
-        del start, end
-        return []
 
     def refresh_short_sale_reports(self, start: date, end: date) -> int:
         del start, end
@@ -311,7 +292,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
             with (
                 patch(
-                    "baibai_engine.market.jquants_writer.record_source_coverage",
+                    "baibai_engine.machine_analysis.observations.jquants_writer.record_source_coverage",
                     side_effect=sqlite3.OperationalError("injected coverage failure"),
                 ),
                 self.assertRaises(sqlite3.OperationalError),
@@ -535,12 +516,11 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             store_jquants_master(db, make_master_records(today), requested_asof=today)
             client = _MasterClient()
-            reader = JQuantsReader(db)
             maintenance = _refresh(db, client)
             output = io.StringIO()
             result = backfill_master_command(
                 asof_dates=[today],
-                providers=ProviderBundle(jquants=reader, jquants_refresh=maintenance),
+                providers=ProviderBundle(jquants_refresh=maintenance),
                 sqlite_path=db,
                 stdout=output,
             )
@@ -589,11 +569,9 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             client = _MasterClient()
-            reader = JQuantsReader(db)
             maintenance = _refresh(db, client)
-            bootstrap_jquants = _BootstrapJQuants(reader, maintenance, db)
+            bootstrap_jquants = _BootstrapJQuants(maintenance, db)
             bundle = ProviderBundle(
-                jquants=bootstrap_jquants,
                 jpx_refresh=_BootstrapJPX(),
                 jquants_refresh=bootstrap_jquants,
             )
@@ -649,7 +627,7 @@ def _snapshot_state(db: Path, asof: date) -> tuple[tuple[object, ...], tuple[obj
 
 
 def test_malformed_stored_master_is_a_source_error_not_an_empty_snapshot():
-    from baibai_engine.data_collection.tradingview.diagnostics import (
+    from baibai_jobs.observability.tradingview import (
         failure_category,
     )
 

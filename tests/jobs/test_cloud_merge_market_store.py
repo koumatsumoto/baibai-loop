@@ -10,23 +10,29 @@ from pathlib import Path
 import pytest
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
-from baibai_engine.market.edinet_facts.models import filing_identity
-from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import (
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    filing_identity,
+)
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_short_sale_reports,
+)
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
-from baibai_jobs.storage.merge_market_store import (
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.integration.source_cache_merge import (
     ALL_TABLES,
     FACT_KEYS,
     UNCOMPARED,
     MergeError,
     main,
     merge_stores,
+)
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
 )
 
 _FIN_RANGE = "get_fin_summary_range:2020-01-01..2020-12-31"
@@ -862,7 +868,7 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
 
     from tests.engine.test_edinet_research_facts import facts
 
-    from baibai_engine.market.edinet_facts.store import (
+    from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
         extraction_status,
         record_failure,
         record_initialized,
@@ -962,7 +968,9 @@ def test_shared_clean_financial_claim_is_checked_before_target_wins(tmp_path, so
 
 @pytest.mark.parametrize("newer_side", ["source", "target"])
 def test_short_sale_partial_refetch_cannot_be_relabelled_complete_by_merge(tmp_path, newer_side):
-    from baibai_engine.market.margin_reader import read_short_sale_reports
+    from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+        read_short_sale_reports,
+    )
 
     stores = {name: _store(tmp_path / f"{name}.sqlite") for name in ("source", "target")}
     day = date(2026, 8, 1)

@@ -6,28 +6,40 @@ import sqlite3
 from datetime import UTC, date, datetime
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
 from tests.helpers.http_doubles import FakeSession, html_response, response
 
-from baibai_engine.data_collection.jpx.models import JPXResponse
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+from baibai_engine.data_collection.providers.jpx.receipts import (
     complete_bundle,
     create_bundle,
     read_bundle,
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.market.jpx_decode import resolve_earnings_calendar_urls
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_reader import JPXReader, read_jpx_regulations
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot, store_jpx_regulations
-from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.market.jpx_sources import JPX_EARNINGS_CALENDAR_INDEX_URL, JPX_REGULATION_URLS
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
+    resolve_earnings_calendar_urls,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    JPXReader,
+    read_jpx_regulations,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
+    rebuild_jpx_snapshot,
+    store_jpx_regulations,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
+    JPX_EARNINGS_CALENDAR_INDEX_URL,
+    JPX_REGULATION_URLS,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 ASOF = date(2026, 10, 15)
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "jpx"
@@ -39,6 +51,14 @@ SOURCE_FILES = {
 }
 FILE_A = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
 FILE_B = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan09_1015.xlsx"
+
+
+@pytest.fixture
+def _calendar_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_at = datetime(2026, 10, 15, tzinfo=UTC)
+    clock = SimpleNamespace(now=lambda zone: captured_at.astimezone(zone))
+    monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jpx.datetime", clock)
+    monkeypatch.setattr("baibai_engine.data_collection.providers.jpx.http.datetime", clock)
 
 
 def _regulation_session(*, broken: str | None = None) -> FakeSession:
@@ -185,6 +205,7 @@ def test_regulation_partial_http_failure_retains_only_prior_responses(tmp_path: 
     assert read_jpx_regulations(path, ASOF) is None
 
 
+@pytest.mark.usefixtures("_calendar_clock")
 def test_calendar_refresh_replays_precedence_and_reader_stays_offline(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     session = _calendar_session()
@@ -244,6 +265,7 @@ def test_calendar_partial_failure_keeps_incomplete_bundle(tmp_path: Path, failur
     )
 
 
+@pytest.mark.usefixtures("_calendar_clock")
 def test_calendar_malformed_http_200_completes_l1_without_l2(tmp_path: Path) -> None:
     path = tmp_path / "market.sqlite"
     JPXRefresh(sqlite_path=path, session=_calendar_session()).refresh_earnings_calendar_snapshot(
@@ -420,7 +442,7 @@ def test_refresh_closes_only_its_owned_lazy_session(tmp_path: Path) -> None:
     owned = Mock()
     owned.get.return_value.status_code = 503
     with patch(
-        "baibai_engine.data_collection.jpx.http.requests.Session", return_value=owned
+        "baibai_engine.data_collection.providers.jpx.http.requests.Session", return_value=owned
     ) as factory:
         refresh = JPXRefresh(sqlite_path=tmp_path / "owned.sqlite")
         refresh.close()

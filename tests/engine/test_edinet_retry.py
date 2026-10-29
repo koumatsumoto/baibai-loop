@@ -9,11 +9,14 @@ import pytest
 import requests
 from tests.helpers.http_doubles import FakeSession, json_response, response
 
-from baibai_engine.data_collection.edinet import http
-from baibai_engine.data_collection.edinet.models import EdinetAcquisitionError, EdinetRateLimitError
-from baibai_engine.market.edinet_models import EDINETProviderError
-from baibai_engine.market.edinet_reader import EDINETReader
-from baibai_engine.market.edinet_refresh import EDINETRefresh
+from baibai_engine.data_collection.providers.edinet import http
+from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAcquisitionError,
+    EdinetRateLimitError,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 
 @pytest.fixture

@@ -18,7 +18,7 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
-財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通marketが原本文書を読み、[企業価値](company-valuation.md)が現在評価の予想・実績を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
+財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通の財務観測が原本文書を読み、[企業財務](company-financials.md)が予想・実績の比較座標を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 
 JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
 
@@ -32,7 +32,7 @@ JPXの規制・決算予定・資本政策・上場廃止は完了済みsource b
 
 margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日。後日訂正は公表・受領の文脈を保ち、公表前の当日残高を要求しない。subsetにないtickerを残高0にせず、全銘柄とunionして穴埋めしない。
 
-PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公表日より後のas-ofから使い、公表日当日は含めない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[市場環境](market-context.md#margin)に従う。
+PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公表日より後のas-ofから使い、公表日当日は含めない。全銘柄日次の既知PubDateは行ごとに適用し、同じ残高日の別銘柄が利用可能でも後発訂正を混ぜない。PubDateが未収録の場合だけ既存の営業日lag規約を使う。取得用の保存行読取と判断時点の選択は分け、訂正前vintageの復元を保証しない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[市場環境](market-context.md#margin)に従う。
 
 ## 経済原本
 
@@ -53,7 +53,9 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 
 ## EDINET
 
-一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Valuationのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
+一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Financialsのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
+
+archiveは同じdocID/typeの最初のbytesを保持する。通常refreshは保存済みZIPを再利用し、文書editや抽出失敗の再処理が同一archiveのfresh再取得を意味するわけではない。provider側で同一文書のbytesが修復された場合の差替えは、隔離取得と差分確認を伴う別の明示操作として扱う。現在の通常経路にその自動修復はなく、抽出testへ修復済みbytesを渡した成功を取得経路の修復保証にしない。
 
 <a id="edinet-metric-revision"></a>
 ### 抽出意味revision

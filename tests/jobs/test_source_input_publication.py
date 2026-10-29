@@ -4,9 +4,9 @@ from tests.engine.test_tradingview_collector import DAY
 from tests.engine.test_tradingview_collector import store as market_store
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.economic.store import initialize_database
-from baibai_engine.storage.observations.schema import open_connection
-from baibai_jobs.storage.source_inputs import input_key, load_input, publish_inputs
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.source_inputs import input_key, load_input, publish_inputs
 
 
 def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic_groups(
@@ -17,9 +17,11 @@ def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic
     economic = tmp_path / "economic.sqlite"
     with closing(initialize_database(economic)):
         pass
-    monkeypatch.setattr("baibai_jobs.storage.source_inputs.SOURCE_INPUT_GROUPS", ("tradingview",))
     monkeypatch.setattr(
-        "baibai_jobs.storage.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("tradingview",)
+    )
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
     )
     generations = {
         "lake_release_id": "fixed",

@@ -8,9 +8,13 @@ from io import BytesIO, StringIO
 
 import pytest
 
-from baibai_engine.market.edinet_metrics.csv import parse_csv_zip_metric_record
-from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
+    parse_csv_zip_metric_record,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    EDINET_METRIC_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 
 def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
@@ -30,7 +34,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
         doc_type_code="120",
         content=_edinet_csv_zip(
             [
-                ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
+                ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
                 (
                     "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
                     "CurrentYearDuration",
@@ -48,7 +52,7 @@ def test_metric_values_and_quality_reasons_remain_stable() -> None:
                     "-40",
                 ),
                 ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
-                ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "300"),
+                ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "300"),
                 ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
                 ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
                 ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
@@ -97,11 +101,11 @@ def test_existing_baseline_reuse_and_failure_contract(tmp_path, change, expected
         FakeEDINETMetricReader,
         _edinet_document,
     )
-    from tests.engine.test_source_maintenance_cli import (
-        _edinet_csv_zip as csv_zip,
-    )
+    from tests.engine.test_source_maintenance_cli import _edinet_csv_zip as csv_zip
 
-    from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
+    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
+        extract_edinet_metrics_command,
+    )
 
     db = tmp_path / "market.sqlite"
     document = _edinet_document(ticker="72030", doc_id="S100BASELINE")

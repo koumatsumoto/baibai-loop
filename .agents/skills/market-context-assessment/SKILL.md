@@ -7,6 +7,8 @@ description: 人間の明示開始から市場入力を固定し、重要な環�
 
 明示依頼で共通の市場判断を作る。日次更新やstaleだけでAI執筆を起動しない。[市場環境](../../../docs/reference/market-context.md#assessment)が意味を所有する。
 
+クラウド正本へ反映する作業は、開始前に[application作業コピーの準備](../../../jobs/OPERATIONS.md#application-db-を反映する)を行い、DBと取得ETagを揃える。既存作業の再開ではその組を保持する。
+
 1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個別状態と一次資料を読む。取得が必要なら[運用](../../../jobs/OPERATIONS.md)へ進む。
 2. [市場環境判断の契約](../../../docs/reference/market-context.md#assessment)に沿って重要な水準・変化、反証/不確実性と個社への含意をまとめる。
 3. 作者と別sessionのreviewerがsource・因果・反証・含意を確認する。数値・単位・日付・限定を保って編集し、新たな根拠や判断を採用したら再Reviewする。最大3巡で未解決なら発行せず人間へ上げる。

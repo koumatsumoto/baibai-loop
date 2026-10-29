@@ -6,20 +6,27 @@ from uuid import uuid4
 
 import pytest
 
-from baibai_engine.data_collection.equity_web.receipts import retain_response
-from baibai_engine.machine_analysis.external_assessment.analysis import analyze
-from baibai_engine.machine_analysis.external_assessment.models import (
+from baibai_engine.data_collection.receipts.public_pages.receipts import retain_response
+from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
+from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystForecastHistory,
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization import ParseError, minkabu
-from baibai_engine.machine_analysis.external_assessment.reader import read_observations
-from baibai_engine.machine_analysis.external_assessment.rebuild import rebuild_attempts
-from baibai_engine.machine_analysis.external_assessment.store import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
+    ParseError,
+    minkabu,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+    read_observations,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.rebuild import (
+    rebuild_attempts,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import (
     ObservationConflictError,
     save_observations,
 )
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 NOW = datetime(2026, 10, 22, 7, tzinfo=UTC)
 
@@ -178,8 +185,8 @@ def no_coverage_html(ticker="130A", *, linked=False):
 
 @pytest.mark.parametrize("linked", [False, True])
 def test_explicit_identified_no_coverage_is_not_zero_or_an_http_error(tmp_path, linked):
-    from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse
-    from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+    from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
+    from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
         decode_attempt,
     )
 
@@ -283,7 +290,7 @@ def test_duplicate_or_conflicting_analyst_cards_do_not_prove_no_coverage(linked,
 def test_no_coverage_cannot_carry_values_and_available_requires_display_date():
     from pydantic import ValidationError
 
-    from baibai_engine.machine_analysis.external_assessment.observations.models import (
+    from baibai_engine.machine_analysis.observations.external_assessments.models import (
         AnalystForecastObservation,
     )
 
@@ -374,7 +381,7 @@ def test_visible_history_priority_does_not_infer_hidden_rounding_from_card():
 
 
 def test_conflicting_displayed_forecast_year_is_not_silently_reconciled():
-    from baibai_engine.data_collection.external_assessment.collection import PARSE_FAILURE_REASONS
+    from baibai_jobs.acquisition.external_assessments.collection import PARSE_FAILURE_REASONS
 
     # Equal figures do not establish which of two conflicting period labels is true.
     text = html().replace("2027年3月期", "2026年12月期")

@@ -7,24 +7,28 @@ from datetime import UTC, datetime
 
 import pytest
 from tests.engine.test_edinet_research_facts import facts
-from tests.helpers.l1_release import lake as lake
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import lake as lake
 
-from baibai_engine.market.edinet_facts.models import filing_identity
-from baibai_engine.market.edinet_facts.store import store_facts
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
+    filing_identity,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import store_facts
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     accepted_dataset,
     materialize_partitions,
     resolve_release,
     selected_partitions,
 )
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 
 def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
@@ -39,7 +43,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
     ) as snapshot:
         exports = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -60,6 +64,8 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
         mirror_root=mirror,
         release_id="facts-release",
         created_at=stamp,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     assert all(release.datasets[name].layer == "l2_processed" for name in names)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -70,7 +76,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
         for name, alias in zip(names, ("segments", "debt"), strict=True):
             paths = materialize_partitions(
                 cache,
-                dataset=accepted_dataset(fixed, name),
+                dataset=accepted_dataset(fixed, LAKE_DATASETS[name]),
                 partitions=selected_partitions(fixed, name),
             )
             session.connection.read_parquet([str(path) for path in paths]).create_view(alias)
@@ -95,6 +101,7 @@ def test_facts_export_fixed_read_and_hydrate(tmp_path, monkeypatch):
             cache=cache,
             store=target,
             dataset_names=names,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows == {"edinet.segment_facts": 40, "edinet.debt_schedule": 11}
     with closing(sqlite3.connect(target)) as conn, conn:
@@ -119,11 +126,11 @@ def test_old_fixed_release_without_optional_facts_remains_readable(lake):
     assert fixed.release_id == pointer.release_id
     assert "edinet.segment_facts" not in fixed.dataset_names()
     with pytest.raises(LakeReadError, match="does not contain dataset"):
-        accepted_dataset(fixed, "edinet.segment_facts")
+        accepted_dataset(fixed, LAKE_DATASETS["edinet.segment_facts"])
     cache = LakeObjectCache(root=mirror, source=source)
     paths = materialize_partitions(
         cache,
-        dataset=accepted_dataset(fixed, "jquants.daily_bars"),
+        dataset=accepted_dataset(fixed, LAKE_DATASETS["jquants.daily_bars"]),
         partitions=selected_partitions(fixed, "jquants.daily_bars"),
     )
     with lake_session() as session:

@@ -13,32 +13,37 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
-from baibai_engine.storage.lake import models as lake_models
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.keys import (
-    current_release_pointer_key,
-    dataset_manifest_key,
-    release_manifest_key,
-)
-from baibai_engine.storage.lake.models import (
-    ReleaseManifest,
-    canonical_lake_model_bytes,
-    load_lake_model_json,
-)
-from baibai_engine.storage.lake.objects import open_lake
-from baibai_engine.storage.lake.prefetch import prefetching_hydration_cache
-from baibai_engine.storage.lake.reader import resolve_current_release
-from baibai_engine.storage.lake.release import LakeReleasePointer, create_release
-from baibai_engine.storage.lake.writer import export_market_store
-from baibai_jobs.storage.lake_publish import (
+from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
     RemoteObject,
+)
+from baibai_engine.storage.snapshots import models as lake_models
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.keys import (
+    current_release_pointer_key,
+    dataset_manifest_key,
+    release_manifest_key,
+)
+from baibai_engine.storage.snapshots.models import (
+    ReleaseManifest,
+    canonical_lake_model_bytes,
+    load_lake_model_json,
+)
+from baibai_engine.storage.snapshots.objects import open_lake
+from baibai_engine.storage.snapshots.prefetch import prefetching_hydration_cache
+from baibai_engine.storage.snapshots.reader import resolve_current_release
+from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
+from baibai_engine.storage.snapshots.writer import export_market_store
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
+from baibai_jobs.publication.snapshot_release import (
     publish_release,
 )
 
@@ -148,7 +153,7 @@ def _tiny_market(path: Path) -> Path:
     )
 
 
-def _download_l1_closure(store: Boto3R2Store, mirror: Path) -> None:
+def _download_lake_closure(store: Boto3R2Store, mirror: Path) -> None:
     def download(key: str) -> bytes:
         path = mirror / key
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,7 +219,7 @@ def test_actual_r2_conditional_writes_refuse_a_stale_generation(tmp_path: Path) 
     assert json.loads(store.get_bytes(key))["generation"] == "second"
 
 
-def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
+def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch)
@@ -226,12 +231,15 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
         mirror_root=mirror,
         producer_git_commit="a" * 40,
         expected_store_origin=None,
+        catalog=LAKE_DATASETS,
     )
     release_path, _release = create_release(
         dataset_manifest_paths=[item.manifest_path for item in build.datasets.values()],
         mirror_root=mirror,
         release_id=f"acceptance-{uuid.uuid4().hex}",
         created_at=datetime.now(UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
 
     first = publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
@@ -243,17 +251,20 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
     )
     assert immediate_pointer.release_id == first.release_id
     remote_mirror = tmp_path / "remote-reader"
-    _download_l1_closure(store, remote_mirror)
+    _download_lake_closure(store, remote_mirror)
 
     mirrored_store = _emptied_market(sqlite_path, tmp_path / "mirrored.sqlite")
     with open_lake(mirror=remote_mirror) as (session, cache):
-        fixed = resolve_current_release(cache.source)
+        fixed = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         mirrored = hydrate_market_store(
             session,
             release=fixed,
             cache=cache,
             store=mirrored_store,
             dataset_names=tuple(sorted(build.datasets)),
+            catalog=LAKE_DATASETS,
         )
     assert mirrored.release_id == fixed.release_id
     with closing(sqlite3.connect(mirrored_store)) as connection:
@@ -268,7 +279,9 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
         session,
         cache,
     ):
-        direct = resolve_current_release(cache.source)
+        direct = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
         with prefetching_hydration_cache(
             cache,
             release=direct,
@@ -281,6 +294,7 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
                 cache=hydration_cache,
                 store=direct_store,
                 dataset_names=tuple(sorted(build.datasets)),
+                catalog=LAKE_DATASETS,
             )
     # Reading the same release over HTTP and out of a downloaded mirror has to produce
     # the same rows; comparing the filled tables is what proves it rather than assuming.
@@ -301,6 +315,8 @@ def test_actual_r2_l1_publish_and_read_back_into_a_market_store(
         mirror_root=mirror,
         release_id=successor_id,
         created_at=datetime.now(UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     publish_release(mirror_root=mirror, release_manifest_path=successor_path, store=store)
     serving = load_lake_model_json(
@@ -326,6 +342,7 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
         mirror_root=mirror,
         producer_git_commit="b" * 40,
         expected_store_origin=None,
+        catalog=LAKE_DATASETS,
     )
     release_id = f"acceptance-ambiguous-{fault}-{uuid.uuid4().hex}"
     release_path, _release = create_release(
@@ -333,6 +350,8 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
         mirror_root=mirror,
         release_id=release_id,
         created_at=datetime.now(UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     pointer_key = current_release_pointer_key()
 

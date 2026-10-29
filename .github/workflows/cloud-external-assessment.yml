@@ -75,7 +75,7 @@ jobs:
             args+=(--batch-id "$BATCH_ID" --master-asof "$MASTER_ASOF")
           fi
           if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial); fi
-          uv run python -m baibai_jobs.jobs.external_assessment_sources prepare "${args[@]}"
+          uv run python -m baibai_jobs.acquisition.external_assessments.sources prepare "${args[@]}"
 
   source:
     needs: plan

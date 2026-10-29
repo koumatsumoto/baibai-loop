@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from baibai_engine.cli import main
-from baibai_engine.data_collection_cli import main as collection_main
-from baibai_engine.investment_judgment.workspace_cli import build_parser as build_research_parser
-from baibai_engine.machine_analysis.screening.cli.app import build_parser as build_screening_parser
-from baibai_engine.source_maintenance.cli import build_parser as build_source_parser
+from baibai_engine.cli.app import main
+from baibai_engine.cli.historical_evaluation.app import build_parser as build_screening_parser
+from baibai_engine.cli.investment_judgment import build_parser as build_research_parser
+from baibai_jobs.cli import main as collection_main
+from baibai_jobs.maintenance.market.cli import build_parser as build_source_parser
 
 
 def _choices(parser) -> set[str]:
@@ -74,9 +74,9 @@ def test_research_cli_exposes_selection_assessment_and_proposal() -> None:
 @pytest.mark.parametrize(
     "domain",
     [
-        "screening",
+        "historical-evaluation",
         "investment-judgment",
-        "position",
+        "portfolio",
         "operation",
         "market-context",
         "technical-analysis",
@@ -151,9 +151,9 @@ def test_screening_provider_protocols_do_not_import_command_implementations():
             "-c",
             """
 import sys
-from baibai_engine.source_maintenance.providers import ProviderBundle
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 for module in ("app", "cache", "run", "query"):
-    assert f"baibai_engine.machine_analysis.screening.cli.{module}" not in sys.modules
+    assert f"baibai_engine.cli.historical_evaluation.{module}" not in sys.modules
 """,
         ],
         check=True,
@@ -175,7 +175,7 @@ def test_source_maintenance_is_owned_by_collection_not_legacy_screening():
     assert "verify-cache-coverage" not in source
     assert not source.intersection(_choices(build_screening_parser()))
     with pytest.raises(SystemExit) as help_result:
-        collection_main(["market", "--help"])
+        collection_main(["maintain-market", "--help"])
     assert help_result.value.code == 0
     with pytest.raises(SystemExit):
         build_screening_parser().parse_args(["bootstrap-cache", "--asof", "2026-10-23"])
@@ -199,8 +199,8 @@ def test_minimal_job_read_boundary_does_not_load_judgment_or_legacy_views():
             sys.executable,
             "-c",
             (
-                "import sys; import baibai_engine.read_api as api; "
-                "assert api.__all__ == ['market_calendar_business_day']; "
+                "import sys; import baibai_engine.machine_analysis.observations.prices.calendar_context as api; "
+                "assert callable(api.market_calendar_business_day); "
                 "assert not any(name.startswith('baibai_engine.investment_judgment') "
                 "or name.startswith('baibai_engine.machine_analysis.screening') "
                 "for name in sys.modules)"

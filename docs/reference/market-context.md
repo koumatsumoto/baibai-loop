@@ -1,6 +1,6 @@
 # 市場環境
 
-保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。企業価値は[企業価値](company-valuation.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はInvestment Judgmentが所有する。取得・原本はData Collection、現在のL2定義はindicators、計算・統計はreadingに置く。
+保存された経済原本のReadingと、市場・業種・個別株の相対状態を扱うL2領域。財務・利益価格の観測は[企業財務](company-financials.md)、仮定付き企業価値評価は[銘柄評価](stock-assessment.md)、価格位置は[テクニカル分析](technical-analysis.md)、仮定を伴う環境判断はInvestment Judgmentが所有する。取得・原本、共通の経済指標観測、市場モデルの計算・統計を別の責務として扱う。
 
 <a id="market-context-reads"></a>
 ## 比較する母集団と時点
@@ -13,7 +13,9 @@
 
 masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値、市場の業種中央値、旧Screeningの業種平均は別母集団である。
 
-価格は[調整済み価格reader](../../engine/src/baibai_engine/market/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
+価格は[調整済み価格reader](../../engine/src/baibai_engine/machine_analysis/observations/prices/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と企業価値モデルのmin/max内位置も別の量である。
+
+既存security contextの`price.return_1d/5d/20d/60d`は個社観測bar差分、`high_52w`は直近252終値の高値で、共通営業日窓へ変更していない。新生成の`price_path_relative`だけがTAの[共通calendar観測](technical-analysis.md#共通calendarの価格context)と同じref・正確な開始/終了日でbenchmarkを比較する。G252は253営業日期間内の観測peak→現在で、旧252終値highとも前年比とも異なる。生成時に既読の長期benchmark系列と日状態を再利用し、端点が欠測・不整合なら当該比較だけを未評価にする。旧MC相対値・peer値の異窓流用や、新しいpeer比較は行わない。
 
 旧ticker-profileは旧runと可変モデル・現在ledgerを混合するため撤去した。調査のモデル入力はselection-contextで固定generationから読み、取引事実はPosition、決算予定・規制等の原観測は各market readerから必要時に確認する。selection-contextへイベント一覧や現在ledgerの集中度が含まれるとは扱わない。五モデルの共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
 
@@ -39,11 +41,13 @@ uv run baibai-engine market-context snapshot --asof <YYYY-MM-DD> --format json
 uv run baibai-engine market-context indicators get jp.policy_rate --latest
 ```
 
+指標CLIの`--latest`は保存入力から得られる最後の観測を元の日付で返す。今日の値や鮮度の保証ではなく、当日rangeの欠測を補完しない。
+
 percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latestやtrendまでyoyへ変わるわけではない。実効窓・観測数・sampling頻度を揃え、疎な系列を密な日次履歴と同列に比較しない。履歴不足でも最新値そのものが誤りとは限らず、stale・取得失敗・分布の端を区別する。next_print_estimateはcadence/lagの推定で公式calendarではない。
 
 ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
 
-Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/machine_analysis/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
+Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
 
 <a id="option-iv"></a>
 ### オプションIVの読み方
@@ -71,4 +75,4 @@ as_ofは判断対象日、known_atは入力確定時刻。対象日以下でcuto
 
 exact IDによる閲覧は保存本文・入力・引用・supersedesをそのまま返し、新writerの構造や現在のcutoffで書き換えない。分析用の選択とは別である。古い章・scorecardを共通projectionだけで置き換えず、保存判断の抽出を新しい判断の必須構造にしない。
 
-L2原本確認のためにL3全履歴を先行validationする手順は持たない。保存判断は通常readerで利用時にpayload・identityを確認する。旧runner inputがなければ保存本文から得る範囲を示し、当時の全入力を再現したとは扱わない。
+L2原本確認のためにL3全履歴を先行validationする手順は持たない。分析用latestは対象日・公表時刻で選んだ一件のpayload・identityを確認し、未選択の全履歴本文を前提にしない。選択本文の不整合は古い正常な判断へのfallbackで隠さない。exact ID/historyは明示した保存履歴を検証して読む。旧runner inputがなければ保存本文から得る範囲を示し、当時の全入力を再現したとは扱わない。

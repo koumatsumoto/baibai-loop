@@ -4,16 +4,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from baibai_engine.machine_analysis.generation_store import ModelGenerationStore
-from baibai_engine.machine_analysis.model_generation import (
+import baibai_jobs.integration.models as job
+from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
     InputSnapshot,
     ModelGenerationStream,
 )
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.machine_analysis.screening.views import TwoViewPolicy
-from baibai_jobs.jobs import model_integration as job
 from baibai_jobs.observability.discord import render_generation
 
 
@@ -63,13 +63,23 @@ def integration(tmp_path, monkeypatch):
                         model_id="company_valuation",
                         subject="1234",
                         calculation_revision="v1",
-                        payload={"earnings_price": {"earnings_yield": 0.1}},
+                        payload={
+                            "expected_price_date": "2026-10-23",
+                            "earnings_price": {
+                                "earnings_yield": 0.1,
+                                "price_date": "2026-10-23",
+                                "price_yen": 100.0,
+                                "shares_ex_treasury": 100.0,
+                                "market_cap_yen": 10000.0,
+                            },
+                            "financial": {"pbr": 0.5, "market_cap": 10000.0},
+                        },
                     ),
                     GeneratedModel(
-                        model_id="technical_analysis",
+                        model_id="market_context",
                         subject="1234",
                         calculation_revision="v1",
-                        payload={"price_momentum": {"value": None}},
+                        payload={"master": {"name": "合成企業", "sector_33": "情報・通信業"}},
                     ),
                 )
             ),
@@ -97,17 +107,19 @@ def integration(tmp_path, monkeypatch):
         as_of=date(2026, 10, 23),
         lease_handle=tmp_path / "lease",
         growth_start=date(2023, 10, 23),
-        policy=TwoViewPolicy(earnings_limit=20, combined_limit=20),
+        policy=EconomicPathPolicy(candidate_limit=36),
     )
     return arguments, events
 
 
 @pytest.mark.parametrize("growth_start", [None, date(2023, 10, 23)])
-def test_models_policy_and_l1_share_the_same_fixed_inputs_without_web(integration, growth_start):
+def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integration, growth_start):
     arguments, events = integration
     arguments["growth_start"] = growth_start
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
+    publication = read_publication(path=arguments["runs"])
+    assert publication.selection.result.policy.method == "best-economic-path-v1"
     assert (
         not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
         & result.keys()
@@ -146,7 +158,7 @@ def test_failed_lake_publication_does_not_prune_existing_generations(integration
         raise AssertionError("must not prune before publication succeeds")
 
     monkeypatch.setattr(job, "publish_prepared_market_lake", fail)
-    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="publication failed"):
         job.integrate_models(**arguments)
     assert "publish" not in events
@@ -193,8 +205,8 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
         raise AssertionError("must not continue after failed generation")
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
-    monkeypatch.setattr(job, "select_saved_generation", forbidden)
-    monkeypatch.setattr(ModelGenerationStore, "prune", forbidden)
+    monkeypatch.setattr(job, "select_saved_economic_generation", forbidden)
+    monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
     assert "publish" not in events

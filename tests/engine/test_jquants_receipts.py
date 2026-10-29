@@ -10,27 +10,36 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
-from baibai_engine.data_collection.jquants.http import JQuantsAcquisitionError, JQuantsHTTP
-from baibai_engine.data_collection.jquants.receipts import (
+from baibai_engine.data_collection.providers.jquants.acquisition import (
     acquire_request,
+)
+from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsAcquisitionError,
+)
+from baibai_engine.data_collection.providers.jquants.http import (
+    JQuantsHTTP,
+)
+from baibai_engine.data_collection.providers.jquants.receipts import (
     read_complete_request,
     read_request_pages,
 )
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.writer import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.writer import (
     export_dataset_snapshot,
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
-from baibai_engine.storage.observations.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 FIRST_AT = datetime(2026, 10, 17, 12, 34, 56, 123456, tzinfo=UTC)
 SECOND_AT = FIRST_AT + timedelta(seconds=9)
@@ -254,7 +263,7 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,
@@ -269,12 +278,19 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
     assert raw_manifest.coverage_start.isoformat() == "2026-10-17"
     assert raw_manifest.data_as_of.isoformat() == "2026-10-17"
     assert raw_manifest.totals.rows == 3
-    validate_snapshot_parity(sqlite_path=source_path, mirror_root=mirror, manifest=raw_manifest)
+    validate_snapshot_parity(
+        sqlite_path=source_path,
+        mirror_root=mirror,
+        manifest=raw_manifest,
+        dataset=LAKE_DATASETS[raw_manifest.dataset],
+    )
 
     manifest_path, _ = create_release(
         dataset_manifest_paths=[item.manifest_path for item in manifests],
         mirror_root=mirror,
         release_id="source-pages-test-release",
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -291,6 +307,7 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
             cache=LakeObjectCache(root=mirror, source=source),
             store=hydrated_path,
             dataset_names=names,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["jquants.source_pages"] == 3
     hydrated = open_connection(hydrated_path)

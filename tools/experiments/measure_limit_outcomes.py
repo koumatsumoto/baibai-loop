@@ -22,15 +22,15 @@ from typing import TextIO
 
 import yaml
 
-from baibai_engine.foundation.time import JST
-from baibai_engine.position.ledger import (
+from baibai_engine.portfolio.holdings.market_observations import market_basis_is_confirmed
+from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     PortfolioLedgerError,
     ReleaseEvent,
     ReservationEvent,
 )
-from baibai_engine.position.market_source import market_basis_is_confirmed
-from baibai_engine.position.store import LedgerStoreService
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
+from baibai_engine.primitives.time import JST
 
 DEFAULT_APP_DB = Path("stores/application/baibai.sqlite")
 DEFAULT_MARKET_DB = Path("stores/market/market.sqlite")
@@ -336,7 +336,9 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="inclusive observation cutoff for ledger events and market bars",
     )
-    parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--out", type=Path, help="new report path; existing files are never overwritten"
+    )
     return parser
 
 
@@ -349,10 +351,16 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
         print(f"error: {error}", file=sys.stderr)
         return 1
     text = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-    if args.out is not None:
-        args.out.write_text(text, encoding="utf-8")
-    else:
-        print(text, file=stdout or sys.stdout, end="")
+    try:
+        if args.out is not None:
+            # A report destination must not truncate an input store, including aliases.
+            with args.out.open("x", encoding="utf-8") as output:
+                output.write(text)
+        else:
+            print(text, file=stdout or sys.stdout, end="")
+    except OSError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     return 0
 
 

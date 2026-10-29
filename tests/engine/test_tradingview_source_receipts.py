@@ -13,24 +13,30 @@ from pathlib import Path
 
 import pytest
 from mcp.types import CallToolResult
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.tradingview.receipts import (
+from baibai_engine.data_collection.providers.tradingview.receipts import (
     TradingViewReceiptError,
     read_tool_results,
     retain_tool_result,
 )
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 DAY = date(2026, 10, 16)
 MASTER = date(2026, 10, 15)
@@ -152,7 +158,9 @@ def test_fixed_release_roundtrip_preserves_exact_receipt_rows(
     assert contract.layer == "l1_source"
     assert contract.coverage_authority == "unproven"
     assert LAKE_DATASETS["tradingview.forecast_snapshots"].layer == "l2_processed"
-    from baibai_engine.storage.lake.models import PRODUCTION_RELEASE_POLICY
+    from baibai_jobs.publication.policy import (
+        PRODUCTION_RELEASE_POLICY,
+    )
 
     policy = next(
         item for item in PRODUCTION_RELEASE_POLICY.datasets if item.dataset == contract.name
@@ -165,7 +173,7 @@ def test_fixed_release_roundtrip_preserves_exact_receipt_rows(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -179,6 +187,8 @@ def test_fixed_release_roundtrip_preserves_exact_receipt_rows(
         mirror_root=mirror,
         release_id="tradingview-source-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -193,7 +203,12 @@ def test_fixed_release_roundtrip_preserves_exact_receipt_rows(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as lake:
         report = hydrate_market_store(
-            lake, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            lake,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["tradingview.source_receipts"] == 2
     assert _rows(destination) == expected

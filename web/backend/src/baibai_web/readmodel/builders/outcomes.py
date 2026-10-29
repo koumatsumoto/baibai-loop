@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from baibai_engine.position.outcome_store import PortfolioOutcomeStore
+from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_web.readmodel.models import OutcomesView, PortfolioOutcomeView
 
 

@@ -6,8 +6,8 @@ import pytest
 import requests
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 
-from baibai_engine.data_collection.equity_web import http as source_http
-from baibai_engine.data_collection.external_assessment import collection
+import baibai_engine.data_collection.transport.public_pages as source_http
+import baibai_jobs.acquisition.external_assessments.collection as collection
 
 MONEX = "https://scouter.monex.co.jp/report/theoryDps/7203"
 OFFICIAL = "https://www.rakuten-sec.co.jp/web/market/search/forecast.html?ric=7203.T"
@@ -206,7 +206,7 @@ def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_receive
 ):
     from tests.engine.test_minkabu import no_coverage_html
 
-    from baibai_engine.machine_analysis.external_assessment.normalization.decode import (
+    from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
         decode_attempt,
     )
 

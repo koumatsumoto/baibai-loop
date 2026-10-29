@@ -12,40 +12,46 @@ from unittest.mock import patch
 import openpyxl
 import pytest
 from tests.helpers.http_doubles import FakeSession, response
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.jpx.models import JPXResponse
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+from baibai_engine.data_collection.providers.jpx.receipts import (
     complete_bundle,
     create_bundle,
     read_bundle,
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.market.jpx_models import JPXProviderError
-from baibai_engine.market.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.market.jpx_refresh import JPXRefresh
-from baibai_engine.market.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     TSE_CAPITAL_POLICY_URL,
     ValuationCatalystError,
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,
 )
-from baibai_engine.source_maintenance import cli as app
-from baibai_engine.source_maintenance.valuation_catalyst_cli import (
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market import cli as app
+from baibai_jobs.maintenance.market.valuation_catalyst_cli import (
     refresh_tse_capital_policy_command,
 )
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 ASOF = date(2026, 10, 15)
 DATASETS = (
@@ -316,7 +322,7 @@ def test_rebuild_cli_never_acquires(tmp_path: Path, capsys: pytest.CaptureFixtur
 
 
 def test_explicit_refresh_cli_uses_jpx_refresh_and_closes_it(tmp_path: Path) -> None:
-    with patch("baibai_engine.source_maintenance.valuation_catalyst_cli.JPXRefresh") as fake:
+    with patch("baibai_jobs.maintenance.market.valuation_catalyst_cli.JPXRefresh") as fake:
         instance = fake.return_value
         instance.refresh_capital_policy_snapshot.return_value.sheet_count = 2
         instance.refresh_capital_policy_snapshot.return_value.row_count = 3
@@ -348,7 +354,7 @@ def test_fixed_release_roundtrip_carries_l1_and_capital_l2(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -362,6 +368,8 @@ def test_fixed_release_roundtrip_carries_l1_and_capital_l2(
         mirror_root=mirror,
         release_id="capital-policy-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -377,7 +385,12 @@ def test_fixed_release_roundtrip_carries_l1_and_capital_l2(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as lake:
         report = hydrate_market_store(
-            lake, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            lake,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["tse.capital_policy_snapshots"] == len(expected_rows)
     assert _rows(destination) == expected_rows

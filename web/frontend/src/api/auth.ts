@@ -1,4 +1,6 @@
 // Web閲覧の資格情報をowner永続保存とshared sessionに分けて保持する。
+let pendingAuthRequired: AuthRequiredReason | null = null
+
 const VIEW_PASSWORD_KEY = 'baibai-view-password'
 
 export function getViewPassword(): string | null {
@@ -7,6 +9,7 @@ export function getViewPassword(): string | null {
 
 export function setViewPassword(value: string): void {
   localStorage.setItem(VIEW_PASSWORD_KEY, value)
+  pendingAuthRequired = null
 }
 
 export function clearViewPassword(): void {
@@ -25,6 +28,9 @@ const authRequiredListeners = new Set<AuthRequiredListener>()
 /** Subscribe to the auth-required signal; returns an unsubscribe function. */
 export function subscribeAuthRequired(listener: AuthRequiredListener): () => void {
   authRequiredListeners.add(listener)
+  // A rejected stored header can signal synchronously before the gate's effect mounts.
+  // Keep the prompt until a new value is submitted, including an unsubscribe/remount.
+  if (pendingAuthRequired !== null) listener(pendingAuthRequired)
   return () => {
     authRequiredListeners.delete(listener)
   }
@@ -32,6 +38,7 @@ export function subscribeAuthRequired(listener: AuthRequiredListener): () => voi
 
 /** Fire the auth-required signal so the password gate takes over. */
 export function notifyAuthRequired(reason: AuthRequiredReason): void {
+  pendingAuthRequired = reason
   for (const listener of authRequiredListeners) listener(reason)
 }
 

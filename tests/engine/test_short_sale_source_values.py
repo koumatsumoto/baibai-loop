@@ -5,10 +5,15 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.market.jquants_reader import JQuantsReader
-from baibai_engine.market.jquants_writer import store_jquants_short_sale_reports
-from baibai_engine.market.margin_reader import read_short_sale_reports
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_short_sale_reports,
+)
+from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
+    read_short_sale_reports,
+)
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
+from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -42,7 +47,7 @@ def test_native_short_fields_survive_provider_sqlite_and_lake(tmp_path, missing)
     mirror = tmp_path / "lake"
     with sealed_sqlite_snapshot(sqlite_path=database, mirror_root=mirror) as snapshot:
         report = export_dataset_snapshot(
-            dataset_name="jquants.short_sale_reports",
+            dataset=LAKE_DATASETS["jquants.short_sale_reports"],
             mirror_root=mirror,
             source_snapshot=snapshot,
             producer_git_commit="a" * 40,

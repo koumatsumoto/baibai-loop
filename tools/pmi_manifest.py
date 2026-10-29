@@ -19,21 +19,21 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from baibai_engine.data_collection.economic.providers.base import (
+from baibai_engine.data_collection.providers.spglobal.pmi import (
+    MANIFEST_PATH,
+    RELEASE_URL_RE,
+    fetch_pdf_bytes,
+    load_manifest,
+)
+from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
     IndicatorsProviderError,
     SourceWithheldError,
     fetch_text,
 )
-from baibai_engine.data_collection.economic.providers.spglobal_pmi import (
-    MANIFEST_PATH,
-    RELEASE_URL_RE,
-    fetch_pdf_bytes,
-    load_manifest,
-)
-from baibai_engine.machine_analysis.market_context.reading.pmi import extract_pdf_text
-from baibai_engine.machine_analysis.market_context.reading.pmi_extraction import (
+from baibai_engine.machine_analysis.observations.economic_indicators.pmi import extract_pdf_text
+from baibai_engine.machine_analysis.observations.economic_indicators.pmi_extraction import (
     PmiExtractionError,
     extract_pmi_value,
 )
@@ -147,7 +147,7 @@ def release_index_entries(context: FetchContext) -> tuple[IndexEntry, ...]:
     entries = parse_release_index(html)
     if entries:
         return entries
-    # A challenge page caches as if it were the index, so the retry must not read it.
+    # Do not reuse a response whose HTML contained no recognized index entries.
     context.discard_cached_bytes()
     return parse_release_index(context.browser_fetcher().fetch_html(RELEASE_INDEX_URL))
 
@@ -448,7 +448,7 @@ def main(argv: list[str] | None = None) -> int:
         if not entries:
             print(
                 "error: the PMI release index answered but named no releases; the page "
-                "structure has changed and the append stays manual",
+                "could not be interpreted; the append stays manual",
                 file=sys.stderr,
             )
             return 1

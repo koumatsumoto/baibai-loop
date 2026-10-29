@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-(cd "${repo_root}" && uv run python -m baibai_jobs.validation.repository_layout)
+(cd "${repo_root}" && uv run python -m baibai_jobs.observability.repository_layout)
 stores_bucket="${R2_STORES_BUCKET:-baibai-stores}"
 generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # The lake mirror is a fetch-through cache of immutable objects, so it is named next to
@@ -93,7 +93,7 @@ check_sqlite() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_jobs.storage.sqlite_snapshot check --path "$1"
+      uv run python -m baibai_engine.storage.sqlite.snapshot check --path "$1"
   )
 }
 
@@ -101,7 +101,7 @@ snapshot_sqlite() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_jobs.storage.sqlite_snapshot create \
+      uv run python -m baibai_engine.storage.sqlite.snapshot create \
         --source "$1" --output "$2"
   )
 }
@@ -120,11 +120,11 @@ merge_store() {
 }
 
 merge_economic_store() {
-  merge_store baibai_jobs.storage.merge_economic_store "$1" "$2"
+  merge_store baibai_jobs.integration.native_source_merge "$1" "$2"
 }
 
 merge_market_store() {
-  merge_store baibai_jobs.storage.merge_market_store "$1" "$2"
+  merge_store baibai_jobs.integration.source_cache_merge "$1" "$2"
 }
 
 hydrate_market() {
@@ -134,7 +134,7 @@ hydrate_market() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-engine lake hydrate \
+      uv run baibai-jobs snapshots hydrate \
         --mirror "${lake_mirror}" \
         --store "$(store_path market.sqlite)" \
         --bucket "${stores_bucket}"
@@ -149,7 +149,7 @@ publish_lake() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m baibai_jobs.storage.publish_market_lake \
+      uv run python -m baibai_jobs.publication.snapshot_publication \
         --sqlite "$(store_path market.sqlite)" \
         --mirror "${lake_mirror}" \
         --bucket "${stores_bucket}" \
@@ -165,7 +165,7 @@ dehydrate_market_snapshot() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run baibai-engine lake dehydrate \
+      uv run baibai-jobs snapshots dehydrate \
         --mirror "${lake_mirror}" \
         --store "${path}" \
         --bucket "${stores_bucket}"
@@ -497,7 +497,7 @@ _push_keys() {
     started="${SECONDS}"
     snapshot_sqlite "${source}" "${transfer_staging}/${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
-    # once the lake holds anything. An L1 release pointer is where that authority is
+    # once the lake holds anything. A lake release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an
     # empty bucket being seeded) the store is still the only copy of those rows, and
     # after it the emptying is mandatory rather than best-effort.

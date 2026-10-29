@@ -8,11 +8,18 @@ import sys
 
 import pytest
 import yaml
-from tests.engine.test_screening_run_store import _publish, _run
+from tests.engine.machine_analysis.historical_evaluation.test_screening_run_store import (
+    _publish,
+    _run,
+)
 
-from baibai_engine.machine_analysis.screening.cli.app import main as screening_main
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.screening.screening_run_serializer import published_run_payload
+from baibai_engine.cli.historical_evaluation.app import main as screening_main
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+    ScreeningRunReader,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
+    published_run_payload,
+)
 
 
 @pytest.mark.parametrize("command", ["run-show", "candidates"])
@@ -63,8 +70,8 @@ def test_public_cli_subprocess_reads_zero_candidates_and_unknown_revision(tmp_pa
     command = [
         sys.executable,
         "-m",
-        "baibai_engine.cli",
-        "screening",
+        "baibai_engine.cli.app",
+        "historical-evaluation",
         "candidates",
         "show",
         "--runs-db",
@@ -94,9 +101,9 @@ def test_historical_reader_does_not_load_current_candidate_calculation_or_rules(
             sys.executable,
             "-c",
             (
-                "import sys; from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader; "
-                "assert 'baibai_engine.machine_analysis.screening.discovery.candidates' not in sys.modules; "
-                "assert 'baibai_engine.machine_analysis.screening.rule_config' not in sys.modules"
+                "import sys; from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import ScreeningRunReader; "
+                "assert 'baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates' not in sys.modules; "
+                "assert 'baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config' not in sys.modules"
             ),
         ],
         capture_output=True,
@@ -104,3 +111,41 @@ def test_historical_reader_does_not_load_current_candidate_calculation_or_rules(
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize("command", ["run-show", "candidates"])
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+@pytest.mark.parametrize("path_source", ["argument", "environment", "default"])
+def test_forced_export_cannot_replace_input_run_store(
+    tmp_path, monkeypatch, capsys, command, alias, path_source
+):
+    path = tmp_path / "runs.sqlite"
+    _publish(path, revision="run-fixed")
+    before = path.read_bytes()
+    output = path
+    if alias != "direct":
+        output = tmp_path / "alias.sqlite"
+        if alias == "symlink":
+            output.symlink_to(path)
+        else:
+            output.hardlink_to(path)
+    argv = [command]
+    if command == "candidates":
+        argv.append("show")
+    if path_source == "argument":
+        argv += ["--runs-db", str(path)]
+    elif path_source == "environment":
+        monkeypatch.setenv("BAIBAI_RUNS_DB", str(path))
+    else:
+        import baibai_engine.storage.sqlite.machine_analysis as machine_analysis
+
+        monkeypatch.delenv("BAIBAI_RUNS_DB", raising=False)
+        monkeypatch.setattr(machine_analysis, "DEFAULT_RUN_STORE_PATH", path)
+    argv += ["--run-revision-id", "run-fixed", "--output-path", str(output), "--force"]
+    assert screening_main(argv) == 1
+    result = capsys.readouterr()
+    assert "must not replace the input run store" in result.err
+    assert result.out == ""
+    assert path.read_bytes() == before
+    assert output.read_bytes() == before
+    assert ScreeningRunReader(path).get_run("run-fixed") is not None

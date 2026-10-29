@@ -11,7 +11,7 @@ from tools.quality.drift import (
     check_repository_paths,
 )
 
-from baibai_engine.foundation.repository_layout import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,7 +24,7 @@ def test_repository_path_gate_rejects_runtime_literal_outside_owner(tmp_path: Pa
         (
             "jobs/src/baibai_jobs/job.py:1: repository path "
             "'stores/application/baibai.sqlite' belongs in "
-            "engine/src/baibai_engine/foundation/repository_layout.py"
+            "engine/src/baibai_engine/storage/paths.py"
         )
     ]
 
@@ -131,12 +131,12 @@ def _skill(root: Path, body: str) -> None:
 def test_documented_command_gate_rejects_a_missing_required_option(tmp_path: Path) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run baibai-engine data-collection market extract-edinet-metrics\n```\n",
+        "```bash\nuv run baibai-jobs maintain-market extract-edinet-metrics\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == [
         (
             ".agents/skills/demo/SKILL.md: "
-            "`uv run baibai-engine data-collection market extract-edinet-metrics` omits required --asof"
+            "`uv run baibai-jobs maintain-market extract-edinet-metrics` omits required --asof"
         )
     ]
 
@@ -144,7 +144,7 @@ def test_documented_command_gate_rejects_a_missing_required_option(tmp_path: Pat
 def test_documented_command_gate_accepts_a_complete_command(tmp_path: Path) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run baibai-engine data-collection market extract-edinet-metrics --asof <A>\n```\n",
+        "```bash\nuv run baibai-jobs maintain-market extract-edinet-metrics --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
 
@@ -220,12 +220,12 @@ def test_documented_command_gate_reads_inline_code_spans(tmp_path: Path) -> None
 
     _skill(
         tmp_path,
-        "差分は `uv run python -m baibai_engine.investment_judgment.price_watch --asof <A>` で確認する。\n",
+        "差分は `uv run python -m baibai_engine.cli.price_watch --asof <A>` で確認する。\n",
     )
     assert check_documented_commands.check(tmp_path) == [
         (
             ".agents/skills/demo/SKILL.md: "
-            "`uv run python -m baibai_engine.investment_judgment.price_watch --asof <A>` omits required --sqlite-path"
+            "`uv run python -m baibai_engine.cli.price_watch --asof <A>` omits required --sqlite-path"
         )
     ]
 
@@ -245,7 +245,7 @@ def test_documented_command_gate_rejects_the_removed_proposal_domain(
 def test_documented_command_gate_joins_backslash_continuations(tmp_path: Path) -> None:
     _skill(
         tmp_path,
-        "```bash\nuv run python -m baibai_engine.investment_judgment.price_watch \\\n"
+        "```bash\nuv run python -m baibai_engine.cli.price_watch \\\n"
         "  --sqlite-path stores/market/market.sqlite --asof <A>\n```\n",
     )
     assert check_documented_commands.check(tmp_path) == []
@@ -269,7 +269,7 @@ def test_operations_inventory_rejects_unknown_leaf_options(
 ) -> None:
     path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir(parents=True)
-    path.write_text(f"```bash\nuv run baibai-engine lake inventory {options}\n```\n")
+    path.write_text(f"```bash\nuv run baibai-jobs snapshots inventory {options}\n```\n")
     errors = check_documented_commands.check(tmp_path)
     assert (not errors) is valid
     if not valid:
@@ -312,8 +312,8 @@ def test_documented_batch_commands_use_the_delegated_parser(
 @pytest.mark.parametrize(
     ("command", "valid"),
     [
-        ("baibai-engine lake hydrate --mirror <MIRROR> --store <STORE>", True),
-        ("baibai-engine lake hydrate --store <STORE>", False),
+        ("baibai-jobs snapshots hydrate --mirror <MIRROR> --store <STORE>", True),
+        ("baibai-jobs snapshots hydrate --store <STORE>", False),
     ],
 )
 def test_active_runbook_checks_lake_write_parser(tmp_path: Path, command: str, valid: bool) -> None:
@@ -327,20 +327,20 @@ def test_active_runbook_checks_lake_write_parser(tmp_path: Path, command: str, v
 def test_documented_shell_composition_is_not_interpreted(tmp_path: Path, shell: str) -> None:
     path = tmp_path / "jobs/OPERATIONS.md"
     path.parent.mkdir()
-    path.write_text(f"```bash\nuv run baibai-engine lake inventory{shell}\n```\n")
+    path.write_text(f"```bash\nuv run baibai-jobs snapshots inventory{shell}\n```\n")
     assert check_documented_commands.check(tmp_path) == []
 
 
 @pytest.mark.parametrize(
     "method_path",
     [
-        "engine/src/baibai_engine/machine_analysis/screening/rules/2026-10-16T133000+0900.yaml",
-        "engine/src/baibai_engine/machine_analysis/screening/rules/2099-01-01T000000+0900.yaml",
-        "engine/src/baibai_engine/machine_analysis/market_context/reading/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/rules/2026-10-16T133000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/rules/2099-01-01T000000+0900.yaml",
+        "engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/2099-01-01T000000+0900.yaml",
     ],
 )
 def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path, method_path):
-    owner = tmp_path / "engine/src/baibai_engine/foundation/repository_layout.py"
+    owner = tmp_path / "engine/src/baibai_engine/storage/paths.py"
     owner.parent.mkdir(parents=True)
     owner.write_text(f"METHOD = {method_path!r}\n", encoding="utf-8")
     assert check_repository_paths.check(tmp_path) == []
@@ -350,7 +350,7 @@ def test_repository_path_gate_tracks_dated_methods_without_pin_updates(tmp_path,
     errors = check_repository_paths.check(tmp_path)
     assert len(errors) == 1
     assert repr(method_path) in errors[0]
-    assert "belongs in engine/src/baibai_engine/foundation/repository_layout.py" in errors[0]
+    assert "belongs in engine/src/baibai_engine/storage/paths.py" in errors[0]
 
 
 def test_repository_path_gate_tracks_published_context_in_domain_package(tmp_path):
@@ -389,3 +389,8 @@ def test_markdown_link_gate_checks_colocated_links_and_bare_path_anchors(tmp_pat
     assert check_markdown_links.check(tmp_path) == [
         "docs/reference/example/report.md: missing Markdown anchor plan.md#gone"
     ]
+
+
+def test_documented_jobs_command_resolves_lazy_module_name(tmp_path: Path) -> None:
+    _skill(tmp_path, "```bash\nuv run baibai-jobs acquire-economic groups\n```\n")
+    assert check_documented_commands.check(tmp_path) == []

@@ -1,31 +1,46 @@
 # Trade Proposal
 
-保存済みの[銘柄評価](stock-assessment.md)を、確認した価格・cash・保有・注文へ適用した行動と条件。公開は人間の採用・予約・注文・約定を作らない。操作順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)、modelと現在previewは`investment_judgment/trade_proposal.py`・`trade_proposal_query.py`、保存は`trade_proposal_service.py`が所有する。
+保存済みの[銘柄評価](stock-assessment.md)を、確認した価格・cash・保有・注文へ適用した行動と条件。公開は人間の採用・予約・注文・約定を作らない。操作順は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md)。
 
 ## 行動と比較
 
-buyは現在closeを上限とする指値または低い指値待ち、holdは今回確認した仮説維持/十分な残存見返り、sellは重要な仮説不成立/確認済みの見返り不足による全量回収。no_actionは完成した比較による経済的見送り、deferは調査・入力・判断条件の不足である。
+buyは作者が明示した上限での指値提案、holdは今回確認した仮説維持/十分な残存見返り、sellは重要な仮説不成立/確認済みの見返り不足による全量回収。no_actionは完成した比較による経済的見送り、deferは調査・入力・判断条件の不足である。
 
 固定Operationの全対象を完成評価または理由・参照付き未完了で被覆し、new/holdingを混ぜない。未調査は評価参照なしのdefer。独立検証済みuncertain/unresolvedの評価も参照付きdeferにできる。0対象に空提案を作らない。
 
-価値獲得経路、Base/Downside、反証、実現時間を現金維持や他の完成案と比べる。同じBase年率でも倍率上昇と利益回復への依存を分け、Pmax内だけで採用しない。企業本文を再掲せずexact評価へ辿る理由にする。重要なテクニカル分析の所見は行動理由と見直し条件へつなぎ、価格局面だけでPmaxやsell条件を変えない。
+価値獲得経路、Base/Downside、反証、実現時間を投下額に照らし、確認済み保有との共通要因・同時損失を含む[全体の経済性](../doctrine.md#economic-return-policy)として現金維持や他の完成案と比べる。同じBase年率でも倍率上昇と利益回復への依存を分け、Pmax内だけで採用しない。企業本文を再掲せずexact評価へ辿る理由にする。重要なテクニカル分析の所見は行動理由と見直し条件へつなぎ、価格局面だけでPmaxやsell条件を変えない。
 
 ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 blockを直接足すとReviewを経ない判断根拠が入り得るため、重要な支持・相反・不足を評価と独立検証へ通す。[当時の四領域結合検証](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-l3-four-domain-integration/report.md)は有限な接続確認であり、全判断や将来収益の実証ではない。
 
 ## 条件付き購入
 
-実quoteは観測、提案limitは試算価格。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`investment_judgment/entry_policy.py`。
+観測quote、価値と損失経路から引き受ける許容価格域、今回のlimit、実約定価格を分ける。現行quoteは未調整終値で、最良売気配ではない。許容価格域は既存評価を参照して説明し、別の必須fieldや自動gateにしない。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`investment_judgment/entry_policy.py`。
+
+`place_limit`は作者指定の買い指値を今提示する区分で、観測quoteより高い上限も指定できる。上昇を待つstop条件でも、注文・予約・約定の記録でもなく、価格への自動上乗せはしない。[買い指値は上限以下で買う条件](https://www.jpx.co.jp/glossary/sa/174.html)であり、必ず上限を支払うとも、quote近辺で買えるとも限らない。既存の`at_current_limit`は現在closeの呼値切下げと一致する指値、`wait_limit`は観測quoteより低い指値という意味を保つ。
+
+PmaxはBaseの条件付き年率が要求率を満たす価格上限で、期待値・勝率・最適指値・期待約定価格ではない。上振れを含めた経済判断が魅力的でも、そのlimitでのBase年率が要求率未達なら現行gateは通さない。経済判断とgateが食い違う場合は、実装上の制約として区別して残し、Base・要求率・期間の通過用変更で迂回しない。
 
 現在closeがPmax超過でも低いlimitで待てる。ただし購入の経済判断をまだ採らず、値下がり時に再検討するだけの監視価格はbuyにしない。評価不能や具体条件の不足を指値で迂回せず、完成した見送りはno_action、未完了の判断はdeferで理由と再開条件を残す。重要な不確実性があっても、[引受理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedの評価からbuyを提案できる。提案理由には見込む条件付き利回り、主要な損失経路、なぜ今そのリスクに見返りが見合うかを示し、未確定事項の列挙だけで終えない。
 
 数量はlimit・guide上限・確認済みcashの単元床から求める。guideを超える1単元もcash内ならwarning付き候補となり、下限を満たすだけの増量はしない。通常は既保有・active買予約への追加提案をせず、別評価IDで迂回しない。同提案の約定後は全売却済みでも再利用せず新しいInvestment Judgmentで判断する。
+
+<a id="limit-selection"></a>
+### 指値と待機案の選択
+
+許容価格域の中で、見返り・単元数/cash・既知イベントによって判断が変わる少数のlimit候補を、現金維持や他の完成案と比較する。高い上限、低い指値待ち、見送りのいずれも選べ、全呼値の探索や固定数の候補を要求しない。採用理由と、採らない案の重要な差・選択が反転する条件を既存rationale・comparison・forgoneへ記し、同文を各欄へ複写しない。
+
+候補比較は[同じ提案context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)から[正準の購入算術](../../engine/src/baibai_engine/investment_judgment/trade_proposal/conditions.py)へ渡し、limitだけを変える。引数・型・戻り値は実装を見る。観測価格と鮮度はquote、支出上限と提案利回りはlimitであり、quote/Pmaxの計算を任意limitの計算としない。株式basisは市場入力から再確認されるため、入力が変わればcontextから比較を取り直す。算式の複製や比較途中の異なる入力混在を避ける。
+
+未約定で失い得る利益だけでなく、保持cash・他の投資機会・回避できる損失と、待って得られる情報を比べる。悪材料の時だけ指値が成立する逆選択やevent gapも考え、約定率×Base利益だけで選ばない。同じ毀損を価値と別penaltyで二重控除せず、機会損失を未約定後の最高値で事後定義しない。ADVや日足から板・queue・価格impact・精密な約定確率を創作せず、`low <= limit`も約定保証にしない。精密確率や全リスク解消を要件にせず、推定を使う場合は[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
+
+対象session・limitの前提と既知イベント、未約定・部分約定・新情報の後に何をいつ確認するかを記す。事実・仮説が変われば評価やsnapshotへ戻り、新しい内容Reviewへ束縛する。部分約定後は確認済み保有・残注文・cashと既保有追加禁止を含む現行policyで判断し、残数を自動で再提案しない。未約定を理由に上限超へ追随したり、自動で引上げ・延長したりしない。
 
 <a id="price-grid"></a>
 ### 具体条件
 
 価格・数量・対象session・前提を保存する。共通gridはJPX「その他」表を使う保守的な案で、TOPIX500の最良呼値や注文受理・約定の保証ではない。分類・確認期間等が不足すれば経済判断とterms未確定を分ける。作者の希望limitを後日のquoteから推測せず、価格・数量まで未確定なら具体提案完成と報告しない。
 
-実注文の任意期限は人間が確認する取引事実で、対象sessionから補完しない。現在close上限のlimitも即時約定を意味しない。
+対象sessionや提案の見直し時点はbrokerの実注文期限ではない。実注文の任意期限は人間が確認する取引事実で、提案から補完しない。[価格・時間優先と板寄せ/ザラバ](https://www.jpx.co.jp/equities/trading/domestic/04.html)等で結果が変わり、上限の提示は約定・即時約定を保証しない。
 
 <a id="holding"></a>
 ## 保有継続と回収

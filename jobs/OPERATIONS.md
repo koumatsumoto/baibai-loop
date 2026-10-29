@@ -29,7 +29,7 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-手動asofの空欄は元run作成時刻のJST日であり、直近の完了日や利用可能な終値を自動選択しない。寄前・場中に完了済みの日次モデルを使うならJSTの前日を指定し、前営業日まで戻さず週末の経済・外部評価も対象に残す。同日引後でも共通calendarが要求する価格日の入力が未反映ならYは欠測となり、候補0件になり得る。この0件を「買う対象がない」という投資判断に読み替えず、入力不足の理由を確認する。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。生成as_ofと価格観測日は別で、休場日に価格日を繰り上げない。原本の取得は独立scheduleのsource workflowが所有する。
+手動asofの空欄は元run作成時刻のJST日であり、直近の完了日や利用可能な終値を自動選択しない。寄前・場中に完了済みの日次モデルを使うならJSTの前日を指定し、前営業日まで戻さず週末の経済・外部評価も対象に残す。同日引後でも共通calendarが要求する価格日と有効な株式分母が揃わなければ価格座標を計算できず、候補0件になり得る。この0件を「買う対象がない」という投資判断に読み替えず、入力不足の理由を確認する。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。生成as_ofと価格観測日は別で、休場日に価格日を繰り上げない。原本の取得は独立scheduleのsource workflowが所有する。
 
 既定読取は発行時刻よりas_ofの新しさを優先し、古い非空候補へ自動fallbackしない。過去日を後から再計算しても新しいas_ofの結果は置換しないため、その日を分析するときは対象のgeneration/selection IDを明示する。
 
@@ -58,7 +58,7 @@ groupと取得範囲は `data-collection economic groups` とData Collectionのs
 `--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗は通知の「全履歴の限定回復待ち」に出し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
 
 ```bash
-uv run baibai-engine data-collection economic groups
+uv run baibai-jobs acquire-economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
@@ -71,6 +71,8 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・TV master補完・経済取得は共有quotaを守る。
 
 市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewは既存slotとexact-date master方針を保ち、自分の受領だけをprivate stageへ渡す。
+
+定時market sourceの対象日と曜日分岐は、元run作成時計以前の直近の該当cron slotで固定し、JST日跨ぎ・作成後のqueue待機・rerunで翌日へ進めない。手動は明示asofを優先し、空欄だけ元run作成時のJST日を使う。本来の予定日時はAPIから得られないため、run作成自体が次の同slotを越える24時間以上の遅延は復元できず、対象日を確認して明示asofで扱う。
 
 市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同日最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
 
@@ -100,9 +102,9 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 with_publication_lease() (
   handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
   rm -f "$handle"
-  uv run python -m baibai_jobs.storage.publication_lease acquire --purpose operator --handle "$handle" || return $?
+  uv run python -m baibai_jobs.publication.lease acquire --purpose operator --handle "$handle" || return $?
   if PUBLICATION_LEASE_HANDLE="$handle" "$@"; then result=0; else result=$?; fi
-  uv run python -m baibai_jobs.storage.publication_lease release --handle "$handle" || return $?
+  uv run python -m baibai_jobs.publication.lease release --handle "$handle" || return $?
   return "$result"
 )
 ```
@@ -219,7 +221,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
   cp "$target" "$restore_stage"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
   mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine position ledger --db stores/application/baibai.sqlite
+  uv run baibai-engine portfolio ledger --db stores/application/baibai.sqlite
 )
 ```
 
@@ -238,7 +240,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
   mv stores/application/baibai.sqlite "$failed_restore"
   rm -f stores/application/baibai.sqlite-wal stores/application/baibai.sqlite-shm
   mv -f "$restore_stage" stores/application/baibai.sqlite
-  uv run baibai-engine position ledger --db stores/application/baibai.sqlite
+  uv run baibai-engine portfolio ledger --db stores/application/baibai.sqlite
 )
 ```
 
@@ -248,7 +250,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 <a id="research-input-preparation"></a>
 ## Investment Judgment入力の準備
 
-新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。新規は保存済みgenerationと、候補探索では候補政策を固定し、prepareで必要なモデル断面をapplicationへ複写する。prepare中に企業成長を再計算せず、固定入力からの再開にもmarket mirrorを要求しない。企業成長を別途再生成する場合は[固定release](#fixed-release-read)の財務・masterを用意し、更新中のSQLite行で代替しない。取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
+新規・再開の入口は[Investment Judgment skill](../.agents/skills/investment-judgment/SKILL.md)。新規は保存済みgenerationと、候補探索では候補政策を固定し、prepareで必要なモデル断面をapplicationへ複写する。prepare中に企業成長を再計算せず、固定入力からの再開にもmarket mirrorを要求しない。長い表示は同じ保存結果から切り替える。固定旧入力から別generationを生成・保存する専用CLIは現状未提供であり、現在marketから新releaseを作って公開するmodel_integrationを代用しない。個別の成長照会は[固定release](#fixed-release-read)の財務・masterを読み、更新中のSQLite行で代替しない。取得/coverageの不足と補助機能の未提供は[企業成長の契約](../docs/reference/company-growth.md)に従って区別する。
 
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
@@ -256,8 +258,8 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 最初にcurrentを一度解決し、release IDとmanifest SHA-256を固定する。以後は同じmanifestが列挙したdataset/objectだけを読む。optional datasetなしは未収録で、他releaseのpartitionやprovider値で穴埋めしない。
 
 ```bash
-uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores --format json
-uv run baibai-engine lake resolve --mirror stores --bucket baibai-stores \
+uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json
+uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
 
@@ -271,7 +273,7 @@ objectのdigest・bytes・row数・schemaを通常のlake readerで照合する�
 必要量とsnapshot用容量を確認し、manifest/objectの完全mirrorを認可済み読取で揃える。部分JSON exportで正規market readerを代用しない。
 
 ```bash
-uv run baibai-engine lake hydrate \
+uv run baibai-jobs snapshots hydrate \
   --mirror <COMPLETE_LOCAL_MIRROR> --store <LOCAL_MARKET_COPY> \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
@@ -282,9 +284,12 @@ uv run baibai-engine lake hydrate \
 
 ```python
 from pathlib import Path
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import (
+from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
+    EDINET_DOCUMENTS,
+)
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
     materialize_partitions,
     resolve_release,
@@ -294,10 +299,10 @@ from baibai_engine.storage.lake.reader import (
 mirror = Path("<COMPLETE_LOCAL_MIRROR>")
 source = LocalMirrorSource(mirror)
 release = resolve_release(source, "<RELEASE_ID>", manifest_sha256="<MANIFEST_SHA256>")
-name = "edinet.documents"
+name = EDINET_DOCUMENTS.name
 paths = materialize_partitions(
     LakeObjectCache(root=mirror, source=source),
-    dataset=accepted_dataset(release, name),
+    dataset=accepted_dataset(release, EDINET_DOCUMENTS),
     partitions=selected_partitions(release, name),
 )
 with lake_session() as session:
@@ -312,8 +317,13 @@ with lake_session() as session:
 ```python
 from datetime import date
 from pathlib import Path
-from baibai_engine.market.edinet_facts.selection import latest_annual_filing, usable_document
-from baibai_engine.market.edinet_facts.store import document_inventory
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
+    latest_annual_filing,
+    usable_document,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
+    document_inventory,
+)
 
 doc = latest_annual_filing(
     document_inventory(Path("/tmp/research-fixed.sqlite"), date.fromisoformat("<YYYY-MM-DD>")),
@@ -330,9 +340,9 @@ cutoffはJST日末でintraday PITではない。選択なしは書類不存在�
 retention rootはcurrent releaseのみ。到達objectとmanifestを保持し、未到達/stagingはgrace後の候補になる。gcはdry-runを読み、apply時に再planしたhashが一致した場合だけ削除する。calibrationは対象外。
 
 ```bash
-uv run baibai-engine lake inventory --root stores
-uv run baibai-engine lake gc --mirror stores
-uv run baibai-engine lake gc --mirror stores --apply --plan-hash <HASH>
+uv run baibai-jobs snapshots inventory --root stores
+uv run baibai-jobs snapshots gc --mirror stores
+uv run baibai-jobs snapshots gc --mirror stores --apply --plan-hash <HASH>
 ```
 
 immutable prefixのBucket Lockとmutable pointer/stagingを区別する。rollback pointerや全履歴監査を追加せず、問題releaseは正しいstoreから新releaseを前向きに発行する。
@@ -366,8 +376,8 @@ receipt再生成で復旧する場合だけ、対象がbucket直下のmutable ma
 原本が誤っていればsource訂正取得または明示再構築。local DELETEをcloud mergeによる訂正に使わない。系列追加/退役/改名や式変更はL2定義を直し、外部取得条件を変える場合だけData Collectionも直す。原本から再計算できる変更へ再取得・scalar撤回・registry世代台帳を要求しない。
 
 ```bash
-uv run baibai-engine data-collection economic list
-uv run baibai-engine data-collection economic refresh <SOURCE_ID> --all-history --end <YYYY-MM-DD>
+uv run baibai-jobs acquire-economic list
+uv run baibai-jobs acquire-economic refresh <SOURCE_ID> --all-history --end <YYYY-MM-DD>
 uv run baibai-engine market-context reading --asof <YYYY-MM-DD>
 uv run baibai-jobs validate-market-context-stores
 ```
@@ -403,7 +413,7 @@ main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrat
 未初期化storeだけ、整合する隔離marketとdocument inventoryを指定して初期抽出する。
 
 ```bash
-uv run baibai-engine data-collection market refresh-edinet-facts \
+uv run baibai-jobs maintain-market refresh-edinet-facts \
   --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
 ```
 
@@ -418,8 +428,8 @@ dailyは未初期化をskipし、初期化後の新規年次/訂正を独立処�
 限定collectは明示した少数銘柄の公開HTTPを直列で読み、private captureへ保存する。通常TLS/proxyを使い、403/429でそのsourceを止める。captureの保存先は試行ごとに別名にし、部分captureを再取得で上書きしない。既存のcurrent-schema隔離marketへimportする。
 
 ```bash
-uv run baibai-engine external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/responses.json
-uv run baibai-engine external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
+uv run baibai-jobs external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/responses.json
+uv run baibai-jobs external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
 ```
 
 importは原本を保持して選択attemptを再解析する。parse失敗時にL1は残り得るがL2を部分追記しない。原本/観測の挿入件数と再投入0を確認し、HTTP・parse・未試行・正常nullを分ける。新規DB初期化や旧schema移行は行わない。
@@ -474,7 +484,7 @@ gh workflow run cloud-tradingview-snapshot.yml --ref main \
 対話commandを起動したまま認証URLを開く。callbackは127.0.0.1:8765で、接続拒否なら待受やWindows/WSLの接続を確認する。stateはrepo外に置く。
 
 ```bash
-uv run baibai-engine tradingview authorize --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
+uv run baibai-jobs tradingview-source authorize --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
 gh secret set TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop --env tradingview-runtime \
   < "$HOME/.cache/baibai-loop/tradingview/oauth.json"
 ```
@@ -491,7 +501,7 @@ tradingview-runtimeはjob開始時に最新のrotating stateを読むためのen
 専用clean runtime checkoutを使い、fresh pull/hydrateで置換されるstoreを編集中のcheckoutと共用しない。既存R2/J-Quants接続、AWS CLI、httpfsを用意する。GitHub stateをコピーせず別fileへ対話認証する。
 
 ```bash
-uv run baibai-engine tradingview authorize --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
+uv run baibai-jobs tradingview-source authorize --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 uv run baibai-jobs tradingview --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
 ```
 
@@ -508,7 +518,7 @@ Retry-Afterがある場合は期限を守る。Actions cooldownの保存失敗�
 保存L1の一日分だけをoffline再構築する時は、同日・master・tool・Universe・受領時刻のreceiptを指定する。
 
 ```bash
-uv run baibai-engine tradingview rebuild --sqlite /tmp/market-rebuild.sqlite \
+uv run baibai-jobs tradingview-source rebuild --sqlite /tmp/market-rebuild.sqlite \
   --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
 ```
 
@@ -523,21 +533,21 @@ uv run baibai-engine tradingview rebuild --sqlite /tmp/market-rebuild.sqlite \
 
 既存のdue taskを使い、同じ期限・対象・問いのopen taskを重複登録しない。実行後は完了を記録し、必要な次回分だけ作る。開発変更はGitHub Issueで管理する。
 
-calibrationは月初、前月の完全月末まで同じrulesでbuild→evaluateする。forceは全再構築の時だけ使う。
+旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しいモデル生成・候補政策の通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
 
 ```bash
-uv run baibai-engine screening calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-uv run baibai-engine screening calibration-evaluate --out /tmp/calibration-evaluation.yaml
+uv run baibai-engine historical-evaluation calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
+uv run baibai-engine historical-evaluation calibration-evaluate --out /tmp/calibration-evaluation.yaml
 ```
 
-判断面の文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
+保存済み旧Selectionに対応する較正文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
 
 ```bash
-uv run baibai-engine screening calibration-evaluate \
+uv run baibai-engine historical-evaluation calibration-evaluate \
   --run-purpose empirical_change_evidence --decision-subject estimator_policy \
   --required-asof <YYYY-MM-DD> --required-metric er_level_calibration \
   --out /tmp/calibration-evaluation.yaml \
-  --context-out engine/src/baibai_engine/machine_analysis/company_valuation/calibration/published/er-level-calibration-latest.yaml
+  --context-out engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml
 ```
 
 required-asofは事前に選んだ全対象月分を繰り返す。配布前にoperative runのrules/model identity・期限・不足を照合し、Gitでreviewする。[較正の意味](../docs/reference/estimate-calibration.md)に従い、記述context成功をformal evidence成立としない。古いcontextの日付・hashだけを編集しない。

@@ -6,12 +6,16 @@ from io import BytesIO
 import pandas as pd
 import pytest
 
-from baibai_engine.market.jpx_decode import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
     build_earnings_calendar_snapshot,
     parse_earnings_calendar_excel,
 )
-from baibai_engine.market.jpx_reader import read_jpx_earnings_calendar_snapshot
-from baibai_engine.market.jpx_rebuild import store_jpx_earnings_calendar_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
+    read_jpx_earnings_calendar_snapshot,
+)
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
+    store_jpx_earnings_calendar_snapshot,
+)
 
 
 @pytest.mark.parametrize("schedule", ["", "未定_Undecided", "10月中旬", "conflicting"])
@@ -44,7 +48,9 @@ def test_unknown_newer_schedule_blocks_older_known_date(tmp_path, schedule, reve
     snapshot = build_earnings_calendar_snapshot(
         files, asof_date=date(2026, 10, 15), source_urls=tuple(by_url)
     )
-    store_jpx_earnings_calendar_snapshot(tmp_path / "market.sqlite", snapshot)
+    store_jpx_earnings_calendar_snapshot(
+        tmp_path / "market.sqlite", snapshot, fetched_at_utc="2026-10-15T00:00:00+00:00"
+    )
     assert [entry.ticker for entry in snapshot.entries] == ["7203"]
     stored = read_jpx_earnings_calendar_snapshot(tmp_path / "market.sqlite", date(2026, 10, 15))
     assert stored is not None

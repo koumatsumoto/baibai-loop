@@ -18,10 +18,10 @@ from tests.jobs.external_assessment_publication_fixtures import integrate_ready_
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, completed_pair, plan
 
-from baibai_jobs.jobs import external_assessment_daily as daily
-from baibai_jobs.jobs import external_assessment_sources as sources
-from baibai_jobs.jobs.external_assessment_cohorts import new_result, plan_bytes
-from baibai_jobs.storage import external_assessment_staging as staging
+import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.sources as sources
+import baibai_jobs.acquisition.external_assessments.staging as staging
+from baibai_jobs.acquisition.external_assessments.cohorts import new_result, plan_bytes
 
 
 def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):
@@ -265,7 +265,7 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     assert "always()" in handoff["if"]
     assert "needs.acquire.result" not in handoff["if"]
     ready = next(step for step in handoff["steps"] if step.get("id") == "ready")
-    assert "external_assessment_sources ready" in ready["run"]
+    assert "acquisition.external_assessments.sources ready" in ready["run"]
     assert '--selection-json "$SOURCE_RUNS"' in ready["run"]
     assert '--master-asof "$MASTER_ASOF"' in ready["run"]
     assert "--confirmed-partial" in ready["run"]

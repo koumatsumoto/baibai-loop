@@ -11,46 +11,61 @@ import pytest
 from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
 from tests.engine.test_kabumap import html as kabumap_html
 from tests.engine.test_minkabu import html as minkabu_html
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_response_fixtures import response
 
-from baibai_engine.data_collection.equity_web.models import EquityWebSourceResponse, Source
-from baibai_engine.job_api import (
-    ExternalAssessmentAnalystRatingObservation,
-    ExternalAssessmentCollectionOutcome,
-    ExternalAssessmentModelValuationObservation,
-    external_assessment_collector_binding,
-    external_assessment_decode_attempt,
-    external_assessment_save_observations,
+import baibai_jobs.acquisition.external_assessments.staging as staging
+import baibai_jobs.integration.external_assessments as external_assessment
+import baibai_jobs.publication.snapshot_publication as publisher
+from baibai_engine.data_collection.receipts.public_pages.models import (
+    EquityWebSourceResponse,
+    Source,
 )
-from baibai_engine.machine_analysis.external_assessment.normalization import (
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation as ExternalAssessmentModelValuationObservation,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     kabumap,
     minkabu,
     monex,
     rakuten,
 )
-from baibai_jobs.jobs import external_assessment_integration as external_assessment
-from baibai_jobs.jobs.external_assessment_cohorts import (
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt as external_assessment_decode_attempt,
+)
+from baibai_engine.machine_analysis.observations.external_assessments.store import (
+    save_observations as external_assessment_save_observations,
+)
+from baibai_engine.storage.objects.r2 import (
+    ObjectStore,
+)
+from baibai_jobs.acquisition.external_assessments.cohorts import (
     RunPlan,
     make_plan,
     new_result,
     record_outcome,
 )
-from baibai_jobs.storage import external_assessment_staging as staging
-from baibai_jobs.storage import publish_market_lake as publisher
-from baibai_jobs.storage.external_assessment_raw import RawBundle
-from baibai_jobs.storage.external_assessment_ready import prepare_plan, save_ready
-from baibai_jobs.storage.external_assessment_staging import (
+from baibai_jobs.acquisition.external_assessments.collection import (
+    CollectionOutcome as ExternalAssessmentCollectionOutcome,
+)
+from baibai_jobs.acquisition.external_assessments.collection import (
+    collector_binding as external_assessment_collector_binding,
+)
+from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     put_private,
     stage_bytes,
     stage_key,
 )
-from baibai_jobs.storage.lake_publish import ObjectStore
-from baibai_jobs.storage.publication_lease import acquire, verify_held
+from baibai_jobs.integration.external_assessment_raw import RawBundle
+from baibai_jobs.integration.external_assessment_ready import prepare_plan, save_ready
+from baibai_jobs.publication.lease import acquire, verify_held
 
 
 def pair_responses(

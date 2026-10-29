@@ -7,11 +7,11 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 
-from baibai_engine.data_collection.jpx.models import JPXResponse
-from baibai_engine.data_collection.jpx.receipts import (
+from baibai_engine.data_collection.providers.jpx.models import JPXResponse
+from baibai_engine.data_collection.providers.jpx.receipts import (
     complete_bundle,
     create_bundle,
     declare_bundle_resources,
@@ -19,16 +19,22 @@ from baibai_engine.data_collection.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.storage.lake.datasets import LAKE_DATASETS
-from baibai_engine.storage.lake.duck import lake_session
-from baibai_engine.storage.lake.hydrate import hydrate_market_store
-from baibai_engine.storage.lake.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.lake.reader import resolve_release
-from baibai_engine.storage.lake.release import create_release
-from baibai_engine.storage.lake.sources import sha256_file
-from baibai_engine.storage.lake.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_engine.storage.observations.lake_origin import LakeStoreOrigin, write_lake_store_origin
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
+from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.release import create_release
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication.datasets import (
+    LAKE_DATASETS,
+)
+from baibai_jobs.publication.policy import release_policy_for_profile
 
 INDEX = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/index.html"
 WORKBOOK = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
@@ -87,7 +93,7 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifests = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 source_snapshot=snapshot,
                 producer_git_commit="a" * 40,
@@ -108,6 +114,8 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
         mirror_root=mirror,
         release_id="jpx-raw-fixed",
         created_at=built,
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     source = LocalMirrorSource(mirror)
     release = resolve_release(
@@ -123,7 +131,12 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
     with lake_session() as session:
         report = hydrate_market_store(
-            session, release=release, cache=cache, store=destination, dataset_names=DATASETS
+            session,
+            release=release,
+            cache=cache,
+            store=destination,
+            dataset_names=DATASETS,
+            catalog=LAKE_DATASETS,
         )
     assert report.rows["jpx.source_bundles"] == 2
     assert report.rows["jpx.source_responses"] == 3

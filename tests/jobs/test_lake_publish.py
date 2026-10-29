@@ -9,44 +9,49 @@ from pathlib import Path
 
 import pytest
 from botocore.exceptions import ClientError, ReadTimeoutError
-from tests.helpers.l1_release import market_store
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.storage.lake import models as lake_models
-from baibai_engine.storage.lake import writer as lake_writer_module
-from baibai_engine.storage.lake.keys import dataset_manifest_key
-from baibai_engine.storage.lake.release import (
+import baibai_jobs.publication.snapshot_publication as market_publish_module
+import baibai_jobs.publication.snapshot_release as lake_publish_module
+from baibai_engine.storage.objects import r2 as object_storage
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    RemoteObject,
+)
+from baibai_engine.storage.snapshots import models as lake_models
+from baibai_engine.storage.snapshots import writer as lake_writer_module
+from baibai_engine.storage.snapshots.keys import dataset_manifest_key
+from baibai_engine.storage.snapshots.release import (
     LakeReleasePointer,
     canonical_lake_model_bytes,
     create_release,
 )
-from baibai_engine.storage.lake.writer import (
+from baibai_engine.storage.snapshots.writer import (
     LakeBuildError,
     export_dataset_snapshot,
     export_market_store,
     sealed_sqlite_snapshot,
 )
-from baibai_engine.storage.observations.coverage import record_range_source_coverage
-from baibai_engine.storage.observations.lake_origin import (
+from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.observations.schema import open_connection
-from baibai_engine.storage.observations.snapshot import create_snapshot
-from baibai_jobs.storage import lake_publish as lake_publish_module
-from baibai_jobs.storage import publish_market_lake as market_publish_module
-from baibai_jobs.storage.lake_publish import (
-    Boto3R2Store,
-    LakeCASConflict,
-    LakePublishError,
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
+from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.lease import _save_handle, acquire, release
+from baibai_jobs.publication.policy import release_policy_for_profile
+from baibai_jobs.publication.snapshot_release import (
     PointerPrecondition,
-    RemoteObject,
     publish_release,
 )
-from baibai_jobs.storage.publication_lease import _save_handle, acquire, release
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +66,10 @@ def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         market_publish_module,
         "create_lake_release",
-        lambda **kwargs: create_release(created_at=fixed_now, **kwargs),
+        lambda **kwargs: create_release(
+            created_at=fixed_now,
+            **kwargs,
+        ),
     )
     export_lake = market_publish_module.export_market_snapshot
     monkeypatch.setattr(
@@ -90,7 +98,7 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
     ) as snapshot:
         datasets = [
             export_dataset_snapshot(
-                dataset_name=name,
+                dataset=LAKE_DATASETS[name],
                 mirror_root=mirror,
                 producer_git_commit="a" * 40,
                 source_snapshot=snapshot,
@@ -106,6 +114,8 @@ def _release(tmp_path: Path) -> tuple[Path, Path]:
         mirror_root=mirror,
         release_id="release-1",
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     return mirror, release_path
 
@@ -116,6 +126,8 @@ def _successor_release(mirror: Path, release_id: str) -> Path:
         mirror_root=mirror,
         release_id=release_id,
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     return release_path
 
@@ -211,6 +223,8 @@ def test_pointer_cas_conflict_leaves_current_unchanged(tmp_path) -> None:
         mirror_root=mirror,
         release_id="release-2",
         created_at=datetime(2026, 1, 7, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     store.conflict_pointer = True
 
@@ -957,7 +971,7 @@ def test_r2_adapter_classifies_conflict_and_timeout(
         "PutObject",
     )
     with pytest.raises(LakeCASConflict):
-        lake_publish_module._raise_r2_error("put-object", conflict)
+        object_storage._raise_r2_error("put-object", conflict)
 
     class TimeoutClient:
         def head_object(self, **_: object) -> object:
@@ -1147,9 +1161,9 @@ def test_operation_timeout_covers_the_object_it_transfers() -> None:
     two_gigabytes = 2_013_155_328
     measured_upload_seconds = 181
 
-    assert lake_publish_module._operation_timeout(None) == 120
-    assert lake_publish_module._operation_timeout(0) == 120
-    assert lake_publish_module._operation_timeout(two_gigabytes) > measured_upload_seconds
+    assert object_storage._operation_timeout(None) == 120
+    assert object_storage._operation_timeout(0) == 120
+    assert object_storage._operation_timeout(two_gigabytes) > measured_upload_seconds
 
 
 def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -1195,12 +1209,15 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
         producer_git_commit="a" * 40,
         expected_store_origin=None,
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     release_path, _ = create_release(
         dataset_manifest_paths=sorted(item.manifest_path for item in build.datasets.values()),
         mirror_root=mirror,
         release_id="two-month-1",
         created_at=datetime(2026, 3, 1, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
     return sqlite_path, mirror, release_path
 
@@ -1227,12 +1244,15 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
         producer_git_commit="a" * 40,
         expected_store_origin=None,
         created_at=datetime(2026, 3, 2, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
     )
     successor_path, _ = create_release(
         dataset_manifest_paths=sorted(item.manifest_path for item in corrected.datasets.values()),
         mirror_root=mirror,
         release_id="two-month-2",
         created_at=datetime(2026, 3, 2, tzinfo=UTC),
+        catalog=LAKE_DATASETS,
+        policy=release_policy_for_profile("production"),
     )
 
     before = len(store.get_keys)

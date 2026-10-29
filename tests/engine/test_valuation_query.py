@@ -12,24 +12,34 @@ import pytest
 from tests.helpers.research_selection import selection
 from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
-from baibai_engine.investment_judgment.inputs import project_research_inputs
-from baibai_engine.investment_judgment.selection import AnalysisInputSnapshot, InputGap
-from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.machine_analysis.company_valuation.query import (
+from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot, InputGap
+from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
+    build_candidate_contexts,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
+    load_screening_rules,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
+    ScreeningRunReader,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
+    DerivedMetrics,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
+    build_stock_analysis_metrics,
+    expected_return_inputs,
+)
+from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
     balance_sheet_from_analysis,
     cash_flow_from_analysis,
     forecast_sources_from_analysis,
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
 )
-from baibai_engine.machine_analysis.screening.discovery.candidates import build_candidate_contexts
-from baibai_engine.machine_analysis.screening.rule_config import load_screening_rules
-from baibai_engine.machine_analysis.screening.run_store import ScreeningRunReader
-from baibai_engine.machine_analysis.screening.schema import DerivedMetrics
-from baibai_engine.machine_analysis.screening.stock_analysis_builder import (
-    build_stock_analysis_metrics,
-    expected_return_inputs,
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
 )
 
 CUTOFF = date(2026, 9, 19)
@@ -103,15 +113,10 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     )
     before = path.read_bytes()
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    inputs = _project_inputs(
+    inputs = _project_saved_legacy_inputs(
         tickers=("1234", "9999"),
-        as_of=CUTOFF,
-        cutoff=now,
         known_at=now,
-        market_path=tmp_path / "absent-market",
         runs_path=path,
-        indicators_path=tmp_path / "absent-indicators",
-        app_path=tmp_path / "absent-app",
         run_revision_id="cf-fixed",
     )
     security = inputs["securities"]["1234"]
@@ -364,15 +369,10 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
     assert "not observed zero" in valuation.carry_missing_assumption
     assert valuation.assumptions == estimate.assumptions
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
-    research = _project_inputs(
+    research = _project_saved_legacy_inputs(
         tickers=("1234",),
-        as_of=CUTOFF,
-        cutoff=now,
         known_at=now,
-        market_path=tmp_path / "absent-market",
         runs_path=path,
-        indicators_path=tmp_path / "absent-indicators",
-        app_path=tmp_path / "absent-app",
     )["securities"]["1234"]["machine_valuation"]["estimate"]
     for key in (
         "dividend_yield",
@@ -436,7 +436,7 @@ def test_saved_dps_reaches_research_without_changing_candidates_or_raw_values(
     )
     saved = type(selected).model_validate_json(selected.model_dump_json())
     snapshot_before = saved.model_dump(mode="json")
-    # Normal Research reads the frozen analysis, even after its mutable run store is gone.
+    # Retained legacy Selection reads its frozen analysis after the old run store is gone.
     path.unlink()
     projected = project_research_inputs(saved)["securities"]
     recorded = projected["1234"]["machine_valuation"]["estimate"]
@@ -557,27 +557,23 @@ def test_valuation_import_does_not_start_research_or_aggregate_read_api():
             "-c",
             """
 import sys
-from baibai_engine.machine_analysis.company_valuation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.company_valuation.query import machine_valuation_from_analysis
-assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.read_api", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
+from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
+from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import machine_valuation_from_analysis
+assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
 """,
         ],
         check=True,
     )
 
 
-def _project_inputs(
+def _project_saved_legacy_inputs(
     *,
     tickers,
-    as_of,
-    cutoff,
     known_at,
-    market_path,
     runs_path,
-    indicators_path,
-    app_path,
     run_revision_id=None,
 ):
+    """Build a retained legacy snapshot, not the current generated-model Research input."""
     revision = run_revision_id or "carry-inputs"
     gaps = tuple(
         InputGap(

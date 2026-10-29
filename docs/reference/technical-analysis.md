@@ -1,23 +1,23 @@
 # テクニカル分析
 
-保存価格から位置・勢い・変動幅を読む独立L2領域。`machine_analysis/technical_analysis/`が計算・query・CLIを所有し、[共有価格basis](../../engine/src/baibai_engine/market/price_basis.py)を使う。企業価値・候補順位・合成score・自動売買を作らず、新しいsourceやstoreを持たない。
+価格の位置・勢い・変動を記述するL2であり、企業価値や反転確率を認定しない。算式・期間・出力fieldは[所有実装](../../engine/src/baibai_engine/machine_analysis/models/technical_analysis/)を正本とし、本書では解釈を誤りやすい境界だけを扱う。
 
 ## 入力と解釈
 
-raw closeをas-of以下の価格調整factorで揃えたprice-only系列で、現金配当を含まない。close欠損日のactionも調整から落とさず、終値は補間・前日値補完しない。bar数は観測数であり連続営業日数ではない。計算可能は鮮度・流動性・取引可能性の保証ではなく、不足指標だけを未評価にする。
+価格調整した終値のprice-only観測で、現金配当を含まない。観測bar窓と共通営業日窓は別の時間軸であり、本数が足りても鮮度・流動性・取引可能性の証明にはならない。欠測を補間せず、価格のない日のactionは換算へ残す。
 
-SMA20/50/200は現在価格との位置・並び・乖離を読む。期間は簡潔な慣例で、日本株での最適性を実証した値ではない。傾きや新規crossを推測しない。BB20の帯は価格分布の記述で、正規性、95%包含、反転確率は仮定しない。
+MA・BB・RSIは同じ価格の加工で、独立した証拠票ではない。期間は慣例で最適性を実証した値ではなく、BBの帯を95%包含や反転確率としない。Wilder RSIは保持履歴のseedに依存し、履歴延長・訂正で値が変わる。flat時の中立値も計算規約である。12–1か月momentumは直近月を除く別の価格比較であり、これらと窓を混同しない。
 
-Wilder RSI14は保存済み全履歴のseedと再帰に依存する。履歴の開始・本数・seed情報を確認し、直近14差分の単純平均と混ぜない。完全flatの50は計算上のconventionで、独立した中立判断ではない。履歴延長やprovider訂正で計算値は変わり得る。
+## 共通calendarの価格context
 
-12–1か月momentumは共通営業日のP(t−21)/P(t−252)−1で、直近月を除く価格変化。共通calendarの必要範囲に穴があれば欠測とし、個社の欠測端点を近隣価格へずらさない。SMA・RSI等の個社観測bar窓とは別の時間軸である。
+端点returnと観測peakからの下落を区別する。peakは窓内に実在する最高終値で、未観測日を含む真の最高値の保証ではない。長期peakからの下落は前年比returnではなく、開始日からのreturnと併読する。旧MCの観測bar窓・高値とは定義が異なる。
+
+価格のない日は、通常の無約定と終日停止を識別できない。row不在・部分欠測・不正値も同じ理由にまとめない。実在する価格対だけで注記の成立を示せる場合と、未知の日が残るため不成立を確定できない場合を分ける。このため欠測は一律の陽性取消にも陰性にもならない。
+
+価格注記は研究中の経路確認を助ける仮の目安で、投資採否・最適閾値・自動Research開始・追加調査義務ではない。観測の方法と注記政策を別に識別し、注記の存在や件数を成果にしない。TAの絶対経路とMCの同端点benchmark比較を結び、benchmark不足は相対比較だけへ局所化する。
 
 ## Investment Judgmentへの接続
 
-```bash
-uv run baibai-engine technical-analysis show --ticker 7203 --asof 2026-10-16
-```
+固定generationの観測をSelectionへ渡し、旧snapshotにない結果を後付けしない。観測日cutoffを守ることと、当時の受領・訂正前vintageを復元することは別である。
 
-観測日cutoffは守るが、後日受領や訂正前vintageまで復元するintraday PITではない。新しいInvestment Judgmentは固定generationからtechnical_analysisのモデル結果をSelectionへ複写し、domain-inputs.yamlのsecuritiesへ投影する。blockのない旧snapshotへ後付け再計算しない。
-
-MA・BB・RSI・騰落率は同じ価格を加工した情報で、独立票ではない。BB下側・低RSIを買い、上側・高RSIを売りと自動解釈せず、価値差と価格局面を[銘柄評価](stock-assessment.md#analysis-domain-integration)で接続する。
+価格局面を価値差・事業変化・ニュースへどう結び付けるかは[銘柄評価](stock-assessment.md#analysis-domain-integration)が所有する。BB下側や低RSIを買い、上側や高RSIを売りと自動解釈しない。

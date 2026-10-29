@@ -1,4 +1,4 @@
-"""共通統合はモデルとL1を固定して公開し、Web生成に成功条件を委ねない。"""
+"""共通統合はモデルとlake releaseを固定して公開し、Web生成に成功条件を委ねない。"""
 
 import os
 import subprocess
@@ -125,7 +125,7 @@ def test_machine_push_preserves_its_outcome_and_never_uploads_views(tmp_path, by
 def test_integration_date_uses_original_run_and_manual_clock():
     from datetime import UTC, date, datetime
 
-    from baibai_jobs.jobs.schedule import integration_target_date
+    from baibai_jobs.schedule import integration_target_date
 
     original = datetime(2026, 10, 23, 13, 43, tzinfo=UTC)
     assert integration_target_date(original, scheduled=True) == date(2026, 10, 23)

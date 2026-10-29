@@ -8,23 +8,23 @@ from unittest.mock import patch
 
 import pytest
 
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     index_calendar_announcements,
     next_earnings_dates,
 )
-from baibai_engine.market.jpx_reader import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     JPXReader,
     read_jpx_earnings_calendar_snapshot,
     read_next_earnings_dates,
 )
-from baibai_engine.market.jpx_rebuild import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
     store_jpx_earnings_calendar_snapshot,
     store_jpx_regulations,
 )
-from baibai_engine.storage.observations.schema import (
+from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
     SQLiteSchemaError,
     open_connection,
@@ -253,3 +253,91 @@ def test_corrupt_file_is_not_unknown(tmp_path: Path) -> None:
     with pytest.raises(sqlite3.DatabaseError):
         JPXReader(path).get_earnings_calendar_snapshot(date(2026, 5, 8))
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", ["earnings", "regulations"])
+def test_jpx_snapshot_keeps_one_generation_across_concurrent_refresh(
+    calendar_path, monkeypatch, kind
+):
+    import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
+
+    path = calendar_path
+    asof = date(2026, 5, 8)
+    store_jpx_regulations(
+        path,
+        asof,
+        flags_by_ticker={"1301": ("old-source",)},
+        source_names=("old-source",),
+        fetched_at_utc="2026-05-08T00:00:00+00:00",
+    )
+    with closing(sqlite3.connect(path)) as setup:
+        setup.execute("PRAGMA journal_mode=WAL")
+    original_connect = jpx_reader.connect_current
+    committed = []
+
+    def refresh():
+        assert not committed
+        if kind == "earnings":
+            store_jpx_earnings_calendar_snapshot(
+                path,
+                JPXEarningsCalendarSnapshot(
+                    entries=(JPXEarningsCalendarEntry("9999", date(2026, 6, 2)),),
+                    source_urls=(),
+                    raw_record_count=1,
+                    excluded_record_count=0,
+                    superseded_record_count=0,
+                ),
+                fetched_at_utc="2026-05-08T01:00:00+00:00",
+            )
+        else:
+            store_jpx_regulations(
+                path,
+                asof,
+                flags_by_ticker={"9999": ("new-source",)},
+                source_names=("new-source",),
+                fetched_at_utc="2026-05-08T01:00:00+00:00",
+            )
+        committed.append(True)
+
+    class Cursor:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        def fetchone(self):
+            result = self.cursor.fetchone()
+            refresh()
+            return result
+
+        def fetchall(self):
+            result = self.cursor.fetchall()
+            refresh()
+            return result
+
+    class Connection:
+        def __init__(self, database):
+            self.connection = original_connect(database)
+
+        def execute(self, sql, parameters=()):
+            cursor = self.connection.execute(sql, parameters)
+            trigger = "FROM source_coverage" if kind == "earnings" else "FROM jpx_regulation_flags"
+            return Cursor(cursor) if trigger in sql else cursor
+
+        def close(self):
+            self.connection.close()
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(jpx_reader, "connect_current", Connection)
+        if kind == "earnings":
+            snapshot = read_jpx_earnings_calendar_snapshot(path, asof)
+            assert [entry.ticker for entry in snapshot.entries] == ["1301", "130A", "2914"]
+        else:
+            snapshot = jpx_reader.read_jpx_regulations(path, asof)
+            assert snapshot.flags_by_ticker == {"1301": ("old-source",)}
+            assert snapshot.source_names == ("old-source",)
+    assert committed == [True]
+    if kind == "earnings":
+        assert read_next_earnings_dates(path, asof) == {"9999": date(2026, 6, 2)}
+    else:
+        snapshot = jpx_reader.read_jpx_regulations(path, asof)
+        assert snapshot.flags_by_ticker == {"9999": ("new-source",)}
+        assert snapshot.source_names == ("new-source",)

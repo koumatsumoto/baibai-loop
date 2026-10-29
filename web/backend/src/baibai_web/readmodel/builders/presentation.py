@@ -2,8 +2,8 @@
 
 from datetime import date, datetime, timedelta
 
-from baibai_engine.foundation.time import JST as _JST
-from baibai_engine.position.ledger import HoldingSnapshot
+from baibai_engine.portfolio.ledger.events import HoldingSnapshot
+from baibai_engine.primitives.time import JST as _JST
 from baibai_web.readmodel.models import HoldingView
 
 
@@ -32,6 +32,6 @@ def holding_view(holding: HoldingSnapshot, *, security_name: str | None) -> Hold
 
 
 def percentage(numerator: int | None, denominator: int | None, *, digits: int) -> float | None:
-    if numerator is None or denominator is None:
+    if numerator is None or denominator is None or denominator == 0:
         return None
-    return round(numerator / denominator * 100, digits) if denominator else 0.0
+    return round(numerator / denominator * 100, digits)

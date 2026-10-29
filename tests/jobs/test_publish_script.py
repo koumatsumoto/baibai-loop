@@ -105,7 +105,7 @@ def test_no_argument_validates_ledger_before_upload(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert call_log.read_text(encoding="utf-8").splitlines() == [
         (
-            "uv:run baibai-engine position ledger "
+            "uv:run baibai-engine portfolio ledger "
             f"--db {publish.parents[2]}/stores/application/baibai.sqlite"
         ),
         "r2:push-app",
@@ -130,7 +130,7 @@ def test_failed_ledger_preflight_stops_before_publish(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert call_log.read_text(encoding="utf-8").splitlines() == [
         (
-            "uv:run baibai-engine position ledger "
+            "uv:run baibai-engine portfolio ledger "
             f"--db {publish.parents[2]}/stores/application/baibai.sqlite"
         )
     ]

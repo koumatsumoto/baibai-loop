@@ -20,11 +20,11 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 
-from baibai_engine.cli import main as engine_main
-from baibai_engine.foundation.yaml_io import safe_load
-from baibai_engine.investment_judgment.operation.cli import main as operation_main
-from baibai_engine.position.cli import main as position_main
-from baibai_engine.task_cli import main as task_main
+from baibai_engine.cli.app import main as engine_main
+from baibai_engine.cli.operation import main as operation_main
+from baibai_engine.cli.portfolio import main as position_main
+from baibai_engine.cli.tasks import main as task_main
+from baibai_engine.primitives.yaml import safe_load
 
 ROOT = Path(__file__).resolve().parents[2]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"

@@ -14,8 +14,8 @@ from tools.experiments.measure_limit_outcomes import (
     main,
 )
 
-from baibai_engine.position.ledger import PortfolioLedgerDocument
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ASOF = date(2026, 7, 31)
 
@@ -380,8 +380,8 @@ def test_cli_writes_yaml_and_reports_an_unreadable_ledger(tmp_path: Path) -> Non
 def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> None:
     from datetime import datetime
 
-    from baibai_engine.position.ledger import replay_events_through
-    from baibai_engine.position.store import LedgerStoreService
+    from baibai_engine.portfolio.ledger.events import replay_events_through
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
     app_db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
     cases = [
@@ -599,3 +599,37 @@ def test_expired_window_uses_the_same_tokyo_date_for_any_offset(tmp_path, releas
     assert order["window_end"] == "2026-07-10"
     assert order["window_low_yen"] == 1050.0
     assert order["post_expiry_sessions_observed"] == 0
+
+
+@pytest.mark.parametrize("target", ["ledger", "market"])
+@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
+def test_cli_never_overwrites_an_input_store(tmp_path: Path, target: str, alias: str) -> None:
+    app_db, market = tmp_path / "app.sqlite", tmp_path / "market.sqlite"
+    _ledger(app_db, [])
+    _market(market, [("2026-07-02", 990.0, 1000.0)])
+    source = app_db if target == "ledger" else market
+    out = source
+    if alias != "direct":
+        out = tmp_path / "report.yaml"
+        if alias == "symlink":
+            out.symlink_to(source)
+        else:
+            out.hardlink_to(source)
+    original = app_db.read_bytes(), market.read_bytes()
+
+    assert (
+        main(
+            [
+                "--db",
+                str(app_db),
+                "--sqlite-path",
+                str(market),
+                "--asof",
+                ASOF.isoformat(),
+                "--out",
+                str(out),
+            ]
+        )
+        == 1
+    )
+    assert (app_db.read_bytes(), market.read_bytes()) == original

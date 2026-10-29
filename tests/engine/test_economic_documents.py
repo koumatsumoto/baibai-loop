@@ -5,12 +5,12 @@ from types import MappingProxyType
 
 import pytest
 
-from baibai_engine.data_collection.economic.documents import (
+from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-from baibai_engine.data_collection.economic.store import initialize_database
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 
 
 def document(**changes):
@@ -108,7 +108,7 @@ def test_document_requires_timezone(tmp_path):
 
 
 def test_document_bodies_participate_in_store_merge(tmp_path):
-    from baibai_jobs.storage.merge_economic_store import merge_stores
+    from baibai_jobs.integration.native_source_merge import merge_stores
 
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     value = document()

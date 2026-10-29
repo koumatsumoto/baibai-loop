@@ -6,14 +6,14 @@ import pytest
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.response import HTTPResponse
 
-from baibai_engine.data_collection.economic.providers.read_retry import ReadDeadline
-from baibai_engine.data_collection.jpx.http import JPXHTTP
-from baibai_engine.data_collection.jpx.models import JPXAcquisitionError
-from baibai_engine.data_collection.read_http import (
+from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
+from baibai_engine.data_collection.providers.jpx.models import JPXAcquisitionError
+from baibai_engine.data_collection.transport.http import (
     AcquisitionDeadlineExceeded,
     check_acquisition_deadline,
     wait_for_read_retry,
 )
+from baibai_engine.data_collection.transport.retry import ReadDeadline
 
 
 @pytest.mark.parametrize("deadline", ["100", "99", "nan", "inf", "invalid"])

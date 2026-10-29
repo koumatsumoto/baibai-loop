@@ -24,8 +24,8 @@ dist/
 # Local planning drafts
 .plan/
 
-# Screening caches
-# Disposable local cache for provider byproducts such as EDINET CSV ZIPs.
+# Disposable development, diagnostic and draft files.
+# Retained provider originals belong to runtime stores, not this cache.
 .cache/
 
 # Runtime stores are ignored by stores/.gitignore; only their contracts are tracked.

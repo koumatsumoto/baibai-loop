@@ -11,9 +11,11 @@ from datetime import date
 import pytest
 from pydantic import TypeAdapter
 
-from baibai_engine.machine_analysis.company_valuation.metrics.models import FinancialSnapshot
-from baibai_engine.market.adjusted_prices import read_price_bars
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    FinancialSnapshot,
+)
+from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
@@ -47,9 +49,9 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
 @pytest.mark.parametrize(
     "module",
     [
-        "machine_analysis.market_context.history",
-        "machine_analysis.market_context.margin",
-        "machine_analysis.technical_analysis.calculations",
+        "machine_analysis.models.market_context.history",
+        "machine_analysis.models.market_context.margin",
+        "machine_analysis.models.technical_analysis.calculations",
     ],
 )
 def test_market_context_calculation_cold_import_does_not_load_composition_or_io(module) -> None:
@@ -71,11 +73,10 @@ def test_market_context_calculation_cold_import_does_not_load_composition_or_io(
     forbidden = (
         "baibai_engine.machine_analysis.screening",
         "baibai_engine.investment_judgment",
-        "baibai_engine.read_api",
         "baibai_engine.storage",
-        "baibai_engine.market.edinet_metrics.csv",
-        "baibai_engine.market.price_reader",
-        "baibai_engine.market.adjusted_prices",
+        "baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv",
+        "baibai_engine.machine_analysis.observations.prices.price_reader",
+        "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
     )
     assert not [name for name in modules if name.startswith(forbidden)]
 

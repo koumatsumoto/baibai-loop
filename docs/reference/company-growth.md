@@ -1,50 +1,33 @@
 # 企業成長
 
-`machine_analysis/company_growth/` は企業価値と兄弟のL2で、過去の実績状態と変化をInvestment Judgmentへ渡す。将来予測・成長認定・総合点・Screeningの足切りは行わない。
+企業財務と並ぶL2モデルとして、過去実績の状態と変化から調査の問いを作る。将来成長の認定・総合点・候補の足切りはしない。算式・field・期間条件は[所有実装](../../engine/src/baibai_engine/machine_analysis/models/company_growth/)が正本である。
 
 ## 入力と時間
 
-初期の全社四半期実績はJ-Quants `fins/summary` を使い、会社予想を実績へ混ぜない。L3でEBITDAの構成・減価償却等を詳しく調べるときはEDINET原典を参照する。EDINET詳細抽出を成長L2の実行条件にせず、既存Company ValuationのEDINET利用は維持する。EDINETの現行metrics/factsはこの四半期全社履歴の代用品とせず、CF・投資・segment等の次の問いや同一期照合に応じてmarket側の小さなadapterを検討する。JQ `fins/details` も追加項目の候補であり、JQ優先を全項目の永久ルールにしない。EDINET docIDをJQ DiscNoへ偽装せず、差異は期間・連結・科目・訂正を確認するまで並存させる。採否の根拠は[Issue #1588の入力元比較](https://github.com/koumatsumoto/baibai-loop/issues/1588)に残す。
+全社四半期実績はJ-Quantsの財務summaryを使い、会社予想を混ぜない。EDINETの詳細factsはこの履歴の代用品でも実行条件でもなく、重要なCF・事業内訳はL3が原典へ戻る。sourceを跨ぐ比較は文書identity・期間・連結・科目・訂正を揃える。入力元の比較と拡張候補は[Issue #1588](https://github.com/koumatsumoto/baibai-loop/issues/1588)に残す。
 
-個別照会入口は `machine_analysis.company_growth.query.company_growth(path, ticker=..., as_of=..., start=..., end=..., mirror=...)`。start/endは出力する**会計期末**の範囲で、endの省略時はas_of。原本の開示日範囲ではない。release全体の `data_as_of` は他datasetを含む最古watermarkなので、財務開示日終端へ流用しない。startの省略は保持入力全体を意味し、保存期間の上限を設けない。
+表示範囲は会計期末の範囲で、開示日や取得範囲ではない。窓外の比較元と後日訂正を計算から落とさないため、保持文書から状態・比較を作って出力を絞る。対象範囲を狭めても共通する期の意味を変えず、読取から外部取得を起動しない。
 
-個別照会は既存の `read_financial_documents(..., ticker=...)` を使い、全保持文書から状態・比較を計算して出力だけを切る。窓より前のTTM/前年比入力と、窓より後に開示された過年度訂正を残す。同一release・方法・比較ペアで共通する期の結果は窓の両端に依存しない。読取時に外部取得は起動しない。
+個別照会は固定lake releaseの不変objectを読む。作業SQLiteのoriginは更新基底を示すだけで、未公開の作業行がそのreleaseに属する証明ではない。共通モデル生成は公開するreleaseに対応するsealed入力を使う。この二つの入口を同じ作業SQLite読取と説明しない。
 
-以下は個別照会の境界である。実行用market SQLiteの `lake_store_origin` は更新基底のrelease ID/digestを選ぶ参照で、作業行がそのreleaseに一致する証拠にはならない。読取はローカルlake mirror（既定 `stores`）で既存release readerがmanifest・dataset・Parquetのdigest/schemaを照合した不変objectだけを使う。財務・masterの作業SQLite行を使わず、同releaseの財務ParquetをDuckDBのメモリ内viewから既存 `read_financial_documents` へ渡す。新しいDBは作らない。更新済みSQLiteが旧originを保持していても、新しい未公開行を旧releaseの事実として返さない。mirror未配置・digest不一致等では成長だけを利用不可とし、外部へ自動接続しない。`collection_boundary=fixed_release_membership` は当該manifestへの収録境界を指す。ローカルの取得時刻cutoffを証明しないため `receipt_cutoff` は未提供。Investment Judgmentの `input_known_at` は選択時の別の時刻で、開示日やreleaseの収録境界へ読み替えない。過去のas_ofを指定しても、当時の受領状態は復元しない。固定releaseがなければ成長を未取得とし、現在評価は妨げない。
+releaseへの収録境界、開示日cutoff、L3の入力確定時刻は別である。保持原本からの事後の振り返りであり、当時の受領vintageを完全再現した成長率ではない。観測の最古/最新期や間の穴も、連続取得coverageの証明にはならない。固定入力が利用できなければ成長を未取得とし、他領域まで停止しない。
 
-共通モデル生成では、同じreleaseを出力するsealed market SQLiteの共有読取結果を成長の純粋計算へ渡す。個別照会の旧originを新しい入力identityへ流用しない。生成metadataはreleaseとsealのdigestを保持するが、一時sealの恒久保存や過去状態の再構築保証ではない。
+## 実績を読むときの境界
 
-store-localのsource coverageはreleaseへ固定されていないため、現段階では取得coverageを常に `unverified` とする。観測された最古/最新会計期・観測期末一覧・観測間の穴は別に返し、文書の存在から連続取得済みとは推定しない。厳格な既存readerのcoverage条件は変更しない。
+公表累計/通期、成立する単独四半期、年間/TTM、期末残高を区別する。EPS・平均株数・営業CFを四半期差分へ変換せず、同じQ1や重複TTMを独立した成長確認に数えない。
 
-## 値と変化
+部分訂正や欠測は科目ごとに扱い、別期間の正常値へ切り替えて比較を成立させない。比較元の期間は値の有無より先に決める。累計訂正の順序が不明な場合と、変更自体がない場合を区別するのは、既知の不整合を差し引かず、時刻欠測だけで有効な観測を失わないためである。
 
-- `reported` は原本の公表期間の累計/通期。報告基本EPS、平均株数、営業CFはこの粒度を保つ。
-- `quarter` は同じ年度開始・連結基準の実績金額から成立する単独四半期。EPS・CF・株数を差分しない。
-- `annual_ttm` は実日数で年間と認められる公表値、または成立する金額の「当期累計＋前期通期－前年同期間」。算術の成立は経済的比較可能性の完全な保証ではない。
-- `balance` は観測期末の総資産・純資産・発行済株数・自己株式数。古いBSをコピーせず、純資産を普通株主資本と呼ばない。
+算術が成立しても、事業売却・M&A・連結範囲・会計方針・為替まで同じ経済的範囲へ組み替えた値ではない。L3は重要な増減を原典へ戻して本業・一時損益・事業分離に分け、必要な組替比較を評価側へ記録する。保存原値は上書きしない。
 
-指標ごとに採用文書を保持する。部分訂正は該当科目だけへ適用し、同順位の矛盾は該当科目だけを欠測にする。算術の比較元会計期間は科目の値を見る前に選び、科目欠測で別の許容期間へ切り替えない。これにより一つのObservationの開始日を別科目のoperandで上書きしない。比較元累計だけが後日変更され、比較先累計との既知の不整合があるときは無条件に差し引かない。同日の既知時刻による前後は保持し、時刻不明で変更後の対応が確定できない場合は `cumulative_revision_order_unresolved` とする。時刻が不明なだけで変更のない累計を矛盾とはしない。連結/単体や変則決算の不成立も局所化する。営業利益を経常利益で代替しない。NPの親会社帰属は連結基準を確認できる場合だけ提供する。金融業・業種未確認では非金融の営業利益率を提供しない。
+赤字縮小・黒字化は元の実額と符号変化で読み、負/ゼロ基準の通常率だけで改善を決めない。営業利益を経常利益で代替せず、金融業へ非金融の営業利益率を当てはめない。EPS・株数は原値を残すが、株式basis未検証の変化率は作らない。
 
-`comparison_basis=source_reported_economic_scope_unverified` は、保持した各期の公表値同士の算術であり、継続事業・非継続事業、連結範囲、会計方針や為替を同一基準へ組み替えた成長率ではないことを示す。会社が当期資料に示す組替後の前年比とは異なる場合がある。L3は重要な変化を原典で確認し、本業の成長・一時損益・事業分離を区別する。補正値で保存原値を上書きせず、必要な組替比較と根拠は評価側へ記録する。
-
-変化は両期の実数・差・通常率（比較元が正の場合）・符号変化、利益率のポイント差。正→負を率から落とさず、負/ゼロの比較元は通常率を主表示しない。EPS・株数の原値は残すが、原本間の分割基準が未確認なので、その差/率は提供しない。表示窓の末尾で暗黙の株式換算基準を決めない。
-
-`not_observed`（元値なし）、`*_incomparable` / `inconsistent_cumulative_revision`（合成/比較不能）、補助機能の `not_provided`、coverageの `unverified` を区別する。価格・一部科目の不足で実績全体を消さない。
-
-PERとpeerはこの版では **未提供**。PERは価格・期末自己株式控除後株数・正の年間/TTM親会社利益との単位対応を未検証。報告EPS型や別倍率へ切り替えない。peerは基準日・根拠・銘柄集合を固定した比較群が未選定で、比較ペアごとの両期母数と率母数を検証していない。現在の相対評価や市場全体を代用品にしない。今後のPER/peer追加でも実績状態・採用原本・Changesを変えない。追加時は入力対応を確認する。
-
-前年比の比較期間は前年の対応する開始・終了日からそれぞれ7日以内を許容する。52/53週暦の差と決算月変更を分け、1か月ずれた四半期に成長率を付けない。元の実額・期間は保持する。日付条件の合格は連結範囲や事業構成の経済的同一性を保証しない。
+PER・peer比較は現版では未提供。価格・利益・資本の単位対応や比較群の未検証を、別倍率や現在の市場平均で埋めない。未提供機能・元値欠測・比較不能・coverage未検証を区別し、それだけで企業価値の調査を止めない。
 
 ## Investment Judgmentへの接続
 
-新しいSelectionは保存済みgenerationの成長モデル全体を他モデルと一緒にapplication DBへ複写する。prepare時に再計算せず、generation内のrequested_start/end・release・方法・不足を保持する。共通生成の未指定startは全保持範囲であり、明示的な範囲指定とL3の表示期数を区別する。長い期間が必要なら同じ固定原本から別generationとして生成し、既存Selectionへ追補しない。入力準備は[運用手順](../../jobs/OPERATIONS.md#research-input-preparation)に従う。
+保存された成長結果を他モデルと一緒にSelectionへ固定する。表示を広げることと生成入力を増やすことは別で、長期の問いには[skillの表示・再開手順](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)と完全結果を使う。表示変更で入力hashや原観測を変えない。
 
-保存済み旧V2 Selectionでは成長は`securities_context[ticker].company_growth`にある。旧入力の欠測とhashはその形式のまま読み、新しいgenerationへ再解釈しない。新旧とも再開は保存結果のみから行い、原本の更新や再計算へ付け替えない。
+通常生成は全保持範囲を扱うが、保存モデル自体の範囲不足は表示切替では補えない。固定旧入力から別generationを生成・保存する専用CLIは未提供で、現在marketの公開jobを代用しない。[入力準備](../../jobs/OPERATIONS.md#research-input-preparation)に従う。旧Selectionも保存された形式・欠測・入力のまま再開し、新しいgenerationへ読み替えない。
 
-通常L3投影は直近12会計期のFY/累計表（売上・営業利益・親会社利益・営業利益率・報告EPS）と同期間の保存済みYoYを軸にする。最新会計期の単独四半期・年間/TTM・BSと保存済みYoY、表示範囲の期間付き営業CFも短く投影する。最新値の欠測を過去の正常値で埋めず、CFを四半期差分・年率化しない。Q1と同期間のreported、重なるTTMは別の独立証拠ではない。12期は[固定した入力量測定](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#2026-10-24-の実データ測定)を根拠にした表示既定で、原本保存期間・生成範囲を制限しない。投影の `saved_scope` と `display_scope` に保存範囲と表示範囲を分け、欠測理由・文書ID/開示日時・固定release・より長い観測範囲を残す。株式基準は未検証のまま保持する。四半期単独/TTMをFY/累計へ混ぜたり、同じ値を四つのobservationとして反復したりしない。
-
-表示の切替は[Investment Judgment skill](../../.agents/skills/investment-judgment/SKILL.md#完了と再開)に従い、同じ保存結果から投影する。表示期数はworkspace manifestだけの設定で、保存入力・selection hash・同一draft判定を変えない。`full_result_ref` はOperation内のResearchSelectionを起点としたJSON pointerであり、全状態/Changes・BS/CF・比較元/採用文書を完全結果で確認できる。原本の再取得や財務再計算は行わない。
-
-新しい実績指標の選択・算術はcompany_growthへ、新providerのデコード・文書identity・保存読取はmarket/Data Collectionへ置く。Investment Judgment/UIへ算式をコピーしない。共通marketの `financial_periods` は両領域で意味が同じ期間比較・実績矛盾処理・金額算術だけを持つ。Company Valuationの最新anchor・fallback・carry・TTMRulesは移さない。import-linterが兄弟領域、純粋計算、Jobs入口の境界を検査する。
-
-初期実装と有限の実データ受入の結果・限界は[Issue #1588](https://github.com/koumatsumoto/baibai-loop/issues/1588)に記録する。確認した企業・期間の結果を、全市場の原典照合・完全な履歴coverage・投資収益改善の証明へ一般化しない。
+通常表示の期数は原本保存期間や生成範囲の制限ではない。[初期の入力量測定](https://github.com/koumatsumoto/baibai-loop/blob/4680cc0c3d33212e9e2779d0eaa38e8babdb8f7c/docs/reference/company-growth.md#2026-10-24-の実データ測定)と[有限受入の範囲](https://github.com/koumatsumoto/baibai-loop/issues/1588)を、全市場の原典照合や収益改善の証明へ一般化しない。

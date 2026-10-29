@@ -10,14 +10,14 @@ from collections.abc import Iterable
 
 import pytest
 
-from baibai_engine.storage.lake import models as lake_models
+from baibai_jobs.publication import policy as snapshot_policy
 
 FIXTURE_DATASETS = ("jquants.daily_bars", "jquants.short_sale_reports")
 
 # Captured at import, before any test patches the module attribute, so narrowing always
 # starts from the shipping profile. A fixture that narrows further would otherwise select
 # from another fixture's leftovers and find nothing.
-_FULL_RELEASE_POLICY = lake_models.PRODUCTION_RELEASE_POLICY
+_FULL_RELEASE_POLICY = snapshot_policy.PRODUCTION_RELEASE_POLICY
 
 
 def narrow_release_policy(
@@ -31,7 +31,7 @@ def narrow_release_policy(
     policy = _FULL_RELEASE_POLICY
     overrides = {} if carries_history is None else {"carries_history": carries_history}
     monkeypatch.setattr(
-        lake_models,
+        snapshot_policy,
         "PRODUCTION_RELEASE_POLICY",
         policy.model_copy(
             update={

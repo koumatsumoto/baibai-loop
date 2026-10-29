@@ -15,38 +15,56 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from baibai_engine.foundation.time import JST
-from baibai_engine.market.calendar import JQuantsMarketCalendarDay
-from baibai_engine.market.edinet_metrics import service as edinet_extraction
-from baibai_engine.market.edinet_metrics.revision import EDINET_METRIC_REVISION
-from baibai_engine.market.edinet_metrics.service import extract_edinet_metrics_command
-from baibai_engine.market.edinet_metrics.store import read_edinet_metrics
-from baibai_engine.market.edinet_metrics.write import store_edinet_metrics
-from baibai_engine.market.edinet_models import EdinetMetricRecord, EDINETProviderError
-from baibai_engine.market.jpx_models import (
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
     JPXProviderError,
     JPXRegulationSnapshot,
 )
-from baibai_engine.market.jquants_decode import JQuantsProviderError
-from baibai_engine.market.jquants_models import JQuantsFinancialSummary, JQuantsWeeklyMargin
-from baibai_engine.market.jquants_refresh import JQuantsRefresh
-from baibai_engine.market.jquants_writer import (
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
+    service as edinet_extraction,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
+    EDINET_METRIC_REVISION,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
+    extract_edinet_metrics_command,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    read_edinet_metrics,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
+    store_edinet_metrics,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import (
+    EdinetMetricRecord,
+    EDINETProviderError,
+)
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_weekly_margin,
 )
-from baibai_engine.market.metric_quality import TTMQuality
-from baibai_engine.market.models import SecurityMaster
-from baibai_engine.market.price_models import JQuantsDailyBar
-from baibai_engine.source_maintenance import cli as source_app
-from baibai_engine.source_maintenance.cache import (
+from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
+from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
+from baibai_engine.machine_analysis.observations.trading_activity.models import (
+    JQuantsWeeklyMargin,
+)
+from baibai_engine.primitives.time import JST
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.maintenance.market import cli as source_app
+from baibai_jobs.maintenance.market.cache import (
     backfill_history_command,
     backfill_master_command,
     bootstrap_cache_command,
 )
-from baibai_engine.source_maintenance.providers import ProviderBundle
-from baibai_engine.storage.observations.schema import open_connection
+from baibai_jobs.maintenance.market.providers import ProviderBundle
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 
 @dataclass
@@ -132,10 +150,6 @@ class FakeJQuantsProvider:
         self.calls.append(("ensure_eq_bars_daily_range", start, end))
         return len(self.get_eq_bars_daily_range(start, end))
 
-    def get_adjustment_factor_bars_range(self, start: date, end: date) -> list[JQuantsDailyBar]:
-        self.calls.append(("get_adjustment_factor_bars_range", start, end))
-        return []
-
     def refresh_fin_summary_range(
         self,
         start: date,
@@ -190,21 +204,6 @@ class FakeJQuantsProvider:
                 ordinary_profit=None,
                 profit=None,
             ),
-        ]
-
-    def get_fy_summary_range(self, start: date, end: date) -> list[JQuantsFinancialSummary]:
-        self.calls.append(("get_fy_summary_range", start, end))
-        return [
-            JQuantsFinancialSummary(
-                ticker="130A",
-                disclosed_at=date(year, 5, 15),
-                cumulative_eps=eps,
-                fiscal_period="FY",
-                fiscal_year_end=date(year, 3, 31),
-                period_start=date(year - 1, 4, 1),
-                period_end=date(year, 3, 31),
-            )
-            for year, eps in ((2023, 10.0), (2024, 20.0), (2025, 30.0))
         ]
 
     def ensure_master(self, day: date) -> int:
@@ -397,7 +396,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(fail_bootstrap=True),
                     jquants_refresh=jquants,
@@ -415,7 +413,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=date(2026, 5, 8),
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
@@ -436,7 +433,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         exit_code = bootstrap_cache_command(
             asof_date=asof,
             providers=ProviderBundle(
-                jquants=jquants,
                 edinet_refresh=edinet,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
@@ -460,18 +456,8 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             jquants.calls.count(("refresh_fin_summary_range", asof - timedelta(days=2200), asof)),
             1,
         )
-        self.assertIn(
-            (
-                "get_adjustment_factor_bars_range",
-                asof - timedelta(days=2200),
-                asof,
-            ),
-            jquants.calls,
-        )
-        self.assertIn(
-            ("get_fy_summary_range", asof - timedelta(days=2200), asof),
-            jquants.calls,
-        )
+        self.assertNotIn("get_adjustment_factor_bars_range", [call[0] for call in jquants.calls])
+        self.assertNotIn("get_fy_summary_range", [call[0] for call in jquants.calls])
         # The calendar bootstrap fetches a forward window so the unattended daily
         # batch can read the current (and upcoming) business-day rows.
         self.assertIn(
@@ -510,7 +496,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=asof,
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
@@ -562,7 +547,6 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             exit_code = bootstrap_cache_command(
                 asof_date=asof,
                 providers=ProviderBundle(
-                    jquants=jquants,
                     edinet_refresh=FakeEDINETProvider(),
                     jpx_refresh=FakeJPXProvider(),
                     jquants_refresh=jquants,
@@ -586,7 +570,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=dates,
-                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
+                providers=ProviderBundle(jquants_refresh=jquants),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -607,7 +591,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr), tempfile.TemporaryDirectory() as tmpdir:
             exit_code = backfill_master_command(
                 asof_dates=[date(2026, 4, 30), date(2026, 5, 29)],
-                providers=ProviderBundle(jquants=jquants, jquants_refresh=jquants),
+                providers=ProviderBundle(jquants_refresh=jquants),
                 sqlite_path=Path(tmpdir) / "market.sqlite",
                 stdout=buffer,
             )
@@ -673,7 +657,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with (
             patch.object(source_app, "market_calendar_business_day", return_value=True),
             patch(
-                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                "baibai_engine.machine_analysis.historical_evaluation.grid.days_with_bars",
                 return_value=set(),
             ),
             patch.object(
@@ -719,7 +703,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with (
             patch.object(source_app, "market_calendar_business_day", return_value=False),
             patch(
-                "baibai_engine.machine_analysis.screening.calibration.grid.days_with_bars",
+                "baibai_engine.machine_analysis.historical_evaluation.grid.days_with_bars",
                 return_value={historical},
             ),
             patch.object(
@@ -1320,7 +1304,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             assert incremental is not None
             self.assertNotIn("9682", incremental)
 
-    def test_extract_edinet_metrics_document_edit_event_forces_download(self) -> None:
+    def test_extract_edinet_metrics_document_edit_event_forces_reextraction(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             original = _edinet_document(ticker="96820", doc_id="S100SAME")
@@ -1360,7 +1344,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             )
             self.assertEqual(second.read_calls, ["S100SAME"])
 
-    def test_extract_edinet_metrics_empty_csv_is_failed_and_retried(self) -> None:
+    def test_extract_edinet_metrics_empty_csv_can_recover_with_repaired_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             document = _edinet_document(ticker="96820", doc_id="S100EMPTY")
@@ -1387,6 +1371,8 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             )
             self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 24)))
 
+            # This supplies repaired bytes explicitly. It verifies re-extraction,
+            # not that ordinary acquisition replaces a retained same-ID archive.
             second = FakeEDINETMetricReader(
                 documents=[document],
                 zip_by_doc_id={"S100EMPTY": _edinet_csv_zip()},
@@ -1539,14 +1525,14 @@ class SourceMaintenanceCliTests(unittest.TestCase):
 
 def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     rows = [
-        ("jpcrp_cor:NetSales", "CurrentYearDuration", "1000"),
+        ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
         (
-            "jpcrp_cor:NetCashProvidedByUsedInOperatingActivities",
+            "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
             "CurrentYearDuration",
             "900",
         ),
         ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "150"),
-        ("jpcrp_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
+        ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "1000"),
         (
             "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
             "CurrentYearDuration",
@@ -1622,7 +1608,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2026, 9, 24),
                 end=date(2026, 9, 28),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=io.StringIO(),
             )
@@ -1648,7 +1634,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2018, 3, 1),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1672,19 +1658,19 @@ class BackfillHistoryTests(unittest.TestCase):
         self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
         self.assertIn("backfill-history done", output.getvalue())
 
-    def test_a_historical_window_keeps_its_own_final_week(self) -> None:
+    def test_a_historical_window_keeps_its_final_week_without_later_cached_bars(self) -> None:
         # `end` here is a named past boundary, not today, so its week is complete
         # and holds a real balance date. Treating it as in-progress would drop the
         # only candidate and report a backfill that fetched nothing as success.
         provider = FakeJQuantsProvider()
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "market.sqlite"
-            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
+            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 24))
             output = io.StringIO()
             code = backfill_history_command(
                 start=date(2026, 7, 20),
                 end=date(2026, 7, 24),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=sqlite_path,
                 stdout=output,
             )
@@ -1695,7 +1681,7 @@ class BackfillHistoryTests(unittest.TestCase):
         ]
         self.assertEqual(weeks, [date(2026, 7, 24)])
 
-    def test_a_window_with_no_complete_week_fails_rather_than_reporting_success(self) -> None:
+    def test_a_window_with_no_trading_days_fails_rather_than_reporting_success(self) -> None:
         provider = FakeJQuantsProvider()
         errors = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -1706,7 +1692,6 @@ class BackfillHistoryTests(unittest.TestCase):
                     start=date(2026, 7, 25),
                     end=date(2026, 7, 26),
                     providers=ProviderBundle(
-                        jquants=provider,
                         jquants_refresh=provider,
                     ),
                     sqlite_path=sqlite_path,
@@ -1730,7 +1715,7 @@ class BackfillHistoryTests(unittest.TestCase):
             code = backfill_history_command(
                 start=date(2016, 8, 1),
                 end=date(2016, 8, 31),
-                providers=ProviderBundle(jquants=provider, jquants_refresh=provider),
+                providers=ProviderBundle(jquants_refresh=provider),
                 sqlite_path=Path("stores/market/market.sqlite"),
                 stdout=io.StringIO(),
             )
@@ -1753,7 +1738,6 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
-                jquants=jquants,
                 edinet_refresh=edinet,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
@@ -1777,7 +1761,6 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
         bootstrap_cache_command(
             asof_date=date(2026, 5, 8),
             providers=ProviderBundle(
-                jquants=jquants,
                 edinet_refresh=edinet,
                 jpx_refresh=jpx,
                 jquants_refresh=jquants,
@@ -1789,5 +1772,5 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
     )
     names = [call[0] for call in jquants.calls]
     assert names.count("refresh_fin_summary_range") == 1
-    assert names.count("get_fy_summary_range") == 1
+    assert "get_fy_summary_range" not in names
     assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
