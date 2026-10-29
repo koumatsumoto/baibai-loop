@@ -9,6 +9,7 @@ from pathlib import Path
 from types import EllipsisType
 from typing import Literal, cast
 
+from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -20,9 +21,10 @@ from baibai_engine.investment_judgment.workflow.operation.progress import select
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.operation.validation import validate_target_purposes
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchInputs,
+    GeneratedResearchInputsV4,
     GeneratedResearchSelection,
     GeneratedResearchSelectionDraft,
+    GeneratedResearchSelectionV4,
     ResearchScope,
     ResearchSelectionRecord,
     ResearchTarget,
@@ -61,7 +63,7 @@ def _same_draft(
     draft: GeneratedResearchSelectionDraft,
 ) -> bool:
     return (
-        isinstance(selection, GeneratedResearchSelection)
+        isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
         and selection.request == draft.request
         and selection.research_as_of == draft.research_as_of
         and selection.input_known_at == draft.input_known_at
@@ -74,7 +76,7 @@ def _same_draft(
 
 def _generated_selection(
     draft: GeneratedResearchSelectionDraft, *, runs_path: Path, app_path: Path
-) -> GeneratedResearchSelection:
+) -> GeneratedResearchSelectionV4:
     if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
     publication = None
@@ -88,14 +90,20 @@ def _generated_selection(
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     context = latest_assessment(app_path, as_of=draft.research_as_of, known_at=draft.input_known_at)
-    return GeneratedResearchSelection(
+    return GeneratedResearchSelectionV4(
         request=draft.request,
         research_as_of=draft.research_as_of,
         input_known_at=draft.input_known_at,
         selection_summary=draft.selection_summary,
         targets=draft.targets,
         capacity=CURRENT_RESEARCH_CAPACITY,
-        inputs=GeneratedResearchInputs(
+        inputs=GeneratedResearchInputsV4(
+            saved_company_context=read_company_contexts(
+                app_path,
+                tickers=tuple(t.ticker for t in draft.targets),
+                as_of=draft.research_as_of,
+                known_at=draft.input_known_at,
+            ),
             generation=models,
             screening_selection_id=draft.screening_selection_id,
             screening_selection=None if publication is None else publication.selection,
@@ -254,7 +262,7 @@ def _materialize(
     }
     has_growth = (
         any(model.model_id == "company_growth" for model in selection.inputs.generation.models)
-        if isinstance(selection, GeneratedResearchSelection)
+        if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
         else any("company_growth" in row for row in selection.inputs.securities_context.values())
     )
     if has_growth:

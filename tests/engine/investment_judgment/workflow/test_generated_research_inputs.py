@@ -93,7 +93,7 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(
         now=NOW,
     )
     saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
-    assert saved.schema_version == 3
+    assert saved.schema_version == 4
     assert saved.inputs.screening_selection.result.policy.earnings_limit == 20
     digest = selection_sha256(saved)
     original = project_research_inputs(saved)
