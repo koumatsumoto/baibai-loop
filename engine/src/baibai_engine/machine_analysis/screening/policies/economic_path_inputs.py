@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
     PathCoordinates,
 )
+from baibai_engine.primitives.dates import add_months_clamped
 
 
 def project_company(
@@ -58,40 +59,84 @@ def project_company(
     }
     annual = observations.get("annual_ttm", {})
     quarter = observations.get("quarter", {})
-    sales = _metric(annual, "sales")
-    margin = _metric(annual, "operating_margin")
-    earnings_period = _earnings_period(earnings)
-    income_aligned = (
-        earnings_period == _period(annual)
-        and earnings.get("statement_basis") in {"consolidated", "nonconsolidated"}
-        and earnings.get("statement_basis") == annual.get("statement_basis")
-        and all(isinstance(value, str) for value in _period(annual))
-    )
-    paths = [
-        PathCoordinates(
-            path_id="earning_power",
-            variant="annual_ttm",
-            price_value=y,
-            business_value=margin,
-            price_group="market:reported_ttm_earnings",
-            business_group=f"{sector_group}:annual_ttm_margin",
-            eligible=income_aligned and _is_positive(y) and _is_positive(margin),
-            evidence={
-                "earnings_components": earnings.get("profit_components"),
-                "earnings_basis": valuation.get("earnings_basis"),
-                "earnings_period_start": earnings_period[0],
-                "earnings_period_end": earnings_period[1],
-                "business_observation": _observation(annual, "operating_margin"),
-                "same_period_and_statement_basis": income_aligned,
-            },
-        )
-    ]
-    changes: dict[str, dict[str, dict[str, JsonValue]]] = {}
-    for variant, observation in (("quarter", quarter), ("annual_ttm", annual)):
-        changes[variant] = {
-            metric: _change(growth, observation, metric)
-            for metric in ("sales", "operating_profit", "operating_margin")
+    full_fy = _latest_full_fy(periods)
+    use_full_fy = _can_use_full_fy(anchor, annual, full_fy)
+    annual_variant = "full_fy" if use_full_fy else "annual_ttm"
+    annual_observations = {"annual_ttm": annual}
+    if full_fy:
+        annual_observations["full_fy"] = full_fy
+    changes = {
+        variant: {
+            metric: _full_fy_change(growth, observation, metric, metadata.as_of)
+            if variant == "full_fy"
+            else _change(growth, observation, metric)
+            for metric in ("sales", "operating_profit", "operating_margin", "parent_profit")
         }
+        for variant, observation in {"quarter": quarter, **annual_observations}.items()
+    }
+    # A historical FY cannot restore positive earning power after observed newer weakness.
+    full_fy_income_adverse = any(
+        value is not None and value <= 0
+        for metric in ("operating_profit", "operating_margin", "parent_profit")
+        for value in (
+            _metric(quarter, metric),
+            _metric(observations.get("reported", {}), metric),
+        )
+    )
+    earnings_period = _earnings_period(earnings)
+    paths = []
+    for variant, observation in annual_observations.items():
+        fy = variant == "full_fy"
+        profit_yield = (
+            _ratio(_fy_metric(observation, "parent_profit", metadata.as_of), cap) if fy else y
+        )
+        margin = (
+            _fy_metric(observation, "operating_margin", metadata.as_of)
+            if fy
+            else _metric(observation, "operating_margin")
+        )
+        income_aligned = (
+            observation.get("statement_basis") == "consolidated"
+            if fy
+            else earnings_period == _period(observation)
+            and earnings.get("statement_basis") in {"consolidated", "nonconsolidated"}
+            and earnings.get("statement_basis") == observation.get("statement_basis")
+            and all(isinstance(value, str) for value in _period(observation))
+        )
+        paths.append(
+            PathCoordinates(
+                path_id="earning_power",
+                variant=variant,
+                price_value=profit_yield,
+                business_value=margin,
+                price_group=f"market:reported_{variant}_earnings",
+                business_group=f"{sector_group}:{variant}_margin",
+                eligible=variant == annual_variant
+                and income_aligned
+                and _is_positive(profit_yield)
+                and _is_positive(margin)
+                and (not fy or not full_fy_income_adverse),
+                evidence={
+                    "earnings_components": None if fy else earnings.get("profit_components"),
+                    "earnings_basis": (
+                        "reported_parent_profit" if fy else valuation.get("earnings_basis")
+                    ),
+                    "earnings_period_start": observation.get("period_start")
+                    if fy
+                    else earnings_period[0],
+                    "earnings_period_end": observation.get("period_end")
+                    if fy
+                    else earnings_period[1],
+                    "profit_observation": _observation(observation, "parent_profit")
+                    if fy
+                    else None,
+                    "business_observation": _observation(observation, "operating_margin"),
+                    "same_period_and_statement_basis": income_aligned,
+                    "selected_variant": annual_variant,
+                    "newer_earning_weakness": full_fy_income_adverse if fy else None,
+                },
+            )
+        )
     # Do not escape an observed deterioration through a missing companion metric.
     quarter_sales = changes["quarter"]["sales"]
     quarter_sales_difference = _number(quarter_sales.get("difference"))
@@ -99,7 +144,7 @@ def project_company(
         "quarter"
         if _number(quarter_sales.get("rate")) is not None
         or (quarter_sales_difference is not None and quarter_sales_difference <= 0)
-        else "annual_ttm"
+        else annual_variant
     )
     quarter_deterioration = any(
         value is not None and value <= 0
@@ -111,10 +156,17 @@ def project_company(
     recovery_variant = (
         "quarter"
         if _recovery_available(changes["quarter"]) or quarter_deterioration
-        else "annual_ttm"
+        else annual_variant
     )
-    sales_price = _ratio(sales, cap)
-    for variant, observation in (("quarter", quarter), ("annual_ttm", annual)):
+    for variant, observation in {"quarter": quarter, **annual_observations}.items():
+        sales_variant = annual_variant if variant == "quarter" else variant
+        sales_observation = annual_observations[sales_variant]
+        sales = (
+            _fy_metric(sales_observation, "sales", metadata.as_of)
+            if sales_variant == "full_fy"
+            else _metric(sales_observation, "sales")
+        )
+        sales_price = _ratio(sales, cap)
         change = changes[variant]
         sales_change = change["sales"]
         rate = _number(sales_change.get("rate"))
@@ -124,13 +176,13 @@ def project_company(
                 variant=variant,
                 price_value=sales_price,
                 business_value=rate,
-                price_group=f"{sector_group}:annual_ttm_sales_price",
+                price_group=f"{sector_group}:{sales_variant}_sales_price",
                 business_group=f"{sector_group}:{variant}:sales_growth",
                 eligible=variant == expansion_variant
                 and _is_positive(sales_price)
                 and _is_positive(rate),
                 evidence={
-                    "sales_observation": _observation(annual, "sales"),
+                    "sales_observation": _observation(sales_observation, "sales"),
                     "sales_change": sales_change,
                     "change_observation": _observation(observation, "sales"),
                     "selected_variant": expansion_variant,
@@ -221,6 +273,22 @@ def project_company(
         "market_cap_yen": cap,
         "pricing_valid": pricing_valid,
         "latest_growth_period": anchor.get("period_end"),
+        "annual_observation": {
+            "selected_variant": annual_variant,
+            "full_fy_observation": full_fy,
+            "full_fy_period_start": full_fy.get("period_start"),
+            "full_fy_period_end": full_fy.get("period_end"),
+            "full_fy_age_days": (
+                (metadata.as_of - date.fromisoformat(end)).days
+                if (end := _text(full_fy.get("period_end"))) is not None
+                else None
+            ),
+            "latest_ttm_period_status": annual.get("period_status"),
+            "latest_ttm_metrics": annual.get("metrics"),
+            "latest_reported_observation": observations.get("reported"),
+            "latest_quarter_observation": quarter,
+            "capital_fallback": "not_used_without_same_fy_book_provenance",
+        },
         "turnover_20d_oku": _object(market.get("price")).get("avg_turnover_20d_oku"),
         "turnover_observation_date": _object(market.get("price")).get("resolved_date"),
         "growth_comparison_basis": growth.get("comparison_basis"),
@@ -256,6 +324,10 @@ def project_company(
                 "debt",
                 "fcf_ttm",
                 "edinet_ocf_ttm",
+                "edinet_reported_flows",
+                "ocf_ttm_period",
+                "ocf_ttm",
+                "ttm_quality_ocf_yield",
                 "capex_ttm",
                 "edinet_capex_source",
                 "consolidation_basis",
@@ -295,6 +367,85 @@ def project_company(
         model_revisions={key: model.calculation_revision for key, model in index.items()},
         not_generated=tuple(model for model in expected if model not in index),
     )
+
+
+def _latest_full_fy(periods: Sequence[dict[str, JsonValue]]) -> dict[str, JsonValue]:
+    # Fix the latest FY before reading values; never search backwards for a good year.
+    state = next((item for item in reversed(periods) if item.get("fiscal_period") == "FY"), {})
+    observations = {
+        _text(item.get("measurement")): item for item in _objects(state.get("observations"))
+    }
+    reported = observations.get("reported", {})
+    annual = observations.get("annual_ttm", {})
+    # The observation owner already verified the actual approximately-one-year interval.
+    if (
+        annual
+        and _period(annual) == _period(reported)
+        and annual.get("period_end") == state.get("fiscal_year_end")
+        and annual.get("statement_basis") in {"consolidated", "nonconsolidated"}
+    ):
+        return annual
+    return {}
+
+
+def _can_use_full_fy(
+    anchor: dict[str, JsonValue], annual: dict[str, JsonValue], full_fy: dict[str, JsonValue]
+) -> bool:
+    fy_end = _text(full_fy.get("period_end"))
+    if fy_end is None or annual.get("statement_basis") != full_fy.get("statement_basis"):
+        return False
+    # Legacy models have no interval status: never infer one from missing metric operands.
+    if annual.get("period_status") != "matching_period_not_observed":
+        return False
+    end = date.fromisoformat(fy_end)
+    return (
+        anchor.get("period_start") == (end + timedelta(days=1)).isoformat()
+        and anchor.get("fiscal_year_end") == add_months_clamped(end, 12).isoformat()
+    )
+
+
+def _fy_metric(observation: dict[str, JsonValue], metric: str, as_of: date) -> float | None:
+    value = _object(_object(observation.get("metrics")).get(metric))
+    documents = _objects(value.get("documents"))
+    # Growth keeps retrospective corrections; new FY coordinates cannot use future disclosures.
+    if not documents or any(
+        (disclosed := _text(document.get("disclosed_at"))) is None or disclosed > as_of.isoformat()
+        for document in documents
+    ):
+        return None
+    return _number(value.get("value"))
+
+
+def _full_fy_change(
+    growth: dict[str, JsonValue], observation: dict[str, JsonValue], metric: str, as_of: date
+) -> dict[str, JsonValue]:
+    change = _change(growth, observation, metric)
+    if _number(change.get("difference")) is None:
+        return change
+    prior = [
+        item
+        for state in _objects(growth.get("periods"))
+        for item in _objects(state.get("observations"))
+        if item.get("measurement") == observation.get("measurement")
+        and item.get("statement_basis") == observation.get("statement_basis")
+        and _period(item) == (change.get("from_start"), change.get("from_end"))
+    ]
+    if (
+        _fy_metric(observation, metric, as_of) is None
+        or not prior
+        or any(_fy_metric(item, metric, as_of) is None for item in prior)
+    ):
+        return {
+            **change,
+            "from_value": None,
+            "to_value": None,
+            "difference": None,
+            "rate": None,
+            "margin_points": None,
+            "sign_change": None,
+            "reason": "comparison_sources_not_observed_by_as_of",
+        }
+    return change
 
 
 def _positive(value: JsonValue | None) -> float | None:

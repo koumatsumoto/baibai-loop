@@ -863,3 +863,22 @@ def test_cash_investment_components_and_source_survive_the_same_fcf():
         "edinet_source_period_end",
     ):
         assert a[field] == b[field] == first["company_valuation"]["financial"][field]
+
+
+def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval():
+    inputs = payloads()
+    reported = {
+        "period_kind": "interim",
+        "amounts": {"operating_cash_flow": 812_758_000.0, "free_cash_flow": 461_335_000.0},
+        "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
+        "filing_fiscal_period": {"start": "2026-01-01", "end": "2026-12-31"},
+        "annual_quality": {"free_cash_flow": "approximated"},
+    }
+    period = {"start": "2025-07-01", "end": "2026-06-30"}
+    inputs["company_valuation"]["financial"].update(
+        edinet_reported_flows=reported, ocf_ttm_period=period, ocf_ttm=-1_422_368_000.0
+    )
+    financial = project(inputs).context["financial"]
+    assert financial["edinet_reported_flows"] == reported
+    assert financial["ocf_ttm_period"] == period
+    assert financial["ocf_ttm"] == -1_422_368_000.0

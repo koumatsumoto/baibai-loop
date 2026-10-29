@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 type Metric = Literal[
     "sales",
@@ -21,6 +21,9 @@ type Metric = Literal[
     "total_assets",
 ]
 type Measurement = Literal["reported", "quarter", "annual_ttm", "balance"]
+type PeriodStatus = Literal[
+    "available", "matching_period_not_observed", "accounting_periods_incomparable"
+]
 
 
 class Contract(BaseModel):
@@ -45,6 +48,8 @@ class Observation(Contract):
     period_end: date
     measurement: Measurement
     statement_basis: str
+    # Interval construction is independent of missing/conflicting metric operands.
+    period_status: PeriodStatus | None = Field(default=None, exclude_if=lambda value: value is None)
     # Reported EPS and share counts retain each document's native share basis.
     share_basis: Literal["source_reported_unverified"] = "source_reported_unverified"
     metrics: dict[Metric, Value]
@@ -103,7 +108,7 @@ class CompanyGrowth(Contract):
     ticker: str
     status: Literal["available", "unavailable"]
     reason: str | None = None
-    calculation_method: str = "company_growth_retrospective_v3"
+    calculation_method: str = "company_growth_retrospective_v4"
     read_semantics: Literal["retained_latest_in_fixed_release_not_point_in_time"] = (
         "retained_latest_in_fixed_release_not_point_in_time"
     )

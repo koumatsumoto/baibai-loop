@@ -29,6 +29,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _latest_non_null_row,
     _latest_summary,
     _prior_year_summary,
+    _ttm_period,
     _ttm_value,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
@@ -303,6 +304,7 @@ def build_financial_snapshot(
         dividend_split_factor=dividend.split_factor,
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
+        ocf_ttm_period=_ttm_period(summaries, "cfo", ttm_rules),
         edinet_ocf_ttm=edinet_ocf_ttm,
         sales=sales_row.sales if sales_row else None,
         cfo=cfo_row.cfo if cfo_row else None,
