@@ -128,14 +128,13 @@ def load_generated_selection_context(
         dict[str, Any],
         project_generated_inputs(models, company_growth_periods=None if compact_screening else 12),
     )
-    if compact_screening:
-        # contextにはOperationの/inputs/generation参照先がない。明示詳細は成長の
-        # 完全payloadを直接渡し、古いquarter/annual観測もその場で読めるようにする。
-        for model in models.models:
-            if model.model_id == "company_growth" and model.subject in detail_targets:
-                security = model_inputs["securities"][model.subject]
-                detail = security if models.subject_plan is None else security["models"]
-                detail["company_growth"] = deepcopy(model.payload)
+    # contextにはOperationの/inputs/generation参照先がない。政策の有無にかかわらず
+    # 明示詳細は完全payloadを渡し、古いquarter/annual観測もその場で読めるようにする。
+    for model in models.models:
+        if model.model_id == "company_growth" and model.subject in detail_targets:
+            security = model_inputs["securities"][model.subject]
+            detail = security if models.subject_plan is None else security["models"]
+            detail["company_growth"] = deepcopy(model.payload)
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     return {
         "schema_version": 3,

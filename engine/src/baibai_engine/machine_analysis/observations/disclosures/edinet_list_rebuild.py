@@ -37,16 +37,41 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
 _JST = ZoneInfo("Asia/Tokyo")
 
 
-def rebuild_edinet_document_day(sqlite_path: Path, on_date: date) -> DocumentListProjection:
+def pending_edinet_document_dates(
+    connection: sqlite3.Connection, *, through: date
+) -> tuple[date, ...]:
+    """Retained receipts not yet represented by an eligible list projection."""
+    return tuple(
+        date.fromisoformat(row[0])
+        for row in connection.execute(
+            "SELECT DISTINCT r.doc_date FROM edinet_list_responses r "
+            "LEFT JOIN edinet_document_lists p ON p.doc_date = r.doc_date "
+            "WHERE r.doc_date <= ? AND (p.doc_date IS NULL "
+            "OR r.received_at_utc > p.latest_received_at_utc "
+            "OR (r.received_at_utc = p.latest_received_at_utc "
+            "AND r.receipt_id <> p.selected_receipt_id) "
+            "OR EXISTS (SELECT 1 FROM source_coverage c "
+            "WHERE c.source = 'edinet_documents' AND c.status = 'failed' "
+            "AND c.coverage_start <= r.doc_date AND c.coverage_end >= r.doc_date)) "
+            "ORDER BY r.doc_date",
+            (through.isoformat(),),
+        )
+    )
+
+
+def rebuild_edinet_document_day(
+    sqlite_path: Path, on_date: date, *, connection: sqlite3.Connection | None = None
+) -> DocumentListProjection:
     """Save current success or failed coverage, then return the deterministic result."""
     if not sqlite_path.exists():
         raise EDINETProviderError("EDINET retained source database is missing")
-    connection = connect_current(sqlite_path)
-    if connection is None:
+    conn = connection if connection is not None else connect_current(sqlite_path)
+    if conn is None:
         raise EDINETProviderError("EDINET retained source database is unavailable")
     try:
-        connection.execute("BEGIN")
-        receipts = read_list_responses(connection, doc_date=on_date)
+        if connection is None:
+            conn.execute("BEGIN")
+        receipts = read_list_responses(conn, doc_date=on_date)
         if not receipts:
             raise EDINETProviderError(f"EDINET list receipts are missing: {on_date.isoformat()}")
         projection = project_document_list(receipts)
@@ -55,12 +80,15 @@ def rebuild_edinet_document_day(sqlite_path: Path, on_date: date) -> DocumentLis
         if projection.error is None and selected is not None:
             capture_day = selected.received_at.astimezone(_JST).date()
             if on_date < capture_day:
-                proof = read_list_responses(connection, doc_date=capture_day)
+                proof = read_list_responses(conn, doc_date=capture_day)
                 rechecked_asof = document_list_rechecked_asof(projection, proof)
     finally:
-        connection.rollback()
-        connection.close()
-    store_edinet_document_projection(sqlite_path, projection, rechecked_asof=rechecked_asof)
+        if connection is None:
+            conn.rollback()
+            conn.close()
+    store_edinet_document_projection(
+        sqlite_path, projection, rechecked_asof=rechecked_asof, connection=connection
+    )
     return projection
 
 
@@ -134,12 +162,17 @@ def rebuild_edinet_lists_command(
 
 
 def store_edinet_document_projection(
-    db_path: Path, projection: DocumentListProjection, *, rechecked_asof: date | None
+    db_path: Path,
+    projection: DocumentListProjection,
+    *,
+    rechecked_asof: date | None,
+    connection: sqlite3.Connection | None = None,
 ) -> int:
     """Replace one day's derived rows and coverage from a raw-receipt projection."""
-    conn = open_connection(db_path)
+    conn = connection if connection is not None else open_connection(db_path)
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        if connection is None:
+            conn.execute("BEGIN IMMEDIATE")
         doc_date = projection.doc_date
         doc_date_iso = doc_date.isoformat()
         rows = _edinet_document_rows(doc_date_iso, projection.documents)
@@ -209,13 +242,16 @@ def store_edinet_document_projection(
                 rechecked_asof.isoformat() if successful and rechecked_asof is not None else None,
             ),
         )
-        conn.commit()
+        if connection is None:
+            conn.commit()
         return persisted_count
     except BaseException:
-        conn.rollback()
+        if connection is None:
+            conn.rollback()
         raise
     finally:
-        conn.close()
+        if connection is None:
+            conn.close()
 
 
 def _edinet_document_rows(

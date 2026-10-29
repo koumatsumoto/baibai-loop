@@ -9,6 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.jquants.dependencies import dependency_covers_day
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
@@ -86,12 +87,7 @@ def latest_dependency(
     for item in references:
         if item["source"] != source:
             continue
-        params = item["params"]
-        if (source == "master" and params == {"date": day.isoformat()}) or (
-            source == "market_calendar"
-            and set(params) == {"from", "to"}
-            and params["from"] <= day.isoformat() <= params["to"]
-        ):
+        if dependency_covers_day(source, item["params"], day):
             selected.append(item)
     return max(
         selected,

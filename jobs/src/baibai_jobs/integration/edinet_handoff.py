@@ -9,6 +9,7 @@ from pathlib import Path
 
 from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    pending_edinet_document_dates,
     rebuild_edinet_document_day,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
@@ -85,14 +86,23 @@ def import_handoff(source: Path, target: Path) -> dict[str, object]:
                 )
                 added += 1
         if days:
+            days.update(pending_edinet_document_dates(conn, through=max(days)))
             days.update(read_unrechecked_edinet_document_dates(target, before=max(days)))
     failed = []
+    replayed = []
+    # Originals are durable. Reject only the failed day: successful dates may
+    # contain withdrawals/corrections that must still invalidate older facts.
     for day in sorted(days):
-        if rebuild_edinet_document_day(target, day).error is not None:
-            failed.append(day.isoformat())
+        with closing(open_connection(target)) as projection, projection:
+            projection.execute("BEGIN IMMEDIATE")
+            if rebuild_edinet_document_day(target, day, connection=projection).error is not None:
+                failed.append(day.isoformat())
+                projection.rollback()
+            else:
+                replayed.append(day.isoformat())
     return {
         "raw_rows_added": added,
-        "replayed_days": [day.isoformat() for day in sorted(days)],
+        "replayed_days": replayed,
         "failed_days": failed,
         "archive_conflicts": conflicts,
     }

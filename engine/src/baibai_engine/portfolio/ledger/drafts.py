@@ -103,7 +103,8 @@ def build_broker_fact_draft(
     The saved decision binding identifies the buy ticker. Order terms are
     human-reported facts, separate from the published proposal. Existing reservations keep the same
     decision reference for every partial or terminal broker fact. The resolver
-    is called only when no active or known terminal reservation binds the report.
+    is called only when the report is not tied to a saved reservation. A fill's
+    reservation must be active at its insertion instant, not at today's ledger head.
     """
     if reservation_id is not None and reservation_ids:
         raise ValueError("provide reservation_id or reservation_ids, not both")
@@ -222,7 +223,9 @@ def build_broker_fact_draft(
         result = record_single_fact()
         assert not result.changed
         return None, ()
-    reservations = reservation_snapshots(replay_events_through(source.events, source.as_of))
+    reservations = reservation_snapshots(
+        replay_events_through(source.events, occurred_at if status == "filled" else source.as_of)
+    )
     reservations_by_id = {item.reservation_id: item for item in reservations}
     released_ids = {
         event.reservation_id for event in source.events if isinstance(event, ReleaseEvent)
@@ -235,6 +238,8 @@ def build_broker_fact_draft(
         and bool(requested_ids)
         and all(item in reservations_by_id or item in released_ids for item in requested_ids)
     )
+    if status == "filled" and requested_ids and not selected:
+        raise ValueError("no active reservation matches the human report")
     if selected or known_terminal:
         if status == "filled" and any(item.side != side for item in selected):
             raise ValueError("broker fact side does not match the active order")
@@ -506,7 +511,7 @@ def build_sell_execution_draft(
     if reservation_id is not None:
         active = {
             item.reservation_id: item
-            for item in reservation_snapshots(replay_events_through(source.events, source.as_of))
+            for item in reservation_snapshots(replay_events_through(source.events, occurred_at))
         }
         order = active.get(reservation_id)
         if order is None or order.side != "sell" or order.ticker != ticker:

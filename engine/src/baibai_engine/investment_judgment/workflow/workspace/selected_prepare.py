@@ -6,7 +6,8 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from types import EllipsisType
+from typing import Literal, cast
 
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
@@ -114,7 +115,7 @@ def prepare_selected_workspace(
     runs_path: Path,
     now: datetime,
     force: bool = False,
-    company_growth_periods: int | None = 12,
+    company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     if not isinstance(draft, GeneratedResearchSelectionDraft):
         raise ResearchWorkspaceConflictError("new Research requires a generated selection draft")
@@ -201,7 +202,7 @@ def resume_selected_workspace(
     workspace: Path,
     now: datetime,
     force: bool = False,
-    company_growth_periods: int | None = 12,
+    company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
     selection = selection_binding(operation.payload)
@@ -216,6 +217,8 @@ def resume_selected_workspace(
             raise ResearchWorkspaceConflictError("workspace belongs to another Operation")
         # Force repairs generated projection, never changes binding or authored drafts.
         workspace_selection(manifest, db_path=db_path)
+        if isinstance(company_growth_periods, EllipsisType):
+            company_growth_periods = cast("int | None", manifest.get("company_growth_periods", 12))
     return _materialize(
         operation,
         selection,
@@ -233,8 +236,12 @@ def _materialize(
     *,
     status: Literal["prepared", "resumed", "already_completed"],
     force: bool,
-    company_growth_periods: int | None,
+    company_growth_periods: int | EllipsisType | None,
 ) -> SelectedResearchPreparation:
+    # 省略時は上で既存workspaceの表示を引き継ぎ、新規投影だけ12期から始める。
+    # Noneは保存済み全期間の明示指定として区別する。
+    if isinstance(company_growth_periods, EllipsisType):
+        company_growth_periods = 12
     digest = selection_sha256(selection)
     projection = project_research_inputs(selection, company_growth_periods=company_growth_periods)
     purpose = "holding" if selection.request.scope == "review_positions" else "fundamental_research"

@@ -25,7 +25,7 @@ import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
-import { EMPTY, formatPct, formatYen } from '../lib/format'
+import { EMPTY, formatJstDateTime, formatPct, formatUnitPriceYen, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
@@ -256,8 +256,8 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
                 <TableCell className="text-muted-foreground">{holding.sector}</TableCell>
                 <TableCell className="text-right font-mono tabular-nums">{holding.quantity.toLocaleString('ja-JP')}</TableCell>
                 <TableCell className="text-right">
-                  <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? EMPTY : formatYen(averageCostYen)}</span>
-                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{holding.market_price_yen === null ? '未評価' : formatYen(Number(holding.market_price_yen))}</span>
+                  <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? EMPTY : formatUnitPriceYen(averageCostYen)}</span>
+                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{holding.market_price_yen === null ? '未評価' : formatUnitPriceYen(Number(holding.market_price_yen))}</span>
                   {marketPriceAsOf === null && holding.market_price_as_of !== null && (
                     <span className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">株価基準 <time dateTime={holding.market_price_as_of}>{holding.market_price_as_of.slice(0, 10)}</time></span>
                   )}
@@ -345,7 +345,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
         </TableCell>
         <TableCell className="text-right font-mono tabular-nums">
           {reservation.remaining_quantity.toLocaleString('ja-JP')} 株
-          <span className="ml-2 text-xs text-muted-foreground">× {formatYen(Number(reservation.price_guard_yen))}</span>
+          <span className="ml-2 text-xs text-muted-foreground">× {formatUnitPriceYen(Number(reservation.price_guard_yen))}</span>
         </TableCell>
         <TableCell className="text-right">{reservation.side === 'sell' ? '—' : <YenAmount className="font-medium" value={reservation.reserved_yen} />}</TableCell>
         <TableCell className="pr-5 text-right sm:pr-6">{reservation.expiry_label ?? '未指定'}</TableCell>
@@ -380,7 +380,12 @@ export function DashboardPage() {
   if (error !== null) return <PageState message={error} title="Dashboard read error" />
   if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
   return (
-    <PageShell title="Dashboard">
+    <PageShell meta={(
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span>表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>
+        {data.ledger_as_of !== null && <span>台帳最終記録 <time dateTime={data.ledger_as_of}>{formatJstDateTime(data.ledger_as_of)} JST</time></span>}
+      </div>
+    )} title="Dashboard">
       {data.ledger_error !== null && (
         <Alert variant="destructive"><CircleAlert /><AlertTitle>台帳を読み込めません。資産・保有・未約定注文を確認できません。</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
       )}

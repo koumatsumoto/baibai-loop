@@ -26,7 +26,7 @@ from tests.helpers.assessment_v1 import (
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.master import insert_master_rows
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
@@ -135,6 +135,14 @@ def backend_case(
                 )
                 for offset in range(16)
             ],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-proposal-calendar",
+            min_date=PREPARED.date().isoformat(),
+            max_date=(PREPARED.date() + timedelta(days=15)).isoformat(),
+            record_count=16,
         )
     document, review = pair_payload(as_of=assessment_as_of)
     if required_rate is not None:

@@ -265,7 +265,10 @@ def test_saved_card_coordinates_must_remain_finite_numbers(invalid):
         codec.validate_python(payload)
 
 
-@pytest.mark.parametrize("method", ["two-view", "best-economic-path-v1", "best-economic-path-v2"])
+@pytest.mark.parametrize(
+    "method",
+    ["two-view", "best-economic-path-v1", "best-economic-path-v2", "best-economic-path-v3"],
+)
 def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_path, method):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
@@ -312,6 +315,7 @@ def test_store_reads_both_result_shapes_without_reselection_or_rewriting(tmp_pat
     assert store.read("new-selection") == selection
 
 
-def test_historical_economic_method_is_read_only_not_relabelled_with_current_behavior():
+@pytest.mark.parametrize("method", ["best-economic-path-v1", "best-economic-path-v2"])
+def test_historical_economic_method_is_read_only_not_relabelled_with_current_behavior(method):
     with pytest.raises(ValueError, match="read-only"):
-        select_economic_paths((), policy=EconomicPathPolicy(method="best-economic-path-v1"))
+        select_economic_paths((), policy=EconomicPathPolicy(method=method))

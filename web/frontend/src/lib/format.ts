@@ -43,6 +43,17 @@ function jstParts(value: string) {
   }
 }
 
+/** JST calendar date as `YYYY-MM-DD`, independent of the viewer's timezone. */
+export function jstCalendarDate(value: string): string {
+  const parts = jstParts(value)
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
+/** Days from one JST calendar date to another, without browser timezone arithmetic. */
+export function daysUntilJstDate(value: string, today: string): number {
+  return (Date.parse(`${jstCalendarDate(value)}T00:00:00+09:00`) - Date.parse(`${today}T00:00:00+09:00`)) / 86_400_000
+}
+
 /** JST timestamp as `YYYY-MM-DD HH:mm`, preserving date-only input as `YYYY-MM-DD`. */
 export function formatJstDateTime(value: string): string {
   const parts = jstParts(value)
@@ -90,6 +101,17 @@ const yenFormatter = new Intl.NumberFormat('ja-JP', {
 /** Whole-yen currency, e.g. `￥1,234,567`. */
 export function formatYen(value: number): string {
   return yenFormatter.format(value)
+}
+
+const unitPriceFormatter = new Intl.NumberFormat('ja-JP', {
+  style: 'currency',
+  currency: 'JPY',
+  maximumFractionDigits: 4,
+})
+
+/** Per-share yen, retaining the ledger's supported four decimal places. */
+export function formatUnitPriceYen(value: number): string {
+  return unitPriceFormatter.format(value)
 }
 
 interface PctOptions {

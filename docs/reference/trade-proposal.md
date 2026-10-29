@@ -14,7 +14,7 @@ ProposalはReviewed Assessment全文を参照する。未評価のSelection L2 b
 
 ## 条件付き購入
 
-観測quote、価値と損失経路から引き受ける許容価格域、今回のlimit、実約定価格を分ける。現行quoteは未調整終値で、最良売気配ではない。許容価格域は既存評価を参照して説明し、別の必須fieldや自動gateにしない。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`investment_judgment/entry_policy.py`。
+観測quote、価値と損失経路から引き受ける許容価格域、今回のlimit、実約定価格を分ける。現行quoteは未調整終値で、最良売気配ではない。許容価格域は既存評価を参照して説明し、別の必須fieldや自動gateにしない。安い架空quoteで不足を埋めない。Baseの終価・今後分配・期間と[案件ごとの要求率](../doctrine.md#required-return-policy)によるPmax以下で、仮説・権利basis・cash・既保有・予約・同提案の約定等の条件を確認する。算術のownerは`investment_judgment/trade_proposal/entry_policy.py`。
 
 `place_limit`は作者指定の買い指値を今提示する区分で、観測quoteより高い上限も指定できる。上昇を待つstop条件でも、注文・予約・約定の記録でもなく、価格への自動上乗せはしない。[買い指値は上限以下で買う条件](https://www.jpx.co.jp/glossary/sa/174.html)であり、必ず上限を支払うとも、quote近辺で買えるとも限らない。既存の`at_current_limit`は現在closeの呼値切下げと一致する指値、`wait_limit`は観測quoteより低い指値という意味を保つ。
 

@@ -59,6 +59,7 @@ jobs:
         run: |
           args=(--group "$GROUP" --source-id "$SOURCE_ID" --run-created-at "$CREATED_AT")
           if [ -n "$ASOF" ]; then args+=(--asof "$ASOF"); fi
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then args+=(--scheduled); fi
           uv run python -m baibai_jobs.integration.economic_handoff plan "${args[@]}"
 
   source:

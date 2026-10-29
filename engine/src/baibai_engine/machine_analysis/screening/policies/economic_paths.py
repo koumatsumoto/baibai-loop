@@ -20,7 +20,9 @@ Percentile = Annotated[CoordinateValue, Field(gt=0, lt=1)]
 class EconomicPathPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    method: Literal["best-economic-path-v1", "best-economic-path-v2"] = "best-economic-path-v2"
+    method: Literal["best-economic-path-v1", "best-economic-path-v2", "best-economic-path-v3"] = (
+        "best-economic-path-v3"
+    )
     candidate_limit: Annotated[int, Field(ge=0, le=36)] = 36
 
 
@@ -93,7 +95,7 @@ def select_economic_paths(
     companies: Sequence[CompanyCoordinates], *, policy: EconomicPathPolicy
 ) -> EconomicPathSelection:
     """各軸の母集団を先に固定する。欠測の片軸補完や経路の投票はしない。"""
-    if policy.method != "best-economic-path-v2":
+    if policy.method != "best-economic-path-v3":
         raise ValueError("historical economic policy is read-only; use the current policy")
     if len({row.ticker for row in companies}) != len(companies):
         raise ValueError("economic screening requires one row per ticker")

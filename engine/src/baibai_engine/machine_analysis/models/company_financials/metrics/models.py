@@ -35,7 +35,7 @@ class TTMRules(BaseModel):
 
 DEFAULT_TTM_RULES = TTMRules(
     full_year_min_days=330,
-    full_year_max_days=370,
+    full_year_max_days=371,
     period_length_tolerance_ratio=0.1,
     period_end_tolerance_days=45,
 )

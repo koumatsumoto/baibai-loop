@@ -2,6 +2,9 @@ import json
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
+from tests.engine.test_edinet_metric_eligibility import BASE, RECORDED, TARGET, _seed
+
 from baibai_engine.data_collection.providers.edinet.archives import (
     archive_keys,
     retain_source_archive,
@@ -10,9 +13,14 @@ from baibai_engine.data_collection.providers.edinet.receipts import retain_list_
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
+    extract_saved_edinet,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     read_edinet_documents,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.edinet_handoff import export_handoff, import_handoff
 
@@ -20,14 +28,28 @@ DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
 
 
-def receive(path, doc_id, stamp):
+def receive(path, doc_id, stamp, *, day=DAY):
     payload = {
         "metadata": {"resultset": {"count": 1}},
         "results": [{"seqNumber": 1, "docID": doc_id, "secCode": "72030"}],
     }
     with closing(open_connection(path)) as conn:
-        retain_list_response(
-            conn, doc_date=DAY, received_at=stamp, body=json.dumps(payload).encode()
+        return retain_list_response(
+            conn, doc_date=day, received_at=stamp, body=json.dumps(payload).encode()
+        )
+
+
+def projection_state(path):
+    with closing(open_connection(path)) as conn:
+        return (
+            conn.execute(
+                "SELECT * FROM edinet_documents ORDER BY doc_date, sequence_number"
+            ).fetchall(),
+            conn.execute("SELECT * FROM edinet_document_lists ORDER BY doc_date").fetchall(),
+            conn.execute(
+                "SELECT * FROM source_coverage WHERE source = 'edinet_documents' "
+                "ORDER BY coverage_key"
+            ).fetchall(),
         )
 
 
@@ -72,3 +94,121 @@ def test_edinet_archive_first_retained_bytes_are_preserved_and_conflict_reported
             ("S100OTHER", b"unrelated"),
             ("S100SAME", b"canonical"),
         ]
+
+
+@pytest.mark.parametrize("new_day", [False, True], ids=["old-correction", "missing-day"])
+def test_malformed_day_preserves_prior_projection_without_hiding_later_good_day(tmp_path, new_day):
+    target, bad_source = tmp_path / "target.sqlite", tmp_path / "bad.sqlite"
+    receive(target, "S100OLD", STAMP)
+    rebuild_edinet_document_day(target, DAY)
+    before = projection_state(target)
+    bad_day = DAY + timedelta(days=int(new_day))
+    good_day = bad_day + timedelta(days=1)
+    bad_stamp = STAMP + timedelta(days=1, hours=1)
+    with closing(open_connection(bad_source)) as conn:
+        bad_receipt = retain_list_response(
+            conn, doc_date=bad_day, received_at=bad_stamp, body=b"{invalid JSON"
+        )
+    bad_packet = tmp_path / "bad-packet.sqlite"
+    export_handoff(bad_source, bad_packet, since=STAMP, archives=set())
+    result = import_handoff(bad_packet, target)
+    assert result["failed_days"] == [bad_day.isoformat()]
+    assert bad_day.isoformat() not in result["replayed_days"]
+    assert projection_state(target) == before
+
+    good_source, good_packet = tmp_path / "good.sqlite", tmp_path / "good-packet.sqlite"
+    good_stamp = STAMP + timedelta(days=2)
+    good_receipt = receive(good_source, "S100GOOD", good_stamp, day=good_day)
+    export_handoff(good_source, good_packet, since=STAMP, archives=set())
+    delayed = import_handoff(good_packet, target)
+    assert delayed["failed_days"] == [bad_day.isoformat()]
+    assert good_day.isoformat() in delayed["replayed_days"]
+    assert bad_day.isoformat() not in delayed["replayed_days"]
+    # The valid later day is not blocked or relabeled by another day's bad raw.
+    after = projection_state(target)
+    assert all(actual[0] == original[0] for actual, original in zip(after, before, strict=True))
+    with closing(open_connection(target)) as conn:
+        # A never-projected missing day remains a real gap. The unchanged
+        # complete publication contract must still reject that candidate view.
+        assert range_covered(conn, "edinet_documents", DAY, good_day) is (not new_day)
+        assert conn.execute(
+            "SELECT receipt_id FROM edinet_list_responses WHERE receipt_id IN (?, ?) "
+            "ORDER BY receipt_id",
+            (bad_receipt, good_receipt),
+        ).fetchall() == [(value,) for value in sorted((bad_receipt, good_receipt))]
+    # A subsequent integration has no new handoff, nor failed installed coverage.
+    pending = extract_saved_edinet(target, asof=good_day, lookback_days=0)
+    assert pending["edinet-list"]["failed_days"] == [bad_day.isoformat()]
+    assert pending["edinet-metrics"]["input_asof"] == good_day.isoformat()
+
+    repaired_source, repaired_packet = (
+        tmp_path / "repaired.sqlite",
+        tmp_path / "repaired-packet.sqlite",
+    )
+    repaired_stamp = good_stamp + timedelta(hours=1)
+    repaired_receipt = receive(repaired_source, "S100NEW", repaired_stamp, day=bad_day)
+    export_handoff(repaired_source, repaired_packet, since=STAMP, archives=set())
+    assert import_handoff(repaired_packet, target)["failed_days"] == []
+    # Replaying the existing good receipt must keep its original clock.
+    assert import_handoff(good_packet, target)["failed_days"] == []
+    assert [item["docID"] for item in read_edinet_documents(target, bad_day)] == ["S100NEW"]
+    assert [item["docID"] for item in read_edinet_documents(target, good_day)] == ["S100GOOD"]
+    with closing(open_connection(target)) as conn:
+        assert conn.execute(
+            "SELECT doc_date, selected_receipt_id, selected_received_at_utc, latest_received_at_utc "
+            "FROM edinet_document_lists WHERE doc_date IN (?, ?) ORDER BY doc_date",
+            (bad_day.isoformat(), good_day.isoformat()),
+        ).fetchall() == [
+            (
+                day.isoformat(),
+                receipt,
+                stamp.isoformat(timespec="microseconds"),
+                stamp.isoformat(timespec="microseconds"),
+            )
+            for day, receipt, stamp in (
+                (bad_day, repaired_receipt, repaired_stamp),
+                (good_day, good_receipt, good_stamp),
+            )
+        ]
+    assert "edinet-list" not in extract_saved_edinet(target, asof=good_day, lookback_days=0)
+
+
+def test_bad_old_list_does_not_suppress_a_good_withdrawal_that_invalidates_saved_metrics(tmp_path):
+    target, source, packet = (
+        tmp_path / name for name in ("target.sqlite", "source.sqlite", "packet.sqlite")
+    )
+    documents = _seed(target)
+    old_stamp = datetime(2026, 4, 24, 9, tzinfo=UTC)
+    with closing(open_connection(target)) as conn:
+        retain_list_response(
+            conn,
+            doc_date=BASE,
+            received_at=old_stamp,
+            body=json.dumps(
+                {"metadata": {"resultset": {"count": 2}}, "results": documents}
+            ).encode(),
+        )
+    rebuild_edinet_document_day(target, BASE)
+    assert set(EDINETReader(target).load_metric_records(TARGET)) == {"7203", "8306"}
+    withdrawal = {**documents[0], "withdrawalStatus": "1", "opeDateTime": "2026-04-27 12:00"}
+    with closing(open_connection(source)) as conn:
+        retain_list_response(
+            conn, doc_date=BASE, received_at=old_stamp + timedelta(days=3), body=b"{invalid JSON"
+        )
+        retain_list_response(
+            conn,
+            doc_date=TARGET,
+            received_at=old_stamp + timedelta(days=3, hours=1),
+            body=json.dumps(
+                {"metadata": {"resultset": {"count": 1}}, "results": [withdrawal]}
+            ).encode(),
+        )
+    export_handoff(source, packet, since=old_stamp, archives=set())
+    outcome = import_handoff(packet, target)
+    assert outcome["failed_days"] == [BASE.isoformat()]
+    assert TARGET.isoformat() in outcome["replayed_days"]
+    assert read_edinet_documents(target, TARGET)[0]["withdrawalStatus"] == "1"
+    eligible = EDINETReader(target).load_metric_records(TARGET)
+    assert set(eligible) == {"8306"}
+    assert eligible["8306"].snapshot_asof == BASE
+    assert eligible["8306"].snapshot_recorded_at_utc == RECORDED

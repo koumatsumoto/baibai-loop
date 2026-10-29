@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.db_seed import seed_ledger
+from tests.helpers.screening_sqlite import add_source_coverage
 from tools.experiments.measure_limit_outcomes import (
     POST_EXPIRY_SESSIONS,
     LimitOutcomeMeasurementError,
@@ -69,10 +70,31 @@ def _reservation(
 def _market(path: Path, bars: list[tuple[str, float, float]]) -> None:
     connection = open_connection(path)
     try:
+        # この合成calendarは各日を1sessionとする。疎な価格観測から営業日や
+        # 権利basisを推定せず、価格のないsessionにもfactorだけを保存する。
+        start, end = date(2026, 7, 1), date(2026, 8, 1)
+        days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, '1')",
+            [(day.isoformat(),) for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-order-window-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
         connection.executemany(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, low, close, adjustment_factor) "
             "VALUES ('2331', ?, ?, ?, 1.0)",
             bars,
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO jquants_daily_bars(ticker, traded_at, adjustment_factor) "
+            "VALUES ('2331', ?, 1.0)",
+            [(day.isoformat(),) for day in days],
         )
         connection.commit()
     finally:

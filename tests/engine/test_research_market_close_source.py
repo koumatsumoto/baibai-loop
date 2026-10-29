@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.holdings.market_observations import (
     market_basis_is_confirmed,
@@ -24,6 +24,24 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLiteSchemaError,
     open_connection,
 )
+
+
+def _seed_basis_calendar(path: Path, start: date, end: date) -> None:
+    """各日を営業日と宣言する合成calendarを、barsとは別に保存する。"""
+    days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, '1')",
+            [(day.isoformat(),) for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-basis-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
 
 
 def test_market_close_source_reports_schema_version_mismatch(tmp_path: Path) -> None:
@@ -132,6 +150,7 @@ def test_quantity_basis_rejects_an_incomplete_adjustment_chain(
     else:
         rows.append(("2331", "2026-07-09", intermediate_close, intermediate_factor))
     seed_daily_bars(sqlite_path, rows)
+    _seed_basis_calendar(sqlite_path, date(2026, 7, 8), date(2026, 7, 10))
 
     resolved = market_basis_is_confirmed(
         basis="shares",
@@ -153,6 +172,7 @@ def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path)
             ("2331", "2026-07-10", 1000.0, 1.0),
         ],
     )
+    _seed_basis_calendar(sqlite_path, date(2026, 7, 9), date(2026, 7, 10))
 
     resolved = market_basis_is_confirmed(
         basis="shares",
@@ -170,6 +190,7 @@ def test_holding_close_uses_exact_basis_after_complete_raw_chain(tmp_path: Path)
 def test_quantity_basis_depends_on_adjustment_factor_not_price(tmp_path, close, factor):
     path = tmp_path / "market.sqlite"
     seed_daily_bars(path, [("2331", "2026-07-09", 990.0, 1.0), ("2331", "2026-07-10", 1000.0, 1.0)])
+    _seed_basis_calendar(path, date(2026, 7, 9), date(2026, 7, 10))
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "UPDATE jquants_daily_bars SET close = ?, adjustment_factor = ? WHERE traded_at = ?",
@@ -186,8 +207,6 @@ def test_quantity_basis_depends_on_adjustment_factor_not_price(tmp_path, close, 
 
 @pytest.mark.parametrize("count", [1, 252])
 def test_quantity_basis_keeps_the_callers_connection(tmp_path, count):
-    from datetime import timedelta
-
     path = tmp_path / "market.sqlite"
     start = date(2025, 1, 1)
     end = start + timedelta(days=count - 1)
@@ -195,6 +214,7 @@ def test_quantity_basis_keeps_the_callers_connection(tmp_path, count):
         path,
         [("2331", (start + timedelta(days=i)).isoformat(), 1000.0 + i, 1.0) for i in range(count)],
     )
+    _seed_basis_calendar(path, start, end)
     with closing(sqlite3.connect(path)) as conn, conn:
         result = market_basis_is_confirmed(
             basis="shares",
@@ -307,6 +327,7 @@ def test_position_share_units_and_price_comparison_have_distinct_basis(
             ("2331", "2026-07-10", 800.0, factor),
         ],
     )
+    _seed_basis_calendar(path, date(2026, 7, 9), date(2026, 7, 10))
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "UPDATE jquants_daily_bars SET ex_right_type = ? WHERE traded_at = ?",
@@ -333,6 +354,7 @@ def test_comparison_excludes_the_starting_sessions_adjustment(tmp_path, basis, f
     seed_daily_bars(
         path, [("2331", start.isoformat(), 1000.0, factor), ("2331", end.isoformat(), 1010.0, 1.0)]
     )
+    _seed_basis_calendar(path, start, end)
     assert market_basis_is_confirmed(
         basis=basis, sqlite_path=path, ticker="2331", from_date=start, through_date=start
     )

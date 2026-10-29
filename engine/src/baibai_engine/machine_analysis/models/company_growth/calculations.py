@@ -190,7 +190,7 @@ def _derived(
     assert anchor.period_end is not None
     days = period_days(anchor)
     if days is not None and (
-        330 <= days <= 370 and is_annual_period(anchor.period_start, anchor.period_end)
+        330 <= days <= 371 and is_annual_period(anchor.period_start, anchor.period_end)
         if ttm
         else 70 <= days <= 110
     ):
@@ -220,10 +220,9 @@ def _derived(
             [
                 g
                 for g in groups
-                if anchor.fiscal_year_end is not None
-                and g[0].fiscal_year_end == add_months_clamped(anchor.fiscal_year_end, -12)
+                if g[0].fiscal_year_end == anchor.period_start - timedelta(days=1)
                 and (n := period_days(g[0])) is not None
-                and 330 <= n <= 370
+                and 330 <= n <= 371
             ],
             expected_end=anchor.period_start - timedelta(days=1),
         )

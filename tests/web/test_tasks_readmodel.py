@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerError
 from baibai_engine.tasks.models import Task
 from baibai_web.readmodel.builders.tasks import _upcoming_events, build_tasks
+from baibai_web.sources import db_sources
+from baibai_web.sources.db_sources import DbLedgerSource
 
 
 @pytest.mark.parametrize(
@@ -67,7 +72,7 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
     ]
     ledger = mocker.Mock()
     ledger.exists.return_value = True
-    ledger.snapshot.side_effect = PortfolioLedgerError("invalid ledger")
+    ledger.facts_snapshot.side_effect = PortfolioLedgerError("invalid ledger")
     market = mocker.Mock()
 
     view = build_tasks(tasks, ledger, market)
@@ -103,19 +108,19 @@ def test_task_events_need_dates_and_names_not_holding_valuation(mocker) -> None:
     tasks.list_tasks.return_value = []
     ledger.exists.return_value = True
     holding = mocker.Mock(spec_set=["ticker"], ticker="2331")
-    ledger.snapshot.return_value.holdings = [holding]
-    ledger.snapshot.return_value.active_reservations = []
+    ledger.facts_snapshot.return_value.holdings = [holding]
+    ledger.facts_snapshot.return_value.active_reservations = []
     market.security_names.return_value = {}
     now = datetime(2026, 10, 14, 12, tzinfo=ZoneInfo("Asia/Tokyo"))
     mocker.patch("baibai_web.readmodel.builders.tasks.datetime").now.return_value = now
     today = now.date()
     market.next_earnings_dates.return_value = {"2331": today}
-    market.price_comparison_basis_is_confirmed.side_effect = AssertionError("unneeded valuation")
+    ledger.snapshot.side_effect = AssertionError("unneeded valuation")
 
     view = build_tasks(tasks, ledger, market)
 
     assert [(event.kind, event.ticker) for event in view.upcoming_events] == [("earnings", "2331")]
-    market.price_comparison_basis_is_confirmed.assert_not_called()
+    ledger.snapshot.assert_not_called()
 
 
 def test_event_window_order_and_labels_are_preserved() -> None:
@@ -168,8 +173,8 @@ def test_unavailable_earnings_remains_distinct_from_confirmed_empty(mocker, cale
     tasks.exists.return_value = True
     tasks.list_tasks.return_value = []
     ledger.exists.return_value = True
-    ledger.snapshot.return_value.holdings = [mocker.Mock(ticker="2331")]
-    ledger.snapshot.return_value.active_reservations = [
+    ledger.facts_snapshot.return_value.holdings = [mocker.Mock(ticker="2331")]
+    ledger.facts_snapshot.return_value.active_reservations = [
         mocker.Mock(ticker="2331", expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"))
     ]
     market.security_names.return_value = {}
@@ -182,3 +187,45 @@ def test_unavailable_earnings_remains_distinct_from_confirmed_empty(mocker, cale
     assert [(event.kind, event.event_date) for event in view.upcoming_events] == [
         ("reservation_expiry", date(2026, 10, 16))
     ]
+
+
+def test_db_tasks_compose_ledger_facts_without_reading_market_valuation(tmp_path, mocker):
+    app = tmp_path / "app.sqlite"
+    market_path = tmp_path / "absent-market.sqlite"
+    seed_ledger(
+        app, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    before = app.read_bytes()
+    now = datetime.fromisoformat("2026-07-20T09:00:00+09:00")
+    mocker.patch("baibai_web.readmodel.builders.tasks.datetime").now.return_value = now
+    mocker.patch.object(db_sources, "datetime").now.return_value = now
+    valuation = mocker.patch.object(
+        db_sources, "current_portfolio", side_effect=AssertionError("unneeded valuation")
+    )
+    quote = mocker.patch(
+        "baibai_engine.portfolio.holdings.valuation.read_unadjusted_close",
+        side_effect=AssertionError("unneeded quote"),
+    )
+    basis = mocker.patch(
+        "baibai_engine.portfolio.holdings.valuation.market_basis_is_confirmed",
+        side_effect=AssertionError("unneeded price basis"),
+    )
+    tasks, market = mocker.Mock(), mocker.Mock()
+    tasks.exists.return_value = True
+    tasks.list_tasks.return_value = []
+    market.security_names.return_value = {"2331": "保有企業"}
+    market.next_earnings_dates.return_value = {"2331": date(2026, 7, 21)}
+
+    view = build_tasks(tasks, DbLedgerSource(app, market_path), market)
+
+    assert view.ledger_error is None
+    assert [(event.kind, event.ticker, event.event_date) for event in view.upcoming_events] == [
+        ("earnings", "2331", date(2026, 7, 21)),
+        ("reservation_expiry", "8929", date(2026, 7, 31)),
+    ]
+    market.next_earnings_dates.assert_called_once_with(["2331"], as_of=now.date())
+    valuation.assert_not_called()
+    quote.assert_not_called()
+    basis.assert_not_called()
+    assert app.read_bytes() == before
+    assert not market_path.exists()

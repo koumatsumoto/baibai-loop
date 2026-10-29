@@ -123,7 +123,7 @@ def market_basis_is_confirmed(
     through_date: date,
     connection: sqlite3.Connection | None = None,
 ) -> bool:
-    """Confirm unchanged price or share basis across the observed session range.
+    """Confirm unchanged price or share basis across the retained calendar range.
 
     The event window is from_date < event date <= through_date: the starting
     observation already uses its own session basis. See J-Quants daily-bar
@@ -149,19 +149,22 @@ def market_basis_is_confirmed(
         version_row = conn.execute("PRAGMA user_version").fetchone()
         if version_row is None or int(version_row[0]) != SQLITE_SCHEMA_VERSION:
             raise SQLiteSchemaError("market quote requires the current market schema")
-        session_rows = conn.execute(
-            "SELECT DISTINCT traded_at FROM jquants_daily_bars "
-            "WHERE traded_at > ? AND traded_at <= ? ORDER BY traded_at",
-            (from_date.isoformat(), through_date.isoformat()),
-        ).fetchall()
-        sessions = tuple(str(row[0]) for row in session_rows)
-        if not sessions or sessions[-1] != through_date.isoformat():
-            return False
+        start = from_date + timedelta(days=1)
+        calendar = _read_calendar(conn, start, through_date)
         bar_rows = conn.execute(
             "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
             "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? ORDER BY traded_at",
             (ticker, from_date.isoformat(), through_date.isoformat()),
         ).fetchall()
+        if calendar is None or len(calendar) != (through_date - start).days + 1:
+            return False
+        if any(day.day != start + timedelta(days=index) for index, day in enumerate(calendar)):
+            return False
+        # Price-row dates cannot prove session completeness: a missing whole
+        # exchange session could otherwise hide its corporate action.
+        sessions = tuple(day.day.isoformat() for day in calendar if day.is_business_day)
+        if not sessions or sessions[-1] != through_date.isoformat():
+            return False
         if tuple(str(row[0]) for row in bar_rows) != sessions:
             return False
     finally:

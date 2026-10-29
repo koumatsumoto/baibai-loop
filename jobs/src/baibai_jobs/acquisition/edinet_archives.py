@@ -11,6 +11,7 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
     EdinetRateLimitError,
 )
+from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
     plan_fact_item,
 )
@@ -73,9 +74,15 @@ def acquire_archives(
                     acquisition.download_csv_zip(doc_id)
                 else:
                     acquisition.download_xbrl_zip(doc_id)
-            except (EdinetAcquisitionError, EDINETProviderError, ValueError, OSError) as error:
+            except (
+                AcquisitionDeadlineExceeded,
+                EdinetAcquisitionError,
+                EDINETProviderError,
+                ValueError,
+                OSError,
+            ) as error:
                 failed.append(doc_id)
-                if isinstance(error, EdinetRateLimitError):
+                if isinstance(error, (AcquisitionDeadlineExceeded, EdinetRateLimitError)):
                     break
             else:
                 downloaded += 1

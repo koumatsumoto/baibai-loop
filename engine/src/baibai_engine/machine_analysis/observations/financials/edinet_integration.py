@@ -18,6 +18,9 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_projection import (
     project_document_list,
 )
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    pending_edinet_document_dates,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
     select_document_candidates,
 )
@@ -65,18 +68,10 @@ def extract_saved_edinet(
         conn.execute("BEGIN")
         documents = read_observed_documents(conn, through=asof)
         failed_list_days: list[str] = []
-        for (day,) in conn.execute(
-            "SELECT DISTINCT r.doc_date FROM edinet_list_responses r WHERE r.doc_date <= ? "
-            "AND EXISTS (SELECT 1 FROM source_coverage c WHERE c.source = 'edinet_documents' "
-            "AND c.status = 'failed' AND c.coverage_start <= r.doc_date "
-            "AND c.coverage_end >= r.doc_date) ORDER BY r.doc_date",
-            (asof.isoformat(),),
-        ):
-            projection = project_document_list(
-                read_list_responses(conn, doc_date=date.fromisoformat(day))
-            )
+        for day in pending_edinet_document_dates(conn, through=asof):
+            projection = project_document_list(read_list_responses(conn, doc_date=day))
             if projection.error is not None:
-                failed_list_days.append(day)
+                failed_list_days.append(day.isoformat())
         row = conn.execute(
             "SELECT MAX(coverage_end) FROM source_coverage "
             "WHERE source = 'edinet_documents' AND status = 'ok' AND coverage_end <= ?",
