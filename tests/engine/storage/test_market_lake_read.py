@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import threading
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, closing, contextmanager, nullcontext
+from contextlib import AbstractContextManager, closing, nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,16 +23,12 @@ from tests.helpers.lake_release import market_store
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_DAILY_BARS,
 )
+from baibai_engine.storage.objects import r2 as object_storage
 from baibai_engine.storage.snapshots import duck as duck_module
 from baibai_engine.storage.snapshots import hydrate as hydrate_module
 from baibai_engine.storage.snapshots import objects as objects_module
 from baibai_engine.storage.snapshots import prefetch as prefetch_module
-from baibai_engine.storage.snapshots.duck import (
-    LakeCredentialError,
-    LakeSession,
-    R2ReadCredentials,
-    lake_session,
-)
+from baibai_engine.storage.snapshots.duck import LakeSession, lake_session
 from baibai_engine.storage.snapshots.hydrate import (
     LakeHydrateError,
     dehydrate_market_store,
@@ -51,12 +47,15 @@ from baibai_engine.storage.snapshots.models import (
 )
 from baibai_engine.storage.snapshots.objects import (
     MAX_BUFFERED_OBJECT_BYTES,
+    LakeCredentialError,
     LakeObjectCache,
     LakeObjectError,
     LocalMirrorSource,
     R2ObjectSource,
+    R2ReadCredentials,
     mirror_path,
     mirror_root,
+    open_lake,
 )
 from baibai_engine.storage.snapshots.prefetch import (
     PrefetchingSource,
@@ -116,9 +115,6 @@ class RecordingSource:
     def read_bytes(self, key: str) -> bytes:
         self.reads.append(key)
         return self.inner.read_bytes(key)
-
-    def uri(self, key: str) -> str:
-        return self.inner.uri(key)
 
 
 @dataclass(frozen=True)
@@ -955,27 +951,50 @@ class TestCredentialBoundary:
             pytest.fail("a failed setup must not yield a session")
         assert connection.closed
 
-    def test_remote_authorization_loads_but_never_installs_httpfs(self) -> None:
-        class RecordingConnection:
-            def __init__(self) -> None:
-                self.statements: list[str] = []
+    def test_remote_cache_uses_the_shared_store_and_closes_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        environment = {
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "K" * 32,
+            "R2_SECRET_ACCESS_KEY": "super-secret-value",
+        }
+        key = current_release_pointer_key()
 
-            def execute(self, statement: str, _parameters: object = None) -> None:
-                self.statements.append(statement)
+        class Store:
+            closed = False
 
-        connection = RecordingConnection()
-        credentials = R2ReadCredentials(
-            account_id="a" * 32,
-            access_key_id="K" * 32,
-            secret_access_key="super-secret-value",
-            bucket="baibai-stores",
-        )
-        session = LakeSession(connection=connection, credentials=credentials)  # type: ignore[arg-type]
+            def get_bytes(self, requested: str) -> bytes:
+                assert requested == key
+                return b"pointer"
 
-        duck_module._authorize_r2(session, credentials)
+            def close(self) -> None:
+                self.closed = True
 
-        assert connection.statements[0] == "LOAD httpfs"
-        assert not any(statement.startswith("INSTALL") for statement in connection.statements)
+        store = Store()
+
+        def make_store(*, bucket: str, env: dict[str, str]) -> Store:
+            assert bucket == "baibai-stores"
+            assert env == environment
+            return store
+
+        monkeypatch.setattr(objects_module, "Boto3R2Store", make_store)
+
+        def read_then_fail() -> None:
+            with open_lake(mirror=tmp_path, bucket="baibai-stores", env=environment) as (
+                session,
+                cache,
+            ):
+                assert cache.source.read_bytes(key) == b"pointer"
+                assert session.connection.execute(
+                    "SELECT current_setting('autoload_known_extensions'), "
+                    "current_setting('autoinstall_known_extensions')"
+                ).fetchone() == (False, False)
+                raise RuntimeError("consumer failed")
+
+        with pytest.raises(RuntimeError, match="consumer failed"):
+            read_then_fail()
+        assert store.closed
 
     def test_credentials_are_not_rendered(self) -> None:
         credentials = R2ReadCredentials(
@@ -989,24 +1008,41 @@ class TestCredentialBoundary:
         assert "super-secret-value" not in str(credentials)
         assert "a" * 32 not in repr(credentials)
 
-    def test_redaction_removes_every_credential_component_from_a_message(self) -> None:
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_source_errors_do_not_expose_provider_credentials(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stream: bool
+    ) -> None:
         credentials = R2ReadCredentials(
             account_id="a" * 32,
             access_key_id="K" * 32,
             secret_access_key="super-secret-value",
             bucket="baibai-stores",
         )
-        session = LakeSession(connection=None, credentials=credentials)  # type: ignore[arg-type]
         message = (
             f"HTTP 403 for https://{'a' * 32}.r2.cloudflarestorage.com/x "
             f"key={'K' * 32} secret=super-secret-value"
         )
 
-        redacted = session.redact(message)
+        def failed(*args: object, **kwargs: object) -> None:
+            raise RuntimeError(message)
 
-        assert "super-secret-value" not in redacted
-        assert "K" * 32 not in redacted
-        assert "a" * 32 not in redacted
+        monkeypatch.setattr(
+            objects_module,
+            "Boto3R2Store",
+            lambda **kwargs: SimpleNamespace(get_bytes=failed, download_file=failed),
+        )
+        source = R2ObjectSource(credentials)
+        if stream:
+            with pytest.raises(LakeObjectError, match="not readable") as error:
+                source.download_file(current_release_pointer_key(), tmp_path / "out", max_bytes=3)
+        else:
+            with pytest.raises(LakeObjectError, match="not readable") as error:
+                source.read_bytes(current_release_pointer_key())
+
+        assert "super-secret-value" not in str(error.value)
+        assert "K" * 32 not in str(error.value)
+        assert "a" * 32 not in str(error.value)
+        assert error.value.__suppress_context__
 
     def test_a_malformed_account_id_is_refused_before_any_connection(self) -> None:
         with pytest.raises(LakeCredentialError, match="R2_ACCOUNT_ID"):
@@ -1021,16 +1057,18 @@ class TestCredentialBoundary:
         with pytest.raises(LakeCredentialError, match="R2_ACCESS_KEY_ID"):
             R2ReadCredentials.from_env({"R2_ACCOUNT_ID": "a" * 32})
 
-    def test_a_session_without_credentials_cannot_produce_a_remote_uri(self) -> None:
-        from baibai_engine.storage.snapshots.objects import R2ObjectSource
+    @pytest.mark.parametrize(
+        ("field", "value", "message"),
+        [("access_key_id", "bad-key", "R2_ACCESS_KEY_ID"), ("bucket", "Bad_Bucket", "bucket")],
+    )
+    def test_read_credential_shapes_remain_restricted(
+        self, field: str, value: str, message: str
+    ) -> None:
+        credentials = R2ReadCredentials("a" * 32, "K" * 32, "secret", "baibai-stores")
+        with pytest.raises(LakeCredentialError, match=message):
+            replace(credentials, **{field: value})
 
-        with (
-            lake_session() as session,
-            pytest.raises(LakeObjectError, match="authorised session"),
-        ):
-            R2ObjectSource(session).uri("lake/pointers/market/current.json")
-
-    def test_a_session_without_credentials_cannot_reach_a_remote_path(self) -> None:
+    def test_query_sessions_cannot_reach_a_remote_path(self) -> None:
         """Extension autoload is off, so a remote path fails instead of pulling httpfs in."""
 
         import duckdb
@@ -2040,21 +2078,15 @@ class _CorruptingSource:
             return payload
         return payload[:-1] + bytes([payload[-1] ^ 1])
 
-    def uri(self, key: str) -> str:
-        return self.inner.uri(key)
-
 
 @dataclass
 class _RefusingSource:
-    """A source whose every object read fails, as a worker's session might."""
+    """A source whose every object read fails, as a worker's connection might."""
 
     inner: LocalMirrorSource
 
     def read_bytes(self, key: str) -> bytes:
         raise LakeObjectError(f"worker cannot read: {key}")
-
-    def uri(self, key: str) -> str:
-        return self.inner.uri(key)
 
 
 @dataclass
@@ -2071,9 +2103,6 @@ class _StreamingSource:
         self.downloads += 1
         assert len(self.payload) <= max_bytes
         destination.write_bytes(self.payload)
-
-    def uri(self, key: str) -> str:
-        return key
 
 
 class TestLargeObjectStreaming:
@@ -2145,7 +2174,7 @@ class TestLargeObjectStreaming:
         assert "(1 streamed)" in capfd.readouterr().err
 
     def test_r2_download_reads_bounded_chunks(
-        self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         payload = b"one" + b"two" + b"three"
         item = self._object(lake, payload)
@@ -2153,16 +2182,18 @@ class TestLargeObjectStreaming:
         class Body:
             chunks = iter((b"one", b"two", b"three", b""))
             requested: list[int] = []
+            closed = False
 
             def read(self, size: int) -> bytes:
                 self.requested.append(size)
                 return next(self.chunks)
 
             def close(self) -> None:
-                pass
+                self.closed = True
 
         class Client:
             body = Body()
+            closed = False
 
             def get_object(self, *, Bucket: str, Key: str) -> dict[str, Body]:
                 assert Bucket == "baibai-stores"
@@ -2170,18 +2201,24 @@ class TestLargeObjectStreaming:
                 return {"Body": self.body}
 
             def close(self) -> None:
-                pass
+                self.closed = True
 
         client = Client()
-        monkeypatch.setattr(objects_module.boto3, "client", lambda *args, **kwargs: client)
+        monkeypatch.setattr(
+            object_storage.boto3.session,
+            "Session",
+            lambda: SimpleNamespace(client=lambda *args, **kwargs: client),
+        )
         credentials = R2ReadCredentials("0" * 32, "A" * 20, "dummy", "baibai-stores")
-        source = R2ObjectSource(replace(session, credentials=credentials))
         destination = tmp_path / "remote.parquet"
 
-        source.download_file(item.key, destination, max_bytes=len(payload))
+        with closing(R2ObjectSource(credentials)) as source:
+            source.download_file(item.key, destination, max_bytes=len(payload))
 
         assert destination.read_bytes() == payload
         assert client.body.requested == [objects_module._STREAM_CHUNK_BYTES] * 4
+        assert client.body.closed
+        assert client.closed
 
 
 class TestPrefetchingHydration:
@@ -2403,9 +2440,6 @@ class TestPrefetchingHydration:
                     gate.wait()
                 return inner.read_bytes(key)
 
-            def uri(self, key: str) -> str:
-                return inner.uri(key)
-
         source = PrefetchingSource(
             base=inner,
             objects=planned,
@@ -2420,30 +2454,29 @@ class TestPrefetchingHydration:
             source.close()
         assert "prefetch disabled" in capfd.readouterr().err
 
-    def test_r2_hydration_cache_gives_each_worker_its_own_session(
+    def test_r2_hydration_cache_gives_each_worker_its_own_source(
         self,
         session: LakeSession,
         lake: Lake,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The bucket branch is exercised offline: one session and one source per worker."""
+        """Workers share fixed credentials, not query sessions or transport pools."""
 
-        opened_sessions: list[object] = []
+        worker_credentials: list[R2ReadCredentials] = []
         worker_sources: list[RecordingSource] = []
+        closed_sources: list[RecordingSource] = []
 
-        @contextmanager
-        def fake_lake_session(*, credentials: object) -> Iterator[object]:
-            token = object()
-            opened_sessions.append(token)
-            yield token
+        class WorkerSource(RecordingSource):
+            def close(self) -> None:
+                closed_sources.append(self)
 
-        def fake_r2_source(worker_session: object) -> RecordingSource:
-            source = RecordingSource(LocalMirrorSource(lake.mirror))
+        def fake_r2_source(credentials: R2ReadCredentials) -> WorkerSource:
+            worker_credentials.append(credentials)
+            source = WorkerSource(LocalMirrorSource(lake.mirror))
             worker_sources.append(source)
             return source
 
-        monkeypatch.setattr(prefetch_module, "lake_session", fake_lake_session)
         monkeypatch.setattr(prefetch_module, "R2ObjectSource", fake_r2_source)
         monkeypatch.setenv("R2_ACCOUNT_ID", "0" * 32)
         monkeypatch.setenv("R2_ACCESS_KEY_ID", "A" * 20)
@@ -2470,8 +2503,11 @@ class TestPrefetchingHydration:
             )
 
         assert report.rows == {"jquants.daily_bars": 4, "jquants.short_sale_reports": 2}
-        assert len(opened_sessions) == min(8, len(planned))
-        assert len(worker_sources) == len(opened_sessions)
+        assert len(worker_sources) == min(8, len(planned))
+        assert len({id(credentials) for credentials in worker_credentials}) == 1
+        assert {id(source) for source in worker_sources} == {
+            id(source) for source in closed_sources
+        }
         served = [key for source in worker_sources for key in source.reads]
         assert sorted(served) == sorted(item.key for item in planned)
 
@@ -2485,7 +2521,7 @@ class TestPrefetchingHydration:
         planned = hydration_order(release, self._NAMES)
 
         def refusing_factory() -> AbstractContextManager[LocalMirrorSource]:
-            raise RuntimeError("worker session cannot be opened")
+            raise RuntimeError("worker source cannot be opened")
 
         source = PrefetchingSource(
             base=inner,

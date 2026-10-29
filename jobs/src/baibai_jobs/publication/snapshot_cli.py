@@ -10,7 +10,6 @@ from pathlib import Path
 import yaml
 from pydantic import JsonValue, ValidationError
 
-from baibai_engine.storage.snapshots.duck import LakeCredentialError
 from baibai_engine.storage.snapshots.inventory import inventory
 from baibai_engine.storage.snapshots.models import (
     DatasetManifest,
@@ -19,7 +18,7 @@ from baibai_engine.storage.snapshots.models import (
     load_manifest_json,
     validate_dataset_contract,
 )
-from baibai_engine.storage.snapshots.objects import LakeObjectError, open_lake
+from baibai_engine.storage.snapshots.objects import LakeCredentialError, LakeObjectError, open_lake
 from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     resolve_current_release,

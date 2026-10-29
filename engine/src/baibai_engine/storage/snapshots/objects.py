@@ -15,23 +15,16 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import uuid
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-import boto3
-import duckdb
-from botocore.config import Config
-
-from baibai_engine.storage.snapshots.duck import (
-    LakeSession,
-    R2ReadCredentials,
-    lake_session,
-    r2_uri,
-)
+from baibai_engine.storage.objects.r2 import Boto3R2Store
+from baibai_engine.storage.snapshots.duck import LakeSession, lake_session
 from baibai_engine.storage.snapshots.keys import validate_lake_object_key
 from baibai_engine.storage.snapshots.models import LakeObject
 from baibai_engine.storage.snapshots.sources import sha256_file
@@ -41,6 +34,57 @@ _GLOB_METACHARACTERS = frozenset("*?[]{}")
 # one Python bytes value (or holding it in a prefetch slot) exhausts a hosted runner.
 MAX_BUFFERED_OBJECT_BYTES = 8 * 1024 * 1024
 _STREAM_CHUNK_BYTES = 8 * 1024 * 1024
+_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
+_ACCESS_KEY_ID = re.compile(r"^[A-Za-z0-9]{16,128}$")
+_BUCKET = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
+
+
+class LakeCredentialError(RuntimeError):
+    """R2 read credentials are absent or do not have the expected shape."""
+
+
+@dataclass(frozen=True, slots=True)
+class R2ReadCredentials:
+    """Snapshot read configuration, frozen before any worker starts."""
+
+    account_id: str
+    access_key_id: str
+    secret_access_key: str
+    bucket: str
+
+    def __post_init__(self) -> None:
+        if _ACCOUNT_ID.fullmatch(self.account_id) is None:
+            raise LakeCredentialError("R2_ACCOUNT_ID must be 32 lowercase hexadecimal characters")
+        if _ACCESS_KEY_ID.fullmatch(self.access_key_id) is None:
+            raise LakeCredentialError("R2_ACCESS_KEY_ID must be an alphanumeric access key id")
+        if not self.secret_access_key:
+            raise LakeCredentialError("R2_SECRET_ACCESS_KEY must not be empty")
+        if _BUCKET.fullmatch(self.bucket) is None:
+            raise LakeCredentialError("R2 bucket must be a lowercase DNS-safe name")
+
+    def __repr__(self) -> str:
+        return f"R2ReadCredentials(bucket={self.bucket!r})"
+
+    __str__ = __repr__
+
+    @classmethod
+    def from_env(
+        cls, env: Mapping[str, str] | None = None, *, bucket: str = "baibai-stores"
+    ) -> R2ReadCredentials:
+        source = os.environ if env is None else env
+        return cls(
+            account_id=_required(source, "R2_ACCOUNT_ID"),
+            access_key_id=_required(source, "R2_ACCESS_KEY_ID"),
+            secret_access_key=_required(source, "R2_SECRET_ACCESS_KEY"),
+            bucket=bucket,
+        )
+
+
+def _required(env: Mapping[str, str], name: str) -> str:
+    value = env.get(name)
+    if not value:
+        raise LakeCredentialError(f"required environment variable is missing: {name}")
+    return value
 
 
 class LakeObjectError(RuntimeError):
@@ -51,8 +95,6 @@ class LakeObjectSource(Protocol):
     """Read one object by its exact key."""
 
     def read_bytes(self, key: str) -> bytes: ...
-
-    def uri(self, key: str) -> str: ...
 
 
 class _Downloader(Protocol):
@@ -72,9 +114,6 @@ class LocalMirrorSource:
         except OSError as exc:
             raise LakeObjectError(f"lake object is not readable: {key}") from exc
 
-    def uri(self, key: str) -> str:
-        return str(self.path(key))
-
     def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
         try:
             with self.path(key).open("rb") as source, destination.open("xb") as target:
@@ -91,71 +130,37 @@ class LocalMirrorSource:
         return mirror_path(self.root, key)
 
 
-@dataclass(frozen=True, slots=True)
 class R2ObjectSource:
-    """The R2 bucket, read through the session's authorised DuckDB connection."""
+    """Exact snapshot keys transferred by the shared R2 object store."""
 
-    session: LakeSession
+    def __init__(self, credentials: R2ReadCredentials) -> None:
+        self._store = Boto3R2Store(
+            bucket=credentials.bucket,
+            env={
+                "R2_ACCOUNT_ID": credentials.account_id,
+                "R2_ACCESS_KEY_ID": credentials.access_key_id,
+                "R2_SECRET_ACCESS_KEY": credentials.secret_access_key,
+            },
+        )
+
+    def close(self) -> None:
+        self._store.close()
 
     def read_bytes(self, key: str) -> bytes:
-        uri = self.uri(key)
+        validate_lake_object_key(key)
         try:
-            rows = self.session.connection.execute(
-                "SELECT content FROM read_blob($uri)", {"uri": uri}
-            ).fetchall()
-        except duckdb.Error as exc:
-            raise LakeObjectError(
-                f"lake object is not readable: {key}: {self.session.redact(str(exc))}"
-            ) from None
-        if len(rows) != 1 or not isinstance(rows[0][0], bytes):
-            raise LakeObjectError(f"lake object did not resolve to exactly one payload: {key}")
-        return rows[0][0]
-
-    def uri(self, key: str) -> str:
-        if self.session.credentials is None:
-            raise LakeObjectError("R2 object source requires an authorised session")
-        return r2_uri(self.session.credentials, validate_lake_object_key(key))
+            return self._store.get_bytes(key)
+        except Exception:
+            # Provider exceptions can contain credentials or the account endpoint.
+            raise LakeObjectError(f"lake object is not readable: {key}") from None
 
     def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
         """Stream one exact R2 key to disk without materializing its body in memory."""
-        credentials = self.session.credentials
-        if credentials is None:
-            raise LakeObjectError("R2 object source requires an authorised session")
         validate_lake_object_key(key)
-        client = boto3.client(
-            "s3",
-            endpoint_url=f"https://{credentials.account_id}.r2.cloudflarestorage.com",
-            region_name="auto",
-            aws_access_key_id=credentials.access_key_id,
-            aws_secret_access_key=credentials.secret_access_key,
-            config=Config(
-                connect_timeout=120,
-                read_timeout=120,
-                retries={"mode": "standard", "total_max_attempts": 3},
-                response_checksum_validation="when_required",
-            ),
-        )
-        body = None
         try:
-            response = client.get_object(Bucket=credentials.bucket, Key=key)
-            body = response["Body"]
-            size = 0
-            with destination.open("xb") as target:
-                while chunk := body.read(_STREAM_CHUNK_BYTES):
-                    size += len(chunk)
-                    if size > max_bytes:
-                        raise LakeObjectError(f"lake object exceeds manifest size: {key}")
-                    target.write(chunk)
-        except Exception as exc:
-            if isinstance(exc, LakeObjectError):
-                raise
-            raise LakeObjectError(
-                f"lake object is not readable: {key}: {self.session.redact(str(exc))}"
-            ) from None
-        finally:
-            if body is not None:
-                body.close()
-            client.close()
+            self._store.download_file(key, destination, expect_bytes=max_bytes, max_bytes=max_bytes)
+        except Exception:
+            raise LakeObjectError(f"lake object is not readable: {key}") from None
 
 
 def mirror_path(root: Path, key: str) -> Path:
@@ -337,16 +342,17 @@ def open_lake(
     """Open a session and the object cache rooted at the local mirror.
 
     ``mirror`` is always the local content-addressed cache. Without ``bucket`` it is
-    also the only place objects can come from, and the session never loads the HTTP
-    layer — an offline build cannot silently reach the network. With ``bucket`` the
+    also the only place objects can come from — an offline build cannot silently
+    reach the network. DuckDB only queries verified local files. With ``bucket`` the
     same directory becomes a fetch-through cache, so a partition that an earlier
     release already materialized costs nothing to read again.
     """
 
     mirror_root(mirror)
     credentials = None if bucket is None else R2ReadCredentials.from_env(env, bucket=bucket)
-    with lake_session(credentials=credentials) as session:
-        source: LakeObjectSource = (
-            LocalMirrorSource(mirror) if credentials is None else R2ObjectSource(session)
-        )
-        yield session, LakeObjectCache(root=mirror, source=source)
+    with lake_session() as session:
+        if credentials is None:
+            yield session, LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror))
+        else:
+            with closing(R2ObjectSource(credentials)) as source:
+                yield session, LakeObjectCache(root=mirror, source=source)

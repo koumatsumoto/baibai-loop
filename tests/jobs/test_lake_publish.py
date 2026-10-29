@@ -1208,6 +1208,50 @@ def test_r2_download_atomically_installs_complete_bytes(
     assert list(target.parent.glob(".cache.json.*.part")) == []
 
 
+def test_r2_download_stops_at_the_snapshot_size_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = Boto3R2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+    target = tmp_path / "cache.json"
+    target.write_bytes(b"known-good")
+
+    class Body:
+        reads = 0
+        closed = False
+
+        def read(self, size: int) -> bytes:
+            assert size == 8 * 1024 * 1024
+            self.reads += 1
+            if self.reads > 2:
+                pytest.fail("an oversized stream must stop before another read")
+            return b"four"
+
+        def close(self) -> None:
+            self.closed = True
+
+    body = Body()
+
+    class Client:
+        def get_object(self, **_: object) -> object:
+            return {"Body": body}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    with pytest.raises(R2Error, match="exceeds size limit"):
+        store.download_file("key", target, expect_bytes=7, max_bytes=7)
+
+    assert body.reads == 2
+    assert body.closed
+    assert target.read_bytes() == b"known-good"
+    assert list(tmp_path.glob(".cache.json.*.part")) == []
+
+
 def test_operation_timeout_covers_the_object_it_transfers() -> None:
     """A per-attempt read timeout must leave enough room for the object."""
 

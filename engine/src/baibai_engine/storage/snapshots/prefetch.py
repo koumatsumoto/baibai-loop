@@ -23,8 +23,8 @@ Worker waits and joins are bounded separately from the base source's own timeout
 Objects above the buffered-size limit are skipped by workers and streamed by the
 consumer; otherwise one raw archive could occupy several gigabytes in a slot.
 
-Each worker owns its own source. For R2 that means its own DuckDB session, because a
-``LakeSession`` holds one connection and one connection must not serve two threads.
+Each worker owns its own R2 source and connection pool; no query session is needed
+to transfer bytes.
 """
 
 from __future__ import annotations
@@ -32,11 +32,10 @@ from __future__ import annotations
 import sys
 import threading
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, closing, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from baibai_engine.storage.snapshots.duck import R2ReadCredentials, lake_session
 from baibai_engine.storage.snapshots.models import LakeObject
 from baibai_engine.storage.snapshots.objects import (
     MAX_BUFFERED_OBJECT_BYTES,
@@ -44,6 +43,7 @@ from baibai_engine.storage.snapshots.objects import (
     LakeObjectError,
     LakeObjectSource,
     R2ObjectSource,
+    R2ReadCredentials,
     mirror_path,
 )
 from baibai_engine.storage.snapshots.reader import FixedRelease, selected_partitions
@@ -166,9 +166,6 @@ class PrefetchingSource:
         self._served += 1
         return payload
 
-    def uri(self, key: str) -> str:
-        return self._base.uri(key)
-
     def download_file(self, key: str, destination: Path, *, max_bytes: int) -> None:
         # Large planned objects are deliberately absent from the in-memory slots.
         with self._lock:
@@ -272,8 +269,7 @@ class PrefetchingSource:
     def _note_degraded(self, cause: object) -> None:
         """Say once that reads fall back to sequential, so a slow fill has its cause.
 
-        Messages from the R2 source arrive already redacted, so this cannot carry a
-        credential even when the cause is DuckDB's own error.
+        Messages from the R2 source omit provider exception details and credentials.
         """
 
         if self._degraded_note.is_set():
@@ -305,8 +301,8 @@ def prefetching_hydration_cache(
 
     @contextmanager
     def worker_source() -> Iterator[LakeObjectSource]:
-        with lake_session(credentials=credentials) as session:
-            yield R2ObjectSource(session)
+        with closing(R2ObjectSource(credentials)) as source:
+            yield source
 
     source = PrefetchingSource(
         base=cache.source,
