@@ -3,6 +3,7 @@ import uuid
 from contextlib import closing
 
 import pytest
+from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     _plan,
@@ -23,8 +24,15 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
     save_observations as external_assessment_save_observations,
 )
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
+    R2Error,
 )
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.external_assessment_ready import load_ready, prepare_plan, save_ready
 from baibai_jobs.integration.external_assessments import (
     VALUATION_DATASET,
@@ -340,3 +348,45 @@ def test_terminal_acknowledgement_loss_does_not_reopen_a_verified_source(
     pending, failed = available_ready(store)
     assert failed == []
     assert reference not in pending
+
+
+@pytest.mark.parametrize("boundary", ["ready", "merge"])
+@pytest.mark.parametrize(
+    "error",
+    [
+        R2Error("transport unavailable"),
+        LakeCASConflict("conditional generation changed"),
+        LakePublishError("R2 is only text in this source-contract error"),
+    ],
+)
+def test_external_source_failure_scope_uses_error_type(tmp_path, monkeypatch, boundary, error):
+    import baibai_jobs.integration.external_assessment_ready as ready
+    import baibai_jobs.integration.external_assessments as integration
+
+    store = MemoryR2Store()
+    reference = {"key": "coordination/external-assessment/run/ready-fixed.json", "sha256": "a" * 64}
+    store.store_object(reference["key"], b"{}")
+
+    def reject(*args, **kwargs):
+        raise error
+
+    database = tmp_path / "market.sqlite"
+    if boundary == "ready":
+        monkeypatch.setattr(ready, "read_plan", reject)
+        expected = {"run_id": "run", "reason": "LakePublishError"}
+    else:
+        with closing(open_connection(database)) as conn, conn:
+            write_lake_store_origin(conn, LakeStoreOrigin("base", "b" * 64))
+        monkeypatch.setattr(integration, "load_ready", reject)
+        expected = {"reference": reference, "reason": "LakePublishError"}
+
+    def invoke():
+        if boundary == "ready":
+            return ready.available_ready(store)[1]
+        return integration.merge_ready(store, [reference], database=database)["failed"]
+
+    if type(error) is not LakePublishError:
+        with pytest.raises(type(error)):
+            invoke()
+    else:
+        assert invoke() == [expected]

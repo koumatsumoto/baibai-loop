@@ -50,7 +50,8 @@ def test_late_old_calendar_keeps_its_nonoverlap_and_the_newer_overlap(tmp_path):
     selected = export_handoff(source, stage, since=FIRST_AT, sources=MARKET_SOURCES)
     assert selected == (old,)
     result = import_handoff(stage, target, selected, sources=MARKET_SOURCES)
-    assert result["replayed_requests"] == [old, newer, tail]
+    assert result.complete is True
+    assert result.report["replayed_requests"] == [old, newer, tail]
     with closing(open_connection(target)) as conn:
         assert conn.execute(
             "SELECT day, holiday_division FROM jquants_market_calendar ORDER BY day"
@@ -64,7 +65,10 @@ def test_late_old_calendar_keeps_its_nonoverlap_and_the_newer_overlap(tmp_path):
         from datetime import date
 
         assert range_covered(conn, "jquants_market_calendar", date(2026, 10, 1), date(2026, 10, 20))
-    assert import_handoff(stage, target, selected, sources=MARKET_SOURCES)["raw_pages_added"] == 0
+    assert (
+        import_handoff(stage, target, selected, sources=MARKET_SOURCES).report["raw_pages_added"]
+        == 0
+    )
 
 
 def test_an_old_complete_daily_cross_section_cannot_replace_newer_canonical_rows(tmp_path):
@@ -127,7 +131,8 @@ def test_incomplete_request_is_received_without_replacing_a_saved_cross_section(
     with closing(open_connection(target)) as conn:
         before = conn.execute("SELECT * FROM jquants_daily_bars").fetchall()
     result = import_handoff(stage, target, selected, sources=MARKET_SOURCES)
-    assert result["incomplete_requests"] == list(selected)
+    assert result.complete is False
+    assert result.report["incomplete_requests"] == list(selected)
     with closing(open_connection(target)) as conn:
         assert conn.execute("SELECT * FROM jquants_daily_bars").fetchall() == before
 
@@ -157,7 +162,7 @@ def test_latest_rolling_calendar_does_not_reproject_older_history(tmp_path, monk
 
     monkeypatch.setattr("baibai_jobs.integration.jquants_handoff.project_request", project)
     result = import_handoff(stage, target, selected, sources=MARKET_SOURCES)
-    assert result["replayed_requests"] == calls == [latest]
+    assert result.report["replayed_requests"] == calls == [latest]
     with closing(open_connection(target)) as conn:
         assert (
             conn.execute("SELECT COUNT(DISTINCT request_id) FROM jquants_source_pages").fetchone()[

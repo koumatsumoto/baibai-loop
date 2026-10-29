@@ -27,6 +27,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.integration.replay_result import ReplayResult
 
 MARKET_SOURCES: tuple[JQuantsSource, ...] = (
     "master",
@@ -160,7 +161,7 @@ def _coverage_source(scope: _Scope) -> str:
 
 def import_handoff(
     source: Path, target: Path, request_ids: Sequence[str], *, sources: Sequence[JQuantsSource]
-) -> dict[str, object]:
+) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
     Calendar ranges are replaced by project_request. Replaying only incoming
@@ -211,8 +212,11 @@ def import_handoff(
                     "J-Quants projection remains incomplete; retaining canonical facts"
                 )
             replayed.append(request_id)
-    return {
-        "raw_pages_added": added,
-        "replayed_requests": replayed,
-        "incomplete_requests": incomplete,
-    }
+    return ReplayResult(
+        report={
+            "raw_pages_added": added,
+            "replayed_requests": replayed,
+            "incomplete_requests": incomplete,
+        },
+        complete=not incomplete,
+    )

@@ -65,13 +65,14 @@ def test_late_edinet_list_uses_all_retained_receipts_without_custom_lww(tmp_path
     rebuild_edinet_document_day(target, DAY)
     export_handoff(source, stage, since=STAMP, archives=set())
     result = import_handoff(stage, target)
-    assert result["failed_days"] == []
+    assert result.complete is True
+    assert result.report["failed_days"] == []
     assert [item["docID"] for item in read_edinet_documents(target, DAY)] == ["S100NEW"]
     with closing(open_connection(target)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone()[0] == 2
     with closing(open_connection(stage)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone()[0] == 0
-    assert import_handoff(stage, target)["raw_rows_added"] == 0
+    assert import_handoff(stage, target).report["raw_rows_added"] == 0
 
 
 def test_edinet_archive_first_retained_bytes_are_preserved_and_conflict_reported(tmp_path):
@@ -88,7 +89,8 @@ def test_edinet_archive_first_retained_bytes_are_preserved_and_conflict_reported
         keys = archive_keys(connection)
     export_handoff(source, stage, since=STAMP, archives=keys)
     result = import_handoff(stage, target)
-    assert result["archive_conflicts"] == [["S100SAME", 5]]
+    assert result.complete is False
+    assert result.report["archive_conflicts"] == [["S100SAME", 5]]
     with closing(open_connection(target)) as conn:
         assert conn.execute(
             "SELECT doc_id, zip_content FROM edinet_source_archives ORDER BY doc_id"
@@ -115,8 +117,9 @@ def test_malformed_day_preserves_prior_projection_without_hiding_later_good_day(
     bad_packet = tmp_path / "bad-packet.sqlite"
     export_handoff(bad_source, bad_packet, since=STAMP, archives=set())
     result = import_handoff(bad_packet, target)
-    assert result["failed_days"] == [bad_day.isoformat()]
-    assert bad_day.isoformat() not in result["replayed_days"]
+    assert result.complete is False
+    assert result.report["failed_days"] == [bad_day.isoformat()]
+    assert bad_day.isoformat() not in result.report["replayed_days"]
     if new_day:
         initial = projection_state(target)
         assert initial[0] == before[0]
@@ -142,9 +145,10 @@ def test_malformed_day_preserves_prior_projection_without_hiding_later_good_day(
     good_receipt = receive(good_source, "S100GOOD", good_stamp, day=good_day)
     export_handoff(good_source, good_packet, since=STAMP, archives=set())
     delayed = import_handoff(good_packet, target)
-    assert delayed["failed_days"] == [bad_day.isoformat()]
-    assert good_day.isoformat() in delayed["replayed_days"]
-    assert bad_day.isoformat() not in delayed["replayed_days"]
+    assert delayed.complete is False
+    assert delayed.report["failed_days"] == [bad_day.isoformat()]
+    assert good_day.isoformat() in delayed.report["replayed_days"]
+    assert bad_day.isoformat() not in delayed.report["replayed_days"]
     # The valid later day is not blocked or relabeled by another day's bad raw.
     after = projection_state(target)
     assert all(actual[0] == original[0] for actual, original in zip(after, before, strict=True))
@@ -168,9 +172,9 @@ def test_malformed_day_preserves_prior_projection_without_hiding_later_good_day(
     repaired_stamp = good_stamp + timedelta(hours=1)
     repaired_receipt = receive(repaired_source, "S100NEW", repaired_stamp, day=bad_day)
     export_handoff(repaired_source, repaired_packet, since=STAMP, archives=set())
-    assert import_handoff(repaired_packet, target)["failed_days"] == []
+    assert import_handoff(repaired_packet, target).report["failed_days"] == []
     # Replaying the existing good receipt must keep its original clock.
-    assert import_handoff(good_packet, target)["failed_days"] == []
+    assert import_handoff(good_packet, target).report["failed_days"] == []
     assert [item["docID"] for item in read_edinet_documents(target, bad_day)] == ["S100NEW"]
     assert [item["docID"] for item in read_edinet_documents(target, good_day)] == ["S100GOOD"]
     with closing(open_connection(target)) as conn:
@@ -216,8 +220,9 @@ def test_initial_failed_projection_retains_evidence_then_recovers_with_normal_em
         retain_list_response(conn, doc_date=DAY, received_at=failed_stamp, body=b"{invalid JSON")
     export_handoff(source, packet, since=STAMP, archives=set())
     outcome = import_handoff(packet, target)
-    assert outcome["failed_days"] == [DAY.isoformat()]
-    assert outcome["replayed_days"] == []
+    assert outcome.complete is False
+    assert outcome.report["failed_days"] == [DAY.isoformat()]
+    assert outcome.report["replayed_days"] == []
     assert read_edinet_documents(target, DAY) is None
     with closing(open_connection(target)) as conn:
         assert [item["docID"] for item in read_observed_documents(conn, through=DAY)] == (
@@ -238,7 +243,7 @@ def test_initial_failed_projection_retains_evidence_then_recovers_with_normal_em
             (DAY.isoformat(),),
         ).fetchone() == (len(records), "failed", failed_stamp.isoformat(timespec="microseconds"))
     failed_state = projection_state(target)
-    assert import_handoff(packet, target)["raw_rows_added"] == 0
+    assert import_handoff(packet, target).report["raw_rows_added"] == 0
     assert projection_state(target) == failed_state
     assert extract_saved_edinet(target, asof=DAY, lookback_days=0)["edinet-list"][
         "failed_days"
@@ -254,7 +259,7 @@ def test_initial_failed_projection_retains_evidence_then_recovers_with_normal_em
         )
     recovered_packet = tmp_path / "recovered.sqlite"
     export_handoff(source, recovered_packet, since=STAMP, archives=set())
-    assert import_handoff(recovered_packet, target)["failed_days"] == []
+    assert import_handoff(recovered_packet, target).report["failed_days"] == []
     assert read_edinet_documents(target, DAY) == []
     with closing(open_connection(target)) as conn:
         assert range_covered(conn, "edinet_documents", DAY, DAY)
@@ -264,7 +269,7 @@ def test_initial_failed_projection_retains_evidence_then_recovers_with_normal_em
             (DAY.isoformat(),),
         ).fetchone() == (empty_receipt, recovered_stamp.isoformat(timespec="microseconds"))
     recovered_state = projection_state(target)
-    assert import_handoff(recovered_packet, target)["raw_rows_added"] == 0
+    assert import_handoff(recovered_packet, target).report["raw_rows_added"] == 0
     assert projection_state(target) == recovered_state
     assert "edinet-list" not in extract_saved_edinet(target, asof=DAY, lookback_days=0)
 
@@ -301,8 +306,9 @@ def test_bad_old_list_does_not_suppress_a_good_withdrawal_that_invalidates_saved
         )
     export_handoff(source, packet, since=old_stamp, archives=set())
     outcome = import_handoff(packet, target)
-    assert outcome["failed_days"] == [BASE.isoformat()]
-    assert TARGET.isoformat() in outcome["replayed_days"]
+    assert outcome.complete is False
+    assert outcome.report["failed_days"] == [BASE.isoformat()]
+    assert TARGET.isoformat() in outcome.report["replayed_days"]
     assert read_edinet_documents(target, TARGET)[0]["withdrawalStatus"] == "1"
     eligible = EDINETReader(target).load_metric_records(TARGET)
     assert set(eligible) == {"8306"}
