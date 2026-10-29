@@ -65,12 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="close an active session once its kind's completion requirements hold",
     )
     complete.add_argument("operation_id")
-    complete.add_argument(
-        "--payload",
-        type=Path,
-        required=True,
-        help="path to an OperationPayload YAML or JSON file",
-    )
+    complete.add_argument("--result", required=True, help="summary of the completed research")
+    complete.add_argument("--next", required=True, help="next action after this Operation")
     assessment = commands.add_parser(
         "record-assessment", help="bind a completed Reviewed Assessment to its fixed target"
     )
@@ -117,7 +113,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             _emit(
                 service.complete(
                     args.operation_id,
-                    _load_payload(args.payload),
+                    result=args.result,
+                    next=args.next,
                     completed_at=current_time,
                 ).public(),
                 output_format=args.format,

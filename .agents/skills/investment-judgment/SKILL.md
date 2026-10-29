@@ -65,7 +65,7 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 ## Trade Proposal
 
-statusとOperationを読み、保存評価は`operation record-assessment <OPERATION_ID> --assessment-id <ID>`で束縛する。未完了は理由と参照を記録し、対象を自動補充しない。
+statusとOperationを読む。`stock-assessment-promote`は保存評価をOperationへ自動束縛する。別途保存済みの評価を今回へ再利用する場合、または評価の保存後に束縛だけが失敗した場合は`operation record-assessment <OPERATION_ID> --assessment-id <ID>`を使う。評価の保存とOperationの束縛は別transactionである。未完了は理由と参照を記録し、対象を自動補充しない。
 
 ```bash
 uv run baibai-engine operation --db stores/application/baibai.sqlite record-unfinished \
@@ -90,7 +90,7 @@ checkのvalidとreview_bindingを別に読み、作者と別の作業者が正�
 
 ## 完了と再開
 
-公開済み提案を`operation record-proposal <OPERATION_ID> --proposal-id <ID>`へ記録し、現在payloadの固定selection/outcomesを保ってresult/nextを記し、`operation complete <OPERATION_ID> --payload <FILE>`へ渡す。buyを含む完了には具体termsが必要。sellのterms不足は理由付きで調査工程を終了できるが、価格・数量まで完成したと報告しない。人間の採否・broker操作・実約定を完了条件へ補完しない。
+公開済み提案を`operation record-proposal <OPERATION_ID> --proposal-id <ID>`へ記録し、`operation complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'`で完了する。完了は保存済みの固定Selection・成果・参照を保ち、現在の成果と公開済み提案のscopeを照合する。buyを含む完了には具体termsが必要。sellのterms不足は理由付きで調査工程を終了できるが、価格・数量まで完成したと報告しない。人間の採否・broker操作・実約定を完了条件へ補完しない。
 
 ```bash
 uv run baibai-engine investment-judgment prepare \

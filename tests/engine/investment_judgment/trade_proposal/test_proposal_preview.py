@@ -140,9 +140,8 @@ def test_preview_does_not_require_active_operation_or_compare_current_progress(t
     )
     case.operations.complete(
         recorded.operation_id,
-        recorded.payload.model_copy(
-            update={"result": "完成した比較で見送る。", "next": "重要な変化があれば新Research。"}
-        ),
+        result="完成した比較で見送る。",
+        next="重要な変化があれば新Research。",
         completed_at=PUBLISHED,
     )
     assert (

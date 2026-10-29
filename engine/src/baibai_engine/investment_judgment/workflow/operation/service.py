@@ -190,12 +190,19 @@ class OperationService:
     def complete(
         self,
         operation_id: str,
-        payload: OperationPayload,
         *,
+        result: str,
+        next: str,
         completed_at: datetime,
     ) -> OperationSession:
         try:
-            return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
+            operation = self.get(operation_id)
+            return self._replace_active(
+                operation_id,
+                payload=operation.payload.model_copy(update={"result": result, "next": next}),
+                completed_at=completed_at,
+                expected_payload=operation.payload,
+            )
         except (OperationCompletionError, OperationConflictError):
             raise
         except ValueError as error:
@@ -372,7 +379,7 @@ class OperationService:
                 before = _from_row(row)
                 if expected_payload is not None and before.payload != expected_payload:
                     raise OperationConflictError(
-                        "research progress changed; reload before recording outcome"
+                        "research progress changed; reload before updating Operation"
                     )
                 if before.status != "active":
                     raise OperationConflictError(
@@ -397,7 +404,8 @@ class OperationService:
                     complete=completed_at is not None,
                     previous=progress_binding(before.payload),
                 )
-                if progress.outcomes:
+                # Completion adds notes, not a new representation of stored artifacts.
+                if progress.outcomes and completed_at is None:
                     payload = with_progress(payload, progress)
                 if progress.proposal_ref is not None:
                     _require_published_proposal(
