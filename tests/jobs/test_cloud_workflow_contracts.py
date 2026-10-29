@@ -100,63 +100,6 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
 
-@pytest.mark.parametrize(
-    ("filename", "allowed_step"),
-    [
-        ("cloud-tradingview-snapshot.yml", "Refresh TradingView expectations"),
-        ("ci.yml", "TradingView OAuth smoke"),
-    ],
-)
-def test_tradingview_secrets_are_scoped_to_only_the_acquisition_step(filename, allowed_step):
-    workflow = _workflow(filename)
-    secrets = ("TRADINGVIEW_OAUTH_STATE", "TRADINGVIEW_SECRET_WRITER_TOKEN")
-    for secret in secrets:
-        expression = "${{ secrets." + secret + " }}"
-        assert expression not in str(workflow.get("env", {}))
-        usages = []
-        for job in workflow["jobs"].values():
-            assert expression not in str(job.get("env", {}))
-            for step in job.get("steps", []):
-                if secret in str(step):
-                    usages.append(step["name"])
-                    assert step["env"][secret] == expression
-        assert usages == [allowed_step]
-    if filename == "ci.yml":
-        smoke_job = workflow["jobs"]["tradingview_oauth_smoke"]
-        assert smoke_job["environment"] == "tradingview-runtime"
-        assert smoke_job["needs"] == "quality"
-        assert "needs.quality.result == 'success'" in smoke_job["if"]
-
-
-def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> None:
-    snapshot = _workflow("cloud-tradingview-snapshot.yml")["jobs"]["snapshot"]
-    assert snapshot["environment"] == "tradingview-runtime"
-    assert "env" not in snapshot
-
-    jobs = _workflow("ci.yml")["jobs"]
-    quality = jobs["quality"]
-    smoke = jobs["tradingview_oauth_smoke"]
-    assert "environment" not in quality
-    assert "cloud-publish" not in str(quality)
-    assert smoke["environment"] == "tradingview-runtime"
-    assert smoke["concurrency"] == {
-        "group": "cloud-publish",
-        "queue": "max",
-        "cancel-in-progress": "false",
-    }
-    assert "env" not in smoke
-    assert [step.get("uses") or step.get("run") for step in smoke["steps"]] == [
-        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-        "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
-        "astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e",
-        "uv sync --locked",
-        "uv run baibai-jobs tradingview-source smoke",
-    ]
-    for job in (quality, smoke):
-        assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))
-        assert "TRADINGVIEW_SECRET_WRITER_TOKEN" not in str(job.get("env", {}))
-
-
 def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     commands = "\n".join(str(step.get("run", "")) for step in steps)

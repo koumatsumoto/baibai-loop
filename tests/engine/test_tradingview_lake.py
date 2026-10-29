@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import shutil
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
@@ -10,18 +8,10 @@ from pathlib import Path
 
 import pytest
 from mcp.types import CallToolResult
-from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 from tests.helpers.lake_policy import narrow_release_policy
-from tests.helpers.screening_sqlite import make_master_records
+from tests.helpers.tradingview import DAY, NOW, seed_snapshot, store, stored
 
 from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
-from baibai_engine.machine_analysis.observations.jquants_writer import (
-    store_jquants_market_calendar,
-    store_jquants_master,
-)
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_exact,
-)
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -37,13 +27,7 @@ from baibai_engine.storage.snapshots.writer import (
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
-from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
-from baibai_engine.storage.sqlite.source_cache.lake_origin import (
-    LakeStoreOrigin,
-    write_lake_store_origin,
-)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -131,221 +115,13 @@ def test_raw_only_failed_acquisition_receipt_survives_fixed_release(tmp_path, mo
     assert restored_json == original_json
 
 
-@pytest.mark.parametrize("manual_observation", [False, True])
-def test_lake_only_publish_restores_snapshot_without_market_push(
-    tmp_path, monkeypatch, manual_observation
-):
-    datasets = (
-        "jquants.daily_bars",
-        "jquants.market_calendar",
-        "jquants.master_snapshots",
-        "tradingview.source_receipts",
-        NAME,
-    )
-    narrow_release_policy(monkeypatch, datasets=datasets)
-    today = date(2026, 9, 20) if manual_observation else date(2026, 9, 21)
-    observed = datetime(
-        today.year, today.month, today.day, 1 if manual_observation else 7, tzinfo=UTC
-    )
-
-    async def no_wait(_seconds):
-        pass
-
-    options = {"master_asof": DAY, "sleep": no_wait} if manual_observation else {}
-    interval = 15 if manual_observation else 0
-    path = tmp_path / "working.sqlite"
-    open_connection(path).close()
-    store_jquants_master(path, make_master_records(DAY), requested_asof=DAY)
-    store_jquants_market_calendar(
-        path,
-        [
-            {"Date": "2026-09-18", "HolDiv": "1"},
-            {"Date": "2026-09-19", "HolDiv": "0"},
-            {"Date": "2026-09-20", "HolDiv": "0"},
-            {"Date": "2026-09-21", "HolDiv": "1"},
-        ],
-        requested_start=DAY,
-        requested_end=date(2026, 9, 21),
-    )
-    with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute(
-            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES (?,?,?)",
-            ("1000", DAY.isoformat(), 100),
-        )
-        record_range_source_coverage(
-            conn,
-            source="jquants_daily_bars",
-            operation="get_daily_quotes",
-            table="jquants_daily_bars",
-            date_column="traded_at",
-            requested_start=DAY,
-            requested_end=DAY,
-            status="ok",
-            error=None,
-        )
-
-    async def fetch(symbols, _columns):
-        return _sdk(payload(symbols))
-
-    asyncio.run(collect(path, DAY, fetch, interval=0, clock=lambda: NOW))
-    mirror = tmp_path / "mirror"
-
-    def publish(release_id, source_path=path):
-        with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
-            manifests = [
-                export_dataset_snapshot(
-                    dataset=LAKE_DATASETS[name],
-                    mirror_root=mirror,
-                    producer_git_commit="a" * 40,
-                    source_snapshot=snapshot,
-                    build_id=f"{release_id}-{i}",
-                ).manifest_path
-                for i, name in enumerate(datasets)
-            ]
-        manifest_path, _ = create_release(
-            dataset_manifest_paths=manifests,
-            mirror_root=mirror,
-            release_id=release_id,
-            catalog=LAKE_DATASETS,
-            policy=release_policy_for_profile("production"),
-        )
-        digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-        source = LocalMirrorSource(mirror)
-        return resolve_release(
-            source, release_id=release_id, manifest_sha256=digest
-        ), LakeObjectCache(root=mirror, source=source)
-
-    prior, prior_cache = publish("prior-tv-release")
-    conn = open_connection(path)
-    write_lake_store_origin(conn, LakeStoreOrigin(prior.release_id, prior.manifest_sha256))
-    conn.commit()
-    conn.close()
-    dehydrate_market_store(path, release=prior, catalog=LAKE_DATASETS)
-    remote = tmp_path / "remote-market.sqlite"
-    shutil.copy2(path, remote)
-    with lake_session() as session:
-        hydrate_market_store(
-            session,
-            release=prior,
-            cache=prior_cache,
-            store=path,
-            dataset_names=datasets,
-            catalog=LAKE_DATASETS,
-        )
-    if not manual_observation:
-        store_jquants_master(path, make_master_records(today), requested_asof=today)
-    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-        ProviderHTTPError,
-    )
-
-    calls = 0
-
-    async def partial_fetch(symbols, _columns):
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise ProviderHTTPError(429)
-        return _sdk(payload(symbols))
-
-    first = asyncio.run(
-        collect(
-            path,
-            today,
-            partial_fetch,
-            interval=interval,
-            clock=lambda: observed,
-            **options,
-        )
-    )
-    assert (first["status"], first["rows_added"], first["remaining"]) == ("partial", 50, 2450)
-    first_rows = stored(path)
-    current, current_cache = publish("current-tv-release")
-    assert current.data_as_of == DAY
-
-    # The remote market object remains the prior dehydrated copy: only the lake release advanced.
-    with closing(sqlite3.connect(remote)) as conn:
-        assert (
-            conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
-        )
-    next_slot = tmp_path / "next-slot.sqlite"
-    shutil.copy2(remote, next_slot)
-    with lake_session() as session:
-        hydrate_market_store(
-            session,
-            release=current,
-            cache=current_cache,
-            store=next_slot,
-            dataset_names=datasets,
-            catalog=LAKE_DATASETS,
-        )
-    state = preflight_snapshot(next_slot, today, master_asof=DAY if manual_observation else None)
-    assert (state["status"], state["needs_master"], state["rows"], state["remaining"]) == (
-        "needs_fetch",
-        False,
-        50,
-        2450,
-    )
-    assert read_eq_master_exact(next_slot, today) is None
-    resumed = asyncio.run(
-        collect(
-            next_slot,
-            today,
-            fetch,
-            interval=interval,
-            clock=lambda: observed,
-            **options,
-        )
-    )
-    assert (resumed["status"], resumed["rows_added"], resumed["remaining"]) == ("saved", 2450, 0)
-    first_today = [row for row in first_rows if row[0] == today.isoformat()]
-    resumed_today = [row for row in stored(next_slot) if row[0] == today.isoformat()]
-    assert resumed_today[:50] == first_today
-    assert (
-        preflight_snapshot(next_slot, today, master_asof=DAY if manual_observation else None)[
-            "status"
-        ]
-        == "already_saved"
-    )
-    completed, completed_cache = publish("completed-tv-release", next_slot)
-    fixed_readback = tmp_path / "completed-readback.sqlite"
-    shutil.copy2(remote, fixed_readback)
-    with lake_session() as session:
-        hydrate_market_store(
-            session,
-            release=completed,
-            cache=completed_cache,
-            store=fixed_readback,
-            dataset_names=datasets,
-            catalog=LAKE_DATASETS,
-        )
-    assert stored(fixed_readback) == stored(next_slot)
-    for release, cache, expected in (
-        (current, current_cache, 50),
-        (completed, completed_cache, 2500),
-    ):
-        paths = materialize_partitions(
-            cache,
-            dataset=accepted_dataset(release, LAKE_DATASETS[NAME]),
-            partitions=selected_partitions(release, NAME, periods=[(today.year, today.month)]),
-        )
-        with lake_session() as session:
-            result = session.connection.execute(
-                "SELECT COUNT(*) FROM read_parquet($files) WHERE snapshot_date = $day",
-                {"files": [str(path) for path in paths], "day": today.isoformat()},
-            ).fetchone()
-        assert result == (expected,)
-
-
 def test_month_partition_fixed_query_and_hydrate_roundtrip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     narrow_release_policy(monkeypatch, datasets=[NAME])
     path = store(tmp_path / "market.sqlite", 2)
 
-    async def fetch(symbols, _columns):
-        return _sdk(payload(symbols, missing=symbols[1:]))
-
-    asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))
+    seed_snapshot(path, ["TSE:1000", "TSE:1001"], missing=("TSE:1001",))
     next_day = date(2026, 10, 1)
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
@@ -354,7 +130,14 @@ def test_month_partition_fixed_query_and_hydrate_roundtrip(
             (next_day.isoformat(), next_day.isoformat()),
         )
         conn.execute("UPDATE jquants_market_calendar SET day=?", (next_day.isoformat(),))
-    asyncio.run(collect(path, next_day, fetch, clock=lambda: datetime(2026, 10, 1, 7, tzinfo=UTC)))
+    seed_snapshot(
+        path,
+        ["TSE:1000", "TSE:1001"],
+        day=next_day,
+        master=next_day,
+        received=datetime(2026, 10, 1, 7, tzinfo=UTC),
+        missing=("TSE:1001",),
+    )
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
         exported = export_dataset_snapshot(

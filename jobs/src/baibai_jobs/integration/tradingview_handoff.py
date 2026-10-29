@@ -28,9 +28,9 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
-from baibai_jobs.acquisition.tradingview.collector import (
+from baibai_jobs.maintenance.tradingview_context import (
     calendar_context,
-    preflight_snapshot,
+    snapshot_state,
     universe,
     validate_time,
 )
@@ -179,7 +179,7 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
             raw_added = _copy_raw(conn, raw, "tradingview_source_receipts", handoff.receipt_ids)
     if not has_master:
         project_request(target, handoff.master_request_ids[0])
-    before = preflight_snapshot(target, handoff.snapshot_date)
+    before = snapshot_state(target, handoff.snapshot_date)
     with closing(open_connection(target)) as conn, conn:
         if tuple(universe(conn, basis)) != handoff.symbols:
             raise SourceDataError("TradingView handoff universe differs from replayed master")
@@ -233,7 +233,7 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
                 ],
             )
             added += conn.total_changes - changes
-    after = preflight_snapshot(target, handoff.snapshot_date)
+    after = snapshot_state(target, handoff.snapshot_date)
     return {
         **after,
         "rows_added": added,

@@ -102,7 +102,7 @@ L1はMCP SDK CallToolResultの保存可能な表現で、HTTP wire bytesやSDK�
 
 各行を実受領cutoff以内へ限定し、観測後の次の取引機会より前へ遡及させない。休日の同値を独立sampleにしない。正常rowのnull、明示unresolved、行がない未取得と技術障害を分ける。部分公開は全市場の代表標本ではなく、L1 replayでも元の受領時刻を維持する。
 
-quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。取得・復旧は[TradingView運用](../../jobs/OPERATIONS.md#tradingview-expectations)へ進む。
+quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。新規の自動取得・モデル入力には用いず、利用条件と保存履歴の扱いは[TradingView運用](../../jobs/OPERATIONS.md#tradingview-expectations)に従う。
 
 <a id="public-research-reports"></a>
 ## 公開企業レポート

@@ -21,13 +21,13 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     decode_tool_result,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
-from baibai_jobs.acquisition.tradingview.collector import (
-    SourceDataError,
+from baibai_jobs.maintenance.tradingview_context import (
     calendar_context,
     universe,
     validate_time,
 )
 from baibai_jobs.observability.tradingview import (
+    SourceDataError,
     failure_category,
 )
 

@@ -1,15 +1,14 @@
 from contextlib import closing
 
-from tests.engine.test_tradingview_collector import DAY
-from tests.engine.test_tradingview_collector import store as market_store
 from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.tradingview import DAY
+from tests.helpers.tradingview import store as market_store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.source_inputs import input_key, load_input, publish_inputs
 
 
-def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic_groups(
+def test_failed_market_group_retains_prior_input_and_still_updates_economic_groups(
     tmp_path, monkeypatch
 ):
     remote = MemoryR2Store()
@@ -18,7 +17,7 @@ def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic
     with closing(initialize_database(economic)):
         pass
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("tradingview",)
+        "baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("jquants-financial",)
     )
     monkeypatch.setattr(
         "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
@@ -39,9 +38,14 @@ def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic
         )["failed"]
         == []
     )
-    previous = remote.values[input_key("tradingview")].body
-    with closing(open_connection(market)) as conn, conn:
-        conn.execute("DELETE FROM jquants_market_calendar")
+    previous = remote.values[input_key("jquants-financial")].body
+
+    def fail_market_input(*_args, **_kwargs):
+        raise ValueError("unavailable market input")
+
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.export_market_source_input", fail_market_input
+    )
     report = publish_inputs(
         remote,
         market=market,
@@ -51,8 +55,8 @@ def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic
         generations=generations,
     )
     assert report["updated"] == ["economic-fred_csv"]
-    assert [item["group"] for item in report["failed"]] == ["tradingview"]
-    assert remote.values[input_key("tradingview")].body == previous
+    assert [item["group"] for item in report["failed"]] == ["jquants-financial"]
+    assert remote.values[input_key("jquants-financial")].body == previous
     target = tmp_path / "only-fred.sqlite"
     result = load_input(remote, "economic-fred_csv", target, tmp_path / "input")
     assert result["canonical_generations"] == generations

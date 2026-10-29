@@ -17,9 +17,11 @@ from baibai_engine.machine_analysis.generation.contracts import (
 from baibai_engine.machine_analysis.generation.financial_models import (
     generate_financial_and_price_models,
 )
+from baibai_engine.machine_analysis.generation.runners.external_assessment import (
+    generate_external_assessment,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
-from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
@@ -122,7 +124,7 @@ def generate_models(
             if history is not None:
                 if history.ticker != ticker or history.cutoff > evaluation_time:
                     raise ValueError("external observation identity or cutoff differs")
-                external = analyze(history, evaluated_at=evaluation_time)
+                external = generate_external_assessment(history, evaluated_at=evaluation_time)
                 yield GeneratedModel(
                     model_id="external_assessment",
                     subject=ticker,
