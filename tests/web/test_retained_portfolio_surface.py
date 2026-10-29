@@ -1,4 +1,4 @@
-"""保有・運用Webだけを維持し、旧研究UIやrunを要求しない。"""
+"""保有・運用Webを維持し、旧研究UIやrunを要求しない。"""
 
 import json
 import sqlite3
@@ -35,7 +35,7 @@ from baibai_web.sources import db_sources
 from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource, DbTaskSource
 
 
-def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tmp_path, mocker):
+def test_export_reads_retained_sources_without_recreating_legacy_stores(tmp_path, mocker):
     app = tmp_path / APPLICATION_DB_PATH
     ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
     seed_ledger(app, ledger)
@@ -59,6 +59,7 @@ def test_export_reads_only_portfolio_sources_without_recreating_legacy_stores(tm
         "portfolio-dashboard.json",
         "tasks.json",
         "outcomes.json",
+        "latest-proposal.json",
     }
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_exists"] is True
@@ -137,7 +138,9 @@ def test_corrupt_ledger_metadata_does_not_hide_independent_tasks(tmp_path):
     assert dashboard.reservations == []
 
 
-@pytest.mark.parametrize("path", ["/api/dashboard", "/api/tasks", "/api/outcomes"])
+@pytest.mark.parametrize(
+    "path", ["/api/dashboard", "/api/tasks", "/api/outcomes", "/api/proposal/latest"]
+)
 def test_local_read_surface_does_not_initialize_sources(tmp_path, path):
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
         assert client.get(path).status_code == 200
@@ -272,6 +275,7 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         "portfolio-dashboard.json",
         "tasks.json",
         "outcomes.json",
+        "latest-proposal.json",
     }
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_error"] is None

@@ -1,6 +1,6 @@
 """Fail CI when the checked-in read-model contract no longer matches the models.
 
-The UI's types are generated from `baibai_web.readmodel.models` (see
+The UI's types are generated from `baibai_web.readmodel` models (see
 `baibai_web.contracts_export`). Without this gate a backend field rename would land
 green — the export writes the new payload the next batch while the UI keeps reading a
 key that is gone — because nothing in the Python tree compiles the TypeScript.

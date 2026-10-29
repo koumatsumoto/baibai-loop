@@ -98,6 +98,8 @@ describe('view routing', () => {
 
     expect(response.status).toBe(200)
     expect(get.mock.calls).toEqual([[expectedKey]])
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
     expect(await response.json()).toMatchObject(payload)
   })
 
@@ -119,9 +121,9 @@ describe('view routing', () => {
     expect(get).not.toHaveBeenCalled()
   })
 
-  it('returns 404 when the materialized view does not exist', async () => {
+  it.each(materializedRoutes)('returns 404 when %s is absent at %s', async path => {
     const get = vi.fn().mockResolvedValue(null)
-    const response = await handleRequest(request('/api/dashboard'), environment(get))
+    const response = await handleRequest(request(path), environment(get))
 
     expect(response.status).toBe(404)
     expect(response.headers.get('Cache-Control')).toBe('no-store')
@@ -141,13 +143,13 @@ describe('view routing', () => {
     error.mockRestore()
   })
 
-  it('requires authentication before rejecting an unsupported method', async () => {
+  it.each(materializedRoutes)('protects %s before rejecting a write to %s', async path => {
     const get = vi.fn()
     const unauthorized = await handleRequest(
-      request('/api/dashboard', null, 'POST'),
+      request(path, null, 'POST'),
       environment(get),
     )
-    const authorized = await handleRequest(request('/api/dashboard', PASSWORD, 'POST'), environment(get))
+    const authorized = await handleRequest(request(path, PASSWORD, 'POST'), environment(get))
 
     expect(unauthorized.status).toBe(401)
     expect(authorized.status).toBe(405)
@@ -186,9 +188,13 @@ describe('shared read authentication', () => {
     [null, '', 401],
     [null, 'wrong', 401],
   ])('authenticates header %s and share %s', async (bearer, share, status) => {
-    const env = { ...environment(vi.fn().mockResolvedValue(objectBody())), READ_ACCESS_TOKEN: 'shared-secret' }
-    const query = share === null ? '' : `?share=${share}`
-    expect((await handleRequest(request(`/api/dashboard${query}`, bearer), env)).status).toBe(status)
+    for (const [path] of materializedRoutes) {
+      const get = vi.fn().mockResolvedValue(objectBody())
+      const env = { ...environment(get), READ_ACCESS_TOKEN: 'shared-secret' }
+      const query = share === null ? '' : `?share=${share}`
+      expect((await handleRequest(request(`${path}${query}`, bearer), env)).status).toBe(status)
+      if (status === 401) expect(get).not.toHaveBeenCalled()
+    }
   })
 
   it('rejects duplicate share even with valid owner authentication', async () => {
