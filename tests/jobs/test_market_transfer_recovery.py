@@ -122,17 +122,9 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
         (state / f"put-{key}").write_bytes(target.read_bytes())
     old_receipt = {"schema_version": 1, "keys": dict.fromkeys(MACHINE_KEYS, "etag-stable")}
     (state / "put-machine-manifest.json").write_text(json.dumps(old_receipt, indent=2))
-    # Model a rejected PUT before committing its bytes; the existing fake otherwise
-    # stores the request body even when the injected failure has no new generation.
+    # Real snapshot helpers require stored bytes, not synthetic downloads for absent keys.
     aws = bin_dir / "aws"
     script = aws.read_text()
-    failure_start = script.index('  if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}"')
-    failure_end = script.index("  fi\n", failure_start) + len("  fi\n")
-    failure = script[failure_start:failure_end]
-    script = script.replace(failure, "")
-    script = script.replace(
-        "  # Every uploaded body is kept", failure + "  # Every uploaded body is kept"
-    )
     script = script.replace(
         "  printf 'x' > \"$4\"",
         '  key="${3#s3://}"\n  key="${key#*/}"\n  cp "${AWS_FAKE_STATE}/put-${key}" "$4"',

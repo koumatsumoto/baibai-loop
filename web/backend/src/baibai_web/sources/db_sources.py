@@ -73,11 +73,7 @@ class DbMarketSource:
         snapshot = read_master_snapshot(self._path, as_of=as_of)
         if snapshot is None:
             return {}
-        return {
-            ticker: str(row["name"])
-            for ticker, row in snapshot.securities.items()
-            if row.get("name")
-        }
+        return {ticker: security.name for ticker, security in snapshot.securities.items()}
 
     def next_earnings_dates(self, tickers: list[str], *, as_of: date) -> Mapping[str, date] | None:
         if not tickers:

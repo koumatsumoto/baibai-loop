@@ -124,13 +124,7 @@ def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
     return MasterSnapshot(
         snapshot_date,
         {
-            security.ticker: {
-                "name": security.name,
-                "market_segment": security.market_segment,
-                "sector_33": security.sector_33,
-                "is_common_stock": security.is_common_stock,
-                "snapshot_date": str(rows[0]["snapshot_date"]),
-            }
+            security.ticker: security
             for security in masters_from_payloads([row["record_json"] for row in rows])
         },
     )

@@ -108,13 +108,20 @@ def calculate_security_market_context(
 ) -> dict[str, object]:
     """固定した個社・市場・同業価格から比較を計算する。追加読取を行わない。"""
     security = None if master is None else master.securities.get(ticker)
-    sector = None if security is None else security.get("sector_33")
     return {
-        "master": security,
+        "master": None
+        if master is None or security is None
+        else {
+            "name": security.name,
+            "market_segment": security.market_segment,
+            "sector_33": security.sector_33,
+            "is_common_stock": security.is_common_stock,
+            "snapshot_date": master.as_of.isoformat(),
+        },
         "price": _price_block(bars, self_range_window_bars=self_range_window_bars),
         "relative": _relative_block(
             bars=bars,
-            sector=sector if isinstance(sector, str) else None,
+            sector=None if security is None else security.sector_33,
             master=master,
             benchmark_ticker=benchmark_ticker,
             benchmark_prices=benchmark_prices,

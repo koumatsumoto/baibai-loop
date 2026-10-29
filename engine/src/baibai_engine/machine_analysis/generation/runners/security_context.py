@@ -73,12 +73,11 @@ def _comparison_inputs(
     benchmark_prices = prepared.benchmark_prices
     master = prepared.master
     security = None if master is None else master.securities.get(ticker)
-    sector = None if security is None else security.get("sector_33")
     endpoints = _window_endpoints(bars, _PEER_RETURN_WINDOW_BARS)
-    if not sector or not isinstance(sector, str) or endpoints is None:
+    if security is None or endpoints is None:
         return benchmark_prices, []
     peer_prices = []
-    for peer in prepared.common_stock_tickers_by_sector.get(sector, ()):
+    for peer in prepared.common_stock_tickers_by_sector.get(security.sector_33, ()):
         if peer == ticker:
             continue
         series = prepared.series_by_ticker.get(peer)

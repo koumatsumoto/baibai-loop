@@ -381,7 +381,12 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
     classification = next(
         row for row in _collect(case).security_classification if row.ticker == "1234"
     )
-    assert classification.is_common_stock is expected_common
+    assert classification.model_dump(mode="json") == {
+        "ticker": "1234",
+        "market_segment": "Prime",
+        "is_common_stock": expected_common,
+        "snapshot_date": "2026-10-14",
+    }
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         db_path=case.app,

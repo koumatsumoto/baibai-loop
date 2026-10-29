@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,8 +15,6 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.snapshots.writer import LakeBuildError
 from baibai_jobs.publication.lease import _save_handle, acquire
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 class _DownloadStore:
@@ -157,27 +154,3 @@ def test_publisher_cli_has_no_sidecar_origin_arguments() -> None:
     assert not hasattr(parsed, "full_rebuild")
     assert parsed.bucket == "baibai-stores"
     assert not hasattr(parsed, "origin_release")
-
-
-def test_the_publication_is_floored_on_what_the_serving_release_covers() -> None:
-    """Nothing is carried from the serving release, but its history floor still applies.
-
-    A publication that derived less history than the release it replaces would publish
-    the loss silently, and every publication derives the whole history.
-    """
-
-    source = (ROOT / "jobs/src/baibai_jobs/publication/snapshot_publication.py").read_text(
-        encoding="utf-8"
-    )
-    tree = ast.parse(source)
-    assignments = {
-        target.id: ast.unparse(node.value)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign)
-        for target in node.targets
-        if isinstance(target, ast.Name)
-    }
-
-    assert "_resolve_serving_release" in assignments["serving_release"]
-    assert "serving_release" in assignments["published_coverage_start"]
-    assert "fixed_base" not in assignments

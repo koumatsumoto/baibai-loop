@@ -97,8 +97,8 @@ def read_and_generate_models(
         subjects = tuple(
             sorted(
                 ticker
-                for ticker, row in master.securities.items()
-                if row["is_common_stock"] and str(row["market_segment"]).upper() in ELIGIBLE_MARKETS
+                for ticker, security in master.securities.items()
+                if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
             )
         )
         if not subjects:
@@ -178,7 +178,9 @@ def read_and_generate_models(
             financial_documents=documents.get(ticker, ()),
             adjusted_bars=prices.get(ticker, ()),
             adjustment_events=events.get(ticker, ()),
-            sector=None if master is None else _sector(master.securities.get(ticker)),
+            sector=master.securities[ticker].sector_33
+            if master is not None and ticker in master.securities
+            else None,
             edinet=edinet.get(ticker),
             price_path=price_paths[ticker],
         )
@@ -217,8 +219,3 @@ def read_and_generate_models(
         market_context_revision="shared-market-context-price-path-v2",
         growth_start=growth_start,
     )
-
-
-def _sector(security: dict[str, object] | None) -> str | None:
-    value = None if security is None else security.get("sector_33")
-    return value if isinstance(value, str) else None

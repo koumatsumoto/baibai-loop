@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    disclosure_revision,
     normalize_financial_summary,
     project_financial_documents,
 )
@@ -109,7 +110,10 @@ def read_fin_summaries(
         conn.execute("BEGIN")
         if not range_covered(conn, "jquants_fin_summaries", start, end):
             return None
-        return read_financial_documents(conn, start=start, end=end)
+        documents = read_financial_documents(conn, start=start, end=end)
+        # Projection groups by ticker before its stable disclosure-time sort.
+        documents.sort(key=lambda row: (row.ticker, row.disclosed_at, row.disclosure_number or ""))
+        return project_financial_documents(documents, end)
     finally:
         conn.close()
 
@@ -121,7 +125,7 @@ def read_financial_documents(
     end: date,
     ticker: str | None = None,
 ) -> list[JQuantsFinancialSummary]:
-    """Read stored documents without asserting provider acquisition coverage."""
+    """Decode stored documents in disclosure order, without coverage or forecast projection."""
     cursor = conn.execute(
         "SELECT document_payload FROM jquants_fin_summaries "
         "WHERE disclosed_at BETWEEN ? AND ? AND (? IS NULL OR ticker = ?) "
@@ -129,15 +133,18 @@ def read_financial_documents(
         (start.isoformat(), end.isoformat(), ticker, ticker),
     )
     summaries: list[JQuantsFinancialSummary] = []
-    for (payload,) in cursor.fetchall():
-        try:
-            record = json.loads(payload)
-            if not isinstance(record, dict):
-                raise ValueError("financial document must be a provider record")
-            summary = normalize_financial_summary(record)
-            if summary is None:
-                raise ValueError("financial document is not an eligible security")
-            summaries.append(summary)
-        except (TypeError, ValueError) as exc:
-            raise JQuantsProviderError(f"corrupt financial document: {exc}") from exc
-    return project_financial_documents(summaries, end)
+    while batch := cursor.fetchmany(256):
+        for (payload,) in batch:
+            try:
+                record = json.loads(payload)
+                if not isinstance(record, dict):
+                    raise ValueError("financial document must be a provider record")
+                summary = normalize_financial_summary(record)
+                if summary is None:
+                    raise ValueError("financial document is not an eligible security")
+                summaries.append(summary)
+            except (TypeError, ValueError) as exc:
+                raise JQuantsProviderError(f"corrupt financial document: {exc}") from exc
+    # Preserve the former projection's stable order, including same-time document ties.
+    summaries.sort(key=disclosure_revision)
+    return summaries

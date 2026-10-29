@@ -293,7 +293,9 @@ def render_message(
 
     details = []
     if failed_steps:
-        details.append("要確認工程: " + " / ".join(sanitize_one_line(step) for step in failed_steps))
+        details.append(
+            "要確認工程: " + " / ".join(sanitize_one_line(step) for step in failed_steps)
+        )
     if step_outcomes is not None:
         details.append(
             "工程結果: "

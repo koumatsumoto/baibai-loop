@@ -240,13 +240,13 @@ def collect_proposal_inputs(
     classifications: list[SecurityClassification] = []
     if master is not None:
         for ticker in sorted(set(tickers) | held_tickers):
-            row = master.securities.get(ticker)
-            if row is not None and row["market_segment"]:
+            security = master.securities.get(ticker)
+            if security is not None:
                 classifications.append(
                     SecurityClassification(
                         ticker=ticker,
-                        market_segment=str(row["market_segment"]),
-                        is_common_stock=bool(row["is_common_stock"]),
+                        market_segment=security.market_segment,
+                        is_common_stock=security.is_common_stock,
                         snapshot_date=master.as_of,
                     )
                 )

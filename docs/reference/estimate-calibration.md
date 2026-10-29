@@ -13,6 +13,14 @@ carryの配当・グロス株数変化が欠測なら計算上の寄与は0に�
 
 保存済み照会は選択runの値を読む。論理as-of cutoffで選ぶrunは後日生成した過去replayもあり、当時既知の保証ではない。対象runなし・run内tickerなし・計算不能を区別し、古い値や候補一覧で埋めない。企業の条件付き算術は[Stock Assessment](stock-assessment.md#scenario-arithmetic)、歴史分布は本書の較正。
 
+### 旧倍率比較の読み方
+
+旧runの倍率業種中央値は当時のScreening資格母集団による比較で、現行モデルの市場・同業文脈とは別である。母数下限は経済的最適値ではなく、欠測と業種/市場fallbackは軸ごとに異なる。market fallbackを「同業より割安」と読まない。
+
+自己レンジは現在fundamentalsを固定して過去価格だけを動かした倍率比較。当時の利益・資本による倍率履歴でも、min/max内の位置による観測percentileでもない。bar本数・期間・相対密度はcalendar完全性の証明ではない。真の倍率履歴anchorへの置換は必要な5y窓が成立せず[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-self-range-vs-multiple-history/report.md)とした。
+
+3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均で、循環・一時損益を経済的に正常化した利益ではない。必要年度の欠測を古い年度で埋めない。旧Normalized Earningsの候補抽出で使用したが、現行候補のmembership/順位にも旧ER/FV anchorにも使わない。anchorへの投入は長期比較で増分効果を支持せず[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。
+
 <a id="carry-policy"></a>
 ### 機械priorの採否
 
