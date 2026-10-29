@@ -146,7 +146,9 @@ def build_parser() -> argparse.ArgumentParser:
     assessment_parser.add_argument("--asof", required=True, type=date.fromisoformat)
     assessment_parser.add_argument("--out", type=Path)
     assessment_parser.add_argument("--force", action="store_true")
-    assessment_parser.add_argument("--from-assessment-id")
+    seed = assessment_parser.add_mutually_exclusive_group()
+    seed.add_argument("--from-assessment-id")
+    seed.add_argument("--from-research-id")
 
     review_parser = subparsers.add_parser(
         "independent-review-scaffold", help="bind an independent Review to a stable Assessment"
@@ -321,6 +323,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         db_path=args.db,
                         force=args.force,
                         from_assessment_id=args.from_assessment_id,
+                        from_research_id=args.from_research_id,
                         out=args.out,
                     ),
                     out,
