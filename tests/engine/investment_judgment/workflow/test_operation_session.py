@@ -9,20 +9,21 @@ from pathlib import Path
 import pytest
 import yaml
 from pydantic import ValidationError
+from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.research_selection import selection
+from tests.helpers.research_selection import historical_operation, selection
 
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.investment_judgment.workflow.operation.models import (
     SESSION_KINDS,
     OperationPayload,
-    SessionKind,
 )
+from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import (
-    OperationCompletionError,
     OperationConflictError,
     OperationService,
 )
+from baibai_engine.investment_judgment.workflow.selection import selection_sha256
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 
@@ -72,15 +73,56 @@ def test_operation_kinds_are_limited_to_multi_step_workflows(
     assert "invalid choice" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["start", "checkpoint", "complete"])
-def test_operation_payload_help_names_a_file_path(
-    command: str, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("generated", [False, True], ids=["legacy", "generated"])
+def test_complete_cli_only_adds_notes_and_preserves_saved_selection_and_artifacts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], generated: bool
 ) -> None:
-    with pytest.raises(SystemExit) as error:
-        operation_main([command, "--help"])
+    db = tmp_path / "app.sqlite"
+    selected = (
+        seed_generated_selection(runs=tmp_path / "runs.sqlite", now=NOW)
+        if generated
+        else selection(now=NOW)
+    )
+    operation = historical_operation(selected)
+    payload = operation.payload.model_copy(
+        update={
+            "artifacts": (*operation.payload.artifacts, {"kind": "research_notes", "ref": "saved"}),
+            "canonical_refs": ("saved-research-reference",),
+        }
+    )
+    operation = operation.model_copy(update={"payload": payload})
+    seed_historical_operation(db, operation)
 
-    assert error.value.code == 0
-    assert "path to an OperationPayload YAML or JSON file" in capsys.readouterr().out
+    assert (
+        operation_main(
+            [
+                "--db",
+                str(db),
+                "--format",
+                "json",
+                "complete",
+                operation.operation_id,
+                "--result",
+                "今回の条件に合う対象なし",
+                "--next",
+                "新しい明示依頼を待つ",
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    completed = OperationService(db).get(operation.operation_id)
+    assert json.loads(capsys.readouterr().out) == completed.public()
+    assert completed.status == "completed"
+    assert completed.payload == payload.model_copy(
+        update={"result": "今回の条件に合う対象なし", "next": "新しい明示依頼を待つ"}
+    )
+    assert selection_sha256(selection_binding(completed.payload)) == selection_sha256(selected)
+    with pytest.raises(OperationConflictError, match="immutable"):
+        OperationService(db).complete(
+            operation.operation_id, result="別の結果", next="別の予定", completed_at=NOW
+        )
+    assert OperationService(db).get(operation.operation_id) == completed
 
 
 def test_operation_json_format_emits_one_machine_object(
@@ -162,31 +204,6 @@ def test_all_kinds_share_one_active_slot_and_no_checkpoint_history(tmp_path: Pat
             ).fetchone()[0]
             == 0
         )
-
-
-@pytest.mark.parametrize("kind", ["capital-allocation"])
-def test_complete_rejects_missing_kind_specific_final_fields(
-    tmp_path: Path,
-    kind: SessionKind,
-) -> None:
-    runs = tmp_path / "runs.sqlite"
-    selected = seed_generated_selection(runs=runs, now=NOW)
-    service = OperationService(tmp_path / "app.sqlite", runs_path=runs)
-    operation = service.start(
-        session_kind=kind,
-        ticker=None,
-        as_of=date(2026, 7, 19),
-        started_at=NOW,
-        payload=_active_payload(selected=selected),
-    )
-
-    with pytest.raises(OperationCompletionError):
-        service.complete(
-            operation.operation_id,
-            OperationPayload(checkpoint="incomplete", artifacts=operation.payload.artifacts),
-            completed_at=NOW,
-        )
-    assert service.get(operation.operation_id).status == "active"
 
 
 @pytest.mark.parametrize("field", ["completion_reason", "human_confirmation"])

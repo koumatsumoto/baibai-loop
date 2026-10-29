@@ -135,12 +135,8 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
         )
         completed = case.operations.complete(
             operation.operation_id,
-            operation.payload.model_copy(
-                update={
-                    "result": "具体条件まで提案を完成した。",
-                    "next": "本人の採否・broker操作と報告を待つ。",
-                }
-            ),
+            result="具体条件まで提案を完成した。",
+            next="本人の採否・broker操作と報告を待つ。",
             completed_at=now,
         )
         assert completed.status == "completed"

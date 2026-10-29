@@ -81,12 +81,8 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
     )
     completed = case.operations.complete(
         recorded.operation_id,
-        recorded.payload.model_copy(
-            update={
-                "result": "合成提案を発行した。",
-                "next": "本人が採否と証券画面の条件を確認する。",
-            }
-        ),
+        result="合成提案を発行した。",
+        next="本人が採否と証券画面の条件を確認する。",
         completed_at=PUBLISHED,
     )
     assert completed.status == "completed"

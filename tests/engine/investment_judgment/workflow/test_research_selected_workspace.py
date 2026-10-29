@@ -380,12 +380,10 @@ def test_completed_retry_and_real_same_text_request_have_different_identities(tm
     value = seed_generated_selection(runs=tmp_path / "runs", now=NOW)
     first = prepare(tmp_path, value=value)
     service = OperationService(tmp_path / "app")
-    operation = service.get(first.operation_id)
     service.complete(
         first.operation_id,
-        operation.payload.model_copy(
-            update={"result": "no targets with reason", "next": "new request"}
-        ),
+        result="no targets with reason",
+        next="new request",
         completed_at=NOW,
     )
     assert prepare(tmp_path, value=value).status == "already_completed"
@@ -581,23 +579,14 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     operation = service.get(prepared.operation_id)
     complete = service.complete(
         prepared.operation_id,
-        operation.payload.model_copy(
-            update={
-                "artifacts": (
-                    *operation.payload.artifacts,
-                    {
-                        "kind": "investment_proposal",
-                        "ref": proposal.proposal_id,
-                    },
-                ),
-                "result": "proposal complete",
-                "next": "human decision",
-            }
-        ),
+        result="proposal complete",
+        next="human decision",
         completed_at=NOW,
     )
     assert complete.status == "completed"
     assert service.get(prepared.operation_id) == complete
+    assert complete.payload.artifacts == operation.payload.artifacts
+    assert complete.payload.canonical_refs == operation.payload.canonical_refs
     assert "human_confirmation" not in complete.payload.model_dump()
     assert (
         main(["trade-proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0
