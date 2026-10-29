@@ -43,11 +43,12 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.portfolio.holdings.market_observations import (
-    market_basis_is_confirmed,
-    read_unadjusted_close,
+from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
+from baibai_engine.portfolio.holdings.valuation import (
+    holding_episode,
+    holding_market_price,
+    holding_quote,
 )
-from baibai_engine.portfolio.holdings.valuation import holding_episode
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     MarketPrice,
@@ -60,6 +61,9 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import (
+    connect_read_only as connect_market_read_only,
+)
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
@@ -141,7 +145,7 @@ def collect_proposal_inputs(
     budget_min_yen: int,
     budget_max_yen: int,
 ) -> ProposalInputs:
-    """callerのread/write transactionで台帳headとmetaを同じ世代から読む。"""
+    """台帳head/metaはcallerのtransaction、quote/basisは一つのmarket snapshotから読む。"""
     if not connection.in_transaction:
         raise ProposalError("proposal input collection requires an existing transaction")
     if now.utcoffset() is None:
@@ -154,47 +158,38 @@ def collect_proposal_inputs(
     quotes: list[QuoteInput] = []
     quantity_basis: dict[str, bool] = {}
     prices: dict[str, MarketPrice] = {}
-    for ticker in sorted(set(tickers) | held_tickers):
-        observed = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=now)
-        if observed is None:
-            quantity_basis[ticker] = False
-            continue
-        quote = QuoteInput(
-            ticker=ticker,
-            price_yen=finite_decimal(observed.close_yen),
-            price_as_of=observed.price_as_of,
-            price_basis="last_close_unadjusted",
-            source_ref="jquants_daily_bars",
-        )
-        quotes.append(quote)
-        if ticker in held_tickers:
-            first_buy, last_trade = holding_episode(ledger, ticker, now)
-            confirmed = (
-                first_buy is not None
-                and last_trade is not None
-                and market_basis_is_confirmed(
-                    basis="shares",
-                    sqlite_path=sqlite_path,
-                    ticker=ticker,
-                    from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
-                    through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
-                )
-            )
-            quantity_basis[ticker] = confirmed
-            if (
-                confirmed
-                and 0
-                <= (now.astimezone(JST).date() - quote.price_as_of).days
-                <= (PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"])
-            ):
-                prices[ticker] = MarketPrice(
-                    ticker=ticker,
-                    price_yen=quote.price_yen,
-                    price_as_of=quote.price_as_of,
-                    source_kind="market_api",
-                    price_basis="unadjusted_close",
-                    source_ref=quote.source_ref,
-                )
+    if sqlite_path.exists():
+        with closing(connect_market_read_only(sqlite_path)) as market_connection:
+            market_connection.execute("BEGIN")
+            for ticker in sorted(set(tickers) | held_tickers):
+                if ticker in held_tickers:
+                    observed, confirmed = holding_quote(
+                        ledger,
+                        ticker=ticker,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        connection=market_connection,
+                    )
+                    quantity_basis[ticker] = confirmed
+                    price = holding_market_price(
+                        ticker=ticker, quote=observed, basis_confirmed=confirmed, now=now
+                    )
+                    if price is not None:
+                        prices[ticker] = price
+                else:
+                    observed = read_unadjusted_close(
+                        sqlite_path=sqlite_path, ticker=ticker, at=now, connection=market_connection
+                    )
+                if observed is not None:
+                    quotes.append(
+                        QuoteInput(
+                            ticker=ticker,
+                            price_yen=finite_decimal(observed.close_yen),
+                            price_as_of=observed.price_as_of,
+                            price_basis="last_close_unadjusted",
+                            source_ref="jquants_daily_bars",
+                        )
+                    )
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:

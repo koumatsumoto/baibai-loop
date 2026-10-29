@@ -115,6 +115,34 @@ def compute_time_weighted_return(
     )
 
 
+def outcome_market_tickers(
+    ledger: PortfolioLedgerDocument,
+    *,
+    business_days: tuple[date, ...],
+    start: date,
+    end: date,
+) -> tuple[str, ...]:
+    """Select opening holdings and episodes active after the opening close.
+
+    Include fully sold in-period positions: their final sale still needs a basis
+    check. Exclude positions closed by the opening close and purchases after end.
+    """
+    effective_dates = tuple(
+        _effective_date_for_period(event, business_days, start=start, end=end)
+        for event in ledger.events
+    )
+    return tuple(
+        sorted(
+            {
+                ticker
+                for ticker, _, _ in _holding_basis_intervals(
+                    ledger.events, effective_dates, start=start, end=end
+                )
+            }
+        )
+    )
+
+
 def compute_portfolio_outcome(
     ledger: PortfolioLedgerDocument,
     benchmark: BenchmarkObservation,

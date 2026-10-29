@@ -27,12 +27,12 @@ from baibai_engine.investment_judgment.trade_proposal.service import TradePropos
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
-def _collect(case, *, now=PREPARED, proposal_id=PROPOSAL_ID):
+def _collect(case, *, now=PREPARED, proposal_id=PROPOSAL_ID, tickers=("1234",)):
     with closing(connect_read_only(case.app)) as connection, connection:
         connection.execute("BEGIN")
         return collect_proposal_inputs(
             connection,
-            tickers=("1234",),
+            tickers=tickers,
             proposal_id=proposal_id,
             now=now,
             sqlite_path=case.market,
@@ -392,3 +392,57 @@ def test_classification_uses_native_product_not_sector(tmp_path, product_categor
     assert context.calculations["1234"]["maximum_common_grid_price_yen"] == (
         "1000" if expected_common else None
     )
+
+
+@pytest.mark.parametrize("consumer", ["current_portfolio", "proposal"])
+def test_current_valuation_keeps_quotes_and_share_basis_in_one_snapshot(
+    tmp_path, monkeypatch, consumer
+):
+    from tests.helpers.screening_sqlite import seed_daily_bars
+
+    from baibai_engine.portfolio.holdings import valuation
+
+    case = backend_case(tmp_path, holding=True)
+    seed_daily_bars(
+        case.market,
+        [("1234", "2026-10-15", 1000.0, 1.0), ("5678", "2026-10-15", 1100.0, 1.0)],
+    )
+    with closing(sqlite3.connect(case.market)) as setup:
+        assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
+    now = PUBLISHED + timedelta(days=1)
+    read_quote = valuation.read_unadjusted_close
+    commits = 0
+
+    def commit_after_holding_quote(**kwargs):
+        nonlocal commits
+        quote = read_quote(**kwargs)
+        with closing(sqlite3.connect(case.market)) as writer, writer:
+            writer.execute(
+                "UPDATE jquants_daily_bars SET close = 9999.0, "
+                "adjustment_factor = 0.5, ex_right_type = '1' WHERE traded_at = '2026-10-15'"
+            )
+        commits += 1
+        return quote
+
+    monkeypatch.setattr(valuation, "read_unadjusted_close", commit_after_holding_quote)
+    if consumer == "current_portfolio":
+        portfolio = valuation.current_portfolio(case.ledger, sqlite_path=case.market, now=now)
+        assert portfolio.holdings[0].market_value_yen == 100000
+        assert portfolio.total_capital_yen == 310000
+        assert portfolio.ledger_as_of == case.ledger.as_of
+    else:
+        inputs = _collect(case, now=now, tickers=("1234", "5678"))
+        assert inputs.positions[0].quantity_basis_confirmed
+        assert inputs.total_capital_yen == Decimal(310000)
+        # The next candidate's quote also belongs to the holding's pre-commit snapshot.
+        assert [(quote.ticker, quote.price_yen) for quote in inputs.quotes] == [
+            ("1234", Decimal(1000)),
+            ("5678", Decimal(1100)),
+        ]
+    assert commits == 1
+    monkeypatch.setattr(valuation, "read_unadjusted_close", read_quote)
+    quote, confirmed = valuation.holding_quote(
+        case.ledger, ticker="1234", sqlite_path=case.market, now=now
+    )
+    assert quote is not None and quote.close_yen == 9999.0
+    assert not confirmed
