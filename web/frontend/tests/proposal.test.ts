@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { ProposalItemCard, ProposalReport } from '../src/pages/ProposalReport'
+import { ProposalItemCard, ProposalReport } from '../src/pages/ProposalPage'
 import {
   buyFixture,
   holdFixture,
