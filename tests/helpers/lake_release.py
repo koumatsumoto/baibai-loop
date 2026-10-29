@@ -10,10 +10,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
+from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.storage.snapshots.keys import (
     current_release_pointer_key,
-    dataset_manifest_key,
     release_manifest_key,
 )
 from baibai_engine.storage.snapshots.models import (
@@ -34,7 +34,6 @@ from baibai_jobs.publication.datasets import (
     LAKE_DATASETS,
 )
 from baibai_jobs.publication.policy import release_policy_for_profile
-from tests.helpers.lake_policy import narrow_release_policy
 
 
 _DEFAULT_DAILY_BARS: tuple[tuple[str, str, float, float], ...] = (

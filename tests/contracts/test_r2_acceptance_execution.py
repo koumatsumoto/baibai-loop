@@ -1,7 +1,6 @@
 """実R2受入は同じbucketを共有するため、接続前に並列実行を拒否する。"""
 
 import pytest
-
 from tests.integration.test_lake_r2_acceptance import _store
 
 
