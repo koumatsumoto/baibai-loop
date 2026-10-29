@@ -16,7 +16,6 @@ _COMMANDS = {
     "snapshots": "baibai_jobs.publication.snapshot_cli",
     "model-integration": "baibai_jobs.integration.models",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
-    "tradingview": "baibai_jobs.integration.local_tradingview",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",

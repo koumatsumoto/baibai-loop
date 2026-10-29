@@ -61,7 +61,7 @@ def test_python_quality_gates_share_one_runner() -> None:
     assert isinstance(jobs, dict)
     names = set(_by_name("ci.yml", "quality"))
 
-    assert set(jobs) == {"quality", "tradingview_oauth_smoke"}
+    assert set(jobs) == {"quality"}
     assert {
         "Ruff format",
         "Ruff lint",
@@ -73,7 +73,6 @@ def test_python_quality_gates_share_one_runner() -> None:
         "Dependency audit",
         "Build dependency audit",
     } <= names
-    assert not names.intersection(_by_name("ci.yml", "tradingview_oauth_smoke"))
 
 
 def test_ci_pins_an_explicit_worker_count() -> None:

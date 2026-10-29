@@ -115,7 +115,7 @@ def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> Obser
 
 
 def read_observation_population(
-    sqlite_path: Path, *, tickers: Sequence[str], cutoff: datetime
+    sqlite_path: Path, *, tickers: Sequence[str], cutoff: datetime, include_tradingview: bool = True
 ) -> dict[str, ObservationHistory]:
     """同一read transactionで必要企業の履歴を読む。全社生成で接続を反復しない。"""
     requested = sorted({normalize_ticker(ticker) for ticker in tickers})
@@ -153,11 +153,15 @@ def read_observation_population(
             )
             if row["ticker"] in selected
         ]
-        tradingview = [
-            TradingViewObservation.model_validate(dict(row))
-            for row in tradingview_rows_at_cutoff(conn, cutoff, ticker=ticker)
-            if row["ticker"] in selected
-        ]
+        tradingview = (
+            [
+                TradingViewObservation.model_validate(dict(row))
+                for row in tradingview_rows_at_cutoff(conn, cutoff, ticker=ticker)
+                if row["ticker"] in selected
+            ]
+            if include_tradingview
+            else []
+        )
     finally:
         conn.close()
     valuations = _group_by_ticker(valuation)

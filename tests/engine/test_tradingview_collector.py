@@ -578,7 +578,7 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
-    from baibai_jobs.acquisition.tradingview.cli import failure_category
+    from baibai_jobs.observability.tradingview import failure_category
     from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
 
     path = store(tmp_path / "market.sqlite")
@@ -688,7 +688,7 @@ def test_non_dict_row_does_not_blame_a_field(raw):
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderPayloadError,
     )
-    from baibai_jobs.acquisition.tradingview.cli import failure_line
+    from baibai_jobs.observability.tradingview import failure_line
 
     data = payload(["TSE:1000"])
     data["data"]["TSE:1000"] = raw

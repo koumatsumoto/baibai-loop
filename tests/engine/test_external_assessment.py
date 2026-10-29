@@ -321,3 +321,49 @@ assert "baibai_engine.machine_analysis.observations.external_assessments.store" 
         ],
         check=True,
     )
+
+
+def test_saved_tradingview_history_stays_dated_but_new_generation_excludes_it(tmp_path):
+    from baibai_engine.machine_analysis.generation.runners.external_assessment import (
+        generate_external_assessment,
+    )
+    from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
+
+    path = tmp_path / "market.sqlite"
+    tv_row(path, RECEIVED, eps_forecast_next_fy=10, quote_close=100)
+    save_observations(path, [valuation()])
+    before = path.read_bytes()
+    cutoff = RECEIVED + timedelta(days=30)
+    history = read_observations(path, "1234", cutoff)
+    personal = external_assessment(path, ticker="1234", cutoff=cutoff, evaluated_at=cutoff)
+    assert personal.tradingview.inputs.latest.fetched_at_utc == RECEIVED
+    assert personal.tradingview.inputs.latest.snapshot_date == RECEIVED.astimezone(
+        ZoneInfo("Asia/Tokyo")
+    ).date()
+    assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
+    fixed_payload = personal.model_dump_json()
+    generated = generate_external_assessment(history, evaluated_at=cutoff)
+    assert generated.method_version == "same-series-v5-no-tradingview"
+    assert generated.tradingview.availability == "excluded_by_source_terms"
+    assert generated.tradingview.inputs.latest is None
+    assert generated.tradingview.inputs.previous is None
+    assert generated.tradingview.forecast_fields == ()
+    assert generated.tradingview.comparisons == ()
+    assert generated.model_valuations == personal.model_valuations
+    assert ExternalAssessment.model_validate_json(fixed_payload).model_dump_json() == fixed_payload
+    assert path.read_bytes() == before
+
+
+def test_generation_population_read_does_not_decode_tradingview_rows(tmp_path):
+    path = tmp_path / "market.sqlite"
+    tv_row(path, RECEIVED, eps_forecast_next_fy=10)
+    save_observations(path, [valuation()])
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE tradingview_forecast_snapshots SET eps_forecast_next_fy='invalid'")
+    before = path.read_bytes()
+    result = read_observation_population(
+        path, tickers=("1234",), cutoff=RECEIVED, include_tradingview=False
+    )
+    assert result["1234"].tradingview.latest is None
+    assert result["1234"].model_valuations[0].latest.consensus_target == 1200
+    assert path.read_bytes() == before

@@ -70,25 +70,3 @@ def external_assessment_target_date(created_at: datetime, now: datetime) -> tupl
     if fired > created_at:
         fired -= timedelta(days=1)
     return fired.astimezone(_JST).date(), now.astimezone(_JST).time() >= time(15, 30)
-
-
-def resolve_tradingview_target(
-    now: datetime, *, event_name: str, schedule: str, manual_observation: bool = False
-) -> tuple[date, str, bool, str]:
-    """Resolve the actual JST run day and its scheduled acquisition slot."""
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("timezone-aware observation clock required")
-    if manual_observation and event_name != "workflow_dispatch":
-        raise ValueError("manual observation requires workflow_dispatch")
-    if event_name == "schedule":
-        if schedule not in {"37 6,8,10,12,14 * * 1-5", "37 0,4,8 * * 0,6"}:
-            raise ValueError("unknown TradingView schedule")
-        slot = "rest-day-4h" if schedule == "37 0,4,8 * * 0,6" else "post-close-2h"
-    elif event_name == "workflow_dispatch":
-        slot = "manual-observation" if manual_observation else "manual"
-    else:
-        raise ValueError("unknown TradingView event")
-    local = now.astimezone(_JST)
-    # The hydrated JPX calendar decides business/rest-day hours in preflight.
-    eligible = local.time() >= time(9)
-    return local.date(), slot, eligible, "" if eligible else "before_observation"

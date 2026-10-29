@@ -66,11 +66,11 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 ### source入力・市場原本の引渡し
 
-日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。[明示的なローカルTradingView運用](#local-tradingview-runtime)は、取得とlake公開を同じlease内で行う別経路である。
+日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewの新規取得は下記の[提供元条件](#tradingview-expectations)に従い、batchへ組み込まない。
 
 inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・TV master補完・経済取得は共有quotaを守る。
 
-市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewは既存slotとexact-date master方針を保ち、自分の受領だけをprivate stageへ渡す。
+市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewの定期取得は設けず、保存済み受領の保持と履歴読取を新規取得から分離する。
 
 定時market sourceの対象日と曜日分岐は、元run作成時計以前の直近の該当cron slotで固定し、JST日跨ぎ・作成後のqueue待機・rerunで翌日へ進めない。手動は明示asofを優先し、空欄だけ元run作成時のJST日を使う。本来の予定日時はAPIから得られないため、run作成自体が次の同slotを越える24時間以上の遅延は復元できず、対象日を確認して明示asofで扱う。
 
@@ -464,66 +464,33 @@ gh workflow run cloud-external-assessment.yml --ref main \
 固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映は共通統合が担当する。通知・CI緑・stage保存だけで正本反映成功を認定しない。
 
 <a id="tradingview-expectations"></a>
-## TradingView観測
+## TradingViewの利用範囲
 
-slotは既存workflowを正本とする。営業日は15:30以降の当日master、休場日は09:00以降の直近営業日の保存済みexact-date masterを使う。calendar/master不足や引け前は取得せず、時間guardをmaster指定で解除しない。targetは実開始時のJST当日、fetched_atは実受領でprovider公表日ではない。
+2026-10-29に[公式接続案内のPermitted use](https://www.tradingview.com/support/solutions/43000795699-mcp-server-connect-your-ai-assistant-to-tradingview/)と[公式FAQ](https://www.tradingview.com/support/solutions/43000795700-mcp-server-faq/)を確認。公式MCPは個人の対話利用向けで、無人・定期・bulk取得と自動判断システムへの入力は認められていない。cloud-hosted custom clientもbetaの対応範囲外で、OAuthの継続有効性は保証されない。[汎用clientの接続仕様](https://www.tradingview.com/mcp/docs)や一度の取得成功は、その運用の許諾を意味しない。上位プラン、手動のworkflow起動、別client/IPによって解決した扱いにしない。
 
-同日最初の正常row・null・unresolvedを保持し、後続は未保存銘柄だけ取得する。全件account済みは全metric利用可能の意味ではない。新rowを含むpartial受領をprivate stageへ保存し、日跨ぎresponseを前日へ保存しない。過去日の穴を現在値で補わない。TV取得jobはreleaseを直接公開せず、共通統合が既存の正常選択を狭めずに反映する。
+### 採用する最小運用
 
-### 当日の手動観測
+- **個人の対話調査**：既存の公式connectorを使い、ユーザーが関与する個別の問いへ回答する。接続済みでも全銘柄巡回や定期取得へ転用しない。必要な再認証はユーザーが公式client上で行う。新たな契約・認証権限や秘密のコピーは必要ない。
+- **新規batch取得**：TradingViewのscheduled/workflow_dispatch全件取得、local全件runner、OAuth smokeを設けない。`tradingview-source`はoffline `rebuild`だけを持つ。手動で起動するbulk取得も対話調査の代替ではない。
+- **保存済みデータ**：L1原本・受領日時・immutable release・保存済みモデル/判断を削除・再日付化しない。保存履歴の個人向けread-only確認と明示offline再構築は、新規取得なしに行う。原本や時系列の外部共有はしない。保存済みであること自体を、自動判断への再利用許諾と扱わない。
+- **新しいモデル生成**：TradingViewは読み込まず、`external_assessment.tradingview.availability=excluded_by_source_terms`とし、値・比較を入力しない。欠測や正常nullと区別するため、生成revisionは`same-series-v5-no-tradingview`。既存の固定generation/Selection/判断を読む・再開する際は元payload・revision・hashを保ち、現行の空入力へ書き換えない。旧generationを新規判断の入力へ転用する許諾を与えるものではない。
 
-```bash
-gh workflow run cloud-tradingview-snapshot.yml --ref main \
-  -f observation_master_asof=<YYYY-MM-DD> -f interval=15
-```
+定期更新できなくなるTV由来の項目は、rating/人数、目標株価3種、次四半期/次年度EPS・売上、forward PER/PS/EV-EBITDA、EBITDA/FCF/CAPEX/負債予想の16項目と、参考close/通貨2項目。株価は従来どおりJ-Quantsを正本とし、会社EPS予想・同予想に基づくPERは既存の会社財務モデルで継続する。これらをアナリストconsensusの代用品としてTV列へ詰めない。他の既存sourceも元の出所・対象期のまま使い、埋まらない予想は欠測として判断へ渡す。新たなcrawlerや代替source契約は追加しない。
 
-同日再開は同じmaster日を指定する。target/master、first/last受領、追加/残件、stop_reason、private stageを確認する。共通統合側でrelease/readbackとlease解放を確認する。失敗runでも原受領だけを保存する経路があるため、L1と正常L2の件数を混同しない。storage/internal障害や強制終了を取得成功としない。
+新規自動利用を再検討する場合は、提供元条件の変更または当該用途を明示して許諾する契約が必要。support回答だけをTermsの改定と扱わない。既存の他source取得・共通統合は継続し、保存済みTV受領のhandoffも削除しない。既存mainで開始済みのrunをこの文書変更だけで中断せず、切替は対象PRの統合時に行う。
 
-### 初期設定と認証の復旧
+### 保存履歴の確認とoffline再構築
 
-対話commandを起動したまま認証URLを開く。callbackは127.0.0.1:8765で、接続拒否なら待受やWindows/WSLの接続を確認する。stateはrepo外に置く。
-
-```bash
-uv run baibai-jobs tradingview-source authorize --state-file "$HOME/.cache/baibai-loop/tradingview/oauth.json"
-gh secret set TRADINGVIEW_OAUTH_STATE --repo koumatsumoto/baibai-loop --env tradingview-runtime \
-  < "$HOME/.cache/baibai-loop/tradingview/oauth.json"
-```
-
-GitHub側のstate正本はtradingview-runtime environment secret。repositoryのEnvironments Read and writeを持つ専用TRADINGVIEW_SECRET_WRITER_TOKENでrotationを取得前に書戻す。失敗・期限切れなら取得を止め再認証する。初期投入fileはrunner更新後の最新版ではないので再投入しない。stateを複数processで更新せず、置換はcloud-publishの非実行時に行う。
-
-tradingview-runtimeはjob開始時に最新のrotating stateを読むためのenvironmentで、required reviewers・wait timer・deployment approvalを設定しない。
-
-継続認証だけの明示確認はmainのCIでtradingview_oauth_smoke=trueを指定する。2銘柄の取得とrotationを行うがsnapshotは保存しない。通常開発で自動起動しない。
-
-<a id="local-tradingview-runtime"></a>
-### 独立したローカル認証で取得する
-
-専用clean runtime checkoutを使い、fresh pull/hydrateで置換されるstoreを編集中のcheckoutと共用しない。既存R2/J-Quants接続、AWS CLI、httpfsを用意する。GitHub stateをコピーせず別fileへ対話認証する。
+履歴を読むときはsnapshot_date・fetched_at_utcをそのまま表示し、現在値と呼ばない。更新がないことを新しい正常nullや0で埋めず、同じ保存値を当日の新観測にしない。技術障害・未取得・正常null・unresolvedは従来どおり分ける。
 
 ```bash
-uv run baibai-jobs tradingview-source authorize --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
-uv run baibai-jobs tradingview --state-file "$HOME/.cache/baibai-loop/tradingview-local/oauth.json"
-```
-
-同fileの取得・smoke・再認証を並行せず、GitHub smokeとも重ねない。runnerがlease→pull/hydrate→preflight→未保存取得→release公開→lease解放を行う。部分保存、公開release/hash、残件を読戻す。no-opとpartial、取得・公開成功を分ける。公開失敗後のlocalだけを保存済み根拠とせず次回はfreshから始める。
-
-local認証失敗はlocal fileを再認証しGitHub secretを変えない。secret_persistenceは書込権限・容量を確認して再認証し、古いrotation fileでretryしない。継続性確認を明示された時だけ、非取得中にtradingview smoke --state-fileで同fileの次process利用を確かめる。
-
-### 保存と再試行
-
-MCP transport失敗とtool内provider失敗、正常null/unresolvedを分ける。取得不良の要求単位は未保存のまま次へ進み、連続不良や429で新requestを止める。同じ要求単位の即時retryをせず通常intervalを守る。正常な受領分を公開し、次slotは未保存分から再開する。
-
-Retry-Afterがある場合は期限を守る。Actions cooldownの保存失敗や強制終了で記録不明ならworkflowを止め直前応答と期限を確認し、盲目的に再実行しない。local手動取得も同じ待機指示を守る。authは対話認証、provider_responseはsafeなvalidation reason、storageはcalendar/master/schemaを起点に調べる。例外本文・raw・秘密をIssueへ出さない。
-
-保存L1の一日分だけをoffline再構築する時は、同日・master・tool・Universe・受領時刻のreceiptを指定する。
-
-```bash
-uv run baibai-jobs tradingview-source rebuild --sqlite /tmp/market-rebuild.sqlite \
+uv run baibai-engine external-assessment show --ticker <TICKER> \
+  --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_SQLITE>
+uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_SQLITE> \
   --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
 ```
 
-正常receiptなし・銘柄重複なら置換せず、明示missingはunresolvedへ再現する。元受領時刻を維持し、拒否応答を正常値で補わない。
-
+再構築は同日・master・tool・Universe・実受領時刻の整合する保存receiptだけを明示する。正常receiptなし・銘柄重複なら置換せず、明示missingはunresolvedへ再現する。元の受領時刻を維持し、拒否応答を正常値で補わない。作業用copyへのoffline再構築は、本番データ変更や再公開の許可ではない。
 
 ## Storeをseedする
 

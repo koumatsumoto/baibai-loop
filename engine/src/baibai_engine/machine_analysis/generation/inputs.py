@@ -170,7 +170,9 @@ def read_and_generate_models(
             as_of=as_of,
             benchmark_ticker=prepared.benchmark_ticker,
         )
-    histories = read_observation_population(path, tickers=subjects, cutoff=evaluation_time)
+    histories = read_observation_population(
+        path, tickers=subjects, cutoff=evaluation_time, include_tradingview=False
+    )
     edinet = EDINETReader(path).load_metric_records(as_of)
     companies = [
         CompanyModelInputs(

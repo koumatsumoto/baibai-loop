@@ -292,10 +292,7 @@ def test_rebuild_cli_is_offline_and_does_not_create_missing_store(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     missing = tmp_path / "absent.sqlite"
-    with (
-        patch.object(cli, "credential_storage", side_effect=AssertionError("auth")),
-        patch.object(cli, "connect", side_effect=AssertionError("HTTP")),
-    ):
+    with patch("socket.socket", side_effect=AssertionError("network")):
         assert (
             cli.main(
                 [
@@ -313,10 +310,7 @@ def test_rebuild_cli_is_offline_and_does_not_create_missing_store(
     assert not missing.exists()
     path = store(tmp_path / "market.sqlite", 1)
     receipt_id = _retain(path, _sdk(payload(["TSE:1000"])))
-    with (
-        patch.object(cli, "credential_storage", side_effect=AssertionError("auth")),
-        patch.object(cli, "connect", side_effect=AssertionError("HTTP")),
-    ):
+    with patch("socket.socket", side_effect=AssertionError("network")):
         assert (
             cli.main(
                 [
@@ -335,11 +329,11 @@ def test_rebuild_cli_is_offline_and_does_not_create_missing_store(
     assert (result["rows"], result["remaining"]) == (1, 0)
 
 
-def test_removed_normalized_acceptance_command_rejects_before_auth_or_provider() -> None:
+@pytest.mark.parametrize("command", ["refresh", "smoke", "authorize", "accept-observations"])
+def test_live_or_normalized_acquisition_commands_are_not_operational(command) -> None:
     with (
-        patch.object(cli, "credential_storage", side_effect=AssertionError("auth")),
-        patch.object(cli, "connect", side_effect=AssertionError("provider")),
-        pytest.raises(SystemExit) as caught,
+        patch("socket.socket", side_effect=AssertionError("network")),
+        pytest.raises(SystemExit) as error,
     ):
-        cli.main(["accept-observations", "--input", "old-normalized.json"])
-    assert caught.value.code == 2
+        cli.main([command])
+    assert error.value.code == 2

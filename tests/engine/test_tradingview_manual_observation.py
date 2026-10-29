@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -10,14 +9,12 @@ import httpx2
 import pytest
 from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
 
-import baibai_jobs.acquisition.tradingview.cli as cli
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FetchError,
 )
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 from baibai_jobs.observability.tradingview import (
     SourceDataError,
-    TimeGuardError,
 )
 
 DAY = date(2026, 10, 11)
@@ -157,85 +154,6 @@ def test_manual_partial_preserves_commits_and_resumes_same_day(tmp_path, failure
     assert stored(path)[:150] == first
 
 
-@pytest.mark.parametrize(
-    "case",
-    [
-        "past_observation",
-        "future_observation",
-        "future_master",
-        "missing_master",
-        "short_interval",
-    ],
-)
-def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, capsys, case):
-    path = manual_store(tmp_path)
-
-    class Clock:
-        @staticmethod
-        def now(tz):
-            return NOW.astimezone(tz)
-
-    monkeypatch.setattr(cli, "datetime", Clock)
-    monkeypatch.setattr(
-        cli, "credential_storage", lambda *_: pytest.fail("invalid observation must not load OAuth")
-    )
-    args = ["refresh", "--sqlite", str(path), "--master-asof", MASTER.isoformat()]
-    if case == "past_observation":
-        args += ["--asof", "2026-10-09"]
-    if case == "future_observation":
-        args += ["--asof", "2026-10-12"]
-    if case == "future_master":
-        args[-1] = "2026-10-12"
-    if case == "missing_master":
-        args[-1] = "2026-10-08"
-    if case == "short_interval":
-        args += ["--interval", "14"]
-    before = path.read_bytes()
-    assert cli.main(args) == 1
-    output = capsys.readouterr()
-    assert "private" not in output.err
-    assert path.read_bytes() == before
-
-
-def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oauth(
-    tmp_path, monkeypatch, capsys
-):
-    path = manual_store(tmp_path, 101)
-
-    class Clock:
-        @staticmethod
-        def now(tz):
-            return NOW.astimezone(tz)
-
-    monkeypatch.setattr(cli, "datetime", Clock)
-    monkeypatch.setattr(cli, "credential_storage", lambda *_: object())
-
-    async def snapshot(_storage, actual_path, observation_date, interval, _progress, **options):
-        assert actual_path == path
-        assert observation_date == DAY
-        assert options["master_asof"] == MASTER
-        assert interval == 15
-
-        async def fetch(symbols, _columns):
-            return _sdk(payload(symbols))
-
-        return await collect(path, DAY, fetch, master_asof=MASTER, clock=lambda: NOW)
-
-    monkeypatch.setattr(cli, "snapshot", snapshot)
-    args = ["refresh", "--sqlite", str(path), "--master-asof", MASTER.isoformat()]
-    assert cli.main(args) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["rows_added"] == 1
-    assert result["master_asof"] == MASTER.isoformat()
-    monkeypatch.setattr(
-        cli,
-        "credential_storage",
-        lambda *_: pytest.fail("completed observation must not load OAuth"),
-    )
-    assert cli.main(args) == 0
-    assert json.loads(capsys.readouterr().out)["status"] == "already_saved"
-
-
 def test_weekend_response_after_midnight_is_rejected(tmp_path):
     path = manual_store(tmp_path, 101)
 
@@ -348,41 +266,3 @@ def test_partial_preflight_keeps_quality_when_cooldown_prevents_fetch(tmp_path):
     assert result["first_fetched_at_utc"] == NOW.isoformat()
     assert result["last_fetched_at_utc"] == last_received
     assert path.read_bytes() == before
-
-
-def test_business_day_manual_morning_does_not_block_post_close_collection(
-    tmp_path, monkeypatch, capsys
-):
-    day = date(2026, 9, 18)
-    path = store(tmp_path / "market.sqlite", 1)
-    morning = datetime(2026, 9, 18, 1, tzinfo=UTC)
-
-    class Clock(datetime):
-        @classmethod
-        def now(cls, tz):
-            return morning.astimezone(tz)
-
-    monkeypatch.setattr(cli, "datetime", Clock)
-    monkeypatch.setattr(
-        cli, "credential_storage", lambda *_: pytest.fail("before-close must not load OAuth")
-    )
-    assert cli.main(["refresh", "--sqlite", str(path), "--master-asof", day.isoformat()]) == 0
-    assert json.loads(capsys.readouterr().out)["status"] == "before_close"
-    assert stored(path) == []
-
-    async def fetch(symbols, _columns):
-        return _sdk(payload(symbols))
-
-    with pytest.raises(TimeGuardError):
-        asyncio.run(collect(path, day, fetch, master_asof=day, clock=lambda: morning))
-    result = asyncio.run(
-        collect(path, day, fetch, master_asof=day, clock=lambda: morning + timedelta(hours=6))
-    )
-    assert result["status"] == "saved"
-
-
-def test_batch_size_option_is_removed_before_any_credential_access(monkeypatch):
-    monkeypatch.setattr(cli, "credential_storage", lambda *_: pytest.fail("must not read OAuth"))
-    with pytest.raises(SystemExit) as error:
-        cli.main(["refresh", "--batch-size", "50"])
-    assert error.value.code == 2
