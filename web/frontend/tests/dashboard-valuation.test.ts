@@ -152,3 +152,26 @@ describe('Dashboard valuation display', () => {
   })
 
 })
+
+
+it('preserves fractional holding prices and order guards while notionals remain whole yen', () => {
+  const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+    createElement(MemoryRouter, null,
+      createElement(HoldingsTable, {
+        holdings: [{ ...holding('1234'), quantity: 200, deployed_cost_yen: 210_500,
+          market_price_yen: '1052.5', market_value_yen: 210_500,
+          unrealized_pnl_yen: 0, unrealized_pnl_pct: 0 }], warnings: [],
+      }),
+      createElement(PendingOrdersCard, { reservations: [{
+        reservation_id: 'fractional', side: 'buy', ticker: '2222', sector: 'test',
+        remaining_quantity: 100, price_guard_yen: '1052.5', reserved_yen: 105_250,
+        expires_at: null, expiry_label: null, route_label: null,
+      }] }),
+    ),
+  ))
+  expect(html.match(/￥1,052\.5/g)).toHaveLength(3)
+  expect(html).toContain('￥210,500')
+  expect(html).toContain('￥105,250')
+  expect(html).not.toContain('￥1,053')
+  expect(html).not.toContain('￥105,250.0')
+})

@@ -176,7 +176,17 @@ def _annual_observation(annual: dict[str, Any]) -> dict[str, Any]:
             brief[name] = {
                 **_pick(observation, "period_start", "period_end", "statement_basis"),
                 "metrics": {
-                    metric: _pick(_object(value), "value", "reason")
+                    metric: {
+                        **_pick(_object(value), "value", "reason"),
+                        "disclosure_dates": sorted(
+                            {
+                                document["disclosed_at"]
+                                for document in _object(value).get("documents", [])
+                                if isinstance(document, dict)
+                                and isinstance(document.get("disclosed_at"), str)
+                            }
+                        ),
+                    }
                     for metric, value in _object(observation.get("metrics")).items()
                     if metric in {"sales", "operating_profit", "operating_margin", "parent_profit"}
                 },
@@ -196,6 +206,7 @@ def _path(path: dict[str, Any], *, include_earnings_periods: bool) -> dict[str, 
         "book_provenance",
         "interpretation",
         "selected_variant",
+        "newer_earning_weakness",
         "peer_group_unavailable",
     )
     observations: list[dict[str, Any]] = []

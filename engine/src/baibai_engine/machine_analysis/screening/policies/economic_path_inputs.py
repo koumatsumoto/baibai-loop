@@ -10,6 +10,9 @@ from math import isclose
 from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
+from baibai_engine.machine_analysis.observations.financials.financial_periods import (
+    is_annual_period,
+)
 from baibai_engine.machine_analysis.screening.policies.economic_path_context import (
     _external_context,
     _growth_coverage,
@@ -22,7 +25,6 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
     PathCoordinates,
 )
-from baibai_engine.primitives.dates import add_months_clamped
 
 
 def project_company(
@@ -79,8 +81,8 @@ def project_company(
         value is not None and value <= 0
         for metric in ("operating_profit", "operating_margin", "parent_profit")
         for value in (
-            _metric(quarter, metric),
-            _metric(observations.get("reported", {}), metric),
+            _fy_metric(quarter, metric, metadata.as_of),
+            _fy_metric(observations.get("reported", {}), metric, metadata.as_of),
         )
     )
     earnings_period = _earnings_period(earnings)
@@ -398,9 +400,12 @@ def _can_use_full_fy(
     if annual.get("period_status") != "matching_period_not_observed":
         return False
     end = date.fromisoformat(fy_end)
+    current_start = end + timedelta(days=1)
+    current_fy_end = _text(anchor.get("fiscal_year_end"))
     return (
-        anchor.get("period_start") == (end + timedelta(days=1)).isoformat()
-        and anchor.get("fiscal_year_end") == add_months_clamped(end, 12).isoformat()
+        anchor.get("period_start") == current_start.isoformat()
+        and current_fy_end is not None
+        and is_annual_period(current_start, date.fromisoformat(current_fy_end))
     )
 
 

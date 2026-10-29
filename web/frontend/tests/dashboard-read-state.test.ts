@@ -82,3 +82,26 @@ it('routes an outcomes request failure to its own state, not the portfolio error
   expect(hooks.setters[3]).not.toHaveBeenCalled()
   expect(hooks.setters[0]).toHaveBeenCalledWith(dashboard())
 })
+
+
+it('distinguishes display generation, last ledger record, and quote basis', () => {
+  hooks.values.set(0, { ...dashboard(),
+    generated_at: '2026-10-16T13:43:00Z',
+    ledger_as_of: '2026-10-12T01:30:00Z',
+    valuation_as_of: '2026-10-15',
+  })
+  const html = render()
+  expect(html).toMatch(/表示データ生成 <time[^>]*dateTime="2026-10-16T13:43:00Z"[^>]*>2026-10-16 22:43 JST/)
+  expect(html).toMatch(/台帳最終記録 <time[^>]*dateTime="2026-10-12T01:30:00Z"[^>]*>2026-10-12 10:30 JST/)
+  expect(html).toContain('株価基準 2026-10-15')
+})
+
+it('still shows the generation stamp when the ledger is absent or unreadable', () => {
+  for (const ledgerError of [null, 'invalid ledger']) {
+    hooks.values.set(0, { ...dashboard(), ledger_exists: false, ledger_error: ledgerError })
+    hooks.setters = []
+    const html = render()
+    expect(html).toContain('表示データ生成')
+    expect(html).not.toContain('台帳最終記録')
+  }
+})

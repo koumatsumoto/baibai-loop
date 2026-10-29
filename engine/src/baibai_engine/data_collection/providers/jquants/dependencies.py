@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import gzip
 import sqlite3
+from collections.abc import Mapping
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
@@ -21,6 +22,18 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
 )
 
 
+def dependency_covers_day(source: str, params: Mapping[str, str], day: date) -> bool:
+    """Compare native basic/extended ISO dates without changing the saved query."""
+    try:
+        if source == "master" and set(params) == {"date"}:
+            return date.fromisoformat(params["date"]) == day
+        if source == "market_calendar" and set(params) == {"from", "to"}:
+            return date.fromisoformat(params["from"]) <= day <= date.fromisoformat(params["to"])
+    except ValueError:
+        return False
+    return False
+
+
 def export_dependencies(database: Path, *, day: date, master_asof: date) -> list[dict[str, Any]]:
     latest: dict[str, dict[str, Any]] = {}
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
@@ -32,13 +45,9 @@ def export_dependencies(database: Path, *, day: date, master_asof: date) -> list
                 request = read_complete_request(conn, request_id)
             except JQuantsAcquisitionError:
                 continue
-            expected = {"date"} if request.source == "master" else {"from", "to"}
-            if set(request.params) != expected:
-                continue
-            if request.source == "master":
-                if request.params["date"] != master_asof.isoformat():
-                    continue
-            elif not request.params["from"] <= day.isoformat() <= request.params["to"]:
+            if not dependency_covers_day(
+                request.source, request.params, master_asof if request.source == "master" else day
+            ):
                 continue
             previous = latest.get(request.source)
             if previous and request.received_at <= datetime.fromisoformat(previous["received_at"]):

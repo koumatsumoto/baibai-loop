@@ -111,8 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument(
         "--company-growth-periods",
         type=_growth_display_periods,
-        default=12,
-        help="display latest N saved growth periods, or all; does not change saved inputs",
+        default=...,
+        help=(
+            "display latest N saved growth periods, or all; "
+            "defaults to the existing workspace setting, or 12 for a new workspace; "
+            "does not change saved inputs"
+        ),
     )
     prepare_parser.add_argument(
         "--force", action="store_true", help="repair generated projections; retain authored drafts"

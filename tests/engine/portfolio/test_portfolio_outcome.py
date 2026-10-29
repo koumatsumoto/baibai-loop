@@ -1,8 +1,9 @@
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.cli.portfolio import main
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
@@ -584,13 +585,32 @@ def test_opening_holding_requires_evidence_of_its_preperiod_units() -> None:
 def test_opening_unit_check_uses_native_factors_not_historical_closes(tmp_path, preperiod_factor):
     database = tmp_path / "market.sqlite"
     with closing(open_connection(database)) as connection, connection:
+        first = date(2024, 12, 27)
+        last = date(2026, 1, 6)
+        days = [first + timedelta(days=index) for index in range((last - first).days + 1)]
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-preperiod-calendar",
+            min_date=first.isoformat(),
+            max_date=last.isoformat(),
+            record_count=len(days),
+        )
         connection.executemany(
             "INSERT INTO jquants_daily_bars(ticker, traded_at, close, adjustment_factor) "
             "VALUES ('1234', ?, ?, ?)",
             [
-                ("2024-12-30", None, preperiod_factor),
-                ("2025-01-06", 5.0, 1.0),
-                ("2026-01-06", 6.0, 1.0),
+                (
+                    day.isoformat(),
+                    {date(2025, 1, 6): 5.0, last: 6.0}.get(day),
+                    preperiod_factor if day == date(2024, 12, 30) else 1.0,
+                )
+                for day in days
+                if day.weekday() < 5
             ],
         )
         result = compute_portfolio_outcome(
@@ -646,7 +666,6 @@ def test_outcome_cli_publishes_cash_only_after_unfilled_order_without_price_cove
     tmp_path, monkeypatch, capsys
 ):
     import yaml
-    from tests.helpers.screening_sqlite import add_source_coverage
 
     from baibai_engine.portfolio.ledger.store import LedgerStoreService
 

@@ -14,7 +14,12 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.portfolio.holdings.valuation import current_portfolio
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument, PortfolioSnapshot
+from baibai_engine.portfolio.ledger.events import (
+    PortfolioLedgerDocument,
+    PortfolioSnapshot,
+    replay_events_through,
+    summarize_portfolio,
+)
 from baibai_engine.portfolio.ledger.read import load_ledger_document
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.read import read_rows
@@ -44,6 +49,14 @@ class DbLedgerSource:
         return current_portfolio(
             document, sqlite_path=self._market_path, now=datetime.now().astimezone()
         )
+
+    def facts_snapshot(self) -> PortfolioSnapshot:
+        """Read holdings and active orders without requiring market valuation."""
+        document = self._document()
+        if document is None:
+            raise ValueError("portfolio ledger has not been initialized")
+        state = replay_events_through(document.events, datetime.now().astimezone())
+        return summarize_portfolio(document, state, {})
 
 
 class DbMarketSource:

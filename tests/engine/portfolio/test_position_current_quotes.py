@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,
@@ -20,6 +20,23 @@ from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+
+
+def _seed_calendar(path: Path, start: date, end: date) -> None:
+    days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
 
 
 @pytest.fixture
@@ -35,6 +52,7 @@ def holding_case(tmp_path):
             if (date(2026, 6, 3) + timedelta(days=i)).weekday() < 5
         ],
     )
+    _seed_calendar(market, date(2026, 6, 3), NOW.date())
     return db, market, ledger
 
 
@@ -179,6 +197,7 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     )
     market = tmp_path / "market.sqlite"
     seed_daily_bars(market, [("2331", "2026-09-04", 1000, 1), ("2331", "2026-09-07", None, factor)])
+    _seed_calendar(market, date(2026, 9, 4), now.date())
     quote, confirmed = holding_quote(ledger, ticker="2331", sqlite_path=market, now=now)
     assert quote.price_as_of.isoformat() == "2026-09-04"
     assert confirmed is (factor == 1.0)

@@ -15,7 +15,7 @@ from baibai_web.readmodel.models import (
     UpcomingEventView,
 )
 from baibai_web.sources.protocols import (
-    LedgerSource,
+    LedgerFactsSource,
     MarketSource,
     TaskSource,
 )
@@ -26,7 +26,7 @@ _EVENT_KIND_ORDER = {"earnings": 0, "reservation_expiry": 1}
 
 def build_tasks(
     tasks: TaskSource,
-    ledger: LedgerSource,
+    ledger: LedgerFactsSource,
     market: MarketSource,
 ) -> TasksView:
     """Build task workflow independently from Dashboard portfolio presentation."""
@@ -45,7 +45,7 @@ def build_tasks(
                 upcoming_events=[],
                 ledger_error=None,
             )
-        snapshot = ledger.snapshot()
+        snapshot = ledger.facts_snapshot()
     except (ValueError, RuntimeError, sqlite3.Error) as error:
         return TasksView(
             generated_at=now,

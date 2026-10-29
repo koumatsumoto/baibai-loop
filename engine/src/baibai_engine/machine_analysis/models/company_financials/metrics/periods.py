@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
@@ -25,7 +25,6 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-from baibai_engine.primitives.dates import add_months_clamped
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
 
@@ -317,9 +316,7 @@ def _ttm_components(
         return ()
     if ttm_rules.full_year_min_days <= latest_days <= ttm_rules.full_year_max_days:
         return (latest,) if is_annual_period(latest.period_start, latest.period_end) else ()
-    if latest.fiscal_year_end is None:
-        return ()
-    prior_fy_end = add_months_clamped(latest.fiscal_year_end, -12)
+    prior_fy_end = latest.period_start - timedelta(days=1)
     prior_fy = _latest_full_year_summary(actuals, prior_fy_end, ttm_rules, field_name=field)
     prior_same = _matched_prior_period_summary(
         actuals,

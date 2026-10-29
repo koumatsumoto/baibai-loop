@@ -119,7 +119,7 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     publication = read_publication(path=arguments["runs"])
-    assert publication.selection.result.policy.method == "best-economic-path-v2"
+    assert publication.selection.result.policy.method == "best-economic-path-v3"
     assert (
         not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
         & result.keys()

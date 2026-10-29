@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
@@ -11,7 +11,9 @@ from baibai_engine.investment_judgment.workflow.screening_brief import economic_
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    DEFAULT_TTM_RULES,
+)
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease, Observation
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -88,12 +90,7 @@ def generation(rows):
         ),
         trading_dates=(AS_OF,),
         expected_price_date=AS_OF,
-        ttm_rules=TTMRules(
-            full_year_min_days=330,
-            full_year_max_days=370,
-            period_length_tolerance_ratio=0.1,
-            period_end_tolerance_days=45,
-        ),
+        ttm_rules=DEFAULT_TTM_RULES,
         external_observations={},
         market_context=None,
         securities_context={"1001": {"master": {"sector_33": "情報・通信業"}}},
@@ -277,6 +274,49 @@ def test_changed_calendar_does_not_reuse_a_prior_fy_as_current_annual_basis():
     assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
 
 
+@pytest.mark.parametrize(
+    ("fy_end", "quarter_end", "current_fy_end"),
+    [
+        (date(2025, 2, 15), date(2025, 5, 17), date(2026, 2, 14)),
+        (date(2025, 2, 15), date(2025, 5, 17), date(2026, 2, 21)),
+        (date(2025, 2, 22), date(2025, 5, 24), date(2026, 2, 21)),
+    ],
+)
+def test_full_fy_fallback_accepts_adjacent_52_and_53_week_years(
+    fy_end, quarter_end, current_fy_end
+):
+    rows = documents()
+    rows[0] = replace(
+        rows[0],
+        period_start=date(2023, 2, 19),
+        period_end=date(2024, 2, 17),
+        fiscal_year_end=date(2024, 2, 17),
+    )
+    rows[1] = replace(
+        rows[1], period_start=date(2024, 2, 18), period_end=fy_end, fiscal_year_end=fy_end
+    )
+    rows[2] = replace(
+        rows[2],
+        period_start=fy_end + timedelta(days=1),
+        period_end=quarter_end,
+        fiscal_year_end=current_fy_end,
+    )
+    result = project(generation(rows))
+    income = active(result, "earning_power")
+    assert income.variant == "full_fy"
+    assert income.evidence["earnings_period_end"] == fy_end.isoformat()
+    assert active(result, "business_expansion").variant == "full_fy"
+    assert active(result, "operating_recovery").variant == "full_fy"
+
+
+@pytest.mark.parametrize("start_shift", [-1, 1])
+def test_full_fy_fallback_still_requires_exact_interval_adjacency(start_shift):
+    rows = documents()
+    rows[2] = replace(rows[2], period_start=date(2025, 4, 1) + timedelta(days=start_shift))
+    result = project(generation(rows))
+    assert not any(path.eligible for path in result.paths if path.variant == "full_fy")
+
+
 def test_latest_short_fy_does_not_search_back_to_an_older_complete_year():
     rows = documents()
     rows[1] = replace(rows[1], period_end=date(2025, 2, 28), fiscal_year_end=date(2025, 2, 28))
@@ -284,6 +324,57 @@ def test_latest_short_fy_does_not_search_back_to_an_older_complete_year():
     row = project(generation(rows))
     assert row.context["annual_observation"]["full_fy_period_end"] is None
     assert not any(path.variant == "full_fy" for path in row.paths)
+
+
+@pytest.mark.parametrize("known_by_as_of", [False, True])
+@pytest.mark.parametrize("field", ["operating_profit", "profit"])
+def test_new_fy_income_veto_uses_disclosure_cutoff_but_keeps_retrospective_context(
+    known_by_as_of, field
+):
+    rows = documents()
+    correction = replace(
+        rows[2],
+        disclosed_at=AS_OF if known_by_as_of else date(2025, 9, 1),
+        disclosure_number="current-quarter-loss-correction",
+        **{field: -1.0},
+    )
+    result = project(generation([*rows, correction]))
+    income = next(
+        path
+        for path in result.paths
+        if path.path_id == "earning_power" and path.variant == "full_fy"
+    )
+    assert income.eligible is (not known_by_as_of)
+    assert income.evidence["newer_earning_weakness"] is known_by_as_of
+    # This is a cutoff on the new FY veto, not a reconstruction of old growth states.
+    metric = "parent_profit" if field == "profit" else "operating_profit"
+    context = result.context["annual_observation"]
+    for key in ("latest_reported_observation", "latest_quarter_observation"):
+        value = context[key]["metrics"][metric]
+        assert value["value"] == -1.0
+        assert value["documents"][0]["disclosure_number"] == correction.disclosure_number
+    assert active(result, "business_expansion").variant == "full_fy"
+    assert active(result, "operating_recovery").variant == "full_fy"
+
+    selection = select_economic_paths((result,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selection, mode="json")
+    original = deepcopy(saved)
+    card = economic_screening_brief(saved)["cards"][0]
+    for key in ("latest_reported_observation", "latest_quarter_observation"):
+        value = card["context"]["annual_observation"][key]["metrics"][metric]
+        assert value == {
+            "value": -1.0,
+            "reason": None,
+            "disclosure_dates": [correction.disclosed_at.isoformat()],
+        }
+    brief_income = next(
+        (path for path in card["paths"] if path["path_id"] == "earning_power"), None
+    )
+    if known_by_as_of:
+        assert brief_income is None
+    else:
+        assert brief_income["evidence"]["newer_earning_weakness"] is False
+    assert saved == original
 
 
 def test_fy_reference_populations_include_companies_that_select_ttm():

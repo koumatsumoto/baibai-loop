@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import {
   EMPTY,
+  daysUntilJstDate,
   formatJstDate,
   formatJstDateShort,
   formatJstDateTime,
   formatPct,
+  formatUnitPriceYen,
   formatYen,
+  jstCalendarDate,
 } from '../src/lib/format'
 
 describe('formatJstDateTime', () => {
@@ -89,5 +92,22 @@ describe('formatPct', () => {
 describe('EMPTY', () => {
   it('is the em dash placeholder', () => {
     expect(EMPTY).toBe('—')
+  })
+})
+
+
+describe('unit prices and current JST dates', () => {
+  it('keeps per-share fractions without changing whole-yen totals', () => {
+    expect(formatUnitPriceYen(1052.5)).toBe('￥1,052.5')
+    expect(formatUnitPriceYen(1052.1234)).toBe('￥1,052.1234')
+    expect(formatUnitPriceYen(1052)).toBe('￥1,052')
+    expect(formatYen(1052.5)).toBe('￥1,053')
+  })
+
+  it('uses the current JST day across midnight and calendar boundaries', () => {
+    expect(jstCalendarDate('2026-12-31T15:00:00Z')).toBe('2027-01-01')
+    expect(daysUntilJstDate('2027-01-01', '2026-12-31')).toBe(1)
+    expect(daysUntilJstDate('2026-12-31', '2027-01-01')).toBe(-1)
+    expect(daysUntilJstDate('2027-01-01', '2027-01-01')).toBe(0)
   })
 })

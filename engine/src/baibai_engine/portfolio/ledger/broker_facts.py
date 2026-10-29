@@ -115,7 +115,12 @@ def record_broker_fact(
         ):
             return BrokerFactRecordingResult(document=document, changed=False, event_ids=())
 
-    state = replay_events_through(document.events, document.as_of)
+    # A delayed fill belongs at its reported occurrence, before any later
+    # release. The complete replacement is still replayed below, so inserting a
+    # fill cannot invalidate a saved release or another subsequent fact.
+    state = replay_events_through(
+        document.events, occurred_at if status == "filled" else document.as_of
+    )
     holding_metadata = state.metadata.get(ticker) if ticker is not None else None
     resolved_sector = (
         sector if sector is not None else (holding_metadata[0] if holding_metadata else None)
