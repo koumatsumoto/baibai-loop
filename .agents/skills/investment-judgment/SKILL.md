@@ -43,6 +43,15 @@ uv run baibai-engine investment-judgment company-research catalog \
 
 `selection-context`の既存研究は薄い表示で、未review Researchと過去のreview済みAssessmentを分ける。`unreadable`を「調査なし」にせず、briefの省略を反証なしと扱わない。全文は`company-research get --research-id <ID> --sha256 <DIGEST>`または`--assessment-id <ID>`で読む。通常prepareは選定対象だけの開始材料をSelection V4へ固定し、再開時にlatestへ付け替えない。調査中に追加した根拠はAssessment V1へ必要部分をコピーしてReviewする。開始時Selectionは最終評価の全provenanceではない。
 
+以前判断した銘柄を再調査するときは、最近保存された振り返りを有限に読み、今回の問いに関係するものだけexact getする。空一覧は正常で、全社の登録や全履歴読取は要求しない。`has_more`なら必要に応じてlimitを広げる。lessonは現在の企業事実・買付条件ではなく、今回確認する問いへ戻す材料である。再開時に追加で読む記録を元Selectionの開始入力だったように扱わない。
+
+```bash
+uv run baibai-engine investment-judgment judgment-retrospective list \
+  --ticker <TICKER> --limit 20 --db stores/application/baibai.sqlite
+uv run baibai-engine investment-judgment judgment-retrospective get \
+  --retrospective-id <ID> --sha256 <DIGEST> --db stores/application/baibai.sqlite
+```
+
 低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。候補抽出の名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
 企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。通常生成は全保持範囲であり、長期の読取は下記の表示期数と完全結果を使う。prepare中に生成範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
@@ -104,6 +113,27 @@ uv run baibai-engine investment-judgment trade-proposal-publish <REVIEWED_DRAFT>
 ```
 
 checkのvalidとreview_bindingを別に読み、作者と別の作業者が正規modelのdraft_sha256へ内容Reviewを束縛する。[Review・保存・preview](../../../docs/reference/trade-proposal.md#publication-review)に従い、入力事実が変わればsnapshotとReviewを取り直す。
+
+## 判断の振り返り
+
+特定の旧判断と後日事実を照合し、次回への学びを独立に残したいときだけ使う。企業知識の更新だけならResearch、現在の再評価ならrefreshでよく、同じ内容の再記入は不要。新Operation・Selection・独立Reviewや現在の市場入力を振り返りの前提にしない。
+
+```bash
+uv run baibai-engine investment-judgment judgment-retrospective scaffold \
+  --proposal-id <PROPOSAL_ID> --ticker <TICKER> --asof <ASOF> \
+  --db stores/application/baibai.sqlite --out <DRAFT>
+uv run baibai-engine investment-judgment judgment-retrospective save <DRAFT> \
+  --db stores/application/baibai.sqlite
+```
+
+Assessmentだけなら`--proposal-id`と`--ticker`の代わりに`--assessment-id <ID>`を使う。scaffoldはexact参照・当時の判断とReview・固定した関連台帳を一度に返す。`context`を読み、`draft`内の節目・比較・lessonだけを執筆する。元actionやhash、台帳eventを手で転記しない。Assessment-onlyに採否・注文を補わず、deferを経済的な棄却へ読み替えない。
+
+- `milestone`には今回選んだ決算・出来事とその理由を短く書く。`original_claim`は元の対象・条件・期間を保持し、`observed`に今回の観測、`reason`に照合の範囲と理由を分ける。三状態は選んだ主張の支持・反証・未解決であり、提案全体の勝敗ではない。
+- supported/refutedは保存済みResearch又はAssessmentへのexact `reference`と、その文書内の`source_ids`（必要なら`fact_ids`）を`citations`へ付ける。複数文書を引用でき、同名source IDもrefごとに区別する。原典で比較できる企業仮説・再開条件を対象にし、Researchの既存supportedを今回の確認結果としてコピーしない。根拠が足りなければ、理由付きunresolvedだけでも保存できる。
+- 注文・約定やReview完成等の運用条件は固定contextとlessonへ記し、架空のResearch sourceへ転記しない。比較なしでも`lesson.next_time`と`rationale`に意味があれば保存できる。台帳未記録はunknownであり、未約定を推測しない。新たな遅延報告は旧記録へ後付けされず、必要なら新しいscaffoldから別IDで照合する。
+- lessonは次回に変える・変えない具体的な確認と理由にする。「当時1,100円でPmax1,000円」は後日上昇しても反証されず、「当時未公表」は翌月の公表で誤りにならない。後日初めて判明した材料と当時の見落としを分ける。利益が出ても株数basisの誤りは改善対象、明示して受け入れた不利経路での損失だけなら手順変更なしも正常である。実現損益と判断過程を同じ採点にしない。
+
+`as_of`は元発行日以降の情報基準日（JST）で、保存時計とは別。古い資料を後日取得して引用できるが、当時既知だったことや外部URLの原本bytes不変を保証しない。同ID同内容の再送は元記録を返し、後日の続きは新IDにする。誤記の訂正は新draftの`corrects_ref`へ旧ID/digestを指定し、lessonに訂正理由を書く。一覧ではorigin・節目・保存日・訂正先を読み、単一latestを唯一の結論にしない。
 
 ## 完了と再開
 
