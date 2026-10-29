@@ -38,18 +38,18 @@ def build_dashboard(
     today = now.date()
 
     try:
-        if not ledger.exists():
-            return _empty_dashboard(
-                generated_at=now,
-                ledger_exists=False,
-                ledger_error=None,
-            )
         portfolio = ledger.snapshot()
     except (ValueError, RuntimeError, sqlite3.Error) as error:
         return _empty_dashboard(
             generated_at=now,
             ledger_exists=True,
             ledger_error=str(error),
+        )
+    if portfolio is None:
+        return _empty_dashboard(
+            generated_at=now,
+            ledger_exists=False,
+            ledger_error=None,
         )
 
     snapshot = portfolio.snapshot

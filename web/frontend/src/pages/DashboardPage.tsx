@@ -319,6 +319,7 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
                 <span className="font-medium">{item.horizon} · {item.period_end_date}</span>
                 <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
+              <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
               {/* The benchmark is a market index, but here it exists only to be read
                   against the portfolio's own return — the pair is one comparison, so both
                   wear the money colors rather than splitting across two systems. */}

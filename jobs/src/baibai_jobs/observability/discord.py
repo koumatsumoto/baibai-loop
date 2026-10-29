@@ -47,9 +47,8 @@ OUTCOME_LABELS = {
     OUTCOME_FAILED: "[FAILED]",
     OUTCOME_CANCELLED: "[CANCELLED]",
 }
-# Non-batch workflow steps in execution order. The first one that neither
-# succeeded nor was skipped names where the reader should look first; a step that
-# was cancelled rather than failed still stopped the publish.
+# Tracked workflow steps in execution order. Keep every unsuccessful step so an
+# optional view failure cannot hide a later publication-lease release failure.
 STEP_ORDER = (
     "smoke",
     "setup",
@@ -191,28 +190,29 @@ def load_notice(path: Path | None) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
-def derive_failed_step(step_outcomes: Mapping[str, str]) -> str:
-    """Name the workflow step a reader should open first, or "" when none stands out."""
+def derive_failed_steps(step_outcomes: Mapping[str, str]) -> list[str]:
+    """Name every step requiring attention, including cancelled steps, in order."""
 
-    for step in STEP_ORDER:
-        if step_outcomes.get(step, "skipped") not in {"success", "skipped"}:
-            return step
-    return ""
+    return [
+        step
+        for step in STEP_ORDER
+        if step_outcomes.get(step, "skipped") not in {"success", "skipped"}
+    ]
 
 
 def decide_outcome(
     *,
     batch_exit_code: str,
-    failed_step: str,
+    failed_steps: list[str],
     cancelled: bool,
 ) -> str:
     """Map the observable workflow state to the one label the message carries."""
 
     if cancelled:
         return OUTCOME_CANCELLED
-    if failed_step == "portfolio-views" and batch_exit_code == "0":
+    if failed_steps == ["portfolio-views"] and batch_exit_code == "0":
         return OUTCOME_DEGRADED
-    if failed_step:
+    if failed_steps:
         return OUTCOME_FAILED
     if batch_exit_code == "0":
         return OUTCOME_OK
@@ -283,7 +283,7 @@ def render_message(
     *,
     outcome: str,
     asof: str,
-    failed_step: str,
+    failed_steps: list[str],
     notice: Mapping[str, object],
     url: str,
     integration_report: Mapping[str, object] | None = None,
@@ -292,8 +292,8 @@ def render_message(
     """Separate workflow outcome, publication steps and generated-model counts."""
 
     details = []
-    if failed_step:
-        details.append(f"要確認工程: {sanitize_one_line(failed_step)}")
+    if failed_steps:
+        details.append("要確認工程: " + " / ".join(sanitize_one_line(step) for step in failed_steps))
     if step_outcomes is not None:
         details.append(
             "工程結果: "
@@ -377,23 +377,23 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     step_outcomes = {
         step: getattr(args, f"{step.replace('-', '_')}_outcome") for step in STEP_ORDER
     }
-    failed_step = derive_failed_step(step_outcomes)
-    if not failed_step:
+    failed_steps = derive_failed_steps(step_outcomes)
+    if not failed_steps:
         if args.batch_exit_code == "":
             # The batch was never reached and no tracked step failed: an untracked
             # one (such as checkout or setup-uv) did.
-            failed_step = "pre-batch"
+            failed_steps = ["pre-batch"]
         elif args.batch_exit_code != "0":
-            failed_step = sanitize_one_line(notice.get("failed_stage") or "batch")
+            failed_steps = [sanitize_one_line(notice.get("failed_stage") or "batch")]
     outcome = decide_outcome(
         batch_exit_code=args.batch_exit_code,
-        failed_step=failed_step,
+        failed_steps=failed_steps,
         cancelled=args.cancelled == "true",
     )
     message = render_message(
         outcome=outcome,
         asof=sanitize_one_line(notice.get("asof") or ""),
-        failed_step=failed_step,
+        failed_steps=failed_steps,
         notice=notice if args.batch_exit_code == "0" or not notice else {"models_ready": False},
         url=run_url(env),
         integration_report=load_notice(args.integration_report_path),

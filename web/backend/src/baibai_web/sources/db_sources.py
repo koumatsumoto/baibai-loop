@@ -42,13 +42,10 @@ class DbLedgerSource:
             connection.execute("BEGIN")
             return load_ledger_document(connection)
 
-    def exists(self) -> bool:
-        return self._document() is not None
-
-    def snapshot(self) -> PortfolioRead:
+    def snapshot(self) -> PortfolioRead | None:
         document = self._document()
         if document is None:
-            raise ValueError("portfolio ledger has not been initialized")
+            return None
         now = datetime.now().astimezone()
         try:
             snapshot = current_portfolio(document, sqlite_path=self._market_path, now=now)
@@ -59,11 +56,11 @@ class DbLedgerSource:
             return PortfolioRead(summarize_portfolio(document, state, {}), str(error))
         return PortfolioRead(snapshot)
 
-    def facts_snapshot(self) -> PortfolioSnapshot:
+    def facts_snapshot(self) -> PortfolioSnapshot | None:
         """Read holdings and active orders without requiring market valuation."""
         document = self._document()
         if document is None:
-            raise ValueError("portfolio ledger has not been initialized")
+            return None
         state = replay_events_through(document.events, datetime.now().astimezone())
         return summarize_portfolio(document, state, {})
 

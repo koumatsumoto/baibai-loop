@@ -18,6 +18,7 @@ from tests.helpers.research_selection import historical_operation, selected_targ
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
+    load_proposal_draft,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -544,7 +545,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     assert checked["valid"] is True
     assert checked["review_binding"] == "stale"
     assert unchanged == (draft_path.read_bytes(), (workspace / "domain-inputs.yaml").read_bytes())
-    draft = TradeProposal.model_validate(raw)
+    draft = load_proposal_draft(raw)
     draft = draft.model_copy(
         update={
             "review": draft.review.model_copy(

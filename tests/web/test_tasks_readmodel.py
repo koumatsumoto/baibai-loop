@@ -75,7 +75,6 @@ def test_tasks_remain_visible_when_ledger_cannot_build_upcoming_events(mocker) -
         ),
     ]
     ledger = mocker.Mock()
-    ledger.exists.return_value = True
     ledger.facts_snapshot.side_effect = PortfolioLedgerError("invalid ledger")
     market = mocker.Mock()
 
@@ -97,20 +96,20 @@ def test_tasks_treat_absent_ledger_as_normal(mocker) -> None:
     tasks.exists.return_value = False
     tasks.list_tasks.return_value = []
     ledger = mocker.Mock()
-    ledger.exists.return_value = False
+    ledger.facts_snapshot.return_value = None
 
     view = build_tasks(tasks, ledger, mocker.Mock())
 
     assert view.open_tasks == []
     assert view.upcoming_events == []
     assert view.ledger_error is None
+    ledger.facts_snapshot.assert_called_once_with()
 
 
 def test_task_events_need_dates_and_names_not_holding_valuation(mocker) -> None:
     tasks, ledger, market = [mocker.Mock() for _ in range(3)]
     tasks.exists.return_value = True
     tasks.list_tasks.return_value = []
-    ledger.exists.return_value = True
     holding = mocker.Mock(spec_set=["ticker"], ticker="2331")
     ledger.facts_snapshot.return_value.holdings = [holding]
     ledger.facts_snapshot.return_value.active_reservations = []
@@ -176,7 +175,6 @@ def test_unavailable_earnings_remains_distinct_from_confirmed_empty(mocker, cale
     tasks, ledger, market = [mocker.Mock() for _ in range(3)]
     tasks.exists.return_value = True
     tasks.list_tasks.return_value = []
-    ledger.exists.return_value = True
     ledger.facts_snapshot.return_value.holdings = [mocker.Mock(ticker="2331")]
     ledger.facts_snapshot.return_value.active_reservations = [
         mocker.Mock(ticker="2331", expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"))
@@ -250,7 +248,6 @@ def task_event_sources(mocker):
             created_at=date(2026, 10, 14),
         )
     ]
-    ledger.exists.return_value = True
     ledger.facts_snapshot.return_value.holdings = [mocker.Mock(ticker="2331")]
     ledger.facts_snapshot.return_value.active_reservations = [
         mocker.Mock(ticker="8929", expires_at=datetime.fromisoformat("2026-10-17T00:00:00+09:00"))

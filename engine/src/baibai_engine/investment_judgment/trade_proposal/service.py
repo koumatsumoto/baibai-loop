@@ -29,6 +29,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalError,
     SellItem,
     TradeProposal,
+    TradeProposalDraft,
+    load_proposal_draft,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.fingerprint import proposal_inputs_fingerprint
@@ -68,7 +70,7 @@ def _limit_for_partial_buy(item: BuyItem) -> Decimal:
 
 def _validate_action(
     connection: sqlite3.Connection,
-    proposal: TradeProposal,
+    proposal: TradeProposalDraft,
     item: BuyItem | HoldItem | SellItem,
     pair: ReviewedAssessment,
     *,
@@ -178,7 +180,7 @@ class ProposalValidation:
 
 def check_proposal(
     connection: sqlite3.Connection,
-    proposal: TradeProposal,
+    proposal: TradeProposalDraft,
     *,
     sqlite_path: Path,
     now: datetime,
@@ -197,14 +199,14 @@ def check_proposal(
 
 def _check_proposal(
     connection: sqlite3.Connection,
-    proposal: TradeProposal,
+    proposal: TradeProposalDraft,
     *,
     sqlite_path: Path,
     now: datetime,
     require_review: bool,
     market_connection: sqlite3.Connection | None,
 ) -> ProposalValidation:
-    proposal = TradeProposal.model_validate(proposal.model_dump(mode="python"))
+    proposal = load_proposal_draft(proposal)
     validate_proposal_policy(proposal)
     if now.utcoffset() is None:
         raise ProposalError("proposal clock requires a timezone")
@@ -344,7 +346,9 @@ class TradeProposalService:
         self._sqlite_path = sqlite_path
         self._clock = clock or (lambda: datetime.now(JST))
 
-    def check(self, proposal: TradeProposal, *, require_review: bool = True) -> ProposalValidation:
+    def check(
+        self, proposal: TradeProposalDraft, *, require_review: bool = True
+    ) -> ProposalValidation:
         with closing(connect_read_only(self._db_path)) as connection:
             connection.execute("BEGIN")
             return check_proposal(
@@ -355,9 +359,9 @@ class TradeProposalService:
                 require_review=require_review,
             )
 
-    def publish(self, proposal: TradeProposal) -> TradeProposal:
+    def publish(self, proposal: TradeProposalDraft) -> TradeProposal:
         # Revalidate even callers using model_copy/model_construct; these APIs bypass validators.
-        proposal = TradeProposal.model_validate(proposal.model_dump(mode="python"))
+        proposal = load_proposal_draft(proposal)
         now = self._clock()
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
@@ -381,7 +385,9 @@ class TradeProposalService:
                 )
                 if not validation.valid:
                     raise ProposalError("; ".join(reason.message for reason in validation.blockers))
-                published = proposal.model_copy(update={"published_at": now})
+                published = TradeProposal.model_validate(
+                    {**proposal.model_dump(mode="python"), "published_at": now}
+                )
                 connection.execute(
                     "INSERT INTO investment_proposal(proposal_id,as_of,prepared_at,published_at,"
                     "request_scope,payload,draft_sha256) VALUES (?,?,?,?,?,?,?)",

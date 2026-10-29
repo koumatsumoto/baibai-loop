@@ -7,13 +7,22 @@ from decimal import Decimal
 
 import pytest
 import yaml
-from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import (
+    PREPARED,
+    PROPOSAL_ID,
+    PUBLISHED,
+    backend_case,
+    bind_review,
+    reviewed_proposal,
+)
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     ProposalError,
     TradeProposal,
+    load_proposal_draft,
+    proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
@@ -113,7 +122,90 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
         )
     assert capsys.readouterr().out == ""
     stored = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
-    assert stored == proposal.model_copy(update={"published_at": PUBLISHED})
+    assert stored.model_dump(mode="json", exclude={"published_at"}) == proposal.payload()
+    assert stored.published_at == PUBLISHED
+
+
+@pytest.mark.parametrize("legacy_publication_time", [False, True])
+def test_cli_scaffold_later_review_check_publish_and_retry_own_the_publication_clock(
+    case, tmp_path, capsys, legacy_publication_time
+):
+    draft = tmp_path / "proposal.yaml"
+    common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
+    assert (
+        main(
+            [
+                "trade-proposal-scaffold",
+                "--operation-id",
+                case.operation.operation_id,
+                "--proposal-id",
+                PROPOSAL_ID,
+                "--out",
+                str(draft),
+                *common,
+            ],
+            now=PREPARED,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    raw = yaml.safe_load(draft.read_text())
+    assert "published_at" not in raw
+    raw.update(headline="合成見送り", comparison="現金維持との比較", forgone="買付を見送る")
+    raw["items"][0]["action"] = "no_action"
+    raw["items"][0].pop("blockers")
+    raw["items"][0].pop("resume_conditions")
+    if legacy_publication_time:
+        raw["published_at"] = PREPARED.isoformat()
+    draft.write_text(yaml.safe_dump(raw))
+    assert main(["trade-proposal-check", str(draft), *common], now=PREPARED) == 0
+    checked = yaml.safe_load(capsys.readouterr().out)
+    assert checked["review_binding"] == "stale"
+
+    reviewed_at = PREPARED + timedelta(minutes=5)
+    raw["review"].update(
+        reviewer_identity="synthetic-independent-reviewer",
+        reviewed_at=reviewed_at.isoformat(),
+        draft_sha256=checked["draft_sha256"],
+    )
+    draft.write_text(yaml.safe_dump(raw))
+    draft_bytes = draft.read_bytes()
+    assert main(["trade-proposal-check", str(draft), *common], now=PUBLISHED) == 0
+    checked_again = yaml.safe_load(capsys.readouterr().out)
+    assert checked_again["valid"] is True
+    assert checked_again["review_binding"] == "match"
+    assert checked_again["draft_sha256"] == checked["draft_sha256"]
+
+    published_at = PUBLISHED + timedelta(minutes=1)
+    assert main(["trade-proposal-publish", str(draft), *common], now=published_at) == 0
+    published = TradeProposal.model_validate(yaml.safe_load(capsys.readouterr().out))
+    assert published.prepared_at == PREPARED
+    assert published.review.reviewed_at == reviewed_at
+    assert published.published_at == published_at
+    assert proposal_draft_sha256(published) == checked["draft_sha256"]
+    assert draft.read_bytes() == draft_bytes
+
+    stored_bytes = case.app.read_bytes()
+    # Exact retries are historical reads, even when the caller's clock predates Review.
+    assert main(["trade-proposal-publish", str(draft), *common], now=PREPARED) == 0
+    assert TradeProposal.model_validate(yaml.safe_load(capsys.readouterr().out)) == published
+    assert case.app.read_bytes() == stored_bytes
+    assert draft.read_bytes() == draft_bytes
+
+
+def test_future_review_is_rejected_even_with_a_later_caller_publication_time(case):
+    raw = reviewed_proposal(case).payload()
+    raw["review"]["reviewed_at"] = (PUBLISHED + timedelta(minutes=1)).isoformat()
+    raw["published_at"] = (PUBLISHED + timedelta(minutes=2)).isoformat()
+    proposal = load_proposal_draft(raw)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    before = case.app.read_bytes()
+    validation = service.check(proposal)
+    assert not validation.valid
+    assert "proposal_time_after_publish" in {reason.code for reason in validation.blockers}
+    with pytest.raises(ProposalError, match="現在発行時刻"):
+        service.publish(proposal)
+    assert case.app.read_bytes() == before
 
 
 def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
@@ -152,7 +244,7 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     changed = published.payload()
     changed["items"][0]["terms"].update(limit_price_yen="885", notional_yen="265500")
     with pytest.raises(ProposalConflictError, match="content review"):
-        service.check(TradeProposal.model_validate(changed))
+        service.check(load_proposal_draft(changed))
     assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
 
 
@@ -179,10 +271,8 @@ def test_same_id_retry_requires_the_exact_signed_typed_payload(case):
     service.publish(proposal)
     raw = proposal.payload()
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.000"
-    from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
-
     with pytest.raises(ProposalConflictError, match="immutable"):
-        service.publish(TradeProposal.model_validate(raw))
+        service.publish(load_proposal_draft(raw))
 
 
 @pytest.mark.parametrize("change", ["head", "meta", "quote", "source"])
@@ -231,12 +321,10 @@ def test_same_instant_utc_and_decimal_equivalent_facts_publish(case):
     raw["inputs"]["quotes"][0]["price_yen"] = "1100.00"
     raw["inputs"]["available_cash_yen"] = "3E+5"
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    assert (
-        TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-            proposal
-        )
-        == proposal
-    )
+    published = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
+    assert published.model_dump(mode="json", exclude={"published_at"}) == proposal.payload()
 
 
 @pytest.mark.parametrize(
@@ -283,9 +371,7 @@ def test_review_binds_conditions_cash_scope_and_projection(case):
     proposal = reviewed_proposal(case)
     raw = proposal.payload()
     raw["items"][0]["terms"]["conditions"].append("別の実前提")
-    from baibai_engine.investment_judgment.trade_proposal.contracts import TradeProposal
-
-    changed = TradeProposal.model_validate(raw)
+    changed = load_proposal_draft(raw)
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(changed, require_review=False).valid
     with pytest.raises(ProposalConflictError, match="content review"):
@@ -303,14 +389,9 @@ def test_warning_or_exposure_tampering_not_accepted_by_new_review(case, change):
     else:
         assert raw["items"][0]["terms"]["warnings"]
         raw["items"][0]["terms"]["warnings"] = []
-    from baibai_engine.investment_judgment.trade_proposal.contracts import (
-        TradeProposal,
-        proposal_draft_sha256,
-    )
-
-    changed = TradeProposal.model_validate(raw)
+    changed = load_proposal_draft(raw)
     raw["review"]["draft_sha256"] = proposal_draft_sha256(changed)
-    changed = TradeProposal.model_validate(raw)
+    changed = load_proposal_draft(raw)
     assert changed.review.draft_sha256 == proposal_draft_sha256(changed)
     before = _counts(case.app)
     message = "terms warnings" if change == "terms_warning" else "warning/exposure"
@@ -400,7 +481,7 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     )
     proposal = reviewed_proposal(case, action="no_action")
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
-    service.publish(proposal)
+    published = service.publish(proposal)
     document, review = pair_payload(ticker="5678", review_number=32)
     pair = AssessmentStoreService(
         case.app, clock=lambda: PUBLISHED + timedelta(minutes=1)
@@ -409,7 +490,7 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
         case.operation.operation_id, pair.assessment_id, now=PUBLISHED + timedelta(minutes=2)
     )
     stored = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
-    assert stored == proposal
+    assert stored == published
     assert stored.research_scope.outcomes[1].status == "unfinished"
     raw = proposal.payload()
     raw["proposal_id"] = "investment-proposal-00000000-0000-4000-8000-000000000099"

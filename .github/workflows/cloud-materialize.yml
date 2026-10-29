@@ -47,32 +47,39 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.publication.lease acquire --purpose materialize --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
-      - name: Pull stores
+      - name: Pull application store
+        id: pull-app
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: jobs/scripts/r2_transfer.sh pull-app
+
+      # Market data enriches application facts but must be fully hydrated before use.
+      # Keep acquisition failure visible while still publishing independent ledger/tasks.
+      - name: Pull and hydrate market store from the lake release
+        id: market
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           jobs/scripts/r2_transfer.sh pull-market
-          jobs/scripts/r2_transfer.sh pull-app
-
-      # The market store arrives holding only what the lake does not own — the coverage
-      # ledger and the operator-derived tables. Filling the rest from the current release
-      # is what makes it the store every reader already expects. It fails closed on the
-      # published row counts, so a fill that silently did nothing cannot reach the export
-      # as an empty market. Without it this workflow would republish the portfolio
-      # without prices behind its holdings.
-      - name: Hydrate market store from the lake release
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: jobs/scripts/r2_transfer.sh hydrate-market
+          jobs/scripts/r2_transfer.sh hydrate-market
 
       - name: Materialize read models
-        run: uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+        id: materialize
+        if: ${{ !cancelled() && steps.pull-app.outcome == 'success' }}
+        env:
+          MARKET_OUTCOME: ${{ steps.market.outcome }}
+        run: |
+          if [[ "$MARKET_OUTCOME" != "success" && -d stores/market ]]; then
+            mv stores/market "$RUNNER_TEMP/unverified-market"
+          fi
+          uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
 
       - name: Upload serving objects
+        if: ${{ !cancelled() && steps.materialize.outcome == 'success' }}
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

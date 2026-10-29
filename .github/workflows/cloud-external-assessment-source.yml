@@ -48,8 +48,6 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - name: Provision DuckDB httpfs extension
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
       - name: Freeze and acquire one source with bounded cohort checkpoints
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}

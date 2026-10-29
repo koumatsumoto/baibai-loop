@@ -165,7 +165,6 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
         raw.update(
             proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
             prepared_at=now.isoformat(),
-            published_at=now.isoformat(),
             inputs=preview.current_inputs.model_dump(mode="json"),
         )
         raw["review"]["reviewed_at"] = now.isoformat()
@@ -277,7 +276,6 @@ def test_partial_sell_stays_active_past_expiry_until_reported_cancel_and_new_inp
     raw.update(
         proposal_id="investment-proposal-00000000-0000-4000-8000-000000000004",
         prepared_at=now.isoformat(),
-        published_at=now.isoformat(),
         inputs=context.inputs.model_dump(mode="json"),
     )
     raw["review"]["reviewed_at"] = now.isoformat()
