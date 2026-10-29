@@ -109,12 +109,19 @@ def test_company_research_is_immutable_and_prior_is_an_existing_other_record(con
 
 
 def test_judgment_retrospective_has_only_record_headers_and_is_immutable(connection):
-    assert [
-        row[1] for row in connection.execute("PRAGMA table_info(judgment_retrospective)")
-    ] == ["retrospective_id", "ticker", "as_of", "recorded_at", "payload", "payload_sha256"]
+    assert [row[1] for row in connection.execute("PRAGMA table_info(judgment_retrospective)")] == [
+        "retrospective_id",
+        "ticker",
+        "as_of",
+        "recorded_at",
+        "payload",
+        "payload_sha256",
+    ]
     assert [
         row[2]
-        for row in connection.execute("PRAGMA index_info(judgment_retrospective_ticker_recorded_idx)")
+        for row in connection.execute(
+            "PRAGMA index_info(judgment_retrospective_ticker_recorded_idx)"
+        )
     ] == ["ticker", "recorded_at", "retrospective_id"]
     connection.execute(
         "INSERT INTO judgment_retrospective VALUES (?,?,?,?,?,?)",

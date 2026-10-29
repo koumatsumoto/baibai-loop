@@ -311,12 +311,19 @@ def list_retrospectives(
         with closing(connect_read_only(resolved)) as connection:
             connection.execute("BEGIN")
             if connection.execute("PRAGMA user_version").fetchone()[0] != 0:
-                where, parameters = ("", ()) if ticker is None else ("WHERE ticker=? ", (ticker,))
-                rows = connection.execute(
-                    "SELECT retrospective_id FROM judgment_retrospective "
-                    f"{where}ORDER BY recorded_at DESC,retrospective_id DESC LIMIT ?",
-                    (*parameters, limit + 1),
-                ).fetchall()
+                if ticker is None:
+                    statement = (
+                        "SELECT retrospective_id FROM judgment_retrospective "
+                        "ORDER BY recorded_at DESC,retrospective_id DESC LIMIT ?"
+                    )
+                    parameters: tuple[object, ...] = (limit + 1,)
+                else:
+                    statement = (
+                        "SELECT retrospective_id FROM judgment_retrospective WHERE ticker=? "
+                        "ORDER BY recorded_at DESC,retrospective_id DESC LIMIT ?"
+                    )
+                    parameters = (ticker, limit + 1)
+                rows = connection.execute(statement, parameters).fetchall()
                 has_more = len(rows) > limit
                 for row in rows[:limit]:
                     record = load_retrospective(connection, str(row[0]))
