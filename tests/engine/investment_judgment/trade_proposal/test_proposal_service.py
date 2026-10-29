@@ -510,10 +510,21 @@ def test_same_session_adjustment_does_not_change_native_quote_or_comparison(case
     assert service.publish(proposal).proposal_id == proposal.proposal_id
 
 
-@pytest.mark.parametrize("broken", [False, True])
+@pytest.mark.parametrize(
+    ("broken", "assessment_as_of"),
+    [(False, "2026-10-14"), (True, "2026-10-14"), (True, "2026-10-13")],
+)
 @pytest.mark.parametrize("floor", [900, 1200])
-def test_author_sell_floor_flows_through_check_publish_get_and_preview(tmp_path, broken, floor):
-    case = backend_case(tmp_path, holding=True, broken=broken, valuation_unresolved=broken)
+def test_author_sell_floor_flows_through_check_publish_get_and_preview(
+    tmp_path, broken, assessment_as_of, floor
+):
+    case = backend_case(
+        tmp_path,
+        holding=True,
+        broken=broken,
+        valuation_unresolved=broken,
+        assessment_as_of=assessment_as_of,
+    )
     raw = reviewed_proposal(case, action="sell").payload()
     item = raw["items"][0]
     item["terms_unavailable_reasons"] = []
@@ -523,7 +534,7 @@ def test_author_sell_floor_flows_through_check_publish_get_and_preview(tmp_path,
         "quantity": 100,
         "notional_yen": str(floor * 100),
         "target_session": "2026-10-15",
-        "valuation_as_of": "2026-10-14",
+        "valuation_as_of": assessment_as_of,
         "maximum_entry_price_yen": None,
         "price_grid_rule_id": "tse-common-conservative-20261014",
         "conditions": ["全量の回収下限。未約定時は回復待ちの代償を再確認する。"],

@@ -167,7 +167,7 @@ def backend_case(
             downside=None,
             unresolved_reason="合成借換条件を未確認のため将来価値を確定できない。",
         )
-        document["conclusion"]["stance"] = "uncertain"
+        document["conclusion"]["stance"] = "unsupported" if broken else "uncertain"
         review["recalculated_projections"] = []
         update_review_hash(document, review)
     pair = AssessmentStoreService(
