@@ -17,6 +17,7 @@ from baibai_engine.data_collection.providers.articles.native import (
     PARSER_REVISION,
     TEXT_REVISION,
     NativeArticleUnsupported,
+    is_index_locator,
     parse_document,
     parse_index,
 )
@@ -94,7 +95,7 @@ def project_receipt(
             index_observation.source != receipt.source
             or fetch_url != receipt.requested_url
             or index_receipt.received_at > receipt.received_at
-            or not index_observation.native_locator.startswith(("/item/", "/url/", "/a/"))
+            or not is_index_locator(receipt.source, index_observation.native_locator)
         ):
             raise ArticleStoreError("index observation does not identify this document receipt")
     generated_at = generated_at or datetime.now(UTC)

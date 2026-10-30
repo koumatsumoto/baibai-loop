@@ -445,6 +445,7 @@ def test_tsr_document_uses_explicit_feed_title_when_h1_is_missing(tmp_path):
         )
         assert document.title == "Synthetic TSR index title"
         assert document.article_id == index.article_id
+        assert document.native_metadata["index_observation_id"] == index.observation_id
 
 
 def test_explicit_schema_upgrade_preserves_old_store_and_operator_rows(tmp_path):

@@ -10,6 +10,7 @@ import requests
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.data_collection.providers.articles.native import (
+    is_index_locator,
     next_index_url,
     parse_document,
     parse_index,
@@ -21,6 +22,14 @@ from baibai_engine.data_collection.transport.articles import (
     fetch_article,
 )
 from baibai_engine.machine_analysis.observations.articles.projection import native_time
+
+
+def test_native_index_locator_shapes_include_tsr_json_items_only_for_tsr():
+    assert is_index_locator("tsr_data", "/0")
+    assert is_index_locator("tsr_flash", "/12")
+    assert not is_index_locator("tsr_data", "/html/body-region")
+    assert not is_index_locator("nhk_news", "/0")
+    assert is_index_locator("nhk_news", "/item/2")
 
 
 def response(status, body=b"", **headers):
