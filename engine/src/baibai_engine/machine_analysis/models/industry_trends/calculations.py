@@ -9,7 +9,7 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
     ExtractionArtifact,
 )
 from baibai_engine.machine_analysis.observations.trends.inputs import IndustryInput
-from baibai_engine.machine_analysis.observations.trends.payload import (
+from baibai_engine.machine_analysis.models.trend_payload import (
     claim_record,
     finish_payload,
 )
@@ -104,34 +104,53 @@ def calculate_industry_trends(fixed: IndustryInput) -> dict[str, object]:
         # Explicitly reported previous-period values within the same survey are
         # usable; otherwise the caller must name an immutable baseline artifact.
         for claim in claims:
-            baseline = selected.baseline
-            candidates = (
-                [
+            within = [
+                c
+                for c in claims
+                if c.predicate == claim.predicate
+                and c.scope.period_end is not None
+                and claim.scope.period_end is not None
+                and c.scope.period_end < claim.scope.period_end
+                and compare_claims(
+                    claim,
+                    c,
+                    current_artifact=artifact,
+                    previous_artifact=artifact,
+                )["kind"]
+                == "period_change"
+            ]
+            # A reported prior year in the same survey is the closest explicit
+            # comparison. An index artifact is not a replacement for that claim.
+            if within:
+                latest_period = max(
+                    c.scope.period_end for c in within if c.scope.period_end is not None
+                )
+                candidates = [c for c in within if c.scope.period_end == latest_period]
+                if len(candidates) != 1:
+                    continue  # Conflicting same-period claims need adjudication.
+                previous, previous_artifact = candidates[0], artifact
+            elif selected.baseline is not None:
+                baseline = selected.baseline
+                candidates = [
                     c
                     for c in baseline.claims
                     if c.domain == "industry"
                     and c.scope.scope_id == claim.scope.scope_id
                     and c.predicate == claim.predicate
                 ]
-                if baseline is not None
-                else [
-                    c
-                    for c in claims
-                    if c.predicate == claim.predicate
-                    and c.scope.period_end is not None
-                    and claim.scope.period_end is not None
-                    and c.scope.period_end < claim.scope.period_end
-                ]
-            )
-            for previous in candidates:
-                comparisons.append(
-                    compare_claims(
-                        claim,
-                        previous,
-                        current_artifact=artifact,
-                        previous_artifact=baseline or artifact,
-                    )
+                if len(candidates) != 1:
+                    continue
+                previous, previous_artifact = candidates[0], baseline
+            else:
+                continue
+            comparisons.append(
+                compare_claims(
+                    claim,
+                    previous,
+                    current_artifact=artifact,
+                    previous_artifact=previous_artifact,
                 )
+            )
     return finish_payload(
         fixed.inputs,
         records=records,

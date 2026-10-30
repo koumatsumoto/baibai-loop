@@ -17,7 +17,7 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
 )
 
 SCOPE_REVISION = "industry-scopes-v1"
-TSR_REVISION = "tsr-performance-v1"
+TSR_REVISION = "tsr-performance-v2"
 BOJ_REVISION = "boj-policy-decision-v1"
 INDUSTRIES = {
     "医薬品・医療用品卸売業": "jp-pharmaceutical-wholesale",
@@ -107,12 +107,27 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
     year = int(method["year"])
     size = int(method["size"].replace(",", ""))
     end_year, end_month = int(method["end_year"]), int(method["end_month"])
+    # The article may state the survey exclusion outside its method paragraph.
+    # Attach it only to the supported pharmaceutical-wholesale family and keep
+    # its own source coordinate with every claim that inherits this population.
+    exclusion = (
+        re.search(
+            r"医薬品(?:・医療用品)?卸売業[^。]{0,100}?医療機器を除く",
+            text,
+        )
+        if method["label"] == "医薬品・医療用品卸売業"
+        else None
+    )
+    scope_spans = (_span(method),) if exclusion is None else (_span(method), _span(exclusion))
     scope = ClaimScope(
         scope_id=INDUSTRIES[method["label"]],
         taxonomy_revision=SCOPE_REVISION,
         label=method["label"],
         geography="JP",
-        population="TSR survey: five consecutive comparable fiscal years",
+        population=(
+            "TSR survey: five consecutive comparable fiscal years"
+            + ("; 医療機器を除く" if exclusion is not None else "")
+        ),
         population_id=f"tsr-survey:{document.evidence.article_id}",
         population_size=size,
         period=f"FY{year}",
@@ -138,7 +153,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                 scope=scope,
                 attribution="東京商工リサーチ",
                 quantity=_money(revenue["value"]),
-                spans=(_span(method), _span(revenue)),
+                spans=(*scope_spans, _span(revenue)),
             )
         )
         # Only the same sentence's explicitly named net income; generic 利益金
@@ -156,7 +171,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                     attribution="東京商工リサーチ",
                     quantity=_money(profit["value"]).model_copy(update={"basis": "net_income"}),
                     spans=(
-                        _span(method),
+                        *scope_spans,
                         Span(
                             start=revenue.end() + profit.start(),
                             end=revenue.end() + profit.end(),
@@ -197,7 +212,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                     predicate="profitable_company_share",
                     scope=claim_scope,
                     attribution="東京商工リサーチ",
-                    spans=(_span(method), _span(share)),
+                    spans=(*scope_spans, _span(share)),
                     quantity=Quantity(
                         value=amount,
                         unit="percent",
@@ -242,7 +257,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                     predicate="revenue_concentration",
                     scope=scope.model_copy(update={"target": target}),
                     attribution="東京商工リサーチ",
-                    spans=(_span(method), _span(concentration)),
+                    spans=(*scope_spans, _span(concentration)),
                     quantity=Quantity(
                         value=amount,
                         unit="percent",

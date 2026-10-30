@@ -52,6 +52,20 @@ def test_tsr_second_sentence_family_and_precision_are_not_article_id_specific():
     assert claims["revenue_concentration_employees"].quantity.value == Decimal("82.3")
 
 
+def test_tsr_pharmaceutical_survey_preserves_explicit_population_exclusion():
+    text = "医薬品・医療用品卸売業の調査は医療機器を除く。" + PHARMA
+    projected = document(text, article_id="another-pharmaceutical-survey")
+    result = extract_tsr_performance(projected, created_at=NOW)
+    assert result.status == "extracted"
+    assert result.claims
+    for claim in result.claims:
+        assert "医療機器を除く" in claim.scope.population
+        assert any(
+            "医療機器を除く" in projected.text[span.start : span.end] for span in claim.spans
+        )
+    result.verify_text(projected)
+
+
 def test_tsr_missing_method_or_unrecognised_scope_does_not_guess():
     for text in ("ある産業の売上は12兆円。", INFORMATION.replace("情報サービス業", "未知産業")):
         result = extract_tsr_performance(document(text), created_at=NOW)

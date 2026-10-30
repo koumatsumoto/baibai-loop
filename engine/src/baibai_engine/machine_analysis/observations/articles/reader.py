@@ -3,6 +3,9 @@
 No current-pointer lookup, Web fallback, or promise of old release retention.
 Only the passed FixedRelease is queried. Raw bodies remain private, and are only
 returned by explicit get. List is bounded, stable and has a same-release cursor.
+Artifact lookup verifies its envelope digest and observation/text binding. The
+meaning of payload claims, source spans and attribution belongs to the calling
+semantic validator after this raw read.
 """
 
 from __future__ import annotations
@@ -10,6 +13,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
@@ -33,8 +37,22 @@ from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
     accepted_dataset,
     materialize_partitions,
+    partition_period,
     selected_partitions,
 )
+
+
+def _period(value: str | None) -> tuple[int, int] | None:
+    if value is None:
+        return None
+    year, month = map(int, value.split("-"))
+    if not 1 <= month <= 12:
+        raise ArticleStoreError("invalid article descriptor month")
+    return year, month
+
+
+def _month(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m")
 
 
 @dataclass(frozen=True)
@@ -59,16 +77,20 @@ class FixedArticleReader:
         *,
         columns: tuple[str, ...],
         identity: str | None = None,
+        month: str | None = None,
         after: str | None = None,
         limit: int = 1,
     ) -> list[tuple[Any, ...]]:
         if dataset.name not in self.release.dataset_manifests:
             return []
         accepted_dataset(self.release, dataset)
+        period = _period(month)
         paths = materialize_partitions(
             self.cache,
             dataset=dataset,
-            partitions=selected_partitions(self.release, dataset.name),
+            partitions=selected_partitions(
+                self.release, dataset.name, periods=(period,) if period is not None else None
+            ),
         )
         if not paths:
             return []
@@ -93,9 +115,14 @@ class FixedArticleReader:
                 parameters,
             ).fetchall()
 
-    def receipt(self, receipt_id: str, digest: str | None = None) -> ArticleReceipt:
+    def receipt(
+        self, receipt_id: str, digest: str | None = None, *, month: str | None = None
+    ) -> ArticleReceipt:
         rows = self._rows(
-            ARTICLE_RECEIPTS, columns=("receipt_sha256", "receipt_json"), identity=receipt_id
+            ARTICLE_RECEIPTS,
+            columns=("receipt_sha256", "receipt_json"),
+            identity=receipt_id,
+            month=month,
         )
         if not rows:
             raise ArticleStoreError("article receipt absent from fixed release")
@@ -104,31 +131,53 @@ class FixedArticleReader:
             raise ArticleStoreError("article receipt identity mismatch")
         if digest is not None and receipt.sha256 != digest:
             raise ArticleStoreError("article receipt differs from exact descriptor")
+        if month is not None and _month(receipt.received_at) != month:
+            raise ArticleStoreError("article receipt month differs from descriptor")
         return receipt
 
-    def list(self, *, after: str | None = None, limit: int = 20) -> dict[str, Any]:
+    def list(
+        self, *, month: str | None = None, after: str | None = None, limit: int = 20
+    ) -> dict[str, Any]:
         if not 1 <= limit <= 200:
             raise ValueError("article list limit must be between 1 and 200")
+        if ARTICLE_OBSERVATIONS.name not in self.release.dataset_manifests:
+            raise ArticleStoreError("article observations absent from fixed release")
+        manifest = self.release.dataset_manifest(ARTICLE_OBSERVATIONS.name)
+        periods = [
+            partition_period(part, tuple(manifest.partition_by)) for part in manifest.partitions
+        ]
+        selected_month = month or (
+            f"{max(periods)[0]:04d}-{max(periods)[1]:02d}" if periods else None
+        )
         rows = self._rows(
             ARTICLE_OBSERVATIONS,
-            columns=("observation_id", "observation_sha256", "observation_json"),
+            columns=("observation_id", "observation_sha256", "observation_json", "received_on"),
             after=after,
+            month=selected_month,
             limit=limit + 1,
         )
         items = []
-        for identity, digest, raw in rows[:limit]:
+        for identity, digest, raw, received_on in rows[:limit]:
             observation = ArticleObservation.model_validate_json(raw)
             if observation.observation_id != identity or observation.sha256 != digest:
                 raise ArticleStoreError("article observation identity mismatch")
+            body_month = (
+                received_on[:7]
+                if observation.body_ref.receipt_id == observation.receipt_id
+                else None  # 304 owner may be in another month; resolve only for explicit get.
+            )
             reference = ArticleEvidenceRef(
                 lineage_release_id=self.release.release_id,
                 lineage_manifest_sha256=self.release.manifest_sha256,
                 receipt_id=observation.receipt_id,
                 receipt_sha256=observation.receipt_sha256,
+                receipt_month=received_on[:7],
                 body_ref=observation.body_ref,
+                body_month=body_month,
                 original_url=observation.original_url,
                 observation_id=identity,
                 observation_sha256=digest,
+                observation_month=received_on[:7],
             )
             items.append(
                 {
@@ -142,6 +191,7 @@ class FixedArticleReader:
         return {
             "release_id": self.release.release_id,
             "manifest_sha256": self.release.manifest_sha256,
+            "month": selected_month,
             "items": items,
             "has_more": len(rows) > limit,
             "next_after": rows[limit - 1][0] if len(rows) > limit else None,
@@ -157,10 +207,12 @@ class FixedArticleReader:
 
     def exact_evidence(self, reference: ArticleEvidenceRef) -> ArticleEvidence:
         """Resolve only the exact cited bytes in this explicitly selected lookup release."""
-        receipt = self.receipt(reference.receipt_id, reference.receipt_sha256)
+        receipt = self.receipt(
+            reference.receipt_id, reference.receipt_sha256, month=reference.receipt_month
+        )
         if receipt.body_ref != reference.body_ref:
             raise ArticleStoreError("receipt body differs from exact descriptor")
-        baseline = self.receipt(reference.body_ref.receipt_id)
+        baseline = self.receipt(reference.body_ref.receipt_id, month=reference.body_month)
         if baseline.status != "ok" or baseline.body_ref != reference.body_ref:
             raise ArticleStoreError("article body does not name a concrete 200")
         if (baseline.source, baseline.requested_url, baseline.representation) != (
@@ -169,7 +221,12 @@ class FixedArticleReader:
             receipt.representation,
         ):
             raise ArticleStoreError("304 body belongs to a different representation")
-        rows = self._rows(ARTICLE_RECEIPTS, columns=("body_gzip",), identity=baseline.receipt_id)
+        rows = self._rows(
+            ARTICLE_RECEIPTS,
+            columns=("body_gzip",),
+            identity=baseline.receipt_id,
+            month=reference.body_month,
+        )
         if not rows or rows[0][0] is None:
             raise ArticleStoreError("article body is absent from lookup release")
         body = gzip.decompress(rows[0][0])
@@ -182,6 +239,7 @@ class FixedArticleReader:
                 ARTICLE_OBSERVATIONS,
                 columns=("observation_json",),
                 identity=reference.observation_id,
+                month=reference.observation_month,
             )
             if not rows:
                 raise ArticleStoreError("exact observation is absent")
@@ -193,6 +251,10 @@ class FixedArticleReader:
                 or observation.receipt_sha256 != receipt.sha256
                 or observation.body_ref != reference.body_ref
                 or observation.original_url != reference.original_url
+                or (
+                    reference.observation_month is not None
+                    and reference.observation_month != reference.receipt_month
+                )
             ):
                 raise ArticleStoreError("exact observation differs from descriptor")
         elif reference.original_url != receipt.requested_url:
@@ -202,6 +264,7 @@ class FixedArticleReader:
                 ARTICLE_EXTRACTION_ARTIFACTS,
                 columns=("artifact_json",),
                 identity=reference.artifact_id,
+                month=reference.artifact_month,
             )
             if not rows or observation is None:
                 raise ArticleStoreError("exact artifact/observation is absent")
@@ -213,6 +276,10 @@ class FixedArticleReader:
                 or artifact.observation_sha256 != observation.sha256
                 or artifact.text_sha256 != observation.text_sha256
                 or artifact.text_revision != observation.text_revision
+                or (
+                    reference.artifact_month is not None
+                    and _month(artifact.generated_at) != reference.artifact_month
+                )
             ):
                 raise ArticleStoreError("exact extraction artifact differs from descriptor")
         return ArticleEvidence(

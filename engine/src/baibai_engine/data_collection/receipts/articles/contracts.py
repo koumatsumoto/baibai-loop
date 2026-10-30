@@ -13,19 +13,16 @@ These functions never commit the caller's transaction or fetch the live Web.
 from __future__ import annotations
 
 import hashlib
-import json
 from datetime import datetime
 from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from baibai_engine.primitives.json import canonical_json
+
 
 def digest_json(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 class ArticleValue(BaseModel):
@@ -72,12 +69,16 @@ class ArticleEvidenceRef(ArticleValue):
     lineage_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     receipt_id: str
     receipt_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    receipt_month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
     body_ref: BodyRef
+    body_month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
     original_url: str
     observation_id: str | None = None
     observation_sha256: str | None = None
+    observation_month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
     artifact_id: str | None = None
     artifact_sha256: str | None = None
+    artifact_month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
 
     @model_validator(mode="after")
     def paired_refs(self) -> ArticleEvidenceRef:

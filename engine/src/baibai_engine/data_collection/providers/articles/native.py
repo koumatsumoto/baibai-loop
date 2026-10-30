@@ -24,6 +24,21 @@ class NativeArticleUnsupported(ValueError):
     """Saved source has no supported article body region; it is not empty success."""
 
 
+def is_index_locator(source: str, locator: str) -> bool:
+    """Accept only native index item positions emitted by this provider parser."""
+    if source in {"tsr_data", "tsr_flash"}:
+        pattern = r"/(?:0|[1-9][0-9]*)"
+    elif source in {"boj_news", "mof_news", "nhk_news"}:
+        pattern = r"/item/(?:0|[1-9][0-9]*)"
+    elif source == "toushiru":
+        pattern = r"/(?:item|url)/(?:0|[1-9][0-9]*)"
+    elif source in {"minkabu_news", "rakuten_news"}:
+        pattern = r"/a/(?:0|[1-9][0-9]*)"
+    else:
+        return False
+    return re.fullmatch(pattern, locator) is not None
+
+
 def _feed_root(body: bytes) -> ET.Element:
     """Bounded UTF-8 RSS/sitemap input, following the existing EDINET XML boundary."""
     if len(body) > MAX_FEED_XML_BYTES:

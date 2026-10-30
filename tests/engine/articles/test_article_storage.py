@@ -8,10 +8,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from baibai_engine.cli.articles import _semantic_validation
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleEvidenceRef,
     ArticleReceipt,
     BodyRef,
+    digest_json,
 )
 from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
 from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL
@@ -37,7 +39,9 @@ from baibai_engine.machine_analysis.observations.articles.store import (
     read_artifacts,
     read_observations,
     save_artifact,
+    save_projection,
 )
+from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.models import ReleaseDatasetPolicy, ReleasePolicy
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import resolve_release
@@ -57,6 +61,91 @@ CATALOG = {
         ARTICLE_EXTRACTION_ARTIFACTS,
     )
 }
+
+
+def test_article_digest_reuses_canonical_json_without_changing_json_value_hashes():
+    value = {"z": [True, None, 3.25], "a": {"日本語": "合成"}}
+    original = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
+    assert canonical_json(value).encode("utf-8") == original
+    assert digest_json(value) == hashlib.sha256(original).hexdigest()
+
+
+def test_projection_replay_returns_first_run_without_appending_history(tmp_path):
+    body = b"[]"
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt("replayed", body), body=body)
+        first, first_observations = project_receipt(conn, "replayed", generated_at=AT)
+        replay, replay_observations = project_receipt(
+            conn, "replayed", generated_at=AT + timedelta(hours=1)
+        )
+        assert replay == first
+        assert replay.generated_at == AT
+        assert first_observations == replay_observations == ()
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 1
+        changed_parser = save_projection(
+            conn,
+            first.model_copy(
+                update={
+                    "parser_revision": "synthetic-parser-v2",
+                    "generated_at": AT + timedelta(hours=2),
+                }
+            ),
+            (),
+        )
+        assert changed_parser.run_id != first.run_id
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 2
+        parsed_body = payload()
+        retain_receipt(conn, receipt("parsed-replay", parsed_body), body=parsed_body)
+        parsed, observations = project_receipt(conn, "parsed-replay", generated_at=AT)
+        again, repeated_observations = project_receipt(
+            conn, "parsed-replay", generated_at=AT + timedelta(hours=3)
+        )
+        assert again == parsed
+        assert repeated_observations == observations
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 3
+
+
+def test_cli_semantic_seam_rejects_malformed_known_payload_without_claiming_unknown_valid(tmp_path):
+    body = payload()
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt("semantic", body), body=body)
+        _, (observation,) = project_receipt(conn, "semantic", generated_at=AT)
+        unknown = artifact(observation)
+        assert _semantic_validation(unknown, observation) == "raw_integrity_only"
+        with pytest.raises(ValueError):
+            _semantic_validation(
+                unknown.model_copy(update={"payload": {"schema": "trend-claims-v1"}}),
+                observation,
+            )
+
+
+def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):
+    first_at = datetime(2026, 9, 30, 23, 59, tzinfo=UTC)
+    second_at = datetime(2026, 10, 1, 0, 1, tzinfo=UTC)
+    raw = payload()
+    first = receipt("september", raw, at=first_at)
+    unchanged = ArticleReceipt(
+        receipt_id="october-304",
+        source="tsr_data",
+        requested_url=URL,
+        received_at=second_at,
+        status="not_modified",
+        http_status=304,
+        body_ref=first.body_ref,
+    )
+    path = tmp_path / "market.sqlite"
+    with closing(schema.open_connection(path)) as conn, conn:
+        retain_receipt(conn, first, body=raw)
+        retain_receipt(conn, unchanged)
+        project_receipt(conn, unchanged.receipt_id, generated_at=second_at)
+    reader = publish(path, tmp_path / "mirror", "cross-month", second_at)
+    listing = reader.list(month="2026-10")
+    reference = ArticleEvidenceRef.model_validate(listing["items"][0]["reference"])
+    assert reference.receipt_month == "2026-10"
+    assert reference.body_month is None
+    assert reader.get(reference).body == raw
 
 
 def receipt(identity, body, *, at=AT):
@@ -231,10 +320,15 @@ def test_new_release_retains_old_exact_quote_without_claiming_old_release_availa
         save_artifact(conn, first)
     old = publish(path, tmp_path / "mirror", "old-release", AT)
     listing = old.list(limit=1)
+    assert listing["month"] == "2026-10"
     reference = ArticleEvidenceRef.model_validate(listing["items"][0]["reference"]).model_copy(
         update={"artifact_id": first.artifact_id, "artifact_sha256": first.sha256}
     )
     assert old.get(reference).body == original
+    assert reference.receipt_month == "2026-10"
+    assert reference.body_month == "2026-10"
+    with pytest.raises((ArticleStoreError, ValueError)):
+        old.get(reference.model_copy(update={"receipt_month": "2026-09"}))
     with closing(schema.open_connection(path)) as conn, conn:
         newer = payload("合成調査は14社へ訂正。")
         retain_receipt(conn, receipt("new", newer, at=AT + timedelta(days=1)), body=newer)
@@ -351,6 +445,7 @@ def test_tsr_document_uses_explicit_feed_title_when_h1_is_missing(tmp_path):
         )
         assert document.title == "Synthetic TSR index title"
         assert document.article_id == index.article_id
+        assert document.native_metadata["index_observation_id"] == index.observation_id
 
 
 def test_explicit_schema_upgrade_preserves_old_store_and_operator_rows(tmp_path):

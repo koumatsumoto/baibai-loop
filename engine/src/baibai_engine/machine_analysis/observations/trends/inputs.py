@@ -18,8 +18,6 @@ class IndustryScope(Value):
     label: str
     taxonomy: str
     geography: str
-    related_tickers: tuple[str, ...] = ()
-    membership_basis: str | None = None
 
 
 class TrendCoverage(Value):
@@ -68,15 +66,3 @@ class FixedTrendInputs(Value):
 class IndustryInput(Value):
     definition: IndustryScope
     inputs: FixedTrendInputs
-
-
-class TrendGenerationInputs(Value):
-    industries: tuple[IndustryInput, ...]
-    social: FixedTrendInputs
-
-    @model_validator(mode="after")
-    def unique_scopes(self) -> Self:
-        scopes = [item.definition.scope_id for item in self.industries]
-        if len(set(scopes)) != len(scopes):
-            raise ValueError("duplicate industry scope")
-        return self
