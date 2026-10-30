@@ -379,6 +379,9 @@ def acquire_source(
             partial = True
         # Keeping a finite cursor is honest about omitted backlog, not completeness.
         omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
+        if omitted_urls:
+            failed.append("pending_cursor_overflow")
+        continuation_only = bool(pending_urls or next_page) and not (failed or partial)
         cursor = {
             "pending_urls": pending_urls[:MAX_REQUEST_STATES],
             "pending_evidence": {
@@ -400,6 +403,7 @@ def acquire_source(
             "projection_kinds": kinds,
             "document_evidence": document_evidence,
             "status": "partial" if failed or partial or pending_urls or next_page else "completed",
+            "continuation_only": continuation_only,
             "failures": sorted(set(failed)),
             "pages": pages,
             "bodies": bodies,
@@ -479,7 +483,16 @@ def main(argv: list[str] | None = None) -> int:
             sort_keys=True,
         )
     )
-    return int(any(item["status"] in {"failed", "partial", "deferred_budget"} for item in reports))
+    return int(
+        any(
+            item["status"] in {"failed", "deferred_budget"}
+            or (
+                item["status"] == "partial"
+                and (bool(item.get("failures")) or not item.get("continuation_only", False))
+            )
+            for item in reports
+        )
+    )
 
 
 if __name__ == "__main__":
