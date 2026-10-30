@@ -164,7 +164,7 @@ class FixedArticleReader:
             body_month = (
                 received_on[:7]
                 if observation.body_ref.receipt_id == observation.receipt_id
-                else _month(self.receipt(observation.body_ref.receipt_id).received_at)
+                else None  # 304 owner may be in another month; resolve only for explicit get.
             )
             reference = ArticleEvidenceRef(
                 lineage_release_id=self.release.release_id,

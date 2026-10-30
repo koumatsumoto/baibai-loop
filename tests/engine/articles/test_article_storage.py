@@ -93,7 +93,7 @@ def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):
     listing = reader.list(month="2026-10")
     reference = ArticleEvidenceRef.model_validate(listing["items"][0]["reference"])
     assert reference.receipt_month == "2026-10"
-    assert reference.body_month == "2026-09"
+    assert reference.body_month is None
     assert reader.get(reference).body == raw
 
 
