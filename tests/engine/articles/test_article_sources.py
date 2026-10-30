@@ -276,3 +276,44 @@ def test_document_publication_date_keeps_provider_precision_and_origin():
     )
     time = native_time(item.published_raw, source="toushiru")
     assert time.precision == "minute" and time.timezone_origin == "explicit_offset"
+
+
+def test_nhk_budget_is_one_provider_with_four_feeds_and_partial_body_contract():
+    from baibai_engine.data_collection.providers.articles.native import NativeArticleUnsupported
+
+    spec = SOURCES["nhk_news"]
+    assert len(spec.entry_urls) == 4
+    assert spec.max_pages == 4 and spec.max_bodies == 8 and spec.max_revalidate_bodies == 2
+    assert spec.revalidate_hours == 48 and spec.min_interval_seconds == 1.0
+    assert spec.response_limit("index") == 1024 * 1024
+    assert spec.response_limit("document") == 2 * 1024 * 1024
+    assert spec.max_bytes == 20 * 1024 * 1024 and spec.max_seconds == 120
+    url = "https://news.web.nhk/newsweb/na/synthetic"
+    with pytest.raises(NativeArticleUnsupported, match="unsupported"):
+        parse_document("nhk_news", b"<main>page chrome and summary</main>", url=url)
+    with pytest.raises(NativeArticleUnsupported, match="no text"):
+        parse_document("nhk_news", b'<div itemprop="articleBody"></div>', url=url)
+    body = parse_document(
+        "nhk_news", b'<h1>Synthetic</h1><div itemprop="articleBody"><p>Body</p></div>', url=url
+    )
+    assert body.text == "Body" and body.content_scope == "partial_text"
+
+
+def test_provider_interval_applies_to_every_request_without_real_sleep(monkeypatch):
+    from baibai_engine.data_collection.transport import articles
+
+    clock = [100.0]
+    waits = []
+    monkeypatch.setattr(articles.time, "monotonic", lambda: clock[0])
+
+    def advance(seconds):
+        waits.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(articles, "wait_for_read_retry", advance)
+    budget = ArticleBudget.start(max_requests=3, max_bytes=1000, seconds=5, min_interval_seconds=1)
+    budget.request()
+    budget.request()
+    budget.request()
+    assert waits == [1.0, 1.0]
+    assert budget.requests_used == 3
