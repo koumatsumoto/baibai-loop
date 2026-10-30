@@ -139,7 +139,7 @@ uv run baibai-jobs article-cutover prepare-copy \
   --receipt <PRIVATE_CUTOVER_RECEIPT_JSON> --kind canonical
 # outputは不存在が条件。元copy・元ETag・receiptを反映完了まで保持する。
 uv run baibai-jobs model-integration --asof <YYYY-MM-DD> \
-  --lease-handle "$PUBLICATION_LEASE_HANDLE"
+  --lease-handle "$PUBLICATION_LEASE_HANDLE" --notice-output <PRIVATE_NOTICE_JSON>
 jobs/scripts/r2_transfer.sh push-article-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
 ```
 

@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from baibai_engine.cli.articles import _semantic_validation
 from baibai_engine.data_collection.receipts.articles.contracts import (
@@ -44,7 +45,7 @@ from baibai_engine.machine_analysis.observations.articles.store import (
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.models import ReleaseDatasetPolicy, ReleasePolicy
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.reader import LakeReadError, resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache import schema
@@ -114,7 +115,7 @@ def test_cli_semantic_seam_rejects_malformed_known_payload_without_claiming_unkn
         _, (observation,) = project_receipt(conn, "semantic", generated_at=AT)
         unknown = artifact(observation)
         assert _semantic_validation(unknown, observation) == "raw_integrity_only"
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             _semantic_validation(
                 unknown.model_copy(update={"payload": {"schema": "trend-claims-v1"}}),
                 observation,
@@ -327,7 +328,9 @@ def test_new_release_retains_old_exact_quote_without_claiming_old_release_availa
     assert old.get(reference).body == original
     assert reference.receipt_month == "2026-10"
     assert reference.body_month == "2026-10"
-    with pytest.raises((ArticleStoreError, ValueError)):
+    with pytest.raises(
+        LakeReadError, match="does not publish articles.source_receipts for 2026-09"
+    ):
         old.get(reference.model_copy(update={"receipt_month": "2026-09"}))
     with closing(schema.open_connection(path)) as conn, conn:
         newer = payload("合成調査は14社へ訂正。")

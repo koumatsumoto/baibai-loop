@@ -21,14 +21,17 @@ from baibai_engine.data_collection.providers.articles.native import (
     parse_document,
     parse_index,
 )
-from baibai_engine.data_collection.receipts.articles.store import read_body, read_receipt
+from baibai_engine.data_collection.receipts.articles.store import (
+    ArticleStoreError,
+    read_body,
+    read_receipt,
+)
 from baibai_engine.machine_analysis.observations.articles.contracts import (
     ArticleObservation,
     ArticleProjectionRun,
     ArticleTime,
 )
 from baibai_engine.machine_analysis.observations.articles.store import (
-    ArticleStoreError,
     read_observations,
     save_projection,
 )

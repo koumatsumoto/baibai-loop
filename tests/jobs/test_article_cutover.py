@@ -85,9 +85,7 @@ def test_partial_cutover_identifies_actual_uploaded_bytes_without_blind_resend(
         generation_id="models-new",
         as_of=date(2026, 10, 29),
         evaluation_time=datetime(2026, 10, 29, tzinfo=UTC),
-        inputs={
-            "market": InputSnapshot(kind="lake_release", reference="new", sha256="b" * 64)
-        },
+        inputs={"market": InputSnapshot(kind="lake_release", reference="new", sha256="b" * 64)},
         models=(),
     )
     monkeypatch.setattr(

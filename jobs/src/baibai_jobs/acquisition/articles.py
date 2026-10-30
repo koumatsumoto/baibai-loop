@@ -112,7 +112,11 @@ def acquire_source(
             budget.check()
             previous = planning.get(url)
             baseline = ArticleReceipt.model_validate(previous["receipt"]) if previous else None
-            if baseline is not None and (baseline.etag or baseline.last_modified):
+            if (
+                previous is not None
+                and baseline is not None
+                and (baseline.etag or baseline.last_modified)
+            ):
                 try:
                     if baseline.body_ref is None:
                         raise ArticleStoreError("baseline has no original body")

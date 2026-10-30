@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import Literal
 
+from baibai_engine.machine_analysis.models.trend_payload import (
+    claim_record,
+    finish_payload,
+)
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     Claim,
     ExtractionArtifact,
 )
 from baibai_engine.machine_analysis.observations.trends.inputs import IndustryInput
-from baibai_engine.machine_analysis.models.trend_payload import (
-    claim_record,
-    finish_payload,
-)
 
 REVISION = "industry-trends-v1"
 type ComparisonKind = Literal["period_change", "restatement", "extraction_change", "not_comparable"]

@@ -96,11 +96,15 @@ def _index_change(
 
 
 def _receipt_time(conn: sqlite3.Connection, observation: ArticleObservation) -> str:
-    return conn.execute(
+    row = conn.execute(
         "SELECT json_extract(receipt_json,'$.received_at') FROM article_source_receipts "
         "WHERE receipt_id=?",
         (observation.receipt_id,),
-    ).fetchone()[0]
+    ).fetchone()
+    received_at = row[0] if row is not None else None
+    if not isinstance(received_at, str):
+        raise ValueError("article observation has no retained receipt time")
+    return received_at
 
 
 def _index_publication(
@@ -160,11 +164,11 @@ def read_trend_source(
     family_parameters: tuple[str, ...] = ()
     if title_terms:
         family_filter = (
-            " AND ("
+            " AND ("  # nosec B608 -- fixed SQL; title values use bound LIKE parameters
             + " OR ".join(
                 "json_extract(candidate.observation_json,'$.title') LIKE ?" for _ in title_terms
             )
-            + " OR EXISTS (SELECT 1 FROM article_extraction_artifacts a "
+            + " OR EXISTS (SELECT 1 FROM article_extraction_artifacts a "  # nosec B608 -- fixed SQL
             "JOIN json_each(a.artifact_json,'$.payload.claims') c "
             "WHERE a.observation_id=candidate.observation_id "
             "AND json_extract(a.artifact_json,'$.payload.family')='tsr_performance' "
@@ -277,9 +281,8 @@ def read_trend_source(
                 cutoff=cutoff,
                 as_of=as_of,
             )
-        if published is None:
-            if claim_dates:
-                published = min(claim_dates)  # BOJ heading, an attributed decision date.
+        if published is None and claim_dates:
+            published = min(claim_dates)  # BOJ heading, an attributed decision date.
         if published is not None and published > as_of:
             reasons.append(f"publication_after_as_of:{observation.observation_id}")
             continue

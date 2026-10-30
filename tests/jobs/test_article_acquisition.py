@@ -214,7 +214,7 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
-@pytest.mark.parametrize("status,expected_pages", [(403, 4), (429, 1)])
+@pytest.mark.parametrize(("status", "expected_pages"), [(403, 4), (429, 1)])
 def test_nhk_independent_feed_failure_continues_except_cooldown(
     tmp_path, monkeypatch, status, expected_pages
 ):

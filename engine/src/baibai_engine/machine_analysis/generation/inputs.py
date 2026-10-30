@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
 from baibai_engine.machine_analysis.generation.runners.security_context import (
     build_security_market_contexts,
 )
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
 )
@@ -54,7 +55,6 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
-from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot

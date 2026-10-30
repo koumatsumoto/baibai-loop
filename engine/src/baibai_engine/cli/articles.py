@@ -36,7 +36,6 @@ from baibai_engine.storage.snapshots.objects import (
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
-
 _COMMAND_HELP = {
     "save-receipt": "Save an immutable receipt and its private original body.",
     "save-artifact": "Save an extraction artifact bound to retained text coordinates.",

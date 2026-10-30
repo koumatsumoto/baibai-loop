@@ -20,6 +20,7 @@ from baibai_engine.machine_analysis.generation.financial_models import (
 from baibai_engine.machine_analysis.generation.runners.external_assessment import (
     generate_external_assessment,
 )
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import TrendGenerationInputs
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.industry_trends.calculations import (
@@ -43,7 +44,6 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     PriceBar,
 )
-from baibai_engine.machine_analysis.generation.runners.trend_inputs import TrendGenerationInputs
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
 

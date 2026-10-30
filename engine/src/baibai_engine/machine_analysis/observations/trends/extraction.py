@@ -35,8 +35,11 @@ from baibai_engine.machine_analysis.observations.trends.parsers import (
 )
 from baibai_engine.machine_analysis.observations.trends.validation import (
     PAYLOAD_SCHEMA,
+)
+from baibai_engine.machine_analysis.observations.trends.validation import (
     decode_artifact as decode_artifact,
 )
+
 
 def expected_revision(source: str) -> str:
     return {"tsr_data": TSR_REVISION, "tsr_flash": TSR_REVISION, "boj_news": BOJ_REVISION}.get(
