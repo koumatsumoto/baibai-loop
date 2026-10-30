@@ -70,6 +70,16 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 企業成長の通常表示と完全結果の関係は[Investment Judgment投影](../../../docs/reference/company-growth.md#investment-judgmentへの接続)に従う。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げ、`operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内の `kind=research_selection` を読み、`full_result_ref` から完全結果を辿る。既存workspaceの切替は[再開手順](#完了と再開)の `--force` を使う。
 
+産業動向・社会動向は固定Generation V2の `shared_subjects` から読む。初版の自動意味抽出はTSRの医薬品卸/情報サービス業績調査とBOJ調節方針であり、他sourceの索引取得を全ニュース抽出済みと扱わない。payloadのcoverage・抽出状態・省略数を読み、重要な観測の `exact_evidence` をprivateなJSONへ保存する。原文は次で固定読取し、公開logへ転載しない。
+
+```bash
+uv run baibai-engine articles exact-evidence \
+  --release <RETAINED_LOOKUP_RELEASE> --manifest-sha256 <LOOKUP_MANIFEST_SHA256> \
+  --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
+```
+
+lookupを明示し、元lineage release全体を再読できたとは扱わない。Researchのsourceは原典URLを `ref` に、exact descriptorを `used_for` に含めて保存する。予定のfactは決定・発表時点の主張として日付と限定を残し、未来の予定日を発生済みのfact日付へ転記しない。現行Researchの保存検証はこのdescriptorの自動exact照合を保証しない。Assessmentへの転記・Review・再開でもsource/factの参照と限定を保持する。
+
 ## Company Research・Stock Assessment・Independent Review
 
 1. `investment-judgment stock-assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。[直近ニュース・カタリストの確認](../../../docs/reference/stock-assessment.md#recent-news-research)をCompany Researchの基本手順として行う。

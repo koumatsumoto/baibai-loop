@@ -44,7 +44,7 @@ class TextEvidence(Value):
     published_raw: str | None = None
     published_precision: Literal["unknown", "date", "minute", "second"] = "unknown"
     received_at: AwareDatetime
-    content_scope: Literal["headline", "summary", "full_text", "partial_text"]
+    content_scope: Literal["headline", "summary", "full_text", "partial_text", "unavailable"]
 
 
 class DocumentText(Value):
