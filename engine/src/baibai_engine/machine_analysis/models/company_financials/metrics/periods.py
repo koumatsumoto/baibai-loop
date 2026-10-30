@@ -211,13 +211,19 @@ def _prior_year_summary(
     """
     latest = (
         _latest_actual_row(summaries, field_names=(field_name,))
-        if field_name == "shares_outstanding"
-        else _latest_actual_row_by_field_priority(summaries, (field_name,))
         if field_name is not None
         else _latest_summary(summaries)
     )
     if latest is None:
         return None
+    if field_name is not None and field_name != "shares_outstanding":
+        period_rows = [
+            row
+            for row in summaries
+            if accounting_period_identity(row) == accounting_period_identity(latest)
+        ]
+        if not latest_reporting_basis_matches(period_rows, latest):
+            return None
     # Native accounting dates own comparability; FY/Q labels cannot replace them.
     prior = _matched_prior_period_summary(
         summaries,

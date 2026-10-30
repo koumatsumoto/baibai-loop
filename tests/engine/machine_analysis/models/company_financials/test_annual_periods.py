@@ -12,6 +12,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
+    _latest_actual_row,
     _latest_actual_row_by_field_priority,
     _latest_non_null_row,
     _prior_year_summary,
@@ -215,6 +216,37 @@ def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority
         )
         is None
     )
+
+
+def test_fy_cfo_yoy_survives_a_newer_quarter_without_cfo():
+    prior = replace(
+        document(date(2023, 4, 1), date(2024, 3, 31), 50.0),
+        cfo=50.0,
+    )
+    current = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
+        cfo=100.0,
+    )
+    quarter = document(
+        date(2025, 4, 1),
+        date(2025, 6, 30),
+        20.0,
+        fiscal_period="1Q",
+        fiscal_year_end=date(2026, 3, 31),
+    )
+    rows = [prior, current, quarter]
+    assert _latest_actual_row(rows, field_names=("cfo",)) == current
+    assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="cfo") == prior
+    financial = build_financial_snapshot(
+        10.0,
+        rows,
+        None,
+        DEFAULT_TTM_RULES,
+        adjustment_events=(),
+        asof_date=date(2025, 9, 1),
+    )
+    assert financial.cfo == 100.0
+    assert financial.cfo_yoy == 1.0
 
 
 def test_conflicted_preferred_operating_line_cannot_fall_through_to_ordinary_profit():
