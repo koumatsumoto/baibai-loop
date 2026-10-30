@@ -254,7 +254,7 @@ def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
     assert planning.cursor["next_page"] == articles.SOURCES["minkabu_news"].entry_url
     assert len(planning.pending) == 1
     with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone() == (2,)
+        assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 2
 
 
 def test_cursor_overflow_is_not_a_successful_continuation(tmp_path, monkeypatch):
