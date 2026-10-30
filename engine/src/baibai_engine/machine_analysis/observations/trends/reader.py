@@ -96,14 +96,16 @@ def _read_source(
     receipt_rows = conn.execute(
         "SELECT source, json_extract(receipt_json,'$.status'), count(*) "
         f"FROM article_source_receipts WHERE source IN ({source_placeholders}) "  # nosec B608
-        "AND received_on>=? AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
+        "AND received_on>=? "
+        "AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
         "GROUP BY source, json_extract(receipt_json,'$.status') ORDER BY 1,2",
         (*sources, start.isoformat(), cutoff.isoformat()),
     ).fetchall()
     latest = conn.execute(
         "SELECT json_extract(receipt_json,'$.received_at') FROM article_source_receipts "
         f"WHERE source IN ({source_placeholders}) "  # nosec B608
-        "AND received_on>=? AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
+        "AND received_on>=? "
+        "AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
         "ORDER BY julianday(json_extract(receipt_json,'$.received_at')) DESC LIMIT 1",
         (*sources, start.isoformat(), cutoff.isoformat()),
     ).fetchone()
@@ -152,8 +154,10 @@ def _read_source(
             "AND json_extract(a.artifact_json,'$.payload.schema')='trend-claims-v1' "
             "AND json_extract(a.artifact_json,'$.payload.article_version_id')<>? "
             "AND julianday(json_extract(r.receipt_json,'$.received_at'))"
-            "<julianday(?) AND julianday(json_extract(a.artifact_json,'$.generated_at'))<=julianday(?) "
-            "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC, a.artifact_id LIMIT 1",
+            "<julianday(?) "
+            "AND julianday(json_extract(a.artifact_json,'$.generated_at'))<=julianday(?) "
+            "ORDER BY julianday(json_extract(r.receipt_json,'$.received_at')) DESC, "
+            "a.artifact_id LIMIT 1",
             (
                 observation.article_id,
                 observation.article_version_id,

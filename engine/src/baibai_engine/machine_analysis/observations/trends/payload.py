@@ -33,9 +33,9 @@ def finish_payload(
         _pin_reference(record, fixed)
     for comparison in comparisons:
         for key in ("current", "baseline"):
-            record = comparison.get(key)
-            if isinstance(record, dict):
-                _pin_reference(record, fixed)
+            compared_record = comparison.get(key)
+            if isinstance(compared_record, dict):
+                _pin_reference(compared_record, fixed)
     records.sort(key=canonical_json)
     comparisons.sort(key=canonical_json)
     shown_records = records[:MAX_RECORDS]

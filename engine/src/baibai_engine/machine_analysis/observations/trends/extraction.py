@@ -240,7 +240,7 @@ def extract_observations(
     generated_at: datetime,
 ) -> tuple[ArticleExtractionArtifact, ...]:
     """通常更新入口。callerがtransactionを所有し、未変更内容は元artifactを返す。"""
-    result = []
+    result: list[ArticleExtractionArtifact] = []
     for observation in read_observations(conn, observation_ids):
         previous = matching_artifacts(conn, observation, cutoff=generated_at)
         if previous:
