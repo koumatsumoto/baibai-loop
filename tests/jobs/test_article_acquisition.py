@@ -220,6 +220,43 @@ def test_saved_next_page_alone_is_a_successful_finite_continuation(tmp_path, mon
     assert planning.cursor["next_page"] is not None
 
 
+def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
+    packet = tmp_path / "self-link"
+    report = articles.acquire_source(
+        store,
+        source="minkabu_news",
+        slot=SLOT,
+        identity="self-link",
+        directory=packet,
+        session=Session(
+            [
+                Response(
+                    200,
+                    b'<a href="/news/1001">Synthetic headline</a>'
+                    b'<a rel="next" href="">Next page</a>',
+                ),
+                Response(200, b"<main>Synthetic document</main>"),
+            ]
+        ),
+    )
+    assert report["status"] == "partial"
+    assert report["continuation_only"] is False
+    assert report["failures"] == ["index_page_cycle"]
+    assert report["pages"] == 1
+    planning, _ = load_planning(store, "minkabu_news")
+    assert planning.cursor["next_page"] == articles.SOURCES["minkabu_news"].entry_url
+    assert len(planning.pending) == 1
+    with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone() == (2,)
+
+
 def test_cursor_overflow_is_not_a_successful_continuation(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None

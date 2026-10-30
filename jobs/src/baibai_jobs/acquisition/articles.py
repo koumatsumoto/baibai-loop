@@ -267,6 +267,8 @@ def acquire_source(
             discovered_by_identity: dict[str, str] = {}
             while page_url and pages < policy.max_pages:
                 if page_url in seen_pages:
+                    failed.append("index_page_cycle")
+                    partial = True
                     break
                 seen_pages.add(page_url)
                 receipt, body = receive(page_url, "index")
@@ -306,6 +308,10 @@ def acquire_source(
                 )
                 resume_page = state.cursor.get("next_page") if pages == 1 else None
                 page_url = entry_urls.pop(0) if entry_urls else resume_page or next_page
+                if page_url in seen_pages:
+                    failed.append("index_page_cycle")
+                    partial = True
+                    break
             discovered = list(discovered_by_identity.values())
             fresh = [url for url in discovered if url not in planning]
             # Two recent known URLs are revalidated even without sitemap lastmod.
