@@ -23,6 +23,7 @@ from baibai_engine.data_collection.transport.http import (
     AcquisitionDeadlineExceeded,
     check_acquisition_deadline,
     retry_after_delay,
+    wait_for_read_retry,
 )
 
 
@@ -33,12 +34,21 @@ class ArticleBudget:
     deadline: float
     requests_used: int = 0
     bytes_used: int = 0
+    min_interval_seconds: float = 0.0
+    last_request_started: float | None = None
 
     @classmethod
-    def start(cls, *, max_requests: int, max_bytes: int, seconds: float) -> ArticleBudget:
-        if min(max_requests, max_bytes, seconds) <= 0:
+    def start(
+        cls, *, max_requests: int, max_bytes: int, seconds: float, min_interval_seconds: float = 0.0
+    ) -> ArticleBudget:
+        if min(max_requests, max_bytes, seconds) <= 0 or min_interval_seconds < 0:
             raise ValueError("article budgets must be positive")
-        return cls(max_requests, max_bytes, time.monotonic() + seconds)
+        return cls(
+            max_requests,
+            max_bytes,
+            time.monotonic() + seconds,
+            min_interval_seconds=min_interval_seconds,
+        )
 
     def check(self) -> None:
         check_acquisition_deadline()
@@ -49,6 +59,14 @@ class ArticleBudget:
         self.check()
         if self.requests_used >= self.max_requests:
             raise ArticleBudgetExceeded("requests")
+        if self.last_request_started is not None:
+            delay = max(
+                0.0, self.last_request_started + self.min_interval_seconds - time.monotonic()
+            )
+            if time.monotonic() + delay >= self.deadline:
+                raise ArticleBudgetExceeded("deadline")
+            wait_for_read_retry(delay)
+        self.last_request_started = time.monotonic()
         self.requests_used += 1
 
     def consume(self, count: int, *, response_bytes: int, max_response_bytes: int) -> None:

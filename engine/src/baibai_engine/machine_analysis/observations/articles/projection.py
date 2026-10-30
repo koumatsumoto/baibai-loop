@@ -16,6 +16,7 @@ from pypdf.errors import PdfReadError
 
 from baibai_engine.data_collection.providers.articles.native import (
     PARSER_REVISION,
+    NativeArticleUnsupported,
     TEXT_REVISION,
     parse_document,
     parse_index,
@@ -123,6 +124,9 @@ def project_receipt(
                 for item in native
             )
             status = "parsed" if observations else "empty"
+        except NativeArticleUnsupported:
+            status = "unsupported"
+            error_code = "body_region_unsupported"
         except (ValueError, LookupError, ParseError, PdfReadError) as exc:
             # Retain L1 and status without logging source text or manufacturing an empty success.
             status = "parse_failed"

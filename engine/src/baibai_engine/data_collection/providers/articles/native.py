@@ -19,6 +19,10 @@ PARSER_REVISION = "article-native-v1"
 TEXT_REVISION = "article-text-v1"
 
 
+class NativeArticleUnsupported(ValueError):
+    """Saved source has no supported article body region; it is not empty success."""
+
+
 def _https(url: str) -> str:
     parsed = urlsplit(url)
     if parsed.scheme == "http" and parsed.hostname in {"www.boj.or.jp", "www.mof.go.jp"}:
@@ -227,7 +231,7 @@ def parse_document(
         "minkabu_news": ("news-body", "md_newsBody", "news_body"),
     }.get(source, ())
     region = next((node for node in nodes if any(node.has_class(name) for name in classes)), None)
-    if region is None and source == "minkabu_news":
+    if region is None and source in {"minkabu_news", "nhk_news"}:
         region = next((node for node in nodes if node.attrs.get("itemprop") == "articleBody"), None)
     if region is None and source in {"boj_news", "mof_news"}:
         region = next(
@@ -240,7 +244,9 @@ def parse_document(
             None,
         )
     if region is None:
-        raise ValueError("article body region is unsupported")
+        raise NativeArticleUnsupported("article body region is unsupported")
+    if source == "nhk_news" and not region.text().strip():
+        raise NativeArticleUnsupported("NHK articleBody has no text")
     date_fields: dict[str, str] = {}
     for node in nodes:
         if node.tag == "meta" and node.attrs.get("property") in {

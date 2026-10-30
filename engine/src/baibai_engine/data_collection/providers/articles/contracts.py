@@ -34,9 +34,41 @@ class ArticleSource:
     max_response_bytes: int = 4_000_000
     max_bytes: int = 24_000_000
     max_seconds: int = 120
+    additional_entry_urls: tuple[str, ...] = ()
+    max_feed_bytes: int | None = None
+    max_document_bytes: int | None = None
+    min_interval_seconds: float = 0.0
+    max_revalidate_bodies: int = 2
+    revalidate_hours: int = 48
+
+    @property
+    def entry_urls(self) -> tuple[str, ...]:
+        return (self.entry_url, *self.additional_entry_urls)
+
+    def response_limit(self, kind: Literal["index", "document"]) -> int:
+        limit = self.max_feed_bytes if kind == "index" else self.max_document_bytes
+        return limit if limit is not None else self.max_response_bytes
 
 
 SOURCES = {
+    "nhk_news": ArticleSource(
+        "nhk_news",
+        "https://news.web.nhk/n-data/conf/na/rss/cat4.xml",
+        frozenset({"news.web.nhk"}),
+        max_pages=4,
+        max_bodies=8,
+        max_response_bytes=2 * 1024 * 1024,
+        max_bytes=20 * 1024 * 1024,
+        max_seconds=120,
+        min_interval_seconds=1.0,
+        max_feed_bytes=1024 * 1024,
+        max_document_bytes=2 * 1024 * 1024,
+        additional_entry_urls=(
+            "https://news.web.nhk/n-data/conf/na/rss/cat5.xml",
+            "https://news.web.nhk/n-data/conf/na/rss/cat6.xml",
+            "https://news.web.nhk/n-data/conf/na/rss/cat0.xml",
+        ),
+    ),
     "tsr_data": ArticleSource(
         "tsr_data",
         "https://www.tsr-net.co.jp/data/json/search-2.json",
