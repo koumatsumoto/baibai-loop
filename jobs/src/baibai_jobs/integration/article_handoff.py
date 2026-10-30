@@ -76,35 +76,12 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
                 if selected.title != link["title"]:
                     failed.append(identity)
                     continue
-            title = ""
-            index_observation_id = None
-            if selected is not None:
-                if source in {"tsr_data", "tsr_flash"}:
-                    # TSR's native array locator is /N; core's index-link
-                    # validation accepts feed locators only. Use this exact
-                    # local observation as the fallback title evidence.
-                    receipt = read_receipt(conn, identity)
-                    fetch_url = selected.native_metadata.get("fetch_url")
-                    if not isinstance(fetch_url, str):
-                        fetch_url = selected.original_url
-                    if (
-                        fetch_url != receipt.requested_url
-                        or selected.source != receipt.source
-                        or selected.article_id != f"{source}:{receipt.requested_url}"
-                        or read_receipt(conn, selected.receipt_id).received_at > receipt.received_at
-                    ):
-                        failed.append(identity)
-                        continue
-                    title = selected.title
-                else:
-                    index_observation_id = selected.observation_id
             with conn:
                 run, projected = project_receipt(
                     conn,
                     identity,
                     kind=kind,
-                    title=title,
-                    index_observation_id=index_observation_id,
+                    index_observation_id=selected.observation_id if selected is not None else None,
                 )
             observation_ids = [item.observation_id for item in projected]
             observations.extend(observation_ids)

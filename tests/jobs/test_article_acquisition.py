@@ -305,7 +305,7 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
     assert documents[0].article_version_id == documents[1].article_version_id
 
 
-def test_tsr_index_title_is_exact_fallback_for_document_without_heading(tmp_path, monkeypatch):
+def test_tsr_index_observation_binds_document_title_without_heading(tmp_path, monkeypatch):
     class Clock(datetime):
         @classmethod
         def now(cls, _tz):
@@ -335,6 +335,9 @@ def test_tsr_index_title_is_exact_fallback_for_document_without_heading(tmp_path
     document = next(item for item in observations if item.native_locator == "/html/body-region")
     assert document.title == "Synthetic TSR index title"
     assert document.article_id == "tsr_data:https://www.tsr-net.co.jp/data/detail/synthetic.html"
+    assert document.native_metadata["index_observation_id"] in {
+        item.observation_id for item in observations if item.native_locator == "/0"
+    }
 
 
 def test_nhk_conflicting_guids_for_one_url_keep_raw_without_guessed_projection(
