@@ -43,7 +43,7 @@ def _money(value: str) -> Quantity:
         multiplier = {"兆": 10**12, "億": 10**8, "万": 10**4, "円": 1}[suffix]
         amount = _number(number)
         total += amount * multiplier
-        resolution = Decimal(10) ** amount.as_tuple().exponent * multiplier
+        resolution = Decimal(10) ** int(amount.as_tuple().exponent) * multiplier
     return Quantity(value=total, unit="JPY", resolution=resolution)
 
 
@@ -201,7 +201,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                     quantity=Quantity(
                         value=amount,
                         unit="percent",
-                        resolution=Decimal(10) ** amount.as_tuple().exponent,
+                        resolution=Decimal(10) ** int(amount.as_tuple().exponent),
                         basis="companies_with_positive_reported_profit",
                     ),
                 )
@@ -242,7 +242,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                     quantity=Quantity(
                         value=amount,
                         unit="percent",
-                        resolution=Decimal(10) ** amount.as_tuple().exponent,
+                        resolution=Decimal(10) ** int(amount.as_tuple().exponent),
                         basis="subgroup_share_of_survey_revenue",
                     ),
                 )
@@ -308,7 +308,7 @@ def extract_boj_decision(document: DocumentText, *, created_at: datetime) -> Ext
     quantity = Quantity(
         value=rate,
         unit="percent",
-        resolution=Decimal(10) ** rate.as_tuple().exponent,
+        resolution=Decimal(10) ** int(rate.as_tuple().exponent),
         approximate=bool(decision["approx"]),
         basis="overnight_call_rate_target",
     )

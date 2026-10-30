@@ -54,6 +54,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
+from baibai_engine.machine_analysis.observations.trends.reader import read_trend_inputs
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
@@ -172,6 +173,13 @@ def read_and_generate_models(
         path, tickers=subjects, cutoff=evaluation_time, include_tradingview=False
     )
     edinet = EDINETReader(path).load_metric_records(as_of)
+    trends = read_trend_inputs(
+        path,
+        release_id=market_release.release_id,
+        release_sha256=market_release.manifest_sha256,
+        cutoff=evaluation_time,
+        as_of=as_of,
+    )
     companies = [
         CompanyModelInputs(
             ticker=ticker,
@@ -218,4 +226,5 @@ def read_and_generate_models(
         securities_context=contexts,
         market_context_revision="shared-market-context-price-path-v2",
         growth_start=growth_start,
+        trends=trends,
     )

@@ -15,7 +15,7 @@ from baibai_engine.primitives.json import canonical_json
 
 type Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 type Name = Annotated[str, Field(min_length=1)]
-type ExtractionStatus = Literal["extracted", "partial", "unsupported", "failed", "pending"]
+type ExtractionStatus = Literal["extracted", "empty", "unsupported", "failed", "pending"]
 
 
 class Value(BaseModel):
@@ -32,10 +32,17 @@ class TextEvidence(Value):
     source: Name
     source_url: Name
     raw_sha256: Digest
+    receipt_sha256: Digest | None = None
+    body_receipt_id: str | None = None
+    observation_id: str | None = None
+    observation_sha256: Digest | None = None
     text_sha256: Digest
     text_revision: Name
-    coordinate_system: Literal["unicode_codepoints_half_open"] = "unicode_codepoints_half_open"
+    coordinate_system: Literal["unicode_codepoint_half_open"] = "unicode_codepoint_half_open"
     published_at: AwareDatetime | None
+    published_date: date | None = None
+    published_raw: str | None = None
+    published_precision: Literal["unknown", "date", "minute", "second"] = "unknown"
     received_at: AwareDatetime
     content_scope: Literal["headline", "summary", "full_text", "partial_text"]
 
@@ -155,6 +162,9 @@ class ExtractionArtifact(Value):
     limitations: tuple[str, ...] = ()
     # An assistant producer must identify its frozen model/prompt/config.
     assistant_config: str | None = None
+    # In-memory view of the canonical storage envelope. Never embedded in its
+    # own payload or substituted for a different receipt after a repeated GET.
+    storage_ref: ArtifactRef | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def coherent_artifact(self) -> Self:
@@ -168,6 +178,8 @@ class ExtractionArtifact(Value):
 
     @property
     def ref(self) -> ArtifactRef:
+        if self.storage_ref is not None:
+            return self.storage_ref
         sha256 = digest(self.model_dump(mode="json"))
         return ArtifactRef(artifact_id=f"extraction:{sha256}", sha256=sha256)
 
