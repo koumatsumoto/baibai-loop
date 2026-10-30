@@ -101,6 +101,10 @@ def project_receipt(
             or not is_index_locator(receipt.source, index_observation.native_locator)
         ):
             raise ArticleStoreError("index observation does not identify this document receipt")
+    elif kind == "document" and receipt.source == "nhk_news":
+        # Feed GUID is the provider identity. Never create an unbound URL series
+        # before its index evidence is retained.
+        raise ArticleStoreError("NHK document requires explicit index observation")
     generated_at = generated_at or datetime.now(UTC)
     observations: tuple[ArticleObservation, ...] = ()
     error_code = None

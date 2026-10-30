@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from baibai_engine.cli.articles import _semantic_validation
+from baibai_engine.cli.articles import _semantic_validation, build_parser
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleEvidenceRef,
     ArticleReceipt,
@@ -120,9 +120,23 @@ def test_cli_semantic_seam_rejects_malformed_known_payload_without_claiming_unkn
                 unknown.model_copy(update={"payload": {"schema": "trend-claims-v1"}}),
                 observation,
             )
+    args = build_parser().parse_args(
+        [
+            "project",
+            "--sqlite-path",
+            str(tmp_path / "market.sqlite"),
+            "--receipt-id",
+            "synthetic",
+            "--kind",
+            "document",
+            "--index-observation-id",
+            "synthetic-index",
+        ]
+    )
+    assert args.index_observation_id == "synthetic-index"
 
 
-def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):
+def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path, monkeypatch):
     first_at = datetime(2026, 9, 30, 23, 59, tzinfo=UTC)
     second_at = datetime(2026, 10, 1, 0, 1, tzinfo=UTC)
     raw = payload()
@@ -146,7 +160,19 @@ def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):
     reference = ArticleEvidenceRef.model_validate(listing["items"][0]["reference"])
     assert reference.receipt_month == "2026-10"
     assert reference.body_month is None
+    from baibai_engine.machine_analysis.observations.articles import reader as article_reader
+
+    materialize = article_reader.materialize_partitions
+    selections = []
+
+    def record(cache, *, dataset, partitions):
+        selections.append((dataset.name, tuple(part.values["month"] for part in partitions)))
+        return materialize(cache, dataset=dataset, partitions=partitions)
+
+    monkeypatch.setattr(article_reader, "materialize_partitions", record)
     assert reader.get(reference).body == raw
+    receipt_reads = [months for name, months in selections if name == ARTICLE_RECEIPTS.name]
+    assert receipt_reads[-1] == (9,)
 
 
 def receipt(identity, body, *, at=AT):
@@ -389,9 +415,12 @@ def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_pat
         assert first.article_id == index.article_id == "nhk_news:synthetic-guid"
         assert first.title == "Synthetic feed title"
         assert first.native_metadata["index_observation_id"] == index.observation_id
-        _, (orphan,) = project_receipt(conn, "body", kind="document", generated_at=AT)
-        assert orphan.article_id == f"nhk_news:{page_url}"
-        assert "index_observation_id" not in orphan.native_metadata
+        with pytest.raises(ArticleStoreError, match="requires explicit index"):
+            project_receipt(conn, "body", kind="document", generated_at=AT)
+        orphan_url = "https://news.web.nhk/newsweb/na/orphan"
+        saved(conn, "orphan", "nhk_news", orphan_url, page, AT + timedelta(minutes=1))
+        with pytest.raises(ArticleStoreError, match="requires explicit index"):
+            project_receipt(conn, "orphan", kind="document", generated_at=AT)
         saved(conn, "feed-again", "nhk_news", feed_url, feed, AT + timedelta(minutes=2))
         _, (later_index,) = project_receipt(conn, "feed-again", generated_at=AT)
         saved(conn, "again", "nhk_news", page_url, page, AT + timedelta(minutes=3))
@@ -421,6 +450,55 @@ def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_pat
                 kind="document",
                 index_observation_id=index.observation_id,
             )
+
+
+@pytest.mark.parametrize("source", ["boj_news", "mof_news", "nhk_news"])
+def test_sitemap_locator_binds_supported_feed_to_document(tmp_path, source):
+    host = {
+        "boj_news": "www.boj.or.jp",
+        "mof_news": "www.mof.go.jp",
+        "nhk_news": "news.web.nhk",
+    }[source]
+    feed_url = f"https://{host}/synthetic-sitemap.xml"
+    document_url = f"https://{host}/synthetic-story"
+    feed = (
+        f"<urlset><url><loc>{document_url}</loc><title>Index title</title></url></urlset>"
+    ).encode()
+    document = (
+        b'<div itemprop="articleBody">Synthetic story</div>'
+        if source == "nhk_news"
+        else b"<main>Synthetic story</main>"
+    )
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        for identity, url, body, at in (
+            ("sitemap", feed_url, feed, AT),
+            ("document", document_url, document, AT + timedelta(minutes=1)),
+        ):
+            retain_receipt(
+                conn,
+                ArticleReceipt(
+                    receipt_id=identity,
+                    source=source,
+                    requested_url=url,
+                    received_at=at,
+                    status="ok",
+                    http_status=200,
+                    body_ref=BodyRef(receipt_id=identity, sha256=hashlib.sha256(body).hexdigest()),
+                ),
+                body=body,
+            )
+        _, (index,) = project_receipt(conn, "sitemap", generated_at=AT)
+        assert index.native_locator == "/url/0"
+        _, (body_observation,) = project_receipt(
+            conn,
+            "document",
+            kind="document",
+            index_observation_id=index.observation_id,
+            generated_at=AT,
+        )
+        assert body_observation.article_id == index.article_id
+        assert body_observation.title == "Index title"
+        assert body_observation.native_metadata["index_observation_id"] == index.observation_id
 
 
 def test_tsr_document_uses_explicit_feed_title_when_h1_is_missing(tmp_path):
