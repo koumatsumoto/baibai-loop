@@ -102,7 +102,7 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
                 # Retained L1 and native projection are still read back. This is
                 # an explicit failure, never a missing/empty successful model.
                 extraction_failures.append(identity)
-            if run.status == "parse_failed":
+            if run.status == "parse_failed" or (kind == "document" and run.status == "unsupported"):
                 failed.append(identity)
     return ReplayResult(
         report={

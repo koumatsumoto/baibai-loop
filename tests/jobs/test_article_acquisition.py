@@ -154,6 +154,13 @@ def test_nhk_four_feeds_keep_each_summary_and_fetch_shared_guid_once(tmp_path, m
         assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 5
     planning, _ = load_planning(store, "nhk_news")
     assert len(planning.pending) == 1
+    projected = import_handoff("nhk_news", tmp_path / "market.sqlite", tmp_path / "nhk")
+    assert not projected.complete
+    saved = json.loads((tmp_path / "nhk/result.json").read_text())
+    document_id = next(
+        identity for identity, kind in saved["projection_kinds"].items() if kind == "document"
+    )
+    assert document_id in projected.report["projection_failures"]
 
 
 @pytest.mark.parametrize("damaged", ["missing", "corrupt"])
