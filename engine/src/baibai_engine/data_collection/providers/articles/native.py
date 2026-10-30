@@ -16,6 +16,7 @@ from baibai_engine.data_collection.providers.articles.html import Node, parse_ht
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
 
 PARSER_REVISION = "article-native-v1"
+MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -23,6 +24,39 @@ MAX_NHK_JSON_LD_BYTES = 256 * 1024
 
 class NativeArticleUnsupported(ValueError):
     """Saved source has no supported article body region; it is not empty success."""
+
+
+def parser_revision_for(source: str) -> str:
+    """Keep other provider observations on their saved parser identity."""
+    return MINKABU_PARSER_REVISION if source == "minkabu_news" else PARSER_REVISION
+
+
+def _minkabu_card_body(nodes: list[Node]) -> Node | None:
+    """Select the sole body in a headed article card under the public contents root."""
+    contents = [node for node in nodes if node.attrs.get("id") == "contents"]
+    candidates: list[Node] = []
+    for root in contents:
+        for card in root.walk():
+            if not (card.has_class("md_card") and card.has_class("md_box")):
+                continue
+            has_heading = any(
+                section.has_class("md_index_article")
+                and any(node.tag == "h1" and node.text().strip() for node in section.walk())
+                for section in card.walk()
+            )
+            if not has_heading:
+                continue
+            candidates.extend(
+                node
+                for node in card.walk()
+                if node.tag == "div"
+                and node.has_class("md_box")
+                and node.has_class("fsize_m")
+                and node.has_class("md_normalize")
+            )
+    if len(candidates) > 1:
+        raise NativeArticleUnsupported("Minkabu article body region is ambiguous")
+    return candidates[0] if candidates else None
 
 
 def is_index_locator(source: str, locator: str) -> bool:
@@ -365,6 +399,8 @@ def parse_document(
     region = next((node for node in nodes if any(node.has_class(name) for name in classes)), None)
     if region is None and source == "minkabu_news":
         region = next((node for node in nodes if node.attrs.get("itemprop") == "articleBody"), None)
+    if region is None and source == "minkabu_news":
+        region = _minkabu_card_body(nodes)
     if region is None and source in {"boj_news", "mof_news"}:
         region = next(
             (
@@ -377,6 +413,8 @@ def parse_document(
         )
     if region is None:
         raise NativeArticleUnsupported("article body region is unsupported")
+    if source == "minkabu_news" and not region.text().strip():
+        raise NativeArticleUnsupported("Minkabu article body region has no text")
     date_fields: dict[str, str] = {}
     for node in nodes:
         if node.tag == "meta" and node.attrs.get("property") in {

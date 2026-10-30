@@ -25,7 +25,10 @@ from baibai_engine.data_collection.receipts.articles.store import (
     read_receipt,
     retain_receipt,
 )
-from baibai_engine.machine_analysis.observations.articles.contracts import ArticleExtractionArtifact
+from baibai_engine.machine_analysis.observations.articles.contracts import (
+    ArticleExtractionArtifact,
+    ArticleProjectionRun,
+)
 from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
 from baibai_engine.machine_analysis.observations.articles.reader import FixedArticleReader
 from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
@@ -106,6 +109,53 @@ def test_projection_replay_returns_first_run_without_appending_history(tmp_path)
         assert again == parsed
         assert repeated_observations == observations
         assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 3
+
+
+def test_minkabu_reprojection_keeps_old_run_and_uses_new_parser_identity(tmp_path):
+    body = (
+        b'<div id="contents"><div class="md_card md_box">'
+        b'<div class="md_index_article"><h1>Synthetic headline</h1></div>'
+        b'<div class="md_box fsize_m md_normalize">Synthetic body.</div></div></div>'
+    )
+    retained = ArticleReceipt(
+        receipt_id="minkabu-old-raw",
+        source="minkabu_news",
+        requested_url="https://minkabu.jp/news/123",
+        received_at=AT,
+        status="ok",
+        http_status=200,
+        body_ref=BodyRef(receipt_id="minkabu-old-raw", sha256=hashlib.sha256(body).hexdigest()),
+    )
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, retained, body=body)
+        old_run = ArticleProjectionRun(
+            receipt_id=retained.receipt_id,
+            receipt_sha256=retained.sha256,
+            parser_revision="article-native-v1",
+            generated_at=AT,
+            status="unsupported",
+            error_code="body_region_unsupported",
+        )
+        assert save_projection(conn, old_run, ()) == old_run
+        new_run, (article,) = project_receipt(
+            conn, retained.receipt_id, kind="document", generated_at=AT + timedelta(hours=1)
+        )
+        assert new_run.parser_revision == "article-native-minkabu-v2"
+        assert article.parser_revision == new_run.parser_revision
+        assert article.text_revision == "article-text-v1"
+        assert article.text == "Synthetic body."
+        replay, repeated = project_receipt(
+            conn, retained.receipt_id, kind="document", generated_at=AT + timedelta(hours=2)
+        )
+        assert replay == new_run
+        assert repeated == (article,)
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 2
+        assert (
+            conn.execute(
+                "SELECT run_json FROM article_projection_runs WHERE run_id=?", (old_run.run_id,)
+            ).fetchone()[0]
+            == old_run.model_dump_json()
+        )
 
 
 def test_cli_semantic_seam_rejects_malformed_known_payload_without_claiming_unknown_valid(tmp_path):

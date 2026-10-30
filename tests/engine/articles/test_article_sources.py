@@ -10,10 +10,12 @@ import requests
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.data_collection.providers.articles.native import (
+    NativeArticleUnsupported,
     is_index_locator,
     next_index_url,
     parse_document,
     parse_index,
+    parser_revision_for,
 )
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.transport.articles import (
@@ -141,6 +143,44 @@ def test_source_allowlist_does_not_follow_cross_domain_canonical():
     )
     assert document.canonical_url == "https://unverified.invalid/news/1"
     assert document.url == "https://minkabu.jp/news/1"
+
+
+def test_minkabu_headed_card_selects_only_article_body_near_related_and_ads():
+    url = "https://minkabu.jp/news/123"
+    html = (
+        '<div id="contents"><div class="md_card md_box">'
+        '<div class="md_index_article"><h1>Synthetic headline</h1></div>'
+        '<div class="md_box fsize_m md_normalize"><p>First paragraph.</p>'
+        "<p>Second paragraph.</p></div></div>"
+        '<aside>Advertisement nearby</aside><div class="related"><p>Related story</p></div>'
+        "</div>"
+    ).encode()
+    article = parse_document("minkabu_news", html, url=url)
+    assert article.title == "Synthetic headline"
+    assert "First paragraph." in article.text
+    assert "Second paragraph." in article.text
+    assert "Related story" not in article.text
+    assert "Advertisement" not in article.text
+    assert article.content_scope == "partial_text"
+    assert parser_revision_for("minkabu_news") == "article-native-minkabu-v2"
+    assert parser_revision_for("tsr_data") == "article-native-v1"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        b'<div id="contents"><div class="md_card md_box"><div class="md_index_article">'
+        b'<h1>Synthetic</h1></div><div class="md_box fsize_m md_normalize"></div></div></div>',
+        b'<div id="contents"><div class="md_card md_box">'
+        b'<div class="md_box fsize_m md_normalize">Unheaded body-like text</div></div></div>',
+        b'<div id="contents"><div class="md_card md_box"><div class="md_index_article">'
+        b'<h1>Synthetic</h1></div><div class="md_box fsize_m md_normalize">One</div>'
+        b'<div class="md_box fsize_m md_normalize">Two</div></div></div>',
+    ],
+)
+def test_minkabu_new_shape_missing_or_ambiguous_body_is_unsupported(html):
+    with pytest.raises(NativeArticleUnsupported, match="body region"):
+        parse_document("minkabu_news", html, url="https://minkabu.jp/news/123")
 
 
 def test_tsr_item_revision_excludes_sort_but_includes_title_date_and_search_content():
