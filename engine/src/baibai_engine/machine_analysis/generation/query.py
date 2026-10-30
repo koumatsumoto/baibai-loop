@@ -25,6 +25,14 @@ def read_generation(generation_id: str, *, path: Path | None = None) -> ModelGen
     return _read(generation_id, collection=ModelGeneration, path=path)
 
 
+def read_generation_metadata(
+    generation_id: str, *, path: Path | None = None
+) -> GenerationMetadata | None:
+    """固定対象planをモデル本文の展開なしで読む。"""
+    with closing(connect_read_only(path)) as connection:
+        return _read_metadata(connection, generation_id)
+
+
 def read_model_inputs(
     generation_id: str, *, subjects: Sequence[str], path: Path | None = None
 ) -> ModelInputSlice | None:
