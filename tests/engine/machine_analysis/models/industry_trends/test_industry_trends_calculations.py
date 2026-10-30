@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
 )
 from baibai_engine.machine_analysis.observations.trends.inputs import FixedTrendInputs
 from baibai_engine.machine_analysis.observations.trends.parsers import extract_tsr_performance
-from baibai_engine.machine_analysis.observations.trends.payload import MAX_BYTES, MAX_RECORDS
+from baibai_engine.machine_analysis.models.trend_payload import MAX_BYTES, MAX_RECORDS
 from baibai_engine.primitives.json import canonical_json
 
 

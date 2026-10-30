@@ -23,7 +23,6 @@ from baibai_engine.machine_analysis.observations.articles.store import (
     save_artifact,
 )
 from baibai_engine.machine_analysis.observations.trends.contracts import (
-    ArtifactRef,
     DocumentText,
     ExtractionArtifact,
     Span,
@@ -34,9 +33,10 @@ from baibai_engine.machine_analysis.observations.trends.parsers import (
     TSR_REVISION,
     extract_supported_family,
 )
-
-PAYLOAD_SCHEMA = "trend-claims-v1"
-
+from baibai_engine.machine_analysis.observations.trends.validation import (
+    PAYLOAD_SCHEMA,
+    decode_artifact as decode_artifact,
+)
 
 def expected_revision(source: str) -> str:
     return {"tsr_data": TSR_REVISION, "tsr_flash": TSR_REVISION, "boj_news": BOJ_REVISION}.get(
@@ -155,54 +155,6 @@ def extract_observation(
         status=extracted.status,
         payload=cast(dict[str, JsonValue], payload),
     )
-
-
-def decode_artifact(
-    artifact: ArticleExtractionArtifact,
-    observation: ArticleObservation | None = None,
-) -> ExtractionArtifact:
-    if artifact.payload.get("schema") != PAYLOAD_SCHEMA:
-        raise ValueError("unsupported semantic artifact schema")
-    payload = {
-        key: value
-        for key, value in artifact.payload.items()
-        if key not in {"schema", "article_version_id", "published", "updated"}
-    }
-    decoded = ExtractionArtifact.model_validate(
-        {
-            **payload,
-            "method": artifact.method,
-            "method_revision": artifact.extractor_revision,
-            "created_at": artifact.generated_at,
-            "status": artifact.status,
-            "assistant_config": None
-            if artifact.method == "parser"
-            else f"{artifact.model_id}:{artifact.prompt_sha256}:{artifact.config_sha256}",
-            "storage_ref": ArtifactRef(artifact_id=artifact.artifact_id, sha256=artifact.sha256),
-        }
-    )
-    if (
-        decoded.evidence.observation_id != artifact.observation_id
-        or decoded.evidence.observation_sha256 != artifact.observation_sha256
-        or decoded.evidence.text_sha256 != artifact.text_sha256
-        or decoded.evidence.text_revision != artifact.text_revision
-    ):
-        raise ValueError("semantic payload differs from canonical artifact envelope")
-    if observation is not None:
-        evidence = decoded.evidence
-        if (
-            observation.observation_id != artifact.observation_id
-            or observation.sha256 != artifact.observation_sha256
-            or evidence.receipt_id != observation.receipt_id
-            or evidence.receipt_sha256 != observation.receipt_sha256
-            or evidence.body_receipt_id != observation.body_ref.receipt_id
-            or evidence.raw_sha256 != observation.body_ref.sha256
-            or evidence.source_url != observation.original_url
-            or evidence.article_id != observation.article_id
-        ):
-            raise ValueError("semantic evidence differs from retained observation")
-        decoded.verify_text(DocumentText(evidence=evidence, text=observation.text))
-    return decoded
 
 
 def matching_artifacts(

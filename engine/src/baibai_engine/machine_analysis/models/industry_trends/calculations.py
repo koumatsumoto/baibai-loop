@@ -9,7 +9,7 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
     ExtractionArtifact,
 )
 from baibai_engine.machine_analysis.observations.trends.inputs import IndustryInput
-from baibai_engine.machine_analysis.observations.trends.payload import (
+from baibai_engine.machine_analysis.models.trend_payload import (
     claim_record,
     finish_payload,
 )

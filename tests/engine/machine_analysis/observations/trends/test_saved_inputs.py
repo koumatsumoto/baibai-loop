@@ -4,6 +4,7 @@ import hashlib
 from contextlib import closing
 from datetime import timedelta
 
+import pytest
 from tests.trend_fixtures import NOW, PHARMA
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
@@ -12,17 +13,17 @@ from baibai_engine.data_collection.receipts.articles.contracts import (
     BodyRef,
 )
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.machine_analysis.models.industry_trends.calculations import (
     calculate_industry_trends,
 )
 from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
 from baibai_engine.machine_analysis.observations.articles.store import save_artifact
 from baibai_engine.machine_analysis.observations.trends.extraction import (
-    decode_artifact,
     extract_observation,
     extract_observations,
 )
-from baibai_engine.machine_analysis.observations.trends.reader import read_trend_inputs
+from baibai_engine.machine_analysis.observations.trends.validation import decode_artifact
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
@@ -68,6 +69,12 @@ def test_normal_projection_extracts_and_reuses_unchanged_representation_without_
         assert decode_artifact(repeated).evidence.receipt_id != second_receipt.receipt_id
         assert conn.execute("SELECT count(*) FROM article_extraction_artifacts").fetchone()[0] == 1
         decoded = decode_artifact(first)
+        assert decode_artifact(first, observation) == decoded
+        tampered = first.model_copy(
+            update={"payload": {**first.payload, "article_version_id": "wrong-version"}}
+        )
+        with pytest.raises(ValueError, match="semantic evidence differs"):
+            decode_artifact(tampered, observation)
         assert decoded.evidence.text_sha256 == observation.text_sha256
         assert all(
             span.end <= len(observation.text) for claim in decoded.claims for span in claim.spans

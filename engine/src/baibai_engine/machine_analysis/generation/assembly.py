@@ -43,7 +43,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     PriceBar,
 )
-from baibai_engine.machine_analysis.observations.trends.inputs import TrendGenerationInputs
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import TrendGenerationInputs
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
 
@@ -116,12 +116,13 @@ def generate_models(
         for industry in trends.industries:
             subject = f"industry:{industry.definition.scope_id}"
             shared_plan[subject] = GenerationSubject(scope="sector", model_ids=("industry_trends",))
+        industry_links = dict(trends.industry_links)
         related = {
             ticker: tuple(
                 sorted(
                     f"industry:{item.definition.scope_id}"
                     for item in trends.industries
-                    if ticker in item.definition.related_tickers
+                    if ticker in industry_links.get(item.definition.scope_id, ())
                 )
             )
             for ticker in tickers
