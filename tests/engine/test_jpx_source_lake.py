@@ -19,6 +19,7 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
+from baibai_engine.storage.snapshots import hydrate as hydrate_module
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -129,6 +130,13 @@ def test_jpx_complete_and_incomplete_bundles_roundtrip_fixed_lake_release(
         write_lake_store_origin(conn, LakeStoreOrigin(release.release_id, release.manifest_sha256))
         conn.commit()
     cache = LakeObjectCache(root=tmp_path / "cache", source=source)
+    ordered_reader = hydrate_module.iter_partition_rows
+
+    def scalar_only_reader(session, *, dataset, paths, columns):
+        assert not dataset.has_binary_payload
+        yield from ordered_reader(session, dataset=dataset, paths=paths, columns=columns)
+
+    monkeypatch.setattr(hydrate_module, "iter_partition_rows", scalar_only_reader)
     with lake_session() as session:
         report = hydrate_market_store(
             session,
