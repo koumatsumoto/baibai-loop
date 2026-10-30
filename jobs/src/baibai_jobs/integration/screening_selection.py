@@ -11,6 +11,7 @@ from typing import cast
 
 from baibai_engine.machine_analysis.generation.query import read_generation_metadata
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
+    economic_selection_id,
     select_saved_economic_generation,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
@@ -38,7 +39,7 @@ def publish_saved_selection(generation_id: str, *, runs: Path) -> dict[str, obje
     selection = select_saved_economic_generation(
         generation_id, tickers=stocks, policy=policy, path=runs
     )
-    selection_id = f"selection-{generation_id}-{policy.method}"
+    selection_id = economic_selection_id(generation_id, policy=policy)
     created = ScreeningSelectionStore(runs).publish(selection_id, selection)
     result = cast(EconomicPathSelection, selection.result)
     return {
@@ -63,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         result = publish_saved_selection(args.generation_id, runs=args.runs)
-    except (OSError, sqlite3.Error, ValueError) as error:
+    except (OSError, RuntimeError, sqlite3.Error, ValueError) as error:
         print(f"screening selection failed: {error}", file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False))

@@ -162,3 +162,15 @@ def test_generation_without_fixed_stock_plan_is_not_relabelled(tmp_path, capsys)
     assert "no fixed stock subject plan" in capsys.readouterr().err
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT count(*) FROM screening_selection").fetchone()[0] == 0
+
+
+def test_obsolete_runs_schema_reports_operator_error_without_traceback(tmp_path, capsys):
+    path = tmp_path / "runs.sqlite"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE old_runs (id TEXT)")
+        connection.execute("PRAGMA user_version = 6")
+    assert main(["--generation-id", "models-fixed-release", "--runs", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "screening run store schema is not current" in captured.err
+    assert "Traceback" not in captured.err

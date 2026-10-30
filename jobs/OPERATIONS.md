@@ -37,7 +37,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 ### 保存済み世代への候補政策の発行
 
-モデルを再生成せず、固定済みV2 generationに現行候補政策だけを適用する場合は、変更codeをmainへ反映した後、認可された作業環境で[公開lease](#ローカルからクラウドを更新する)を保持したままfresh runsを取得し、次の順で行う。`<GENERATION_ID>`は保存済みのexact IDを指定する。CLIは`subject_plan`のstockだけを対象に、`selection-<GENERATION_ID>-best-economic-path-v4`を作業runsへ発行する。既存IDへ同内容なら`created=false`、異内容なら競合で停止する。
+モデルを再生成せず、固定済みV2 generationに現行候補政策だけを適用する場合は、変更codeをmainへ反映した後、認可された作業環境で[公開lease](#ローカルからクラウドを更新する)を保持したままfresh runsを取得し、次の順で行う。`<GENERATION_ID>`は保存済みのexact IDを指定する。CLIは`subject_plan`のstockだけを対象に、通常のmodel-integrationと同じ`selection-<GENERATION_ID>-best-economic-path-v4`を作業runsへ発行する。既存IDへ同内容なら`created=false`、異内容なら競合で停止する。既存の保存IDは移行・改名しない。
 
 ```bash
 with_publication_lease bash -c '
