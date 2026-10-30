@@ -160,3 +160,21 @@ def test_fixed_input_rejects_substitution_or_future_artifacts():
         )
     with pytest.raises(ValueError, match="cutoff"):
         fixed(artifact.model_copy(update={"created_at": NOW + timedelta(seconds=1)}))
+
+
+def test_current_survey_prior_year_takes_precedence_over_unsupported_index_baseline():
+    from tests.trend_fixtures import generation_inputs
+
+    current = survey()
+    old_index = current.model_copy(update={"claims": (), "status": "unsupported"})
+    industry = (
+        generation_inputs()
+        .industries[0]
+        .model_copy(update={"inputs": fixed(current, baseline=old_index)})
+    )
+    result = calculate_industry_trends(industry)
+    assert len(result["comparisons"]) == 1
+    (comparison,) = result["comparisons"]
+    assert comparison["kind"] == "period_change"
+    assert comparison["delta"] == "-2.0"
+    assert comparison["baseline"]["artifact"] == current.ref.model_dump(mode="json")
