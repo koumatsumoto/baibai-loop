@@ -126,6 +126,11 @@ def _handoff_ids(report: dict[str, object], field: str) -> tuple[str, ...]:
 
 
 def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
+    from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
+    from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
+
+    if source in ARTICLE_SOURCES:
+        return import_article_handoff(source, database, directory)
     if source not in SOURCES:
         raise ValueError("unsupported market handoff source")
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
@@ -154,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("input", "resume", "acquire", "export", "stage", "download"),
+        choices=("input", "resume", "acquire", "export", "stage", "download", "replay-copy"),
     )
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--directory", type=Path, required=True)
@@ -166,7 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     directory = args.directory
     try:
-        if args.command == "input":
+        if args.command == "replay-copy":
+            replay = _replay(args.source, args.database, directory)
+            print(json.dumps(replay.report, sort_keys=True))
+            return int(not replay.complete)
+        elif args.command == "input":
             from baibai_jobs.acquisition.source_inputs import load_input
 
             load_input(

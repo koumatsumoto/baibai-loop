@@ -515,6 +515,11 @@ _push_keys() {
     fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
+    if [[ -n "${ARTICLE_CUTOVER_RECEIPT:-}" ]]; then
+      uv run python -m baibai_jobs.maintenance.article_cutover record-upload \
+        --receipt "${ARTICLE_CUTOVER_RECEIPT}" --key "${key}" \
+        --upload "${transfer_staging}/${key}" --expected-etag "${expected_version}"
+    fi
     if [[ -n "${expected_version}" ]]; then
       # PutObject's If-Match is checked atomically when R2 commits the object. The
       # earlier read avoids an expensive snapshot after an already-visible race;
@@ -661,7 +666,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-runs|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-article-cutover RECEIPT|resume-article-cutover RECEIPT|push-runs|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -699,6 +704,26 @@ case "${1:-}" in
     ;;
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
+    ;;
+  push-article-cutover|resume-article-cutover)
+    # Only the explicit schema48 -> 49 copy can bypass current/current merge.
+    # Per-key PUTs remain conditional on the complete fresh machine bundle.
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    export ARTICLE_CUTOVER_RECEIPT="$2"
+    if [[ "$1" == push-article-cutover ]]; then
+      uv run python -m baibai_jobs.maintenance.article_cutover verify-cutover \
+        --receipt "$2" --generation-directory "${generation_dir}" \
+        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
+      push_pulled_keys "${machine_bundle_keys[@]}"
+    else
+      pending="$(uv run python -m baibai_jobs.maintenance.article_cutover resume-plan \
+        --receipt "$2" --generation-directory "${generation_dir}" \
+        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")"
+      for key in ${pending}; do
+        push_key_if_version "${key}" "$(pulled_version "${key}")"
+      done
+      write_machine_manifest
+    fi
     ;;
   push-runs)
     # Explicit model-store maintenance; never re-upload unrelated machine stores.

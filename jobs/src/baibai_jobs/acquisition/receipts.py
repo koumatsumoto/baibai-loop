@@ -121,10 +121,13 @@ def available_handoffs(
 
 def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path) -> None:
     stage_id, market = str(entry["stage_id"]), bool(entry["market"])
-    saved = read_private(store, stage_prefix(stage_id, market=market) + "/handoff.json")
+    namespace = str(entry["namespace"]) if entry.get("namespace") else None
+    saved = read_private(
+        store, stage_prefix(stage_id, market=market, namespace=namespace) + "/handoff.json"
+    )
     if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
         raise LakePublishError("fixed source handoff manifest changed")
-    load_handoff(store, stage_id, directory, market=market)
+    load_handoff(store, stage_id, directory, market=market, namespace=namespace)
 
 
 def seal_integrated(
@@ -134,7 +137,14 @@ def seal_integrated(
     generations: dict[str, str],
     recovery: bool,
 ) -> None:
-    key = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"])) + "/integrated.json"
+    namespace = str(entry["namespace"]) if entry.get("namespace") else None
+    prefix = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"]), namespace=namespace)
+    terminal = (
+        f"recovered-{entry['manifest_sha256']}.json"
+        if entry.get("explicit_article_recovery") and not recovery
+        else "integrated.json"
+    )
+    key = prefix + "/" + terminal
     value = json.dumps(
         {
             "manifest_sha256": entry["manifest_sha256"],

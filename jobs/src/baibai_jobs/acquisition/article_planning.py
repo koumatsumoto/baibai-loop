@@ -13,16 +13,10 @@ from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
-ARTICLE_SOURCES = (
-    "tsr-data",
-    "tsr-flash",
-    "minkabu-news",
-    "rakuten-news",
-    "toushiru-news",
-    "boj-news",
-    "mof-news",
-)
-TSR_SOURCES = frozenset({"tsr-data", "tsr-flash"})
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES
+
+ARTICLE_SOURCES = tuple(SOURCES)
+TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})
 ARTICLE_NAMESPACE = "article-sources"
 ARTICLE_CRON = "13 1,5,9,13,17,21 * * *"
 MAX_PENDING_STAGES = 42
@@ -80,6 +74,14 @@ class ArticlePlanning:
                 _clock(value)
         if len(self.requests) > MAX_REQUEST_STATES or len(self.pending) > MAX_PENDING_STAGES:
             raise ValueError("article planning bound reached; drain or recover exact stages")
+        for entry in self.pending:
+            if (
+                entry.get("source") != self.source
+                or entry.get("namespace") != ARTICLE_NAMESPACE
+                or entry.get("market") is not True
+            ):
+                raise ValueError("article pending entry differs from its planning source")
+            stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE)
         payload = json.dumps(self.to_json(), sort_keys=True, allow_nan=False).encode()
         if len(payload) > MAX_PLANNING_BYTES:
             raise ValueError("article planning summary exceeds its bytes budget")
@@ -195,12 +197,20 @@ def commit_stage(
     if saved is None:
         raise LakePublishError("saved article handoff is missing")
     entry = {**placeholder, "manifest_sha256": hashlib.sha256(saved.payload).hexdigest()}
+    # New 200 baselines refer to this just-saved stage. Its manifest cannot
+    # contain its own digest; only the mutable summary fills this exact closure.
+    bound_requests = {
+        url: {**value, "stage": entry}
+        if value.get("stage", {}).get("stage_id") == stage_id
+        else value
+        for url, value in requests.items()
+    }
     candidate = ArticlePlanning(
         state.source,
         state.generations,
         slot.isoformat(),
         not_before,
-        requests,
+        bound_requests,
         cursor,
         (*state.pending, entry),
     )
@@ -214,9 +224,21 @@ def pending_handoffs(store: ObjectStore) -> list[dict[str, Any]]:
     for source in ARTICLE_SOURCES:
         saved = read_private(store, source_key(source))
         if saved is not None:
-            result.extend(ArticlePlanning.decode(saved.payload, source).pending)
+            try:
+                result.extend(ArticlePlanning.decode(saved.payload, source).pending)
+            except (ValueError, KeyError, TypeError, AttributeError):
+                result.append(
+                    {
+                        "source": source,
+                        "market": True,
+                        "namespace": ARTICLE_NAMESPACE,
+                        "stage_id": f"{source}-planning",
+                        "manifest_sha256": "",
+                        "invalid": "invalid_planning_state",
+                    }
+                )
     return sorted(
-        result, key=lambda entry: (entry["source"], entry["started_at"], entry["stage_id"])
+        result, key=lambda entry: (entry["source"], entry.get("started_at", ""), entry["stage_id"])
     )
 
 

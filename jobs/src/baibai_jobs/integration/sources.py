@@ -41,12 +41,20 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError a
 from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema as validate_market_schema,
 )
+from baibai_jobs.acquisition.article_planning import (
+    ARTICLE_NAMESPACE,
+    ARTICLE_SOURCES,
+    acknowledge_stage,
+    pending_handoffs,
+    publish_planning_input,
+)
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
 
@@ -136,6 +144,13 @@ def apply(
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
     extractions = extract_saved_edinet(market, asof=asof)
+    for outcome in outcomes:
+        if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
+            outcome["article_delta"] = capture_delta(
+                market,
+                outcome["result"]["receipt_ids"],
+                artifact_ids=outcome["result"].get("artifact_ids", ()),
+            )
     report: dict[str, object] = {
         "asof": asof.isoformat(),
         "handoffs": outcomes,
@@ -171,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--economic", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--identity")
+    parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -238,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomic(
                 directory / "plan.json",
                 {
-                    "handoffs": available_handoffs(store),
+                    "handoffs": [*available_handoffs(store), *pending_handoffs(store)],
                     "external": external,
                     "external_failed": failed,
                 },
@@ -258,14 +274,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
-                report = publish_inputs(
-                    store,
-                    market=args.market,
-                    economic=args.economic,
-                    identity=args.identity,
-                    asof=args.asof,
-                    generations=generations,
+                report = (
+                    {"updated": [], "failed": []}
+                    if args.group in ARTICLE_SOURCES
+                    else publish_inputs(
+                        store,
+                        market=args.market,
+                        economic=args.economic,
+                        identity=args.identity,
+                        asof=args.asof,
+                        generations=generations,
+                        only_group=args.group,
+                    )
                 )
+                for source in (
+                    ARTICLE_SOURCES
+                    if args.group is None
+                    else (args.group,)
+                    if args.group in ARTICLE_SOURCES
+                    else ()
+                ):
+                    try:
+                        publish_planning_input(store, source, generations)
+                    except ValueError as error:
+                        report["failed"].append({"group": source, "reason": type(error).__name__})
+                    else:
+                        report["updated"].append(source)
                 print(json.dumps(report, sort_keys=True))
                 return int(bool(report["failed"]))
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
@@ -279,12 +313,22 @@ def main(argv: list[str] | None = None) -> int:
             for outcome in report["handoffs"]:
                 if outcome["entry"].get("invalid"):
                     continue
+                if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
+                    outcome["article_readback"] = verify_delta(
+                        store,
+                        delta=outcome["article_delta"],
+                        directory=directory / "article-readback",
+                        generations=generations,
+                    )
+                    verify_held(store, _load_handle(args.lease_handle))
                 seal_integrated(
                     store,
                     outcome["entry"],
                     generations=generations,
                     recovery=outcome["recovery"],
                 )
+                if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE:
+                    acknowledge_stage(store, outcome["entry"])
             report["canonical_generations"] = generations
             write_json_atomic(directory / "applied.json", report)
     except Exception as error:
