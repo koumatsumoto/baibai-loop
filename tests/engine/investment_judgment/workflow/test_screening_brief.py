@@ -73,9 +73,7 @@ def test_ttm_basis_failure_reason_survives_the_bounded_l3_brief():
     assert brief["context"]["annual_observation"]["latest_ttm_missing"] == {
         "parent_profit": "accounting_standard_incomparable"
     }
-    assert brief["paths"][0]["evidence"]["period_basis"][0]["accounting_standard"] == (
-        "IFRS"
-    )
+    assert brief["paths"][0]["evidence"]["period_basis"][0]["accounting_standard"] == ("IFRS")
 
 
 def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():

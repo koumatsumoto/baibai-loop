@@ -131,7 +131,8 @@ def earnings_price(
     component_candidates = [
         latest_disclosure_candidates(
             [
-                candidate for candidate in actual_rows
+                candidate
+                for candidate in actual_rows
                 if accounting_period_identity(candidate) == accounting_period_identity(row)
             ]
         )
@@ -161,9 +162,9 @@ def earnings_price(
         if not isfinite(market_cap) or market_cap <= 0:
             market_cap = None
             reason = "invalid_market_cap"
-    if reason is None and basis_conflict:
+    if reason in (None, "missing_capital_basis") and basis_conflict:
         reason = "conflicting_statement_basis"
-    if reason is None and standard_conflict:
+    if reason in (None, "missing_capital_basis") and standard_conflict:
         reason = "conflicting_accounting_standard"
     if reason is None and profit is None:
         reason = "unavailable_annual_profit"

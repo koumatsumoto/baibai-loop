@@ -397,7 +397,8 @@ def _matched_prior_period_summary(
     comparison_field = value_field or field_name
     selected = _latest_consistent_actual(
         [
-            row for row in period_rows
+            row
+            for row in period_rows
             if comparison_field is None
             or getattr(row, comparison_field) is not None
             or comparison_field in row.unresolved_actual_fields

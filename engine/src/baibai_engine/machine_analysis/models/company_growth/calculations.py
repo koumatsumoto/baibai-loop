@@ -80,9 +80,10 @@ def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinan
     )
     if not candidates or any(field in r.unresolved_actual_fields for r in candidates):
         return None
-    if len(
-        {(getattr(r, field), statement_basis(r), accounting_standard(r)) for r in candidates}
-    ) != 1:
+    if (
+        len({(getattr(r, field), statement_basis(r), accounting_standard(r)) for r in candidates})
+        != 1
+    ):
         return None
     row = sorted(candidates, key=lambda r: r.disclosure_number or "")[-1]
     if not latest_reporting_basis_matches(rows, row):
@@ -369,16 +370,13 @@ def build_period_states(
 
 def _observation_matches(prior: Observation, current: Observation) -> bool:
     # 52/53週暦の最大1週差は許すが、決算月変更を同季節の前年比にしない。
-    return (
-        prior.measurement == current.measurement
-        and prior_year_dates_match(
-            prior.period_start,
-            prior.period_end,
-            current.period_start,
-            current.period_end,
-            length_tolerance_ratio=0.1,
-            end_tolerance_days=7,
-        )
+    return prior.measurement == current.measurement and prior_year_dates_match(
+        prior.period_start,
+        prior.period_end,
+        current.period_start,
+        current.period_end,
+        length_tolerance_ratio=0.1,
+        end_tolerance_days=7,
     )
 
 

@@ -137,19 +137,24 @@ def test_share_count_yoy_is_exempt_from_accounting_standard_comparison():
     rows = weekly_documents(date(2023, 2, 19))
     rows[0] = replace(rows[0], shares_outstanding=100.0)
     rows[2] = replace(
-        rows[2], shares_outstanding=120.0,
+        rows[2],
+        shares_outstanding=120.0,
         document_type="1QFinancialStatements_Consolidated_IFRS",
     )
     prior = _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="shares_outstanding")
-    assert prior is not None and prior.shares_outstanding == 100.0
+    assert prior is not None
+    assert prior.shares_outstanding == 100.0
 
 
 def test_later_partial_correction_cannot_restore_an_old_basis_profit():
     rows = weekly_documents(date(2023, 2, 19))
     rows.append(
         replace(
-            rows[0], disclosed_at=date(2023, 7, 15), disclosure_number="ifrs-correction",
-            document_type="1QFinancialStatements_Consolidated_IFRS", profit=None,
+            rows[0],
+            disclosed_at=date(2023, 7, 15),
+            disclosure_number="ifrs-correction",
+            document_type="1QFinancialStatements_Consolidated_IFRS",
+            profit=None,
         )
     )
     assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="profit") is None
@@ -164,6 +169,7 @@ def test_multi_fy_average_cannot_mix_jp_and_ifrs_eps():
         )
         for year in (2022, 2023, 2024)
     ]
+
     def signals(items):
         return build_normalized_profit_signals(
             items, (), date(2025, 6, 30), close=100.0, ttm_rules=DEFAULT_TTM_RULES
@@ -171,7 +177,8 @@ def test_multi_fy_average_cannot_mix_jp_and_ifrs_eps():
 
     assert signals(rows).normalized_per_3fy == 10.0
     tied = replace(
-        rows[-1], disclosure_number="same-time-ifrs",
+        rows[-1],
+        disclosure_number="same-time-ifrs",
         document_type="FYFinancialStatements_Consolidated_IFRS",
     )
     assert signals([*rows, tied]).normalized_per_3fy is None
@@ -183,8 +190,13 @@ def test_profitability_ratio_does_not_use_old_jp_assets_with_ifrs_flows():
     rows = [
         replace(document(date(2023, 4, 1), date(2024, 3, 31), 100.0), total_assets=1000.0),
         replace(
-            document(date(2024, 4, 1), date(2024, 6, 30), 20.0, fiscal_period="1Q",
-                     fiscal_year_end=date(2025, 3, 31)),
+            document(
+                date(2024, 4, 1),
+                date(2024, 6, 30),
+                20.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2025, 3, 31),
+            ),
             document_type="1QFinancialStatements_Consolidated_IFRS",
         ),
         replace(
@@ -192,8 +204,13 @@ def test_profitability_ratio_does_not_use_old_jp_assets_with_ifrs_flows():
             document_type="FYFinancialStatements_Consolidated_IFRS",
         ),
         replace(
-            document(date(2025, 4, 1), date(2025, 6, 30), 30.0, fiscal_period="1Q",
-                     fiscal_year_end=date(2026, 3, 31)),
+            document(
+                date(2025, 4, 1),
+                date(2025, 6, 30),
+                30.0,
+                fiscal_period="1Q",
+                fiscal_year_end=date(2026, 3, 31),
+            ),
             document_type="1QFinancialStatements_Consolidated_IFRS",
         ),
     ]

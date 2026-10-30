@@ -339,7 +339,13 @@ def test_accounting_transition_blocks_only_comparisons_and_derived_amounts():
 def test_newer_accounting_revision_does_not_revive_older_matching_basis():
     prior = document(2024, 1, 100, 10, 8)
     revised = document(
-        2024, 1, 110, 12, 9, DiscDate="2024-08-20", DiscNo="ifrs-correction",
+        2024,
+        1,
+        110,
+        12,
+        9,
+        DiscDate="2024-08-20",
+        DiscNo="ifrs-correction",
         DocType="1QFinancialStatements_Consolidated_IFRS",
     )
     current = document(2025, 1, 130, 20, 15)

@@ -183,8 +183,12 @@ def comparable_reporting_basis(rows: Sequence[JQuantsFinancialSummary]) -> bool:
         return False
     basis = statement_basis(rows[0])
     standard = accounting_standard(rows[0])
-    return basis in {"consolidated", "nonconsolidated"} and standard is not None and all(
-        statement_basis(row) == basis and accounting_standard(row) == standard for row in rows
+    return (
+        basis in {"consolidated", "nonconsolidated"}
+        and standard is not None
+        and all(
+            statement_basis(row) == basis and accounting_standard(row) == standard for row in rows
+        )
     )
 
 
