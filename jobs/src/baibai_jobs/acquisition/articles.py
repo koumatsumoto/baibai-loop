@@ -27,6 +27,7 @@ from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
     copy_receipt_closure,
     read_body,
+    read_receipt,
     retain_receipt,
 )
 from baibai_engine.data_collection.transport.articles import ArticleBudget, fetch_article
@@ -36,6 +37,7 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
 from baibai_jobs.acquisition.article_planning import (
+    ARTICLE_NAMESPACE,
     MAX_REQUEST_STATES,
     commit_stage,
     is_due,
@@ -93,6 +95,9 @@ def acquire_source(
     )
     planning = dict(state.requests)
     pending_urls = list(state.cursor.get("pending_urls", []))
+    saved_evidence = state.cursor.get("pending_evidence", {})
+    if not isinstance(saved_evidence, dict):
+        saved_evidence = {}
     receipt_ids: list[str] = []
     kinds: dict[str, str] = {}
     document_evidence: dict[str, dict[str, str]] = {}
@@ -103,7 +108,67 @@ def acquire_source(
     bodies = 0
     next_page: str | None = None
     partial = False
+    evidence_by_url: dict[str, list[dict[str, str]]] = {}
     with closing(open_connection(directory / "receipts.sqlite")) as conn:
+
+        def evidence_for(url: str) -> dict[str, Any] | None:
+            candidates = evidence_by_url.get(url, [])
+            if candidates:
+                identities = {(item["article_id"], item["title"]) for item in candidates}
+                return (
+                    {**candidates[0], "stage": {"stage_id": stage_id}}
+                    if len(identities) == 1
+                    else None
+                )
+            prior = saved_evidence.get(url)
+            if not isinstance(prior, dict) or not isinstance(prior.get("stage"), dict):
+                return None
+            stage = prior["stage"]
+            if (
+                stage.get("source") != source
+                or stage.get("namespace") != ARTICLE_NAMESPACE
+                or stage.get("market") is not True
+                or not isinstance(stage.get("stage_id"), str)
+                or not isinstance(stage.get("manifest_sha256"), str)
+            ):
+                return None
+            if any(
+                not isinstance(prior.get(field), str)
+                for field in ("index_receipt_id", "article_id", "native_locator", "title")
+            ):
+                return None
+            return prior
+
+        def attach_prior_index(link: dict[str, Any]) -> bool:
+            entry = link["stage"]
+            if entry["stage_id"] == stage_id:
+                return True
+            identity = link["index_receipt_id"]
+            try:
+                if conn.execute(
+                    "SELECT 1 FROM article_source_receipts WHERE receipt_id=?", (identity,)
+                ).fetchone():
+                    original = read_receipt(conn, identity)
+                else:
+                    key = entry["stage_id"]
+                    if key not in downloaded:
+                        packet = directory / f"baseline-{len(downloaded)}"
+                        download_fixed(store, entry, packet)
+                        downloaded[key] = packet / "receipts.sqlite"
+                    with closing(connect_read_only(downloaded[key])) as old, conn:
+                        original = read_receipt(old, identity)
+                        if original.source != source or original.body_ref is None:
+                            raise ArticleStoreError("index evidence differs from its source")
+                        copy_receipt_closure(old, conn, identity)
+                if original.source != source or original.body_ref is None:
+                    raise ArticleStoreError("index evidence differs from its source")
+                read_body(conn, original.body_ref)
+            except (LakePublishError, sqlite3.DatabaseError, OSError, KeyError, ValueError):
+                return False
+            if identity not in kinds:
+                receipt_ids.append(identity)
+                kinds[identity] = "index"
+            return True
 
         def receive(
             url: str, kind: Literal["index", "document"]
@@ -200,7 +265,6 @@ def acquire_source(
             page_url: str | None = entry_urls.pop(0)
             seen_pages = set()
             discovered_by_identity: dict[str, str] = {}
-            evidence_by_url: dict[str, list[dict[str, str]]] = {}
             while page_url and pages < policy.max_pages:
                 if page_url in seen_pages:
                     break
@@ -213,9 +277,19 @@ def acquire_source(
                         page_url = entry_urls.pop(0)
                         continue
                     break
-                native = parse_index(
-                    source, body, url=page_url, encoding=receipt.encoding or "utf-8"
-                )
+                try:
+                    native = parse_index(
+                        source, body, url=page_url, encoding=receipt.encoding or "utf-8"
+                    )
+                except ValueError:
+                    if source != "nhk_news":
+                        raise
+                    # This feed's original is saved, but another independent
+                    # NHK entry may still provide valid items in the same slot.
+                    failed.append("index_parse_failed")
+                    partial = True
+                    page_url = entry_urls.pop(0) if entry_urls else None
+                    continue
                 for item in native:
                     fetch_url = str(item.metadata.get("fetch_url") or item.url)
                     discovered_by_identity.setdefault(item.article_id, fetch_url)
@@ -266,10 +340,12 @@ def acquire_source(
                 receipt, body = receive(url, "document")
                 bodies += 1
                 active_url = None
-                candidates = evidence_by_url.get(url, [])
-                identities = {(item["article_id"], item["title"]) for item in candidates}
-                if len(identities) == 1:
-                    document_evidence[receipt.receipt_id] = candidates[0]
+                link = evidence_for(url)
+                if link is not None and attach_prior_index(link):
+                    document_evidence[receipt.receipt_id] = {
+                        field: link[field]
+                        for field in ("index_receipt_id", "article_id", "native_locator", "title")
+                    }
                 elif source == "nhk_news":
                     # Its GUID may differ from the URL. Keep raw and mark the
                     # unresolved identity rather than inventing a URL identity.
@@ -305,6 +381,11 @@ def acquire_source(
         omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
         cursor = {
             "pending_urls": pending_urls[:MAX_REQUEST_STATES],
+            "pending_evidence": {
+                url: link
+                for url in pending_urls[:MAX_REQUEST_STATES]
+                if (link := evidence_for(url)) is not None
+            },
             "next_page": next_page,
             "omitted_url_count": omitted_urls,
         }

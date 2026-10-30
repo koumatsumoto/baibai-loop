@@ -214,7 +214,7 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
-@pytest.mark.parametrize(("status", "expected_pages"), [(403, 4), (429, 1)])
+@pytest.mark.parametrize(("status", "expected_pages"), [(403, 4), (429, 1), (200, 4)])
 def test_nhk_independent_feed_failure_continues_except_cooldown(
     tmp_path, monkeypatch, status, expected_pages
 ):
@@ -229,8 +229,8 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
     )
     store = MemoryR2Store()
     publish_planning_input(store, "nhk_news", {"lake_release_id": "before"})
-    responses = [Response(status, b"")]
-    if status == 403:
+    responses = [Response(status, b"<invalid>" if status == 200 else b"")]
+    if status != 429:
         responses.extend(Response(200, b"<rss><channel /></rss>") for _ in range(3))
     session = Session(responses)
     report = articles.acquire_source(
@@ -242,6 +242,8 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
         session=session,
     )
     assert report["status"] == "partial"
+    if status == 200:
+        assert "index_parse_failed" in report["failures"]
     assert report["pages"] == expected_pages
     assert len(session.urls) == expected_pages
     planning, _ = load_planning(store, "nhk_news")
@@ -251,6 +253,79 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
             conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0]
             == expected_pages
         )
+
+
+def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(tmp_path, monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(hours=5)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    feed = (
+        b"<rss><channel><item><guid>synthetic-guid</guid>"
+        b"<link>https://news.web.nhk/news/example</link>"
+        b"<title>Synthetic original title</title></item></channel></rss>"
+    )
+    empty = b"<rss><channel /></rss>"
+    body = b'<html><div itemprop="articleBody">Synthetic retained body</div></html>'
+    session = Session(
+        [
+            Response(200, feed),
+            *(Response(200, empty) for _ in range(3)),
+            Response(403, b""),
+            Response(200, empty),
+            *(Response(304, b"") for _ in range(3)),
+            Response(200, body),
+        ]
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "nhk_news", {"lake_release_id": "before"})
+    first = tmp_path / "first"
+    first_report = articles.acquire_source(
+        store,
+        source="nhk_news",
+        slot=SLOT,
+        identity="first",
+        directory=first,
+        session=session,
+    )
+    assert first_report["status"] == "partial"
+    planning, _ = load_planning(store, "nhk_news")
+    url = "https://news.web.nhk/news/example"
+    original = planning.cursor["pending_evidence"][url]
+    assert original["stage"]["manifest_sha256"] == first_report["manifest_sha256"]
+    second = tmp_path / "second"
+    second_report = articles.acquire_source(
+        store,
+        source="nhk_news",
+        slot=SLOT + timedelta(hours=4),
+        identity="second",
+        directory=second,
+        session=session,
+    )
+    assert second_report["status"] == "completed"
+    saved = json.loads((second / "result.json").read_text())
+    assert original["index_receipt_id"] in saved["receipt_ids"]
+    assert (
+        list(saved["document_evidence"].values())[0]["index_receipt_id"]
+        == original["index_receipt_id"]
+    )
+    database = tmp_path / "market.sqlite"
+    result = import_handoff("nhk_news", database, second)
+    with closing(open_connection(database)) as conn:
+        observations = read_observations(conn, result.report["observation_ids"])
+    document = next(item for item in observations if item.native_locator == "/html/body-region")
+    assert document.article_id == "nhk_news:synthetic-guid"
+    assert document.title == "Synthetic original title"
+    assert document.native_metadata["index_observation_id"] in {
+        item.observation_id
+        for item in observations
+        if item.receipt_id == original["index_receipt_id"]
+    }
 
 
 def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch):

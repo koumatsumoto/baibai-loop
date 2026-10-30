@@ -192,13 +192,24 @@ def commit_stage(
         else value
         for url, value in requests.items()
     }
+    bound_cursor = cursor
+    if cursor.get("pending_evidence"):
+        bound_cursor = {
+            **cursor,
+            "pending_evidence": {
+                url: {**link, "stage": entry}
+                if link.get("stage", {}).get("stage_id") == stage_id
+                else link
+                for url, link in cursor["pending_evidence"].items()
+            },
+        }
     candidate = ArticlePlanning(
         state.source,
         state.generations,
         slot.isoformat(),
         not_before,
         bound_requests,
-        cursor,
+        bound_cursor,
         (*state.pending, entry),
     )
     put_private(store, source_key(state.source), candidate.encoded(), previous_etag=expected_etag)
