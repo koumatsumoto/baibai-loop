@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     comparable_reporting_basis,
     latest_disclosure_candidates,
     latest_reporting_basis_matches,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -75,18 +76,20 @@ def _document(row: JQuantsFinancialSummary) -> SourceDocument:
 
 
 def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinancialSummary | None:
+    issuer_capital = field in {"shares_outstanding", "treasury_shares"}
     candidates = latest_disclosure_candidates(
         [r for r in rows if getattr(r, field) is not None or field in r.unresolved_actual_fields]
     )
     if not candidates or any(field in r.unresolved_actual_fields for r in candidates):
         return None
-    if (
-        len({(getattr(r, field), statement_basis(r), accounting_standard(r)) for r in candidates})
-        != 1
-    ):
+    if len({getattr(r, field) for r in candidates}) != 1:
+        return None
+    if not issuer_capital and len(
+        {(statement_basis(r), accounting_standard(r)) for r in candidates}
+    ) != 1:
         return None
     row = sorted(candidates, key=lambda r: r.disclosure_number or "")[-1]
-    if not latest_reporting_basis_matches(rows, row):
+    if not issuer_capital and not latest_reporting_basis_matches(rows, row):
         return None
     return row
 
@@ -94,11 +97,22 @@ def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinan
 def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) -> Value:
     row = _select(rows, field)
     if row is None:
+        observed = latest_disclosure_candidates(
+            [item for item in rows if getattr(item, field) is not None]
+        )
+        basis_rows = [
+            *observed,
+            *latest_disclosure_candidates(reporting_basis_rows(rows)),
+        ]
         reason = (
             "conflicting_revisions"
             if any(field in r.unresolved_actual_fields for r in rows)
             else "statement_basis_incomparable"
-            if any(getattr(r, field) is not None for r in rows)
+            if observed and len({statement_basis(item) for item in basis_rows}) != 1
+            else "accounting_standard_incomparable"
+            if observed and len({accounting_standard(item) for item in basis_rows}) != 1
+            else "conflicting_revisions"
+            if observed
             else "not_observed"
         )
         return Value(reason=reason)
@@ -317,9 +331,10 @@ def build_period_states(
         anchor = latest_disclosure_candidates(group)[0]
         assert anchor.period_start is not None
         assert anchor.period_end is not None
-        bases = {statement_basis(r) for r in latest_disclosure_candidates(group)}
+        latest_basis = latest_disclosure_candidates(reporting_basis_rows(group))
+        bases = {statement_basis(r) for r in latest_basis}
         basis = next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
-        standards = {accounting_standard(r) for r in latest_disclosure_candidates(group)}
+        standards = {accounting_standard(r) for r in latest_basis}
         standard = next(iter(standards)) if len(standards) == 1 else None
         reported = {m: _value(group, m, f) for m, f in _REPORTED_FIELDS}
         _margin(reported, sector)

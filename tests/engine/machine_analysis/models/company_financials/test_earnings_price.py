@@ -101,6 +101,23 @@ def test_forecast_only_document_does_not_invalidate_actual_statement_basis():
     assert result.unavailable_reason is None
 
 
+def test_same_time_actual_dividend_notice_keeps_statement_profit_and_yield():
+    statement = annual()
+    dividend = replace(
+        statement,
+        disclosure_number="same-time-dividend",
+        document_type="DividendForecastRevision",
+        profit=None,
+        sales=None,
+        shares_outstanding=None,
+        treasury_shares=None,
+        dps_actual_annual=5.0,
+    )
+    result = observation([statement, dividend])
+    assert result.profit_ttm_yen == 100.0
+    assert result.earnings_yield == 0.125
+
+
 def test_latest_quarter_missing_profit_does_not_revive_old_full_year():
     current = replace(
         annual(),

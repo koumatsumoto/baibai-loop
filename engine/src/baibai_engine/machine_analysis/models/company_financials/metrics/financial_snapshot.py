@@ -266,7 +266,10 @@ def build_financial_snapshot(
         *profit_rows,
         *ocf_rows,
         *((current_assets_row,) if current_assets_row is not None else ()),
-        *((prior_total_assets_row,) if prior_total_assets_row is not None else ()),
+    )
+    prior_assets_comparable = (
+        prior_total_assets_row is not None
+        and comparable_reporting_basis((*accrual_basis_rows, prior_total_assets_row))
     )
     accruals_to_assets = _accruals_to_assets(
         net_income=(
@@ -280,7 +283,7 @@ def build_financial_snapshot(
         ocf_ttm=ocf_ttm,
         total_assets=total_assets,
         prior_total_assets=(
-            prior_total_assets_row.total_assets if prior_total_assets_row is not None else None
+            prior_total_assets_row.total_assets if prior_assets_comparable else None
         ),
     )
     shares_prior = _prior_year_summary(summaries, ttm_rules, field_name="shares_outstanding")

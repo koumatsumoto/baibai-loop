@@ -479,7 +479,7 @@ def _date_text(value: date | None) -> str | None:
 
 
 def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
-    return {
+    result: dict[str, JsonValue] = {
         "measurement": observation.get("measurement"),
         "period_start": observation.get("period_start"),
         "period_end": observation.get("period_end"),
@@ -487,6 +487,9 @@ def _observation(observation: dict[str, JsonValue], name: str) -> dict[str, Json
         "metric": name,
         "observation": _object(_object(observation.get("metrics")).get(name)),
     }
+    if "accounting_standard" in observation:
+        result["accounting_standard"] = observation["accounting_standard"]
+    return result
 
 
 def _change(

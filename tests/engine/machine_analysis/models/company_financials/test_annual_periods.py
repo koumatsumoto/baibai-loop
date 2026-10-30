@@ -5,10 +5,15 @@ from datetime import date, timedelta
 
 import pytest
 
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    build_financial_snapshot,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
+    _latest_actual_row_by_field_priority,
+    _latest_non_null_row,
     _prior_year_summary,
     _ttm_period,
     _ttm_value,
@@ -159,6 +164,135 @@ def test_later_partial_correction_cannot_restore_an_old_basis_profit():
     )
     assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="profit") is None
     assert _ttm_value(rows, "profit", DEFAULT_TTM_RULES) == (None, TTMQuality.UNAVAILABLE)
+
+
+def test_profit_only_correction_keeps_prior_shares_but_share_correction_wins():
+    rows = weekly_documents(date(2023, 2, 19))
+    rows[0] = replace(rows[0], shares_outstanding=100.0)
+    rows[2] = replace(rows[2], shares_outstanding=120.0)
+    correction = replace(
+        rows[0],
+        disclosed_at=rows[0].disclosed_at + timedelta(days=1),
+        disclosure_number="profit-only-ifrs-correction",
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+        profit=None,
+        shares_outstanding=None,
+    )
+    prior = _prior_year_summary([*rows, correction], DEFAULT_TTM_RULES, field_name="shares_outstanding")
+    assert prior is not None and prior.shares_outstanding == 100.0
+    changed = replace(
+        correction,
+        disclosed_at=correction.disclosed_at + timedelta(days=1),
+        disclosure_number="shares-correction",
+        shares_outstanding=95.0,
+    )
+    prior = _prior_year_summary(
+        [*rows, correction, changed], DEFAULT_TTM_RULES, field_name="shares_outstanding"
+    )
+    assert prior is not None and prior.shares_outstanding == 95.0
+
+
+def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority():
+    rows = weekly_documents(date(2023, 2, 19))
+    revised = replace(
+        rows[2],
+        disclosed_at=rows[2].disclosed_at + timedelta(days=1),
+        disclosure_number="latest-ifrs-without-profit",
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+        profit=None,
+        operating_profit=None,
+        ordinary_profit=None,
+    )
+    rows.append(revised)
+    assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="profit") is None
+    assert _latest_actual_row_by_field_priority(
+        rows, ("operating_profit", "ordinary_profit", "profit")
+    ) is None
+
+
+def test_same_time_standard_disagreement_preserves_agreed_issuer_shares():
+    annual = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
+        shares_outstanding=100.0,
+        treasury_shares=20.0,
+    )
+    tied = replace(
+        annual,
+        disclosure_number="same-time-ifrs",
+        document_type="FYFinancialStatements_Consolidated_IFRS",
+    )
+    assert _latest_non_null_row([annual, tied], "shares_outstanding") is not None
+    assert _ttm_value([annual, tied], "profit", DEFAULT_TTM_RULES) == (
+        None,
+        TTMQuality.UNAVAILABLE,
+    )
+    result = build_financial_snapshot(
+        10.0, [annual, tied], None, DEFAULT_TTM_RULES,
+        adjustment_events=(), asof_date=date(2025, 6, 1),
+    )
+    assert result.market_cap == 800.0
+
+
+def test_accruals_use_current_assets_when_prior_assets_have_another_standard():
+    prior = replace(
+        document(date(2023, 4, 1), date(2024, 3, 31), 50.0),
+        total_assets=200.0,
+    )
+    current = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 40.0),
+        document_type="FYFinancialStatements_Consolidated_IFRS",
+        total_assets=100.0,
+        cfo=10.0,
+    )
+
+    def accruals(rows):
+        return build_financial_snapshot(
+            10.0, rows, None, DEFAULT_TTM_RULES,
+            adjustment_events=(), asof_date=date(2025, 6, 1),
+        ).accruals_to_assets
+
+    assert accruals([prior, current]) == pytest.approx(0.3)
+    assert accruals(
+        [replace(prior, document_type="FYFinancialStatements_Consolidated_IFRS"), current]
+    ) == pytest.approx(0.2)
+
+
+def test_growth_reports_current_partial_standard_revision_and_keeps_issuer_shares():
+    prior, _, current = weekly_documents(date(2023, 2, 19))
+    current = replace(current, shares_outstanding=120.0)
+    correction = replace(
+        current,
+        disclosed_at=current.disclosed_at + timedelta(days=1),
+        disclosure_number="current-ifrs-profit-omitted",
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+        profit=None,
+        shares_outstanding=None,
+    )
+    state = build_period_states([prior, current, correction], sector="情報・通信業")[-1]
+    reported = next(item for item in state.observations if item.measurement == "reported")
+    assert reported.metrics["parent_profit"].reason == "accounting_standard_incomparable"
+    assert reported.metrics["issued_shares"].value == 120.0
+
+
+def test_same_time_dividend_notice_does_not_revoke_actual_statement_basis():
+    annual = document(date(2024, 4, 1), date(2025, 3, 31), 100.0)
+    dividend = replace(
+        annual,
+        disclosure_number="dividend-notice",
+        document_type="DividendForecastRevision",
+        sales=None,
+        operating_profit=None,
+        profit=None,
+        dps_actual_annual=5.0,
+    )
+    assert _ttm_value([annual, dividend], "profit", DEFAULT_TTM_RULES) == (
+        100.0,
+        TTMQuality.EXACT,
+    )
+    state = build_period_states([annual, dividend], sector="情報・通信業")[-1]
+    reported = next(item for item in state.observations if item.measurement == "reported")
+    assert reported.metrics["parent_profit"].value == 100.0
+    assert reported.accounting_standard == "JP"
 
 
 def test_multi_fy_average_cannot_mix_jp_and_ifrs_eps():

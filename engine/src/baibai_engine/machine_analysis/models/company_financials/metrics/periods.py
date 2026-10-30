@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     comparable_reporting_basis,
     disclosure_revision,
     latest_disclosure_candidates,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -29,6 +30,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
+_ISSUER_CAPITAL_FIELDS = frozenset({"shares_outstanding", "treasury_shares"})
 
 
 def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
@@ -41,11 +43,16 @@ def _latest_consistent_actual(
     if not candidates:
         return None
     period = max(map(accounting_period_identity, candidates))
+    period_rows = [row for row in candidates if accounting_period_identity(row) == period]
+    basis_rows = reporting_basis_rows(period_rows)
     latest = latest_disclosure_candidates(
-        [row for row in candidates if accounting_period_identity(row) == period]
+        basis_rows
+        if basis_rows and (not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS)
+        else period_rows
     )
-    if len({(statement_basis(row), accounting_standard(row)) for row in latest}) != 1:
-        return None
+    if not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS:
+        if len({(statement_basis(row), accounting_standard(row)) for row in latest}) != 1:
+            return None
     for field in fields:
         if any(field in row.unresolved_actual_fields for row in latest):
             return None
@@ -94,50 +101,37 @@ def _latest_actual_row(
     return _latest_consistent_actual(candidates, required if field_names else ())
 
 
-def _latest_actual_row_with_any(
-    summaries: Sequence[JQuantsFinancialSummary],
-    field_names: Sequence[str],
-) -> JQuantsFinancialSummary | None:
-    candidates = [
-        summary
-        for summary in summaries
-        if any(
-            getattr(summary, field_name) is not None
-            or field_name in summary.unresolved_actual_fields
-            for field_name in field_names
-        )
-    ]
-    return _latest_consistent_actual(candidates, ())
-
-
 def _latest_actual_row_by_field_priority(
     summaries: Sequence[JQuantsFinancialSummary],
     field_names: Sequence[str],
 ) -> JQuantsFinancialSummary | None:
     """Pick the preferred non-null metric without leaving the latest accounting period.
 
-    Actual corrections may update only a subset of a statement.  The newest row for a
-    period therefore cannot make a more specific metric from an earlier revision of the
-    same period disappear, but a metric from an older period must not replace a less
-    specific metric observed in the current period.
+    Actual corrections may update only part of a statement. An older field in
+    the selected period remains usable when the latest reporting basis agrees.
+    A new basis revision cannot revive an older field from that period.
     """
 
-    latest = _latest_actual_row_with_any(summaries, field_names)
+    latest = _latest_actual_row(summaries)
     if latest is None:
         return None
     period_key = accounting_period_identity(latest)
+    period_rows = [
+        summary for summary in summaries if accounting_period_identity(summary) == period_key
+    ]
     for field_name in field_names:
         candidates = [
             summary
-            for summary in summaries
-            if accounting_period_identity(summary) == period_key
-            and (
+            for summary in period_rows
+            if (
                 getattr(summary, field_name) is not None
                 or field_name in summary.unresolved_actual_fields
             )
         ]
         if candidates:
-            return _latest_consistent_actual(candidates, (field_name,))
+            selected = _latest_consistent_actual(candidates, (field_name,))
+            if selected is not None and latest_reporting_basis_matches(period_rows, selected):
+                return selected
     return None
 
 
@@ -212,6 +206,8 @@ def _prior_year_summary(
     """
     latest = (
         _latest_actual_row(summaries, field_names=(field_name,))
+        if field_name == "shares_outstanding"
+        else _latest_actual_row_by_field_priority(summaries, (field_name,))
         if field_name is not None
         else _latest_summary(summaries)
     )
@@ -394,6 +390,15 @@ def _matched_prior_period_summary(
     period = max(map(accounting_period_identity, candidates))
     period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
+    if comparison_field == "shares_outstanding":
+        # Issuer share counts remain observable through an unrelated profit-only
+        # correction, while an actual share correction or conflict still owns the value.
+        period_rows = [
+            row
+            for row in period_rows
+            if row.shares_outstanding is not None
+            or "shares_outstanding" in row.unresolved_actual_fields
+        ]
     # The latest correction for this period owns availability too. An older
     # field value cannot repair an absent latest operand, even on the same basis.
     return _latest_consistent_actual(

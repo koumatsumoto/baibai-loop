@@ -192,13 +192,27 @@ def comparable_reporting_basis(rows: Sequence[JQuantsFinancialSummary]) -> bool:
     )
 
 
+def reporting_basis_rows(
+    rows: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    """Forecast and dividend notices do not revise the actual statement basis."""
+    return [
+        row
+        for row in rows
+        if row.document_type not in {"EarnForecastRevision", "DividendForecastRevision"}
+    ]
+
+
 def latest_reporting_basis_matches(
     period_rows: Sequence[JQuantsFinancialSummary], selected: JQuantsFinancialSummary
 ) -> bool:
     """An older field value cannot outlive a newer standard or scope revision."""
+    basis_rows = reporting_basis_rows(period_rows)
+    if not basis_rows:
+        return False
     return {
         (statement_basis(row), accounting_standard(row))
-        for row in latest_disclosure_candidates(period_rows)
+        for row in latest_disclosure_candidates(basis_rows)
     } == {(statement_basis(selected), accounting_standard(selected))}
 
 
