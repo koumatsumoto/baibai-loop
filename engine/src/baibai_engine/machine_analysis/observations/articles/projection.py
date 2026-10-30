@@ -14,12 +14,12 @@ from email.utils import parsedate_to_datetime
 from pypdf.errors import PdfReadError
 
 from baibai_engine.data_collection.providers.articles.native import (
-    PARSER_REVISION,
     TEXT_REVISION,
     NativeArticleUnsupported,
     is_index_locator,
     parse_document,
     parse_index,
+    parser_revision_for,
 )
 from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
@@ -81,6 +81,7 @@ def project_receipt(
 ) -> tuple[ArticleProjectionRun, tuple[ArticleObservation, ...]]:
     """Save native run status, including valid empty and failed parse, independently of L1."""
     receipt = read_receipt(conn, receipt_id)
+    parser_revision = parser_revision_for(receipt.source)
     if index_observation_id is not None and kind != "document":
         raise ValueError("index observation applies only to document projection")
     index_observation = None
@@ -160,7 +161,7 @@ def project_receipt(
                     updated=native_time(item.updated_raw, source=receipt.source),
                     content_scope=item.content_scope,
                     missing_parts=item.missing_parts,
-                    parser_revision=PARSER_REVISION,
+                    parser_revision=parser_revision,
                     text_revision=TEXT_REVISION,
                     text=item.text,
                     native_metadata=item.metadata,
@@ -179,7 +180,7 @@ def project_receipt(
         {
             "receipt_id": receipt.receipt_id,
             "receipt_sha256": receipt.sha256,
-            "parser_revision": PARSER_REVISION,
+            "parser_revision": parser_revision,
             "generated_at": generated_at,
             "status": status,
             "observation_ids": tuple(item.observation_id for item in observations),
