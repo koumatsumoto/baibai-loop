@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -8,6 +8,7 @@ from baibai_engine.machine_analysis.models.industry_trends.calculations import (
     calculate_industry_trends,
     compare_claims,
 )
+from baibai_engine.machine_analysis.models.trend_payload import MAX_BYTES, MAX_RECORDS
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     Claim,
     ExtractionArtifact,
@@ -16,7 +17,6 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
 )
 from baibai_engine.machine_analysis.observations.trends.inputs import FixedTrendInputs
 from baibai_engine.machine_analysis.observations.trends.parsers import extract_tsr_performance
-from baibai_engine.machine_analysis.models.trend_payload import MAX_BYTES, MAX_RECORDS
 from baibai_engine.primitives.json import canonical_json
 
 
@@ -145,6 +145,43 @@ def test_payload_is_bounded_stable_and_omission_preserves_detail_refs():
     assert result["display"]["omitted_observations"] == 100 - len(result["observations"])
     assert result["detail"]["release_id"] == "synthetic"
     assert result == calculate_industry_trends(industry)
+
+
+def test_exact_reference_months_are_utc_and_304_body_owner_is_unknown():
+    base = survey()
+    evidence = base.evidence.model_copy(
+        update={
+            "receipt_sha256": "a" * 64,
+            "body_receipt_id": "body-owner",
+            "observation_id": "observation-1",
+            "observation_sha256": "b" * 64,
+            "receipt_id": "body-owner",
+            "received_at": datetime(2026, 10, 1, 8, 30, tzinfo=timezone(timedelta(hours=9))),
+        }
+    )
+    body_owner = base.model_copy(update={"evidence": evidence})
+    body_ref = calculate_industry_trends(generation_inputs(body_owner).industries[0])[
+        "observations"
+    ][0]["exact_evidence"]
+    assert body_ref["receipt_month"] == "2026-09"
+    assert body_ref["observation_month"] == "2026-09"
+    assert body_ref["body_month"] == "2026-09"
+    assert body_ref["artifact_month"] == "2026-10"
+
+    revalidated = body_owner.model_copy(
+        update={
+            "evidence": evidence.model_copy(
+                update={"receipt_id": "not-modified-receipt", "received_at": NOW}
+            )
+        }
+    )
+    revalidated_ref = calculate_industry_trends(generation_inputs(revalidated).industries[0])[
+        "observations"
+    ][0]["exact_evidence"]
+    assert revalidated_ref["receipt_month"] == "2026-10"
+    assert revalidated_ref["observation_month"] == "2026-10"
+    assert revalidated_ref["artifact_month"] == "2026-10"
+    assert revalidated_ref["body_month"] is None
 
 
 def test_fixed_input_rejects_substitution_or_future_artifacts():
