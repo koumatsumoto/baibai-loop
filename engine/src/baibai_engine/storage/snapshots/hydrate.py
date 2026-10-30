@@ -586,7 +586,8 @@ def _binary_hydrate_batches(
 
     for path in paths:
         try:
-            parquet = pq.ParquetFile(path)
+            # Prefetch could retain many BLOB row groups despite the one-row batch.
+            parquet = pq.ParquetFile(path, pre_buffer=False)
             try:
                 for batch in parquet.iter_batches(
                     batch_size=1, columns=list(names), use_threads=False
