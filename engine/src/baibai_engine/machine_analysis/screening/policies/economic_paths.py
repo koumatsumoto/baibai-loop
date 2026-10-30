@@ -169,18 +169,20 @@ def select_economic_paths(
             ranked.append((row, tuple(paths)))
     distributions = {path_id: sorted(values) for path_id, values in path_scores.items()}
     normalized: list[tuple[CompanyCoordinates, tuple[RankedPath, ...]]] = []
-    for row, paths in ranked:
+    for row, ranked_paths in ranked:
         comparable: list[RankedPath] = []
-        for path in paths:
-            distribution = distributions[path.path_id]
-            percentile = _midrank(distribution, path.score)
+        for ranked_path in ranked_paths:
+            distribution = distributions[ranked_path.path_id]
+            left = bisect_left(distribution, ranked_path.score)
+            right = bisect_right(distribution, ranked_path.score)
+            percentile = (left + right) / (2 * len(distribution))
             comparable.append(
                 replace(
-                    path,
+                    ranked_path,
                     normalization=PathNormalization(
                         percentile=percentile,
                         population=len(distribution),
-                        midrank=len(distribution) * (1 - percentile) + 0.5,
+                        midrank=len(distribution) - (left + right - 1) / 2,
                     ),
                 )
             )

@@ -164,7 +164,8 @@ def test_inactive_variant_only_supplies_its_reference_coordinates():
     cards = {card.ticker: card for card in result.cards}
     assert len(cards["1001"].paths) == 1
     assert cards["1001"].paths[0].variant == "quarter"
-    assert cards["1001"].priority == 0.5
+    assert cards["1001"].paths[0].score == 0.5
+    assert cards["1001"].priority == 0.75
     assert cards["1002"].paths[0].price_population == 2
     assert cards["1002"].paths[0].price_percentile == 0.25
     assert cards["1002"].paths[0].business_percentile == 0.25
