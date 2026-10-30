@@ -256,6 +256,103 @@ def test_new_release_retains_old_exact_quote_without_claiming_old_release_availa
     assert first_page["items"] != second_page["items"]
 
 
+def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_path):
+    feed_url = "https://news.web.nhk/n-data/conf/na/rss/cat4.xml"
+    page_url = "https://news.web.nhk/newsweb/na/synthetic"
+    feed = (
+        f"<rss><channel><item><guid>synthetic-guid</guid><link>{page_url}</link>"
+        "<title>Synthetic feed title</title><description>Short summary</description>"
+        "</item></channel></rss>"
+    ).encode()
+    page = b'<div itemprop="articleBody"><p>Synthetic body</p></div>'
+
+    def saved(conn, identity, source, url, body, at):
+        item = ArticleReceipt(
+            receipt_id=identity,
+            source=source,
+            requested_url=url,
+            received_at=at,
+            status="ok",
+            http_status=200,
+            body_ref=BodyRef(receipt_id=identity, sha256=hashlib.sha256(body).hexdigest()),
+        )
+        retain_receipt(conn, item, body=body)
+
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        saved(conn, "feed", "nhk_news", feed_url, feed, AT)
+        _, (index,) = project_receipt(conn, "feed", generated_at=AT)
+        saved(conn, "body", "nhk_news", page_url, page, AT + timedelta(minutes=1))
+        _, (first,) = project_receipt(
+            conn,
+            "body",
+            kind="document",
+            index_observation_id=index.observation_id,
+            generated_at=AT,
+        )
+        assert first.article_id == index.article_id == "nhk_news:synthetic-guid"
+        assert first.title == "Synthetic feed title"
+        assert first.native_metadata["index_observation_id"] == index.observation_id
+        _, (orphan,) = project_receipt(conn, "body", kind="document", generated_at=AT)
+        assert orphan.article_id == f"nhk_news:{page_url}"
+        assert "index_observation_id" not in orphan.native_metadata
+        saved(conn, "feed-again", "nhk_news", feed_url, feed, AT + timedelta(minutes=2))
+        _, (later_index,) = project_receipt(conn, "feed-again", generated_at=AT)
+        saved(conn, "again", "nhk_news", page_url, page, AT + timedelta(minutes=3))
+        _, (second,) = project_receipt(
+            conn,
+            "again",
+            kind="document",
+            index_observation_id=later_index.observation_id,
+            generated_at=AT,
+        )
+        assert second.article_id == first.article_id
+        assert second.article_version_id == first.article_version_id
+        assert second.observation_id != first.observation_id
+        assert second.native_metadata["index_observation_id"] == later_index.observation_id
+        saved(
+            conn,
+            "other-body",
+            "nhk_news",
+            "https://news.web.nhk/newsweb/na/other",
+            page,
+            AT + timedelta(minutes=4),
+        )
+        with pytest.raises(ArticleStoreError, match="does not identify"):
+            project_receipt(
+                conn,
+                "other-body",
+                kind="document",
+                index_observation_id=index.observation_id,
+            )
+
+
+def test_tsr_document_uses_explicit_feed_title_when_h1_is_missing(tmp_path):
+    body_url = "https://www.tsr-net.co.jp/data/detail/synthetic.html"
+    feed = payload(title="Synthetic TSR index title")
+    body = b'<div class="entry"><p>Synthetic article text</p></div>'
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt("tsr-feed", feed), body=feed)
+        _, (index,) = project_receipt(conn, "tsr-feed", generated_at=AT)
+        retain_receipt(
+            conn,
+            ArticleReceipt(
+                receipt_id="tsr-body",
+                source="tsr_data",
+                requested_url=body_url,
+                received_at=AT + timedelta(minutes=1),
+                status="ok",
+                http_status=200,
+                body_ref=BodyRef(receipt_id="tsr-body", sha256=hashlib.sha256(body).hexdigest()),
+            ),
+            body=body,
+        )
+        _, (document,) = project_receipt(
+            conn, "tsr-body", kind="document", index_observation_id=index.observation_id
+        )
+        assert document.title == "Synthetic TSR index title"
+        assert document.article_id == index.article_id
+
+
 def test_explicit_schema_upgrade_preserves_old_store_and_operator_rows(tmp_path):
     source = tmp_path / "old.sqlite"
     old_ddl = schema._SCHEMA_SQL.replace(ARTICLE_RECEIPTS_DDL, "").replace(

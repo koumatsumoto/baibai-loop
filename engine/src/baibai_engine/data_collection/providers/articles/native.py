@@ -236,7 +236,9 @@ def parse_document(
         ),
         None,
     )
-    heading = next((node.text().strip() for node in nodes if node.tag == "h1"), title)
+    heading = next(
+        (text for node in nodes if node.tag == "h1" if (text := node.text().strip())), title
+    )
     classes = {
         "tsr_data": ("entry",),
         "tsr_flash": ("entry",),

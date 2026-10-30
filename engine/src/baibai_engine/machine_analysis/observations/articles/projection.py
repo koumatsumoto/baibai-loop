@@ -26,7 +26,11 @@ from baibai_engine.machine_analysis.observations.articles.contracts import (
     ArticleProjectionRun,
     ArticleTime,
 )
-from baibai_engine.machine_analysis.observations.articles.store import save_projection
+from baibai_engine.machine_analysis.observations.articles.store import (
+    ArticleStoreError,
+    read_observations,
+    save_projection,
+)
 
 
 def native_time(value: str | None, *, source: str) -> ArticleTime:
@@ -68,10 +72,31 @@ def project_receipt(
     *,
     kind: str = "index",
     title: str = "",
+    index_observation_id: str | None = None,
     generated_at: datetime | None = None,
 ) -> tuple[ArticleProjectionRun, tuple[ArticleObservation, ...]]:
     """Save native run status, including valid empty and failed parse, independently of L1."""
     receipt = read_receipt(conn, receipt_id)
+    if index_observation_id is not None and kind != "document":
+        raise ValueError("index observation applies only to document projection")
+    index_observation = None
+    if index_observation_id is not None:
+        index_observation = read_observations(conn, [index_observation_id])[0]
+        index_receipt = read_receipt(
+            conn,
+            index_observation.receipt_id,
+            receipt_sha256=index_observation.receipt_sha256,
+        )
+        fetch_url = index_observation.native_metadata.get("fetch_url")
+        if not isinstance(fetch_url, str):
+            fetch_url = index_observation.original_url
+        if (
+            index_observation.source != receipt.source
+            or fetch_url != receipt.requested_url
+            or index_receipt.received_at > receipt.received_at
+            or not index_observation.native_locator.startswith(("/item/", "/url/", "/a/"))
+        ):
+            raise ArticleStoreError("index observation does not identify this document receipt")
     generated_at = generated_at or datetime.now(UTC)
     observations: tuple[ArticleObservation, ...] = ()
     error_code = None
@@ -94,10 +119,22 @@ def project_receipt(
                         receipt.source,
                         body,
                         url=receipt.requested_url,
-                        title=title,
+                        title=index_observation.title if index_observation else title,
                         encoding=receipt.encoding or "utf-8",
                     ),
                 )
+                if index_observation is not None:
+                    native = (
+                        native[0].model_copy(
+                            update={
+                                "article_id": index_observation.article_id,
+                                "metadata": {
+                                    **native[0].metadata,
+                                    "index_observation_id": index_observation_id,
+                                },
+                            }
+                        ),
+                    )
             else:
                 raise ValueError("unsupported projection kind")
             observations = tuple(
