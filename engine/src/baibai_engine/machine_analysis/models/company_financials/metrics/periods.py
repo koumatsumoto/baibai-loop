@@ -403,16 +403,15 @@ def _matched_prior_period_summary(
     comparison_field = value_field or field_name
     # YoY keeps the last observed field within its fixed prior period. TTM
     # operands use value_field and retain their stricter latest-revision barrier.
-    observed_rows = (
-        [
+    if field_name is not None:
+        observed_rows = [
             row
             for row in period_rows
-            if getattr(row, comparison_field) is not None
-            or comparison_field in row.unresolved_actual_fields
+            if getattr(row, field_name) is not None
+            or field_name in row.unresolved_actual_fields
         ]
-        if field_name is not None
-        else period_rows
-    )
+    else:
+        observed_rows = period_rows
     selected = _latest_consistent_actual(
         observed_rows, (comparison_field,) if comparison_field is not None else ()
     )
