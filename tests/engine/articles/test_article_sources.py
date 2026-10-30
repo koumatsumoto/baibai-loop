@@ -317,3 +317,49 @@ def test_provider_interval_applies_to_every_request_without_real_sleep(monkeypat
     budget.request()
     assert waits == [1.0, 1.0]
     assert budget.requests_used == 3
+
+
+def test_article_get_uses_shared_honest_identity_on_each_attempt():
+    from unittest.mock import patch
+
+    from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
+    from baibai_engine.data_collection.transport.public_pages import MINKABU_PUBLIC_HEADERS
+
+    with requests.Session() as session:
+        default_agent = session.headers["User-Agent"]
+        with patch.object(session, "get", side_effect=[response(304), response(200, b"[]")]) as get:
+            attempts = fetch(session)
+        assert len(attempts) == 2
+        for call in get.call_args_list:
+            # Check Requests' actual header merge without sending any request.
+            prepared = session.prepare_request(
+                requests.Request("GET", call.args[0], headers=call.kwargs["headers"])
+            )
+            assert prepared.headers["User-Agent"] == PUBLIC_RESEARCH_USER_AGENT
+            assert prepared.headers["User-Agent"] == MINKABU_PUBLIC_HEADERS["User-Agent"]
+            assert prepared.headers["User-Agent"] == "baibai-loop-public-research/1.0"
+            assert "application/json" in prepared.headers["Accept"]
+        assert session.headers["User-Agent"] == default_agent
+
+
+def test_conditional_article_get_keeps_identity_with_validators():
+    from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
+
+    baseline = ArticleReceipt(
+        receipt_id="old",
+        source="tsr_data",
+        requested_url=SOURCES["tsr_data"].entry_url,
+        received_at=datetime(2026, 1, 1, tzinfo=UTC),
+        status="ok",
+        http_status=200,
+        etag='"old"',
+        last_modified="Wed, 01 Jan 2025 00:00:00 GMT",
+        body_ref=BodyRef(receipt_id="old", sha256="a" * 64),
+    )
+    session = Mock(spec=requests.Session)
+    session.get.return_value = response(304)
+    fetch(session, baseline=baseline)
+    headers = session.get.call_args.kwargs["headers"]
+    assert headers["User-Agent"] == PUBLIC_RESEARCH_USER_AGENT
+    assert headers["If-None-Match"] == baseline.etag
+    assert headers["If-Modified-Since"] == baseline.last_modified
