@@ -38,6 +38,7 @@ from baibai_engine.machine_analysis.observations.articles.store import (
     read_artifacts,
     read_observations,
     save_artifact,
+    save_projection,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.models import ReleaseDatasetPolicy, ReleasePolicy
@@ -68,6 +69,41 @@ def test_article_digest_reuses_canonical_json_without_changing_json_value_hashes
     ).encode("utf-8")
     assert canonical_json(value).encode("utf-8") == original
     assert digest_json(value) == hashlib.sha256(original).hexdigest()
+
+
+def test_projection_replay_returns_first_run_without_appending_history(tmp_path):
+    body = b"[]"
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt("replayed", body), body=body)
+        first, first_observations = project_receipt(conn, "replayed", generated_at=AT)
+        replay, replay_observations = project_receipt(
+            conn, "replayed", generated_at=AT + timedelta(hours=1)
+        )
+        assert replay == first
+        assert replay.generated_at == AT
+        assert first_observations == replay_observations == ()
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 1
+        changed_parser = save_projection(
+            conn,
+            first.model_copy(
+                update={
+                    "parser_revision": "synthetic-parser-v2",
+                    "generated_at": AT + timedelta(hours=2),
+                }
+            ),
+            (),
+        )
+        assert changed_parser.run_id != first.run_id
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 2
+        parsed_body = payload()
+        retain_receipt(conn, receipt("parsed-replay", parsed_body), body=parsed_body)
+        parsed, observations = project_receipt(conn, "parsed-replay", generated_at=AT)
+        again, repeated_observations = project_receipt(
+            conn, "parsed-replay", generated_at=AT + timedelta(hours=3)
+        )
+        assert again == parsed
+        assert repeated_observations == observations
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 3
 
 
 def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):

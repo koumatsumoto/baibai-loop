@@ -22,7 +22,7 @@ def save_projection(
     conn: sqlite3.Connection,
     run: ArticleProjectionRun,
     observations: Sequence[ArticleObservation],
-) -> None:
+) -> ArticleProjectionRun:
     receipt = read_receipt(conn, run.receipt_id, receipt_sha256=run.receipt_sha256)
     if tuple(item.observation_id for item in observations) != run.observation_ids:
         raise ArticleStoreError("projection run differs from its observation IDs")
@@ -62,11 +62,40 @@ def save_projection(
             if previous is not None and previous[0] != row[4]:
                 raise ArticleStoreError("observation identity collision")
             conn.execute("INSERT OR IGNORE INTO article_observations VALUES (?,?,?,?,?,?)", row)
-        conn.execute(
-            "INSERT OR IGNORE INTO article_projection_runs VALUES (?,?,?,?)",
-            (run.run_id, run.receipt_id, utc_day(run.generated_at), run.model_dump_json()),
-        )
+        canonical: ArticleProjectionRun | None = None
+        for identity, raw in conn.execute(
+            "SELECT run_id,run_json FROM article_projection_runs WHERE receipt_id=?",
+            (run.receipt_id,),
+        ):
+            previous = ArticleProjectionRun.model_validate_json(raw)
+            if previous.run_id != identity:
+                raise ArticleStoreError("projection run identity mismatch")
+            if (
+                previous.receipt_sha256,
+                previous.parser_revision,
+                previous.status,
+                previous.observation_ids,
+                previous.error_code,
+            ) == (
+                run.receipt_sha256,
+                run.parser_revision,
+                run.status,
+                run.observation_ids,
+                run.error_code,
+            ) and (
+                canonical is None
+                or (previous.generated_at, previous.run_id)
+                < (canonical.generated_at, canonical.run_id)
+            ):
+                canonical = previous
+        if canonical is None:
+            conn.execute(
+                "INSERT OR IGNORE INTO article_projection_runs VALUES (?,?,?,?)",
+                (run.run_id, run.receipt_id, utc_day(run.generated_at), run.model_dump_json()),
+            )
+            canonical = run
         conn.execute("RELEASE article_projection")
+        return canonical
     except BaseException:
         conn.execute("ROLLBACK TO article_projection")
         conn.execute("RELEASE article_projection")

@@ -178,5 +178,4 @@ def project_receipt(
             "error_code": error_code,
         }
     )
-    save_projection(conn, run, observations)
-    return run, observations
+    return save_projection(conn, run, observations), observations
