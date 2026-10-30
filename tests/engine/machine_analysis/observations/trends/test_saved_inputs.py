@@ -261,6 +261,25 @@ def test_unchanged_index_after_document_keeps_fixed_document_claims(tmp_path):
     )
 
 
+def test_first_unbound_index_cannot_make_older_document_current(tmp_path):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as conn, conn:
+        _, document = retain(conn, received_at=NOW - timedelta(days=1))
+        (old_artifact,) = extract_observations(
+            conn, (document.observation_id,), generated_at=NOW - timedelta(days=1)
+        )
+        first_index = retain_index(conn, "first-index", received_at=NOW)
+    inputs = read(path).industries[0].inputs
+    result = calculate_industry_trends(read(path).industries[0])
+    assert result["observations"] == []
+    assert any("newer_index_revision_unknown" in reason for reason in inputs.coverage.reasons)
+    (state,) = result["extraction_states"]
+    assert state["status"] == "unsupported"
+    assert state["artifact"]["artifact_id"] != old_artifact.artifact_id
+    assert state["last_known"]["artifact_id"] == old_artifact.artifact_id
+    assert inputs.artifacts[0].current.evidence.observation_id == first_index.observation_id
+
+
 def test_changed_index_marks_unverified_body_and_new_failed_body_stays_current(tmp_path):
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as conn, conn:

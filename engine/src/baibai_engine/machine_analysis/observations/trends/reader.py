@@ -373,12 +373,10 @@ def read_trend_source(
             changed = _index_change(conn, observation, document, cutoff=cutoff, as_of=as_of)
             if changed is True:
                 reasons.append(f"index_changed_document_unverified:{observation.observation_id}")
-            else:
+            elif changed is False:
                 observation = document
-                if changed is None:
-                    reasons.append(
-                        f"newer_index_revision_unknown:{latest_observation.observation_id}"
-                    )
+            else:
+                reasons.append(f"newer_index_revision_unknown:{latest_observation.observation_id}")
         current, reason = _choose(conn, observation, cutoff=cutoff)
         if reason is not None:
             reasons.append(f"{reason}:{observation.observation_id}")
