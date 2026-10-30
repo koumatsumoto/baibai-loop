@@ -318,9 +318,12 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_public_summary_contract(
     body = parse_document(
         "nhk_news",
         b'<main>Related stories and account UI</main><script type="application/ld+json">'
-        b'{"@type":"NewsArticle","headline":"Synthetic","description":"Public short summary",'
+        b'{"@type":"NewsArticle","headline":{"@value":"Synthetic","@language":"ja"},'
+        b'"description":{"@value":"Public short summary","@language":"ja"},'
         b'"identifier":"synthetic-id","datePublished":"2026-10-30T09:00:00+09:00",'
-        b'"dateModified":"2026-10-30T10:00:00+09:00"}</script>',
+        b'"dateModified":"2026-10-30T10:00:00+09:00",'
+        b'"mainEntityOfPage":{"@type":"WebPage",'
+        b'"@id":"https://news.web.nhk/newsweb/na/synthetic"}}</script>',
         url=url,
     )
     assert body.text == "Public short summary"
@@ -329,6 +332,17 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_public_summary_contract(
     assert body.published_raw == "2026-10-30T09:00:00+09:00"
     assert body.updated_raw == "2026-10-30T10:00:00+09:00"
     assert body.metadata["identifier"] == "synthetic-id"
+    assert body.metadata["headline_language"] == "ja"
+    assert body.metadata["description_language"] == "ja"
+    with pytest.raises(NativeArticleUnsupported, match="description"):
+        parse_document(
+            "nhk_news",
+            b'<script type="application/ld+json">'
+            b'{"@type":"NewsArticle","description":{"@value":"Synthetic",'
+            b'"@language":"ja"},"mainEntityOfPage":{"@type":"WebPage",'
+            b'"@id":"https://news.web.nhk/newsweb/na/another"}}</script>',
+            url=url,
+        )
     with pytest.raises(NativeArticleUnsupported, match="description"):
         parse_document(
             "nhk_news",

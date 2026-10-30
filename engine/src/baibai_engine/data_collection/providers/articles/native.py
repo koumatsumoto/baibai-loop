@@ -219,6 +219,23 @@ def _nhk_public_description(
     nodes: list[Node], *, url: str, title: str, canonical: str | None
 ) -> NativeArticle:
     """The public NewsArticle description is a summary, never a verified full body."""
+
+    def text_value(value: object) -> tuple[str, str | None] | None:
+        if isinstance(value, str):
+            return (plain_text(value), None)
+        if not isinstance(value, dict):
+            return None
+        raw = value.get("@value")
+        language = value.get("@language")
+        if (
+            not isinstance(raw, str)
+            or not isinstance(language, str)
+            or len(language) > 35
+            or (language.lower() != "ja" and not language.lower().startswith("ja-"))
+        ):
+            return None
+        return (plain_text(raw), language)
+
     candidates = []
     for node in nodes:
         if node.tag != "script" or node.attrs.get("type", "").lower() != "application/ld+json":
@@ -241,18 +258,28 @@ def _nhk_public_description(
                 kinds = entry.get("@type")
                 if "NewsArticle" not in (kinds if isinstance(kinds, list) else [kinds]):
                     continue
-                description = entry.get("description")
-                if not isinstance(description, str) or not plain_text(description):
+                description = text_value(entry.get("description"))
+                if description is None or not description[0]:
                     continue
                 linked_url = entry.get("url")
                 if isinstance(linked_url, str) and linked_url not in {url, canonical}:
                     continue
-                candidates.append(entry)
+                main_entity = entry.get("mainEntityOfPage")
+                if main_entity is not None:
+                    if not isinstance(main_entity, dict) or main_entity.get("@type") != "WebPage":
+                        continue
+                    if main_entity.get("@id") not in {url, canonical}:
+                        continue
+                candidates.append((entry, description))
     if len(candidates) != 1:
         raise NativeArticleUnsupported("NHK public NewsArticle description is unsupported")
-    entry = candidates[0]
-    headline = entry.get("headline")
+    entry, description = candidates[0]
+    headline = text_value(entry.get("headline"))
     metadata: dict[str, JsonValue] = {"format": "newsarticle_jsonld_description"}
+    if description[1] is not None:
+        metadata["description_language"] = description[1]
+    if headline is not None and headline[1] is not None:
+        metadata["headline_language"] = headline[1]
     identifier = entry.get("identifier")
     if isinstance(identifier, str):
         metadata["identifier"] = identifier
@@ -260,8 +287,8 @@ def _nhk_public_description(
         article_id=f"nhk_news:{url}",
         locator="/html/newsarticle-description",
         url=url,
-        title=title or (plain_text(headline) if isinstance(headline, str) else ""),
-        text=plain_text(entry["description"]),
+        title=title or (headline[0] if headline is not None else ""),
+        text=description[0],
         content_scope="summary",
         canonical_url=canonical,
         missing_parts=("full_article_body",),

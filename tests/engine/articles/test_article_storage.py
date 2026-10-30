@@ -386,8 +386,10 @@ def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_pat
     ).encode()
     page = (
         b'<main>Related stories</main><script type="application/ld+json">'
-        b'{"@type":"NewsArticle","description":"Synthetic public summary",'
-        b'"datePublished":"2026-10-30T09:00:00+09:00"}</script>'
+        b'{"@type":"NewsArticle","description":{"@value":"Synthetic public summary",'
+        b'"@language":"ja"},"datePublished":"2026-10-30T09:00:00+09:00",'
+        b'"mainEntityOfPage":{"@type":"WebPage",'
+        b'"@id":"https://news.web.nhk/newsweb/na/synthetic"}}</script>'
     )
 
     def saved(conn, identity, source, url, body, at):
@@ -467,9 +469,15 @@ def test_sitemap_locator_binds_supported_feed_to_document(tmp_path, source):
     feed = (
         f"<urlset><url><loc>{document_url}</loc><title>Index title</title></url></urlset>"
     ).encode()
+    nhk_json = json.dumps(
+        {
+            "@type": "NewsArticle",
+            "description": {"@value": "Synthetic public summary", "@language": "ja"},
+            "mainEntityOfPage": {"@type": "WebPage", "@id": document_url},
+        }
+    ).encode()
     document = (
-        b'<script type="application/ld+json">'
-        b'{"@type":"NewsArticle","description":"Synthetic public summary"}</script>'
+        b'<script type="application/ld+json">' + nhk_json + b"</script>"
         if source == "nhk_news"
         else b"<main>Synthetic story</main>"
     )
