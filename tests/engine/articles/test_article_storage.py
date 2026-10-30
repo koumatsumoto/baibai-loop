@@ -416,9 +416,8 @@ def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_pat
             project_receipt(conn, "body", kind="document", generated_at=AT)
         orphan_url = "https://news.web.nhk/newsweb/na/orphan"
         saved(conn, "orphan", "nhk_news", orphan_url, page, AT + timedelta(minutes=1))
-        _, (orphan,) = project_receipt(conn, "orphan", kind="document", generated_at=AT)
-        assert orphan.article_id == f"nhk_news:{orphan_url}"
-        assert "index_observation_id" not in orphan.native_metadata
+        with pytest.raises(ArticleStoreError, match="requires explicit index"):
+            project_receipt(conn, "orphan", kind="document", generated_at=AT)
         saved(conn, "feed-again", "nhk_news", feed_url, feed, AT + timedelta(minutes=2))
         _, (later_index,) = project_receipt(conn, "feed-again", generated_at=AT)
         saved(conn, "again", "nhk_news", page_url, page, AT + timedelta(minutes=3))

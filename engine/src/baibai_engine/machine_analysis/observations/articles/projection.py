@@ -98,23 +98,10 @@ def project_receipt(
             or not is_index_locator(receipt.source, index_observation.native_locator)
         ):
             raise ArticleStoreError("index observation does not identify this document receipt")
-    elif kind == "document" and receipt.source == "nhk_news" and receipt.body_ref is not None:
-        # A directly fetched orphan has URL identity. A retained feed match must
-        # instead name its exact observation; choosing a GUID by URL is ambiguous.
-        for (raw,) in conn.execute(
-            "SELECT observation_json FROM article_observations "
-            "WHERE json_extract(observation_json,'$.source')='nhk_news' "
-            "AND json_extract(observation_json,'$.original_url')=?",
-            (receipt.requested_url,),
-        ):
-            candidate = ArticleObservation.model_validate_json(raw)
-            if not is_index_locator(candidate.source, candidate.native_locator):
-                continue
-            origin = read_receipt(
-                conn, candidate.receipt_id, receipt_sha256=candidate.receipt_sha256
-            )
-            if origin.received_at <= receipt.received_at:
-                raise ArticleStoreError("NHK document requires explicit index observation")
+    elif kind == "document" and receipt.source == "nhk_news":
+        # Feed GUID is the provider identity. Never create an unbound URL series
+        # before its index evidence is retained.
+        raise ArticleStoreError("NHK document requires explicit index observation")
     generated_at = generated_at or datetime.now(UTC)
     observations: tuple[ArticleObservation, ...] = ()
     error_code = None
