@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from baibai_engine.data_collection.receipts.articles.store import read_receipt
 from baibai_engine.machine_analysis.observations.articles.contracts import ArticleObservation
@@ -489,7 +489,7 @@ def read_trend_source(
             "continuation": (
                 "articles.list:same_manifest:"
                 f"window={start.isoformat()}..{as_of.isoformat()}:"
-                f"months={','.join(_window_months(start, as_of))}:"
+                f"months={','.join(_window_months(start, max(as_of, cutoff.astimezone(UTC).date())))}:"
                 "month=<each-listed-month>,after=null"
                 if omitted
                 else None

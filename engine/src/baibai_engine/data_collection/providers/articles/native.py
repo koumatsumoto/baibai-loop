@@ -236,6 +236,9 @@ def _nhk_public_description(
             return None
         return (plain_text(raw), language)
 
+    accepted_urls = {url}
+    if canonical:
+        accepted_urls.add(canonical)
     candidates = []
     for node in nodes:
         if node.tag != "script" or node.attrs.get("type", "").lower() != "application/ld+json":
@@ -251,7 +254,8 @@ def _nhk_public_description(
         for root in roots:
             if not isinstance(root, dict):
                 continue
-            entries = root.get("@graph") if isinstance(root.get("@graph"), list) else [root]
+            graph = root.get("@graph")
+            entries = graph if isinstance(graph, list) else [root]
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
@@ -262,14 +266,24 @@ def _nhk_public_description(
                 if description is None or not description[0]:
                     continue
                 linked_url = entry.get("url")
-                if isinstance(linked_url, str) and linked_url not in {url, canonical}:
+                linked = (
+                    isinstance(linked_url, str) and bool(linked_url) and linked_url in accepted_urls
+                )
+                if linked_url is not None and not linked:
                     continue
                 main_entity = entry.get("mainEntityOfPage")
+                page_linked = False
                 if main_entity is not None:
                     if not isinstance(main_entity, dict) or main_entity.get("@type") != "WebPage":
                         continue
-                    if main_entity.get("@id") not in {url, canonical}:
+                    page_id = main_entity.get("@id")
+                    page_linked = (
+                        isinstance(page_id, str) and bool(page_id) and page_id in accepted_urls
+                    )
+                    if not page_linked:
                         continue
+                if not (linked or page_linked):
+                    continue
                 candidates.append((entry, description))
     if len(candidates) != 1:
         raise NativeArticleUnsupported("NHK public NewsArticle description is unsupported")

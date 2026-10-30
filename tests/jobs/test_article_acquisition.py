@@ -335,7 +335,7 @@ def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(tmp_path, monke
     saved = json.loads((second / "result.json").read_text())
     assert original["index_receipt_id"] in saved["receipt_ids"]
     assert (
-        list(saved["document_evidence"].values())[0]["index_receipt_id"]
+        next(iter(saved["document_evidence"].values()))["index_receipt_id"]
         == original["index_receipt_id"]
     )
     database = tmp_path / "market.sqlite"

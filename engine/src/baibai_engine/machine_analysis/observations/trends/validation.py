@@ -84,13 +84,15 @@ def decode_artifact(
         ):
             raise ValueError("semantic evidence differs from retained observation")
         decoded.verify_text(DocumentText(evidence=evidence, text=observation.text))
-    if receipt is not None:
-        if observation is None or (
+    if receipt is not None and (
+        observation is None
+        or (
             receipt.receipt_id != observation.receipt_id
             or receipt.sha256 != observation.receipt_sha256
             or receipt.body_ref != observation.body_ref
             or receipt.source != observation.source
             or decoded.evidence.received_at != receipt.received_at
-        ):
-            raise ValueError("semantic evidence differs from retained receipt")
+        )
+    ):
+        raise ValueError("semantic evidence differs from retained receipt")
     return decoded

@@ -355,7 +355,7 @@ def test_new_release_retains_old_exact_quote_without_claiming_old_release_availa
     assert reference.receipt_month == "2026-10"
     assert reference.body_month == "2026-10"
     with pytest.raises(
-        LakeReadError, match="does not publish articles.source_receipts for 2026-09"
+        LakeReadError, match=r"does not publish articles\.source_receipts for 2026-09"
     ):
         old.get(reference.model_copy(update={"receipt_month": "2026-09"}))
     with closing(schema.open_connection(path)) as conn, conn:

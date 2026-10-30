@@ -338,6 +338,21 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_public_summary_contract(
         parse_document(
             "nhk_news",
             b'<script type="application/ld+json">'
+            b'{"@type":"NewsArticle","description":"Synthetic without page anchor"}</script>',
+            url=url,
+        )
+    with pytest.raises(NativeArticleUnsupported, match="description"):
+        parse_document(
+            "nhk_news",
+            b'<script type="application/ld+json">'
+            b'{"@type":"NewsArticle","description":"Synthetic null anchor",'
+            b'"mainEntityOfPage":{"@type":"WebPage","@id":null}}</script>',
+            url=url,
+        )
+    with pytest.raises(NativeArticleUnsupported, match="description"):
+        parse_document(
+            "nhk_news",
+            b'<script type="application/ld+json">'
             b'{"@type":"NewsArticle","description":{"@value":"Synthetic",'
             b'"@language":"ja"},"mainEntityOfPage":{"@type":"WebPage",'
             b'"@id":"https://news.web.nhk/newsweb/na/another"}}</script>',

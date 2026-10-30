@@ -451,6 +451,15 @@ def test_industry_scope_limits_do_not_erase_other_survey(tmp_path):
     assert "window=2026-04-28..2026-10-25" in pharma.inputs.coverage.continuation
     assert "months=2026-04,2026-05" in pharma.inputs.coverage.continuation
     assert "2026-10:month=<each-listed-month>" in pharma.inputs.coverage.continuation
+    later_cutoff = read_trend_inputs(
+        path,
+        release_id="synthetic",
+        release_sha256="a" * 64,
+        cutoff=NOW + timedelta(days=40),
+        as_of=NOW.date(),
+    ).industries[0]
+    assert "window=2026-04-28..2026-10-25" in later_cutoff.inputs.coverage.continuation
+    assert "2026-12:month=<each-listed-month>" in later_cutoff.inputs.coverage.continuation
     assert any(
         selection.current.claims
         and selection.current.claims[0].scope.scope_id == "jp-pharmaceutical-wholesale"
@@ -548,10 +557,10 @@ def test_historical_as_of_excludes_later_publication_but_keeps_future_plan(tmp_p
 
 @pytest.mark.parametrize(
     ("new_published", "new_updated", "exclusion_reason"),
-    (
+    [
         ("2026-10-24T12:00:00+09:00", "2026-10-28", "future_updates_excluded"),
         ("2026-10-26T00:30:00+09:00", None, "future_publications_excluded"),
-    ),
+    ],
 )
 def test_historical_as_of_uses_article_version_local_calendar_dates(
     tmp_path, new_published, new_updated, exclusion_reason
