@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from baibai_engine.cli.articles import _semantic_validation
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleEvidenceRef,
     ArticleReceipt,
@@ -104,6 +105,20 @@ def test_projection_replay_returns_first_run_without_appending_history(tmp_path)
         assert again == parsed
         assert repeated_observations == observations
         assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 3
+
+
+def test_cli_semantic_seam_rejects_malformed_known_payload_without_claiming_unknown_valid(tmp_path):
+    body = payload()
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt("semantic", body), body=body)
+        _, (observation,) = project_receipt(conn, "semantic", generated_at=AT)
+        unknown = artifact(observation)
+        assert _semantic_validation(unknown, observation) == "raw_integrity_only"
+        with pytest.raises(ValueError):
+            _semantic_validation(
+                unknown.model_copy(update={"payload": {"schema": "trend-claims-v1"}}),
+                observation,
+            )
 
 
 def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):

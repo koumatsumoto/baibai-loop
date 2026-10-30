@@ -13,10 +13,20 @@ from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleReceipt,
 )
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
-from baibai_engine.machine_analysis.observations.articles.contracts import ArticleExtractionArtifact
+from baibai_engine.machine_analysis.observations.articles.contracts import (
+    ArticleExtractionArtifact,
+    ArticleObservation,
+)
 from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
 from baibai_engine.machine_analysis.observations.articles.reader import FixedArticleReader
-from baibai_engine.machine_analysis.observations.articles.store import save_artifact
+from baibai_engine.machine_analysis.observations.articles.store import (
+    read_observations,
+    save_artifact,
+)
+from baibai_engine.machine_analysis.observations.trends.validation import (
+    PAYLOAD_SCHEMA,
+    decode_artifact,
+)
 from baibai_engine.storage.snapshots.objects import (
     LakeObjectCache,
     LocalMirrorSource,
@@ -26,6 +36,7 @@ from baibai_engine.storage.snapshots.objects import (
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
+
 _COMMAND_HELP = {
     "save-receipt": "Save an immutable receipt and its private original body.",
     "save-artifact": "Save an extraction artifact bound to retained text coordinates.",
@@ -34,6 +45,18 @@ _COMMAND_HELP = {
     "get": "Read exact article evidence from its original fixed release.",
     "exact-evidence": "Resolve exact cited evidence in an explicitly selected retained release.",
 }
+
+
+def _semantic_validation(
+    artifact: ArticleExtractionArtifact | None, observation: ArticleObservation | None
+) -> str:
+    """Validate known claims at the CLI seam; unknown payloads have raw integrity only."""
+    if artifact is None or artifact.payload.get("schema") != PAYLOAD_SCHEMA:
+        return "raw_integrity_only"
+    if observation is None:
+        raise ValueError("trend artifact requires its retained observation")
+    decode_artifact(artifact, observation)
+    return PAYLOAD_SCHEMA
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,8 +115,14 @@ def _run(argv: list[str] | None = None) -> int:
                 artifact = ArticleExtractionArtifact.model_validate_json(
                     args.artifact_file.read_bytes()
                 )
+                observation = read_observations(conn, [artifact.observation_id])[0]
+                semantic_validation = _semantic_validation(artifact, observation)
                 save_artifact(conn, artifact)
-                result = {"artifact_id": artifact.artifact_id, "sha256": artifact.sha256}
+                result = {
+                    "artifact_id": artifact.artifact_id,
+                    "sha256": artifact.sha256,
+                    "semantic_validation": semantic_validation,
+                }
             else:
                 run, observations = project_receipt(conn, args.receipt_id, kind=args.kind)
                 result = {
@@ -116,6 +145,7 @@ def _run(argv: list[str] | None = None) -> int:
             evidence = (
                 reader.get(reference) if args.command == "get" else reader.exact_evidence(reference)
             )
+            semantic_validation = _semantic_validation(evidence.artifact, evidence.observation)
             args.output_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
             # Refuse accidental replacement; the command is explicit private materialization.
             with (args.output_dir / "body.bin").open("xb") as output:
@@ -131,6 +161,7 @@ def _run(argv: list[str] | None = None) -> int:
                 "artifact": evidence.artifact.model_dump(mode="json")
                 if evidence.artifact
                 else None,
+                "semantic_validation": semantic_validation,
             }
             with (args.output_dir / "evidence.json").open("x") as output:
                 json.dump(payload, output, ensure_ascii=False)
@@ -139,6 +170,7 @@ def _run(argv: list[str] | None = None) -> int:
                 "lookup_release_id": release.release_id,
                 "lineage_release_id": reference.lineage_release_id,
                 "output_dir": str(args.output_dir),
+                "semantic_validation": semantic_validation,
             }
     print(json.dumps(result, ensure_ascii=False))
     return 0
