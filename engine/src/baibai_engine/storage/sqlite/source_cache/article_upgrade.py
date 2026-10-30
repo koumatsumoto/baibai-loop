@@ -38,11 +38,11 @@ def upgrade_article_working_copy(source: Path, destination: Path) -> None:
             ARTICLE_OBSERVATIONS_DDL, ""
         )
         tables, indexes = _expected_schema_shape(old_ddl)
-        for table, shape in tables.items():
-            if _table_info(old, table) != shape:
+        for table, table_shape in tables.items():
+            if _table_info(old, table) != table_shape:
                 raise ValueError(f"schema 48 table differs: {table}")
-        for name, shape in indexes.items():
-            if _index_info(old, shape[0], name) != shape:
+        for name, index_shape in indexes.items():
+            if _index_info(old, index_shape[0], name) != index_shape:
                 raise ValueError(f"schema 48 index differs: {name}")
         names = {row[0] for row in old.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if any(name.startswith("article_") for name in names):

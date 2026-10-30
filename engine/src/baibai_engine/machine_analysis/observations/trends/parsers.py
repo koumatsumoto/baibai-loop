@@ -211,13 +211,17 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
     if revenue:
         concentrations = (
             (
-                r"売上高(?P<threshold>[\d,]+)億円(?P<bound>超|以上)の大手は[\d,]+社"
-                r"[^。]{0,160}?シェアは売上高の(?P<share>[\d.]+)%",
+                (
+                    r"売上高(?P<threshold>[\d,]+)億円(?P<bound>超|以上)の大手は[\d,]+社"
+                    r"[^。]{0,160}?シェアは売上高の(?P<share>[\d.]+)%"
+                ),
                 "revenue",
             ),
             (
-                r"売上高も、(?P<threshold>[\d,]+)人(?P<bound>以上)の企業が全体の"
-                r"(?P<share>[\d.]+)%",
+                (
+                    r"売上高も、(?P<threshold>[\d,]+)人(?P<bound>以上)の企業が全体の"
+                    r"(?P<share>[\d.]+)%"
+                ),
                 "employees",
             ),
         )
@@ -274,7 +278,10 @@ def extract_boj_decision(document: DocumentText, *, created_at: datetime) -> Ext
         and decision is not None
     )
     claims: list[Claim] = []
-    limits = ("boj_overnight_call_decision_only", "scheduled_date_is_not_implementation_evidence")
+    limits: tuple[str, ...] = (
+        "boj_overnight_call_decision_only",
+        "scheduled_date_is_not_implementation_evidence",
+    )
     if not supported or decision is None:
         return _artifact(
             document,

@@ -26,22 +26,41 @@ from baibai_engine.storage.snapshots.objects import (
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
+_COMMAND_HELP = {
+    "save-receipt": "Save an immutable receipt and its private original body.",
+    "save-artifact": "Save an extraction artifact bound to retained text coordinates.",
+    "project": "Project a retained index or document without fetching the Web.",
+    "list": "List article references from one explicitly fixed release.",
+    "get": "Read exact article evidence from its original fixed release.",
+    "exact-evidence": "Resolve exact cited evidence in an explicitly selected retained release.",
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine articles")
+    parser = argparse.ArgumentParser(prog="baibai-engine articles", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    receipt = sub.add_parser("save-receipt")
+    receipt = sub.add_parser(
+        "save-receipt",
+        help=_COMMAND_HELP["save-receipt"],
+        description=_COMMAND_HELP["save-receipt"],
+    )
     receipt.add_argument("--receipt-file", type=Path, required=True)
     receipt.add_argument("--body-file", type=Path)
-    artifact = sub.add_parser("save-artifact")
+    artifact = sub.add_parser(
+        "save-artifact",
+        help=_COMMAND_HELP["save-artifact"],
+        description=_COMMAND_HELP["save-artifact"],
+    )
     artifact.add_argument("--artifact-file", type=Path, required=True)
-    projection = sub.add_parser("project")
+    projection = sub.add_parser(
+        "project", help=_COMMAND_HELP["project"], description=_COMMAND_HELP["project"]
+    )
     projection.add_argument("--receipt-id", required=True)
     projection.add_argument("--kind", choices=("index", "document"), default="index")
     for writer in (receipt, artifact, projection):
         writer.add_argument("--sqlite-path", type=Path, required=True)
     for name in ("list", "get", "exact-evidence"):
-        reader = sub.add_parser(name)
+        reader = sub.add_parser(name, help=_COMMAND_HELP[name], description=_COMMAND_HELP[name])
         reader.add_argument("--release", required=True, help="explicit retained lookup release")
         reader.add_argument("--manifest-sha256", required=True)
         reader.add_argument("--mirror", type=Path)
@@ -59,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    result: dict[str, object]
     if args.command in {"save-receipt", "save-artifact", "project"}:
         with closing(open_connection(args.sqlite_path)) as conn, conn:
             if args.command == "save-receipt":

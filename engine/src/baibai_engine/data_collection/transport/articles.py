@@ -25,6 +25,7 @@ from baibai_engine.data_collection.transport.http import (
     retry_after_delay,
     wait_for_read_retry,
 )
+from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
 
 
 @dataclass
@@ -113,10 +114,13 @@ def fetch_article(
         != (source, url, representation)
     ):
         raise ValueError("article baseline must be this representation's concrete 200")
-    attempts = []
+    attempts: list[ArticleResponse] = []
     for recovery in range(2):
         headers = {
-            "Accept": "application/json, application/xml, text/html, application/pdf;q=0.9, */*;q=0.5"
+            "User-Agent": PUBLIC_RESEARCH_USER_AGENT,
+            "Accept": (
+                "application/json, application/xml, text/html, application/pdf;q=0.9, */*;q=0.5"
+            ),
         }
         if baseline is not None:
             if baseline.etag:

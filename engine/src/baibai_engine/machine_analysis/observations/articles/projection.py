@@ -10,14 +10,13 @@ import re
 import sqlite3
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
-from xml.etree.ElementTree import ParseError
 
 from pypdf.errors import PdfReadError
 
 from baibai_engine.data_collection.providers.articles.native import (
     PARSER_REVISION,
-    NativeArticleUnsupported,
     TEXT_REVISION,
+    NativeArticleUnsupported,
     parse_document,
     parse_index,
 )
@@ -127,7 +126,7 @@ def project_receipt(
         except NativeArticleUnsupported:
             status = "unsupported"
             error_code = "body_region_unsupported"
-        except (ValueError, LookupError, ParseError, PdfReadError) as exc:
+        except (ValueError, LookupError, PdfReadError) as exc:
             # Retain L1 and status without logging source text or manufacturing an empty success.
             status = "parse_failed"
             error_code = type(exc).__name__

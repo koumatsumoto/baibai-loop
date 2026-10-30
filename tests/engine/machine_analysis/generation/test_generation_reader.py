@@ -29,6 +29,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
             "read_financial_documents",
             "read_observation_population",
             "read_price_day_states",
+            "read_trend_inputs",
         )
     ]
     mocker.patch(
@@ -52,17 +53,54 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
             ),
             tickers=("1234", "5678"),
         )
+    assert result.subjects == ("1234", "5678")
     result = result.materialize()
     assert result.inputs["market_snapshot"].sha256 == snapshot.ref.sha256
     assert result.inputs["market_snapshot"].reference == snapshot.ref.source_id
-    assert len(result.models) == 11
+    company_model_ids = {
+        "company_valuation",
+        "company_growth",
+        "technical_analysis",
+        "external_assessment",
+        "market_context",
+    }
+    stock_models = {
+        (model.subject, model.model_id)
+        for model in result.models
+        if model.subject in ("1234", "5678")
+    }
+    assert stock_models == {
+        (ticker, model_id) for ticker in ("1234", "5678") for model_id in company_model_ids
+    }
+    shared_models = {
+        (model.subject, model.model_id)
+        for model in result.models
+        if model.subject not in ("1234", "5678")
+    }
+    assert shared_models == {
+        ("market", "market_context"),
+        ("industry:jp-pharmaceutical-wholesale", "industry_trends"),
+        ("industry:jp-information-services", "industry_trends"),
+        ("market:global", "social_trends"),
+    }
+    assert len({model.model_id for model in result.models}) == 7
+    assert {subject for subject, plan in result.subject_plan.items() if plan.scope == "stock"} == {
+        "1234",
+        "5678",
+    }
+    for ticker in ("1234", "5678"):
+        assert set(result.subject_plan[ticker].model_ids) == company_model_ids
+    for subject, model_id in shared_models - {("market", "market_context")}:
+        payload = result.result(model_id, subject).payload
+        assert payload["input_manifest"]["release_id"] == "new-release"
+        assert payload["coverage"]["state"] == "not_collected"
     assert result.inputs["market"].reference == "new-release"
     assert (
         result.result("company_growth", "1234").payload["input_release"]["release_id"]
         == "new-release"
     )
     assert result.result("market_context", "market").payload["reading"] is None
-    assert [spy.call_count for spy in spies] == [1, 1, 1, 1]
+    assert [spy.call_count for spy in spies] == [1, 1, 1, 1, 1]
     assert spies[2].call_args.kwargs["include_tradingview"] is False
     external = result.result("external_assessment", "1234")
     assert external.calculation_revision == "same-series-v5-no-tradingview"
