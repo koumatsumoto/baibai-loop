@@ -86,10 +86,19 @@ def test_normal_projection_extracts_and_reuses_unchanged_representation_without_
     inputs = read(path)
     path.unlink()  # calculation consumes only fixed values, after the reader is closed
     result = calculate_industry_trends(inputs.industries[0])
-    reference = ArticleEvidenceRef.model_validate(result["observations"][0]["exact_evidence"])
+    descriptor = result["observations"][0]["exact_evidence"]
+    # The month fields belong to the core article contract branch until integration.
+    # Validate every field recognized by the contract in the current checkout.
+    reference = ArticleEvidenceRef.model_validate(
+        {key: value for key, value in descriptor.items() if key in ArticleEvidenceRef.model_fields}
+    )
     assert reference.receipt_id == "first"
     assert reference.artifact_id == first.artifact_id
     assert reference.lineage_release_id == "synthetic"
+    assert descriptor["receipt_month"] == "2026-10"
+    assert descriptor["body_month"] == "2026-10"
+    assert descriptor["observation_month"] == "2026-10"
+    assert descriptor["artifact_month"] == "2026-10"
 
 
 def test_new_text_without_extraction_is_pending_and_not_an_empty_world(tmp_path):
