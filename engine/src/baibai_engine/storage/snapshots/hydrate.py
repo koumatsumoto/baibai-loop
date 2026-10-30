@@ -28,11 +28,13 @@ import os
 import shutil
 import sqlite3
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing, suppress
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from baibai_engine.storage.snapshots.contracts import (
     LakeDataset,
@@ -554,7 +556,12 @@ def load_dataset_rows(
     for partition in partitions:
         paths = materialize_partitions(cache, dataset=dataset, partitions=(partition,))
         try:
-            for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=names):
+            batches = (
+                _binary_hydrate_batches(paths, names)
+                if dataset.has_binary_payload
+                else iter_partition_rows(session, dataset=dataset, paths=paths, columns=names)
+            )
+            for batch in batches:
                 connection.executemany(statement, batch)
                 loaded += len(batch)
         finally:
@@ -565,6 +572,31 @@ def load_dataset_rows(
                     if item.bytes > MAX_BUFFERED_OBJECT_BYTES:
                         path.unlink(missing_ok=True)
     return loaded
+
+
+def _binary_hydrate_batches(
+    paths: Sequence[Path], names: tuple[str, ...]
+) -> Iterator[list[tuple[object, ...]]]:
+    """Read BLOB objects one row at a time without sorting the full payload.
+
+    The snapshot writer stores one BLOB row per Parquet row group. Arrow streams
+    those groups, while SQLite's primary-key B-tree supplies the final table order.
+    The normal exact reader keeps its separate primary-key-ordered query.
+    """
+
+    for path in paths:
+        try:
+            # Prefetch could retain many BLOB row groups despite the one-row batch.
+            parquet = pq.ParquetFile(path, pre_buffer=False)
+            try:
+                for batch in parquet.iter_batches(
+                    batch_size=1, columns=list(names), use_threads=False
+                ):
+                    yield [tuple(row[name] for name in names) for row in batch.to_pylist()]
+            finally:
+                parquet.close()
+        except (OSError, ValueError) as exc:
+            raise LakeHydrateError(f"binary Parquet object could not be read: {path}") from exc
 
 
 def _require_contract_shape(connection: sqlite3.Connection, dataset: LakeDataset) -> None:
