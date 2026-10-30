@@ -217,6 +217,24 @@ def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority
     )
 
 
+def test_conflicted_preferred_operating_line_cannot_fall_through_to_ordinary_profit():
+    annual = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
+        ordinary_profit=50.0,
+    )
+    tied = replace(
+        annual,
+        disclosure_number="same-time-operating-conflict",
+        operating_profit=120.0,
+    )
+    assert (
+        _latest_actual_row_by_field_priority(
+            [annual, tied], ("operating_profit", "ordinary_profit", "profit")
+        )
+        is None
+    )
+
+
 def test_same_time_standard_disagreement_preserves_agreed_issuer_shares():
     annual = replace(
         document(date(2024, 4, 1), date(2025, 3, 31), 100.0),

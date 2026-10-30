@@ -132,8 +132,11 @@ def _latest_actual_row_by_field_priority(
         ]
         if candidates:
             selected = _latest_consistent_actual(candidates, (field_name,))
-            if selected is not None and latest_reporting_basis_matches(period_rows, selected):
-                return selected
+            return (
+                selected
+                if selected is not None and latest_reporting_basis_matches(period_rows, selected)
+                else None
+            )
     return None
 
 
