@@ -28,6 +28,7 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
     observations = []
     failed = []
     artifacts = []
+    extraction_failures = []
     with (
         closing(connect_read_only(directory / "receipts.sqlite")) as raw,
         closing(open_connection(database)) as conn,
@@ -51,11 +52,19 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
                 )
             observation_ids = [item.observation_id for item in projected]
             observations.extend(observation_ids)
-            with conn:
-                extracted = extract_observations(
-                    conn, observation_ids, generated_at=datetime.now(UTC)
+            try:
+                with conn:
+                    extracted = extract_observations(
+                        conn, observation_ids, generated_at=datetime.now(UTC)
+                    )
+                artifacts.extend(item.artifact_id for item in extracted)
+                extraction_failures.extend(
+                    item.artifact_id for item in extracted if item.status == "failed"
                 )
-            artifacts.extend(item.artifact_id for item in extracted)
+            except ValueError:
+                # Retained L1 and native projection are still read back. This is
+                # an explicit failure, never a missing/empty successful model.
+                extraction_failures.append(identity)
             if run.status == "parse_failed":
                 failed.append(identity)
     return ReplayResult(
@@ -64,7 +73,8 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
             "observation_ids": observations,
             "projection_failures": failed,
             "artifact_ids": sorted(set(artifacts)),
+            "extraction_failures": extraction_failures,
             "acquisition_status": report.get("status"),
         },
-        complete=not failed,
+        complete=not (failed or extraction_failures),
     )

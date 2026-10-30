@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Iterable, Sequence
 from contextlib import closing
 from datetime import date
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
+from baibai_engine.data_collection.receipts.articles.store import read_receipt
 from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
     ARTICLE_EXTRACTION_ARTIFACTS,
     ARTICLE_OBSERVATIONS,
@@ -60,8 +62,6 @@ def capture_delta(
             if row is None:
                 raise ValueError("selected article extraction artifact is missing")
             selected.add(row[0])
-        from baibai_engine.data_collection.receipts.articles.store import read_receipt
-
         for identity in tuple(selected):
             receipt = read_receipt(conn, identity)
             if receipt.body_ref is not None:
@@ -76,8 +76,8 @@ def capture_delta(
                     where = "receipt_id=?"
                 rows.extend(
                     conn.execute(
-                        f"SELECT {columns} FROM {dataset.sqlite_table} WHERE {where}",
-                        (receipt_id,),  # nosec B608
+                        f"SELECT {columns} FROM {dataset.sqlite_table} WHERE {where}",  # nosec B608
+                        (receipt_id,),
                     )
                 )
             names = [column.name for column in dataset.columns]
@@ -92,7 +92,8 @@ def capture_delta(
 
 def verify_delta(
     store: ObjectStore, *, delta: dict[str, Any], directory: Path, generations: dict[str, str]
-) -> dict[str, int]:
+) -> dict[str, int | float]:
+    started = time.monotonic()
     pointer = _serving_pointer(store).pointer
     if (
         pointer is None
@@ -103,7 +104,7 @@ def verify_delta(
     directory.mkdir(parents=True, exist_ok=True)
     release = _resolve_serving_release(store, directory, pointer)
     cache = LakeObjectCache(root=directory, source=LocalMirrorSource(directory))
-    counts = {}
+    counts: dict[str, int | float] = {}
     with lake_session() as session:
         for dataset in DATASETS:
             expected = delta.get(dataset.name, {})
@@ -137,4 +138,5 @@ def verify_delta(
             }:
                 raise LakePublishError("article raw/extraction delta readback differs")
             counts[dataset.name] = len(actual)
+    counts["readback_seconds"] = round(time.monotonic() - started, 3)
     return counts

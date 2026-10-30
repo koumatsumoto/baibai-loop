@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES
+from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
-
-from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 
 ARTICLE_SOURCES = tuple(SOURCES)
 TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})
@@ -117,8 +117,6 @@ def publish_planning_input(store: ObjectStore, source: str, generations: dict[st
     key = source_key(source)
     prior = read_private(store, key)
     state = ArticlePlanning.decode(prior.payload, source) if prior else ArticlePlanning(source, {})
-    from dataclasses import replace
-
     put_private(
         store,
         key,
@@ -167,10 +165,9 @@ def commit_stage(
         "cursor": cursor,
         "not_before": not_before,
     }
-    from baibai_engine.storage.json import write_json_atomic
-
     write_json_atomic(directory / "result.json", report)
-    # Validate summary bounds before uploading while still advancing it only after save.
+    # Never discard successfully received L1 when planning exceeds its bound.
+    # The immutable stage remains available for exact recovery even if summary validation fails.
     placeholder = {
         "market": True,
         "namespace": ARTICLE_NAMESPACE,
@@ -180,16 +177,6 @@ def commit_stage(
         "started_at": report["started_at"],
         "asof": report["asof"],
     }
-    candidate = ArticlePlanning(
-        state.source,
-        state.generations,
-        slot.isoformat(),
-        not_before,
-        requests,
-        cursor,
-        (*state.pending, placeholder),
-    )
-    candidate.encoded()
     save_handoff(store, stage_id, directory, namespace=ARTICLE_NAMESPACE)
     saved = read_private(
         store, stage_prefix(stage_id, namespace=ARTICLE_NAMESPACE) + "/handoff.json"
@@ -197,6 +184,7 @@ def commit_stage(
     if saved is None:
         raise LakePublishError("saved article handoff is missing")
     entry = {**placeholder, "manifest_sha256": hashlib.sha256(saved.payload).hexdigest()}
+    write_json_atomic(directory / "stage.json", entry)
     # New 200 baselines refer to this just-saved stage. Its manifest cannot
     # contain its own digest; only the mutable summary fills this exact closure.
     bound_requests = {
@@ -219,7 +207,7 @@ def commit_stage(
 
 
 def pending_handoffs(store: ObjectStore) -> list[dict[str, Any]]:
-    """Seven bounded summaries; no LIST or history/body download."""
+    """One bounded summary per source; no LIST or history/body download."""
     result = []
     for source in ARTICLE_SOURCES:
         saved = read_private(store, source_key(source))
@@ -244,8 +232,6 @@ def pending_handoffs(store: ObjectStore) -> list[dict[str, Any]]:
 
 def acknowledge_stage(store: ObjectStore, entry: dict[str, Any]) -> None:
     """After readback/seal, remove only that entry; never rewind live validators."""
-    from dataclasses import replace
-
     state, etag = load_planning(store, entry["source"])
     remaining = tuple(
         item

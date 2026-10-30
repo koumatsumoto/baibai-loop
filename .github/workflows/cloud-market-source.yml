@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     concurrency:
-      group: source-acquire-${{ startsWith(inputs.source, 'jquants-') && 'jquants' || startsWith(inputs.source, 'edinet-') && 'edinet' || startsWith(inputs.source, 'jpx-') && 'jpx' || format('unsupported-{0}', inputs.source) }}
+      group: source-acquire-${{ contains(fromJSON('["jquants-market","jquants-financial"]'), inputs.source) && 'jquants' || contains(fromJSON('["edinet-list","edinet-metrics","edinet-facts"]'), inputs.source) && 'edinet' || contains(fromJSON('["jpx-earnings","jpx-regulations"]'), inputs.source) && 'jpx' || format('unsupported-{0}', inputs.source) }}
       queue: max
       cancel-in-progress: false
     outputs:

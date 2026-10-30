@@ -15,8 +15,8 @@ from typing import Any
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
-from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.sqlite.source_cache.article_upgrade import upgrade_article_working_copy
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only

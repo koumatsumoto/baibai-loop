@@ -33,10 +33,12 @@ class Session:
     def __init__(self, responses):
         self.responses = iter(responses)
         self.headers = []
+        self.urls = []
 
     def get(self, _url, **kwargs):
         assert kwargs["allow_redirects"] is False
         self.headers.append(kwargs["headers"])
+        self.urls.append(_url)
         return next(self.responses)
 
 
@@ -109,3 +111,42 @@ def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, mon
     )
     assert calls == list(articles.GROUPS["public"])
     assert "private failure detail" not in capsys.readouterr().out
+
+
+def test_nhk_four_feeds_keep_each_summary_and_fetch_shared_guid_once(tmp_path, monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return SLOT + timedelta(minutes=1)
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "nhk_news", {"lake_release_id": "before"})
+    feeds = [
+        Response(
+            200,
+            f"<rss><channel><item><guid>synthetic-same-guid</guid><link>https://news.web.nhk/news/example</link><title>Synthetic title</title><description>synthetic summary {index}</description></item></channel></rss>".encode(),
+        )
+        for index in range(4)
+    ]
+    session = Session(
+        [*feeds, Response(200, b"<html><body>Unsupported synthetic shell</body></html>")]
+    )
+    report = articles.acquire_source(
+        store,
+        source="nhk_news",
+        slot=SLOT,
+        identity="test",
+        directory=tmp_path / "nhk",
+        session=session,
+    )
+    assert report["pages"] == 4
+    assert report["bodies"] == 1
+    assert len(set(session.urls)) == 5
+    with closing(connect_read_only(tmp_path / "nhk/receipts.sqlite")) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 5
+    planning, _ = load_planning(store, "nhk_news")
+    assert len(planning.pending) == 1

@@ -10,6 +10,7 @@ import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
+from typing import Any, cast
 
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     accept_rechecks as accept_economic_rechecks,
@@ -75,7 +76,7 @@ def apply(
     ):
         with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             validate(conn)
-    outcomes = []
+    outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
         result: dict[str, object] = {}
@@ -265,7 +266,23 @@ def main(argv: list[str] | None = None) -> int:
             report = apply(
                 store, directory, market=args.market, economic=args.economic, asof=args.asof
             )
-            print(json.dumps(report, sort_keys=True))
+            public_report = dict(report)
+            public_report["handoffs"] = [
+                {
+                    **item,
+                    "article_delta": "private readback plan",
+                    "result": {
+                        "receipt_count": len(item["result"].get("receipt_ids", [])),
+                        "observation_count": len(item["result"].get("observation_ids", [])),
+                        "artifact_count": len(item["result"].get("artifact_ids", [])),
+                        "failed": item["failed"],
+                    },
+                }
+                if item["entry"].get("namespace") == ARTICLE_NAMESPACE
+                else item
+                for item in cast(list[dict[str, Any]], report["handoffs"])
+            ]
+            print(json.dumps(public_report, sort_keys=True))
         else:
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
@@ -274,17 +291,20 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
-                report = (
+                input_report: dict[str, Any] = (
                     {"updated": [], "failed": []}
                     if args.group in ARTICLE_SOURCES
-                    else publish_inputs(
-                        store,
-                        market=args.market,
-                        economic=args.economic,
-                        identity=args.identity,
-                        asof=args.asof,
-                        generations=generations,
-                        only_group=args.group,
+                    else cast(
+                        dict[str, Any],
+                        publish_inputs(
+                            store,
+                            market=args.market,
+                            economic=args.economic,
+                            identity=args.identity,
+                            asof=args.asof,
+                            generations=generations,
+                            only_group=args.group,
+                        ),
                     )
                 )
                 for source in (
@@ -296,12 +316,14 @@ def main(argv: list[str] | None = None) -> int:
                 ):
                     try:
                         publish_planning_input(store, source, generations)
-                    except ValueError as error:
-                        report["failed"].append({"group": source, "reason": type(error).__name__})
+                    except (ValueError, LakeCASConflict) as error:
+                        input_report["failed"].append(
+                            {"group": source, "reason": type(error).__name__}
+                        )
                     else:
-                        report["updated"].append(source)
-                print(json.dumps(report, sort_keys=True))
-                return int(bool(report["failed"]))
+                        input_report["updated"].append(source)
+                print(json.dumps(input_report, sort_keys=True))
+                return int(bool(input_report["failed"]))
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
             if report.get("external"):
                 report["external_results"] = verify_and_seal(
@@ -312,6 +334,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             for outcome in report["handoffs"]:
                 if outcome["entry"].get("invalid"):
+                    continue
+                if (
+                    outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
+                    and not outcome["applied"]
+                ):
+                    # No seal/ack without a captured closure; retain pending for repair.
                     continue
                 if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
                     outcome["article_readback"] = verify_delta(
@@ -328,9 +356,16 @@ def main(argv: list[str] | None = None) -> int:
                     recovery=outcome["recovery"],
                 )
                 if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE:
-                    acknowledge_stage(store, outcome["entry"])
+                    try:
+                        acknowledge_stage(store, outcome["entry"])
+                    except LakeCASConflict:
+                        outcome["planning_ack_pending"] = True
+                    else:
+                        outcome["planning_ack_pending"] = False
             report["canonical_generations"] = generations
             write_json_atomic(directory / "applied.json", report)
+            if any(item.get("planning_ack_pending") for item in report["handoffs"]):
+                return 1
     except Exception as error:
         print(f"common source integration failed: {type(error).__name__}", file=sys.stderr)
         return 1
