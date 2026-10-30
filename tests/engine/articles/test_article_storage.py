@@ -101,18 +101,6 @@ def artifact(observation, *, revision="synthetic-v1", status="extracted"):
 
 
 def publish(path, mirror, name, at):
-    policy = ReleasePolicy(
-        policy_version=1,
-        profile="production",
-        datasets=tuple(
-            ReleaseDatasetPolicy(
-                dataset=d, required=False, carries_history=True, require_complete_coverage=False
-            )
-            for d in CATALOG
-        ),
-        max_manifest_bytes=16 * 1024 * 1024,
-        max_objects=10000,
-    )
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=mirror) as snapshot:
         with closing(sqlite3.connect(snapshot.path)) as conn:
             datasets = [
@@ -130,6 +118,23 @@ def publish(path, mirror, name, at):
             ).manifest_path
             for d in datasets
         ]
+    # Require the datasets this fixture actually exported; production's optional
+    # article datasets and its nonempty required-inventory validation stay intact.
+    policy = ReleasePolicy(
+        policy_version=1,
+        profile="production",
+        datasets=tuple(
+            ReleaseDatasetPolicy(
+                dataset=dataset.name,
+                required=True,
+                carries_history=True,
+                require_complete_coverage=False,
+            )
+            for dataset in datasets
+        ),
+        max_manifest_bytes=16 * 1024 * 1024,
+        max_objects=10000,
+    )
     manifest, _ = create_release(
         catalog=CATALOG,
         policy=policy,
@@ -246,7 +251,8 @@ def test_new_release_retains_old_exact_quote_without_claiming_old_release_availa
         current.exact_evidence(reference.model_copy(update={"artifact_sha256": "0" * 64}))
     first_page = current.list(limit=1)
     second_page = current.list(limit=1, after=first_page["next_after"])
-    assert first_page["has_more"] and not second_page["has_more"]
+    assert first_page["has_more"]
+    assert not second_page["has_more"]
     assert first_page["items"] != second_page["items"]
 
 

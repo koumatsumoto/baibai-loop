@@ -6,7 +6,7 @@ import io
 import json
 import re
 from urllib.parse import urljoin, urlsplit, urlunsplit
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # nosec B405 -- bounded _feed_root rejects DTD/entities
 
 from pydantic import JsonValue
 from pypdf import PdfReader
@@ -17,10 +17,26 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 
 PARSER_REVISION = "article-native-v1"
 TEXT_REVISION = "article-text-v1"
+MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 
 
 class NativeArticleUnsupported(ValueError):
     """Saved source has no supported article body region; it is not empty success."""
+
+
+def _feed_root(body: bytes) -> ET.Element:
+    """Bounded UTF-8 RSS/sitemap input, following the existing EDINET XML boundary."""
+    if len(body) > MAX_FEED_XML_BYTES:
+        raise ValueError("article feed XML size limit")
+    try:
+        text = body.decode("utf-8-sig")
+        if "\x00" in text:
+            raise ValueError("article feed XML encoding unsupported")
+        if re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, re.IGNORECASE):
+            raise ValueError("article feed DTD/entities are unsupported")
+        return ET.fromstring(text)  # nosec B314 -- bounded UTF-8, no DTD/entities
+    except (UnicodeError, ET.ParseError) as exc:
+        raise ValueError("article feed XML invalid") from exc
 
 
 def _https(url: str) -> str:
@@ -77,10 +93,7 @@ def parse_index(
             )
         return tuple(result)
     if source in {"boj_news", "mof_news", "toushiru", "nhk_news"}:
-        # ElementTree does not retrieve external entities. Explicitly reject DTDs.
-        if b"<!DOCTYPE" in body.upper() or b"<!ENTITY" in body.upper():
-            raise ValueError("article feed DTD/entities are unsupported")
-        root = ET.fromstring(body)  # nosec B314
+        root = _feed_root(body)
         result = []
         if root.tag.rsplit("}", 1)[-1] == "urlset":
             for index, entry in enumerate(root):

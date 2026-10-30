@@ -170,7 +170,8 @@ def test_tsr_item_revision_excludes_sort_but_includes_title_date_and_search_cont
 def test_rss_empty_description_and_news_sitemap_do_not_claim_full_body_or_lastmod():
     rss = b"<rss><channel><item><title>Synthetic decision</title><link>http://www.boj.or.jp/synthetic.pdf</link><description/><pubDate>Tue, 01 Sep 2026 12:00:00 +0900</pubDate></item></channel></rss>"
     (item,) = parse_index("boj_news", rss, url=SOURCES["boj_news"].entry_url)
-    assert item.content_scope == "headline" and item.text == ""
+    assert item.content_scope == "headline"
+    assert item.text == ""
     assert item.metadata["fetch_url"] == "https://www.boj.or.jp/synthetic.pdf"
     assert item.article_id == "boj_news:https://www.boj.or.jp/synthetic.pdf"
     sitemap = b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:n="http://www.google.com/schemas/sitemap-news/0.9"><url><loc>https://media.rakuten-sec.net/articles/-/1</loc><n:news><n:title>Synthetic</n:title><n:publication_date>2026-10-01T00:00:00+09:00</n:publication_date></n:news></url></urlset>'
@@ -183,7 +184,8 @@ def test_rss_empty_description_and_news_sitemap_do_not_claim_full_body_or_lastmo
 def test_rakuten_login_links_are_headlines_only_and_minkabu_overlap_deduplicates():
     html = b'<a href="https://www.rakuten-sec.co.jp/Direct_Login/?story=1">Synthetic headline</a>'
     (item,) = parse_index("rakuten_news", html, url=SOURCES["rakuten_news"].entry_url)
-    assert item.content_scope == "headline" and SOURCES["rakuten_news"].max_bodies == 0
+    assert item.content_scope == "headline"
+    assert SOURCES["rakuten_news"].max_bodies == 0
     html = b'<a href="/news/123">one</a><a href="/news/123">same</a><a rel="next" href="/news?page=2">next</a>'
     items = parse_index("minkabu_news", html, url=SOURCES["minkabu_news"].entry_url)
     assert len(items) == 1
@@ -268,14 +270,17 @@ def test_document_publication_date_keeps_provider_precision_and_origin():
         url="https://www.tsr-net.co.jp/synthetic.html",
     )
     time = native_time(item.published_raw, source="tsr_data")
-    assert time.raw == "2026/10/29" and time.value == "2026-10-29" and time.precision == "date"
+    assert time.raw == "2026/10/29"
+    assert time.value == "2026-10-29"
+    assert time.precision == "date"
     item = parse_document(
         "toushiru",
         b'<h1>Synthetic</h1><time class="article-meta__date" datetime="2026-10-29T08:00+09:00">date</time><div class="article-body">Body</div>',
         url="https://media.rakuten-sec.net/articles/-/synthetic",
     )
     time = native_time(item.published_raw, source="toushiru")
-    assert time.precision == "minute" and time.timezone_origin == "explicit_offset"
+    assert time.precision == "minute"
+    assert time.timezone_origin == "explicit_offset"
 
 
 def test_nhk_budget_is_one_provider_with_four_feeds_and_partial_body_contract():
@@ -283,11 +288,15 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_partial_body_contract():
 
     spec = SOURCES["nhk_news"]
     assert len(spec.entry_urls) == 4
-    assert spec.max_pages == 4 and spec.max_bodies == 8 and spec.max_revalidate_bodies == 2
-    assert spec.revalidate_hours == 48 and spec.min_interval_seconds == 1.0
+    assert spec.max_pages == 4
+    assert spec.max_bodies == 8
+    assert spec.max_revalidate_bodies == 2
+    assert spec.revalidate_hours == 48
+    assert spec.min_interval_seconds == 1.0
     assert spec.response_limit("index") == 1024 * 1024
     assert spec.response_limit("document") == 2 * 1024 * 1024
-    assert spec.max_bytes == 20 * 1024 * 1024 and spec.max_seconds == 120
+    assert spec.max_bytes == 20 * 1024 * 1024
+    assert spec.max_seconds == 120
     url = "https://news.web.nhk/newsweb/na/synthetic"
     with pytest.raises(NativeArticleUnsupported, match="unsupported"):
         parse_document("nhk_news", b"<main>page chrome and summary</main>", url=url)
@@ -296,7 +305,8 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_partial_body_contract():
     body = parse_document(
         "nhk_news", b'<h1>Synthetic</h1><div itemprop="articleBody"><p>Body</p></div>', url=url
     )
-    assert body.text == "Body" and body.content_scope == "partial_text"
+    assert body.text == "Body"
+    assert body.content_scope == "partial_text"
 
 
 def test_provider_interval_applies_to_every_request_without_real_sleep(monkeypatch):
@@ -363,3 +373,31 @@ def test_conditional_article_get_keeps_identity_with_validators():
     assert headers["User-Agent"] == PUBLIC_RESEARCH_USER_AGENT
     assert headers["If-None-Match"] == baseline.etag
     assert headers["If-Modified-Since"] == baseline.last_modified
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'<!DOCTYPE rss [<!ENTITY value "expanded">]><rss><channel>&value;</channel></rss>',
+        b"<! DOCTYPE rss><rss/>",
+        '<!DOCTYPE rss [<!ENTITY value "expanded">]><rss/>'.encode("utf-16"),
+        b"<rss>\x00</rss>",
+        b"<rss><unclosed>",
+    ],
+)
+def test_feed_rejects_dtd_entities_unsupported_encoding_and_malformed_xml(body):
+    with pytest.raises(ValueError, match="article feed"):
+        parse_index("boj_news", body, url=SOURCES["boj_news"].entry_url)
+
+
+def test_feed_xml_has_an_offline_size_bound_and_accepts_utf8_bom():
+    from baibai_engine.data_collection.providers.articles.native import MAX_FEED_XML_BYTES
+
+    with pytest.raises(ValueError, match="size limit"):
+        parse_index("boj_news", b" " * (MAX_FEED_XML_BYTES + 1), url=SOURCES["boj_news"].entry_url)
+    assert (
+        parse_index(
+            "boj_news", b"\xef\xbb\xbf<rss><channel/></rss>", url=SOURCES["boj_news"].entry_url
+        )
+        == ()
+    )
