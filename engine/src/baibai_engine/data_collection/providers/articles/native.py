@@ -12,12 +12,13 @@ from pydantic import JsonValue
 from pypdf import PdfReader
 
 from baibai_engine.data_collection.providers.articles.contracts import NativeArticle
-from baibai_engine.data_collection.providers.articles.html import parse_html, plain_text
+from baibai_engine.data_collection.providers.articles.html import Node, parse_html, plain_text
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
 
 PARSER_REVISION = "article-native-v1"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
+MAX_NHK_JSON_LD_BYTES = 256 * 1024
 
 
 class NativeArticleUnsupported(ValueError):
@@ -214,6 +215,66 @@ def next_index_url(source: str, body: bytes, *, url: str, encoding: str = "utf-8
     return None
 
 
+def _nhk_public_description(
+    nodes: list[Node], *, url: str, title: str, canonical: str | None
+) -> NativeArticle:
+    """The public NewsArticle description is a summary, never a verified full body."""
+    candidates = []
+    for node in nodes:
+        if node.tag != "script" or node.attrs.get("type", "").lower() != "application/ld+json":
+            continue
+        raw = "".join(child for child in node.children if isinstance(child, str))
+        if len(raw.encode("utf-8")) > MAX_NHK_JSON_LD_BYTES:
+            continue
+        try:
+            document = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        roots = document if isinstance(document, list) else [document]
+        for root in roots:
+            if not isinstance(root, dict):
+                continue
+            entries = root.get("@graph") if isinstance(root.get("@graph"), list) else [root]
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                kinds = entry.get("@type")
+                if "NewsArticle" not in (kinds if isinstance(kinds, list) else [kinds]):
+                    continue
+                description = entry.get("description")
+                if not isinstance(description, str) or not plain_text(description):
+                    continue
+                linked_url = entry.get("url")
+                if isinstance(linked_url, str) and linked_url not in {url, canonical}:
+                    continue
+                candidates.append(entry)
+    if len(candidates) != 1:
+        raise NativeArticleUnsupported("NHK public NewsArticle description is unsupported")
+    entry = candidates[0]
+    headline = entry.get("headline")
+    metadata: dict[str, JsonValue] = {"format": "newsarticle_jsonld_description"}
+    identifier = entry.get("identifier")
+    if isinstance(identifier, str):
+        metadata["identifier"] = identifier
+    return NativeArticle(
+        article_id=f"nhk_news:{url}",
+        locator="/html/newsarticle-description",
+        url=url,
+        title=title or (plain_text(headline) if isinstance(headline, str) else ""),
+        text=plain_text(entry["description"]),
+        content_scope="summary",
+        canonical_url=canonical,
+        missing_parts=("full_article_body",),
+        published_raw=entry.get("datePublished")
+        if isinstance(entry.get("datePublished"), str)
+        else None,
+        updated_raw=entry.get("dateModified")
+        if isinstance(entry.get("dateModified"), str)
+        else None,
+        metadata=metadata,
+    )
+
+
 def parse_document(
     source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
 ) -> NativeArticle:
@@ -249,6 +310,8 @@ def parse_document(
         ),
         None,
     )
+    if source == "nhk_news":
+        return _nhk_public_description(nodes, url=url, title=title, canonical=canonical)
     heading = next(
         (text for node in nodes if node.tag == "h1" if (text := node.text().strip())), title
     )
@@ -259,7 +322,7 @@ def parse_document(
         "minkabu_news": ("news-body", "md_newsBody", "news_body"),
     }.get(source, ())
     region = next((node for node in nodes if any(node.has_class(name) for name in classes)), None)
-    if region is None and source in {"minkabu_news", "nhk_news"}:
+    if region is None and source == "minkabu_news":
         region = next((node for node in nodes if node.attrs.get("itemprop") == "articleBody"), None)
     if region is None and source in {"boj_news", "mof_news"}:
         region = next(
@@ -273,8 +336,6 @@ def parse_document(
         )
     if region is None:
         raise NativeArticleUnsupported("article body region is unsupported")
-    if source == "nhk_news" and not region.text().strip():
-        raise NativeArticleUnsupported("NHK articleBody has no text")
     date_fields: dict[str, str] = {}
     for node in nodes:
         if node.tag == "meta" and node.attrs.get("property") in {

@@ -294,7 +294,7 @@ def test_document_publication_date_keeps_provider_precision_and_origin():
     assert time.timezone_origin == "explicit_offset"
 
 
-def test_nhk_budget_is_one_provider_with_four_feeds_and_partial_body_contract():
+def test_nhk_budget_is_one_provider_with_four_feeds_and_public_summary_contract():
     from baibai_engine.data_collection.providers.articles.native import NativeArticleUnsupported
 
     spec = SOURCES["nhk_news"]
@@ -311,13 +311,32 @@ def test_nhk_budget_is_one_provider_with_four_feeds_and_partial_body_contract():
     url = "https://news.web.nhk/newsweb/na/synthetic"
     with pytest.raises(NativeArticleUnsupported, match="unsupported"):
         parse_document("nhk_news", b"<main>page chrome and summary</main>", url=url)
-    with pytest.raises(NativeArticleUnsupported, match="no text"):
+    with pytest.raises(NativeArticleUnsupported, match="description"):
         parse_document("nhk_news", b'<div itemprop="articleBody"></div>', url=url)
+    with pytest.raises(NativeArticleUnsupported, match="description"):
+        parse_document("nhk_news", b'<div itemprop="articleBody">Body-like text</div>', url=url)
     body = parse_document(
-        "nhk_news", b'<h1>Synthetic</h1><div itemprop="articleBody"><p>Body</p></div>', url=url
+        "nhk_news",
+        b'<main>Related stories and account UI</main><script type="application/ld+json">'
+        b'{"@type":"NewsArticle","headline":"Synthetic","description":"Public short summary",'
+        b'"identifier":"synthetic-id","datePublished":"2026-10-30T09:00:00+09:00",'
+        b'"dateModified":"2026-10-30T10:00:00+09:00"}</script>',
+        url=url,
     )
-    assert body.text == "Body"
-    assert body.content_scope == "partial_text"
+    assert body.text == "Public short summary"
+    assert body.content_scope == "summary"
+    assert body.missing_parts == ("full_article_body",)
+    assert body.published_raw == "2026-10-30T09:00:00+09:00"
+    assert body.updated_raw == "2026-10-30T10:00:00+09:00"
+    assert body.metadata["identifier"] == "synthetic-id"
+    with pytest.raises(NativeArticleUnsupported, match="description"):
+        parse_document(
+            "nhk_news",
+            b'<script type="application/ld+json">'
+            b'[{"@type":"NewsArticle","description":"one"},'
+            b'{"@type":"NewsArticle","description":"related"}]</script>',
+            url=url,
+        )
 
 
 def test_provider_interval_applies_to_every_request_without_real_sleep(monkeypatch):
