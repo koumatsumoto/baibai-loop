@@ -18,19 +18,22 @@ def economic_screening_brief(result: dict[str, Any]) -> dict[str, Any]:
             del card["model_revisions"]
     else:
         common_revisions = None
+    presentation = {
+        "kind": "bounded_observation_brief_not_full_saved_policy",
+        "external": "same_series_states_not_company_revisions_or_independent_votes",
+        "missing": "missing_or_no_comparable_change_is_not_evidence_of_safety_or_stability",
+        "growth": "selected_fallbacks_only_when_different_from_latest_quarter",
+        "models": "selected_known_model_fields_only_other_generated_models_are_detail_only",
+    }
+    if result["policy"].get("method") == "best-economic-path-v4":
+        presentation["ranking"] = "priority_is_max_within_path_h_midrank_percentile"
     return {
         "policy": deepcopy(result["policy"]),
         "eligible_count": result["eligible_count"],
         "cards": cards,
         "common_model_revisions": common_revisions,
         "interpretation": "screening_priority_not_expected_return_or_buy_recommendation",
-        "presentation": {
-            "kind": "bounded_observation_brief_not_full_saved_policy",
-            "external": "same_series_states_not_company_revisions_or_independent_votes",
-            "missing": "missing_or_no_comparable_change_is_not_evidence_of_safety_or_stability",
-            "growth": "selected_fallbacks_only_when_different_from_latest_quarter",
-            "models": "selected_known_model_fields_only_other_generated_models_are_detail_only",
-        },
+        "presentation": presentation,
         "detail_read": (
             "selection-context --screening-selection-id <same-id> --compare-ticker <ticker>"
         ),
@@ -232,6 +235,7 @@ def _path(path: dict[str, Any], *, include_earnings_periods: bool) -> dict[str, 
             "path_id",
             "variant",
             "score",
+            "normalization",
             "price_value",
             "business_value",
             "price_percentile",

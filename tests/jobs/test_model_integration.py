@@ -97,7 +97,9 @@ def integration(tmp_path, monkeypatch):
 
     def publish(received, *, store, before_pointer_switch):
         assert received is prepared
-        assert read_publication(path=tmp_path / "runs").selection_id == "selection-new-release"
+        assert read_publication(path=tmp_path / "runs").selection_id == (
+            "selection-new-release-best-economic-path-v4"
+        )
         before_pointer_switch()
         events.append("publish")
         return SimpleNamespace(as_dict=lambda: {"release_id": "new-release"})
@@ -129,7 +131,8 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     publication = read_publication(path=arguments["runs"])
-    assert publication.selection.result.policy.method == "best-economic-path-v3"
+    assert publication.selection.result.policy.method == "best-economic-path-v4"
+    assert result["selection_method"] == "best-economic-path-v4"
     assert (
         not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
         & result.keys()

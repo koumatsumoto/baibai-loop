@@ -41,7 +41,8 @@ def select(*rows, limit=36):
 def test_balanced_joint_evidence_outranks_one_axis_extreme():
     result = select(row("1001", 100, 1), row("1002", 60, 60), row("1003", 1, 100))
     assert result.cards[0].ticker == "1002"
-    assert result.cards[0].priority == 0.5
+    assert result.cards[0].paths[0].score == 0.5
+    assert result.cards[0].priority == pytest.approx(5 / 6)
     assert result.cards[1].priority < result.cards[0].priority
 
 
@@ -63,6 +64,11 @@ def test_singleton_and_ties_are_neutral_midrank():
     assert select(row("1001", 10, 20)).cards[0].priority == 0.5
     result = select(*(row(f"{1000 + i}", 10, 20) for i in range(37)))
     assert all(card.priority == 0.5 for card in result.cards)
+    for card in result.cards:
+        normalization = card.paths[0].normalization
+        assert normalization is not None
+        assert normalization.population == 37
+        assert normalization.midrank == 19.0
     assert result.tickers == tuple(str(1000 + i) for i in range(36))
 
 
@@ -87,6 +93,74 @@ def test_best_path_does_not_sum_support_or_penalize_missing_path():
     assert result.cards[0].priority == select(first).cards[0].priority
     extra_models = replace(first, model_revisions={f"model_{i}": "v1" for i in range(7)})
     assert select(extra_models).cards[0].priority == select(first).cards[0].priority
+
+
+def test_path_normalization_can_prefer_lower_h_with_higher_within_path_rank():
+    earning = [
+        replace(
+            row(f"1{i:03d}", float(i), float(i)),
+            paths=(
+                PathCoordinates(
+                    "earning_power", "quarter", float(i), float(i), "all", "all", True, {}
+                ),
+            ),
+        )
+        for i in range(1, 4)
+    ]
+    expansion = [
+        row(f"2{i:03d}", float(i), float(i), group="all", eligible=i >= 18) for i in range(20)
+    ]
+    result = select(*earning, *expansion)
+    assert result.eligible_count == 5
+    assert result.cards[0].ticker == "1003"
+    first = result.cards[0].paths[0]
+    assert first.normalization is not None
+    assert first.normalization.population == 3
+    assert first.normalization.midrank == 1.0
+    assert first.normalization.percentile == pytest.approx(5 / 6)
+    larger_h = next(card for card in result.cards if card.ticker == "2019").paths[0]
+    assert larger_h.score > first.score
+    assert larger_h.normalization is not None
+    assert larger_h.normalization.percentile == 0.75
+    assert result.cards[0].priority == first.normalization.percentile
+
+
+def test_company_strongest_path_uses_q_even_when_its_other_path_has_higher_h():
+    def earning(ticker, value, *, eligible=True):
+        source = row(ticker, value, value, group="all", eligible=eligible)
+        return replace(source, paths=(replace(source.paths[0], path_id="earning_power"),))
+
+    target = earning("1001", 102.0)
+    expansion = row("1001", 5.0, 5.0, group="all")
+    target = replace(target, paths=(*target.paths, *expansion.paths))
+    earning_active = [
+        earning(f"3{i:03d}", float(value)) for i, value in enumerate((100, 101, 103, 104))
+    ]
+    earning_reference = [
+        earning(f"4{i:03d}", float(value), eligible=False) for i, value in enumerate(range(1, 21))
+    ]
+    expansion_reference = [
+        row(f"5{i:03d}", float(value), float(value), group="all", eligible=False)
+        for i, value in enumerate((1, 2, 3, 6, 7, 8, 9))
+    ]
+    result = select(
+        target,
+        *earning_active,
+        *earning_reference,
+        row("2001", 4.0, 4.0, group="all"),
+        *expansion_reference,
+    )
+    card = next(card for card in result.cards if card.ticker == "1001")
+    expansion_path, earning_path = card.paths
+    assert [path.path_id for path in card.paths] == ["business_expansion", "earning_power"]
+    assert earning_path.score == pytest.approx(0.9)
+    assert expansion_path.score == pytest.approx(0.5)
+    assert earning_path.normalization is not None
+    assert expansion_path.normalization is not None
+    assert earning_path.normalization.percentile == 0.5
+    assert expansion_path.normalization.percentile == 0.75
+    assert card.strongest_path == "business_expansion"
+    assert card.priority == expansion_path.normalization.percentile
 
 
 def test_annual_population_includes_companies_using_quarter():
@@ -128,7 +202,8 @@ def test_inactive_variant_only_supplies_its_reference_coordinates():
     cards = {card.ticker: card for card in result.cards}
     assert len(cards["1001"].paths) == 1
     assert cards["1001"].paths[0].variant == "quarter"
-    assert cards["1001"].priority == 0.5
+    assert cards["1001"].paths[0].score == 0.5
+    assert cards["1001"].priority == 0.75
     assert cards["1002"].paths[0].price_population == 2
     assert cards["1002"].paths[0].price_percentile == 0.25
     assert cards["1002"].paths[0].business_percentile == 0.25
@@ -223,6 +298,9 @@ def test_card_evidence_context_and_missing_models_round_trip_with_new_result():
     assert isinstance(restored.result, EconomicPathSelection)
     card = restored.result.cards[0]
     assert card.paths[0].price_value == 0.100049
+    assert card.paths[0].normalization is not None
+    assert card.paths[0].normalization.population == 1
+    assert card.paths[0].normalization.midrank == 1.0
     assert card.context == first.context
     assert card.paths[0].evidence == first.paths[0].evidence
     assert card.not_generated == ("model_8",)
@@ -241,7 +319,12 @@ def test_saved_card_coordinates_must_remain_finite_numbers(invalid):
 
 @pytest.mark.parametrize(
     "method",
-    ["earnings-price-views-v1", "best-economic-path-v1", "best-economic-path-v2"],
+    [
+        "earnings-price-views-v1",
+        "best-economic-path-v1",
+        "best-economic-path-v2",
+        "best-economic-path-v3",
+    ],
 )
 def test_historical_selection_payload_keeps_shape_and_idempotent_publication(tmp_path, method):
     path = tmp_path / "runs.sqlite"
@@ -343,7 +426,9 @@ def test_historical_selection_payload_keeps_shape_and_idempotent_publication(tmp
     assert gzip.decompress(saved) == payload
 
 
-@pytest.mark.parametrize("method", ["best-economic-path-v1", "best-economic-path-v2"])
+@pytest.mark.parametrize(
+    "method", ["best-economic-path-v1", "best-economic-path-v2", "best-economic-path-v3"]
+)
 def test_historical_economic_method_is_read_only_not_relabelled_with_current_behavior(method):
     with pytest.raises(ValueError, match="read-only"):
         select_economic_paths((), policy=EconomicPathPolicy(method=method))

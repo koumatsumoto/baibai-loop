@@ -88,7 +88,7 @@ def integrate_models(
         selection = select_saved_economic_generation(
             generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
         )
-        selection_id = f"selection-{prepared.release.release_id}"
+        selection_id = f"selection-{prepared.release.release_id}-{policy.method}"
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=lambda: verify_held(store, handle)
@@ -100,6 +100,7 @@ def integrate_models(
         "models_ready": True,
         "generation_id": generation.metadata.generation_id,
         "selection_id": selection_id,
+        "selection_method": policy.method,
         "company_count": len(subjects),
         "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
