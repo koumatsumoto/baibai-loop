@@ -3,6 +3,7 @@
 import hashlib
 from datetime import UTC, date, datetime
 
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import TrendGenerationInputs
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     SelectedArtifact,
     TrendInputManifest,
@@ -13,7 +14,6 @@ from baibai_engine.machine_analysis.observations.trends.inputs import (
     IndustryInput,
     IndustryScope,
     TrendCoverage,
-    TrendGenerationInputs,
 )
 
 NOW = datetime(2026, 10, 25, tzinfo=UTC)
@@ -95,11 +95,10 @@ def generation_inputs(*artifacts, related_tickers=("1001", "1002")):
                     label="合成業界",
                     taxonomy="synthetic-v1",
                     geography="JP",
-                    related_tickers=related_tickers,
-                    membership_basis="synthetic explicitly supplied business scope",
                 ),
                 inputs=fixed(*artifacts),
             ),
         ),
         social=fixed(),
+        industry_links=(("jp-pharmaceutical-wholesale", related_tickers),),
     )

@@ -54,7 +54,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
-from baibai_engine.machine_analysis.observations.trends.reader import read_trend_inputs
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot

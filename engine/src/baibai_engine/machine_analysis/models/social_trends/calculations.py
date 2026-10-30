@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from baibai_engine.machine_analysis.observations.trends.inputs import FixedTrendInputs
-from baibai_engine.machine_analysis.observations.trends.payload import claim_record, finish_payload
+from baibai_engine.machine_analysis.models.trend_payload import claim_record, finish_payload
 
 REVISION = "social-trends-v1"
 
