@@ -243,3 +243,36 @@ def test_orphan_304_is_returned_even_when_recovery_budget_is_exhausted():
     )
     assert attempt.receipt.error_code == "missing_304_baseline"
     assert session.get.call_count == 1
+
+
+def test_nhk_guid_is_shared_across_categories_and_description_remains_summary():
+    def feed(marker):
+        return f'<rss xmlns:nhk="http://news.web.nhk/rss/rss2.0/modules/nhknews/"><channel><item><title>Synthetic</title><link>https://news.web.nhk/newsweb/na/na-k10000000000000</link><guid isPermaLink="false">synthetic-guid</guid><description>Only synthetic summary</description><pubDate>Thu, 29 Oct 2026 12:00:00 +0900</pubDate><nhk:new>{marker}</nhk:new></item></channel></rss>'.encode()
+
+    (political,) = parse_index(
+        "nhk_news", feed("true"), url="https://news.web.nhk/n-data/conf/na/rss/cat4.xml"
+    )
+    (economic,) = parse_index(
+        "nhk_news", feed("false"), url="https://news.web.nhk/n-data/conf/na/rss/cat5.xml"
+    )
+    assert political.article_id == economic.article_id == "nhk_news:synthetic-guid"
+    assert political.metadata["source_item_sha256"] == economic.metadata["source_item_sha256"]
+    assert political.content_scope == "summary"
+    assert political.text == "Only synthetic summary"
+
+
+def test_document_publication_date_keeps_provider_precision_and_origin():
+    item = parse_document(
+        "tsr_data",
+        b'<h1>Synthetic</h1><div class="entry"><div class="entry_date">2026/10/29</div><p>Body</p></div>',
+        url="https://www.tsr-net.co.jp/synthetic.html",
+    )
+    time = native_time(item.published_raw, source="tsr_data")
+    assert time.raw == "2026/10/29" and time.value == "2026-10-29" and time.precision == "date"
+    item = parse_document(
+        "toushiru",
+        b'<h1>Synthetic</h1><time class="article-meta__date" datetime="2026-10-29T08:00+09:00">date</time><div class="article-body">Body</div>',
+        url="https://media.rakuten-sec.net/articles/-/synthetic",
+    )
+    time = native_time(item.published_raw, source="toushiru")
+    assert time.precision == "minute" and time.timezone_origin == "explicit_offset"
