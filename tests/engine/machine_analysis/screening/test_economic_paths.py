@@ -125,6 +125,44 @@ def test_path_normalization_can_prefer_lower_h_with_higher_within_path_rank():
     assert result.cards[0].priority == first.normalization.percentile
 
 
+def test_company_strongest_path_uses_q_even_when_its_other_path_has_higher_h():
+    def earning(ticker, value, *, eligible=True):
+        source = row(ticker, value, value, group="all", eligible=eligible)
+        return replace(source, paths=(replace(source.paths[0], path_id="earning_power"),))
+
+    target = earning("1001", 102.0)
+    expansion = row("1001", 5.0, 5.0, group="all")
+    target = replace(target, paths=(*target.paths, *expansion.paths))
+    earning_active = [
+        earning(f"3{i:03d}", float(value)) for i, value in enumerate((100, 101, 103, 104))
+    ]
+    earning_reference = [
+        earning(f"4{i:03d}", float(value), eligible=False) for i, value in enumerate(range(1, 21))
+    ]
+    expansion_reference = [
+        row(f"5{i:03d}", float(value), float(value), group="all", eligible=False)
+        for i, value in enumerate((1, 2, 3, 6, 7, 8, 9))
+    ]
+    result = select(
+        target,
+        *earning_active,
+        *earning_reference,
+        row("2001", 4.0, 4.0, group="all"),
+        *expansion_reference,
+    )
+    card = next(card for card in result.cards if card.ticker == "1001")
+    expansion_path, earning_path = card.paths
+    assert [path.path_id for path in card.paths] == ["business_expansion", "earning_power"]
+    assert earning_path.score == pytest.approx(0.9)
+    assert expansion_path.score == pytest.approx(0.5)
+    assert earning_path.normalization is not None
+    assert expansion_path.normalization is not None
+    assert earning_path.normalization.percentile == 0.5
+    assert expansion_path.normalization.percentile == 0.75
+    assert card.strongest_path == "business_expansion"
+    assert card.priority == expansion_path.normalization.percentile
+
+
 def test_annual_population_includes_companies_using_quarter():
     rows = []
     for i in range(102):
