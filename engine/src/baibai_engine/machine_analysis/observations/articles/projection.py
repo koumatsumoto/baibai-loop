@@ -17,9 +17,9 @@ from baibai_engine.data_collection.providers.articles.native import (
     TEXT_REVISION,
     NativeArticleUnsupported,
     is_index_locator,
-    parser_revision_for,
     parse_document,
     parse_index,
+    parser_revision_for,
 )
 from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
