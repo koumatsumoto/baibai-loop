@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     comparable_reporting_basis,
     disclosure_revision,
     latest_disclosure_candidates,
+    latest_reporting_basis_matches,
     reporting_basis_rows,
     statement_basis,
 )
@@ -50,9 +51,10 @@ def _latest_consistent_actual(
         if basis_rows and (not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS)
         else period_rows
     )
-    if not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS:
-        if len({(statement_basis(row), accounting_standard(row)) for row in latest}) != 1:
-            return None
+    if (not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS) and len(
+        {(statement_basis(row), accounting_standard(row)) for row in latest}
+    ) != 1:
+        return None
     for field in fields:
         if any(field in row.unresolved_actual_fields for row in latest):
             return None

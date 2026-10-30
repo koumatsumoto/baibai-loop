@@ -23,6 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     accounting_standard,
     latest_disclosure_candidates,
     project_financial_documents,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -126,13 +127,17 @@ def earnings_price(
     actual_rows = _actual_rows(normalized.summaries)
     anchor_period = max(map(accounting_period_identity, actual_rows), default=None)
     anchor_candidates = latest_disclosure_candidates(
-        [row for row in actual_rows if accounting_period_identity(row) == anchor_period]
+        [
+            row
+            for row in reporting_basis_rows(actual_rows)
+            if accounting_period_identity(row) == anchor_period
+        ]
     )
     component_candidates = [
         latest_disclosure_candidates(
             [
                 candidate
-                for candidate in actual_rows
+                for candidate in reporting_basis_rows(actual_rows)
                 if accounting_period_identity(candidate) == accounting_period_identity(row)
             ]
         )

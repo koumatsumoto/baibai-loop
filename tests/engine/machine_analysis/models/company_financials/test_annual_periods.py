@@ -178,8 +178,11 @@ def test_profit_only_correction_keeps_prior_shares_but_share_correction_wins():
         profit=None,
         shares_outstanding=None,
     )
-    prior = _prior_year_summary([*rows, correction], DEFAULT_TTM_RULES, field_name="shares_outstanding")
-    assert prior is not None and prior.shares_outstanding == 100.0
+    prior = _prior_year_summary(
+        [*rows, correction], DEFAULT_TTM_RULES, field_name="shares_outstanding"
+    )
+    assert prior is not None
+    assert prior.shares_outstanding == 100.0
     changed = replace(
         correction,
         disclosed_at=correction.disclosed_at + timedelta(days=1),
@@ -189,7 +192,8 @@ def test_profit_only_correction_keeps_prior_shares_but_share_correction_wins():
     prior = _prior_year_summary(
         [*rows, correction, changed], DEFAULT_TTM_RULES, field_name="shares_outstanding"
     )
-    assert prior is not None and prior.shares_outstanding == 95.0
+    assert prior is not None
+    assert prior.shares_outstanding == 95.0
 
 
 def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority():
@@ -205,9 +209,12 @@ def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority
     )
     rows.append(revised)
     assert _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="profit") is None
-    assert _latest_actual_row_by_field_priority(
-        rows, ("operating_profit", "ordinary_profit", "profit")
-    ) is None
+    assert (
+        _latest_actual_row_by_field_priority(
+            rows, ("operating_profit", "ordinary_profit", "profit")
+        )
+        is None
+    )
 
 
 def test_same_time_standard_disagreement_preserves_agreed_issuer_shares():
@@ -227,8 +234,12 @@ def test_same_time_standard_disagreement_preserves_agreed_issuer_shares():
         TTMQuality.UNAVAILABLE,
     )
     result = build_financial_snapshot(
-        10.0, [annual, tied], None, DEFAULT_TTM_RULES,
-        adjustment_events=(), asof_date=date(2025, 6, 1),
+        10.0,
+        [annual, tied],
+        None,
+        DEFAULT_TTM_RULES,
+        adjustment_events=(),
+        asof_date=date(2025, 6, 1),
     )
     assert result.market_cap == 800.0
 
@@ -247,8 +258,12 @@ def test_accruals_use_current_assets_when_prior_assets_have_another_standard():
 
     def accruals(rows):
         return build_financial_snapshot(
-            10.0, rows, None, DEFAULT_TTM_RULES,
-            adjustment_events=(), asof_date=date(2025, 6, 1),
+            10.0,
+            rows,
+            None,
+            DEFAULT_TTM_RULES,
+            adjustment_events=(),
+            asof_date=date(2025, 6, 1),
         ).accruals_to_assets
 
     assert accruals([prior, current]) == pytest.approx(0.3)
@@ -270,8 +285,9 @@ def test_growth_reports_current_partial_standard_revision_and_keeps_issuer_share
     )
     state = build_period_states([prior, current, correction], sector="情報・通信業")[-1]
     reported = next(item for item in state.observations if item.measurement == "reported")
+    balance = next(item for item in state.observations if item.measurement == "balance")
     assert reported.metrics["parent_profit"].reason == "accounting_standard_incomparable"
-    assert reported.metrics["issued_shares"].value == 120.0
+    assert balance.metrics["issued_shares"].value == 120.0
 
 
 def test_same_time_dividend_notice_does_not_revoke_actual_statement_basis():

@@ -84,9 +84,10 @@ def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinan
         return None
     if len({getattr(r, field) for r in candidates}) != 1:
         return None
-    if not issuer_capital and len(
-        {(statement_basis(r), accounting_standard(r)) for r in candidates}
-    ) != 1:
+    if (
+        not issuer_capital
+        and len({(statement_basis(r), accounting_standard(r)) for r in candidates}) != 1
+    ):
         return None
     row = sorted(candidates, key=lambda r: r.disclosure_number or "")[-1]
     if not issuer_capital and not latest_reporting_basis_matches(rows, row):
