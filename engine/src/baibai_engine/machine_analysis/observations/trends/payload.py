@@ -40,6 +40,23 @@ def finish_payload(
     comparisons.sort(key=canonical_json)
     shown_records = records[:MAX_RECORDS]
     shown_comparisons = comparisons[:MAX_COMPARISONS]
+    artifacts = {
+        artifact.ref.artifact_id: artifact
+        for selection in fixed.artifacts
+        for artifact in (selection.current, selection.baseline)
+        if artifact is not None
+    }
+    details = []
+    for identity in sorted(artifacts):
+        artifact = artifacts[identity]
+        reference: dict[str, object] = {
+            "evidence": artifact.evidence.model_dump(mode="json"),
+            "artifact": artifact.ref.model_dump(mode="json"),
+        }
+        _pin_reference(reference, fixed)
+        details.append(
+            {"artifact": reference["artifact"], "exact_evidence": reference["exact_evidence"]}
+        )
     payload: dict[str, object] = {
         **context,
         "input_manifest": fixed.manifest.model_dump(mode="json"),
@@ -65,6 +82,7 @@ def finish_payload(
             "input_manifest_sha256": fixed.manifest.sha256,
             "reader": "article-exact-evidence",
             "reference_kind": "artifact_id_and_sha256",
+            "artifacts": details,
         },
     }
     while True:

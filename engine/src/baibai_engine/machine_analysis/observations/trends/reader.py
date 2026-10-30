@@ -53,7 +53,7 @@ DEFAULT_INDUSTRIES = (
         geography="JP",
     ),
 )
-MAX_ARTICLES = 64
+MAX_ARTICLES = 16
 WINDOW_DAYS = 180
 
 
@@ -93,6 +93,20 @@ def _read_source(
     title_terms: tuple[str, ...] = (),
 ) -> tuple[tuple[SelectedArtifact, ...], TrendCoverage]:
     source_placeholders = ",".join("?" for _ in sources)
+    receipt_rows = conn.execute(
+        "SELECT source, json_extract(receipt_json,'$.status'), count(*) "
+        f"FROM article_source_receipts WHERE source IN ({source_placeholders}) "  # nosec B608
+        "AND received_on>=? AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
+        "GROUP BY source, json_extract(receipt_json,'$.status') ORDER BY 1,2",
+        (*sources, start.isoformat(), cutoff.isoformat()),
+    ).fetchall()
+    latest = conn.execute(
+        "SELECT json_extract(receipt_json,'$.received_at') FROM article_source_receipts "
+        f"WHERE source IN ({source_placeholders}) "  # nosec B608
+        "AND received_on>=? AND julianday(json_extract(receipt_json,'$.received_at'))<=julianday(?) "
+        "ORDER BY julianday(json_extract(receipt_json,'$.received_at')) DESC LIMIT 1",
+        (*sources, start.isoformat(), cutoff.isoformat()),
+    ).fetchone()
     title_filter = ""
     if title_terms:
         title_filter = (
@@ -161,7 +175,7 @@ def _read_source(
         reasons.append("article_limit_reached_count_is_lower_bound")
     state = "available"
     if not rows:
-        state = "not_collected"
+        state = "partial" if receipt_rows else "not_collected"
         reasons.append("no_matching_family_articles_in_receipt_window")
     elif reasons:
         state = "partial" if selections else "extraction_pending"
@@ -173,6 +187,10 @@ def _read_source(
             "reasons": reasons,
             "omitted_artifacts": omitted,
             "continuation": "articles.list:same_manifest:after=null" if omitted else None,
+            "source_states": tuple(
+                f"{source}:{status}:receipts={count}" for source, status, count in receipt_rows
+            ),
+            "latest_receipt_at": None if latest is None else latest[0],
         }
     )
 

@@ -138,6 +138,13 @@ def calculate_industry_trends(fixed: IndustryInput) -> dict[str, object]:
         comparisons=comparisons,
         context={
             "scope": fixed.definition.model_dump(mode="json"),
+            "comparison_status": "no_current_extracted_claims"
+            if not records
+            else "baseline_missing_or_not_applicable"
+            if not comparisons
+            else "available"
+            if any(item["kind"] != "not_comparable" for item in comparisons)
+            else "not_comparable",
             "limitations": ["no_inferred_supply_capacity_or_investment_effect"],
         },
     )

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import AwareDatetime, Field, model_validator
 
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     SelectedArtifact,
@@ -30,11 +29,13 @@ class TrendCoverage(Value):
     # exists. This descriptor is for the same release, never a mutable latest URL.
     omitted_artifacts: int = Field(default=0, ge=0)
     continuation: str | None = None
+    source_states: tuple[str, ...] = ()
+    latest_receipt_at: AwareDatetime | None = None
 
 
 class FixedTrendInputs(Value):
     manifest: TrendInputManifest
-    artifacts: tuple[SelectedArtifact, ...] = Field(max_length=64)
+    artifacts: tuple[SelectedArtifact, ...] = Field(max_length=16)
     coverage: TrendCoverage
 
     @model_validator(mode="after")
@@ -79,7 +80,3 @@ class TrendGenerationInputs(Value):
         if len(set(scopes)) != len(scopes):
             raise ValueError("duplicate industry scope")
         return self
-
-
-def date_in_window(value: date | None, inputs: FixedTrendInputs) -> bool:
-    return value is not None and inputs.manifest.window_start <= value <= inputs.manifest.window_end

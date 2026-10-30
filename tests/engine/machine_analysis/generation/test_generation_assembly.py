@@ -23,7 +23,7 @@ RULES = TTMRules(
 )
 
 
-def generate(tickers=("1001", "1002"), **updates):
+def generate(tickers=("1001", "1002"), *, stream=False, **updates):
     values = {
         "generation_id": "synthetic",
         "as_of": AS_OF,
@@ -41,7 +41,8 @@ def generate(tickers=("1001", "1002"), **updates):
         "securities_context": {t: {"peer_count": 12} for t in tickers},
         "market_context_revision": "synthetic-v1",
     }
-    return generate_models(**(values | updates)).materialize()
+    generated = generate_models(**(values | updates))
+    return generated if stream else generated.materialize()
 
 
 def test_five_models_are_generated_once_per_subject_and_common_market_once():
@@ -90,7 +91,9 @@ def test_trends_are_shared_and_preserve_all_old_model_payloads(tmp_path):
     from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 
     old = generate()
-    new = generate(trends=generation_inputs())
+    stream = generate(stream=True, trends=generation_inputs())
+    assert stream.subjects == ("1001", "1002")
+    new = stream.materialize()
     assert len(new.models) == 13
     assert len({model.model_id for model in new.models}) == 7
     assert len([plan for plan in new.subject_plan.values() if plan.scope == "stock"]) == 2
