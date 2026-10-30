@@ -16,6 +16,11 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
 from baibai_engine.primitives.stocks import normalize_ticker
 
 
+def economic_selection_id(generation_id: str, *, policy: EconomicPathPolicy) -> str:
+    """新規候補のidentityを固定世代と政策methodに結びつける。"""
+    return f"selection-{generation_id}-{policy.method}"
+
+
 def select_saved_economic_generation(
     generation_id: str,
     *,
