@@ -25,6 +25,14 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
 AccountingPeriodKey = tuple[date, int, date, date, int]
 
 _FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
+_NON_REPORTING_DOC_TYPES = frozenset(
+    {
+        "EarnForecastRevision",
+        "DividendForecastRevision",
+        "REITEarnForecastRevision",
+        "REITDividendForecastRevision",
+    }
+)
 
 
 def accounting_period_identity(
@@ -162,6 +170,54 @@ def statement_basis(row: JQuantsFinancialSummary) -> str:
     if "_Consolidated_" in kind:
         return "consolidated"
     return "primary_unknown"
+
+
+def accounting_standard(row: JQuantsFinancialSummary) -> str | None:
+    """Resolve the standard only from an official financial statement DocType.
+
+    Foreign and REIT describe a document category, not a specific accounting
+    standard. Forecast and dividend revisions do not establish one either.
+    """
+    kind = row.document_type or ""
+    if "FinancialStatements_" not in kind:
+        return None
+    suffix = kind.rsplit("_", 1)[-1]
+    return suffix if suffix in {"JP", "US", "JMIS", "IFRS"} else None
+
+
+def comparable_reporting_basis(rows: Sequence[JQuantsFinancialSummary]) -> bool:
+    """Amounts from selected periods can be combined only with a known common basis."""
+    if not rows:
+        return False
+    basis = statement_basis(rows[0])
+    standard = accounting_standard(rows[0])
+    return (
+        basis in {"consolidated", "nonconsolidated"}
+        and standard is not None
+        and all(
+            statement_basis(row) == basis and accounting_standard(row) == standard for row in rows
+        )
+    )
+
+
+def reporting_basis_rows(
+    rows: Sequence[JQuantsFinancialSummary],
+) -> list[JQuantsFinancialSummary]:
+    """Forecast and dividend notices do not revise the actual statement basis."""
+    return [row for row in rows if row.document_type not in _NON_REPORTING_DOC_TYPES]
+
+
+def latest_reporting_basis_matches(
+    period_rows: Sequence[JQuantsFinancialSummary], selected: JQuantsFinancialSummary
+) -> bool:
+    """An older field value cannot outlive a newer standard or scope revision."""
+    basis_rows = reporting_basis_rows(period_rows)
+    if not basis_rows:
+        return False
+    return {
+        (statement_basis(row), accounting_standard(row))
+        for row in latest_disclosure_candidates(basis_rows)
+    } == {(statement_basis(selected), accounting_standard(selected))}
 
 
 def _statement_basis_state(rows: Sequence[JQuantsFinancialSummary]) -> str:

@@ -59,6 +59,23 @@ def result(company):
     return {"policy": {"method": "best-economic-path-v1"}, "eligible_count": 1, "cards": [company]}
 
 
+def test_ttm_basis_failure_reason_survives_the_bounded_l3_brief():
+    company = card()
+    company["context"]["annual_observation"] = {
+        "selected_variant": "annual_ttm",
+        "latest_ttm_metrics": {
+            "sales": {"value": 120.0, "reason": None},
+            "parent_profit": {"value": None, "reason": "accounting_standard_incomparable"},
+        },
+    }
+    company["paths"][0]["evidence"]["business_observation"]["accounting_standard"] = "IFRS"
+    brief = economic_screening_brief(result(company))["cards"][0]
+    assert brief["context"]["annual_observation"]["latest_ttm_missing"] == {
+        "parent_profit": "accounting_standard_incomparable"
+    }
+    assert brief["paths"][0]["evidence"]["period_basis"][0]["accounting_standard"] == ("IFRS")
+
+
 def test_new_priority_brief_keeps_raw_h_and_within_path_rank_distinct():
     company = card()
     company["priority"] = 0.75

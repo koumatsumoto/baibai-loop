@@ -23,6 +23,7 @@ def period(start, end, value):
                 period_end=end,
                 measurement="quarter",
                 statement_basis="consolidated",
+                accounting_standard="JP",
                 metrics={"sales": Value(value=value)},
             ),
         ),

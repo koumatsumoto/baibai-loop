@@ -468,6 +468,7 @@ def test_march_reported_fcf_and_june_trailing_cfo_keep_distinct_periods_and_prec
         "end": "2026-06-30",
         "method": "fy_plus_current_ytd_minus_prior_ytd",
         "statement_basis": "consolidated",
+        "accounting_standard": "JP",
     }
     components = financial["ocf_ttm_period"]["components"]
     assert [row["disclosure_number"] for row in components] == [

@@ -9,8 +9,12 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
+    accounting_standard,
+    comparable_reporting_basis,
     disclosure_revision,
     latest_disclosure_candidates,
+    latest_reporting_basis_matches,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -27,6 +31,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
 _AccountingObservationKey = tuple[AccountingPeriodKey, tuple[date, str]]
+_ISSUER_CAPITAL_FIELDS = frozenset({"shares_outstanding", "treasury_shares"})
 
 
 def _accounting_observation_key(summary: JQuantsFinancialSummary) -> _AccountingObservationKey:
@@ -39,9 +44,17 @@ def _latest_consistent_actual(
     if not candidates:
         return None
     period = max(map(accounting_period_identity, candidates))
+    period_rows = [row for row in candidates if accounting_period_identity(row) == period]
+    basis_rows = reporting_basis_rows(period_rows)
     latest = latest_disclosure_candidates(
-        [row for row in candidates if accounting_period_identity(row) == period]
+        basis_rows
+        if basis_rows and (not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS)
+        else period_rows
     )
+    if (not fields or not set(fields) <= _ISSUER_CAPITAL_FIELDS) and len(
+        {(statement_basis(row), accounting_standard(row)) for row in latest}
+    ) != 1:
+        return None
     for field in fields:
         if any(field in row.unresolved_actual_fields for row in latest):
             return None
@@ -90,50 +103,40 @@ def _latest_actual_row(
     return _latest_consistent_actual(candidates, required if field_names else ())
 
 
-def _latest_actual_row_with_any(
-    summaries: Sequence[JQuantsFinancialSummary],
-    field_names: Sequence[str],
-) -> JQuantsFinancialSummary | None:
-    candidates = [
-        summary
-        for summary in summaries
-        if any(
-            getattr(summary, field_name) is not None
-            or field_name in summary.unresolved_actual_fields
-            for field_name in field_names
-        )
-    ]
-    return _latest_consistent_actual(candidates, ())
-
-
 def _latest_actual_row_by_field_priority(
     summaries: Sequence[JQuantsFinancialSummary],
     field_names: Sequence[str],
 ) -> JQuantsFinancialSummary | None:
     """Pick the preferred non-null metric without leaving the latest accounting period.
 
-    Actual corrections may update only a subset of a statement.  The newest row for a
-    period therefore cannot make a more specific metric from an earlier revision of the
-    same period disappear, but a metric from an older period must not replace a less
-    specific metric observed in the current period.
+    Actual corrections may update only part of a statement. An older field in
+    the selected period remains usable when the latest reporting basis agrees.
+    A new basis revision cannot revive an older field from that period.
     """
 
-    latest = _latest_actual_row_with_any(summaries, field_names)
+    latest = _latest_actual_row(summaries)
     if latest is None:
         return None
     period_key = accounting_period_identity(latest)
+    period_rows = [
+        summary for summary in summaries if accounting_period_identity(summary) == period_key
+    ]
     for field_name in field_names:
         candidates = [
             summary
-            for summary in summaries
-            if accounting_period_identity(summary) == period_key
-            and (
+            for summary in period_rows
+            if (
                 getattr(summary, field_name) is not None
                 or field_name in summary.unresolved_actual_fields
             )
         ]
         if candidates:
-            return _latest_consistent_actual(candidates, (field_name,))
+            selected = _latest_consistent_actual(candidates, (field_name,))
+            return (
+                selected
+                if selected is not None and latest_reporting_basis_matches(period_rows, selected)
+                else None
+            )
     return None
 
 
@@ -199,6 +202,7 @@ def _prior_year_summary(
     ttm_rules: TTMRules,
     *,
     field_name: str | None = None,
+    require_basis: bool = True,
 ) -> JQuantsFinancialSummary | None:
     """Return the same fiscal period in the previous fiscal year.
 
@@ -212,6 +216,14 @@ def _prior_year_summary(
     )
     if latest is None:
         return None
+    if field_name is not None and field_name != "shares_outstanding":
+        period_rows = [
+            row
+            for row in summaries
+            if accounting_period_identity(row) == accounting_period_identity(latest)
+        ]
+        if not latest_reporting_basis_matches(period_rows, latest):
+            return None
     # Native accounting dates own comparability; FY/Q labels cannot replace them.
     prior = _matched_prior_period_summary(
         summaries,
@@ -224,8 +236,9 @@ def _prior_year_summary(
     # a mismatching latest revision must not revive an older convenient basis.
     if (
         prior is not None
+        and require_basis
         and field_name != "shares_outstanding"
-        and statement_basis(prior) != statement_basis(latest)
+        and not comparable_reporting_basis((prior, latest))
     ):
         return None
     return prior
@@ -267,6 +280,7 @@ def _ttm_period(
         if len(components) == 1
         else "fy_plus_current_ytd_minus_prior_ytd",
         "statement_basis": statement_basis(latest),
+        "accounting_standard": accounting_standard(latest),
         "components": [
             {
                 "coefficient": -1 if index == 2 else 1,
@@ -331,7 +345,7 @@ def _ttm_components(
     # A fiscal-date match cannot make individual and consolidated amounts additive.
     # Keep each reported operand intact rather than searching older revisions for
     # a convenient basis. Matching labels alone do not prove unchanged group scope.
-    if len({statement_basis(row) for row in (latest, prior_fy, prior_same)}) != 1:
+    if not comparable_reporting_basis((latest, prior_fy, prior_same)):
         return ()
     prior_fy_value = getattr(prior_fy, field)
     prior_same_value = getattr(prior_same, field)
@@ -372,12 +386,6 @@ def _matched_prior_period_summary(
         return None
     candidates: list[JQuantsFinancialSummary] = []
     for summary in _actual_rows(summaries):
-        if (
-            field_name is not None
-            and getattr(summary, field_name) is None
-            and field_name not in summary.unresolved_actual_fields
-        ):
-            continue
         if summary.period_start is None or summary.period_end is None:
             continue
         if not prior_year_period_matches(
@@ -388,7 +396,29 @@ def _matched_prior_period_summary(
         ):
             continue
         candidates.append(summary)
+    if not candidates:
+        return None
+    period = max(map(accounting_period_identity, candidates))
+    period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
-    return _latest_consistent_actual(
-        candidates, (comparison_field,) if comparison_field is not None else ()
+    # YoY keeps the last observed field within its fixed prior period. TTM
+    # operands use value_field and retain their stricter latest-revision barrier.
+    if field_name is not None:
+        observed_rows = [
+            row
+            for row in period_rows
+            if getattr(row, field_name) is not None or field_name in row.unresolved_actual_fields
+        ]
+    else:
+        observed_rows = period_rows
+    selected = _latest_consistent_actual(
+        observed_rows, (comparison_field,) if comparison_field is not None else ()
     )
+    if (
+        selected is not None
+        and field_name is not None
+        and comparison_field != "shares_outstanding"
+        and not latest_reporting_basis_matches(period_rows, selected)
+    ):
+        return None
+    return selected

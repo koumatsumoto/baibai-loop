@@ -173,11 +173,23 @@ def _annual_observation(annual: dict[str, Any]) -> dict[str, Any]:
         "latest_ttm_period_status",
         "capital_fallback",
     )
+    ttm_metrics = _object(annual.get("latest_ttm_metrics"))
+    brief["latest_ttm_missing"] = {
+        name: value["reason"]
+        for name, raw in ttm_metrics.items()
+        if (value := _object(raw)).get("reason") is not None
+    }
     if annual.get("selected_variant") == "full_fy":
         for name in ("latest_reported_observation", "latest_quarter_observation"):
             observation = _object(annual.get(name))
             brief[name] = {
-                **_pick(observation, "period_start", "period_end", "statement_basis"),
+                **_pick(
+                    observation,
+                    "period_start",
+                    "period_end",
+                    "statement_basis",
+                    "accounting_standard",
+                ),
                 "metrics": {
                     metric: {
                         **_pick(_object(value), "value", "reason"),
@@ -217,7 +229,12 @@ def _path(path: dict[str, Any], *, include_earnings_periods: bool) -> dict[str, 
         if name.endswith("observation"):
             observation = _object(value)
             period = _pick(
-                observation, "measurement", "period_start", "period_end", "statement_basis"
+                observation,
+                "measurement",
+                "period_start",
+                "period_end",
+                "statement_basis",
+                "accounting_standard",
             )
             if period not in observations:
                 observations.append(period)

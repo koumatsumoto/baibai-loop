@@ -181,6 +181,17 @@ def test_missing_profit_operand_is_not_a_missing_ttm_interval():
     assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
 
 
+def test_old_jp_full_fy_cannot_bypass_new_ifrs_quarter():
+    rows = documents()
+    rows[2] = replace(rows[2], document_type="1QFinancialStatements_Consolidated_IFRS")
+    row = project(generation(rows))
+    assert row.context["annual_observation"]["latest_ttm_period_status"] == (
+        "matching_period_not_observed"
+    )
+    assert row.context["annual_observation"]["selected_variant"] == "annual_ttm"
+    assert not any(path.eligible for path in row.paths if path.variant == "full_fy")
+
+
 def test_all_current_amounts_missing_does_not_hide_the_missing_interval():
     rows = documents()
     rows[2] = replace(rows[2], sales=None, operating_profit=None, profit=None)

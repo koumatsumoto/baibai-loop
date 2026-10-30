@@ -83,6 +83,7 @@ def seed_economic_generation(path, *, scoped=True):
                                     period_end=date(year, 12, 31),
                                     measurement="annual_ttm",
                                     statement_basis="consolidated",
+                                    accounting_standard="JP",
                                     metrics={"sales": Value(value=float(year))},
                                 ),
                                 Observation(
@@ -90,6 +91,7 @@ def seed_economic_generation(path, *, scoped=True):
                                     period_end=date(year, 12, 31),
                                     measurement="quarter",
                                     statement_basis="consolidated",
+                                    accounting_standard="JP",
                                     metrics={"sales": Value(value=year / 10)},
                                 ),
                             ),

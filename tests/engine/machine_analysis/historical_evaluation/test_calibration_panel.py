@@ -224,6 +224,7 @@ class CalibrationPanelTest(unittest.TestCase):
             JQuantsFinancialSummary(
                 ticker="9001",
                 disclosed_at=date(2024, 8, 1),
+                document_type="1QFinancialStatements_Consolidated_JP",
                 fiscal_year_end=date(2025, 3, 31),
                 period_start=date(2024, 4, 1),
                 period_end=date(2024, 6, 30),
@@ -233,6 +234,7 @@ class CalibrationPanelTest(unittest.TestCase):
             JQuantsFinancialSummary(
                 ticker="9001",
                 disclosed_at=date(2025, 5, 10),
+                document_type="FYFinancialStatements_Consolidated_JP",
                 fiscal_year_end=date(2025, 3, 31),
                 period_start=date(2024, 4, 1),
                 period_end=date(2025, 3, 31),
@@ -243,6 +245,7 @@ class CalibrationPanelTest(unittest.TestCase):
             JQuantsFinancialSummary(
                 ticker="9001",
                 disclosed_at=date(2025, 8, 1),
+                document_type="1QFinancialStatements_Consolidated_JP",
                 fiscal_year_end=date(2026, 3, 31),
                 period_start=date(2025, 4, 1),
                 period_end=date(2025, 6, 30),
@@ -253,6 +256,7 @@ class CalibrationPanelTest(unittest.TestCase):
             JQuantsFinancialSummary(
                 ticker="9001",
                 disclosed_at=date(2025, 9, 1),
+                document_type="1QFinancialStatements_Consolidated_JP",
                 fiscal_year_end=date(2026, 3, 31),
                 period_start=date(2025, 4, 1),
                 period_end=date(2025, 6, 30),
@@ -1286,8 +1290,15 @@ def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
     expected = json.loads(golden.read_text(encoding="utf-8"))
     # 保存baselineのidentityを付け替えず、新規計算のrevisionと数値を別に比較する。
     assert actual["diagnostics"].pop("rules_hash") == rules_content_hash(rules)
-    with patch(
-        "baibai_engine.machine_analysis.historical_evaluation.panel.PANEL_CALCULATION_REVISION", ""
+    with (
+        patch(
+            "baibai_engine.machine_analysis.historical_evaluation.panel.PANEL_CALCULATION_REVISION",
+            "",
+        ),
+        patch(
+            "baibai_engine.machine_analysis.historical_evaluation.panel.VALUATION_CALCULATION_REVISION",
+            "continuous-annual-input-v46",
+        ),
     ):
         assert expected["diagnostics"].pop("rules_hash") == rules_content_hash(rules)
     assert canonical_json(actual) == canonical_json(expected)

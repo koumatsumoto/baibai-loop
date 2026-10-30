@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from pydantic import TypeAdapter
 
+from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -38,7 +39,11 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_inputs impo
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
     select_saved_economic_generation,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    EconomicPathPolicy,
+    EconomicPathSelection,
+    select_economic_paths,
+)
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 
@@ -74,6 +79,7 @@ def payloads(price=100.0):
             period_start=date.fromisoformat(start),
             period_end=date(2025, 12, 31),
             statement_basis="consolidated",
+            accounting_standard="JP",
             metrics={
                 "sales": Value(value=1000.0),
                 "operating_profit": Value(value=100.0),
@@ -116,6 +122,7 @@ def payloads(price=100.0):
                     market_cap_yen=cap,
                     profit_ttm_yen=1000.0,
                     statement_basis="consolidated",
+                    accounting_standard="JP",
                     profit_components=(profit_component(1, 1000.0, "2025-01-01", "2025-12-31"),),
                     unavailable_reason=None,
                 ),
@@ -172,6 +179,18 @@ def test_valid_paths_use_fixed_observations_and_periods():
     assert active(result, "earning_power").business_value == 0.1
     assert active(result, "business_expansion").variant == "quarter"
     assert active(result, "operating_recovery").business_value == 0.02
+
+
+def test_projected_observation_standard_reaches_the_bounded_brief():
+    projected = project(payloads())
+    selection = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selection, mode="json")
+    brief = economic_screening_brief(saved)
+    assert any(
+        observation["accounting_standard"] == "JP"
+        for path in brief["cards"][0]["paths"]
+        for observation in path["evidence"].get("period_basis", [])
+    )
 
 
 def test_price_change_moves_price_axes_not_business_axes():
@@ -931,7 +950,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
     )
     growth_model = generation.result("company_growth", "1001")
     assert growth_model == reversed_generation.result("company_growth", "1001")
-    assert growth_model.calculation_revision == "company_growth_retrospective_v6"
+    assert growth_model.calculation_revision == "company_growth_retrospective_v7"
     growth = growth_model.payload
     before = canonical_json(growth)
     priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]
