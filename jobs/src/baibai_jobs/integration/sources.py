@@ -34,6 +34,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
+    ObjectStore,
     R2Error,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
@@ -163,19 +164,33 @@ def apply(
     return report
 
 
-def canonical_generations() -> dict[str, str]:
-    stores = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-    pointer = _serving_pointer(stores).pointer
+def canonical_generations(store: ObjectStore) -> dict[str, str]:
+    pointer = _serving_pointer(store).pointer
     if pointer is None:
         raise ValueError("common integration requires a published lake release")
-    generation = (
-        Path(os.environ.get("R2_GENERATION_DIR") or "stores/.r2-generations")
-        / "indicators.sqlite.etag"
-    )
+    try:
+        manifest = json.loads(store.get_bytes("machine-manifest.json"))
+    except (KeyError, ValueError, UnicodeDecodeError) as error:
+        raise LakePublishError("published machine bundle receipt is unavailable") from error
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
+        raise LakePublishError("published machine bundle receipt is invalid")
+    keys = manifest.get("keys")
+    if not isinstance(keys, dict):
+        raise LakePublishError("published machine bundle receipt is invalid")
+    for key in ("market.sqlite", "runs.sqlite", "indicators.sqlite"):
+        recorded = keys.get(key)
+        current = store.head(key)
+        if (
+            not isinstance(recorded, str)
+            or not recorded
+            or current is None
+            or current.etag != recorded
+        ):
+            raise LakePublishError("published machine bundle differs from its receipt")
     return {
         "lake_release_id": pointer.release_id,
         "lake_manifest_sha256": pointer.manifest_sha256,
-        "economic_etag": generation.read_text(encoding="utf-8").strip(),
+        "economic_etag": keys["indicators.sqlite"],
     }
 
 
@@ -291,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
             verify_held(store, _load_handle(args.lease_handle))
-            generations = canonical_generations()
+            generations = canonical_generations(store)
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
