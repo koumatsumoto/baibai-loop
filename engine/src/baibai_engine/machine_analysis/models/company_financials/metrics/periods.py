@@ -401,6 +401,8 @@ def _matched_prior_period_summary(
     period = max(map(accounting_period_identity, candidates))
     period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
+    # YoY keeps the last observed field within its fixed prior period. TTM
+    # operands use value_field and retain their stricter latest-revision barrier.
     observed_rows = (
         [
             row
@@ -408,7 +410,7 @@ def _matched_prior_period_summary(
             if getattr(row, comparison_field) is not None
             or comparison_field in row.unresolved_actual_fields
         ]
-        if comparison_field is not None
+        if field_name is not None
         else period_rows
     )
     selected = _latest_consistent_actual(
@@ -416,7 +418,7 @@ def _matched_prior_period_summary(
     )
     if (
         selected is not None
-        and comparison_field is not None
+        and field_name is not None
         and comparison_field != "shares_outstanding"
         and not latest_reporting_basis_matches(period_rows, selected)
     ):
