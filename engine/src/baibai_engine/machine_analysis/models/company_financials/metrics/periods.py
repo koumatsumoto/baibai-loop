@@ -407,8 +407,7 @@ def _matched_prior_period_summary(
         observed_rows = [
             row
             for row in period_rows
-            if getattr(row, field_name) is not None
-            or field_name in row.unresolved_actual_fields
+            if getattr(row, field_name) is not None or field_name in row.unresolved_actual_fields
         ]
     else:
         observed_rows = period_rows

@@ -76,6 +76,23 @@ def test_ttm_basis_failure_reason_survives_the_bounded_l3_brief():
     assert brief["paths"][0]["evidence"]["period_basis"][0]["accounting_standard"] == ("IFRS")
 
 
+def test_new_priority_brief_keeps_raw_h_and_within_path_rank_distinct():
+    company = card()
+    company["priority"] = 0.75
+    company["paths"][0]["normalization"] = {
+        "percentile": 0.75,
+        "population": 2,
+        "midrank": 1.0,
+    }
+    source = result(company)
+    source["policy"]["method"] = "best-economic-path-v4"
+    brief = economic_screening_brief(source)
+    assert brief["cards"][0]["priority"] == 0.75
+    assert brief["cards"][0]["paths"][0]["score"] == 0.5
+    assert brief["cards"][0]["paths"][0]["normalization"]["population"] == 2
+    assert brief["presentation"]["ranking"] == "priority_is_max_within_path_h_midrank_percentile"
+
+
 def test_external_keeps_current_levels_states_periods_and_all_genuine_changes():
     company = card()
     rows = []

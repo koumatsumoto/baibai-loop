@@ -9,6 +9,7 @@ import baibai_jobs.integration.models as job
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
+    GenerationSubject,
     InputSnapshot,
     ModelGenerationStream,
 )
@@ -16,6 +17,7 @@ from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
+from baibai_jobs.integration.screening_selection import publish_saved_selection
 from baibai_jobs.observability.discord import render_generation
 
 
@@ -48,6 +50,7 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
         return ModelGenerationStream(
             metadata=GenerationMetadata(
+                schema_version=2,
                 generation_id=kwargs["generation_id"],
                 as_of=kwargs["as_of"],
                 evaluation_time=datetime(2026, 10, 25, tzinfo=UTC),
@@ -56,6 +59,15 @@ def integration(tmp_path, monkeypatch):
                         kind="lake_release", reference="new-release", sha256="a" * 64
                     ),
                     "economic": kwargs["economic_identity"],
+                },
+                subject_plan={
+                    "1234": GenerationSubject(
+                        scope="stock", model_ids=("company_valuation", "market_context")
+                    ),
+                    "5678": GenerationSubject(scope="stock", model_ids=("company_valuation",)),
+                    "market:global": GenerationSubject(
+                        scope="market", model_ids=("social_trends",)
+                    ),
                 },
             ),
             subjects=("1234", "5678"),
@@ -97,7 +109,9 @@ def integration(tmp_path, monkeypatch):
 
     def publish(received, *, store, before_pointer_switch):
         assert received is prepared
-        assert read_publication(path=tmp_path / "runs").selection_id == "selection-new-release"
+        assert read_publication(path=tmp_path / "runs").selection_id == (
+            "selection-models-new-release-best-economic-path-v4"
+        )
         before_pointer_switch()
         events.append("publish")
         return SimpleNamespace(as_dict=lambda: {"release_id": "new-release"})
@@ -129,7 +143,12 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     publication = read_publication(path=arguments["runs"])
-    assert publication.selection.result.policy.method == "best-economic-path-v3"
+    assert (
+        publish_saved_selection(result["generation_id"], runs=arguments["runs"])["created"] is False
+    )
+    assert read_publication(path=arguments["runs"]).selection_id == result["selection_id"]
+    assert publication.selection.result.policy.method == "best-economic-path-v4"
+    assert result["selection_method"] == "best-economic-path-v4"
     assert (
         not {"screening_status", "market_updated", "delta_measured", "entered", "exited"}
         & result.keys()

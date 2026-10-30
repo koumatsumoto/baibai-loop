@@ -35,6 +35,21 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に開始時点のready受領一覧を固定する。全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
+### 保存済み世代への候補政策の発行
+
+モデルを再生成せず、固定済みV2 generationに現行候補政策だけを適用する場合は、変更codeをmainへ反映した後、認可された作業環境で[公開lease](#ローカルからクラウドを更新する)を保持したままfresh runsを取得し、次の順で行う。`<GENERATION_ID>`は保存済みのexact IDを指定する。CLIは`subject_plan`のstockだけを対象に、通常のmodel-integrationと同じ`selection-<GENERATION_ID>-best-economic-path-v4`を作業runsへ発行する。既存IDへ同内容なら`created=false`、異内容なら競合で停止する。既存の保存IDは移行・改名しない。
+
+```bash
+with_publication_lease bash -c '
+  jobs/scripts/r2_transfer.sh pull-runs &&
+  uv run baibai-jobs screening-selection --generation-id <GENERATION_ID> \
+    --runs stores/screening/runs.sqlite &&
+  jobs/scripts/r2_transfer.sh push-runs
+'
+```
+
+`push-runs`はrunsだけの条件付き反映であり、model-integration・lake公開・他store更新を含まない。成功後は正本のfresh読戻しでSelection ID・generation ID・政策method・候補数を照合する。pushの結果が不明なら反映先の状態を先に確認し、同じ作業copyを盲再送しない。旧Selectionとgenerationは書き換えない。
+
 取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。429の再試行を続けられないときは、その取得pass内の同quota groupだけ新規GETを止め、既受領と他groupの取得を保つ。経済native取得の再試行は失敗した1 GETだけで行い、成功済みの別月やprovider全体の解析をやり直さない。H.15も1回の取得でplain→browserの選択を繰り返さず、browser起動不能はsource拒否として記憶しないため、後の独立取得で再試行できる。文書取得の再試行方針は変えない。日次に移行・全期間backfill・較正再構築を代行させない。
 
 取得／private受領の通知と、共通統合の正本反映／読戻し／lease解放を区別し、run log、store push、release、generation/selection IDを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。watchdogは取得を12:00 UTC、共通統合を16:00 UTCに別々のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
@@ -107,6 +122,7 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 source別summaryは`coordination/article-planning/<source>.json`。validator・具体的200 receiptのstage/hash・有限cursor・not-before・未統合stageだけを含み、各128 request/128 KiB、未統合42 stageまでとする。上限到達時は保持中の範囲を消して進めず統合/限定回復へ進む。初回summaryは`integration.sources inputs`で**取得有効化前**に発行する。summary不存在を空DBや全market pullで代替しない。通常resumeはsource数分のsummary GETと必要な304 baseline stageだけで、全stage LIST・本文全履歴の再取得をしない。private原本保存後だけcursorをCAS更新する。CAS競合で孤立した原本stageは正確なID/hashで回復できるためproviderを再取得しない。
 
 各adapterの上限は`providers/articles/contracts.py`が正本。初期値は1 index page（みんかぶ3）・最大8本文（楽天iframeは0）・展開後24 MB/source・120秒/source、GET試行上限は`2 × (page上限 + 本文上限)`。NHKは4 feed（政治/経済/国際/主要）を1 providerとしてfeed 1 MiB/HTML 2 MiB/総20 MiB、本文8 URL内に48時間以内の既知URL再検証最大2を含める。同GUIDの本文GETをまとめてもfeed受領と概要は別々に保持する。NHKは直列開始間隔1秒以上、他の新GETは5秒以上空け、304 baselineなしの無条件再取得も同じGET予算を消費する。401/403/parse失敗はtransport retryしない。redirectは追わず、未確認canonical host・Direct_Loginへ巡回を広げない。みんかぶは先頭pageの重複取得と続きpage、トウシルは新URLと直近既知URLの有限再検証を行う。残URL/cursorと省略数はprivateに保持し、楽天20見出し窓や全履歴の完全回収を保証しない。
+slot結果の`partial`は未取得のURL/pageが残る場合も維持する。原本stageと有限cursorを正常保存でき、`continuation_only=true`の場合だけjobは成功終了し、次slotへ継続する。HTTP・parse・deadline・非前進page・cursor省略・private保存/計画CAS失敗は成功扱いせず、保存済み原本と失敗理由を別々に確認する。
 
 Actionsはpublic/みんかぶ/楽天の3小groupで、同一groupは直列、別groupは独立。みんかぶ/楽天は外部評価collectorと同じ`source-host-*` concurrencyを使い後置する。長い外部評価の待機でpre-daily slotが遅れる場合も公開済み世代へ未統合stageを混ぜない。globalなprovider lockや分散rate-limit基盤は追加しない。groupへの固定bytes割当はpublic 80 MiB/みんかぶ24 MiB/楽天24 MiB（合計128 MiB/slot）で、provider予算との小さい方を適用する。job上限25分、取得deadline15分、残りをsetup/export/stageへ残す。source Aの失敗でもBの原本/private保存は続ける。
 
@@ -144,6 +160,7 @@ jobs/scripts/r2_transfer.sh push-article-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
 ```
 
 専用pushは元bundleの全ETag、lease、公開済み新origin、対応モデル世代を照合し、各keyの条件付きPUTと通常machine receiptを使う。PUT直前のupload候補digestをprivate cutover receiptに保存する。空DBの再取得置換ではなく、旧原本/coverage/operator-owned値を残したadditive変換である。
+push後の`source-seal`/`source-inputs`は公開済み`machine-manifest.json`と3つのmachine HEADの一致を確認し、その`indicators.sqlite` ETagをeconomic世代として記録する。pull時の`.r2-generations/*.etag`はCAS baseとcutover再開の根拠なので、push結果へ手で書き換えない。
 
 残存48 stageはimmutable原本を直接編集しない。`article-cutover prepare-copy --kind stage`で別pathへ変換し、stageのresult.jsonを同じ作業directoryへ保って`integration.source_handoff replay-copy --source <OLD_OWNER> --database <HYDRATED_SCHEMA49_COPY> --directory <CONVERTED_STAGE_DIRECTORY>`で旧ownerの限定再生を行う。変換済みcopyを原stage keyへ再uploadしない。切替中に旧writerが動いた場合も新旧stageを区別し、48作業copyの明示変換か旧owner再生で取り込む。取得時刻/receipt identityは変えず、再開前にpending一覧を照合する。旧source inputは現正本から全groupを再発行し、そのschemaを確認してから取得を再開する。
 

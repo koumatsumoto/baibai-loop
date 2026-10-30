@@ -134,6 +134,184 @@ def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, mon
     assert "private failure detail" not in capsys.readouterr().out
 
 
+def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    source = "tsr_data"
+    urls = [f"/data/detail/synthetic-{index}.html" for index in range(9)]
+    index = json.dumps(
+        [{"url": url, "title": f"Synthetic {index}"} for index, url in enumerate(urls)]
+    )
+    session = Session(
+        [
+            Response(200, index.encode()),
+            *(Response(200, b"<div class='entry'>Synthetic body</div>") for _ in range(8)),
+        ]
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {"lake_release_id": "before"})
+    packet = tmp_path / "tsr"
+    report = articles.acquire_source(
+        store, source=source, slot=SLOT, identity="finite", directory=packet, session=session
+    )
+    assert report["status"] == "partial"
+    assert report["continuation_only"] is True
+    assert report["failures"] == []
+    assert report["bodies"] == 8
+    assert report["omitted_url_count"] == 0
+    planning, _ = load_planning(store, source)
+    assert len(planning.pending) == 1
+    assert planning.cursor["pending_urls"] == [f"https://www.tsr-net.co.jp{urls[-1]}"]
+    assert json.loads((packet / "result.json").read_text())["continuation_only"] is True
+
+    def acquire(_store, *, source, **_kwargs):
+        return report if source == "tsr_data" else {"source": source, "status": "not_due"}
+
+    monkeypatch.setattr(articles, "acquire_source", acquire)
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    assert (
+        articles.main(
+            [
+                "--group",
+                "public",
+                "--created-at",
+                SLOT.isoformat(),
+                "--identity",
+                "finite",
+                "--directory",
+                str(tmp_path / "group"),
+            ]
+        )
+        == 0
+    )
+
+
+def test_saved_next_page_alone_is_a_successful_finite_continuation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    pages = [
+        Response(
+            200,
+            (
+                '<a href="/news/1001">Synthetic headline</a>'
+                f'<a rel="next" href="/news?page={page + 1}">次へ</a>'
+            ).encode(),
+        )
+        for page in range(1, 4)
+    ]
+    store = MemoryR2Store()
+    publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
+    report = articles.acquire_source(
+        store,
+        source="minkabu_news",
+        slot=SLOT,
+        identity="pages",
+        directory=tmp_path / "pages",
+        session=Session([*pages, Response(200, b"<main>Synthetic document</main>")]),
+    )
+    planning, _ = load_planning(store, "minkabu_news")
+    assert report["status"] == "partial"
+    assert report["continuation_only"] is True
+    assert report["failures"] == []
+    assert report["pages"] == 3
+    assert planning.cursor["pending_urls"] == []
+    assert planning.cursor["next_page"] is not None
+
+
+def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
+    packet = tmp_path / "self-link"
+    report = articles.acquire_source(
+        store,
+        source="minkabu_news",
+        slot=SLOT,
+        identity="self-link",
+        directory=packet,
+        session=Session(
+            [
+                Response(
+                    200,
+                    b'<a href="/news/1001">Synthetic headline</a>'
+                    b'<a rel="next" href="">Next page</a>',
+                ),
+                Response(200, b"<main>Synthetic document</main>"),
+            ]
+        ),
+    )
+    assert report["status"] == "partial"
+    assert report["continuation_only"] is False
+    assert report["failures"] == ["index_page_cycle"]
+    assert report["pages"] == 1
+    planning, _ = load_planning(store, "minkabu_news")
+    assert planning.cursor["next_page"] == articles.SOURCES["minkabu_news"].entry_url
+    assert len(planning.pending) == 1
+    with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 2
+
+
+def test_cursor_overflow_is_not_a_successful_continuation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    entries = [
+        {"url": f"/data/detail/synthetic-{index}.html", "title": f"Synthetic {index}"}
+        for index in range(articles.MAX_REQUEST_STATES + 9)
+    ]
+    session = Session(
+        [
+            Response(200, json.dumps(entries).encode()),
+            *[Response(200, b"Synthetic body") for _ in range(8)],
+        ]
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "tsr_data", {"lake_release_id": "before"})
+    report = articles.acquire_source(
+        store,
+        source="tsr_data",
+        slot=SLOT,
+        identity="overflow",
+        directory=tmp_path / "overflow",
+        session=session,
+    )
+    planning, _ = load_planning(store, "tsr_data")
+    assert report["status"] == "partial"
+    assert report["continuation_only"] is False
+    assert "pending_cursor_overflow" in report["failures"]
+    assert report["omitted_url_count"] == 1
+    assert len(planning.cursor["pending_urls"]) == articles.MAX_REQUEST_STATES
+    monkeypatch.setattr(
+        articles,
+        "acquire_source",
+        lambda _store, *, source, **_kwargs: (
+            report if source == "tsr_data" else {"source": source, "status": "not_due"}
+        ),
+    )
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    assert (
+        articles.main(
+            [
+                "--group",
+                "public",
+                "--created-at",
+                SLOT.isoformat(),
+                "--identity",
+                "overflow",
+                "--directory",
+                str(tmp_path / "group"),
+            ]
+        )
+        == 1
+    )
+
+
 def test_nhk_four_feeds_keep_each_summary_and_fetch_shared_guid_once(tmp_path, monkeypatch):
     class Clock(datetime):
         @classmethod
@@ -266,6 +444,7 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
         session=session,
     )
     assert report["status"] == "partial"
+    assert report["continuation_only"] is False
     if status == 200:
         assert "index_parse_failed" in report["failures"]
     assert report["pages"] == expected_pages
