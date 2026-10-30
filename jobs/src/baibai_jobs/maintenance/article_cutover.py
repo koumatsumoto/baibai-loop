@@ -121,14 +121,14 @@ def verify_cutover(
     generation = ModelGenerationStore(runs).read(f"models-{origin.release_id}")
     if (
         generation is None
-        or generation.metadata.inputs["market"].reference != origin.release_id
-        or generation.metadata.inputs["market"].sha256 != origin.release_manifest_sha256
+        or generation.inputs["market"].reference != origin.release_id
+        or generation.inputs["market"].sha256 != origin.release_manifest_sha256
     ):
         raise ValueError("migrated published release has no corresponding model generation")
     return {"release_id": origin.release_id, "base_generations": expected, "pending_keys": pending}
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command", choices=("prepare-copy", "verify-cutover", "resume-plan", "record-upload")
@@ -148,7 +148,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--key", choices=BUNDLE_KEYS)
     parser.add_argument("--upload", type=Path)
     parser.add_argument("--expected-etag")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         if args.command == "prepare-copy":
             if args.source is None or args.output is None:

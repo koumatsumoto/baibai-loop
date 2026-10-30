@@ -1,7 +1,7 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
@@ -16,6 +16,7 @@ from baibai_jobs.acquisition.article_planning import (
     slot_at,
     source_key,
 )
+from baibai_jobs.maintenance.article_recovery import exact_entry
 
 SLOT = datetime(2026, 10, 29, 13, 13, tzinfo=UTC)
 
@@ -42,8 +43,6 @@ def test_missing_input_is_not_an_empty_success_and_cooldown_survives_slots():
 
 
 def _packet(tmp_path, source="boj_news"):
-    import json
-
     from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
     directory = tmp_path / source
@@ -86,11 +85,51 @@ def test_private_raw_precedes_planning_and_summary_never_reads_past_stages(tmp_p
     assert state.last_slot == SLOT.isoformat()
 
 
-def test_cas_failure_leaves_recoverable_raw_but_no_cursor_advance(tmp_path):
+def test_daily_input_refresh_keeps_acquisition_cas_and_pending_stage(tmp_path):
     remote = MemoryR2Store()
     publish_planning_input(remote, "boj_news", {"lake_release_id": "initial"})
     state, etag = load_planning(remote, "boj_news")
+    before = remote.head(source_key("boj_news"))
+    writes = len(remote.put_keys)
     publish_planning_input(remote, "boj_news", {"lake_release_id": "new"})
+    assert remote.head(source_key("boj_news")) == before
+    assert len(remote.put_keys) == writes
+    entry = commit_stage(
+        remote,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="boj_news-stage",
+        directory=_packet(tmp_path),
+        requests={},
+        cursor={"page": 2},
+        not_before=None,
+    )
+    assert entry in pending_handoffs(remote)
+    saved, _ = load_planning(remote, "boj_news")
+    assert saved.cursor == {"page": 2}
+    assert saved.generations == {"lake_release_id": "initial"}
+
+
+def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_path, monkeypatch):
+    from baibai_jobs.acquisition import article_planning
+    from baibai_jobs.acquisition.external_assessments.staging import put_private
+
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "boj_news", {"lake_release_id": "initial"})
+    state, etag = load_planning(remote, "boj_news")
+    original = article_planning.save_handoff
+
+    def save_then_race(store, stage_id, directory, *, namespace):
+        original(store, stage_id, directory, namespace=namespace)
+        put_private(
+            remote,
+            source_key("boj_news"),
+            ArticlePlanning("boj_news", {"lake_release_id": "other"}).encoded(),
+            previous_etag=etag,
+        )
+
+    monkeypatch.setattr(article_planning, "save_handoff", save_then_race)
     with pytest.raises(LakeCASConflict):
         commit_stage(
             remote,
@@ -107,6 +146,14 @@ def test_cas_failure_leaves_recoverable_raw_but_no_cursor_advance(tmp_path):
     assert saved.cursor == {}
     assert saved.pending == ()
     assert "coordination/article-sources/boj_news-orphan/handoff.json" in remote.values
+    stage = json.loads((tmp_path / "boj_news" / "stage.json").read_text())
+    recovery = exact_entry(
+        remote,
+        source="boj_news",
+        stage_id=stage["stage_id"],
+        manifest_sha256=stage["manifest_sha256"],
+    )
+    assert recovery["explicit_article_recovery"] is True
 
 
 def test_pending_bound_does_not_silently_drop_unsaved_range():

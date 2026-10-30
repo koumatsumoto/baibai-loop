@@ -705,25 +705,27 @@ case "${1:-}" in
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
-  push-article-cutover|resume-article-cutover)
+  push-article-cutover)
     # Only the explicit schema48 -> 49 copy can bypass current/current merge.
     # Per-key PUTs remain conditional on the complete fresh machine bundle.
     [[ $# -eq 2 ]] || { usage; exit 2; }
     export ARTICLE_CUTOVER_RECEIPT="$2"
-    if [[ "$1" == push-article-cutover ]]; then
-      uv run python -m baibai_jobs.maintenance.article_cutover verify-cutover \
-        --receipt "$2" --generation-directory "${generation_dir}" \
-        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
-      push_pulled_keys "${machine_bundle_keys[@]}"
-    else
-      pending="$(uv run python -m baibai_jobs.maintenance.article_cutover resume-plan \
-        --receipt "$2" --generation-directory "${generation_dir}" \
-        --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")"
-      for key in ${pending}; do
-        push_key_if_version "${key}" "$(pulled_version "${key}")"
-      done
-      write_machine_manifest
-    fi
+    uv run python -m baibai_jobs.maintenance.article_cutover verify-cutover \
+      --receipt "$2" --generation-directory "${generation_dir}" \
+      --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
+    push_pulled_keys "${machine_bundle_keys[@]}"
+    ;;
+  resume-article-cutover)
+    # Read back each possibly completed upload before resending only pending keys.
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    export ARTICLE_CUTOVER_RECEIPT="$2"
+    pending="$(uv run python -m baibai_jobs.maintenance.article_cutover resume-plan \
+      --receipt "$2" --generation-directory "${generation_dir}" \
+      --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")"
+    for key in ${pending}; do
+      push_key_if_version "${key}" "$(pulled_version "${key}")"
+    done
+    write_machine_manifest
     ;;
   push-runs)
     # Explicit model-store maintenance; never re-upload unrelated machine stores.

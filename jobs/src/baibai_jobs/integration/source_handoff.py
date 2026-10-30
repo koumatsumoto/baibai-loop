@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             replay = _replay(args.source, args.database, directory)
             print(json.dumps(replay.report, sort_keys=True))
             return int(not replay.complete)
-        elif args.command == "input":
+        if args.command == "input":
             from baibai_jobs.acquisition.source_inputs import load_input
 
             load_input(

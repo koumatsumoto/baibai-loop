@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef

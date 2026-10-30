@@ -179,7 +179,7 @@ def canonical_generations() -> dict[str, str]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "apply", "verify", "seal", "inputs", "check"))
     parser.add_argument("--directory", type=Path, required=True)
@@ -189,7 +189,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--identity")
     parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         directory = args.directory
         if args.command == "check":

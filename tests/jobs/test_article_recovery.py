@@ -2,7 +2,6 @@ import hashlib
 import json
 
 import pytest
-
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.test_article_planning import SLOT, _packet
 

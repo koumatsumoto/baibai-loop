@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import time
 from collections.abc import Iterable, Sequence
 from contextlib import closing
@@ -56,7 +57,8 @@ def capture_delta(
         for artifact_id in artifact_ids:
             row = conn.execute(
                 "SELECT o.receipt_id FROM article_extraction_artifacts a "
-                "JOIN article_observations o ON o.observation_id=a.observation_id WHERE a.artifact_id=?",
+                "JOIN article_observations o ON o.observation_id=a.observation_id "
+                "WHERE a.artifact_id=?",
                 (artifact_id,),
             ).fetchone()
             if row is None:
@@ -67,11 +69,14 @@ def capture_delta(
             if receipt.body_ref is not None:
                 selected.add(receipt.body_ref.receipt_id)
         for dataset in DATASETS:
-            rows = []
+            rows: list[sqlite3.Row] = []
             columns = ",".join(column.name for column in dataset.columns)
             for receipt_id in sorted(selected):
                 if dataset == ARTICLE_EXTRACTION_ARTIFACTS:
-                    where = "observation_id IN (SELECT observation_id FROM article_observations WHERE receipt_id=?)"
+                    where = (
+                        "observation_id IN (SELECT observation_id FROM article_observations "
+                        "WHERE receipt_id=?)"
+                    )
                 else:
                     where = "receipt_id=?"
                 rows.extend(

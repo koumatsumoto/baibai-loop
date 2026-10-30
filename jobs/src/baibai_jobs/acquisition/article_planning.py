@@ -113,16 +113,15 @@ def load_planning(store: ObjectStore, source: str) -> tuple[ArticlePlanning, str
 
 
 def publish_planning_input(store: ObjectStore, source: str, generations: dict[str, str]) -> None:
-    """Reissue generation binding while retaining newer intra-day acquisition state."""
+    """Provision a missing summary without racing an in-flight acquisition CAS."""
     key = source_key(source)
     prior = read_private(store, key)
-    state = ArticlePlanning.decode(prior.payload, source) if prior else ArticlePlanning(source, {})
-    put_private(
-        store,
-        key,
-        replace(state, generations=generations).encoded(),
-        previous_etag=prior.etag if prior else None,
-    )
+    if prior is not None:
+        # The summary's generation label is carried, never checked, by acquisition.
+        # Daily input refresh must not invalidate the ETag it loaded before a host queue.
+        ArticlePlanning.decode(prior.payload, source)
+        return
+    put_private(store, key, ArticlePlanning(source, generations).encoded(), previous_etag=None)
 
 
 def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime) -> bool:
@@ -208,7 +207,7 @@ def commit_stage(
 
 def pending_handoffs(store: ObjectStore) -> list[dict[str, Any]]:
     """One bounded summary per source; no LIST or history/body download."""
-    result = []
+    result: list[dict[str, Any]] = []
     for source in ARTICLE_SOURCES:
         saved = read_private(store, source_key(source))
         if saved is not None:

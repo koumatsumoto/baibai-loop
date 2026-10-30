@@ -27,8 +27,8 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
         raise ValueError("invalid article handoff receipt identities")
     observations = []
     failed = []
-    artifacts = []
-    extraction_failures = []
+    artifacts: list[str] = []
+    extraction_failures: list[str] = []
     with (
         closing(connect_read_only(directory / "receipts.sqlite")) as raw,
         closing(open_connection(database)) as conn,

@@ -44,7 +44,8 @@ def test_same_value_200_reuses_artifact_and_readback_keeps_its_original_closure(
     new = _packet(tmp_path / "new", "new-receipt", stamp + timedelta(hours=4))
     first = import_handoff("boj_news", database, tmp_path / "old")
     second = import_handoff("boj_news", database, tmp_path / "new")
-    assert first.complete and second.complete
+    assert first.complete
+    assert second.complete
     assert first.report["artifact_ids"] == second.report["artifact_ids"]
     delta = capture_delta(
         database, second.report["receipt_ids"], artifact_ids=second.report["artifact_ids"]

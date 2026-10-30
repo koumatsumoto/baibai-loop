@@ -194,7 +194,7 @@ def acquire_source(
                     source, body, url=page_url, encoding=receipt.encoding or "utf-8"
                 )
                 resume_page = state.cursor.get("next_page") if pages == 1 else None
-                page_url: str | None = entry_urls.pop(0) if entry_urls else resume_page or next_page
+                page_url = entry_urls.pop(0) if entry_urls else resume_page or next_page
             discovered = list(discovered_by_identity.values())
             fresh = [url for url in discovered if url not in planning]
             # Two recent known URLs are revalidated even without sitemap lastmod.
