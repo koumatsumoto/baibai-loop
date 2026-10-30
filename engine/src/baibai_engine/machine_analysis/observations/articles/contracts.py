@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 from typing import Literal
 
-from pydantic import AwareDatetime, Field, JsonValue
+from pydantic import AwareDatetime, Field, JsonValue, model_validator
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleValue,
@@ -55,6 +55,26 @@ class ArticleObservation(ArticleValue):
     text_revision: str
     text: str = Field(repr=False)
     native_metadata: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @property
+    def article_version_id(self) -> str:
+        """Native content version separate from GET identity and HTML decoration.
+
+        A reorder of an index or same-value 200/304 is a new receipt, not a new
+        article content version. Parser/text revisions remain explicit; semantic
+        extraction revision belongs to its separate artifact.
+        """
+        return "article-version-" + digest_json(
+            self.model_dump(
+                mode="json",
+                exclude={
+                    "receipt_id",
+                    "receipt_sha256",
+                    "body_ref",
+                    "native_locator",
+                },
+            )
+        )
 
     @property
     def text_sha256(self) -> str:
@@ -94,10 +114,20 @@ class ArticleExtractionArtifact(ArticleValue):
     extractor_revision: str
     status: Literal["extracted", "empty", "failed", "unsupported", "pending"]
     model_id: str | None = None
-    prompt_sha256: str | None = None
-    config_sha256: str | None = None
+    prompt_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    config_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     payload: dict[str, JsonValue] = Field(default_factory=dict)
     error_code: str | None = None
+
+    @model_validator(mode="after")
+    def assistant_identity(self) -> ArticleExtractionArtifact:
+        if self.method == "assistant" and not (
+            self.model_id and self.prompt_sha256 and self.config_sha256
+        ):
+            raise ValueError(
+                "assistant extraction requires fixed model, prompt and config identities"
+            )
+        return self
 
     @property
     def artifact_id(self) -> str:

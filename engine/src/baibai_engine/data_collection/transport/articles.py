@@ -9,9 +9,10 @@ not claimed to be a distributed rate limit.
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
@@ -19,6 +20,7 @@ import requests
 
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.transport.http import (
+    AcquisitionDeadlineExceeded,
     check_acquisition_deadline,
     retry_after_delay,
 )
@@ -63,7 +65,7 @@ class ArticleBudgetExceeded(RuntimeError):
 @dataclass(frozen=True)
 class ArticleResponse:
     receipt: ArticleReceipt
-    body: bytes | None
+    body: bytes | None = field(repr=False)
 
 
 def fetch_article(
@@ -103,7 +105,12 @@ def fetch_article(
                 headers["If-None-Match"] = baseline.etag
             if baseline.last_modified:
                 headers["If-Modified-Since"] = baseline.last_modified
-        budget.request()
+        try:
+            budget.request()
+        except (ArticleBudgetExceeded, AcquisitionDeadlineExceeded):
+            if attempts:
+                break
+            raise
         received_at = datetime.now(UTC)
         identity = str(uuid.uuid4())
         fields: dict[str, object] = {}
@@ -140,9 +147,22 @@ def fetch_article(
                         )
                         chunks.append(chunk)
                     body = b"".join(chunks)
+                    charset = re.search(
+                        r"charset\s*=\s*[\"\']?([\w-]+)",
+                        response.headers.get("Content-Type", ""),
+                        re.I,
+                    )
+                    if charset is None:
+                        charset = re.search(
+                            r"charset\s*=\s*[\"\']?([\w-]+)",
+                            body[:4096].decode("ascii", errors="ignore"),
+                            re.I,
+                        )
+                    fields["encoding"] = charset.group(1) if charset else "utf-8"
                     ref = BodyRef(receipt_id=identity, sha256=hashlib.sha256(body).hexdigest())
                     status = "ok"
                 elif response.status_code == 304 and baseline is not None:
+                    fields["encoding"] = baseline.encoding
                     ref = baseline.body_ref
                     status = "not_modified"
                 else:
@@ -179,7 +199,7 @@ def fetch_article(
                     **fields,
                 }
             )
-        except ArticleBudgetExceeded as exc:
+        except (ArticleBudgetExceeded, AcquisitionDeadlineExceeded) as exc:
             body = None
             receipt = ArticleReceipt.model_validate(
                 {
