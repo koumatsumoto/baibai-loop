@@ -35,6 +35,7 @@ from baibai_engine.machine_analysis.observations.trends.parsers import (
 )
 from baibai_engine.machine_analysis.observations.trends.validation import (
     PAYLOAD_SCHEMA,
+    source_name,
 )
 from baibai_engine.machine_analysis.observations.trends.validation import (
     decode_artifact as decode_artifact,
@@ -45,10 +46,6 @@ def expected_revision(source: str) -> str:
     return {"tsr_data": TSR_REVISION, "tsr_flash": TSR_REVISION, "boj_news": BOJ_REVISION}.get(
         source, "supported-families-v1"
     )
-
-
-def _source(source: str) -> str:
-    return {"tsr_data": "tsr", "tsr_flash": "tsr", "boj_news": "boj"}.get(source, source)
 
 
 def extract_observation(
@@ -84,7 +81,7 @@ def extract_observation(
         body_receipt_id=observation.body_ref.receipt_id,
         observation_id=observation.observation_id,
         observation_sha256=observation.sha256,
-        source=_source(observation.source),
+        source=source_name(observation.source),
         source_url=observation.original_url,
         raw_sha256=observation.body_ref.sha256,
         text_sha256=observation.text_sha256,
