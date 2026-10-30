@@ -19,6 +19,10 @@ PARSER_REVISION = "article-native-v1"
 TEXT_REVISION = "article-text-v1"
 
 
+class NativeArticleUnsupported(ValueError):
+    """Saved source has no supported article body region; it is not empty success."""
+
+
 def _https(url: str) -> str:
     parsed = urlsplit(url)
     if parsed.scheme == "http" and parsed.hostname in {"www.boj.or.jp", "www.mof.go.jp"}:
@@ -72,7 +76,7 @@ def parse_index(
                 )
             )
         return tuple(result)
-    if source in {"boj_news", "mof_news", "toushiru"}:
+    if source in {"boj_news", "mof_news", "toushiru", "nhk_news"}:
         # ElementTree does not retrieve external entities. Explicitly reject DTDs.
         if b"<!DOCTYPE" in body.upper() or b"<!ENTITY" in body.upper():
             raise ValueError("article feed DTD/entities are unsupported")
@@ -114,7 +118,9 @@ def parse_index(
             summary = plain_text(fields.get("description", ""))
             result.append(
                 NativeArticle(
-                    article_id=f"{source}:{_https(link)}",
+                    article_id=f"{source}:{fields.get('guid') or _https(link)}"
+                    if source == "nhk_news"
+                    else f"{source}:{_https(link)}",
                     locator=f"/item/{index}",
                     url=link,
                     title=plain_text(fields.get("title", "")),
@@ -124,7 +130,14 @@ def parse_index(
                     metadata={
                         "format": "rss",
                         "fetch_url": _https(link),
-                        "source_item_sha256": digest_json(fields),
+                        "source_item_sha256": digest_json(
+                            {
+                                key: value
+                                for key, value in fields.items()
+                                if source != "nhk_news" or key not in {"new", "category"}
+                            }
+                        ),
+                        "guid": fields.get("guid"),
                     },
                 )
             )
@@ -218,7 +231,7 @@ def parse_document(
         "minkabu_news": ("news-body", "md_newsBody", "news_body"),
     }.get(source, ())
     region = next((node for node in nodes if any(node.has_class(name) for name in classes)), None)
-    if region is None and source == "minkabu_news":
+    if region is None and source in {"minkabu_news", "nhk_news"}:
         region = next((node for node in nodes if node.attrs.get("itemprop") == "articleBody"), None)
     if region is None and source in {"boj_news", "mof_news"}:
         region = next(
@@ -231,7 +244,9 @@ def parse_document(
             None,
         )
     if region is None:
-        raise ValueError("article body region is unsupported")
+        raise NativeArticleUnsupported("article body region is unsupported")
+    if source == "nhk_news" and not region.text().strip():
+        raise NativeArticleUnsupported("NHK articleBody has no text")
     date_fields: dict[str, str] = {}
     for node in nodes:
         if node.tag == "meta" and node.attrs.get("property") in {
@@ -240,6 +255,23 @@ def parse_document(
             "article:author",
         }:
             date_fields[node.attrs["property"]] = node.attrs.get("content", "")
+    if source in {"tsr_data", "tsr_flash"}:
+        published = next(
+            (node.text().strip() for node in nodes if node.has_class("entry_date")), None
+        )
+        if published and "article:published_time" not in date_fields:
+            date_fields["article:published_time"] = published
+    if source == "toushiru":
+        published = next(
+            (
+                node.attrs.get("datetime")
+                for node in nodes
+                if node.tag == "time" and node.has_class("article-meta__date")
+            ),
+            None,
+        )
+        if published and "article:published_time" not in date_fields:
+            date_fields["article:published_time"] = published
     attachments = [
         urljoin(url, node.attrs["href"])
         for node in region.walk()

@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
+from xml.etree.ElementTree import ParseError
+
+from pypdf.errors import PdfReadError
 
 from baibai_engine.data_collection.providers.articles.native import (
     PARSER_REVISION,
+    NativeArticleUnsupported,
     TEXT_REVISION,
     parse_document,
     parse_index,
@@ -29,8 +33,13 @@ from baibai_engine.machine_analysis.observations.articles.store import save_proj
 def native_time(value: str | None, *, source: str) -> ArticleTime:
     if not value:
         return ArticleTime()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        return ArticleTime(raw=value, value=value, precision="date")
+    date_match = re.fullmatch(r"(\d{4})[-/](\d{2})[-/](\d{2})", value)
+    if date_match:
+        try:
+            day = date(*(int(part) for part in date_match.groups()))
+        except ValueError:
+            return ArticleTime(raw=value)
+        return ArticleTime(raw=value, value=day.isoformat(), precision="date")
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
@@ -115,7 +124,10 @@ def project_receipt(
                 for item in native
             )
             status = "parsed" if observations else "empty"
-        except Exception as exc:
+        except NativeArticleUnsupported:
+            status = "unsupported"
+            error_code = "body_region_unsupported"
+        except (ValueError, LookupError, ParseError, PdfReadError) as exc:
             # Retain L1 and status without logging source text or manufacturing an empty success.
             status = "parse_failed"
             error_code = type(exc).__name__
