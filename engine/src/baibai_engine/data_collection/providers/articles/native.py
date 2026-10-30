@@ -8,10 +8,12 @@ import re
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 
+from pydantic import JsonValue
 from pypdf import PdfReader
 
 from baibai_engine.data_collection.providers.articles.contracts import NativeArticle
 from baibai_engine.data_collection.providers.articles.html import parse_html, plain_text
+from baibai_engine.data_collection.receipts.articles.contracts import digest_json
 
 PARSER_REVISION = "article-native-v1"
 TEXT_REVISION = "article-text-v1"
@@ -54,6 +56,9 @@ def parse_index(
                 )
                 if key in item
             }
+            metadata["source_item_sha256"] = digest_json(
+                {key: value for key, value in item.items() if key != "sort"}
+            )
             result.append(
                 NativeArticle(
                     article_id=f"{source}:{original_url}",
@@ -91,6 +96,7 @@ def parse_index(
                         updated_raw=fields.get("lastmod") or None,
                         metadata={
                             "format": "news_sitemap",
+                            "source_item_sha256": digest_json(fields),
                             "revision_detection": "bounded_revalidation_required",
                         },
                     )
@@ -108,14 +114,18 @@ def parse_index(
             summary = plain_text(fields.get("description", ""))
             result.append(
                 NativeArticle(
-                    article_id=f"{source}:{link}",
+                    article_id=f"{source}:{_https(link)}",
                     locator=f"/item/{index}",
                     url=link,
                     title=plain_text(fields.get("title", "")),
                     text=summary,
                     content_scope="summary" if summary else "headline",
                     published_raw=fields.get("pubDate") or fields.get("date") or None,
-                    metadata={"format": "rss", "fetch_url": _https(link)},
+                    metadata={
+                        "format": "rss",
+                        "fetch_url": _https(link),
+                        "source_item_sha256": digest_json(fields),
+                    },
                 )
             )
         return tuple(result)
@@ -175,7 +185,7 @@ def parse_document(
         parts = [page.extract_text() or "" for page in reader.pages]
         if not any(part.strip() for part in parts):
             raise ValueError("article PDF has no extractable text")
-        offsets = []
+        offsets: list[JsonValue] = []
         offset = 0
         for page, part in enumerate(parts):
             offsets.append({"page": page + 1, "start": offset, "end": offset + len(part)})
@@ -208,6 +218,8 @@ def parse_document(
         "minkabu_news": ("news-body", "md_newsBody", "news_body"),
     }.get(source, ())
     region = next((node for node in nodes if any(node.has_class(name) for name in classes)), None)
+    if region is None and source == "minkabu_news":
+        region = next((node for node in nodes if node.attrs.get("itemprop") == "articleBody"), None)
     if region is None and source in {"boj_news", "mof_news"}:
         region = next(
             (
@@ -220,20 +232,21 @@ def parse_document(
         )
     if region is None:
         raise ValueError("article body region is unsupported")
-    metadata = {}
+    date_fields: dict[str, str] = {}
     for node in nodes:
         if node.tag == "meta" and node.attrs.get("property") in {
             "article:published_time",
             "article:modified_time",
             "article:author",
         }:
-            metadata[node.attrs["property"]] = node.attrs.get("content", "")
+            date_fields[node.attrs["property"]] = node.attrs.get("content", "")
     attachments = [
         urljoin(url, node.attrs["href"])
         for node in region.walk()
         if node.tag == "a" and ".pdf" in node.attrs.get("href", "").lower()
     ]
-    metadata["attachments"] = attachments
+    metadata: dict[str, JsonValue] = dict(date_fields)
+    metadata["attachments"] = list(attachments)
     # Deliberately conservative: image tables, pagination and linked papers were not read.
     return NativeArticle(
         article_id=f"{source}:{url}",
@@ -244,7 +257,7 @@ def parse_document(
         content_scope="partial_text",
         canonical_url=canonical,
         missing_parts=("images_tables_attachments_or_other_pages",),
-        published_raw=metadata.get("article:published_time"),
-        updated_raw=metadata.get("article:modified_time"),
+        published_raw=date_fields.get("article:published_time"),
+        updated_raw=date_fields.get("article:modified_time"),
         metadata=metadata,
     )

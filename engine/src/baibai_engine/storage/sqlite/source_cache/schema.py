@@ -26,11 +26,11 @@ from baibai_engine.data_collection.providers.tradingview.contract import (
     TRADINGVIEW_SOURCE_RECEIPTS_DDL,
 )
 from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL
-from baibai_engine.machine_analysis.observations.articles.storage_contracts import (
-    ARTICLE_OBSERVATIONS_DDL,
-)
 from baibai_engine.data_collection.receipts.public_pages.contract import (
     EQUITY_WEB_SOURCE_RESPONSES_DDL,
+)
+from baibai_engine.machine_analysis.observations.articles.storage_contracts import (
+    ARTICLE_OBSERVATIONS_DDL,
 )
 from baibai_engine.machine_analysis.observations.disclosures.storage_contracts import (
     EDINET_DOCUMENT_LISTS_DDL,

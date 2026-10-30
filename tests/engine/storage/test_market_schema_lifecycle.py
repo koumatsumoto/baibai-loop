@@ -40,7 +40,7 @@ def test_connect_current_accepts_uri_sensitive_path_characters(tmp_path):
 def test_edinet_list_receipts_require_fresh_schema_and_index(tmp_path):
     path = tmp_path / "market.sqlite"
     with closing(schema.open_connection(path)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (48,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (49,)
         assert [
             row[1] for row in connection.execute("PRAGMA table_info(edinet_document_lists)")
         ] == [
@@ -92,7 +92,7 @@ def test_prior_market_schema_version_is_not_migrated_implicitly(tmp_path):
     path = tmp_path / "market.sqlite"
     with closing(schema.open_connection(path)) as connection, connection:
         connection.execute("PRAGMA user_version = 47")
-    with pytest.raises(schema.SQLiteSchemaError, match="found user_version=47, expected=48"):
+    with pytest.raises(schema.SQLiteSchemaError, match="found user_version=47, expected=49"):
         schema.open_connection(path)
 
 
