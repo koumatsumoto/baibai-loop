@@ -249,6 +249,41 @@ def test_fy_cfo_yoy_survives_a_newer_quarter_without_cfo():
     assert financial.cfo_yoy == 1.0
 
 
+@pytest.mark.parametrize("revision_standard", ["JP", "IFRS"])
+def test_prior_cfo_empty_correction_preserves_field_only_on_the_same_basis(revision_standard):
+    prior = replace(
+        document(date(2023, 4, 1), date(2024, 3, 31), 50.0),
+        cfo=50.0,
+    )
+    current = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
+        cfo=100.0,
+    )
+    correction = replace(
+        prior,
+        disclosed_at=prior.disclosed_at + timedelta(days=1),
+        disclosure_number="prior-profit-only-correction",
+        document_type=f"FYFinancialStatements_Consolidated_{revision_standard}",
+        profit=60.0,
+        cfo=None,
+    )
+    rows = [prior, correction, current]
+    selected = _prior_year_summary(rows, DEFAULT_TTM_RULES, field_name="cfo")
+    if revision_standard == "JP":
+        assert selected == prior
+    else:
+        assert selected is None
+    financial = build_financial_snapshot(
+        10.0,
+        rows,
+        None,
+        DEFAULT_TTM_RULES,
+        adjustment_events=(),
+        asof_date=date(2025, 6, 1),
+    )
+    assert financial.cfo_yoy == (1.0 if revision_standard == "JP" else None)
+
+
 def test_conflicted_preferred_operating_line_cannot_fall_through_to_ordinary_profit():
     annual = replace(
         document(date(2024, 4, 1), date(2025, 3, 31), 100.0),

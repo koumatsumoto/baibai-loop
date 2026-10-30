@@ -401,17 +401,24 @@ def _matched_prior_period_summary(
     period = max(map(accounting_period_identity, candidates))
     period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
-    if comparison_field == "shares_outstanding":
-        # Issuer share counts remain observable through an unrelated profit-only
-        # correction, while an actual share correction or conflict still owns the value.
-        period_rows = [
+    observed_rows = (
+        [
             row
             for row in period_rows
-            if row.shares_outstanding is not None
-            or "shares_outstanding" in row.unresolved_actual_fields
+            if getattr(row, comparison_field) is not None
+            or comparison_field in row.unresolved_actual_fields
         ]
-    # The latest correction for this period owns availability too. An older
-    # field value cannot repair an absent latest operand, even on the same basis.
-    return _latest_consistent_actual(
-        period_rows, (comparison_field,) if comparison_field is not None else ()
+        if comparison_field is not None
+        else period_rows
     )
+    selected = _latest_consistent_actual(
+        observed_rows, (comparison_field,) if comparison_field is not None else ()
+    )
+    if (
+        selected is not None
+        and comparison_field is not None
+        and comparison_field != "shares_outstanding"
+        and not latest_reporting_basis_matches(period_rows, selected)
+    ):
+        return None
+    return selected
