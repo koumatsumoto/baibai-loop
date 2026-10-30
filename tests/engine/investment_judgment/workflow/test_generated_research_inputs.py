@@ -374,3 +374,100 @@ def test_v1_generation_metadata_and_fixed_slice_do_not_gain_new_default_fields(t
     raw = fixed.model_dump(mode="json")
     assert "subject_plan" not in raw
     assert ModelInputSlice.model_validate(raw).model_dump(mode="json") == raw
+
+
+def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
+    import sqlite3
+    from contextlib import closing
+
+    from tests.trend_fixtures import BOJ, document, fixed
+
+    from baibai_engine.machine_analysis.generation.contracts import (
+        GeneratedModel,
+        GenerationSubject,
+    )
+    from baibai_engine.machine_analysis.models.social_trends.calculations import (
+        calculate_social_trends,
+    )
+    from baibai_engine.machine_analysis.observations.trends.parsers import extract_boj_decision
+
+    runs = tmp_path / "runs.sqlite"
+    old = seed_generation(runs, now=NOW, as_of=AS_OF)
+
+    def stored_old_rows():
+        with closing(sqlite3.connect(runs)) as connection:
+            header = (
+                connection.execute(
+                    "SELECT header FROM model_generation WHERE generation_id=?",
+                    (old.generation_id,),
+                )
+                .fetchone()[0]
+                .encode("utf-8")
+            )
+            models = tuple(
+                connection.execute(
+                    "SELECT model_id,subject,calculation_revision,payload_gzip FROM generated_model "
+                    "WHERE generation_id=? ORDER BY model_id,subject",
+                    (old.generation_id,),
+                ).fetchall()
+            )
+            return header, models
+
+    # Compare the canonical bytes actually retained in SQLite, including compressed
+    # payloads. Python dict insertion order before publication is not saved identity.
+    old_bytes = stored_old_rows()
+    old_decoded = ModelGenerationStore(runs).read(old.generation_id).model_dump_json()
+    artifact = extract_boj_decision(document(BOJ, source="boj"), created_at=NOW)
+    social = calculate_social_trends(fixed(artifact, cutoff=NOW), as_of=AS_OF)
+    planned = tuple(model.model_id for model in old.models if model.subject == "1234")
+    new = old.model_copy(
+        update={
+            "generation_id": "shared-trends",
+            "evaluation_time": NOW,
+            "schema_version": 2,
+            "subject_plan": {
+                "1234": GenerationSubject(scope="stock", model_ids=planned),
+                "market": GenerationSubject(scope="market", model_ids=("market_context",)),
+                "market:global": GenerationSubject(scope="market", model_ids=("social_trends",)),
+            },
+            "models": (
+                *old.models,
+                GeneratedModel(
+                    model_id="social_trends",
+                    subject="market:global",
+                    calculation_revision="social-trends-v1",
+                    payload=social,
+                ),
+            ),
+        }
+    )
+    ModelGenerationStore(runs).publish(new)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(
+            text="保存された政策主張を調べる", scope="specified_stocks", requested_tickers=("1234",)
+        ),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=new.generation_id,
+        screening_selection_id=None,
+        selection_summary="合成の予定と事実を区別する",
+        targets=(selected_target(),),
+    )
+    workspace, db = tmp_path / "research", tmp_path / "app.sqlite"
+    prepared = prepare_selected_workspace(
+        draft=draft, db_path=db, workspace=workspace, runs_path=runs, now=NOW
+    )
+    saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
+    before = project_research_inputs(saved)
+    shared = before["shared_subjects"]["market:global"]["models"]["social_trends"]
+    assert shared["input_manifest"]["selected"] == [artifact.ref.model_dump(mode="json")]
+    assert any(row["claim"]["kind"] == "announced_plan" for row in shared["observations"])
+    assert stored_old_rows() == old_bytes
+    assert ModelGenerationStore(runs).read(old.generation_id).model_dump_json() == old_decoded
+    runs.unlink()
+    resumed = resume_selected_workspace(
+        operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW
+    )
+    assert resumed.selection_sha256 == selection_sha256(saved)
+    assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == before

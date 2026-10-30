@@ -23,10 +23,11 @@ from baibai_engine.data_collection.receipts.public_pages.models import (
     Source,
 )
 from baibai_engine.data_collection.receipts.public_pages.receipts import validate_response
+from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
 
 # Identify the actual tool, not a browser or a different client.
 MINKABU_PUBLIC_HEADERS = {
-    "User-Agent": "baibai-loop-public-research/1.0",
+    "User-Agent": PUBLIC_RESEARCH_USER_AGENT,
     "Accept": "text/html",
 }
 

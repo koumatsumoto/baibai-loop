@@ -10,6 +10,7 @@ import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
+from typing import Any, cast
 
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     accept_rechecks as accept_economic_rechecks,
@@ -41,12 +42,20 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError a
 from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema as validate_market_schema,
 )
+from baibai_jobs.acquisition.article_planning import (
+    ARTICLE_NAMESPACE,
+    ARTICLE_SOURCES,
+    acknowledge_stage,
+    pending_handoffs,
+    publish_planning_input,
+)
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
 
@@ -67,7 +76,7 @@ def apply(
     ):
         with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             validate(conn)
-    outcomes = []
+    outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
         result: dict[str, object] = {}
@@ -136,6 +145,13 @@ def apply(
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
     extractions = extract_saved_edinet(market, asof=asof)
+    for outcome in outcomes:
+        if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
+            outcome["article_delta"] = capture_delta(
+                market,
+                outcome["result"]["receipt_ids"],
+                artifact_ids=outcome["result"].get("artifact_ids", ()),
+            )
     report: dict[str, object] = {
         "asof": asof.isoformat(),
         "handoffs": outcomes,
@@ -163,7 +179,7 @@ def canonical_generations() -> dict[str, str]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "apply", "verify", "seal", "inputs", "check"))
     parser.add_argument("--directory", type=Path, required=True)
@@ -171,8 +187,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--economic", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--identity")
+    parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         directory = args.directory
         if args.command == "check":
@@ -238,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomic(
                 directory / "plan.json",
                 {
-                    "handoffs": available_handoffs(store),
+                    "handoffs": [*available_handoffs(store), *pending_handoffs(store)],
                     "external": external,
                     "external_failed": failed,
                 },
@@ -249,7 +270,23 @@ def main(argv: list[str] | None = None) -> int:
             report = apply(
                 store, directory, market=args.market, economic=args.economic, asof=args.asof
             )
-            print(json.dumps(report, sort_keys=True))
+            public_report = dict(report)
+            public_report["handoffs"] = [
+                {
+                    **item,
+                    "article_delta": "private readback plan",
+                    "result": {
+                        "receipt_count": len(item["result"].get("receipt_ids", [])),
+                        "observation_count": len(item["result"].get("observation_ids", [])),
+                        "artifact_count": len(item["result"].get("artifact_ids", [])),
+                        "failed": item["failed"],
+                    },
+                }
+                if item["entry"].get("namespace") == ARTICLE_NAMESPACE
+                else item
+                for item in cast(list[dict[str, Any]], report["handoffs"])
+            ]
+            print(json.dumps(public_report, sort_keys=True))
         else:
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
@@ -258,16 +295,39 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
-                report = publish_inputs(
-                    store,
-                    market=args.market,
-                    economic=args.economic,
-                    identity=args.identity,
-                    asof=args.asof,
-                    generations=generations,
+                input_report: dict[str, Any] = (
+                    {"updated": [], "failed": []}
+                    if args.group in ARTICLE_SOURCES
+                    else cast(
+                        dict[str, Any],
+                        publish_inputs(
+                            store,
+                            market=args.market,
+                            economic=args.economic,
+                            identity=args.identity,
+                            asof=args.asof,
+                            generations=generations,
+                            only_group=args.group,
+                        ),
+                    )
                 )
-                print(json.dumps(report, sort_keys=True))
-                return int(bool(report["failed"]))
+                for source in (
+                    ARTICLE_SOURCES
+                    if args.group is None
+                    else (args.group,)
+                    if args.group in ARTICLE_SOURCES
+                    else ()
+                ):
+                    try:
+                        publish_planning_input(store, source, generations)
+                    except (ValueError, LakeCASConflict) as error:
+                        input_report["failed"].append(
+                            {"group": source, "reason": type(error).__name__}
+                        )
+                    else:
+                        input_report["updated"].append(source)
+                print(json.dumps(input_report, sort_keys=True))
+                return int(bool(input_report["failed"]))
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
             if report.get("external"):
                 report["external_results"] = verify_and_seal(
@@ -279,14 +339,37 @@ def main(argv: list[str] | None = None) -> int:
             for outcome in report["handoffs"]:
                 if outcome["entry"].get("invalid"):
                     continue
+                if (
+                    outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
+                    and not outcome["applied"]
+                ):
+                    # No seal/ack without a captured closure; retain pending for repair.
+                    continue
+                if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
+                    outcome["article_readback"] = verify_delta(
+                        store,
+                        delta=outcome["article_delta"],
+                        directory=directory / "article-readback",
+                        generations=generations,
+                    )
+                    verify_held(store, _load_handle(args.lease_handle))
                 seal_integrated(
                     store,
                     outcome["entry"],
                     generations=generations,
                     recovery=outcome["recovery"],
                 )
+                if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE:
+                    try:
+                        acknowledge_stage(store, outcome["entry"])
+                    except LakeCASConflict:
+                        outcome["planning_ack_pending"] = True
+                    else:
+                        outcome["planning_ack_pending"] = False
             report["canonical_generations"] = generations
             write_json_atomic(directory / "applied.json", report)
+            if any(item.get("planning_ack_pending") for item in report["handoffs"]):
+                return 1
     except Exception as error:
         print(f"common source integration failed: {type(error).__name__}", file=sys.stderr)
         return 1

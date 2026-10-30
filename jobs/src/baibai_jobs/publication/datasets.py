@@ -16,8 +16,14 @@ from baibai_engine.data_collection.providers.jquants.snapshot_contracts import (
 from baibai_engine.data_collection.providers.tradingview.snapshot_contracts import (
     TRADINGVIEW_SOURCE_RECEIPTS,
 )
+from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
 from baibai_engine.data_collection.receipts.public_pages.snapshot_contracts import (
     EQUITY_WEB_SOURCE_RESPONSES,
+)
+from baibai_engine.machine_analysis.observations.articles.snapshot_contracts import (
+    ARTICLE_EXTRACTION_ARTIFACTS,
+    ARTICLE_OBSERVATIONS,
+    ARTICLE_PROJECTION_RUNS,
 )
 from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
     EDINET_DOCUMENT_LISTS,
@@ -59,6 +65,10 @@ from baibai_engine.storage.snapshots.contracts import LakeDataset
 
 LAKE_DATASETS = MappingProxyType(
     {
+        ARTICLE_RECEIPTS.name: ARTICLE_RECEIPTS,
+        ARTICLE_PROJECTION_RUNS.name: ARTICLE_PROJECTION_RUNS,
+        ARTICLE_OBSERVATIONS.name: ARTICLE_OBSERVATIONS,
+        ARTICLE_EXTRACTION_ARTIFACTS.name: ARTICLE_EXTRACTION_ARTIFACTS,
         EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS.name: (
             EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS
         ),

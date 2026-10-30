@@ -45,11 +45,16 @@ def publish_inputs(
     identity: str,
     asof: date,
     generations: dict[str, str],
+    only_group: str | None = None,
 ) -> dict[str, object]:
     """Keep failed groups' prior pointers while updating independent healthy inputs."""
     groups = list(SOURCE_INPUT_GROUPS) + [
         "economic-" + group for group in economic_acquisition_groups()
     ]
+    if only_group is not None:
+        if only_group not in groups:
+            raise ValueError("unsupported source input group")
+        groups = [only_group]
     updated: list[str] = []
     failed: list[dict[str, str]] = []
     for group in groups:

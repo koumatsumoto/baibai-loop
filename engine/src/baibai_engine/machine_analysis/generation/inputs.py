@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
 from baibai_engine.machine_analysis.generation.runners.security_context import (
     build_security_market_contexts,
 )
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
 )
@@ -172,6 +173,13 @@ def read_and_generate_models(
         path, tickers=subjects, cutoff=evaluation_time, include_tradingview=False
     )
     edinet = EDINETReader(path).load_metric_records(as_of)
+    trends = read_trend_inputs(
+        path,
+        release_id=market_release.release_id,
+        release_sha256=market_release.manifest_sha256,
+        cutoff=evaluation_time,
+        as_of=as_of,
+    )
     companies = [
         CompanyModelInputs(
             ticker=ticker,
@@ -218,4 +226,5 @@ def read_and_generate_models(
         securities_context=contexts,
         market_context_revision="shared-market-context-price-path-v2",
         growth_start=growth_start,
+        trends=trends,
     )

@@ -51,6 +51,8 @@ SOURCES = (
     "edinet-metrics",
     "edinet-facts",
 )
+_EDINET_SOURCES = {"edinet-list", "edinet-metrics", "edinet-facts"}
+_JQUANTS_SOURCES = {"jquants-market", "jquants-financial"}
 _JPX_COLLECTION = {"jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations"}
 
 
@@ -81,6 +83,8 @@ def _export(
     directory: Path,
     archives: set[tuple[str, int]] | None = None,
 ) -> None:
+    if source not in SOURCES:
+        raise ValueError("unsupported market handoff source")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     report: dict[str, object] = {
@@ -90,7 +94,7 @@ def _export(
     }
     if source == "tradingview":
         report.update(export_tradingview_handoff(database, path, day=asof, since=since).to_json())
-    elif source.startswith("jquants-"):
+    elif source in _JQUANTS_SOURCES:
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
@@ -101,7 +105,7 @@ def _export(
         report["bundle_ids"] = export_jpx_handoff(
             database, path, since=since, collection=_JPX_COLLECTION[source]
         )
-    else:
+    elif source in _EDINET_SOURCES:
         report.update(
             export_edinet_handoff(database, path, since=since, archives=archives or set())
         )
@@ -122,13 +126,20 @@ def _handoff_ids(report: dict[str, object], field: str) -> tuple[str, ...]:
 
 
 def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
+    from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
+    from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
+
+    if source in ARTICLE_SOURCES:
+        return import_article_handoff(source, database, directory)
+    if source not in SOURCES:
+        raise ValueError("unsupported market handoff source")
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     if not isinstance(report, dict) or report.get("source") != source:
         raise ValueError("handoff source differs from the publication plan")
     path = directory / "receipts.sqlite"
     if source == "tradingview":
         return import_tradingview_handoff(path, database, TradingViewHandoff.from_json(report))
-    if source.startswith("jquants-"):
+    if source in _JQUANTS_SOURCES:
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
@@ -139,14 +150,16 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
         return import_jpx_handoff(
             path, database, _handoff_ids(report, "bundle_ids"), collection=_JPX_COLLECTION[source]
         )
-    return import_edinet_handoff(path, database)
+    if source in _EDINET_SOURCES:
+        return import_edinet_handoff(path, database)
+    raise ValueError("unsupported market handoff source")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("input", "resume", "acquire", "export", "stage", "download"),
+        choices=("input", "resume", "acquire", "export", "stage", "download", "replay-copy"),
     )
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--directory", type=Path, required=True)
@@ -158,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     directory = args.directory
     try:
+        if args.command == "replay-copy":
+            replay = _replay(args.source, args.database, directory)
+            print(json.dumps(replay.report, sort_keys=True))
+            return int(not replay.complete)
         if args.command == "input":
             from baibai_jobs.acquisition.source_inputs import load_input
 

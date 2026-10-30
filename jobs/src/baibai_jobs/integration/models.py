@@ -109,7 +109,7 @@ def integrate_models(
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asof", type=date.fromisoformat, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
@@ -124,7 +124,11 @@ def main(argv: list[str] | None = None) -> int:
         help="optional accounting-period start; omitted retains all available periods",
     )
     parser.add_argument("--candidate-limit", type=int, default=36)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         result = integrate_models(
             store=Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),

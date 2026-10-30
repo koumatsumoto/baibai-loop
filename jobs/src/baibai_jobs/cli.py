@@ -17,6 +17,8 @@ _COMMANDS = {
     "model-integration": "baibai_jobs.integration.models",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
     "tradingview-source": "baibai_jobs.maintenance.tradingview_cli",
+    "article-recovery": "baibai_jobs.maintenance.article_recovery",
+    "article-cutover": "baibai_jobs.maintenance.article_cutover",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",
     "validate-market-context-stores": "baibai_jobs.observability.source_stores",
