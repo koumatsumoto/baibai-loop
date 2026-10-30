@@ -12,7 +12,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleEvidenceRef,
     ArticleReceipt,
 )
-from baibai_engine.data_collection.receipts.articles.store import retain_receipt
+from baibai_engine.data_collection.receipts.articles.store import read_receipt, retain_receipt
 from baibai_engine.machine_analysis.observations.articles.contracts import (
     ArticleExtractionArtifact,
     ArticleObservation,
@@ -48,14 +48,16 @@ _COMMAND_HELP = {
 
 
 def _semantic_validation(
-    artifact: ArticleExtractionArtifact | None, observation: ArticleObservation | None
+    artifact: ArticleExtractionArtifact | None,
+    observation: ArticleObservation | None,
+    receipt: ArticleReceipt | None = None,
 ) -> str:
     """Validate known claims at the CLI seam; unknown payloads have raw integrity only."""
     if artifact is None or artifact.payload.get("schema") != PAYLOAD_SCHEMA:
         return "raw_integrity_only"
     if observation is None:
         raise ValueError("trend artifact requires its retained observation")
-    decode_artifact(artifact, observation)
+    decode_artifact(artifact, observation, receipt=receipt)
     return PAYLOAD_SCHEMA
 
 
@@ -116,7 +118,10 @@ def _run(argv: list[str] | None = None) -> int:
                     args.artifact_file.read_bytes()
                 )
                 observation = read_observations(conn, [artifact.observation_id])[0]
-                semantic_validation = _semantic_validation(artifact, observation)
+                receipt = read_receipt(
+                    conn, observation.receipt_id, receipt_sha256=observation.receipt_sha256
+                )
+                semantic_validation = _semantic_validation(artifact, observation, receipt)
                 save_artifact(conn, artifact)
                 result = {
                     "artifact_id": artifact.artifact_id,
@@ -145,7 +150,9 @@ def _run(argv: list[str] | None = None) -> int:
             evidence = (
                 reader.get(reference) if args.command == "get" else reader.exact_evidence(reference)
             )
-            semantic_validation = _semantic_validation(evidence.artifact, evidence.observation)
+            semantic_validation = _semantic_validation(
+                evidence.artifact, evidence.observation, evidence.receipt
+            )
             args.output_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
             # Refuse accidental replacement; the command is explicit private materialization.
             with (args.output_dir / "body.bin").open("xb") as output:
