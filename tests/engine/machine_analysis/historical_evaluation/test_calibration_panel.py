@@ -1291,7 +1291,10 @@ def test_complete_panel_values_match_committed_baseline(tmp_path: Path) -> None:
     # 保存baselineのidentityを付け替えず、新規計算のrevisionと数値を別に比較する。
     assert actual["diagnostics"].pop("rules_hash") == rules_content_hash(rules)
     with (
-        patch("baibai_engine.machine_analysis.historical_evaluation.panel.PANEL_CALCULATION_REVISION", ""),
+        patch(
+            "baibai_engine.machine_analysis.historical_evaluation.panel.PANEL_CALCULATION_REVISION",
+            "",
+        ),
         patch(
             "baibai_engine.machine_analysis.historical_evaluation.panel.VALUATION_CALCULATION_REVISION",
             "continuous-annual-input-v46",

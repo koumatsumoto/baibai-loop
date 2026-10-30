@@ -13,7 +13,6 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
     comparable_reporting_basis,
     disclosure_revision,
     latest_disclosure_candidates,
-    latest_reporting_basis_matches,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -395,20 +394,8 @@ def _matched_prior_period_summary(
     period = max(map(accounting_period_identity, candidates))
     period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
-    selected = _latest_consistent_actual(
-        [
-            row
-            for row in period_rows
-            if comparison_field is None
-            or getattr(row, comparison_field) is not None
-            or comparison_field in row.unresolved_actual_fields
-        ],
-        (comparison_field,) if comparison_field is not None else (),
+    # The latest correction for this period owns availability too. An older
+    # field value cannot repair an absent latest operand, even on the same basis.
+    return _latest_consistent_actual(
+        period_rows, (comparison_field,) if comparison_field is not None else ()
     )
-    if selected is None:
-        return None
-    # A later correction may omit this field. Keep that metric's earlier value
-    # only while the latest statement for the fixed period has the same basis.
-    if not latest_reporting_basis_matches(period_rows, selected):
-        return None
-    return selected
