@@ -267,6 +267,8 @@ def acquire_source(
             discovered_by_identity: dict[str, str] = {}
             while page_url and pages < policy.max_pages:
                 if page_url in seen_pages:
+                    failed.append("index_page_cycle")
+                    partial = True
                     break
                 seen_pages.add(page_url)
                 receipt, body = receive(page_url, "index")
@@ -306,6 +308,10 @@ def acquire_source(
                 )
                 resume_page = state.cursor.get("next_page") if pages == 1 else None
                 page_url = entry_urls.pop(0) if entry_urls else resume_page or next_page
+                if page_url in seen_pages:
+                    failed.append("index_page_cycle")
+                    partial = True
+                    break
             discovered = list(discovered_by_identity.values())
             fresh = [url for url in discovered if url not in planning]
             # Two recent known URLs are revalidated even without sitemap lastmod.
@@ -379,6 +385,9 @@ def acquire_source(
             partial = True
         # Keeping a finite cursor is honest about omitted backlog, not completeness.
         omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
+        if omitted_urls:
+            failed.append("pending_cursor_overflow")
+        continuation_only = bool(pending_urls or next_page) and not (failed or partial)
         cursor = {
             "pending_urls": pending_urls[:MAX_REQUEST_STATES],
             "pending_evidence": {
@@ -400,6 +409,7 @@ def acquire_source(
             "projection_kinds": kinds,
             "document_evidence": document_evidence,
             "status": "partial" if failed or partial or pending_urls or next_page else "completed",
+            "continuation_only": continuation_only,
             "failures": sorted(set(failed)),
             "pages": pages,
             "bodies": bodies,
@@ -479,7 +489,16 @@ def main(argv: list[str] | None = None) -> int:
             sort_keys=True,
         )
     )
-    return int(any(item["status"] in {"failed", "partial", "deferred_budget"} for item in reports))
+    return int(
+        any(
+            item["status"] in {"failed", "deferred_budget"}
+            or (
+                item["status"] == "partial"
+                and (bool(item.get("failures")) or not item.get("continuation_only", False))
+            )
+            for item in reports
+        )
+    )
 
 
 if __name__ == "__main__":
