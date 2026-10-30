@@ -225,7 +225,7 @@ class FixedArticleReader:
             ARTICLE_RECEIPTS,
             columns=("body_gzip",),
             identity=baseline.receipt_id,
-            month=reference.body_month,
+            month=_month(baseline.received_at),
         )
         if not rows or rows[0][0] is None:
             raise ArticleStoreError("article body is absent from lookup release")

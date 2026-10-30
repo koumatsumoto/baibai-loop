@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from baibai_engine.cli.articles import _semantic_validation
+from baibai_engine.cli.articles import _semantic_validation, build_parser
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleEvidenceRef,
     ArticleReceipt,
@@ -119,9 +119,23 @@ def test_cli_semantic_seam_rejects_malformed_known_payload_without_claiming_unkn
                 unknown.model_copy(update={"payload": {"schema": "trend-claims-v1"}}),
                 observation,
             )
+    args = build_parser().parse_args(
+        [
+            "project",
+            "--sqlite-path",
+            str(tmp_path / "market.sqlite"),
+            "--receipt-id",
+            "synthetic",
+            "--kind",
+            "document",
+            "--index-observation-id",
+            "synthetic-index",
+        ]
+    )
+    assert args.index_observation_id == "synthetic-index"
 
 
-def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):
+def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path, monkeypatch):
     first_at = datetime(2026, 9, 30, 23, 59, tzinfo=UTC)
     second_at = datetime(2026, 10, 1, 0, 1, tzinfo=UTC)
     raw = payload()
@@ -145,7 +159,19 @@ def test_exact_304_body_owner_can_be_in_an_earlier_month(tmp_path):
     reference = ArticleEvidenceRef.model_validate(listing["items"][0]["reference"])
     assert reference.receipt_month == "2026-10"
     assert reference.body_month is None
+    from baibai_engine.machine_analysis.observations.articles import reader as article_reader
+
+    materialize = article_reader.materialize_partitions
+    selections = []
+
+    def record(cache, *, dataset, partitions):
+        selections.append((dataset.name, tuple(part.values["month"] for part in partitions)))
+        return materialize(cache, dataset=dataset, partitions=partitions)
+
+    monkeypatch.setattr(article_reader, "materialize_partitions", record)
     assert reader.get(reference).body == raw
+    receipt_reads = [months for name, months in selections if name == ARTICLE_RECEIPTS.name]
+    assert receipt_reads[-1] == (9,)
 
 
 def receipt(identity, body, *, at=AT):
@@ -386,8 +412,12 @@ def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_pat
         assert first.article_id == index.article_id == "nhk_news:synthetic-guid"
         assert first.title == "Synthetic feed title"
         assert first.native_metadata["index_observation_id"] == index.observation_id
-        _, (orphan,) = project_receipt(conn, "body", kind="document", generated_at=AT)
-        assert orphan.article_id == f"nhk_news:{page_url}"
+        with pytest.raises(ArticleStoreError, match="requires explicit index"):
+            project_receipt(conn, "body", kind="document", generated_at=AT)
+        orphan_url = "https://news.web.nhk/newsweb/na/orphan"
+        saved(conn, "orphan", "nhk_news", orphan_url, page, AT + timedelta(minutes=1))
+        _, (orphan,) = project_receipt(conn, "orphan", kind="document", generated_at=AT)
+        assert orphan.article_id == f"nhk_news:{orphan_url}"
         assert "index_observation_id" not in orphan.native_metadata
         saved(conn, "feed-again", "nhk_news", feed_url, feed, AT + timedelta(minutes=2))
         _, (later_index,) = project_receipt(conn, "feed-again", generated_at=AT)

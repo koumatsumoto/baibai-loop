@@ -80,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     projection.add_argument("--receipt-id", required=True)
     projection.add_argument("--kind", choices=("index", "document"), default="index")
+    projection.add_argument("--index-observation-id")
     for writer in (receipt, artifact, projection):
         writer.add_argument("--sqlite-path", type=Path, required=True)
     for name in ("list", "get", "exact-evidence"):
@@ -124,7 +125,12 @@ def _run(argv: list[str] | None = None) -> int:
                     "semantic_validation": semantic_validation,
                 }
             else:
-                run, observations = project_receipt(conn, args.receipt_id, kind=args.kind)
+                run, observations = project_receipt(
+                    conn,
+                    args.receipt_id,
+                    kind=args.kind,
+                    index_observation_id=args.index_observation_id,
+                )
                 result = {
                     "run_id": run.run_id,
                     "status": run.status,
