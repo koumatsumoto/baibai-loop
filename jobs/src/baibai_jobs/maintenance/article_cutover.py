@@ -41,7 +41,7 @@ def prepare_copy(
 ) -> None:
     if receipt.exists():
         raise FileExistsError("article cutover receipt already exists")
-    if kind not in {"canonical", "input", "stage"}:
+    if kind not in {"canonical", "stage"}:
         raise ValueError("unsupported article migration copy kind")
     generations = pulled_generations(generation_directory) if kind == "canonical" else {}
     origin = read_lake_store_origin(source)
@@ -135,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--source", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--kind", choices=("canonical", "input", "stage"), default="canonical")
+    parser.add_argument("--kind", choices=("canonical", "stage"), default="canonical")
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
     parser.add_argument("--runs", type=Path, default=RUNS_DB_PATH)

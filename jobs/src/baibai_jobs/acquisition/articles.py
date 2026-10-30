@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import time
 from contextlib import closing
 from dataclasses import dataclass
@@ -23,13 +24,14 @@ from baibai_engine.data_collection.providers.articles.native import (
 )
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
 from baibai_engine.data_collection.receipts.articles.store import (
+    ArticleStoreError,
     copy_receipt_closure,
     read_body,
     retain_receipt,
 )
 from baibai_engine.data_collection.transport.articles import ArticleBudget, fetch_article
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
@@ -93,6 +95,7 @@ def acquire_source(
     pending_urls = list(state.cursor.get("pending_urls", []))
     receipt_ids: list[str] = []
     kinds: dict[str, str] = {}
+    document_evidence: dict[str, dict[str, str]] = {}
     failed: list[str] = []
     downloaded: dict[str, Path] = {}
     cooldown = state.not_before
@@ -109,6 +112,38 @@ def acquire_source(
             budget.check()
             previous = planning.get(url)
             baseline = ArticleReceipt.model_validate(previous["receipt"]) if previous else None
+            if baseline is not None and (baseline.etag or baseline.last_modified):
+                try:
+                    if baseline.body_ref is None:
+                        raise ArticleStoreError("baseline has no original body")
+                    ref = baseline.body_ref
+                    if conn.execute(
+                        "SELECT 1 FROM article_source_receipts WHERE receipt_id=?",
+                        (ref.receipt_id,),
+                    ).fetchone():
+                        read_body(conn, ref)
+                    else:
+                        entry = previous["stage"]
+                        key = entry["stage_id"]
+                        if key not in downloaded:
+                            packet = directory / f"baseline-{len(downloaded)}"
+                            download_fixed(store, entry, packet)
+                            downloaded[key] = packet / "receipts.sqlite"
+                        with closing(connect_read_only(downloaded[key])) as old, conn:
+                            copy_receipt_closure(old, conn, ref.receipt_id)
+                except (
+                    LakePublishError,
+                    sqlite3.DatabaseError,
+                    OSError,
+                    KeyError,
+                    ValueError,
+                ):
+                    # A broken old closure cannot authorize validators. One fresh
+                    # provider GET replaces it within the ordinary request budget.
+                    baseline = None
+                    failed.append("baseline_unavailable")
+            else:
+                baseline = None
             before_bytes = budget.bytes_used
             responses = fetch_article(
                 session,
@@ -126,21 +161,8 @@ def acquire_source(
                 if receipt.status == "not_modified" and previous is not None:
                     if receipt.body_ref is None:
                         raise ValueError("304 lacks a concrete body reference")
-                    entry = previous["stage"]
-                    key = entry["stage_id"]
-                    present = conn.execute(
-                        "SELECT 1 FROM article_source_receipts WHERE receipt_id=?",
-                        (receipt.body_ref.receipt_id,),
-                    ).fetchone()
-                    if present:
-                        read_body(conn, receipt.body_ref)
-                    elif key not in downloaded:
-                        packet = directory / f"baseline-{len(downloaded)}"
-                        download_fixed(store, entry, packet)
-                        downloaded[key] = packet / "receipts.sqlite"
-                    if not present:
-                        with closing(connect_read_only(downloaded[key])) as old, conn:
-                            copy_receipt_closure(old, conn, receipt.body_ref.receipt_id)
+                    # The exact original was validated before this conditional GET.
+                    read_body(conn, receipt.body_ref)
                 with conn:
                     retain_receipt(conn, receipt, body=response.body)
                 receipt_ids.append(receipt.receipt_id)
@@ -174,6 +196,7 @@ def acquire_source(
             page_url: str | None = entry_urls.pop(0)
             seen_pages = set()
             discovered_by_identity: dict[str, str] = {}
+            evidence_by_url: dict[str, list[dict[str, str]]] = {}
             while page_url and pages < policy.max_pages:
                 if page_url in seen_pages:
                     break
@@ -182,13 +205,23 @@ def acquire_source(
                 pages += 1
                 if body is None:
                     partial = True
+                    if receipt.cooldown_until is None and entry_urls:
+                        page_url = entry_urls.pop(0)
+                        continue
                     break
                 native = parse_index(
                     source, body, url=page_url, encoding=receipt.encoding or "utf-8"
                 )
                 for item in native:
-                    discovered_by_identity.setdefault(
-                        item.article_id, str(item.metadata.get("fetch_url") or item.url)
+                    fetch_url = str(item.metadata.get("fetch_url") or item.url)
+                    discovered_by_identity.setdefault(item.article_id, fetch_url)
+                    evidence_by_url.setdefault(fetch_url, []).append(
+                        {
+                            "index_receipt_id": receipt.receipt_id,
+                            "article_id": item.article_id,
+                            "native_locator": item.locator,
+                            "title": item.title,
+                        }
                     )
                 next_page = next_index_url(
                     source, body, url=page_url, encoding=receipt.encoding or "utf-8"
@@ -229,6 +262,14 @@ def acquire_source(
                 receipt, body = receive(url, "document")
                 bodies += 1
                 active_url = None
+                candidates = evidence_by_url.get(url, [])
+                identities = {(item["article_id"], item["title"]) for item in candidates}
+                if len(identities) == 1:
+                    document_evidence[receipt.receipt_id] = candidates[0]
+                elif source == "nhk_news":
+                    # Its GUID may differ from the URL. Keep raw and mark the
+                    # unresolved identity rather than inventing a URL identity.
+                    failed.append("document_identity_unbound")
                 if body is None:
                     pending_urls.append(url)
                 elif source in {"boj_news", "mof_news"} and not body.startswith(b"%PDF-"):
@@ -272,6 +313,7 @@ def acquire_source(
             "slot": slot.isoformat(),
             "receipt_ids": receipt_ids,
             "projection_kinds": kinds,
+            "document_evidence": document_evidence,
             "status": "partial" if failed or partial or pending_urls or next_page else "completed",
             "failures": sorted(set(failed)),
             "pages": pages,
@@ -297,7 +339,7 @@ def acquire_source(
         **{
             key: value
             for key, value in report.items()
-            if key not in {"projection_kinds", "receipt_ids"}
+            if key not in {"projection_kinds", "receipt_ids", "document_evidence"}
         },
         "stage_id": saved_stage["stage_id"],
         "manifest_sha256": saved_stage["manifest_sha256"],
