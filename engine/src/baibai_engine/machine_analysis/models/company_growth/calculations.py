@@ -17,8 +17,11 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
+    accounting_standard,
     certainly_disclosed_by,
+    comparable_reporting_basis,
     latest_disclosure_candidates,
+    latest_reporting_basis_matches,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -77,11 +80,12 @@ def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinan
     )
     if not candidates or any(field in r.unresolved_actual_fields for r in candidates):
         return None
-    if len({(getattr(r, field), statement_basis(r)) for r in candidates}) != 1:
+    if len(
+        {(getattr(r, field), statement_basis(r), accounting_standard(r)) for r in candidates}
+    ) != 1:
         return None
     row = sorted(candidates, key=lambda r: r.disclosure_number or "")[-1]
-    bases = {statement_basis(r) for r in latest_disclosure_candidates(rows)}
-    if bases != {statement_basis(row)}:
+    if not latest_reporting_basis_matches(rows, row):
         return None
     return row
 
@@ -103,10 +107,7 @@ def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) 
 
 
 def _compatible(rows: Sequence[JQuantsFinancialSummary]) -> bool:
-    return len({statement_basis(r) for r in rows}) == 1 and statement_basis(rows[0]) in {
-        "consolidated",
-        "nonconsolidated",
-    }
+    return comparable_reporting_basis(rows)
 
 
 def _cumulative_revision_gap(
@@ -275,7 +276,11 @@ def _derived(
         operands = [candidate for candidate in candidates if candidate is not None]
         sources = [row, *operands]
         if not _compatible(sources):
-            metrics[metric] = Value(reason="statement_basis_incomparable")
+            metrics[metric] = Value(
+                reason="statement_basis_incomparable"
+                if len({statement_basis(source) for source in sources}) != 1
+                else "accounting_standard_incomparable"
+            )
             continue
         revision_gap = (
             _cumulative_revision_gap(operands[-1], operands[0], all_rows, field)
@@ -313,6 +318,8 @@ def build_period_states(
         assert anchor.period_end is not None
         bases = {statement_basis(r) for r in latest_disclosure_candidates(group)}
         basis = next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
+        standards = {accounting_standard(r) for r in latest_disclosure_candidates(group)}
+        standard = next(iter(standards)) if len(standards) == 1 else None
         reported = {m: _value(group, m, f) for m, f in _REPORTED_FIELDS}
         _margin(reported, sector)
         balances = {m: _value(group, m, f) for m, f in _BALANCE_FIELDS}
@@ -322,6 +329,7 @@ def build_period_states(
                 period_end=anchor.period_end,
                 measurement="reported",
                 statement_basis=basis,
+                accounting_standard=standard,
                 metrics=reported,
             ),
             Observation(
@@ -329,6 +337,7 @@ def build_period_states(
                 period_end=anchor.period_end,
                 measurement="balance",
                 statement_basis=basis,
+                accounting_standard=standard,
                 metrics=balances,
             ),
         ]
@@ -342,6 +351,7 @@ def build_period_states(
                     measurement="annual_ttm" if ttm else "quarter",
                     period_status=period_status,
                     statement_basis=basis,
+                    accounting_standard=standard,
                     metrics=metrics,
                 )
             )
@@ -361,8 +371,6 @@ def _observation_matches(prior: Observation, current: Observation) -> bool:
     # 52/53週暦の最大1週差は許すが、決算月変更を同季節の前年比にしない。
     return (
         prior.measurement == current.measurement
-        and prior.statement_basis == current.statement_basis
-        and current.statement_basis in {"consolidated", "nonconsolidated"}
         and prior_year_dates_match(
             prior.period_start,
             prior.period_end,
@@ -405,6 +413,18 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                 reason = "comparable_prior_period_not_observed"
             elif len(prior_starts) != 1 or len(prior_values) != 1:
                 reason = "ambiguous_growth_comparison"
+            elif (
+                current.statement_basis not in {"consolidated", "nonconsolidated"}
+                or any(p.statement_basis != current.statement_basis for p in priors)
+                or current.accounting_standard is None
+                or any(p.accounting_standard != current.accounting_standard for p in priors)
+            ):
+                reason = (
+                    "statement_basis_incomparable"
+                    if current.statement_basis not in {"consolidated", "nonconsolidated"}
+                    or any(p.statement_basis != current.statement_basis for p in priors)
+                    else "accounting_standard_incomparable"
+                )
             elif before is None or after is None:
                 reason = "operand_unavailable"
             difference = (

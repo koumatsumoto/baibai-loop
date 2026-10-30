@@ -20,6 +20,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     accounting_period_identity,
+    accounting_standard,
     latest_disclosure_candidates,
     project_financial_documents,
     statement_basis,
@@ -58,6 +59,7 @@ class EarningsPrice:
     profit_components: tuple[ProfitComponent, ...]
     earnings_yield: float | None
     unavailable_reason: str | None
+    accounting_standard: str | None = None
 
     @property
     def profit_period(self) -> tuple[date | None, date | None]:
@@ -120,19 +122,28 @@ def earnings_price(
     )
     profit = sum(part.coefficient * part.amount_yen for part in components) if components else None
     basis = statement_basis(rows[0]) if rows else None
-    basis_conflict = any(
-        {
-            statement_basis(candidate)
-            for candidate in latest_disclosure_candidates(
-                [
-                    candidate
-                    for candidate in _actual_rows(normalized.summaries)
-                    if accounting_period_identity(candidate) == accounting_period_identity(row)
-                ]
-            )
-        }
-        != {statement_basis(row)}
+    standard = accounting_standard(rows[0]) if rows else None
+    actual_rows = _actual_rows(normalized.summaries)
+    anchor_period = max(map(accounting_period_identity, actual_rows), default=None)
+    anchor_candidates = latest_disclosure_candidates(
+        [row for row in actual_rows if accounting_period_identity(row) == anchor_period]
+    )
+    component_candidates = [
+        latest_disclosure_candidates(
+            [
+                candidate for candidate in actual_rows
+                if accounting_period_identity(candidate) == accounting_period_identity(row)
+            ]
+        )
         for row in rows
+    ]
+    basis_conflict = len({statement_basis(row) for row in anchor_candidates}) > 1 or any(
+        {statement_basis(candidate) for candidate in candidates} != {statement_basis(row)}
+        for row, candidates in zip(rows, component_candidates, strict=True)
+    )
+    standard_conflict = len({accounting_standard(row) for row in anchor_candidates}) > 1 or any(
+        {accounting_standard(candidate) for candidate in candidates} != {accounting_standard(row)}
+        for row, candidates in zip(rows, component_candidates, strict=True)
     )
     price = adjusted_price.price if adjusted_price is not None else None
     price_date = adjusted_price.traded_at if adjusted_price is not None else None
@@ -150,10 +161,12 @@ def earnings_price(
         if not isfinite(market_cap) or market_cap <= 0:
             market_cap = None
             reason = "invalid_market_cap"
-    if reason is None and profit is None:
-        reason = "unavailable_annual_profit"
     if reason is None and basis_conflict:
         reason = "conflicting_statement_basis"
+    if reason is None and standard_conflict:
+        reason = "conflicting_accounting_standard"
+    if reason is None and profit is None:
+        reason = "unavailable_annual_profit"
     if reason is None and basis not in ("consolidated", "nonconsolidated"):
         reason = "unknown_statement_basis"
     value = profit / market_cap if reason is None and profit is not None and market_cap else None
@@ -171,4 +184,5 @@ def earnings_price(
         profit_components=components,
         earnings_yield=value,
         unavailable_reason=reason,
+        accounting_standard=None if standard_conflict else standard,
     )

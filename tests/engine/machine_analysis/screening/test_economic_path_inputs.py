@@ -74,6 +74,7 @@ def payloads(price=100.0):
             period_start=date.fromisoformat(start),
             period_end=date(2025, 12, 31),
             statement_basis="consolidated",
+            accounting_standard="JP",
             metrics={
                 "sales": Value(value=1000.0),
                 "operating_profit": Value(value=100.0),
@@ -116,6 +117,7 @@ def payloads(price=100.0):
                     market_cap_yen=cap,
                     profit_ttm_yen=1000.0,
                     statement_basis="consolidated",
+                    accounting_standard="JP",
                     profit_components=(profit_component(1, 1000.0, "2025-01-01", "2025-12-31"),),
                     unavailable_reason=None,
                 ),
@@ -931,7 +933,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
     )
     growth_model = generation.result("company_growth", "1001")
     assert growth_model == reversed_generation.result("company_growth", "1001")
-    assert growth_model.calculation_revision == "company_growth_retrospective_v6"
+    assert growth_model.calculation_revision == "company_growth_retrospective_v7"
     growth = growth_model.payload
     before = canonical_json(growth)
     priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]

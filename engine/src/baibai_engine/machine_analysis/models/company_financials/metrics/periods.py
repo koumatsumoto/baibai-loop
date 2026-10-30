@@ -9,8 +9,11 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
+    accounting_standard,
+    comparable_reporting_basis,
     disclosure_revision,
     latest_disclosure_candidates,
+    latest_reporting_basis_matches,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -42,6 +45,8 @@ def _latest_consistent_actual(
     latest = latest_disclosure_candidates(
         [row for row in candidates if accounting_period_identity(row) == period]
     )
+    if len({(statement_basis(row), accounting_standard(row)) for row in latest}) != 1:
+        return None
     for field in fields:
         if any(field in row.unresolved_actual_fields for row in latest):
             return None
@@ -199,6 +204,7 @@ def _prior_year_summary(
     ttm_rules: TTMRules,
     *,
     field_name: str | None = None,
+    require_basis: bool = True,
 ) -> JQuantsFinancialSummary | None:
     """Return the same fiscal period in the previous fiscal year.
 
@@ -224,8 +230,9 @@ def _prior_year_summary(
     # a mismatching latest revision must not revive an older convenient basis.
     if (
         prior is not None
+        and require_basis
         and field_name != "shares_outstanding"
-        and statement_basis(prior) != statement_basis(latest)
+        and not comparable_reporting_basis((prior, latest))
     ):
         return None
     return prior
@@ -267,6 +274,7 @@ def _ttm_period(
         if len(components) == 1
         else "fy_plus_current_ytd_minus_prior_ytd",
         "statement_basis": statement_basis(latest),
+        "accounting_standard": accounting_standard(latest),
         "components": [
             {
                 "coefficient": -1 if index == 2 else 1,
@@ -331,7 +339,7 @@ def _ttm_components(
     # A fiscal-date match cannot make individual and consolidated amounts additive.
     # Keep each reported operand intact rather than searching older revisions for
     # a convenient basis. Matching labels alone do not prove unchanged group scope.
-    if len({statement_basis(row) for row in (latest, prior_fy, prior_same)}) != 1:
+    if not comparable_reporting_basis((latest, prior_fy, prior_same)):
         return ()
     prior_fy_value = getattr(prior_fy, field)
     prior_same_value = getattr(prior_same, field)
@@ -372,12 +380,6 @@ def _matched_prior_period_summary(
         return None
     candidates: list[JQuantsFinancialSummary] = []
     for summary in _actual_rows(summaries):
-        if (
-            field_name is not None
-            and getattr(summary, field_name) is None
-            and field_name not in summary.unresolved_actual_fields
-        ):
-            continue
         if summary.period_start is None or summary.period_end is None:
             continue
         if not prior_year_period_matches(
@@ -388,7 +390,24 @@ def _matched_prior_period_summary(
         ):
             continue
         candidates.append(summary)
+    if not candidates:
+        return None
+    period = max(map(accounting_period_identity, candidates))
+    period_rows = [row for row in candidates if accounting_period_identity(row) == period]
     comparison_field = value_field or field_name
-    return _latest_consistent_actual(
-        candidates, (comparison_field,) if comparison_field is not None else ()
+    selected = _latest_consistent_actual(
+        [
+            row for row in period_rows
+            if comparison_field is None
+            or getattr(row, comparison_field) is not None
+            or comparison_field in row.unresolved_actual_fields
+        ],
+        (comparison_field,) if comparison_field is not None else (),
     )
+    if selected is None:
+        return None
+    # A later correction may omit this field. Keep that metric's earlier value
+    # only while the latest statement for the fixed period has the same basis.
+    if not latest_reporting_basis_matches(period_rows, selected):
+        return None
+    return selected

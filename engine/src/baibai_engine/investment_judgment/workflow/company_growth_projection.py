@@ -51,6 +51,8 @@ def project_company_growth(
             "values": [value.value for value in metrics.values()],
             "sources": references(sources),
         }
+        if observation.accounting_standard is not None:
+            row["accounting_standard"] = observation.accounting_standard
         if observation.period_status is not None:
             row["period_status"] = observation.period_status
         missing = {name: value.reason for name, value in metrics.items() if value.reason}

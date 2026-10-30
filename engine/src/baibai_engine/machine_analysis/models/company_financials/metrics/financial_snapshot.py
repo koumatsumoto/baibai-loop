@@ -29,6 +29,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _latest_non_null_row,
     _latest_summary,
     _prior_year_summary,
+    _ttm_components,
     _ttm_period,
     _ttm_value,
 )
@@ -44,6 +45,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.ratios imp
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    comparable_reporting_basis,
     forecast_source_trace,
     latest_forecast_source,
     project_financial_documents,
@@ -60,7 +62,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v46"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v47"
 
 
 def build_financial_snapshot(
@@ -255,9 +257,26 @@ def build_financial_snapshot(
         summaries,
         ttm_rules,
         field_name="total_assets",
+        require_basis=False,
+    )
+    current_assets_row = _latest_actual_row(summaries, field_names=("total_assets",))
+    profit_rows = _ttm_components(summaries, "profit", ttm_rules)
+    ocf_rows = _ttm_components(summaries, "cfo", ttm_rules)
+    accrual_basis_rows = (
+        *profit_rows,
+        *ocf_rows,
+        *((current_assets_row,) if current_assets_row is not None else ()),
+        *((prior_total_assets_row,) if prior_total_assets_row is not None else ()),
     )
     accruals_to_assets = _accruals_to_assets(
-        net_income=profit_ttm,
+        net_income=(
+            profit_ttm
+            if profit_rows
+            and ocf_rows
+            and current_assets_row is not None
+            and comparable_reporting_basis(accrual_basis_rows)
+            else None
+        ),
         ocf_ttm=ocf_ttm,
         total_assets=total_assets,
         prior_total_assets=(

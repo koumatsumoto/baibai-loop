@@ -305,6 +305,64 @@ def test_basis_and_irregular_year_do_not_gain_convenient_ttm():
     )
 
 
+@pytest.mark.parametrize("standard", ["JP", "IFRS"])
+def test_unchanged_accounting_standard_preserves_growth(standard):
+    records = [
+        document(2024, 1, 100, 10, 8, DocType=f"1QFinancialStatements_Consolidated_{standard}"),
+        document(2025, 1, 120, 20, 12, DocType=f"1QFinancialStatements_Consolidated_{standard}"),
+    ]
+    result = states(records)
+    assert amount(result[1], "reported", "operating_profit").value == 20
+    assert change(build_changes(result), date(2025, 6, 30), "operating_profit").difference == 10
+
+
+def test_accounting_transition_blocks_only_comparisons_and_derived_amounts():
+    records = [
+        document(2024, 1, 100, 12, 8, DocType="1QFinancialStatements_Consolidated_JP"),
+        document(2024, 4, 400, 50, 35, DocType="FYFinancialStatements_Consolidated_JP"),
+        document(2025, 1, 160, 35, 20, DocType="1QFinancialStatements_Consolidated_IFRS"),
+    ]
+    result = states(records)
+    current = result[-1]
+    assert amount(current, "reported", "operating_profit").value == 35
+    assert observation(current, "reported").accounting_standard == "IFRS"
+    assert amount(current, "annual_ttm", "parent_profit").reason == (
+        "accounting_standard_incomparable"
+    )
+    comparison = change(build_changes(result), date(2025, 6, 30), "operating_profit")
+    assert comparison.from_value == 12
+    assert comparison.to_value == 35
+    assert comparison.difference is None
+    assert comparison.reason == "accounting_standard_incomparable"
+
+
+def test_newer_accounting_revision_does_not_revive_older_matching_basis():
+    prior = document(2024, 1, 100, 10, 8)
+    revised = document(
+        2024, 1, 110, 12, 9, DiscDate="2024-08-20", DiscNo="ifrs-correction",
+        DocType="1QFinancialStatements_Consolidated_IFRS",
+    )
+    current = document(2025, 1, 130, 20, 15)
+    result = states([prior, revised, current])
+    comparison = change(build_changes(result), date(2025, 6, 30), "operating_profit")
+    assert comparison.from_value == 12
+    assert comparison.difference is None
+    assert comparison.reason == "accounting_standard_incomparable"
+
+
+def test_unknown_accounting_standard_keeps_reported_amount():
+    result = states(
+        [
+            document(2024, 1, 100, 10, 8, DocType="1QFinancialStatements_Consolidated_Foreign"),
+            document(2025, 1, 120, 20, 10, DocType="1QFinancialStatements_Consolidated_Foreign"),
+        ]
+    )
+    assert amount(result[-1], "reported", "sales").value == 120
+    assert change(build_changes(result), date(2025, 6, 30), "sales").reason == (
+        "accounting_standard_incomparable"
+    )
+
+
 def test_query_retains_pre_window_operands_and_later_corrections_at_both_edges(tmp_path):
     records = [document(y, q, q * 100) for y in (2022, 2023, 2024) for q in range(1, 5)]
     records.append(document(2022, 4, 450, DiscDate="2026-10-01", DiscNo="late-old-fy"))

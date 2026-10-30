@@ -156,6 +156,32 @@ def test_ttm_keeps_actual_operands_instead_of_adding_reported_eps():
     assert canonical_json(asdict(restored)) == canonical_json(saved)
 
 
+def test_accounting_transition_keeps_price_and_shares_without_a_false_ttm_yield():
+    prior = replace(
+        annual(20.0), fiscal_period="1Q", disclosed_at=date(2025, 8, 10),
+        period_end=date(2025, 6, 30), disclosure_number="prior-q1",
+    )
+    current = replace(
+        prior, disclosed_at=date(2026, 8, 10), fiscal_year_end=date(2027, 3, 31),
+        period_start=date(2026, 4, 1), period_end=date(2026, 6, 30),
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+        disclosure_number="current-q1", profit=40.0,
+    )
+    result = observation([prior, annual(), current])
+    assert result.market_cap_yen == 800.0
+    assert result.shares_ex_treasury == 80.0
+    assert result.profit_ttm_yen is None
+    assert result.earnings_yield is None
+
+
+def test_old_saved_earnings_payload_remains_readable_without_a_new_default_on_disk():
+    saved = json.loads(canonical_json(asdict(observation([annual()]))))
+    saved.pop("accounting_standard")
+    before = canonical_json(saved)
+    assert read_earnings_price(saved).profit_ttm_yen == 100.0
+    assert canonical_json(saved) == before
+
+
 @pytest.mark.parametrize(
     ("shape", "expected"),
     [

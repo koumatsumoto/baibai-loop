@@ -97,6 +97,7 @@ def test_reader_does_not_fill_absent_legacy_fields_or_normalize_evidence_numbers
         for item in state["observations"]:
             item.pop("period_status", None)
             item.pop("share_basis")
+            item.pop("accounting_standard", None)
             for value in item["metrics"].values():
                 if value["reason"] is None:
                     value.pop("reason")
@@ -117,6 +118,7 @@ def test_reader_does_not_fill_absent_legacy_fields_or_normalize_evidence_numbers
     assert type(evidence["metrics"]["sales"]["value"]) is int
     assert "reason" not in evidence["metrics"]["sales"]
     assert "share_basis" not in evidence
+    assert "accounting_standard" not in evidence
     (comparison,) = reader.year_over_year(reported, change["metric"])
     assert "margin_points" not in reader.saved_change(comparison)
     assert canonical_json(payload) == before

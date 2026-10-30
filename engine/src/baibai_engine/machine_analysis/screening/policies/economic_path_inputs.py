@@ -123,6 +123,8 @@ def project_company(
             and earnings_read is not None
             and earnings_read.statement_basis in {"consolidated", "nonconsolidated"}
             and earnings_read.statement_basis == observation.statement_basis
+            and earnings_read.accounting_standard is not None
+            and earnings_read.accounting_standard == observation.accounting_standard
         )
         paths.append(
             PathCoordinates(
@@ -412,6 +414,8 @@ def _can_use_full_fy(
         or annual is None
         or full_fy is None
         or annual.statement_basis != full_fy.statement_basis
+        or annual.accounting_standard is None
+        or annual.accounting_standard != full_fy.accounting_standard
     ):
         return False
     # Legacy models have no interval status: never infer one from missing metric operands.

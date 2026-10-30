@@ -48,6 +48,8 @@ class Observation(Contract):
     period_end: date
     measurement: Measurement
     statement_basis: str
+    # Absent in old saved generations; do not synthesize it when reading them.
+    accounting_standard: str | None = Field(default=None, exclude_if=lambda value: value is None)
     # Interval construction is independent of missing/conflicting metric operands.
     period_status: PeriodStatus | None = Field(default=None, exclude_if=lambda value: value is None)
     # Reported EPS and share counts retain each document's native share basis.
@@ -108,7 +110,7 @@ class CompanyGrowth(Contract):
     ticker: str
     status: Literal["available", "unavailable"]
     reason: str | None = None
-    calculation_method: str = "company_growth_retrospective_v6"
+    calculation_method: str = "company_growth_retrospective_v7"
     read_semantics: Literal["retained_latest_in_fixed_release_not_point_in_time"] = (
         "retained_latest_in_fixed_release_not_point_in_time"
     )
