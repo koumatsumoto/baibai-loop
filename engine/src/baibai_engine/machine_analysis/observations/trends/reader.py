@@ -296,6 +296,15 @@ def _read_source(
         published = current.evidence.published_date
         if published is None and current.evidence.published_at is not None:
             published = current.evidence.published_at.date()
+        claim_dates = [c.occurred_on for c in current.claims if c.occurred_on is not None]
+        if (
+            published is None
+            and not claim_dates
+            and current.evidence.received_at.date() > as_of
+            and observation.content_scope in ("full_text", "partial_text")
+        ):
+            reasons.append(f"document_version_after_as_of_unverified:{observation.observation_id}")
+            continue
         if published is None:
             published = _index_publication(
                 conn,
@@ -304,9 +313,8 @@ def _read_source(
                 as_of=as_of,
             )
         if published is None:
-            dates = [c.occurred_on for c in current.claims if c.occurred_on is not None]
-            if dates:
-                published = min(dates)  # BOJ heading, an attributed decision date.
+            if claim_dates:
+                published = min(claim_dates)  # BOJ heading, an attributed decision date.
         if published is not None and published > as_of:
             reasons.append(f"publication_after_as_of:{observation.observation_id}")
             continue

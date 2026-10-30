@@ -414,3 +414,28 @@ def test_historical_as_of_excludes_later_publication_but_keeps_future_plan(tmp_p
     assert len(historical.artifacts) == 1
     assert {c.occurred_on for c in historical.artifacts[0].current.claims} == {date(2026, 9, 18)}
     assert any(c.scheduled_for == date(2026, 9, 24) for c in historical.artifacts[0].current.claims)
+
+
+def test_old_index_date_does_not_backdate_later_document_revision(tmp_path):
+    from datetime import date
+
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as conn, conn:
+        retain_index(conn, "index-before", received_at=NOW - timedelta(days=1))
+        _, document = retain(conn, received_at=NOW)
+        extract_observations(conn, (document.observation_id,), generated_at=NOW)
+    inputs = (
+        read_trend_inputs(
+            path,
+            release_id="synthetic",
+            release_sha256="a" * 64,
+            cutoff=NOW,
+            as_of=date(2026, 10, 24),
+        )
+        .industries[0]
+        .inputs
+    )
+    assert inputs.artifacts == ()
+    assert any(
+        "document_version_after_as_of_unverified" in reason for reason in inputs.coverage.reasons
+    )
