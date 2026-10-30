@@ -68,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "list":
             reader.add_argument("--limit", type=int, default=20)
             reader.add_argument("--after")
+            reader.add_argument("--month", help="UTC receipt month YYYY-MM; defaults to latest")
         else:
             reader.add_argument("--reference-file", type=Path, required=True)
             reader.add_argument(
@@ -109,7 +110,7 @@ def _run(argv: list[str] | None = None) -> int:
         release = resolve_release(source, args.release, manifest_sha256=args.manifest_sha256)
         reader = FixedArticleReader(release, LakeObjectCache(args.cache, source))
         if args.command == "list":
-            result = reader.list(after=args.after, limit=args.limit)
+            result = reader.list(after=args.after, limit=args.limit, month=args.month)
         else:
             reference = ArticleEvidenceRef.model_validate_json(args.reference_file.read_bytes())
             evidence = (
