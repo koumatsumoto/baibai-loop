@@ -68,10 +68,11 @@ class ArticleObservation(ArticleValue):
             self.model_dump(
                 mode="json",
                 exclude={
-                    "receipt_id",
-                    "receipt_sha256",
-                    "body_ref",
-                    "native_locator",
+                    "receipt_id": True,
+                    "receipt_sha256": True,
+                    "body_ref": True,
+                    "native_locator": True,
+                    "native_metadata": {"index_observation_id"},
                 },
             )
         )
