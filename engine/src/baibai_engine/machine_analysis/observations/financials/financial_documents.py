@@ -25,6 +25,14 @@ from baibai_engine.machine_analysis.observations.jquants_decode import (
 AccountingPeriodKey = tuple[date, int, date, date, int]
 
 _FISCAL_PERIOD_ORDER = {"1Q": 1, "2Q": 2, "3Q": 3, "FY": 4}
+_NON_REPORTING_DOC_TYPES = frozenset(
+    {
+        "EarnForecastRevision",
+        "DividendForecastRevision",
+        "REITEarnForecastRevision",
+        "REITDividendForecastRevision",
+    }
+)
 
 
 def accounting_period_identity(
@@ -196,11 +204,7 @@ def reporting_basis_rows(
     rows: Sequence[JQuantsFinancialSummary],
 ) -> list[JQuantsFinancialSummary]:
     """Forecast and dividend notices do not revise the actual statement basis."""
-    return [
-        row
-        for row in rows
-        if row.document_type not in {"EarnForecastRevision", "DividendForecastRevision"}
-    ]
+    return [row for row in rows if row.document_type not in _NON_REPORTING_DOC_TYPES]
 
 
 def latest_reporting_basis_matches(

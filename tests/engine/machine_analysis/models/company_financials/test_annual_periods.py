@@ -308,12 +308,16 @@ def test_growth_reports_current_partial_standard_revision_and_keeps_issuer_share
     assert balance.metrics["issued_shares"].value == 120.0
 
 
-def test_same_time_dividend_notice_does_not_revoke_actual_statement_basis():
+@pytest.mark.parametrize(
+    "notice_type",
+    ["DividendForecastRevision", "REITDividendForecastRevision", "REITEarnForecastRevision"],
+)
+def test_same_time_dividend_notice_does_not_revoke_actual_statement_basis(notice_type):
     annual = document(date(2024, 4, 1), date(2025, 3, 31), 100.0)
     dividend = replace(
         annual,
         disclosure_number="dividend-notice",
-        document_type="DividendForecastRevision",
+        document_type=notice_type,
         sales=None,
         operating_profit=None,
         profit=None,
