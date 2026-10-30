@@ -30,6 +30,8 @@ def test_native_index_locator_shapes_include_tsr_json_items_only_for_tsr():
     assert not is_index_locator("tsr_data", "/html/body-region")
     assert not is_index_locator("nhk_news", "/0")
     assert is_index_locator("nhk_news", "/item/2")
+    for source in ("boj_news", "mof_news", "nhk_news", "toushiru"):
+        assert is_index_locator(source, "/url/0")
 
 
 def response(status, body=b"", **headers):

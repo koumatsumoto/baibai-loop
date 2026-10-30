@@ -420,6 +420,55 @@ def test_nhk_guid_index_binds_document_and_revalidation_without_guessing(tmp_pat
             )
 
 
+@pytest.mark.parametrize("source", ["boj_news", "mof_news", "nhk_news"])
+def test_sitemap_locator_binds_supported_feed_to_document(tmp_path, source):
+    host = {
+        "boj_news": "www.boj.or.jp",
+        "mof_news": "www.mof.go.jp",
+        "nhk_news": "news.web.nhk",
+    }[source]
+    feed_url = f"https://{host}/synthetic-sitemap.xml"
+    document_url = f"https://{host}/synthetic-story"
+    feed = (
+        f"<urlset><url><loc>{document_url}</loc><title>Index title</title></url></urlset>"
+    ).encode()
+    document = (
+        b'<div itemprop="articleBody">Synthetic story</div>'
+        if source == "nhk_news"
+        else b"<main>Synthetic story</main>"
+    )
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        for identity, url, body, at in (
+            ("sitemap", feed_url, feed, AT),
+            ("document", document_url, document, AT + timedelta(minutes=1)),
+        ):
+            retain_receipt(
+                conn,
+                ArticleReceipt(
+                    receipt_id=identity,
+                    source=source,
+                    requested_url=url,
+                    received_at=at,
+                    status="ok",
+                    http_status=200,
+                    body_ref=BodyRef(receipt_id=identity, sha256=hashlib.sha256(body).hexdigest()),
+                ),
+                body=body,
+            )
+        _, (index,) = project_receipt(conn, "sitemap", generated_at=AT)
+        assert index.native_locator == "/url/0"
+        _, (body_observation,) = project_receipt(
+            conn,
+            "document",
+            kind="document",
+            index_observation_id=index.observation_id,
+            generated_at=AT,
+        )
+        assert body_observation.article_id == index.article_id
+        assert body_observation.title == "Index title"
+        assert body_observation.native_metadata["index_observation_id"] == index.observation_id
+
+
 def test_tsr_document_uses_explicit_feed_title_when_h1_is_missing(tmp_path):
     body_url = "https://www.tsr-net.co.jp/data/detail/synthetic.html"
     feed = payload(title="Synthetic TSR index title")

@@ -28,9 +28,7 @@ def is_index_locator(source: str, locator: str) -> bool:
     """Accept only native index item positions emitted by this provider parser."""
     if source in {"tsr_data", "tsr_flash"}:
         pattern = r"/(?:0|[1-9][0-9]*)"
-    elif source in {"boj_news", "mof_news", "nhk_news"}:
-        pattern = r"/item/(?:0|[1-9][0-9]*)"
-    elif source == "toushiru":
+    elif source in {"boj_news", "mof_news", "nhk_news", "toushiru"}:
         pattern = r"/(?:item|url)/(?:0|[1-9][0-9]*)"
     elif source in {"minkabu_news", "rakuten_news"}:
         pattern = r"/a/(?:0|[1-9][0-9]*)"
