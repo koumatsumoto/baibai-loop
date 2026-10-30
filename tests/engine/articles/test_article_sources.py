@@ -148,13 +148,13 @@ def test_source_allowlist_does_not_follow_cross_domain_canonical():
 def test_minkabu_headed_card_selects_only_article_body_near_related_and_ads():
     url = "https://minkabu.jp/news/123"
     html = (
-        '<div id="contents"><div class="md_card md_box">'
-        '<div class="md_index_article"><h1>Synthetic headline</h1></div>'
-        '<div class="md_box fsize_m md_normalize"><p>First paragraph.</p>'
-        "<p>Second paragraph.</p></div></div>"
-        '<aside>Advertisement nearby</aside><div class="related"><p>Related story</p></div>'
-        "</div>"
-    ).encode()
+        b'<div id="contents"><div class="md_card md_box">'
+        b'<div class="md_index_article"><h1>Synthetic headline</h1></div>'
+        b'<div class="md_box fsize_m md_normalize"><p>First paragraph.</p>'
+        b"<p>Second paragraph.</p></div></div>"
+        b'<aside>Advertisement nearby</aside><div class="related"><p>Related story</p></div>'
+        b"</div>"
+    )
     article = parse_document("minkabu_news", html, url=url)
     assert article.title == "Synthetic headline"
     assert "First paragraph." in article.text
@@ -169,13 +169,19 @@ def test_minkabu_headed_card_selects_only_article_body_near_related_and_ads():
 @pytest.mark.parametrize(
     "html",
     [
-        b'<div id="contents"><div class="md_card md_box"><div class="md_index_article">'
-        b'<h1>Synthetic</h1></div><div class="md_box fsize_m md_normalize"></div></div></div>',
-        b'<div id="contents"><div class="md_card md_box">'
-        b'<div class="md_box fsize_m md_normalize">Unheaded body-like text</div></div></div>',
-        b'<div id="contents"><div class="md_card md_box"><div class="md_index_article">'
-        b'<h1>Synthetic</h1></div><div class="md_box fsize_m md_normalize">One</div>'
-        b'<div class="md_box fsize_m md_normalize">Two</div></div></div>',
+        (
+            b'<div id="contents"><div class="md_card md_box"><div class="md_index_article">'
+            b'<h1>Synthetic</h1></div><div class="md_box fsize_m md_normalize"></div></div></div>'
+        ),
+        (
+            b'<div id="contents"><div class="md_card md_box">'
+            b'<div class="md_box fsize_m md_normalize">Unheaded body-like text</div></div></div>'
+        ),
+        (
+            b'<div id="contents"><div class="md_card md_box"><div class="md_index_article">'
+            b'<h1>Synthetic</h1></div><div class="md_box fsize_m md_normalize">One</div>'
+            b'<div class="md_box fsize_m md_normalize">Two</div></div></div>'
+        ),
     ],
 )
 def test_minkabu_new_shape_missing_or_ambiguous_body_is_unsupported(html):
