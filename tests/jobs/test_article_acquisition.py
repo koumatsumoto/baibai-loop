@@ -46,6 +46,23 @@ class Session:
         return next(self.responses)
 
 
+def _nhk_description(text):
+    document = {
+        "@type": "NewsArticle",
+        "headline": {"@value": "Synthetic JSON-LD headline", "@language": "ja"},
+        "description": {"@value": text, "@language": "ja"},
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": "https://news.web.nhk/news/example",
+        },
+    }
+    return (
+        b'<html><main>Synthetic page chrome</main><script type="application/ld+json">'
+        + json.dumps(document, ensure_ascii=False).encode()
+        + b"</script></html>"
+    )
+
+
 def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch):
     class Clock(datetime):
         @classmethod
@@ -278,7 +295,7 @@ def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(tmp_path, monke
         b"<title>Synthetic original title</title></item></channel></rss>"
     )
     empty = b"<rss><channel /></rss>"
-    body = b'<html><div itemprop="articleBody">Synthetic retained body</div></html>'
+    body = _nhk_description("Synthetic retained summary")
     session = Session(
         [
             Response(200, feed),
@@ -325,9 +342,15 @@ def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(tmp_path, monke
     result = import_handoff("nhk_news", database, second)
     with closing(open_connection(database)) as conn:
         observations = read_observations(conn, result.report["observation_ids"])
-    document = next(item for item in observations if item.native_locator == "/html/body-region")
+    document = next(
+        item for item in observations if item.native_locator == "/html/newsarticle-description"
+    )
     assert document.article_id == "nhk_news:synthetic-guid"
     assert document.title == "Synthetic original title"
+    assert document.text == "Synthetic retained summary"
+    assert document.content_scope == "summary"
+    assert document.missing_parts == ("full_article_body",)
+    assert document.native_metadata["description_language"] == "ja"
     assert document.native_metadata["index_observation_id"] in {
         item.observation_id
         for item in observations
@@ -352,7 +375,7 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
         b"<description>Synthetic summary</description></item></channel></rss>"
     )
     empty = b"<rss><channel /></rss>"
-    body = b'<html><body><div itemprop="articleBody">Synthetic article body</div></body></html>'
+    body = _nhk_description("Synthetic article summary")
     session = Session(
         [
             Response(200, feed),
@@ -379,10 +402,14 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
         result = import_handoff("nhk_news", database, packet)
         with closing(open_connection(database)) as conn:
             observations = read_observations(conn, result.report["observation_ids"])
-        document = next(item for item in observations if item.native_locator == "/html/body-region")
+        document = next(
+            item for item in observations if item.native_locator == "/html/newsarticle-description"
+        )
         documents.append(document)
     assert all(item.article_id == "nhk_news:synthetic-guid" for item in documents)
     assert all(item.title == "Synthetic index title" for item in documents)
+    assert all(item.content_scope == "summary" for item in documents)
+    assert all(item.missing_parts == ("full_article_body",) for item in documents)
     assert all("index_observation_id" in item.native_metadata for item in documents)
     assert documents[0].article_version_id == documents[1].article_version_id
 
@@ -447,7 +474,7 @@ def test_nhk_conflicting_guids_for_one_url_keep_raw_without_guessed_projection(
             Response(200, feed("guid-a")),
             Response(200, feed("guid-b")),
             *(Response(200, b"<rss><channel /></rss>") for _ in range(2)),
-            Response(200, b'<html><div itemprop="articleBody">Synthetic body</div></html>'),
+            Response(200, _nhk_description("Synthetic disputed summary")),
         ]
     )
     store = MemoryR2Store()
