@@ -481,6 +481,7 @@ def read_trend_source(
         state = "partial" if selections else "extraction_pending"
     elif any(item.current.status in ("failed", "pending", "unsupported") for item in selections):
         state = "partial"
+    receipt_months = _window_months(start, max(as_of, cutoff.astimezone(UTC).date()))
     return tuple(selections), TrendCoverage.model_validate(
         {
             "state": state,
@@ -489,7 +490,7 @@ def read_trend_source(
             "continuation": (
                 "articles.list:same_manifest:"
                 f"window={start.isoformat()}..{as_of.isoformat()}:"
-                f"months={','.join(_window_months(start, max(as_of, cutoff.astimezone(UTC).date())))}:"
+                f"months={','.join(receipt_months)}:"
                 "month=<each-listed-month>,after=null"
                 if omitted
                 else None
