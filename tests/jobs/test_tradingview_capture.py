@@ -9,7 +9,10 @@ import pytest
 from mcp.types import CallToolResult
 from tests.helpers.tradingview import DAY, payload, store
 
-from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import (
+    BATCH_TOOL,
+    OFFICIAL_CONNECTOR_BATCH_TOOL,
+)
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     COLUMNS,
@@ -19,6 +22,7 @@ from baibai_jobs.integration.tradingview_handoff import export_handoff, import_h
 from baibai_jobs.maintenance.tradingview_capture import retain_capture
 from baibai_jobs.maintenance.tradingview_cli import main
 from baibai_jobs.maintenance.tradingview_rebuild import RebuildError, rebuild_from_receipts
+from baibai_jobs.observability.tradingview import SourceDataError
 
 SATURDAY = DAY + timedelta(days=1)
 RECEIVED = datetime(2026, 9, 19, 0, 5, tzinfo=UTC)
@@ -31,14 +35,21 @@ def weekend_store(path):
     return path
 
 
-def capture_file(tmp_path, *, result=None, identity="synthetic-call", symbols=("TSE:1000",)):
+def capture_file(
+    tmp_path,
+    *,
+    result=None,
+    identity="synthetic-call",
+    symbols=("TSE:1000",),
+    tool_name=BATCH_TOOL,
+):
     if result is None:
         result = CallToolResult(isError=False, content=[], structuredContent=payload(list(symbols)))
     value = {
         "receipt_id": identity,
         "snapshot_date": SATURDAY.isoformat(),
         "master_asof": DAY.isoformat(),
-        "tool_name": BATCH_TOOL,
+        "tool_name": tool_name,
         "received_at_utc": RECEIVED.isoformat(),
         "requested_symbols": list(symbols),
         "requested_columns": COLUMNS,
@@ -63,7 +74,9 @@ def test_receive_cli_keeps_native_result_before_weekend_partial_handoff(tmp_path
             "structuredContent": body,
         }
     )
-    captured = capture_file(tmp_path, result=result, symbols=symbols)
+    captured = capture_file(
+        tmp_path, result=result, symbols=symbols, tool_name=OFFICIAL_CONNECTOR_BATCH_TOOL
+    )
     assert main(["receive", "--sqlite", str(source), "--capture", str(captured)]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["l1_retained"] is True
@@ -75,6 +88,7 @@ def test_receive_cli_keeps_native_result_before_weekend_partial_handoff(tmp_path
         )
         assert conn.execute("SELECT count(*) FROM tradingview_source_receipts").fetchone() == (1,)
         saved = read_tool_results(conn, (report["receipt_id"],))[0]
+        assert saved.tool_name == OFFICIAL_CONNECTOR_BATCH_TOOL
         assert saved.received_at_utc == RECEIVED
         assert saved.snapshot_date == SATURDAY
         assert saved.master_asof == DAY
@@ -130,3 +144,16 @@ def test_receive_requires_existing_store_and_keeps_capture_timestamp(tmp_path):
     receipt_id = retain_capture(path, captured)["receipt_id"]
     with closing(open_connection(path)) as conn:
         assert read_tool_results(conn, (receipt_id,))[0].received_at_utc == RECEIVED
+
+
+def test_other_tool_result_is_not_relabelled_as_a_batch(tmp_path):
+    path = weekend_store(tmp_path / "market.sqlite")
+    captured = capture_file(tmp_path, tool_name="mcp_tv_get_forecasts")
+    receipt_id = retain_capture(path, captured)["receipt_id"]
+    with pytest.raises(SourceDataError, match="unsupported tool"):
+        rebuild_from_receipts(path, SATURDAY, [receipt_id])
+    with closing(open_connection(path)) as conn:
+        assert read_tool_results(conn, (receipt_id,))[0].tool_name == "mcp_tv_get_forecasts"
+        assert conn.execute("SELECT count(*) FROM tradingview_forecast_snapshots").fetchone() == (
+            0,
+        )

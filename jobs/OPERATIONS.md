@@ -580,7 +580,7 @@ L1保存はL2の成功判定ではない。失敗応答や業務payloadの不整
 
 ### L2検証と正本への反映
 
-既存のL2 replayが受け入れるのは`mcp-tv-get-symbol-data-batch`とownerの18列を実際に要求した受領。別toolの結果をその名前へ付け替えない。保存calendarから当日の営業日とmaster基準日を決め、休日は直前営業日のexact masterと連続calendarを使う。時刻検証は受領JST日と、営業日15:30以降／休日09:00以降を照合する。休日を理由に取得不可とはしない。
+L2 replayはownerが宣言するnative wire名と公式connectorの公開識別名のbatch契約、および18列を実際に要求した受領を検証する。receiptには呼び出したtool識別名を保持し、別toolの結果をbatch名へ付け替えない。保存calendarから当日の営業日とmaster基準日を決め、休日は直前営業日のexact masterと連続calendarを使う。時刻検証は受領JST日と、営業日15:30以降／休日09:00以降を照合する。休日を理由に取得不可とはしない。
 
 新しい受領の公開は既存の[handoffと共通統合](#actions-write-boundary)を使う。`integration.source_handoff export --source tradingview`で明示受領を切り出し、fresh canonicalへのreplayは同日最初の正常行と原receiptを保つ。元master/calendarが違うhandoffを黙って採用しない。取得用copyを丸ごと古い正本へpushしない。公開lease・CAS・固定release・読戻しは通常の正本反映手順に従う。
 
