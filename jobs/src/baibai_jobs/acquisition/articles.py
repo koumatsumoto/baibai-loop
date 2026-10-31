@@ -38,6 +38,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_frontier import (
     FRONTIER_FORMAT,
     FRONTIER_SOURCES,
+    MAX_FRONTIER_BYTES,
     ArticleFrontier,
 )
 from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
@@ -46,6 +47,7 @@ from baibai_jobs.acquisition.article_planning import (
     MAX_REQUEST_STATES,
     commit_stage,
     is_due,
+    legacy_omission_evidence,
     load_frontier_cursor,
     load_planning,
     slot_at,
@@ -306,16 +308,29 @@ def acquire_source(
         if source in FRONTIER_SOURCES:
             frontier = ArticleFrontier(cursor, resolve_index)
             if cursor.get("format") != FRONTIER_FORMAT:
-                # One-time recovery from retained legacy indexes includes cache-evicted URLs.
-                for entry_url in policy.entry_urls:
-                    prior = planning.get(entry_url)
-                    if prior is not None:
-                        frontier.seed_legacy_index(
-                            {
-                                "stage": prior["stage"],
-                                "index_receipt_id": prior["receipt"]["receipt_id"],
-                            }
-                        )
+                recovery = legacy_omission_evidence(store, state)
+                if recovery is not None:
+                    entry, references = recovery
+                    for reference in references:
+                        frontier.seed_legacy_index(reference)
+                    frontier.legacy_recovery = {
+                        "stage": entry,
+                        "requeued_omitted_count": frontier.legacy_omitted,
+                    }
+                    frontier.legacy_omitted = 0
+                else:
+                    # Unknown old omissions stay visible; recover available raw without guessing.
+                    for entry_url in policy.entry_urls:
+                        prior = planning.get(entry_url)
+                        if prior is not None:
+                            frontier.seed_legacy_index(
+                                {
+                                    "stage": prior["stage"],
+                                    "index_receipt_id": prior["receipt"]["receipt_id"],
+                                }
+                            )
+            if frontier.encoded_size() > MAX_FRONTIER_BYTES:
+                raise ValueError("saved article work exceeds the frontier bound; recover exactly")
         queue: list[str] = []
         frontier_queued = False
         active_url: str | None = None

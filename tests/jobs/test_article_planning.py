@@ -227,3 +227,60 @@ def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
     invalid = ArticlePlanning(source, {}, cursor={"format": FRONTIER_REF_FORMAT, "stage": bad})
     with pytest.raises(LakePublishError, match="manifest differs"):
         load_frontier_cursor(remote, invalid)
+
+
+@pytest.mark.parametrize(
+    "failures,bodies,recoverable",
+    [
+        (["pending_cursor_overflow"], 8, True),
+        (["http_error", "pending_cursor_overflow"], 8, False),
+        (["pending_cursor_overflow"], 1, False),
+    ],
+)
+def test_legacy_omission_requires_exact_successful_window_even_after_ack(
+    tmp_path, failures, bodies, recoverable
+):
+    from baibai_jobs.acquisition.article_planning import legacy_omission_evidence
+
+    source = "tsr_data"
+    remote = MemoryR2Store()
+    publish_planning_input(remote, source, {})
+    state, etag = load_planning(remote, source)
+    stage_id = "tsr_data-20261029T1313-legacy"
+    packet = _packet(tmp_path, source)
+    report = json.loads((packet / "result.json").read_text())
+    report.update(
+        bodies=bodies,
+        pages=1,
+        status="partial",
+        continuation_only=False,
+        failures=failures,
+        omitted_url_count=1,
+        receipt_ids=["index"],
+        projection_kinds={"index": "index"},
+    )
+    (packet / "result.json").write_text(json.dumps(report))
+    cursor = {"pending_urls": [], "pending_evidence": {}, "omitted_url_count": 1}
+    entry = commit_stage(
+        remote,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id=stage_id,
+        directory=packet,
+        requests={"index-url": {"stage": {"stage_id": stage_id}, "receipt": {"id": "index"}}},
+        cursor=cursor,
+        not_before=None,
+    )
+    acknowledge_stage(remote, entry)
+    saved, _ = load_planning(remote, source)
+    result = legacy_omission_evidence(remote, saved)
+    if recoverable:
+        assert result == (entry, [{"stage": entry, "index_receipt_id": "index"}])
+        from dataclasses import replace
+
+        assert legacy_omission_evidence(
+            remote, replace(saved, cursor={**cursor, "pending_urls": ["changed"]})
+        ) is None
+    else:
+        assert result is None

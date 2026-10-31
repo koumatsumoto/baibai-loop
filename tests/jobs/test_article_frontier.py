@@ -150,3 +150,26 @@ def test_legacy_omission_does_not_disappear_when_current_work_finishes():
     frontier, _ = scenario.step(entries(1))
     assert frontier.pending == {}
     assert frontier.wire()["legacy_omitted"] == 190
+
+
+def test_legacy_index_seed_preserves_old_work_without_delaying_a_genuinely_new_item():
+    old = entries(20)
+    current = tuple(
+        item.model_copy(update={"locator": f"/{i}"})
+        for i, item in enumerate((*entries(1, prefix="new"), *old))
+    )
+    snapshots = {"old": old, "current": current}
+    frontier = ArticleFrontier(
+        {"pending_urls": [], "omitted_url_count": 12},
+        lambda ref: snapshots[ref["index_receipt_id"]],
+    )
+    frontier.seed_legacy_index({"stage": {"stage_id": "old"}, "index_receipt_id": "old"})
+    frontier.observe(
+        "index", {"stage": {"stage_id": "current"}, "index_receipt_id": "current"}, current
+    )
+    selected = frontier.queue([old[0].url, old[1].url])[:8]
+    assert current[0].url in selected
+    assert old[0].url in selected
+    assert len(frontier.pending) == 21
+    assert frontier.new == [current[0].url]
+    assert frontier.legacy_omitted == 12  # Seeding alone is not the exact omission proof.

@@ -42,6 +42,7 @@ class ArticleFrontier:
         self.new: list[str] = []
         self._new_seen: set[str] = set()
         self.legacy_omitted = 0
+        self.legacy_recovery = cursor.get("legacy_recovery")
         self.next_page: str | None = cursor.get("next_page")
         self.previous_keys: set[tuple[str, str, str, str]] = set()
         if cursor.get("format") == FRONTIER_FORMAT:
@@ -94,7 +95,10 @@ class ArticleFrontier:
     def seed_legacy_index(self, reference: dict[str, Any]) -> None:
         """Recover a superset from retained old indexes, not an invented old URL list."""
         index = self.register(reference)
-        for item in self.resolve(reference):
+        self.initial = False
+        items = self.resolve(reference)
+        self.previous_keys.update(item_key(item) for item in items)
+        for item in items:
             url = item_key(item)[1]
             refs = self.pending.setdefault(url, [])
             coordinate = (index, item.locator)
@@ -176,8 +180,18 @@ class ArticleFrontier:
             ],
             "next_page": self.next_page,
             "legacy_omitted": self.legacy_omitted,
+            "legacy_recovery": self.legacy_recovery,
             "capacity_blocked_indexes": [remap[index] for index in self.capacity_blocked],
         }
 
     def encoded_size(self) -> int:
         return len(json.dumps(self.wire(), sort_keys=True).encode())
+
+
+def bind_local_stage(value: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    """Bind a manifest's self-reference without changing any earlier stage reference."""
+    return (
+        {**value, "stage": entry}
+        if value.get("stage", {}).get("stage_id") == entry["stage_id"]
+        else value
+    )
