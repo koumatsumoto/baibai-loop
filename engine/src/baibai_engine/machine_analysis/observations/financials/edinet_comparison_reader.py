@@ -99,9 +99,7 @@ def read_comparison_population(
             # A company query must not materialize every issuer's native BLOBs.
             # Eligibility still comes from the folded, key-preserving observations
             # above; this is only an exact-docID restriction of the byte read.
-            statement += (
-                " AND doc_id IN (SELECT doc_id FROM edinet_documents WHERE sec_code = ?)"
-            )
+            statement += " AND doc_id IN (SELECT doc_id FROM edinet_documents WHERE sec_code = ?)"
             parameters = (tickers[0] + "0",)
         cursor = connection.execute(statement, parameters)
         while batch := cursor.fetchmany(8):
