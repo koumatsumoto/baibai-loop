@@ -658,6 +658,7 @@ forbidden_modules = ["baibai_engine.machine_analysis.screening", "baibai_engine.
 allow_indirect_imports = true
 ignore_imports = [
   # Saved readers and their pure input types only; no current preview or writers.
+  "baibai_web.readmodel.proposal_models -> baibai_engine.investment_judgment.trade_proposal.record_contracts",
   "baibai_web.sources.proposal -> baibai_engine.investment_judgment.trade_proposal.query",
   "baibai_web.sources.proposal -> baibai_engine.investment_judgment.stock_assessment.store",
   "baibai_web.readmodel.builders.proposal -> baibai_engine.investment_judgment.trade_proposal.contracts",

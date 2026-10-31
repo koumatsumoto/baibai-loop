@@ -301,6 +301,25 @@ export function ProposalReport({ data }: { data: LatestProposalView | null }) {
         </div>
       </SectionCard>
       <section aria-labelledby="proposal-items-heading" className="grid min-w-0 gap-4">
+        {(proposal.corrections ?? []).length > 0 && <SectionCard padded title="提案履歴の訂正">
+          {(proposal.corrections ?? []).map((correction) => <div key={correction.correction_id} className="grid gap-2">
+            <Prose>{correction.reason}</Prose>
+            <p>誤って保存した提案を最新候補から除外しました。表示中の提案の根拠・条件・発行時刻は当時のままです。現在の再推奨や人間の採用ではありません。</p>
+            <Identifier label="訂正対象" value={correction.erroneous_ref.proposal_id} />
+            <SavedTime value={correction.recorded_at} />
+          </div>)}
+        </SectionCard>}
+        {(proposal.human_reports ?? []).length > 0 && <SectionCard padded title="人間の報告（提案・取引事実とは別）">
+          {(proposal.human_reports ?? []).map((report) => <div key={report.report_id} className="grid gap-2">
+            <p className="font-medium">購入しなかった</p>
+            <Prose>{report.statement}</Prose>
+            <p>報告日時：<SavedTime value={report.reported_at} /></p>
+            <p>本人が述べた対象時点：{report.subject_at ? <SavedTime value={report.subject_at} /> : '報告なし'}</p>
+            {report.reason_quote && <div><p>本人の理由（引用）</p><Prose>{report.reason_quote}</Prose></div>}
+            {report.context_summary && <div><p>会話文脈の要約（担当者）</p><Prose>{report.context_summary}</Prose></div>}
+            <p>未発注・取消・未約定・永久却下は、この報告からは確認できません。注文・約定・現金の記録は変更していません。</p>
+          </div>)}
+        </SectionCard>}
         <h2 className="text-lg font-semibold" id="proposal-items-heading">銘柄別の行動と条件</h2>
         {proposal.items.map((item) => <ProposalItemCard item={item} key={`${proposal.proposal_id}-${item.ticker}`} />)}
       </section>

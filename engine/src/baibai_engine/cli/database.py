@@ -36,12 +36,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the database path, schema version, and per-table row counts",
     )
     info.add_argument("--db", type=Path)
+    migration = subparsers.add_parser(
+        "migrate-proposal-records", help="explicit v27 to v28 cutover"
+    )
+    migration.add_argument("--db", type=Path, required=True)
+    migration.add_argument("--backup", type=Path, required=True)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "migrate-proposal-records":
+            from baibai_engine.storage.sqlite.application.proposal_records_cutover import (
+                migrate_proposal_records,
+            )
+
+            migrate_proposal_records(args.db, args.backup)
+            print(yaml.safe_dump({"status": "ok", "user_version": 28, "backup": str(args.backup)}))
+            return 0
         if args.command == "init":
             version = initialize_database(args.db)
             print(yaml.safe_dump({"path": str(database_path(args.db)), "user_version": version}))

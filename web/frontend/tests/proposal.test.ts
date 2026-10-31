@@ -190,3 +190,32 @@ describe('保存提案レポート', () => {
     expect(html).not.toContain('<script>')
   })
 })
+
+
+it('システム提案と訂正、人間の非購入報告を分け、未知の注文結果を補完しない', () => {
+  const proposal = {
+    ...newProposalFixture,
+    corrections: [{
+      correction_id: 'synthetic-correction',
+      erroneous_ref: { proposal_id: 'synthetic-wrong', draft_sha256: '0'.repeat(64) },
+      replacement_ref: { proposal_id: newProposalFixture.proposal_id, draft_sha256: '1'.repeat(64) },
+      reason: '合成の訂正理由。',
+      recorded_at: '2026-10-29T02:00:00Z',
+    }],
+    human_reports: [{
+      report_id: 'synthetic-report',
+      proposal_ref: { proposal_id: newProposalFixture.proposal_id, draft_sha256: '1'.repeat(64) },
+      outcome: 'not_purchased' as const,
+      statement: '今回は購入しなかった。',
+      reported_at: '2026-10-29T01:00:00Z',
+      subject_at: null,
+      reason_quote: '今回は待つ。',
+      context_summary: '合成の担当者要約。',
+      recorded_at: '2026-10-29T02:00:00Z',
+    }],
+  }
+  const html = renderToStaticMarkup(createElement(ProposalReport, { data: proposalViewFixture(proposal) }))
+  for (const text of ['買付（指値） · buy', '合成の訂正理由。', '購入しなかった', '本人の理由（引用）', '会話文脈の要約（担当者）', '今回は待つ。', '合成の担当者要約。', '現在の再推奨や人間の採用ではありません。', '未発注・取消・未約定・永久却下は、この報告からは確認できません。']) expect(html).toContain(text)
+  expect(html).toContain(newProposalFixture.headline)
+  expect(html).toContain(`dateTime="${newProposalFixture.published_at}"`)
+})

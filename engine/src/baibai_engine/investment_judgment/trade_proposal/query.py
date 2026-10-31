@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +23,12 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
     order_readiness,
     proposal_draft_sha256,
+)
+from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
+    HumanProposalReport,
+    ProposalCorrection,
+    ProposalRecords,
+    ProposalReference,
 )
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -111,10 +117,15 @@ def get_investment_proposal(*, proposal_id: str, db_path: Path | None = None) ->
 def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:
     """全scopeから最大の(as_of, aware published_at, ID)を読み、破損版を飛ばさない。"""
 
+    # Remove only erroneous records from chronological selection. A correction does
+    # not pin its replacement over a later, unrelated valid proposal.
+    excluded = {r.erroneous_ref.proposal_id for r in load_corrections(connection)}
     rows = connection.execute(
-        "SELECT proposal_id,published_at FROM investment_proposal "
-        "WHERE as_of=(SELECT MAX(as_of) FROM investment_proposal)"
+        "SELECT proposal_id,published_at,as_of FROM investment_proposal"
     ).fetchall()
+    rows = [row for row in rows if row[0] not in excluded]
+    latest_day = max((row[2] for row in rows), default=None)
+    rows = [row for row in rows if row[2] == latest_day]
     headers: list[tuple[datetime, str]] = []
     for row in rows:
         try:
@@ -141,6 +152,7 @@ class CurrentProposalPreview:
     change_reasons: tuple[GateReason, ...]
     warnings: tuple[str, ...]
     portfolio_exposure: dict[str, object]
+    records: ProposalRecords
 
     def payload(self) -> dict[str, object]:
         return {
@@ -152,6 +164,7 @@ class CurrentProposalPreview:
             "change_reasons": [reason.model_dump(mode="json") for reason in self.change_reasons],
             "warnings": list(self.warnings),
             "portfolio_exposure": self.portfolio_exposure,
+            "records": self.records,
         }
 
 
@@ -483,4 +496,72 @@ def preview_current_terms(
             tuple(changes),
             warnings.warnings,
             warnings.portfolio_exposure.model_dump(mode="json"),
+            proposal_records(connection, proposal_id),
         )
+
+
+def _require_ref(connection: sqlite3.Connection, reference: ProposalReference) -> TradeProposal:
+    proposal = load_investment_proposal(connection, reference.proposal_id)
+    if proposal_draft_sha256(proposal) != reference.draft_sha256:
+        raise ProposalConflictError("proposal record exact reference differs")
+    return proposal
+
+
+def _rank(proposal: TradeProposal) -> tuple[date, datetime, str]:
+    return proposal.as_of, proposal.published_at, proposal.proposal_id
+
+
+def load_corrections(connection: sqlite3.Connection) -> tuple[ProposalCorrection, ...]:
+    rows = connection.execute(
+        "SELECT correction_id,erroneous_proposal_id,replacement_proposal_id,recorded_at,payload "
+        "FROM proposal_correction ORDER BY correction_id"
+    ).fetchall()
+    records = []
+    for row in rows:
+        record = ProposalCorrection.model_validate_json(row[4])
+        if (
+            record.correction_id != row[0]
+            or record.erroneous_ref.proposal_id != row[1]
+            or record.replacement_ref.proposal_id != row[2]
+            or record.recorded_at != datetime.fromisoformat(row[3])
+        ):
+            raise ProposalConflictError("stored proposal correction header differs")
+        erroneous = _require_ref(connection, record.erroneous_ref)
+        replacement = _require_ref(connection, record.replacement_ref)
+        if _rank(replacement) >= _rank(erroneous) or record.recorded_at < erroneous.published_at:
+            raise ProposalConflictError("correction must reference an earlier saved proposal")
+        records.append(record)
+    erroneous_ids = [record.erroneous_ref.proposal_id for record in records]
+    replacement_ids = {record.replacement_ref.proposal_id for record in records}
+    if len(set(erroneous_ids)) != len(erroneous_ids) or set(erroneous_ids) & replacement_ids:
+        raise ProposalConflictError("duplicate or chained proposal correction")
+    return tuple(records)
+
+
+def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> ProposalRecords:
+    """Exact reads keep erroneous originals readable, with separate record provenance."""
+    corrections = load_corrections(connection)
+    reports = []
+    for row in connection.execute(
+        "SELECT report_id,recorded_at,payload FROM proposal_human_report "
+        "WHERE proposal_id=? ORDER BY recorded_at,report_id",
+        (proposal_id,),
+    ):
+        report = HumanProposalReport.model_validate_json(row[2])
+        proposal = _require_ref(connection, report.proposal_ref)
+        if (
+            report.report_id != row[0]
+            or report.proposal_ref.proposal_id != proposal_id
+            or report.recorded_at != datetime.fromisoformat(row[1])
+            or not proposal.published_at <= report.reported_at <= report.recorded_at
+        ):
+            raise ProposalConflictError("stored human report identity or time differs")
+        reports.append(report.model_dump(mode="json"))
+    return {
+        "corrections": [
+            record.model_dump(mode="json")
+            for record in corrections
+            if proposal_id in (record.erroneous_ref.proposal_id, record.replacement_ref.proposal_id)
+        ],
+        "human_reports": reports,
+    }

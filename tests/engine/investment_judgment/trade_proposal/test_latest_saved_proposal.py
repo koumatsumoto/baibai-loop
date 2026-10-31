@@ -7,6 +7,7 @@ import pytest
 
 from baibai_engine.investment_judgment.trade_proposal import query
 from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalConflictError
+from baibai_engine.storage.sqlite.application.schema import PROPOSAL_RECORDS_SCHEMA_SQL
 
 
 @pytest.mark.parametrize(
@@ -49,6 +50,7 @@ def test_latest_uses_as_of_aware_instant_and_id_across_all_scopes(headers, expec
             "CREATE TABLE investment_proposal "
             "(proposal_id TEXT,as_of TEXT,published_at TEXT,request_scope TEXT)"
         )
+        connection.executescript(PROPOSAL_RECORDS_SCHEMA_SQL)
         connection.executemany("INSERT INTO investment_proposal VALUES (?,?,?,?)", headers)
         assert query.load_latest_investment_proposal(connection) is exact.return_value
         exact.assert_called_once_with(connection, expected)
@@ -61,6 +63,7 @@ def test_invalid_latest_day_header_is_not_skipped(published_at, mocker):
         connection.execute(
             "CREATE TABLE investment_proposal (proposal_id TEXT,as_of TEXT,published_at TEXT)"
         )
+        connection.executescript(PROPOSAL_RECORDS_SCHEMA_SQL)
         connection.executemany(
             "INSERT INTO investment_proposal VALUES (?,?,?)",
             [
@@ -81,6 +84,7 @@ def test_corrupt_selected_proposal_does_not_fall_back(mocker):
         connection.execute(
             "CREATE TABLE investment_proposal (proposal_id TEXT,as_of TEXT,published_at TEXT)"
         )
+        connection.executescript(PROPOSAL_RECORDS_SCHEMA_SQL)
         assert query.load_latest_investment_proposal(connection) is None
         connection.executemany(
             "INSERT INTO investment_proposal VALUES (?,?,?)",

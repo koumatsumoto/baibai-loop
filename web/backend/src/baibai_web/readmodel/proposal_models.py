@@ -5,6 +5,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
+    HumanProposalReport,
+    ProposalCorrection,
+)
+
 
 class SavedAssessmentReviewView(BaseModel):
     reviewed_at: datetime
@@ -150,6 +155,8 @@ class SavedProposalView(BaseModel):
     warnings: list[str]
     items: list[SavedProposalItemView]
     portfolio_exposure: SavedPortfolioExposureView
+    corrections: list[ProposalCorrection] = Field(default_factory=list)
+    human_reports: list[HumanProposalReport] = Field(default_factory=list)
 
 
 class LatestProposalView(BaseModel):

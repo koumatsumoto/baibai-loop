@@ -169,3 +169,16 @@ uv run baibai-engine investment-judgment prepare \
 再開は保存入力から投影を復元し、元generation・旧runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。完了済みのprepareは`already_completed`を返し、forceでもactiveには戻さない。後日の再調査や同文の本当の再依頼は、保存Researchを必要に応じて読み、新workspaceと新Operationで扱う。
 
 後続調査は現在の成果を確定して次Operationへ進む。実際に報告された注文・資金は[Ledger Record](../ledger-record/SKILL.md)、本番反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。monitoringは同じ問いの既存taskを確認して記録する。
+
+## 提案訂正・人間の非購入報告
+
+人間の非購入を新しいno_action提案へ置換しない。[意味と記録項目](../../../docs/reference/trade-proposal.md#提案の訂正と人間の報告)に従い、既存Proposalのexactrefを読む。誤記録の訂正は最新提案のID/hashを取得し、期待値付きで実行する。原本文・Review・完了Operationは変更しない。
+
+```bash
+uv run baibai-engine investment-judgment proposal-records --db <APP_DB> correct <CORRECTION_DRAFT> \
+  --expected-latest-id <ID> --expected-latest-sha256 <SHA256>
+uv run baibai-engine investment-judgment proposal-records --db <APP_DB> report <HUMAN_REPORT_DRAFT>
+uv run baibai-engine investment-judgment proposal-records --db <APP_DB> show <PROPOSAL_ID>
+```
+
+契約は`trade_proposal/record_contracts.py`。保存時刻はエンジンが付ける。訂正は期待latestとexacthashの競合なら停止して読直し、blind retryしない。同ID同内容だけは冪等。本人の文言・報告日時と明示された対象時点を分け、不明な対象時点・注文結果は補完しない。ローカル読戻しで原提案/台帳不変と独立報告を確認後、認可された[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)を行う。

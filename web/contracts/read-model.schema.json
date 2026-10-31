@@ -313,6 +313,83 @@
       "title": "HoldingView",
       "type": "object"
     },
+    "HumanProposalReport": {
+      "additionalProperties": false,
+      "properties": {
+        "report_id": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "proposal_ref": {
+          "$ref": "#/$defs/ProposalReference"
+        },
+        "outcome": {
+          "const": "not_purchased",
+          "title": "Outcome",
+          "type": "string"
+        },
+        "statement": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "reported_at": {
+          "format": "date-time",
+          "title": "Reported At",
+          "type": "string"
+        },
+        "subject_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject At"
+        },
+        "reason_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NonEmptyStr"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context_summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NonEmptyStr"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "report_id",
+        "proposal_ref",
+        "outcome",
+        "statement",
+        "reported_at",
+        "subject_at",
+        "reason_quote",
+        "context_summary",
+        "recorded_at"
+      ],
+      "title": "HumanProposalReport",
+      "type": "object"
+    },
     "LatestProposalView": {
       "properties": {
         "generated_at": {
@@ -359,6 +436,10 @@
       ],
       "title": "LatestProposalView",
       "type": "object"
+    },
+    "NonEmptyStr": {
+      "minLength": 1,
+      "type": "string"
     },
     "OutcomesView": {
       "properties": {
@@ -451,6 +532,54 @@
       "title": "PortfolioOutcomeView",
       "type": "object"
     },
+    "ProposalCorrection": {
+      "additionalProperties": false,
+      "properties": {
+        "correction_id": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "erroneous_ref": {
+          "$ref": "#/$defs/ProposalReference"
+        },
+        "replacement_ref": {
+          "$ref": "#/$defs/ProposalReference"
+        },
+        "reason": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "correction_id",
+        "erroneous_ref",
+        "replacement_ref",
+        "reason",
+        "recorded_at"
+      ],
+      "title": "ProposalCorrection",
+      "type": "object"
+    },
+    "ProposalReference": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal_id": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "draft_sha256": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "draft_sha256"
+      ],
+      "title": "ProposalReference",
+      "type": "object"
+    },
     "ReservationView": {
       "properties": {
         "reservation_id": {
@@ -534,6 +663,10 @@
       ],
       "title": "ReservationView",
       "type": "object"
+    },
+    "SHA256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
     },
     "SavedAssessmentReviewView": {
       "properties": {
@@ -1361,6 +1494,20 @@
         },
         "portfolio_exposure": {
           "$ref": "#/$defs/SavedPortfolioExposureView"
+        },
+        "corrections": {
+          "items": {
+            "$ref": "#/$defs/ProposalCorrection"
+          },
+          "title": "Corrections",
+          "type": "array"
+        },
+        "human_reports": {
+          "items": {
+            "$ref": "#/$defs/HumanProposalReport"
+          },
+          "title": "Human Reports",
+          "type": "array"
         }
       },
       "required": [
@@ -1374,7 +1521,9 @@
         "forgone",
         "warnings",
         "items",
-        "portfolio_exposure"
+        "portfolio_exposure",
+        "corrections",
+        "human_reports"
       ],
       "title": "SavedProposalView",
       "type": "object"
