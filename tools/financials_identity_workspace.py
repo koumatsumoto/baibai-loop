@@ -20,9 +20,7 @@ def _files(root: Path) -> dict[str, str]:
     if root.is_symlink() or any(path.is_symlink() for path in root.rglob("*")):
         raise ValueError("workspace archive requires regular files without symlinks")
     return {
-        str(path.relative_to(root)): file_sha256(path)
-        for path in root.rglob("*")
-        if path.is_file()
+        str(path.relative_to(root)): file_sha256(path) for path in root.rglob("*") if path.is_file()
     }
 
 
@@ -88,7 +86,7 @@ def prepare_workspace(
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--operation-id", required=True)
@@ -96,7 +94,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     result = prepare_workspace(
         db=args.db,
         operation_id=args.operation_id,

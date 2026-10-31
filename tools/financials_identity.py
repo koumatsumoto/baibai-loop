@@ -180,12 +180,10 @@ def _validated_publications(
         proposal_records(connection, identity)
         scope = proposal.research_scope
         scopes.setdefault(scope.operation_id, []).append((identity, scope))
-    for table, key, reader in (
-        ("company_research", "research_id", load_research),
-        ("stock_assessment", "assessment_id", load_reviewed_assessment),
-    ):
-        for (identity,) in connection.execute(f'SELECT "{key}" FROM "{table}"'):
-            reader(connection, identity)
+    for (identity,) in connection.execute("SELECT research_id FROM company_research"):
+        load_research(connection, identity)
+    for (identity,) in connection.execute("SELECT assessment_id FROM stock_assessment"):
+        load_reviewed_assessment(connection, identity)
     for (identity,) in connection.execute("SELECT retrospective_id FROM judgment_retrospective"):
         retrospective_context(connection, load_retrospective(connection, identity))
     return scopes
@@ -204,8 +202,10 @@ def _validate_run_models(connection: sqlite3.Connection) -> None:
         payload = json.loads(gzip.decompress(row["payload_gzip"]))
         _no_unknown_identity(payload)
         model = GeneratedModel(
-            model_id=row["model_id"], subject=row["subject"],
-            calculation_revision=row["calculation_revision"], payload=payload,
+            model_id=row["model_id"],
+            subject=row["subject"],
+            calculation_revision=row["calculation_revision"],
+            payload=payload,
         )
         validate_model_scope(metadata[row["generation_id"]], model)
 
@@ -227,7 +227,9 @@ def _operation(
         raise ValueError("active Operation prevents this cutover")
     references = scopes.get(row["operation_id"], [])
     if not references:
-        raise ValueError("changed Selection without a published Proposal requires a separate design")
+        raise ValueError(
+            "changed Selection without a published Proposal requires a separate design"
+        )
     expected = proposal_scope(row["operation_id"], OperationPayload.model_validate(payload))
     if any(scope != expected for _, scope in references):
         raise ValueError("original Proposal scope differs from the fixed Operation")
@@ -261,7 +263,9 @@ def _row(
             raise ValueError("unknown or noncanonical generation header")
         changed = _generation(header)
         _no_unknown_identity(changed)
-        values["header"] = canonical_json(GenerationMetadata.model_validate(changed).model_dump(mode="json"))
+        values["header"] = canonical_json(
+            GenerationMetadata.model_validate(changed).model_dump(mode="json")
+        )
     elif table == "generated_model":
         if values["model_id"] == OLD:
             values["model_id"] = NEW
@@ -296,12 +300,19 @@ def _copy(
         counts[table] = 0
         columns = [row[1] for row in source.execute(f'PRAGMA table_info("{table}")')]
         placeholders = ",".join("?" for _ in columns)
-        for original in source.execute(f'SELECT * FROM "{table}" ORDER BY rowid' if table != "generated_model" and table != "stock_analysis" else f'SELECT * FROM "{table}"'):
+        # The exact schema comparison above fixes every identifier; values remain bound.
+        query = f'SELECT * FROM "{table}"'  # nosec B608
+        if table not in {"generated_model", "stock_analysis"}:
+            query += " ORDER BY rowid"
+        insert = f'INSERT INTO "{table}" VALUES ({placeholders})'  # nosec B608
+        for original in source.execute(query):
             values, receipt = _row(table, original, scopes, recorded_at)
-            destination.execute(f'INSERT INTO "{table}" VALUES ({placeholders})', values)
+            destination.execute(insert, values)
             counts[table] += 1
             if receipt is not None:
-                destination.execute("INSERT INTO selection_identity_migration VALUES (?,?,?,?,?,?)", receipt)
+                destination.execute(
+                    "INSERT INTO selection_identity_migration VALUES (?,?,?,?,?,?)", receipt
+                )
                 counts["selection_identity_migration"] += 1
     return counts
 
@@ -325,10 +336,14 @@ def _verify_rows(
         names = [column[1] for column in info]
         where = " AND ".join(f'"{key}"=?' for key in keys)
         count = 0
-        for row in source.execute(f'SELECT * FROM "{table}"'):
+        # Identifiers come from the exact schema comparison, never command arguments.
+        query = f'SELECT * FROM "{table}"'  # nosec B608
+        lookup = f'SELECT * FROM "{table}" WHERE {where}'  # nosec B608
+        count_query = f'SELECT count(*) FROM "{table}"'  # nosec B608
+        for row in source.execute(query):
             expected, receipt = _row(table, row, scopes, recorded_at)
             actual = destination.execute(
-                f'SELECT * FROM "{table}" WHERE {where}',
+                lookup,
                 tuple(expected[names.index(key)] for key in keys),
             ).fetchone()
             if actual is None or tuple(actual) != expected:
@@ -341,7 +356,7 @@ def _verify_rows(
                 if (None if evidence is None else tuple(evidence)) != receipt:
                     raise ValueError("copy evidence differs from the exact source Selection")
             count += 1
-        if destination.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0] != count:
+        if destination.execute(count_query).fetchone()[0] != count:
             raise ValueError("copy contains added or missing rows")
 
 
@@ -353,15 +368,19 @@ def _verify_evidence(app: Path, runs: Path) -> dict[str, int]:
             identity = receipt["operation_id"]
             for proposal_id, scope in scopes[identity]:
                 evidence = read_selection_evidence(
-                    operation_id=identity, sha256=scope.selection_sha256,
-                    proposal_id=proposal_id, db_path=app,
+                    operation_id=identity,
+                    sha256=scope.selection_sha256,
+                    proposal_id=proposal_id,
+                    db_path=app,
                 )
                 if evidence["canonical_json"] != receipt["published_selection_canonical"]:
                     raise ValueError("publication evidence differs from its original bytes")
                 counts["published_evidence"] += 1
-            raw = json.loads(connection.execute(
-                "SELECT payload FROM operation_session WHERE operation_id=?", (identity,)
-            ).fetchone()[0])
+            raw = json.loads(
+                connection.execute(
+                    "SELECT payload FROM operation_session WHERE operation_id=?", (identity,)
+                ).fetchone()[0]
+            )
             current = next(a for a in raw["artifacts"] if a.get("kind") == "research_selection")
             original = json.loads(receipt["published_selection_canonical"])
             old_generation = original["inputs"]["generation"]
@@ -369,7 +388,11 @@ def _verify_evidence(app: Path, runs: Path) -> dict[str, int]:
             # 旧indexは旧canonicalへ解決し、同じpayloadを新indexへ対応付ける。
             for index, model in enumerate(old_generation["models"]):
                 target = NEW if model["model_id"] == OLD else model["model_id"]
-                matches = [m for m in new_generation["models"] if m["model_id"] == target and m["subject"] == model["subject"]]
+                matches = [
+                    m
+                    for m in new_generation["models"]
+                    if m["model_id"] == target and m["subject"] == model["subject"]
+                ]
                 if len(matches) != 1 or canonical_json(matches[0]["payload"]) != canonical_json(
                     old_generation["models"][index]["payload"]
                 ):
@@ -381,15 +404,18 @@ def _verify_evidence(app: Path, runs: Path) -> dict[str, int]:
             saved = parsed.inputs
             canonical = read_research_model_inputs(
                 saved.generation.generation_id,
-                targets=[t["ticker"] for t in current["targets"]], path=runs,
+                targets=[t["ticker"] for t in current["targets"]],
+                path=runs,
             )
             if canonical is not None and canonical != saved.generation:
                 raise ValueError("normalized input slice differs from retained generation")
-            counts["retained_generation_matches" if canonical is not None else "generation_not_retained"] += 1
+            counts[
+                "retained_generation_matches"
+                if canonical is not None
+                else "generation_not_retained"
+            ] += 1
             if saved.screening_selection_id is not None:
-                publication = read_publication(
-                    path=runs, selection_id=saved.screening_selection_id
-                )
+                publication = read_publication(path=runs, selection_id=saved.screening_selection_id)
                 if publication is not None and (
                     publication.selection != saved.screening_selection
                     or publication.published_at != saved.screening_published_at
@@ -398,12 +424,18 @@ def _verify_evidence(app: Path, runs: Path) -> dict[str, int]:
                 counts[
                     "retained_policy_matches" if publication is not None else "policy_not_retained"
                 ] += 1
-        counts["human_reports_verified"] = connection.execute("SELECT count(*) FROM proposal_human_report").fetchone()[0]
+        counts["human_reports_verified"] = connection.execute(
+            "SELECT count(*) FROM proposal_human_report"
+        ).fetchone()[0]
     return dict(counts)
 
 
 def prepare_copy(
-    *, source_app: Path, source_runs: Path, output: Path, recorded_at: datetime,
+    *,
+    source_app: Path,
+    source_runs: Path,
+    output: Path,
+    recorded_at: datetime,
 ) -> dict[str, Any]:
     """原DBを変更せず、限定変換と独立読取検証済みの2DBを作る。"""
     if recorded_at.utcoffset() is None:
@@ -420,9 +452,15 @@ def prepare_copy(
             raise ValueError("existing output is incomplete; it will not be overwritten")
         existing: dict[str, Any] = json.loads(manifest_path.read_text())
         if (
-            set(existing) != {
-                "migration_id", "recorded_at", "source_sha256", "output_sha256",
-                "schemas", "rows", "verification",
+            set(existing)
+            != {
+                "migration_id",
+                "recorded_at",
+                "source_sha256",
+                "output_sha256",
+                "schemas",
+                "rows",
+                "verification",
             }
             or existing["migration_id"] != MIGRATION_ID
             or existing["schemas"] != {"application": 29, "runs": 8}
@@ -443,22 +481,36 @@ def prepare_copy(
             _validate_run_models(r)
             _verify_rows(a, a_new, scopes, recorded)
             _verify_rows(r, r_new, scopes, recorded)
-        if _verify_evidence(output / "application.sqlite", output / "runs.sqlite") != existing["verification"]:
+        if (
+            _verify_evidence(output / "application.sqlite", output / "runs.sqlite")
+            != existing["verification"]
+        ):
             raise ValueError("existing verification differs from the current readers")
         for source in (source_app, source_runs):
             _self_contained(source)
-        if {"application": file_sha256(source_app), "runs": file_sha256(source_runs)} != source_hashes:
+        if {
+            "application": file_sha256(source_app),
+            "runs": file_sha256(source_runs),
+        } != source_hashes:
             raise ValueError("source databases changed during preparation")
         return existing
     with closing(_open(source_app, 28)) as app, closing(_open(source_runs, 7)) as runs:
-        if app.execute("SELECT count(*) FROM operation_session WHERE status='active'").fetchone()[0]:
+        if app.execute("SELECT count(*) FROM operation_session WHERE status='active'").fetchone()[
+            0
+        ]:
             raise ValueError("active Operation prevents this cutover")
-        if runs.execute("SELECT count(*) FROM generated_model WHERE model_id=?", (OLD,)).fetchone()[0] == 0:
+        if (
+            runs.execute(
+                "SELECT count(*) FROM generated_model WHERE model_id=?", (OLD,)
+            ).fetchone()[0]
+            == 0
+        ):
             raise ValueError("source contains no legacy model identities")
         if runs.execute(
             "SELECT 1 FROM generated_model a JOIN generated_model b "
             "ON a.generation_id=b.generation_id AND a.subject=b.subject "
-            "WHERE a.model_id=? AND b.model_id=? LIMIT 1", (OLD, NEW)
+            "WHERE a.model_id=? AND b.model_id=? LIMIT 1",
+            (OLD, NEW),
         ).fetchone():
             raise ValueError("generated model identities collide after cutover")
         scopes = _validated_publications(app)
@@ -475,7 +527,10 @@ def prepare_copy(
             for c in (a, r):
                 c.row_factory = sqlite3.Row
                 c.execute("PRAGMA foreign_keys=ON")
-            counts = {"runs": dict(_copy(runs, r, scopes, recorded)), "application": dict(_copy(app, a, scopes, recorded))}
+            counts = {
+                "runs": dict(_copy(runs, r, scopes, recorded)),
+                "application": dict(_copy(app, a, scopes, recorded)),
+            }
             r.commit()
             a.commit()
             _verify_rows(runs, r, scopes, recorded)
@@ -486,24 +541,36 @@ def prepare_copy(
     if {"application": file_sha256(source_app), "runs": file_sha256(source_runs)} != source_hashes:
         raise ValueError("source databases changed during preparation")
     manifest = {
-        "migration_id": MIGRATION_ID, "recorded_at": recorded,
+        "migration_id": MIGRATION_ID,
+        "recorded_at": recorded,
         "source_sha256": source_hashes,
         "output_sha256": {"application": file_sha256(app_target), "runs": file_sha256(runs_target)},
-        "schemas": {"application": 29, "runs": 8}, "rows": counts, "verification": verification,
+        "schemas": {"application": 29, "runs": 8},
+        "rows": counts,
+        "verification": verification,
     }
     with manifest_path.open("x", encoding="utf-8") as manifest_file:
         manifest_file.write(json.dumps(manifest, ensure_ascii=False, indent=2))
     return manifest
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-app", type=Path, required=True)
     parser.add_argument("--source-runs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--recorded-at", type=datetime.fromisoformat, required=True)
-    args = parser.parse_args(argv)
-    result = prepare_copy(source_app=args.source_app, source_runs=args.source_runs, output=args.output, recorded_at=args.recorded_at)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    result = prepare_copy(
+        source_app=args.source_app,
+        source_runs=args.source_runs,
+        output=args.output,
+        recorded_at=args.recorded_at,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
