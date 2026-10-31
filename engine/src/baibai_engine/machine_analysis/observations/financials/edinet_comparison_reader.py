@@ -93,9 +93,17 @@ def read_comparison_population(
         )
     received: set[str] = set()
     if observations:
-        cursor = connection.execute(
-            "SELECT doc_id, zip_content FROM edinet_source_archives WHERE source_type = 1"
-        )
+        statement = "SELECT doc_id, zip_content FROM edinet_source_archives WHERE source_type = 1"
+        parameters: tuple[str, ...] = ()
+        if tickers is not None and len(tickers) == 1:
+            # A company query must not materialize every issuer's native BLOBs.
+            # Eligibility still comes from the folded, key-preserving observations
+            # above; this is only an exact-docID restriction of the byte read.
+            statement += (
+                " AND doc_id IN (SELECT doc_id FROM edinet_documents WHERE sec_code = ?)"
+            )
+            parameters = (tickers[0] + "0",)
+        cursor = connection.execute(statement, parameters)
         while batch := cursor.fetchmany(8):
             for doc_id, content in batch:
                 if doc_id not in observations:
