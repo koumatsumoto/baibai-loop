@@ -6,6 +6,20 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
+    EDINET_SOURCE_ARCHIVES,
+)
+from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
+    EDINET_DOCUMENT_LISTS,
+    EDINET_DOCUMENTS,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
+    read_comparison_population,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
+)
+
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -19,12 +33,13 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import m
 from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
     JQUANTS_MASTER_SNAPSHOTS,
 )
-from baibai_engine.storage.snapshots.objects import open_lake
+from baibai_engine.storage.snapshots.objects import mirror_path, open_lake
 from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
     materialize_partitions,
     resolve_release,
     selected_partitions,
+    partition_objects,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin
 
@@ -33,6 +48,8 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigi
 class FixedFinancialDocuments:
     documents: tuple[JQuantsFinancialSummary, ...]
     sector: str | None
+    comparisons: tuple[FilingComparisons, ...] = ()
+    comparison_input_reason: str | None = None
 
 
 def read_fixed_financial_documents(
@@ -100,7 +117,42 @@ def _read_fixed_financial_population(
         grouped: dict[str, list[JQuantsFinancialSummary]] = {}
         for row in documents:
             grouped.setdefault(row.ticker, []).append(row)
+        comparisons: dict[str, tuple[FilingComparisons, ...]] = {}
+        comparison_input_reason = None
+        required = (EDINET_DOCUMENTS, EDINET_DOCUMENT_LISTS, EDINET_SOURCE_ARCHIVES)
+        published = all(item.name in release.dataset_names() for item in required)
+        # This reader is explicitly local-only. Missing optional native objects do
+        # not invalidate the independently verified J-Quants observations. Present
+        # objects still pass the normal digest/schema checks and fail on corruption.
+        present = published and all(
+            mirror_path(mirror, obj.key).is_file()
+            for item in required
+            for obj in partition_objects(selected_partitions(release, item.name))
+        )
+        if published and not present:
+            comparison_input_reason = "fixed_comparison_objects_not_materialized"
+        if present:
+            materialized = []
+            for item in required:
+                accepted = accepted_dataset(release, item)
+                item_paths = materialize_partitions(
+                    cache, dataset=accepted,
+                    partitions=selected_partitions(release, accepted.name),
+                )
+                if item_paths:
+                    session.connection.read_parquet([str(p) for p in item_paths]).create_view(
+                        item.sqlite_table
+                    )
+                materialized.append(bool(item_paths))
+            if all(materialized):
+                comparisons = read_comparison_population(
+                    session.connection, as_of=as_of,
+                    tickers=(ticker,) if ticker is not None else None,
+                )
         return {
-            code: FixedFinancialDocuments(tuple(grouped.get(code, ())), sectors.get(code))
-            for code in sorted(grouped.keys() | sectors.keys())
+            code: FixedFinancialDocuments(
+                tuple(grouped.get(code, ())), sectors.get(code), comparisons.get(code, ()),
+                comparison_input_reason,
+            )
+            for code in sorted(grouped.keys() | sectors.keys() | comparisons.keys())
         }

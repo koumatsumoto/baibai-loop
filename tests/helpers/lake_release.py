@@ -184,6 +184,9 @@ def publish_market_fixture(path: Path, release: str, *, created_at: datetime) ->
         "jquants.fin_summaries": "jquants_fin_summaries",
         "jquants.master_snapshots": "jquants_master_snapshots",
         "jquants.daily_bars": "jquants_daily_bars",
+        "edinet.documents": "edinet_documents",
+        "edinet.document_lists": "edinet_document_lists",
+        "edinet.source_archives": "edinet_source_archives",
     }
     with closing(sqlite3.connect(path)) as connection:
         present = [
