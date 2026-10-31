@@ -893,9 +893,7 @@ def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache
     assert load_frontier_cursor(store, state)["pending"] == []
 
 
-def test_partial_discovery_before_body_queue_still_saves_all_discovered_work(
-    tmp_path, monkeypatch
-):
+def test_partial_discovery_before_body_queue_still_saves_all_discovered_work(tmp_path, monkeypatch):
     from baibai_engine.data_collection.transport.articles import ArticleBudgetExceeded
 
     feed = (
