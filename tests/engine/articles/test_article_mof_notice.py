@@ -25,7 +25,7 @@ def test_notice_retains_explicit_target_without_claiming_body_or_publication_dat
     assert item.published_raw is None
     assert item.metadata == {"redirect_target_url": TARGET}
     assert item.missing_parts == ("redirect_target_body_is_a_separate_receipt",)
-    assert parser_revision_for("mof_news") == "article-native-mof-v2"
+    assert parser_revision_for("mof_news") == "article-native-mof-v3"
 
 
 @pytest.mark.parametrize(
@@ -77,3 +77,38 @@ def test_pri_body_excludes_site_heading_navigation_and_footer():
     assert item.published_raw is None
     with pytest.raises(NativeArticleUnsupported):
         parse_document("mof_news", html + html, url=TARGET, encoding="shift_jis")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
+    ],
+)
+def test_mof_yield_csv_preserves_native_text_without_interpreting_values(url):
+    text = '合成金利表,,単位%\r\n基準日,1年,2年\r\nR8.1.5,0.5,""\r\n注記,,\r\n'
+    item = parse_document("mof_news", text.encode("cp932"), url=url, encoding="utf-8")
+    assert item.text == text
+    assert item.locator == "/csv"
+    assert item.title == "合成金利表"
+    assert item.content_scope == "full_text"
+    assert item.published_raw is None
+    assert item.metadata == {"format": "csv", "encoding": "cp932", "row_count": 4}
+    assert "attachments" not in item.metadata
+
+
+@pytest.mark.parametrize("text", ["not a yield table", "基準日,1年\n基準日,2年\n"])
+def test_known_csv_url_does_not_make_invalid_body_a_success(text):
+    with pytest.raises(NativeArticleUnsupported):
+        parse_document(
+            "mof_news",
+            text.encode("cp932"),
+            url="https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
+        )
+
+
+def test_other_csv_routes_do_not_gain_mof_table_interpretation():
+    body = "基準日,1年\nR8.1.5,0.5\n".encode("cp932")
+    with pytest.raises(NativeArticleUnsupported):
+        parse_document("mof_news", body, url=TARGET, encoding="cp932")

@@ -82,7 +82,11 @@ class ArticlePlanning:
             ):
                 raise ValueError("article pending entry differs from its planning source")
             stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE)
-        payload = json.dumps(self.to_json(), sort_keys=True, allow_nan=False).encode()
+        # Budget actual UTF-8 JSON, not six-byte escapes for each Japanese character.
+        # This changes no fields or bounds and never evicts saved cursor/evidence.
+        payload = json.dumps(
+            self.to_json(), sort_keys=True, allow_nan=False, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
         if len(payload) > MAX_PLANNING_BYTES:
             raise ValueError("article planning summary exceeds its bytes budget")
         return payload
