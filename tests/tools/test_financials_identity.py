@@ -81,7 +81,8 @@ def legacy_case(
                 **kwargs,
                 schema_version=2,
                 subject_plan={
-                    "1234": GenerationSubject(scope="stock", model_ids=(OLD, "company_growth"))
+                    "1234": GenerationSubject(scope="stock", model_ids=(OLD, "company_growth")),
+                    "market": GenerationSubject(scope="market", model_ids=("market_context",)),
                 },
             )
 
