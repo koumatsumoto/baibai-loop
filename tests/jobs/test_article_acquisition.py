@@ -134,6 +134,57 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         assert all(item.original_url != target_url for item in observations)
 
 
+def test_mof_csv_does_not_abort_later_documents_and_keeps_original_receipt(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    csv_url = "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv"
+    html_url = "https://www.mof.go.jp/synthetic.html"
+    feed = (
+        f"<rss><channel><item><title>CSV</title><link>{csv_url}</link></item>"
+        f"<item><title>HTML</title><link>{html_url}</link></item></channel></rss>"
+    ).encode()
+    csv_text = "合成金利表,,\r\n基準日,1年,2年\r\nR8.1.5,0.5,0.6\r\n"
+    csv_response = Response(200, csv_text.encode("cp932"))
+    csv_response.headers["Content-Type"] = "text/csv"
+    session = Session(
+        [Response(200, feed), csv_response, Response(200, b"<main>Later document</main>")]
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "mof_news", {})
+    packet = tmp_path / "mof-csv"
+    report = articles.acquire_source(
+        store, source="mof_news", slot=SLOT, identity="csv", directory=packet, session=session
+    )
+    assert session.urls == [articles.SOURCES["mof_news"].entry_url, csv_url, html_url]
+    assert report["status"] == "completed"
+    assert report["failures"] == []
+    assert report["bodies"] == 2
+    with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        receipts = [
+            json.loads(row[0])
+            for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
+        ]
+    original = next(item for item in receipts if item["requested_url"] == csv_url)
+    assert original["encoding"] == "utf-8"  # The original transport fallback is not rewritten.
+    assert original["media_type"] == "text/csv"
+    database = tmp_path / "canonical.sqlite"
+    result = import_handoff("mof_news", database, packet)
+    assert result.complete is True
+    with closing(connect_read_only(database)) as conn:
+        observations = read_observations(conn, result.report["observation_ids"])
+    csv_observation = next(
+        item for item in observations if item.receipt_id == original["receipt_id"]
+    )
+    assert csv_observation.original_url == csv_url
+    assert csv_observation.native_locator == "/csv"
+    assert csv_observation.text == csv_text
+    assert csv_observation.native_metadata["encoding"] == "cp932"
+    assert any(
+        item.original_url == html_url and item.text == "Later document" for item in observations
+    )
+
+
 def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None

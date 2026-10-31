@@ -6,6 +6,7 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_jobs.acquisition.article_planning import (
+    MAX_PLANNING_BYTES,
     ArticlePlanning,
     acknowledge_stage,
     commit_stage,
@@ -160,3 +161,24 @@ def test_pending_bound_does_not_silently_drop_unsaved_range():
     state = ArticlePlanning("boj_news", {}, pending=tuple({} for _ in range(42)))
     with pytest.raises(ValueError, match="pending stage limit"):
         is_due(state, slot=SLOT, now=SLOT)
+
+
+def test_planning_budgets_utf8_without_dropping_japanese_evidence():
+    state = ArticlePlanning(
+        "nhk_news",
+        {},
+        cursor={"pending_evidence": {str(i): {"title": "あ" * 200} for i in range(128)}},
+    )
+    escaped_size = len(json.dumps(state.to_json(), sort_keys=True, allow_nan=False).encode())
+    assert escaped_size > MAX_PLANNING_BYTES
+    payload = state.encoded()
+    assert len(payload) <= MAX_PLANNING_BYTES
+    assert "あ".encode() in payload
+    assert ArticlePlanning.decode(payload, "nhk_news").to_json() == state.to_json()
+    legacy = ArticlePlanning("nhk_news", {}, cursor={"title": "以前の形式"})
+    assert ArticlePlanning.decode(json.dumps(legacy.to_json()).encode(), "nhk_news") == legacy
+
+
+def test_compact_planning_still_refuses_actual_byte_overflow():
+    with pytest.raises(ValueError, match="bytes budget"):
+        ArticlePlanning("nhk_news", {}, cursor={"title": "あ" * 45_000}).encoded()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import re
@@ -19,7 +20,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 PARSER_REVISION = "article-native-v1"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
 BOJ_PARSER_REVISION = "article-native-boj-v2"
-MOF_PARSER_REVISION = "article-native-mof-v2"
+MOF_PARSER_REVISION = "article-native-mof-v3"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -398,9 +399,36 @@ def _mof_inside_link(nodes: list[Node], *, url: str, title: str) -> NativeArticl
     )
 
 
+def _mof_yield_csv(body: bytes, *, url: str, title: str) -> NativeArticle:
+    # These two MOF tables use CP932, as in the existing mof_jgb source owner.
+    # Preserve the table text; maturity/date/value interpretation remains L2 work.
+    text = body.decode("cp932")
+    try:
+        rows = list(csv.reader(io.StringIO(text), strict=True))
+    except csv.Error as error:
+        raise NativeArticleUnsupported("invalid MOF yield CSV") from error
+    headers = [row for row in rows if row and row[0] == "基準日"]
+    if len(headers) != 1 or len(headers[0]) < 2:
+        raise NativeArticleUnsupported("MOF yield CSV has no unique native header")
+    return NativeArticle(
+        article_id=f"mof_news:{url}",
+        locator="/csv",
+        url=url,
+        title=title or (rows[0][0] if rows and rows[0] else ""),
+        text=text,
+        content_scope="full_text",
+        metadata={"format": "csv", "encoding": "cp932", "row_count": len(rows)},
+    )
+
+
 def parse_document(
     source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
 ) -> NativeArticle:
+    if source == "mof_news" and url in {
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
+    }:
+        return _mof_yield_csv(body, url=url, title=title)
     if source == "boj_news" and body.startswith(b"PK\x03\x04"):
         return parse_workbook(body, source=source, url=url, title=title)
     if body.startswith(b"%PDF-"):
