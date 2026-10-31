@@ -97,7 +97,12 @@ SOURCES = {
         frozenset({"media.rakuten-sec.net"}),
     ),
     "boj_news": ArticleSource(
-        "boj_news", "https://www.boj.or.jp/rss/whatsnew.xml", frozenset({"www.boj.or.jp"})
+        "boj_news",
+        "https://www.boj.or.jp/rss/whatsnew.xml",
+        frozenset({"www.boj.or.jp"}),
+        # Published financial-system reports exceed the generic HTML response cap.
+        # Keep the feed and total source budgets unchanged.
+        max_document_bytes=12_000_000,
     ),
     "mof_news": ArticleSource(
         "mof_news", "https://www.mof.go.jp/news.rss", frozenset({"www.mof.go.jp"})
