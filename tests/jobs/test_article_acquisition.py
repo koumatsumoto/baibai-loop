@@ -121,9 +121,8 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         assert result.complete is True
         target = next(item for item in observations if item.original_url == target_url)
         assert "本文" in target.text
-        assert next(item for item in receipts if item["requested_url"] == target_url)[
-            "encoding"
-        ] == "shift_jis"
+        target_receipt = next(item for item in receipts if item["requested_url"] == target_url)
+        assert target_receipt["encoding"] == "shift_jis"
         assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
         assert target.receipt_id != notice_observation.receipt_id
         assert target.article_id != notice_observation.article_id
