@@ -61,7 +61,12 @@ def _result() -> CallToolResult:
     )
 
 
-def _retain(conn: sqlite3.Connection, result: CallToolResult | None = None) -> str:
+def _retain(
+    conn: sqlite3.Connection,
+    result: CallToolResult | None = None,
+    *,
+    receipt_id: str | None = None,
+) -> str:
     return retain_tool_result(
         conn,
         snapshot_date=DAY,
@@ -71,6 +76,7 @@ def _retain(conn: sqlite3.Connection, result: CallToolResult | None = None) -> s
         requested_symbols=("TSE:2000", "TSE:1000"),
         requested_columns=("close", "earnings_per_share_forecast_next_fy"),
         result=result if result is not None else _result(),
+        receipt_id=receipt_id,
     )
 
 
@@ -105,6 +111,37 @@ def test_sdk_result_values_and_explicit_selection_are_retained(tmp_path: Path) -
         assert "unknownTopLevel" not in saved  # Already discarded by the SDK model.
         with pytest.raises(TradingViewReceiptError, match="not retained"):
             read_tool_results(conn, ("absent",))
+
+
+def test_explicit_call_id_retries_exact_reception_but_never_rebinds(tmp_path: Path) -> None:
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
+        first = _retain(conn, receipt_id="synthetic-call")
+        before = read_tool_results(conn, (first,))
+        assert _retain(conn, receipt_id=first) == first
+        assert conn.execute("SELECT count(*) FROM tradingview_source_receipts").fetchone() == (1,)
+        changed = CallToolResult(isError=False, content=[])
+        with pytest.raises(TradingViewReceiptError, match="conflicts"):
+            _retain(conn, changed, receipt_id=first)
+        assert not conn.in_transaction
+        assert read_tool_results(conn, (first,)) == before
+
+
+def test_explicit_call_id_does_not_change_original_reception_clock(tmp_path: Path) -> None:
+    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
+        first = _retain(conn, receipt_id="synthetic-call")
+        with pytest.raises(TradingViewReceiptError, match="conflicts"):
+            retain_tool_result(
+                conn,
+                receipt_id=first,
+                snapshot_date=DAY,
+                master_asof=MASTER,
+                tool_name="mcp-tv-get-symbol-data-batch",
+                received_at_utc=RECEIVED.replace(microsecond=1),
+                requested_symbols=("TSE:2000", "TSE:1000"),
+                requested_columns=("close", "earnings_per_share_forecast_next_fy"),
+                result=_result(),
+            )
+        assert read_tool_results(conn, (first,))[0].received_at_utc == RECEIVED
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])

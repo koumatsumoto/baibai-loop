@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
-from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL_IDENTIFIERS
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
@@ -203,7 +203,7 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> R
             if (
                 receipt.snapshot_date != handoff.snapshot_date
                 or receipt.master_asof != basis
-                or receipt.tool_name != BATCH_TOOL
+                or receipt.tool_name not in BATCH_TOOL_IDENTIFIERS
                 or receipt.requested_columns != tuple(observations_owner.COLUMNS)
                 or not 1 <= len(receipt.requested_symbols) <= 50
                 or len(set(receipt.requested_symbols)) != len(receipt.requested_symbols)

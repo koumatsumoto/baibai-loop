@@ -28,14 +28,19 @@ def retain_tool_result(
     requested_symbols: Sequence[str],
     requested_columns: Sequence[str],
     result: CallToolResult,
+    receipt_id: str | None = None,
 ) -> str:
-    """Commit a received SDK result independently of later normalization."""
+    """Retain one call; an explicit ID may retry only the exact same reception."""
     if conn.in_transaction:
         raise TradingViewReceiptError("TradingView receipt requires no pending transaction")
     if not isinstance(cast(object, result), CallToolResult):
         raise TradingViewReceiptError("TradingView receipt requires an SDK CallToolResult")
     if not isinstance(cast(object, tool_name), str) or not tool_name:
         raise TradingViewReceiptError("TradingView tool name must be nonempty")
+    if receipt_id is not None and (
+        not isinstance(cast(object, receipt_id), str) or not receipt_id.strip()
+    ):
+        raise TradingViewReceiptError("TradingView receipt ID must be nonempty")
     if not isinstance(cast(object, received_at_utc), datetime) or (
         received_at_utc.utcoffset() != timedelta(0)
     ):
@@ -50,23 +55,38 @@ def retain_tool_result(
         allow_nan=False,
         separators=(",", ":"),
     )
-    receipt_id = uuid.uuid4().hex
+    receipt_id = receipt_id if receipt_id is not None else uuid.uuid4().hex
+    values = (
+        receipt_id,
+        snapshot_date.isoformat(),
+        master_asof.isoformat(),
+        tool_name,
+        received_at_utc.astimezone(UTC).isoformat(timespec="microseconds"),
+        symbols_json,
+        columns_json,
+        result_json,
+    )
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT receipt_id,snapshot_date,master_asof,tool_name,received_at_utc,"
+            "requested_symbols_json,requested_columns_json,result_json "
+            "FROM tradingview_source_receipts WHERE receipt_id=?",
+            (receipt_id,),
+        ).fetchone()
+        if existing is not None:
+            if tuple(existing) != values:
+                raise TradingViewReceiptError(
+                    "TradingView receipt ID conflicts with saved reception"
+                )
+            conn.commit()
+            return receipt_id
         conn.execute(
             "INSERT INTO tradingview_source_receipts("
             "receipt_id, snapshot_date, master_asof, tool_name, received_at_utc, "
             "requested_symbols_json, requested_columns_json, result_json) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                receipt_id,
-                snapshot_date.isoformat(),
-                master_asof.isoformat(),
-                tool_name,
-                received_at_utc.astimezone(UTC).isoformat(timespec="microseconds"),
-                symbols_json,
-                columns_json,
-                result_json,
-            ),
+            values,
         )
         conn.commit()
     except BaseException:

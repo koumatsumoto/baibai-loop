@@ -533,7 +533,7 @@ importは原本を保持して選択attemptを再解析する。parse失敗時�
 
 ### 日次取得と固定コホートの再開
 
-source別planは固定release/calendar/masterとparser/request条件へ束縛する。19:13 JSTの新規plan作成時に当日exact masterがまだlake未反映なら、J-Quantsのready handoffが公開する小さなmaster/calendar依存入力を使う。価格を含むSQLite全体は取得せず、原受領ID・元の受領時刻・dependency/handoff hashとbase releaseをplanへ固定する。過去masterを当日へ読み替えない。継続pagination・不完全master・calendarの欠落は不適格として取得前に失敗し、既存planの再開は最新依存を読み直さない。初回移行ではinput生成後に新しいJ-Quants取得がdependency付きreadyを保存したことを確認してから外部評価を受け入れる。保存済みTradingView handoff内のJ-Quants原本由来master/calendar依存入力は、日付条件が合えば新しい外部評価planにも再利用できる。TradingView自体の新規取得は行わない。masterが遅延した場合はそのsourceを限定再実行し、共通統合の先行公開で帳尻を合わせない。sourceはmonex/rakuten/kabumap/minkabu、allは4取得元を選ぶ。同sourceのlocalとActions取得を重ねない。scheduleの対象日は元runから固定し、受領日をmaster/cron日へ替えない。
+source別planは固定release/calendar/masterとparser/request条件へ束縛する。19:13 JSTの新規plan作成時に当日exact masterがまだlake未反映なら、J-Quantsのready handoffが公開する小さなmaster/calendar依存入力を使う。価格を含むSQLite全体は取得せず、原受領ID・元の受領時刻・dependency/handoff hashとbase releaseをplanへ固定する。過去masterを当日へ読み替えない。継続pagination・不完全master・calendarの欠落は不適格として取得前に失敗し、既存planの再開は最新依存を読み直さない。初回移行ではinput生成後に新しいJ-Quants取得がdependency付きreadyを保存したことを確認してから外部評価を受け入れる。保存済みTradingView handoff内のJ-Quants原本由来master/calendar依存入力は、日付条件が合えば新しい外部評価planにも再利用できる。依存入力の生成を理由にTradingViewを取得しない。masterが遅延した場合はそのsourceを限定再実行し、共通統合の先行公開で帳尻を合わせない。sourceはmonex/rakuten/kabumap/minkabu、allは4取得元を選ぶ。同sourceのlocalとActions取得を重ねない。scheduleの対象日は元runから固定し、受領日をmaster/cron日へ替えない。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
@@ -561,33 +561,45 @@ gh workflow run cloud-external-assessment.yml --ref main \
 固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映は共通統合が担当する。通知・CI緑・stage保存だけで正本反映成功を認定しない。
 
 <a id="tradingview-expectations"></a>
-## TradingViewの利用範囲
+## TradingViewの明示受領・保存・分析
 
-2026-10-29に[公式接続案内のPermitted use](https://www.tradingview.com/support/solutions/43000795699-mcp-server-connect-your-ai-assistant-to-tradingview/)と[公式FAQ](https://www.tradingview.com/support/solutions/43000795700-mcp-server-faq/)を確認。公式MCPは個人の対話利用向けで、無人・定期・bulk取得と自動判断システムへの入力は認められていない。cloud-hosted custom clientもbetaの対応範囲外で、OAuthの継続有効性は保証されない。[汎用clientの接続仕様](https://www.tradingview.com/mcp/docs)や一度の取得成功は、その運用の許諾を意味しない。上位プラン、手動のworkflow起動、別client/IPによって解決した扱いにしない。
+本人の明示依頼で対象と取得項目を固定し、接続済みの公式MCP connectorを使う。保存と売買ループ分析は確認した利用範囲に従い、一般条件の記述だけで個別の利用範囲を否定したり、sourceを一律に停止・削除・入力除外したりしない。許可を未依頼の再配布・新credential・課金・定期実行へ広げない。接続方法は[公式MCP案内](https://www.tradingview.com/mcp/docs)を参照する。
 
-### 採用する最小運用
+定期cron、全件自動runner、OAuth smokeや旧custom clientは持たない。公式connectorを使うため既存OAuth stateや秘密を別環境へ移さない。明示取得は要求symbol・columnと受領contextを固定し、batch toolは一回50symbol以内を使う。エラー後の無条件再取得や、import時刻への受領日時の置換をしない。
 
-- **個人の対話調査**：既存の公式connectorを使い、ユーザーが関与する個別の問いへ回答する。接続済みでも全銘柄巡回や定期取得へ転用しない。必要な再認証はユーザーが公式client上で行う。新たな契約・認証権限や秘密のコピーは必要ない。
-- **新規batch取得**：TradingViewのscheduled/workflow_dispatch全件取得、local全件runner、OAuth smoke、TV専用の新規source input発行を設けない。`tradingview-source`はoffline `rebuild`だけを持つ。手動で起動するbulk取得も対話調査の代替ではない。
-- **保存済みデータ**：L1原本・受領日時・immutable release・保存済みモデル/判断を削除・再日付化しない。保存履歴の個人向けread-only確認と明示offline再構築は、新規取得なしに行う。原本や時系列の外部共有はしない。保存済みであること自体を、自動判断への再利用許諾と扱わない。
-- **新しいモデル生成**：TradingViewは読み込まず、`external_assessment.tradingview.availability=excluded_by_source_terms`とし、値・比較を入力しない。欠測や正常nullと区別するため、生成revisionは`same-series-v5-no-tradingview`。既存の固定generation/Selection/判断を読む・再開する際は元payload・revision・hashを保ち、現行の空入力へ書き換えない。旧generationを新規判断の入力へ転用する許諾を与えるものではない。
+### 原応答をL1へ保持する
 
-定期更新できなくなるTV由来の項目は、rating/人数、目標株価3種、次四半期/次年度EPS・売上、forward PER/PS/EV-EBITDA、EBITDA/FCF/CAPEX/負債予想の16項目と、参考close/通貨2項目。株価は従来どおりJ-Quantsを正本とし、会社EPS予想・同予想に基づくPERは既存の会社財務モデルで継続する。これらをアナリストconsensusの代用品としてTV列へ詰めない。他の既存sourceも元の出所・対象期のまま使い、埋まらない予想は欠測として判断へ渡す。新たなcrawlerや代替source契約は追加しない。
-
-新規自動利用を再検討する場合は、提供元条件の変更または当該用途を明示して許諾する契約が必要。support回答だけをTermsの改定と扱わない。既存の他source取得・共通統合は継続し、保存済みTV受領のhandoffも削除しない。既存mainで開始済みのrunをこの文書変更だけで中断せず、切替は対象PRの統合時に行う。
-
-### 保存履歴の確認とoffline再構築
-
-履歴を読むときはsnapshot_date・fetched_at_utcをそのまま表示し、現在値と呼ばない。更新がないことを新しい正常nullや0で埋めず、同じ保存値を当日の新観測にしない。技術障害・未取得・正常null・unresolvedは従来どおり分ける。
+`tradingview-source receive`は外部通信せず、既存のcurrent-schema作業copyへcapture JSONを取り込む。captureは`NativeToolCapture`の形で、受領ID・snapshot_date・master_asof・実受領UTC・実際のtool名・要求symbol/columnと、公式connectorのSDK `CallToolResult`全体を`result`へ保存する。本文から金融値を転記・再構成しない。IDは一度の受領ごとに固定し、同IDの再送は全保存内容が同じ場合だけno-opになる。異なる呼出しは同値でも別IDにする。
 
 ```bash
-uv run baibai-engine external-assessment show --ticker <TICKER> \
-  --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_SQLITE>
-uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_SQLITE> \
-  --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
+uv run baibai-jobs tradingview-source receive --sqlite <LOCAL_MARKET_COPY> \
+  --capture <PRIVATE_NATIVE_CAPTURE_JSON>
 ```
 
-再構築は同日・master・tool・Universe・実受領時刻の整合する保存receiptだけを明示する。正常receiptなし・銘柄重複なら置換せず、明示missingはunresolvedへ再現する。元の受領時刻を維持し、拒否応答を正常値で補わない。作業用copyへのoffline再構築は、本番データ変更や再公開の許可ではない。
+L1保存はL2の成功判定ではない。失敗応答や業務payloadの不整合もSDK表現のまま保持し、`tool_is_error`とL2の状態を分ける。原本・日時・保存済みgeneration/Selection/判断を削除・再日付化しない。captureや金融値を公開GitHub artifact/logへ出さない。
+
+### L2検証と正本への反映
+
+L2 replayはownerが宣言するnative wire名と公式connectorの公開識別名のbatch契約、および18列を実際に要求した受領を検証する。receiptには呼び出したtool識別名を保持し、別toolの結果をbatch名へ付け替えない。保存calendarから当日の営業日とmaster基準日を決め、休日は直前営業日のexact masterと連続calendarを使う。時刻検証は受領JST日と、営業日15:30以降／休日09:00以降を照合する。休日を理由に取得不可とはしない。
+
+新しい受領の公開は既存の[handoffと共通統合](#actions-write-boundary)を使う。`integration.source_handoff export --source tradingview`で明示受領を切り出し、fresh canonicalへのreplayは同日最初の正常行と原receiptを保つ。元master/calendarが違うhandoffを黙って採用しない。取得用copyを丸ごと古い正本へpushしない。公開lease・CAS・固定release・読戻しは通常の正本反映手順に従う。
+
+```bash
+uv run python -m baibai_jobs.integration.source_handoff export --source tradingview \
+  --asof <JST_RECEPTION_DAY> --since <BEFORE_RECEPTION_UTC> \
+  --database <LOCAL_MARKET_COPY> --directory <NEW_PRIVATE_HANDOFF>
+```
+
+明示offline再構築は次を使う。これは一日分のL2を選択receiptで置換するため、隔離copyへその日の必要な受領集合を渡す。新しい部分受領を正本へ追加するときに一部receiptだけで既存日を置換しない。
+
+```bash
+uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_COPY> \
+  --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
+uv run baibai-engine external-assessment show --ticker <TICKER> \
+  --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
+```
+
+正常null、明示unresolved、未取得と技術障害を区別する。quote通貨をestimate通貨・単位へ流用せず、対象期が未確認なら推定しない。新しいモデル生成は保存済みTV履歴をcutoffで読み、`same-series-v6`で値と品質状態を渡す。旧`same-series-v5-no-tradingview`のpayloadと`excluded_by_source_terms`は履歴としてそのまま読めるよう保持し、新規生成へ一律除外を適用しない。今回の経路は新しい定期取得を実行しない。
 
 ## Storeをseedする
 
