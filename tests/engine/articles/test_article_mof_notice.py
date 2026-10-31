@@ -66,7 +66,7 @@ def test_pri_body_excludes_site_heading_navigation_and_footer():
         '<header><h1>サイト名</h1></header><div class="body_wrap">'
         '<p id="navi">パンくず</p><div id="contents-wrap"><h2>講演会一覧</h2>'
         '<p>合成の本文</p><a href="synthetic.pdf">資料</a></div></div>'
-        '<footer>フッター</footer>'
+        "<footer>フッター</footer>"
     ).encode("shift_jis")
     item = parse_document("mof_news", html, url=TARGET, encoding="shift_jis")
     assert item.title == "講演会一覧"
