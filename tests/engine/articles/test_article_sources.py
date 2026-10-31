@@ -304,6 +304,29 @@ def test_orphan_304_is_returned_even_when_recovery_budget_is_exhausted():
     assert session.get.call_count == 1
 
 
+def test_boj_document_cap_accepts_larger_reports_without_increasing_source_budget():
+    policy = SOURCES["boj_news"]
+    assert policy.response_limit("index") == 4_000_000
+    assert policy.response_limit("document") == 12_000_000
+    assert policy.max_bytes == 24_000_000
+    assert SOURCES["mof_news"].response_limit("document") == 4_000_000
+    body = b"%PDF-" + b"x" * 4_000_000
+    session = Mock(spec=requests.Session)
+    session.get.return_value = response(200, body)
+    budget = ArticleBudget.start(max_requests=1, max_bytes=policy.max_bytes, seconds=30)
+    (attempt,) = fetch_article(
+        session,
+        source=policy.source_id,
+        url="https://www.boj.or.jp/synthetic.pdf",
+        allowed_hosts=policy.allowed_hosts,
+        budget=budget,
+        max_response_bytes=policy.response_limit("document"),
+    )
+    assert attempt.receipt.status == "ok"
+    assert attempt.body == body
+    assert budget.bytes_used == len(body)
+
+
 def test_nhk_guid_is_shared_across_categories_and_description_remains_summary():
     def feed(marker):
         return f'<rss xmlns:nhk="http://news.web.nhk/rss/rss2.0/modules/nhknews/"><channel><item><title>Synthetic</title><link>https://news.web.nhk/newsweb/na/na-k10000000000000</link><guid isPermaLink="false">synthetic-guid</guid><description>Only synthetic summary</description><pubDate>Thu, 29 Oct 2026 12:00:00 +0900</pubDate><nhk:new>{marker}</nhk:new></item></channel></rss>'.encode()

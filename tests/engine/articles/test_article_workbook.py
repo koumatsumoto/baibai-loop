@@ -4,7 +4,7 @@ import hashlib
 import io
 import zipfile
 from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import openpyxl
 import pytest
@@ -31,7 +31,7 @@ def workbook_bytes(*, empty=False):
     if not empty:
         sheet.append(["項目", "当期", "比較期"])
         sheet.append(["数量", 0, 12.5])
-        sheet.append([datetime(2026, 10, 31), False, "=B2+C2"])
+        sheet.append([date(2026, 10, 31), False, "=B2+C2"])
         other = book.create_sheet("注記")
         other["B2"] = "注記\n原文"
     output = io.BytesIO()
@@ -132,7 +132,9 @@ def test_reprojection_preserves_failed_history_and_reuses_new_result(tmp_path):
             error_code="UnicodeDecodeError",
         )
         save_projection(conn, old, ())
-        new, observations = project_receipt(conn, receipt.receipt_id, kind="document")
+        new, observations = project_receipt(
+            conn, receipt.receipt_id, kind="document", generated_at=stamp + timedelta(minutes=1)
+        )
         assert new.status == "parsed"
         assert new.parser_revision == "article-native-boj-v2"
         assert len(observations) == 1
@@ -142,6 +144,9 @@ def test_reprojection_preserves_failed_history_and_reuses_new_result(tmp_path):
         assert replay == new
         assert repeated == observations
         assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 2
-        assert conn.execute(
-            "SELECT run_json FROM article_projection_runs WHERE run_id=?", (old.run_id,)
-        ).fetchone()[0] == old.model_dump_json()
+        assert (
+            conn.execute(
+                "SELECT run_json FROM article_projection_runs WHERE run_id=?", (old.run_id,)
+            ).fetchone()[0]
+            == old.model_dump_json()
+        )
