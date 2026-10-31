@@ -66,7 +66,7 @@ def test_boj_workbook_cells_keep_coordinates_zero_dates_and_uncomputed_formulas(
         )
     assert article.missing_parts == ("formatting_charts_images_and_formula_evaluation",)
     assert parser_revision_for("boj_news") == "article-native-boj-v2"
-    assert parser_revision_for("mof_news") == "article-native-v1"
+    assert parser_revision_for("tsr_data") == "article-native-v1"
 
 
 def test_incorrect_dimension_does_not_silently_drop_cells():

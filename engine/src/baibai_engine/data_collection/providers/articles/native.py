@@ -19,6 +19,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 PARSER_REVISION = "article-native-v1"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
 BOJ_PARSER_REVISION = "article-native-boj-v2"
+MOF_PARSER_REVISION = "article-native-mof-v2"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -34,6 +35,8 @@ def parser_revision_for(source: str) -> str:
         return MINKABU_PARSER_REVISION
     if source == "boj_news":
         return BOJ_PARSER_REVISION
+    if source == "mof_news":
+        return MOF_PARSER_REVISION
     return PARSER_REVISION
 
 
@@ -356,6 +359,45 @@ def _nhk_public_description(
     )
 
 
+def _mof_inside_link(nodes: list[Node], *, url: str, title: str) -> NativeArticle | None:
+    """財務省の明示的な同一host案内だけ。案内自体を転送先本文とはしない。"""
+    origin = urlsplit(url)
+    if origin.hostname != "www.mof.go.jp" or not origin.path.startswith("/insideLink/"):
+        return None
+    refresh = [
+        node.attrs.get("content", "")
+        for node in nodes
+        if node.tag == "meta" and node.attrs.get("http-equiv", "").lower() == "refresh"
+    ]
+    if not refresh:
+        return None
+    match = re.fullmatch(r"\s*0(?:\.0+)?\s*;\s*url\s*=\s*(.+?)\s*", refresh[0], re.I)
+    if len(refresh) != 1 or match is None:
+        raise NativeArticleUnsupported("MOF redirect notice is ambiguous or delayed")
+    target = urljoin(url, match.group(1).strip("\"'"))
+    parsed = urlsplit(target)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "www.mof.go.jp"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port not in {None, 443}
+        or parsed.path.startswith("/insideLink/")
+        or target == url
+    ):
+        raise NativeArticleUnsupported("MOF redirect target is outside its document boundary")
+    return NativeArticle(
+        article_id=f"mof_news:{url}",
+        locator="/html/meta-refresh",
+        url=url,
+        title=title,
+        text="",
+        content_scope="unavailable",
+        missing_parts=("redirect_target_body_is_a_separate_receipt",),
+        metadata={"redirect_target_url": target},
+    )
+
+
 def parse_document(
     source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
 ) -> NativeArticle:
@@ -385,6 +427,10 @@ def parse_document(
         )
     tree = parse_html(body.decode(encoding))
     nodes = tree.walk()
+    if source == "mof_news":
+        notice = _mof_inside_link(nodes, url=url, title=title)
+        if notice is not None:
+            return notice
     canonical = next(
         (
             urljoin(url, node.attrs["href"])
@@ -419,6 +465,18 @@ def parse_document(
             ),
             None,
         )
+    if region is None and source == "mof_news" and urlsplit(url).path.startswith("/pri/"):
+        regions = [node for node in nodes if node.attrs.get("id") == "contents-wrap"]
+        if len(regions) == 1:
+            region = regions[0]
+            heading = next(
+                (
+                    text
+                    for node in region.walk()
+                    if node.tag in {"h1", "h2"} and (text := node.text().strip())
+                ),
+                heading,
+            )
     if region is None:
         raise NativeArticleUnsupported("article body region is unsupported")
     if source == "minkabu_news" and not region.text().strip():
@@ -455,6 +513,10 @@ def parse_document(
     ]
     metadata: dict[str, JsonValue] = dict(date_fields)
     metadata["attachments"] = list(attachments)
+    if source == "mof_news" and urlsplit(url).path == "/pri/research/seminar/lmeeting.htm":
+        # This is a rolling year's index, not one newly published paper. Keep
+        # its references without turning one feed update into historical crawling.
+        metadata["attachment_scope"] = "rolling_listing_reference_only"
     # Deliberately conservative: image tables, pagination and linked papers were not read.
     return NativeArticle(
         article_id=f"{source}:{url}",

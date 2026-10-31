@@ -1,5 +1,6 @@
 import json
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -61,6 +62,107 @@ def _nhk_description(text):
         + json.dumps(document, ensure_ascii=False).encode()
         + b"</script></html>"
     )
+
+
+@pytest.mark.parametrize("target_status", [200, 403])
+def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
+    tmp_path, monkeypatch, target_status
+):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    notice_url = "https://www.mof.go.jp/insideLink/synthetic.html"
+    target_url = "https://www.mof.go.jp/pri/research/seminar/lmeeting.htm"
+    feed = (
+        f"<rss><channel><item><title>Synthetic</title><link>{notice_url}</link>"
+        "</item></channel></rss>"
+    ).encode()
+    notice = f'<meta http-equiv="refresh" content="0;url={target_url}">'.encode()
+    target_body = (
+        '<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">'
+        '<main>本文<a href="old.pdf">Old reference</a></main>'
+    ).encode("shift_jis")
+    session = Session(
+        [
+            Response(200, feed),
+            Response(200, notice),
+            Response(target_status, target_body),
+        ]
+    )
+    store = MemoryR2Store()
+    publish_planning_input(store, "mof_news", {"lake_release_id": "before"})
+    packet = tmp_path / "mof"
+    report = articles.acquire_source(
+        store, source="mof_news", slot=SLOT, identity="notice", directory=packet, session=session
+    )
+    assert session.urls == [articles.SOURCES["mof_news"].entry_url, notice_url, target_url]
+    assert report["bodies"] == 2
+    assert report["requests_used"] == 3
+    with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        receipts = [
+            json.loads(row[0])
+            for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
+        ]
+    assert len(receipts) == 3
+    assert {item["requested_url"] for item in receipts} == set(session.urls)
+    database = tmp_path / "canonical.sqlite"
+    result = import_handoff("mof_news", database, packet)
+    with closing(connect_read_only(database)) as conn:
+        observations = read_observations(conn, result.report["observation_ids"])
+    notice_observation = next(
+        item for item in observations if item.native_locator == "/html/meta-refresh"
+    )
+    assert notice_observation.content_scope == "unavailable"
+    assert notice_observation.text == ""
+    assert notice_observation.native_metadata["redirect_target_url"] == target_url
+    if target_status == 200:
+        assert report["status"] == "completed"
+        assert report["failures"] == []
+        assert result.complete is True
+        target = next(item for item in observations if item.original_url == target_url)
+        assert "本文" in target.text
+        target_receipt = next(item for item in receipts if item["requested_url"] == target_url)
+        assert target_receipt["encoding"] == "shift_jis"
+        assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
+        assert target.receipt_id != notice_observation.receipt_id
+        assert target.article_id != notice_observation.article_id
+    else:
+        assert report["status"] == "partial"
+        assert report["continuation_only"] is False
+        assert report["failures"] == ["http_error"]
+        assert result.complete is False
+        assert all(item.original_url != target_url for item in observations)
+
+
+def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    monkeypatch.setitem(
+        articles.SOURCES, "mof_news", replace(articles.SOURCES["mof_news"], max_bodies=1)
+    )
+    notice_url = "https://www.mof.go.jp/insideLink/synthetic.html"
+    target_url = "https://www.mof.go.jp/pri/research/synthetic.htm"
+    feed = f"<rss><channel><item><link>{notice_url}</link></item></channel></rss>".encode()
+    notice = f'<meta http-equiv="refresh" content="0;url={target_url}">'.encode()
+    session = Session([Response(200, feed), Response(200, notice)])
+    store = MemoryR2Store()
+    publish_planning_input(store, "mof_news", {"lake_release_id": "before"})
+    report = articles.acquire_source(
+        store,
+        source="mof_news",
+        slot=SLOT,
+        identity="bounded-notice",
+        directory=tmp_path / "bounded",
+        session=session,
+    )
+    assert report["status"] == "partial"
+    assert report["continuation_only"] is True
+    assert report["failures"] == []
+    assert report["bodies"] == 1
+    assert len(session.urls) == 2
+    state, _ = load_planning(store, "mof_news")
+    assert state.cursor["pending_urls"] == [target_url]
 
 
 def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch):
