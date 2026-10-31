@@ -70,11 +70,14 @@ def test_receive_cli_keeps_native_result_before_weekend_partial_handoff(tmp_path
     assert report["l2_updated"] is False
     assert retain_capture(source, captured)["receipt_id"] == report["receipt_id"]
     with closing(open_connection(source)) as conn:
-        assert conn.execute("SELECT count(*) FROM tradingview_forecast_snapshots").fetchone() == (0,)
+        assert conn.execute("SELECT count(*) FROM tradingview_forecast_snapshots").fetchone() == (
+            0,
+        )
         assert conn.execute("SELECT count(*) FROM tradingview_source_receipts").fetchone() == (1,)
         saved = read_tool_results(conn, (report["receipt_id"],))[0]
         assert saved.received_at_utc == RECEIVED
-        assert saved.snapshot_date == SATURDAY and saved.master_asof == DAY
+        assert saved.snapshot_date == SATURDAY
+        assert saved.master_asof == DAY
         assert json.loads(saved.result_json)["structuredContent"] == body
         assert json.loads(saved.result_json)["_meta"] == {"native": True}
     handoff_path = tmp_path / "handoff.sqlite"

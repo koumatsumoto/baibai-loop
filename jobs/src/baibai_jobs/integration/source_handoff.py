@@ -155,7 +155,7 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
     raise ValueError("unsupported market handoff source")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
@@ -168,7 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--stage-id")
     parser.add_argument("--input-directory", type=Path)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     directory = args.directory
     try:
         if args.command == "replay-copy":
@@ -243,7 +247,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "acquire":
                 if args.source == "tradingview":
                     raise ValueError(
-                        "Use the official connector and tradingview-source receive; no live client here"
+                        "Use the official connector and tradingview-source receive; "
+                        "no live client here"
                     )
                 if (
                     args.source.startswith("jquants-")
