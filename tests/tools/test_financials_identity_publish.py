@@ -8,10 +8,10 @@ from datetime import timedelta
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 from tests.tools.test_financials_identity import AT, legacy_case, prepare
-from tools import financials_identity_publish as publisher
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, R2Error
 from baibai_jobs.publication.lease import LEASE_TTL, LeaseError, acquire
+from tools import financials_identity_publish as publisher
 
 BUCKET = "synthetic-only"
 
@@ -57,9 +57,11 @@ def fixture(tmp_path, monkeypatch):
         store.store_object(key, path.read_bytes(), content_type="application/octet-stream")
     for key in publisher.UNTOUCHED:
         store.store_object(key, f"original synthetic {key}".encode())
-    manifest = {"schema_version": 1, "written_at_utc": AT.isoformat(), "keys": {
-        key: store.head(key).etag for key in (*publisher.UNTOUCHED, "runs.sqlite")
-    }}
+    manifest = {
+        "schema_version": 1,
+        "written_at_utc": AT.isoformat(),
+        "keys": {key: store.head(key).etag for key in (*publisher.UNTOUCHED, "runs.sqlite")},
+    }
     store.store_object(publisher.MACHINE, json.dumps(manifest).encode())
     generations = tmp_path / "paired"
     generations.mkdir()
@@ -69,17 +71,25 @@ def fixture(tmp_path, monkeypatch):
     directory = tmp_path / "frozen"
     store.directory = directory
     kwargs = dict(
-        bucket=BUCKET, source_app=case.app, source_runs=case.runs, copy=converted,
-        generations=generations, directory=directory, source_revision="a" * 40,
-        target_revision="b" * 40, handle=handle, writers_drained=True, clock=lambda: AT,
+        bucket=BUCKET,
+        source_app=case.app,
+        source_runs=case.runs,
+        copy=converted,
+        generations=generations,
+        directory=directory,
+        source_revision="a" * 40,
+        target_revision="b" * 40,
+        handle=handle,
+        writers_drained=True,
+        clock=lambda: AT,
     )
     return case, store, kwargs
 
 
 def apply(store, kwargs, **changes):
-    arguments = {key: kwargs[key] for key in (
-        "bucket", "directory", "handle", "writers_drained", "clock"
-    )}
+    arguments = {
+        key: kwargs[key] for key in ("bucket", "directory", "handle", "writers_drained", "clock")
+    }
     return publisher.publish_upload(store, **{**arguments, **changes})
 
 
@@ -125,7 +135,9 @@ def test_uncertain_put_is_read_before_resend_and_original_clock_stays_fixed(
     store.get_keys.clear()
     result = apply(store, kwargs, clock=lambda: AT + timedelta(minutes=1))
     assert result["next_key"] is None
-    assert len([request for request in store.requests if request[0] == key]) == attempts + (when == "before")
+    assert len([request for request in store.requests if request[0] == key]) == attempts + (
+        when == "before"
+    )
     assert key in store.get_keys
     assert store.get_bytes(publisher.MACHINE) == frozen.read_bytes()
     if original_machine_upload is not None:
@@ -151,7 +163,7 @@ def test_prepare_rejects_unbound_sources_without_store_put(tmp_path, monkeypatch
     else:
         kwargs["handle"] = replace(kwargs["handle"], purpose="daily")
     before = (case.app.read_bytes(), case.runs.read_bytes())
-    with pytest.raises(ValueError, match="differs|requires"):
+    with pytest.raises(ValueError, match=r"differ|requires"):
         publisher.prepare_upload(store, **kwargs)
     assert not store.requests
     assert before == (case.app.read_bytes(), case.runs.read_bytes())
@@ -204,7 +216,9 @@ def test_get_race_is_not_accepted_as_a_stable_original(tmp_path, monkeypatch):
     assert not store.requests
 
 
-@pytest.mark.parametrize("mode", ["local_upload", "backup", "unrelated", "unknown", "cas", "nonprefix"])
+@pytest.mark.parametrize(
+    "mode", ["local_upload", "backup", "unrelated", "unknown", "cas", "nonprefix"]
+)
 def test_tamper_race_and_unknown_remote_state_stop_without_rebasing(tmp_path, monkeypatch, mode):
     _, store, kwargs = fixture(tmp_path, monkeypatch)
     publisher.prepare_upload(store, **kwargs)
@@ -225,7 +239,7 @@ def test_tamper_race_and_unknown_remote_state_stop_without_rebasing(tmp_path, mo
         with pytest.raises(LakeCASConflict, match="synthetic"):
             apply(store, kwargs)
     requests = len(store.requests)
-    with pytest.raises(ValueError, match="changed|exact original|known publication|evidence"):
+    with pytest.raises(ValueError, match=r"changed|exact original|known publication|evidence"):
         apply(store, kwargs)
     assert len(store.requests) == requests
     assert (directory / "plan.json").read_bytes() == original_plan

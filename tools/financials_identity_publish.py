@@ -9,17 +9,15 @@ import json
 import os
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404 - fixed read-only git argument vectors below
 import tempfile
 from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
-
-from tools.financials_identity import _open, _self_contained, file_sha256, prepare_copy
 
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
@@ -31,6 +29,7 @@ from baibai_jobs.publication.lease import (
     _load_handle,
     verify_held,
 )
+from tools.financials_identity import _open, _self_contained, file_sha256, prepare_copy
 
 MACHINE = "machine-manifest.json"
 ORDER = ("runs.sqlite", MACHINE, "baibai.sqlite")
@@ -97,7 +96,8 @@ def _descriptor(path: Path) -> FrozenFile:
             sha.update(chunk)
             md5.update(chunk)
     return FrozenFile(
-        sha256=sha.hexdigest(), content_md5=base64.b64encode(md5.digest()).decode(),
+        sha256=sha.hexdigest(),
+        content_md5=base64.b64encode(md5.digest()).decode(),
         size=path.stat().st_size,
     )
 
@@ -165,9 +165,19 @@ def _guard(
 
 
 def prepare_upload(
-    store: ObjectStore, *, bucket: str, source_app: Path, source_runs: Path, copy: Path,
-    generations: Path, directory: Path, source_revision: str, target_revision: str,
-    handle: PublicationLeaseHandle, writers_drained: bool, clock: Callable[[], datetime] = _now,
+    store: ObjectStore,
+    *,
+    bucket: str,
+    source_app: Path,
+    source_runs: Path,
+    copy: Path,
+    generations: Path,
+    directory: Path,
+    source_revision: str,
+    target_revision: str,
+    handle: PublicationLeaseHandle,
+    writers_drained: bool,
+    clock: Callable[[], datetime] = _now,
 ) -> UploadPlan:
     """取得済みpaired ETagに束縛し、PUT可能になる前に実転送fileと原本を固定する。"""
     if directory.exists():
@@ -190,7 +200,9 @@ def prepare_upload(
         raise ValueError("original machine manifest differs from the pulled bundle")
     conversion = json.loads((copy / "manifest.json").read_text())
     prepare_copy(
-        source_app=source_app, source_runs=source_runs, output=copy,
+        source_app=source_app,
+        source_runs=source_runs,
+        output=copy,
         recorded_at=datetime.fromisoformat(conversion["recorded_at"]),
     )
     sources = {"baibai.sqlite": source_app, "runs.sqlite": source_runs}
@@ -216,9 +228,14 @@ def prepare_upload(
     _once(directory / "backup" / MACHINE, original_manifest)
     backups[MACHINE] = _descriptor(directory / "backup" / MACHINE)
     plan = UploadPlan(
-        bucket=bucket, prepared_at=clock(), source_revision=source_revision,
-        target_revision=target_revision, copy_manifest_sha256=file_sha256(copy / "manifest.json"),
-        base_etags=before, uploads=uploads, backups=backups,
+        bucket=bucket,
+        prepared_at=clock(),
+        source_revision=source_revision,
+        target_revision=target_revision,
+        copy_manifest_sha256=file_sha256(copy / "manifest.json"),
+        base_etags=before,
+        uploads=uploads,
+        backups=backups,
     )
     for key, source in sources.items():
         if file_sha256(source) != backups[key].sha256:
@@ -234,7 +251,8 @@ def prepare_upload(
 def _load(directory: Path, bucket: str) -> UploadPlan:
     plan = UploadPlan.model_validate_json((directory / "plan.json").read_bytes())
     if (
-        plan.bucket != bucket or set(plan.base_etags) != set(KEYS)
+        plan.bucket != bucket
+        or set(plan.base_etags) != set(KEYS)
         or set(plan.uploads) != {"runs.sqlite", "baibai.sqlite"}
         or set(plan.backups) != set(ORDER)
         or any(not value for value in plan.base_etags.values())
@@ -250,12 +268,14 @@ def _load(directory: Path, bucket: str) -> UploadPlan:
 
 
 def _acks(directory: Path) -> dict[str, str]:
-    value: dict[str, str] = json.loads((directory / "acknowledged.json").read_text())
-    if not isinstance(value, dict) or set(value) - set(ORDER) or any(
-        not isinstance(etag, str) or not etag for etag in value.values()
+    value = json.loads((directory / "acknowledged.json").read_text())
+    if (
+        not isinstance(value, dict)
+        or set(value) - set(ORDER)
+        or any(not isinstance(etag, str) or not etag for etag in value.values())
     ):
         raise ValueError("invalid cutover acknowledgement journal")
-    return value
+    return cast(dict[str, str], value)
 
 
 def _ack(directory: Path, key: str, etag: str) -> None:
@@ -267,15 +287,21 @@ def _ack(directory: Path, key: str, etag: str) -> None:
 
 
 def _machine_bytes(plan: UploadPlan, runs_etag: str, written_at: datetime) -> bytes:
-    return _json({
-        "schema_version": 1,
-        "written_at_utc": written_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "keys": {**{key: plan.base_etags[key] for key in UNTOUCHED}, "runs.sqlite": runs_etag},
-    })
+    return _json(
+        {
+            "schema_version": 1,
+            "written_at_utc": written_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "keys": {**{key: plan.base_etags[key] for key in UNTOUCHED}, "runs.sqlite": runs_etag},
+        }
+    )
 
 
 def _machine_candidate(
-    directory: Path, plan: UploadPlan, runs_etag: str, *, create: bool,
+    directory: Path,
+    plan: UploadPlan,
+    runs_etag: str,
+    *,
+    create: bool,
     clock: Callable[[], datetime] = _now,
 ) -> FrozenFile | None:
     path = directory / MACHINE
@@ -320,9 +346,7 @@ def inspect_upload(store: ObjectStore, *, bucket: str, directory: Path) -> dict[
             states.append("original")
         else:
             if key == MACHINE:
-                candidate = _machine_candidate(
-                    directory, plan, before["runs.sqlite"], create=False
-                )
+                candidate = _machine_candidate(directory, plan, before["runs.sqlite"], create=False)
                 if candidate is None:
                     raise ValueError("remote machine manifest has no frozen upload evidence")
             else:
@@ -342,13 +366,21 @@ def inspect_upload(store: ObjectStore, *, bucket: str, directory: Path) -> dict[
     if states not in allowed:
         raise ValueError("remote cutover state is not a known publication prefix")
     completed = states.count("candidate")
-    return {"completed_keys": list(ORDER[:completed]), "etags": before,
-            "next_key": None if completed == 3 else ORDER[completed]}
+    return {
+        "completed_keys": list(ORDER[:completed]),
+        "etags": before,
+        "next_key": None if completed == 3 else ORDER[completed],
+    }
 
 
 def publish_upload(
-    store: ObjectStore, *, bucket: str, directory: Path, handle: PublicationLeaseHandle,
-    writers_drained: bool, clock: Callable[[], datetime] = _now,
+    store: ObjectStore,
+    *,
+    bucket: str,
+    directory: Path,
+    handle: PublicationLeaseHandle,
+    writers_drained: bool,
+    clock: Callable[[], datetime] = _now,
 ) -> dict[str, Any]:
     """再実行も全keyをexact照合してから、未到達の元ETagだけへCASする。"""
     _guard(store, handle, writers_drained, clock)
@@ -376,7 +408,9 @@ def publish_upload(
         # The production adapter is constructed with verify_put_with_head=False.
         # An exception deliberately stops here; the next call reconciles actual GET bytes first.
         response = store.put_file(
-            key, directory / key, sha256=descriptor.sha256,
+            key,
+            directory / key,
+            sha256=descriptor.sha256,
             content_md5=descriptor.content_md5,
             content_type="application/json" if key == MACHINE else "application/octet-stream",
             if_match=plan.base_etags[key],
@@ -426,23 +460,41 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "prepare-upload":
             prepare_upload(
-                store, bucket=bucket, source_app=args.source_app, source_runs=args.source_runs,
-                copy=args.copy, generations=args.generations, directory=args.directory,
-                source_revision=args.source_revision, target_revision=_revision(),
-                handle=_load_handle(args.lease_handle), writers_drained=args.writers_drained,
+                store,
+                bucket=bucket,
+                source_app=args.source_app,
+                source_runs=args.source_runs,
+                copy=args.copy,
+                generations=args.generations,
+                directory=args.directory,
+                source_revision=args.source_revision,
+                target_revision=_revision(),
+                handle=_load_handle(args.lease_handle),
+                writers_drained=args.writers_drained,
             )
             print("upload snapshots and backup fixed; no remote PUT")
         elif args.command == "status":
             result = inspect_upload(store, bucket=bucket, directory=args.directory)
-            print(json.dumps({"completed_keys": result["completed_keys"], "next_key": result["next_key"]}))
+            print(
+                json.dumps(
+                    {"completed_keys": result["completed_keys"], "next_key": result["next_key"]}
+                )
+            )
         else:
             if _load(args.directory, bucket).target_revision != _revision():
                 raise ValueError("executable checkout differs from the fixed target revision")
             result = publish_upload(
-                store, bucket=bucket, directory=args.directory,
-                handle=_load_handle(args.lease_handle), writers_drained=args.writers_drained,
+                store,
+                bucket=bucket,
+                directory=args.directory,
+                handle=_load_handle(args.lease_handle),
+                writers_drained=args.writers_drained,
             )
-            print(json.dumps({"completed_keys": result["completed_keys"], "next_key": result["next_key"]}))
+            print(
+                json.dumps(
+                    {"completed_keys": result["completed_keys"], "next_key": result["next_key"]}
+                )
+            )
         return 0
     finally:
         store.close()
