@@ -17,8 +17,8 @@ dependencies = [
   "playwright>=1.62.0",
   "pydantic>=2.13.4",
   "pyarrow>=25.0.1",
-  # CVE-2026-84309/84310/84311 は 6.16.1 で解消される。floor は最も遅い修正版。
-  "pypdf[crypto]>=6.16.1",
+  # PDF読取の既知脆弱性を解消したpatchを下限に保つ（#1696）。
+  "pypdf[crypto]>=6.21.4",
   "python-dotenv>=1.0.0",
   "pyyaml>=6.0.0",
   "requests>=2.34.2",
