@@ -226,6 +226,16 @@ application backupは実行時JST日付の日別keyで、同日keyを置換す�
 
 current schemaだけを開く。schema変更はsource versionを限定した一回移行を別コピーで検証し、対応codeとstoreの反映を同じdeliveryで終えたらtoolを撤去する。旧DB/keyや完了済みcutoverを現行正本へ再適用しない。
 
+### 提案訂正・人間報告のschema 27→28切替
+
+通常runtimeは27を自動移行しない。application writerとmaterializeを重ねず、取得済みDBとETagの組、remote HEADの一致を保全する。対応28コードで別のconsistent copyを先に検証し、本番作業コピーに対して空のbackup pathを指定する。
+
+```bash
+uv run baibai-engine db migrate-proposal-records --db <APP_DB> --backup <PRIVATE_BACKUP_SQLITE>
+```
+
+移行はwriter lock下で旧27のWAL込みbackupを作り、既存行を変更せず2表とimmutable triggerだけを追加する。元backupを上書きせず、source version違いは拒否する。integrity/FK/versionと既存の判断・ledgerを照合し、正規serviceで必要な訂正/報告だけを追記する。取得ETagのままbackup/CAS反映し、remote読戻し後に対応mainコードで4viewをmaterializeする。旧提案exacthash・台帳不変、最新選択・独立人間報告を確認してからWebを明示deployする。表示失敗だけでapplicationを再送しない。移行後に旧27コードで開いたり再移行したりしない。
+
 ### application DB を復元する
 
 application DBは判断とledgerを保持するため再生成しない。通常の判断更新は前節の取得→正規CLI更新→反映に従う。この節は、明示的に選んだ過去snapshotへクラウド正本を戻す復旧である。

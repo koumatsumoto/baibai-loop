@@ -42,12 +42,26 @@ export interface HoldingView {
   unrealized_pnl_pct: number | null
 }
 
+export interface HumanProposalReport {
+  report_id: NonEmptyStr
+  proposal_ref: ProposalReference
+  outcome: 'not_purchased'
+  statement: NonEmptyStr
+  reported_at: string
+  subject_at: string | null
+  reason_quote: NonEmptyStr | null
+  context_summary: NonEmptyStr | null
+  recorded_at: string
+}
+
 export interface LatestProposalView {
   generated_at: string
   status: 'ready' | 'empty' | 'unavailable'
   error: string | null
   proposal: SavedProposalView | null
 }
+
+export type NonEmptyStr = string
 
 export interface OutcomesView {
   outcomes: PortfolioOutcomeView[]
@@ -67,6 +81,19 @@ export interface PortfolioOutcomeView {
   benchmark_cumulative_return_pct: number | null
 }
 
+export interface ProposalCorrection {
+  correction_id: NonEmptyStr
+  erroneous_ref: ProposalReference
+  replacement_ref: ProposalReference
+  reason: NonEmptyStr
+  recorded_at: string
+}
+
+export interface ProposalReference {
+  proposal_id: NonEmptyStr
+  draft_sha256: SHA256
+}
+
 export interface ReservationView {
   reservation_id: string
   side: 'buy' | 'sell'
@@ -79,6 +106,8 @@ export interface ReservationView {
   expiry_label: string | null
   route_label: string | null
 }
+
+export type SHA256 = string
 
 export interface SavedAssessmentReviewView {
   reviewed_at: string
@@ -203,6 +232,8 @@ export interface SavedProposalView {
   warnings: string[]
   items: SavedProposalItemView[]
   portfolio_exposure: SavedPortfolioExposureView
+  corrections: ProposalCorrection[]
+  human_reports: HumanProposalReport[]
 }
 
 export interface SavedQuoteView {

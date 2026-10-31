@@ -69,3 +69,11 @@ scaffoldで入力とIDを固定し、正規checkが返すdraft_sha256へ作者�
 previewは保存条件を保ち、現在quote・cash・limit再検証・warning・不足理由を別に示す。買付のsaved-limit再検証は保存選択数量を使い、現在の数量上限maximum_quantityと区別する。上限が縮んでも保存数量が内側なら維持し、超えたらblockedとして黙って縮小しない。利用不能でも原評価・当時の条件付き算術を失効・誤りと断定しない。
 
 集中・ADV・budget・cash warningは人間へ示す。保有quoteや権利basisが揃わなければNAVを作らず、既知factor比率が下限の場合はcoverageを示す。saved warningとcurrent warningを混ぜない。実取引は[Ledger](portfolio-ledger.md)へ別途記録する。
+
+## 提案の訂正と人間の報告
+
+人間が買わなかったことはシステムのno_actionではない。提案本文・Review・当時の条件を保持し、非購入の報告をexact提案参照へ別記録する。`reported_at`は本人の報告日時、`subject_at`は本人が明示した対象時点で、不明ならnull。`statement`と本人の`reason_quote`、担当者による`context_summary`を区別する。非購入から未発注・取消・未約定・永久却下を推定せず、ledger・保有・cash・予約は変更しない。
+
+誤って保存した提案は、exacthash付き`erroneous_ref`と理由を持つ追記訂正で最新候補から除外する。`replacement_ref`はそれ以前の提案への監査用関連参照で、優先権を与えない。残りを従来の基準日・発行時刻・ID順で選ぶため、後から出た正当な提案があればそのまま最新になる。訂正時刻による再ランキング、新しい買付推奨、現在条件の適格性回復は行わない。両原本はIDで読める。訂正の連鎖・循環・同一対象の多重訂正は拒否し、同ID同内容の再送は元記録を返す。異内容は競合とする。
+
+保存表示と現在previewは同じ訂正集合を読み、人間報告を別項目に出す。原提案の古さによる当日起点refresh等のgateは変わらない。Operationの完了履歴も書き換えない。

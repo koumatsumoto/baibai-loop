@@ -4,7 +4,34 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 27
+APPLICATION_SCHEMA_VERSION = 28
+
+PROPOSAL_RECORDS_SCHEMA_SQL = """
+CREATE TABLE proposal_correction (
+    correction_id TEXT PRIMARY KEY,
+    erroneous_proposal_id TEXT UNIQUE NOT NULL REFERENCES investment_proposal(proposal_id),
+    replacement_proposal_id TEXT NOT NULL REFERENCES investment_proposal(proposal_id),
+    recorded_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    CHECK (erroneous_proposal_id <> replacement_proposal_id)
+) STRICT;
+CREATE TABLE proposal_human_report (
+    report_id TEXT PRIMARY KEY,
+    proposal_id TEXT NOT NULL REFERENCES investment_proposal(proposal_id),
+    recorded_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload))
+) STRICT;
+CREATE INDEX proposal_human_report_proposal_idx
+ON proposal_human_report(proposal_id, recorded_at, report_id);
+CREATE TRIGGER proposal_correction_no_update BEFORE UPDATE ON proposal_correction
+BEGIN SELECT RAISE(ABORT, 'proposal correction is immutable'); END;
+CREATE TRIGGER proposal_correction_no_delete BEFORE DELETE ON proposal_correction
+BEGIN SELECT RAISE(ABORT, 'proposal correction is immutable'); END;
+CREATE TRIGGER proposal_human_report_no_update BEFORE UPDATE ON proposal_human_report
+BEGIN SELECT RAISE(ABORT, 'human proposal report is immutable'); END;
+CREATE TRIGGER proposal_human_report_no_delete BEFORE DELETE ON proposal_human_report
+BEGIN SELECT RAISE(ABORT, 'human proposal report is immutable'); END;
+"""
 
 COMPANY_RESEARCH_SCHEMA_SQL = """
 CREATE TABLE company_research (
@@ -233,6 +260,7 @@ ON portfolio_outcome(period_end_date, horizon, outcome_id);
 """
     + COMPANY_RESEARCH_SCHEMA_SQL
     + JUDGMENT_RETROSPECTIVE_SCHEMA_SQL
+    + PROPOSAL_RECORDS_SCHEMA_SQL
 )
 
 __all__ = [

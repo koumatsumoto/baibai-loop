@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine investment-judgment")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser(
+        "proposal-records", help="proposal corrections and human reports", add_help=False
+    )
+    subparsers.add_parser(
         "market-context", help="explicit market judgment and saved history", add_help=False
     )
     subparsers.add_parser(
@@ -207,6 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "proposal-records":
+        from baibai_engine.cli.proposal_records import main as proposal_records_main
+
+        return proposal_records_main(arguments[1:])
     if arguments and arguments[0] == "company-research":
         from baibai_engine.cli.company_research import main as company_research_main
 

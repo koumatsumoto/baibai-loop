@@ -10,6 +10,8 @@ from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_V
 from baibai_engine.storage.sqlite.application.write import initialize_database
 
 EXPECTED_TABLES = (
+    "proposal_correction",
+    "proposal_human_report",
     "task",
     "company_research",
     "judgment_retrospective",
