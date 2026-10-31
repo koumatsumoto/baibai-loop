@@ -78,11 +78,15 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         "</item></channel></rss>"
     ).encode()
     notice = f'<meta http-equiv="refresh" content="0;url={target_url}">'.encode()
+    target_body = (
+        '<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">'
+        '<main>本文<a href="old.pdf">Old reference</a></main>'
+    ).encode("shift_jis")
     session = Session(
         [
             Response(200, feed),
             Response(200, notice),
-            Response(target_status, b'<main>Body<a href="old.pdf">Old reference</a></main>'),
+            Response(target_status, target_body),
         ]
     )
     store = MemoryR2Store()
@@ -116,7 +120,10 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         assert report["failures"] == []
         assert result.complete is True
         target = next(item for item in observations if item.original_url == target_url)
-        assert "Body" in target.text
+        assert "本文" in target.text
+        assert next(item for item in receipts if item["requested_url"] == target_url)[
+            "encoding"
+        ] == "shift_jis"
         assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
         assert target.receipt_id != notice_observation.receipt_id
         assert target.article_id != notice_observation.article_id
