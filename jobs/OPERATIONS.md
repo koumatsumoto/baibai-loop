@@ -100,7 +100,27 @@ uv run python -m tools.financials_identity_workspace --db <APP29> \
   --source <ORIGINAL_WORKSPACE> --archive <NEW_ARCHIVE> --output <NEW_WORKSPACE>
 ```
 
-6. **本番publish入口はこのcopy/evidence実装には含まれない。** 既存`push-runs`/`push-app`は内部で送信snapshotを作り直し、machine manifest更新も無条件PUTであるため、それだけでは移行manifestのSHA固定とmanifest CASを満たさない。本番反映前に、実upload snapshotを事前固定し、取得ETag・remote HEAD・manifest ETagへ条件付き反映できる限定入口とその検証が必要である。予定順序はwriters停止→新codeのCI/読取確認→正規publication lease→runs→machine manifest→application→fresh読戻し。market/indicatorsは再uploadしない。2DBは原子的に更新できないので片方だけ成功した状態でwritersを再開しない。lease期限（既定120分）を越えて書かず、再取得前に到達状態を照合する。
+6. 反映を認可された場合だけ、writer停止と新codeのCI/読取確認後、正規のoperator publication lease内で下記限定入口を使う。`--writers-drained`はlease外のapplication writerも停止済みという実行者の確認であり、CLIがwriterを停止するものではない。既存`push-runs`/`push-app`は内部でsnapshotを作り直すため、この切替へ混用しない。
+
+```bash
+uv run python -m tools.financials_identity_publish prepare-upload \
+  --source-app <SEALED_SCHEMA28_APP> --source-runs <SEALED_SCHEMA7_RUNS> \
+  --copy <VERIFIED_CONVERSION_DIRECTORY> --generations <ORIGINAL_PULL_ETAG_DIRECTORY> \
+  --source-revision <ORIGINAL_CODE_40_HEX> --directory <NEW_PRIVATE_UPLOAD_DIRECTORY> \
+  --lease-handle <OPERATOR_LEASE_HANDLE> --writers-drained
+uv run python -m tools.financials_identity_publish apply \
+  --directory <PRIVATE_UPLOAD_DIRECTORY> --lease-handle <OPERATOR_LEASE_HANDLE> --writers-drained
+```
+
+prepareは元runs/applicationのpaired ETagとremote bytesを照合し、新規directoryへ実upload用snapshot・digest/Content-MD5・元2DB/元manifest backup・source/target code revisionをPUT前に固定する。現HEADを旧local copyの取得ETagへ付け替えない。applyは固定fileをruns→machine manifest→applicationの順に各元ETagへCASする。manifest自身も元ETagへのCASで、新runsのPUT応答又はexact読戻しのETagから作るbody/digestをmanifest PUT前に固定し、再開時に時刻やbodyを作り直さない。production adapterはPUT応答のETagを返す設定にし、後のHEADを自分のACKと扱わない。market/indicatorsはHEADだけを照合し、bodyを再uploadしない。
+
+各PUT直前にoperator leaseを検証する。例外後は`status`で全対象をHEAD→GET digest→HEADへ照合し、既知の原版/候補だけの順序であることを確認する。`status`はremote書込を行わず、期限切れhandleの再取得前にも使える。新handleでのapplyも元のplanと同じ期待ETagを使い、確認できた未到達keyだけを進める。acknowledged generation、無関係なmachine store、原本/candidate digestの不一致や未知の途中状態では停止する。2DBは原子的ではないため片方だけ成功した状態でwritersを再開しない。
+
+```bash
+uv run python -m tools.financials_identity_publish status --directory <PRIVATE_UPLOAD_DIRECTORY>
+```
+
+`verified.json`は全反映をexact読戻しした記録で、writer再開やserving公開を自動実行しない。`backup/`とplan/journalを切替完了まで保持する。rollbackを自動化して後続事実を消す入口は持たず、必要なら下記条件を確認して保全原本の条件付き復元を別の有限操作で行う。
 7. 新規read-only pullで2DBのschema・旧名通常依存の除去・原Proposal/Review/hash・本人報告・旧indexを再確認する。ローカルleaseを解放してから、別leaseを取る既存materializeを固定runで実行しreadbackする。`GITHUB_ACTIONS`を偽装しない。対応code/2DB/表示の成功を確認後だけwritersを再開する。
 
 PUTの結果不明時はremote HEADとGETのSHAを保存した転送snapshotへ照合し、盲再送しない。rollbackは新writer再開前かつremoteが今回の既知状態だけの場合に限定し、元2DB・machine manifest・対応旧codeを一組で復元する。後続の本人報告や取引が入った後は古いDB全体へ戻さずforward fixにする。独立dry-runの成功を本番反映の完了とは扱わない。
