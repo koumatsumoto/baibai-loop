@@ -323,7 +323,7 @@ assert "baibai_engine.machine_analysis.observations.external_assessments.store" 
     )
 
 
-def test_saved_tradingview_history_stays_dated_but_new_generation_excludes_it(tmp_path):
+def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_history(tmp_path):
     from baibai_engine.machine_analysis.generation.runners.external_assessment import (
         generate_external_assessment,
     )
@@ -344,18 +344,35 @@ def test_saved_tradingview_history_stays_dated_but_new_generation_excludes_it(tm
     assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
     fixed_payload = personal.model_dump_json()
     generated = generate_external_assessment(history, evaluated_at=cutoff)
-    assert generated.method_version == "same-series-v5-no-tradingview"
-    assert generated.tradingview.availability == "excluded_by_source_terms"
-    assert generated.tradingview.inputs.latest is None
-    assert generated.tradingview.inputs.previous is None
-    assert generated.tradingview.forecast_fields == ()
-    assert generated.tradingview.comparisons == ()
+    assert generated.method_version == "same-series-v6"
+    assert generated.tradingview == personal.tradingview
+    assert generated.tradingview.availability == "forecast_fields_present"
+    assert "eps_forecast_next_fy" in generated.tradingview.forecast_fields
     assert generated.model_valuations == personal.model_valuations
     assert ExternalAssessment.model_validate_json(fixed_payload).model_dump_json() == fixed_payload
     assert path.read_bytes() == before
 
+    from baibai_engine.machine_analysis.observations.external_assessments.history import (
+        TradingViewHistory,
+    )
 
-def test_generation_population_read_does_not_decode_tradingview_rows(tmp_path):
+    historical = generated.model_copy(
+        update={
+            "method_version": "same-series-v5-no-tradingview",
+            "tradingview": generated.tradingview.model_copy(
+                update={
+                    "inputs": TradingViewHistory(),
+                    "availability": "excluded_by_source_terms",
+                    "forecast_fields": (),
+                    "comparisons": (),
+                }
+            ),
+        }
+    ).model_dump_json()
+    assert ExternalAssessment.model_validate_json(historical).model_dump_json() == historical
+
+
+def test_optional_population_read_can_skip_tradingview_rows(tmp_path):
     path = tmp_path / "market.sqlite"
     tv_row(path, RECEIVED, eps_forecast_next_fy=10)
     save_observations(path, [valuation()])

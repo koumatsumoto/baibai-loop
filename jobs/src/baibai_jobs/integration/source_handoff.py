@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "acquire":
                 if args.source == "tradingview":
                     raise ValueError(
-                        "TradingView live acquisition is retired; replay retained receipts"
+                        "Use the official connector and tradingview-source receive; no live client here"
                     )
                 if (
                     args.source.startswith("jquants-")

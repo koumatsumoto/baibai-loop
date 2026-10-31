@@ -7,7 +7,6 @@ from baibai_engine.machine_analysis.models.external_assessment.analysis import a
 from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
-    TradingViewHistory,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observations,
@@ -23,16 +22,5 @@ def external_assessment(
 def generate_external_assessment(
     history: ObservationHistory, *, evaluated_at: datetime
 ) -> ExternalAssessment:
-    # Personal historical reads are not a licence for automated decision inputs.
-    # Also exclude explicitly supplied histories, not just the SQLite batch reader.
-    result = analyze(
-        history.model_copy(update={"tradingview": TradingViewHistory()}), evaluated_at=evaluated_at
-    )
-    return result.model_copy(
-        update={
-            "method_version": "same-series-v5-no-tradingview",
-            "tradingview": result.tradingview.model_copy(
-                update={"availability": "excluded_by_source_terms", "comparisons": ()}
-            ),
-        }
-    )
+    result = analyze(history, evaluated_at=evaluated_at)
+    return result.model_copy(update={"method_version": "same-series-v6"})
