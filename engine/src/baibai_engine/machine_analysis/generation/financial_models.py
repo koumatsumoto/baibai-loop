@@ -132,7 +132,7 @@ def generate_financial_and_price_models(
     )
     return (
         GeneratedModel(
-            model_id="company_valuation",
+            model_id="company_financials",
             subject=ticker,
             calculation_revision=(
                 f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"

@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 
 _LEGACY_COMPANY_MODELS = (
-    "company_valuation",
+    "company_financials",
     "company_growth",
     "technical_analysis",
     "external_assessment",

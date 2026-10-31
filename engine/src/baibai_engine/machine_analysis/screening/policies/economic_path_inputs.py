@@ -50,7 +50,7 @@ def project_company(
 ) -> CompanyCoordinates:
     index = {model.model_id: model for model in models}
     payloads = {key: model.payload for key, model in index.items()}
-    valuation = payloads.get("company_valuation", {})
+    valuation = payloads.get("company_financials", {})
     financial = _object(valuation.get("financial"))
     earnings = _object(valuation.get("earnings_price"))
     earnings_read = read_earnings_price(earnings) if earnings else None

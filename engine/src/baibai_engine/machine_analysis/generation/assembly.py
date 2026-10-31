@@ -98,7 +98,7 @@ def generate_models(
         raise ValueError("financial release must belong to the fixed generation inputs")
     # Model participation is owned by generation, not copied into L3 or Screening.
     company_model_ids = (
-        "company_valuation",
+        "company_financials",
         "company_growth",
         "technical_analysis",
         "external_assessment",

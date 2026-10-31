@@ -62,4 +62,4 @@
 
 ## 名称と保存契約
 
-採用名称と保存IDは別の契約。Company Financialsの保存model IDは、既存履歴・参照を保つため`company_valuation`を維持する。現行配置と保存責務は[architecture](architecture.md#store-authority)を参照する。
+採用名称と保存IDは別の契約。Company Financialsの現行保存model IDは`company_financials`。旧`company_valuation`からの明示移行では、運用入力を統一し、公開済み判断が参照する原Selectionは当時のcanonicalとして保持する。旧名を通常readerのaliasにはしない。[移行手順](../jobs/OPERATIONS.md#financials-identity-cutover)と[保存責務](architecture.md#store-authority)を参照する。

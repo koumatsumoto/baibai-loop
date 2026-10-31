@@ -62,9 +62,9 @@ def integration(tmp_path, monkeypatch):
                 },
                 subject_plan={
                     "1234": GenerationSubject(
-                        scope="stock", model_ids=("company_valuation", "market_context")
+                        scope="stock", model_ids=("company_financials", "market_context")
                     ),
-                    "5678": GenerationSubject(scope="stock", model_ids=("company_valuation",)),
+                    "5678": GenerationSubject(scope="stock", model_ids=("company_financials",)),
                     "market:global": GenerationSubject(
                         scope="market", model_ids=("social_trends",)
                     ),
@@ -74,7 +74,7 @@ def integration(tmp_path, monkeypatch):
             models=iter(
                 (
                     GeneratedModel(
-                        model_id="company_valuation",
+                        model_id="company_financials",
                         subject="1234",
                         calculation_revision="v1",
                         payload={

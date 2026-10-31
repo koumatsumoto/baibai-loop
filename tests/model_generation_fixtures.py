@@ -36,7 +36,7 @@ def generation(*, value=0.100049):
                 payload={"price_momentum": {"value": None, "reason": "missing_endpoint"}},
             ),
             GeneratedModel(
-                model_id="company_valuation",
+                model_id="company_financials",
                 subject="1234",
                 calculation_revision="v1",
                 payload={"earnings_price": {"earnings_yield": value}},

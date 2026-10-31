@@ -52,10 +52,10 @@ def test_five_models_are_generated_once_per_subject_and_common_market_once():
     individual = generate(tickers=("1001",))
     assert individual.models == tuple(m for m in result.models if m.subject in ("1001", "market"))
     assert (
-        result.result("company_valuation", "1001").payload["earnings_price"]["earnings_yield"]
+        result.result("company_financials", "1001").payload["earnings_price"]["earnings_yield"]
         is None
     )
-    assert "machine_valuation" not in result.result("company_valuation", "1001").payload
+    assert "machine_valuation" not in result.result("company_financials", "1001").payload
 
 
 def test_omitted_optional_input_does_not_remove_other_models():

@@ -68,6 +68,63 @@ metricsのlookbackは取得coverageと抽出候補の範囲であり、archive�
 
 Screening成功は全source成功を意味しない。旧snapshot日を当日へ書き換えず、`edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc`、文書ID・提出日時・対象期間で鮮度を確認する。採用条件は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。入力延期だけなら `source-check` は成功、不正受領・解析・公開・readbackの失敗はエラーになる。check無効化や全取得の重複起動ではなく、失敗したsourceだけを修復する。
 
+<a id="financials-identity-cutover"></a>
+### Company Financials保存IDの限定移行（runs 7→8 / application 28→29）
+
+通常open/dailyでは移行しない。現行codeは旧schemaを拒否するため、codeと2DBをwriter停止中に一組で切り替える。以下のprepareはローカル新規copyだけを作り、取得・本番反映・writer停止を実行しない。一度の切替後はこのconverterを通常運用へ接続しない。
+
+対象は生成モデルの外枠ID、V2 plan、Selection V3/V4内の同型コピー、候補カードの`model_revisions`辞書キーと`not_generated`。model payload・計算revision・財務値・原provenance・政策method/順位/ID/発行日を保持する。Selection V2は変更しない。未知schema/field、旧新ID衝突、active Operation、変更対象に対応する公開Proposalがない場合は停止する。過去の棚卸し件数を次回の対象件数と見なさない。
+
+1. canonical writerのdailyとmaterialize、運用CLI等のapplication writerを停止し、未完了run全体とローカルpublisherを確認する。独立source取得は一律停止しない。publication leaseだけでは全application writerを止められない。旧codeでfresh runs/applicationと取得ETagを専用作業copyへpullし、machine manifestの全keyとremote HEADを照合する。原2DB・sidecar・machine manifest・旧code revisionを私的backupへ固定し、他作業の取得ETagを流用しない。
+2. 新codeへ切り替え、WAL/journalのない旧snapshotへ以下を実行する。`RECORDED_AT`は実時刻を一度固定し、同じsource/時計/出力だけを冪等再確認する。不完全出力や別sourceは上書きせず、原本を確認して新しいdirectoryを使う。
+
+```bash
+uv run python -m tools.financials_identity \
+  --source-app <SEALED_SCHEMA28_APP> --source-runs <SEALED_SCHEMA7_RUNS> \
+  --output <NEW_PRIVATE_DIRECTORY> --recorded-at <RECORDED_AT>
+```
+
+3. 出力は新規`application.sqlite`・`runs.sqlite`とsource/output SHA・schema・件数・読戻し結果を持つ`manifest.json`。FK/不変triggerを有効にINSERTし、全行を許可された変換だけと照合する。公開Proposal/Review/本人報告/訂正/台帳は元の行を保持し、公開hash閉包・旧indexのpayload・保持世代/政策コピーを別途検証する。新しい同じv4政策の再適用でも同IDが`created=false`であることを隔離runsで確認する。private原本や件数は公開artifactへ出さない。
+4. `selection_identity_migration`はOperationごとの不変な移行証拠。`published_selection_canonical`は旧hashが指す原文、OperationのSelectionは正規化済み運用入力である。下記履歴読取は同transactionで現在hash・receipt・指定Proposalの正規Reviewとexact scopeを検証し、原canonicalをopaqueな文字列で返す。通常readerへ旧名aliasや旧hash例外を設けない。
+
+```bash
+uv run baibai-engine operation --db <APP29> selection-evidence <OPERATION_ID> \
+  --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <EXACT_PROPOSAL_ID>
+```
+
+5. 旧workspaceを使う場合はmanifest・domain-inputs・執筆済みdraftをまとめてarchiveし、新directoryへcompletedの運用投影だけを復元する。原workspaceを`--force`で新hashへ転用しない。旧出典indexは原canonical/原domain-inputsと一組で解決し、新manifest下へ旧draftをコピーしない。
+
+```bash
+uv run python -m tools.financials_identity_workspace --db <APP29> \
+  --operation-id <OPERATION_ID> --proposal-id <EXACT_PROPOSAL_ID> \
+  --source <ORIGINAL_WORKSPACE> --archive <NEW_ARCHIVE> --output <NEW_WORKSPACE>
+```
+
+6. 反映を認可された場合だけ、writer停止と新codeのCI/読取確認後、正規のoperator publication lease内で下記限定入口を使う。`--writers-drained`はlease外のapplication writerも停止済みという実行者の確認であり、CLIがwriterを停止するものではない。既存`push-runs`/`push-app`は内部でsnapshotを作り直すため、この切替へ混用しない。
+
+```bash
+uv run python -m tools.financials_identity_publish prepare-upload \
+  --source-app <SEALED_SCHEMA28_APP> --source-runs <SEALED_SCHEMA7_RUNS> \
+  --copy <VERIFIED_CONVERSION_DIRECTORY> --generations <ORIGINAL_PULL_ETAG_DIRECTORY> \
+  --source-revision <ORIGINAL_CODE_40_HEX> --directory <NEW_PRIVATE_UPLOAD_DIRECTORY> \
+  --lease-handle <OPERATOR_LEASE_HANDLE> --writers-drained
+uv run python -m tools.financials_identity_publish apply \
+  --directory <PRIVATE_UPLOAD_DIRECTORY> --lease-handle <OPERATOR_LEASE_HANDLE> --writers-drained
+```
+
+prepareは元runs/applicationのpaired ETagとremote bytesを照合し、新規directoryへ実upload用snapshot・digest/Content-MD5・元2DB/元manifest backup・source/target code revisionをPUT前に固定する。現HEADを旧local copyの取得ETagへ付け替えない。applyは固定fileをruns→machine manifest→applicationの順に各元ETagへCASする。manifest自身も元ETagへのCASで、新runsのPUT応答又はexact読戻しのETagから作るbody/digestをmanifest PUT前に固定し、再開時に時刻やbodyを作り直さない。production adapterはPUT応答のETagを返す設定にし、後のHEADを自分のACKと扱わない。market/indicatorsはHEADだけを照合し、bodyを再uploadしない。
+
+各PUT直前にoperator leaseを検証する。例外後は`status`で全対象をHEAD→GET digest→HEADへ照合し、既知の原版/候補だけの順序であることを確認する。`status`はremote書込を行わず、期限切れhandleの再取得前にも使える。新handleでのapplyも元のplanと同じ期待ETagを使い、確認できた未到達keyだけを進める。acknowledged generation、無関係なmachine store、原本/candidate digestの不一致や未知の途中状態では停止する。2DBは原子的ではないため片方だけ成功した状態でwritersを再開しない。
+
+```bash
+uv run python -m tools.financials_identity_publish status --directory <PRIVATE_UPLOAD_DIRECTORY>
+```
+
+`verified.json`は全反映をexact読戻しした記録で、writer再開やserving公開を自動実行しない。`backup/`とplan/journalを切替完了まで保持する。rollbackを自動化して後続事実を消す入口は持たず、必要なら下記条件を確認して保全原本の条件付き復元を別の有限操作で行う。
+7. 新規read-only pullで2DBのschema・旧名通常依存の除去・原Proposal/Review/hash・本人報告・旧indexを再確認する。ローカルleaseを解放してから、別leaseを取る既存materializeを固定runで実行しreadbackする。`GITHUB_ACTIONS`を偽装しない。対応code/2DB/表示の成功を確認後だけwritersを再開する。
+
+PUTの結果不明時はremote HEADとGETのSHAを保存した転送snapshotへ照合し、盲再送しない。rollbackは新writer再開前かつremoteが今回の既知状態だけの場合に限定し、元2DB・machine manifest・対応旧codeを一組で復元する。後続の本人報告や取引が入った後は古いDB全体へ戻さずforward fixにする。独立dry-runの成功を本番反映の完了とは扱わない。
+
 ### マクロ原本の独立更新
 
 `cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。

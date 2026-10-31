@@ -38,16 +38,16 @@ def saved_generation(path):
         subject_plan={
             "1234": GenerationSubject(
                 scope="stock",
-                model_ids=("company_valuation", "market_context"),
+                model_ids=("company_financials", "market_context"),
                 related_subjects=("industry:pharma",),
             ),
-            "5678": GenerationSubject(scope="stock", model_ids=("company_valuation",)),
+            "5678": GenerationSubject(scope="stock", model_ids=("company_financials",)),
             "industry:pharma": GenerationSubject(scope="sector", model_ids=("industry_trends",)),
             "market:global": GenerationSubject(scope="market", model_ids=("social_trends",)),
         },
         models=(
             GeneratedModel(
-                model_id="company_valuation",
+                model_id="company_financials",
                 subject="1234",
                 calculation_revision="v1",
                 payload={
