@@ -2,7 +2,7 @@
 
 資産・損益・保有銘柄、運用成績、タスク、最新の保存済み売買提案を表示する。台帳と保存成績・正式提案を正本とし、未評価をゼロへ置換しない。スクリーニング・マクロ・旧調査一覧・前回差分は表示しない。
 
-売買提案は表示データ生成時点の全scopeから `(as_of, timezone付きpublished_atの瞬間, proposal_id)` が最大の1件を選び、保存順の本文とexact Assessment/Reviewの抜粋を表示する。当初の投資理由と今回の評価を分ける。正常storeで0件なら「保存済み提案なし」、最新の破損・store不在なら「読取不能」とし、古い正常提案へ戻さない。提案の不足・破損は他の3 viewを止めない。現在のmarket・cash・注文資格を再計算せず、対象取引日を実注文期限へ読み替えない。[行動と条件の意味](../docs/reference/trade-proposal.md)に従う。
+売買提案は表示データ生成時点で訂正により誤記録とされた提案を除き、残る全scopeから `(as_of, timezone付きpublished_atの瞬間, proposal_id)` が最大の1件を選び、保存順の本文とexact Assessment/Reviewの抜粋を表示する。当初の投資理由と今回の評価を分け、本人の非購入報告は原提案の行動と別に表示する。正常storeで0件なら「保存済み提案なし」、最新の破損・store不在なら「読取不能」とし、古い正常提案へ戻さない。提案の不足・破損は他の3 viewを止めない。現在のmarket・cash・注文資格を再計算せず、対象取引日を実注文期限へ読み替えない。[行動・訂正・本人報告の意味](../docs/reference/trade-proposal.md)に従う。
 
 `baibai-web serve` は既存どおりloopbackだけで起動する。配信Workerの既存認証を全viewに共通で適用し、提案専用のpassword・role・設定は増やさない。ローカル作業では `uv run baibai-web serve` とfrontendのViteを使う。品質確認は対象HEADのCIで行う。
 

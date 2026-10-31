@@ -16,7 +16,7 @@ masterはcutoff以下の一つの最新snapshotを選び、その中にないtic
 
 既存security contextの`price.return_1d/5d/20d/60d`は個社観測bar差分、`high_52w`は直近252終値の高値で、共通営業日窓へ変更していない。新生成の`price_path_relative`だけがTAの[共通calendar観測](technical-analysis.md#共通calendarの価格context)と同じref・正確な開始/終了日でbenchmarkを比較する。G252は253営業日期間内の観測peak→現在で、旧252終値highとも前年比とも異なる。生成時に既読の長期benchmark系列と日状態を再利用し、端点が欠測・不整合なら当該比較だけを未評価にする。旧MC相対値・peer値の異窓流用や、新しいpeer比較は行わない。
 
-旧ticker-profileは旧runと可変モデル・現在ledgerを混合するため撤去した。調査のモデル入力はselection-contextで固定generationから読み、取引事実はPosition、決算予定・規制等の原観測は各market readerから必要時に確認する。selection-contextへイベント一覧や現在ledgerの集中度が含まれるとは扱わない。五モデルの共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
+旧ticker-profileは旧runと可変モデル・現在ledgerを混合するため撤去した。調査のモデル入力はselection-contextで固定generationから読み、取引事実は[Portfolio Ledger](portfolio-ledger.md)、決算予定・規制等の原観測は各market readerから必要時に確認する。selection-contextへイベント一覧や現在ledgerの集中度が含まれるとは扱わない。共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
 
 <a id="margin"></a>
 ## 信用需給
@@ -62,7 +62,7 @@ as-ofの固定やJST日末cutoffは**intraday PITの保証ではない**。公�
 <a id="assessment"></a>
 ## 市場環境判断
 
-Investment Judgmentの市場環境判断（Market Context Assessment）は、固定入力と基準時点、重要な水準・変化の根拠、反証/不確実性、調査・業種・riskへの含意を扱う。章数・確率格子・scenario件数を必須にせず、変化が小さいことや不足も表現する。単なる株価トレンドへ縮めず、個社への伝達と支払価格の比較につなぐ。
+Investment Judgmentの市場環境判断（Market Assessment）は、固定入力と基準時点、重要な水準・変化の根拠、反証/不確実性、調査・業種・riskへの含意を扱う。章数・確率格子・scenario件数を必須にせず、変化が小さいことや不足も表現する。単なる株価トレンドへ縮めず、個社への伝達と支払価格の比較につなぐ。
 
 共通条件を個社の耐性・仮定と価格比較へ接続する。独自の総合risk点、指数連動の要求率、自動配分・一律業種除外/売却は、実時間の増分価値と費用・誤除外を確認できず採用していない。[当時の方式比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-20-macro-risk-strategy/report.md)は、集約指数一般の無効や今日の市場状態を認定したものではない。
 

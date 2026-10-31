@@ -18,7 +18,7 @@ releaseへの収録境界、開示日cutoff、L3の入力確定時刻は別で�
 
 部分訂正や欠測は科目ごとに扱い、別期間の正常値へ切り替えて比較を成立させない。比較元の期間は値の有無より先に決める。同じ実期間に複数の会計identityが残る場合も原観測を統合せず、同値の科目は比較を保ち、競合する科目だけを比較不能にする。累計訂正の順序が不明な場合と、変更自体がない場合を区別するのは、既知の不整合を差し引かず、時刻欠測だけで有効な観測を失わないためである。
 
-会計基準は連結/単体の`statement_basis`と別に、[J-Quants公式DocType一覧](https://jpx-jquants.com/ja/spec/fin-summary/typeofdocument)の決算短信`DocType`からJP・US・JMIS・IFRSを解決する。前年比較と累計差分・TTMは最新候補と対象期間を固定してから両方の基準を照合する。未知の基準や変更後の組替値が未観測なら、その計算だけを欠測にする。単独の報告額・価格・株数・配当は残す。J-Quants summaryは過去の組替比較値を遡及供給しないため、原本にある比較期の観測と出典を追加する作業は[Issue #1683](https://github.com/koumatsumoto/baibai-loop/issues/1683)の第二段階に残す。
+会計基準は連結/単体の`statement_basis`と別に、[J-Quants公式DocType一覧](https://jpx-jquants.com/ja/spec/fin-summary/typeofdocument)の決算短信`DocType`からJP・US・JMIS・IFRSを解決する。前年比較と累計差分・TTMは最新候補と対象期間を固定してから両方の基準を照合する。未知の基準や変更後の組替値が未観測なら、その計算だけを欠測にする。単独の報告額・価格・株数・配当は残す。J-Quants summaryは過去の組替比較値を遡及供給しない。EDINET同一文書の比較は、以下の別の出典付き観測として保存する。
 
 算術が成立しても、事業売却・M&A・連結範囲・会計方針・為替まで同じ経済的範囲へ組み替えた値ではない。L3は重要な増減を原典へ戻して本業・一時損益・事業分離に分け、必要な組替比較を評価側へ記録する。保存原値は上書きしない。
 
@@ -28,7 +28,7 @@ releaseへの収録境界、開示日cutoff、L3の入力確定時刻は別で�
 
 比較期の日付をCSV相対年度名や一覧の年度末から作らず、提出日時より前の評価には使用しない。訂正・取下げは既存EDINET操作行の解決に従い、欠けた訂正ZIPを以前の文書から埋めない。全vintageを明示し、原本未配置は比較入力の不足として既存J-Quants観測と分ける。存在する固定objectのhash不一致は従来どおり読取を止める。新しい必須取得やschema変更はなく、保存済みpayload/ID/hashは書き換えない。
 
-実証fixtureは[436A年次・INPEX半期](../../tests/fixtures/edinet/comparisons/README.md)。Q1/Q3や他の本表roleへ可用性を一般化しない。9268 Q1の同一短信XBRL取得は既存subscription対象外の403で未解決であり、PDF座標の差1,549百万円・TTM営業利益11,386百万円等は自動復元していない。文書間の対応やTTM三項の同基準条件は緩めない。取得不能の比較と経済的な解釈はL3へ残す。
+実証fixtureは[436A年次・INPEX半期](../../tests/fixtures/edinet/comparisons/README.md)。Q1/Q3や他の本表roleへ可用性を一般化しない。[Issue #1683](https://github.com/koumatsumoto/baibai-loop/issues/1683)の9268 Q1の同一短信XBRL取得は既存subscription対象外の403で未解決であり、PDF座標の差1,549百万円・TTM営業利益11,386百万円等は自動復元していない。J-Quantsとの文書対応やTTMへの接続は未提供で、TTM三項の同基準条件を緩めない。取得不能の比較と経済的な解釈はL3へ残す。
 
 赤字縮小・黒字化は元の実額と符号変化で読み、負/ゼロ基準の通常率だけで改善を決めない。営業利益を経常利益で代替せず、金融業へ非金融の営業利益率を当てはめない。EPS・株数は原値を残すが、株式basis未検証の変化率は作らない。
 
