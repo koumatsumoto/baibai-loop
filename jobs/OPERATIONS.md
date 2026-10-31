@@ -75,7 +75,7 @@ Screening成功は全source成功を意味しない。旧snapshot日を当日へ
 
 対象は生成モデルの外枠ID、V2 plan、Selection V3/V4内の同型コピー、候補カードの`model_revisions`辞書キーと`not_generated`。model payload・計算revision・財務値・原provenance・政策method/順位/ID/発行日を保持する。Selection V2は変更しない。未知schema/field、旧新ID衝突、active Operation、変更対象に対応する公開Proposalがない場合は停止する。過去の棚卸し件数を次回の対象件数と見なさない。
 
-1. source/daily/materializeと運用CLI・Web側を含むapplication writerをdrainし、queued/in_progressとローカルpublisherを確認する。publication leaseだけでは全application writerを止められない。旧codeでfresh runs/applicationと取得ETagを専用作業copyへpullし、machine manifestの全keyとremote HEADを照合する。原2DB・sidecar・machine manifest・旧code revisionを私的backupへ固定し、他作業の取得ETagを流用しない。
+1. canonical writerのdailyとmaterialize、運用CLI等のapplication writerを停止し、未完了run全体とローカルpublisherを確認する。独立source取得は一律停止しない。publication leaseだけでは全application writerを止められない。旧codeでfresh runs/applicationと取得ETagを専用作業copyへpullし、machine manifestの全keyとremote HEADを照合する。原2DB・sidecar・machine manifest・旧code revisionを私的backupへ固定し、他作業の取得ETagを流用しない。
 2. 新codeへ切り替え、WAL/journalのない旧snapshotへ以下を実行する。`RECORDED_AT`は実時刻を一度固定し、同じsource/時計/出力だけを冪等再確認する。不完全出力や別sourceは上書きせず、原本を確認して新しいdirectoryを使う。
 
 ```bash

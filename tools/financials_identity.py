@@ -81,6 +81,8 @@ def _open(path: Path, version: int) -> sqlite3.Connection:
 
 
 def _self_contained(path: Path) -> None:
+    if path.is_symlink():
+        raise ValueError("source SQLite snapshot must not be a file symlink")
     if any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
         raise ValueError("source must be a sealed self-contained SQLite snapshot without sidecars")
 
@@ -221,6 +223,11 @@ def _operation(
         raise ValueError("cutover requires exactly one fixed selection per Operation")
     original, normalized_hash, normalized = _selection(selections[0])
     original_hash = hashlib.sha256(original.encode()).hexdigest()
+    normalized_artifacts = [
+        normalized if item.get("kind") == "research_selection" else item
+        for item in payload["artifacts"]
+    ]
+    _no_unknown_identity({**payload, "artifacts": normalized_artifacts})
     if original_hash == normalized_hash:
         return str(row["payload"]), None
     if row["status"] != "completed":
@@ -233,11 +240,7 @@ def _operation(
     expected = proposal_scope(row["operation_id"], OperationPayload.model_validate(payload))
     if any(scope != expected for _, scope in references):
         raise ValueError("original Proposal scope differs from the fixed Operation")
-    payload["artifacts"] = [
-        normalized if item.get("kind") == "research_selection" else item
-        for item in payload["artifacts"]
-    ]
-    _no_unknown_identity(payload)
+    payload["artifacts"] = normalized_artifacts
     return canonical_json(payload), (
         str(row["operation_id"]),
         MIGRATION_ID,

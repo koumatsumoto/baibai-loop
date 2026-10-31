@@ -44,7 +44,12 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     resume_selected_workspace,
 )
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationSubject
+from baibai_engine.machine_analysis.generation.contracts import (
+    GeneratedModel,
+    GenerationSubject,
+    ModelGeneration,
+)
+from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CandidateCard,
@@ -71,6 +76,8 @@ def legacy_case(
     without_proposal=False,
     generation_version=1,
     selection_version=4,
+    financial_model_id=OLD,
+    extra_artifact=None,
 ):
     """旧model IDの入力を先に作り、その内容に対し架空作者が署名する。"""
     if generation_version == 2:
@@ -81,7 +88,9 @@ def legacy_case(
                 **kwargs,
                 schema_version=2,
                 subject_plan={
-                    "1234": GenerationSubject(scope="stock", model_ids=(OLD, "company_growth")),
+                    "1234": GenerationSubject(
+                        scope="stock", model_ids=(financial_model_id, "company_growth")
+                    ),
                     "market": GenerationSubject(scope="market", model_ids=("market_context",)),
                 },
             )
@@ -97,7 +106,7 @@ def legacy_case(
         )
         kwargs["models"] = (
             GeneratedModel(
-                model_id=OLD,
+                model_id=financial_model_id,
                 subject="1234",
                 calculation_revision="original-calculation",
                 payload={"amount": "123456789.000", "decimals": "-3", "unknown": None},
@@ -122,12 +131,30 @@ def legacy_case(
                     strongest_path="earning_power",
                     paths=(),
                     context={},
-                    model_revisions={OLD: "original-calculation"},
+                    model_revisions={financial_model_id: "original-calculation"},
                     not_generated=("external_assessment",),
                 ),
             ),
         )
         selection = seed_generated_selection(**kwargs)
+        if financial_model_id == NEW:
+            # 固定Selectionと別の旧世代を残し、旧IDゼロの事前停止で負例を隠さない。
+            ModelGenerationStore(kwargs["runs"]).publish(
+                ModelGeneration(
+                    generation_id="synthetic-unreferenced-legacy",
+                    as_of=selection.research_as_of,
+                    evaluation_time=kwargs["now"],
+                    inputs=selection.inputs.generation.inputs,
+                    models=(
+                        GeneratedModel(
+                            model_id=OLD,
+                            subject="9999",
+                            calculation_revision="synthetic-legacy",
+                            payload={"synthetic": "unreferenced cached result"},
+                        ),
+                    ),
+                )
+            )
         if selection_version == 3:
             raw = selection.model_dump(mode="json")
             raw["schema_version"] = 3
@@ -136,14 +163,23 @@ def legacy_case(
         return selection
 
     monkeypatch.setattr(proposal_helpers, "seed_generated_selection", seed)
-    if selection_version == 3:
-        # 旧V3の新規開始だけを再現し、署名を作る前に現行V4 gateへ戻す。
-        with monkeypatch.context() as historical_start:
+    # 開始入力だけをfixture化し、Proposal/Reviewを作る前に通常gateへ戻す。
+    with monkeypatch.context() as historical_start:
+        if selection_version == 3:
             historical_start.setattr(
                 operation_service, "GeneratedResearchSelectionV4", GeneratedResearchSelection
             )
-            case = backend_case(tmp_path)
-    else:
+        if extra_artifact is not None:
+            original_start = OperationService.start
+
+            def start_with_artifact(self, **kwargs):
+                payload = kwargs["payload"]
+                kwargs["payload"] = payload.model_copy(
+                    update={"artifacts": (*payload.artifacts, extra_artifact)}
+                )
+                return original_start(self, **kwargs)
+
+            historical_start.setattr(OperationService, "start", start_with_artifact)
         case = backend_case(tmp_path)
     original = None
     if without_proposal:
@@ -333,7 +369,16 @@ def test_old_workspace_is_archived_as_a_whole_and_never_rebound(tmp_path, monkey
 
 
 @pytest.mark.parametrize(
-    "mode", ["active", "missing_proposal", "wal", "escaped_id", "collision", "policy_drift"]
+    "mode",
+    [
+        "active",
+        "missing_proposal",
+        "wal",
+        "symlink",
+        "escaped_id",
+        "collision",
+        "policy_drift",
+    ],
 )
 def test_unsupported_sources_stop_without_changing_originals(tmp_path, monkeypatch, mode):
     case, _ = legacy_case(
@@ -341,6 +386,10 @@ def test_unsupported_sources_stop_without_changing_originals(tmp_path, monkeypat
     )
     if mode == "wal":
         case.app.with_name(case.app.name + "-wal").write_bytes(b"pending")
+    if mode == "symlink":
+        alias = tmp_path / "source-alias.sqlite"
+        alias.symlink_to(case.app)
+        case.app = alias
     if mode in {"escaped_id", "collision", "policy_drift"}:
         with sqlite3.connect(case.runs) as connection:
             if mode == "escaped_id":
@@ -369,12 +418,29 @@ def test_unsupported_sources_stop_without_changing_originals(tmp_path, monkeypat
         "active": "active Operation",
         "missing_proposal": "without a published Proposal",
         "wal": "self-contained",
+        "symlink": "symlink",
         "escaped_id": "unknown field",
         "collision": "collide",
         "policy_drift": "policy copy differs",
     }
     with pytest.raises(ValueError, match=expected_error[mode]):
         prepare(case, tmp_path / "rejected")
+    assert before == (file_sha256(case.app), file_sha256(case.runs))
+
+
+def test_unchanged_selection_still_rejects_unknown_legacy_artifact(tmp_path, monkeypatch):
+    case, _ = legacy_case(
+        tmp_path,
+        monkeypatch,
+        financial_model_id=NEW,
+        extra_artifact={"kind": "synthetic-other", "model_id": OLD},
+    )
+    assert all(model.model_id != OLD for model in case.selected.inputs.generation.models)
+    before = (file_sha256(case.app), file_sha256(case.runs))
+    target = tmp_path / "rejected"
+    with pytest.raises(ValueError, match="unknown field"):
+        prepare(case, target)
+    assert not target.exists()
     assert before == (file_sha256(case.app), file_sha256(case.runs))
 
 
