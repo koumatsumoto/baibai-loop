@@ -364,8 +364,18 @@ def acquire_source(
                     document = parse_document(
                         source, body, url=url, encoding=receipt.encoding or "utf-8"
                     )
+                    target = document.metadata.get("redirect_target_url")
+                    if isinstance(target, str) and target not in queue:
+                        # The native parser accepts only MOF's explicit same-host
+                        # insideLink notice. The target is a separate GET/receipt,
+                        # spending the existing body/request/byte/time budgets.
+                        queue.insert(0, target)
                     attachments = document.metadata.get("attachments", [])
-                    if isinstance(attachments, list):
+                    if (
+                        isinstance(attachments, list)
+                        and document.metadata.get("attachment_scope")
+                        != "rolling_listing_reference_only"
+                    ):
                         queue[:0] = [
                             link
                             for link in attachments
