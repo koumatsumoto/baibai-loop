@@ -34,6 +34,7 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.records import ProposalRecordService
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
+from baibai_engine.investment_judgment.workflow.operation import service as operation_service
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelection
 from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
@@ -134,7 +135,15 @@ def legacy_case(
         return selection
 
     monkeypatch.setattr(proposal_helpers, "seed_generated_selection", seed)
-    case = backend_case(tmp_path)
+    if selection_version == 3:
+        # 旧V3の新規開始だけを再現し、署名を作る前に現行V4 gateへ戻す。
+        with monkeypatch.context() as historical_start:
+            historical_start.setattr(
+                operation_service, "GeneratedResearchSelectionV4", GeneratedResearchSelection
+            )
+            case = backend_case(tmp_path)
+    else:
+        case = backend_case(tmp_path)
     original = None
     if without_proposal:
         case.operations.record_unfinished(
