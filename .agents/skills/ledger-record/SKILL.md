@@ -58,3 +58,5 @@ uv run baibai-engine portfolio outcome --db stores/application/baibai.sqlite \
 ```
 
 resolved時は作業application DBへimmutableなOutcomeを保存し、unresolved時はDBへ保存しない。`--out`は任意のexportで、既存pathを上書きしない。作業コピーへの保存とクラウド正本への反映は別で、本番へ戻す場合は前述のapplication反映手順を使う。
+
+遅延報告の費用・確定税等を反映して同期間を再計測するときは、`--outcome-id <NEW_OUTCOME_ID>`で以前の結果を残し、同内容の再送には同じIDを使う。

@@ -19,6 +19,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.integration.replay_result import ReplayResult
 
 # These three owners replace their entire current view. Regulations replace only
 # one as-of day. Keep these contracts explicit rather than using a provider LWW.
@@ -55,7 +56,7 @@ def export_handoff(
 
 def import_handoff(
     source: Path, target: Path, bundle_ids: tuple[str, ...], *, collection: str
-) -> dict[str, object]:
+) -> ReplayResult:
     if collection not in _GLOBAL_COLLECTIONS | {"regulations"}:
         raise ValueError("invalid JPX handoff collection")
     with (
@@ -103,9 +104,12 @@ def import_handoff(
             failed.append(bundle_id)
         else:
             replayed.append(bundle_id)
-    return {
-        "raw_rows_added": added,
-        "replayed_bundles": replayed,
-        "incomplete_bundles": incomplete,
-        "projection_failures": failed,
-    }
+    return ReplayResult(
+        report={
+            "raw_rows_added": added,
+            "replayed_bundles": replayed,
+            "incomplete_bundles": incomplete,
+            "projection_failures": failed,
+        },
+        complete=not (incomplete or failed),
+    )

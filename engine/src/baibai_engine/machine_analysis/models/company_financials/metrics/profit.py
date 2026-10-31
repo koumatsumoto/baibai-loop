@@ -18,10 +18,15 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.dividends 
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _carry_forward,
+    _latest_actual_row,
     _latest_summary,
+    _ttm_components,
     _ttm_value,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    accounting_standard,
+    comparable_reporting_basis,
+    latest_reporting_basis_matches,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days
@@ -70,6 +75,9 @@ def build_profitability_level_signals(
     operating_profit_ttm, _ = _ttm_value(available, "operating_profit", ttm_rules)
     sales_ttm, _ = _ttm_value(available, "sales", ttm_rules)
     total_assets, _ = _carry_forward(available, "total_assets", latest)
+    assets_row = _latest_actual_row(available, field_names=("total_assets",))
+    operating_rows = _ttm_components(available, "operating_profit", ttm_rules)
+    sales_rows = _ttm_components(available, "sales", ttm_rules)
 
     def ratio(numerator: float | None, denominator: float | None) -> float | None:
         if numerator is None or denominator is None or denominator <= 0:
@@ -77,9 +85,23 @@ def build_profitability_level_signals(
         return numerator / denominator
 
     return ProfitabilityLevelSignals(
-        operating_profit_to_assets=ratio(operating_profit_ttm, total_assets),
-        operating_margin=ratio(operating_profit_ttm, sales_ttm),
-        asset_turnover=ratio(sales_ttm, total_assets),
+        operating_profit_to_assets=(
+            ratio(operating_profit_ttm, total_assets)
+            if assets_row is not None and comparable_reporting_basis((*operating_rows, assets_row))
+            else None
+        ),
+        operating_margin=(
+            ratio(operating_profit_ttm, sales_ttm)
+            if operating_rows
+            and sales_rows
+            and comparable_reporting_basis((*operating_rows, *sales_rows))
+            else None
+        ),
+        asset_turnover=(
+            ratio(sales_ttm, total_assets)
+            if assets_row is not None and comparable_reporting_basis((*sales_rows, assets_row))
+            else None
+        ),
     )
 
 
@@ -109,7 +131,9 @@ def build_normalized_profit_signals(
     )
     normalized = _normalize_summaries_to_asof_basis(available, ticker_bars, asof_date)
     fy_rows = _latest_fy_revisions(normalized)
-    latest_basis = statement_basis(fy_rows[-1]) if fy_rows else None
+    latest_basis = (
+        (statement_basis(fy_rows[-1]), accounting_standard(fy_rows[-1])) if fy_rows else None
+    )
     eps_values = {
         row.fiscal_year_end: row.cumulative_eps
         for row in fy_rows
@@ -118,10 +142,19 @@ def build_normalized_profit_signals(
         and row.period_end == row.fiscal_year_end
         and (days := period_days(row)) is not None
         and ttm_rules.full_year_min_days <= days <= ttm_rules.full_year_max_days
-        and statement_basis(row) == latest_basis
+        and (statement_basis(row), accounting_standard(row)) == latest_basis
+        and accounting_standard(row) is not None
+        and latest_reporting_basis_matches(
+            [
+                candidate
+                for candidate in normalized
+                if candidate.fiscal_year_end == row.fiscal_year_end
+            ],
+            row,
+        )
     }
-    latest_three = _latest_consecutive_values(fy_rows, eps_values, count=3)
-    latest_five = _latest_consecutive_values(fy_rows, eps_values, count=5)
+    latest_three = _latest_consecutive_values(fy_rows, eps_values, count=3, annual=True)
+    latest_five = _latest_consecutive_values(fy_rows, eps_values, count=5, annual=True)
 
     def normalized_per(values: tuple[float, ...] | None) -> float | None:
         if values is None or close is None or close <= 0:

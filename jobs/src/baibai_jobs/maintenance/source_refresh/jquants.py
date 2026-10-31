@@ -27,9 +27,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
-    read_market_calendar,
-)
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     count_daily_bars,
     daily_bars_covered,
@@ -59,7 +56,11 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_reader 
     read_weekly_margin,
 )
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.sqlite.source_cache.coverage import merge_date_ranges, missing_intervals
+from baibai_engine.storage.sqlite.source_cache.coverage import (
+    covered_intervals,
+    merge_date_ranges,
+    missing_intervals,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
 from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
@@ -139,12 +140,29 @@ class JQuantsRefresh:
             self._fetch("master", {"date": day.isoformat()})
         return len(self._reader.get_eq_master(day))
 
-    def ensure_market_calendar(self, start: date, end: date) -> int:
+    def _missing_since_first_coverage(
+        self, source: str, start: date, end: date
+    ) -> tuple[tuple[date, date], ...]:
+        """Repair accumulated coverage, without seeding history for a new store."""
         _check_range(start, end)
-        if read_market_calendar(self._path, start, end) is None:
+        conn = connect_current(self._path)
+        if conn is None:
+            return ((start, end),)
+        with closing(conn):
+            covered = covered_intervals(conn, source)
+            first = min(start, covered[0][0]) if covered else start
+            return missing_intervals(conn, source, first, end)
+
+    def ensure_market_calendar(self, start: date, end: date) -> int:
+        planned = self._missing_since_first_coverage("jquants_market_calendar", start, end)
+        if self._missing("jquants_market_calendar", start, end):
+            # Scoped inputs keep coverage, not original pages. Extending the
+            # normal window must retain a full receipt for ready dependencies.
+            planned = merge_date_ranges([*planned, (start, end)])
+        for first, last in planned:
             self._fetch(
                 "market_calendar",
-                {"from": start.strftime("%Y%m%d"), "to": end.strftime("%Y%m%d")},
+                {"from": first.strftime("%Y%m%d"), "to": last.strftime("%Y%m%d")},
             )
         return len(self._reader.get_mkt_calendar(start, end))
 
@@ -218,8 +236,10 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_margin_alert_range(start, end))
 
     def refresh_margin_alerts(self, start: date, end: date) -> int:
-        _check_range(start, end)
-        self._fetch_days("margin_alerts", ((start, end),))
+        planned = merge_date_ranges(
+            [*self._missing_since_first_coverage("jquants_margin_alerts", start, end), (start, end)]
+        )
+        self._fetch_days("margin_alerts", planned)
         return len(self._reader.get_mkt_margin_alert_range(start, end))
 
     def ensure_short_sale_reports(self, start: date, end: date) -> int:
@@ -227,21 +247,12 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_short_sale_report_range(start, end))
 
     def refresh_short_sale_reports(self, start: date, end: date) -> int:
-        _check_range(start, end)
-        planned: tuple[tuple[date, date], ...] = ((start, end),)
-        conn = connect_current(self._path)
-        if conn is not None:
-            with closing(conn):
-                row = conn.execute(
-                    "SELECT MIN(coverage_start) FROM source_coverage "
-                    "WHERE source = ? AND status = 'ok'",
-                    (SHORT_SALE_REPORT_SOURCE,),
-                ).fetchone()
-                first = date.fromisoformat(str(row[0])) if row is not None and row[0] else None
-                repairs = (
-                    missing_intervals(conn, SHORT_SALE_REPORT_SOURCE, first, end) if first else ()
-                )
-                planned = merge_date_ranges([*repairs, (start, end)])
+        planned = merge_date_ranges(
+            [
+                *self._missing_since_first_coverage(SHORT_SALE_REPORT_SOURCE, start, end),
+                (start, end),
+            ]
+        )
         self._fetch_days("short_sale_reports", planned)
         return len(self._reader.get_mkt_short_sale_report_range(start, end))
 

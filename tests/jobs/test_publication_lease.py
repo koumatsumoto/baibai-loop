@@ -11,7 +11,7 @@ import pytest
 import baibai_jobs.publication.lease as lease
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
-    LakePublishError,
+    R2Error,
     RemoteObject,
 )
 
@@ -68,11 +68,11 @@ class MemoryStore:
             raise LakeCASConflict("stale")
         if self.fault == "before":
             self.fault = None
-            raise LakePublishError("timeout")
+            raise R2Error("timeout")
         self._set(path.read_bytes())
         if self.fault == "after":
             self.fault = None
-            raise LakePublishError("response lost")
+            raise R2Error("response lost")
         head = self.head(key)
         assert head is not None
         return head

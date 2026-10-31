@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -24,7 +24,25 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     order_readiness,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
+    HumanProposalReport,
+    ProposalCorrection,
+    ProposalRecords,
+    ProposalReference,
+)
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+
+
+def has_published_proposal_for_operation(connection: sqlite3.Connection, operation_id: str) -> bool:
+    """Operationへの参照束縛前も含め、公開済み提案の存在だけを確認する。"""
+    return (
+        connection.execute(
+            "SELECT 1 FROM investment_proposal "
+            "WHERE json_extract(payload, '$.research_scope.operation_id') = ? LIMIT 1",
+            (operation_id,),
+        ).fetchone()
+        is not None
+    )
 
 
 def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -> TradeProposal:
@@ -96,6 +114,34 @@ def get_investment_proposal(*, proposal_id: str, db_path: Path | None = None) ->
         return load_investment_proposal(connection, proposal_id)
 
 
+def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:
+    """全scopeから最大の(as_of, aware published_at, ID)を読み、破損版を飛ばさない。"""
+
+    # Remove only erroneous records from chronological selection. A correction does
+    # not pin its replacement over a later, unrelated valid proposal.
+    excluded = {r.erroneous_ref.proposal_id for r in load_corrections(connection)}
+    rows = connection.execute(
+        "SELECT proposal_id,published_at,as_of FROM investment_proposal"
+    ).fetchall()
+    rows = [row for row in rows if row[0] not in excluded]
+    latest_day = max((row[2] for row in rows), default=None)
+    rows = [row for row in rows if row[2] == latest_day]
+    headers: list[tuple[datetime, str]] = []
+    for row in rows:
+        try:
+            instant = datetime.fromisoformat(str(row[1]))
+            if instant.utcoffset() is None:
+                raise ValueError("stored publication time must include a timezone")
+        except ValueError as error:
+            raise ProposalConflictError("invalid stored proposal publication header") from error
+        headers.append((instant, str(row[0])))
+    # Compare aware instants in Python: textual offsets and SQLite julianday
+    # respectively lose instant ordering and sub-millisecond precision.
+    if not headers:
+        return None
+    return load_investment_proposal(connection, max(headers)[1])
+
+
 @dataclass(frozen=True, slots=True)
 class CurrentProposalPreview:
     saved_proposal_id: str
@@ -106,6 +152,7 @@ class CurrentProposalPreview:
     change_reasons: tuple[GateReason, ...]
     warnings: tuple[str, ...]
     portfolio_exposure: dict[str, object]
+    records: ProposalRecords
 
     def payload(self) -> dict[str, object]:
         return {
@@ -117,6 +164,7 @@ class CurrentProposalPreview:
             "change_reasons": [reason.model_dump(mode="json") for reason in self.change_reasons],
             "warnings": list(self.warnings),
             "portfolio_exposure": self.portfolio_exposure,
+            "records": self.records,
         }
 
 
@@ -128,6 +176,7 @@ def _preview_buy(
     latest: bool,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> tuple[dict[str, object], list[GateReason]]:
     from baibai_engine.investment_judgment.trade_proposal.conditions import (
         buy_evaluation,
@@ -142,18 +191,13 @@ def _preview_buy(
         pair,
         inputs=inputs,
         proposed_limit_yen=ceiling,
+        selected_quantity=None if item.terms is None else item.terms.quantity,
         latest=latest,
         sqlite_path=sqlite_path,
         now=now,
+        market_connection=market_connection,
     )
     blockers = list(result.hard_blockers)
-    if item.terms is not None and item.terms.notional_yen > inputs.available_cash_yen:
-        blockers.append(
-            GateReason(
-                code="available_cash_below_board_lot",
-                message="保存した買付数量全体を賄うcashが不足しています。",
-            )
-        )
     quote = next((quote for quote in inputs.quotes if quote.ticker == item.ticker), None)
     trial: dict[str, object] | None = None
     if quote is not None:
@@ -178,6 +222,7 @@ def _preview_buy(
             latest=latest,
             sqlite_path=sqlite_path,
             now=now,
+            market_connection=market_connection,
         )
         trial = {
             **buy_evaluation_payload(current),
@@ -198,6 +243,7 @@ def _preview_holding(
     latest: bool,
     sqlite_path: Path,
     now: datetime,
+    market_connection: sqlite3.Connection | None,
 ) -> tuple[dict[str, object], list[GateReason]]:
     from baibai_engine.investment_judgment.trade_proposal.conditions import assessment_quote_basis
     from baibai_engine.investment_judgment.trade_proposal.holding_policy import (
@@ -219,13 +265,18 @@ def _preview_holding(
         position=position,
         as_of=now.astimezone(JST).date(),
         quote=quote,
-        price_basis_confirmed=assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path),
+        price_basis_confirmed=assessment_quote_basis(
+            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+        ),
         remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
         primary_verified=pair.review.primary_source_check == "verified",
         reviewed=True,
         latest=latest,
         max_quote_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
+        proposed_sell_limit_yen=(
+            item.terms.limit_price_yen if item.action == "sell" and item.terms is not None else None
+        ),
     )
     blockers = list(result.hard_blockers)
     if result.action != item.action:
@@ -253,7 +304,14 @@ def _preview_holding(
             "current_price_projection": result.current_price_projection,
             "return_calculation_unavailable_reason": result.return_calculation_unavailable_reason,
             "current_position": position.model_dump(mode="json"),
+        },
+        "saved_limit_revalidation": {
+            "limit_price_yen": None if item.terms is None else str(item.terms.limit_price_yen),
+            "quantity": None if item.terms is None else item.terms.quantity,
+            "sell_limit_projection": result.sell_limit_projection,
         }
+        if item.action == "sell"
+        else None,
     }, blockers
 
 
@@ -274,6 +332,7 @@ def preview_current_terms(
         DEFAULT_BUDGET_MAX_YEN,
         DEFAULT_BUDGET_MIN_YEN,
         collect_proposal_inputs,
+        proposal_market_snapshot,
     )
     from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
     from baibai_engine.portfolio.holdings.market_observations import next_order_session
@@ -282,7 +341,10 @@ def preview_current_terms(
 
     if now.utcoffset() is None:
         raise ValueError("proposal preview time requires a timezone")
-    with closing(connect_read_only(db_path)) as connection:
+    with (
+        closing(connect_read_only(db_path)) as connection,
+        proposal_market_snapshot(sqlite_path) as market_connection,
+    ):
         connection.execute("BEGIN")
         proposal = load_investment_proposal(connection, proposal_id)
         inputs = collect_proposal_inputs(
@@ -293,6 +355,7 @@ def preview_current_terms(
             sqlite_path=sqlite_path,
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+            market_connection=market_connection,
         )
         changes: list[GateReason] = []
         baseline = proposal_inputs_fingerprint(proposal.inputs)
@@ -331,7 +394,15 @@ def preview_current_terms(
                 if item.action in {"buy", "sell"} and item.terms is not None
                 else None,
                 "current_quote_calculation": None,
-                "saved_limit_revalidation": None,
+                "saved_limit_revalidation": {
+                    "limit_price_yen": None
+                    if item.terms is None
+                    else str(item.terms.limit_price_yen),
+                    "quantity": None if item.terms is None else item.terms.quantity,
+                    "sell_limit_projection": None,
+                }
+                if item.action == "sell"
+                else None,
                 "current_terms_warnings": [],
             }
             if item.assessment_ref is not None:
@@ -340,12 +411,24 @@ def preview_current_terms(
                 latest = latest_assessment_id(connection, item.ticker) == pair.assessment_id
                 if item.action == "buy":
                     calculation, blockers = _preview_buy(
-                        item, pair, inputs, latest=latest, sqlite_path=sqlite_path, now=now
+                        item,
+                        pair,
+                        inputs,
+                        latest=latest,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        market_connection=market_connection,
                     )
                     row.update(calculation)
                 elif item.action in {"hold", "sell"}:
                     calculation, blockers = _preview_holding(
-                        item, pair, inputs, latest=latest, sqlite_path=sqlite_path, now=now
+                        item,
+                        pair,
+                        inputs,
+                        latest=latest,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        market_connection=market_connection,
                     )
                     row.update(calculation)
                 elif item.action == "no_action":
@@ -358,7 +441,10 @@ def preview_current_terms(
                         price_as_of=None if quote is None else quote.price_as_of,
                         as_of=now.astimezone(JST).date(),
                         basis_confirmed=assessment_quote_basis(
-                            pair.document, quote, sqlite_path=sqlite_path
+                            pair.document,
+                            quote,
+                            sqlite_path=sqlite_path,
+                            market_connection=market_connection,
                         ),
                         max_quote_age_days=PORTFOLIO_POLICY["valuation"][
                             "market_price_max_age_days"
@@ -384,13 +470,6 @@ def preview_current_terms(
                             message="保存条件の対象日が次の注文可能sessionと異なります。",
                         )
                     )
-                if item.action == "sell":
-                    row["saved_limit_revalidation"] = {
-                        "limit_price_yen": None
-                        if item.terms is None
-                        else str(item.terms.limit_price_yen),
-                        "quantity": None if item.terms is None else item.terms.quantity,
-                    }
                 revalidation = row["saved_limit_revalidation"]
                 if isinstance(revalidation, dict):
                     revalidation["hard_blockers"] = [
@@ -417,4 +496,72 @@ def preview_current_terms(
             tuple(changes),
             warnings.warnings,
             warnings.portfolio_exposure.model_dump(mode="json"),
+            proposal_records(connection, proposal_id),
         )
+
+
+def _require_ref(connection: sqlite3.Connection, reference: ProposalReference) -> TradeProposal:
+    proposal = load_investment_proposal(connection, reference.proposal_id)
+    if proposal_draft_sha256(proposal) != reference.draft_sha256:
+        raise ProposalConflictError("proposal record exact reference differs")
+    return proposal
+
+
+def _rank(proposal: TradeProposal) -> tuple[date, datetime, str]:
+    return proposal.as_of, proposal.published_at, proposal.proposal_id
+
+
+def load_corrections(connection: sqlite3.Connection) -> tuple[ProposalCorrection, ...]:
+    rows = connection.execute(
+        "SELECT correction_id,erroneous_proposal_id,replacement_proposal_id,recorded_at,payload "
+        "FROM proposal_correction ORDER BY correction_id"
+    ).fetchall()
+    records = []
+    for row in rows:
+        record = ProposalCorrection.model_validate_json(row[4])
+        if (
+            record.correction_id != row[0]
+            or record.erroneous_ref.proposal_id != row[1]
+            or record.replacement_ref.proposal_id != row[2]
+            or record.recorded_at != datetime.fromisoformat(row[3])
+        ):
+            raise ProposalConflictError("stored proposal correction header differs")
+        erroneous = _require_ref(connection, record.erroneous_ref)
+        replacement = _require_ref(connection, record.replacement_ref)
+        if _rank(replacement) >= _rank(erroneous) or record.recorded_at < erroneous.published_at:
+            raise ProposalConflictError("correction must reference an earlier saved proposal")
+        records.append(record)
+    erroneous_ids = [record.erroneous_ref.proposal_id for record in records]
+    replacement_ids = {record.replacement_ref.proposal_id for record in records}
+    if len(set(erroneous_ids)) != len(erroneous_ids) or set(erroneous_ids) & replacement_ids:
+        raise ProposalConflictError("duplicate or chained proposal correction")
+    return tuple(records)
+
+
+def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> ProposalRecords:
+    """Exact reads keep erroneous originals readable, with separate record provenance."""
+    corrections = load_corrections(connection)
+    reports = []
+    for row in connection.execute(
+        "SELECT report_id,recorded_at,payload FROM proposal_human_report "
+        "WHERE proposal_id=? ORDER BY recorded_at,report_id",
+        (proposal_id,),
+    ):
+        report = HumanProposalReport.model_validate_json(row[2])
+        proposal = _require_ref(connection, report.proposal_ref)
+        if (
+            report.report_id != row[0]
+            or report.proposal_ref.proposal_id != proposal_id
+            or report.recorded_at != datetime.fromisoformat(row[1])
+            or not proposal.published_at <= report.reported_at <= report.recorded_at
+        ):
+            raise ProposalConflictError("stored human report identity or time differs")
+        reports.append(report.model_dump(mode="json"))
+    return {
+        "corrections": [
+            record.model_dump(mode="json")
+            for record in corrections
+            if proposal_id in (record.erroneous_ref.proposal_id, record.replacement_ref.proposal_id)
+        ],
+        "human_reports": reports,
+    }

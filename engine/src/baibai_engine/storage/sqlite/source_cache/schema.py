@@ -25,8 +25,12 @@ from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOU
 from baibai_engine.data_collection.providers.tradingview.contract import (
     TRADINGVIEW_SOURCE_RECEIPTS_DDL,
 )
+from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL
 from baibai_engine.data_collection.receipts.public_pages.contract import (
     EQUITY_WEB_SOURCE_RESPONSES_DDL,
+)
+from baibai_engine.machine_analysis.observations.articles.storage_contracts import (
+    ARTICLE_OBSERVATIONS_DDL,
 )
 from baibai_engine.machine_analysis.observations.disclosures.storage_contracts import (
     EDINET_DOCUMENT_LISTS_DDL,
@@ -71,7 +75,7 @@ from baibai_engine.storage.sqlite.source_cache.storage_contracts import (
     SOURCE_COVERAGE_DDL,
 )
 
-SQLITE_SCHEMA_VERSION = 48
+SQLITE_SCHEMA_VERSION = 49
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET list projection reconstructs the current rows from retained source receipts.
@@ -122,6 +126,8 @@ _SCHEMA_SQL += (
     + JPX_SOURCE_BUNDLES_DDL
     + TRADINGVIEW_SOURCE_RECEIPTS_DDL
     + EQUITY_WEB_SOURCE_RESPONSES_DDL
+    + ARTICLE_RECEIPTS_DDL
+    + ARTICLE_OBSERVATIONS_DDL
 )
 
 

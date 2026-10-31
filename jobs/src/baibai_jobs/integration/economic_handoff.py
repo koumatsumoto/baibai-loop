@@ -51,6 +51,7 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_engine.storage.sqlite.merge import MergeError
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
+from baibai_jobs.schedule import acquisition_target_date
 
 
 def selected_sources(group: str, source_id: str = "") -> list[str]:
@@ -103,11 +104,10 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
         "asof": asof.isoformat(),
         "sources": rows,
     }
-    # Only public source identity/ranges/counts cross jobs; provider error text stays local.
+    # Provider error text stays local; the handoff keeps source identity/ranges/counts.
     write_json_atomic(directory / "result.json", report)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
-            print(f"report={json.dumps(report, ensure_ascii=False)}", file=stream)
             print("stage_ready=true", file=stream)
     print(json.dumps(report, ensure_ascii=False))
     return int(any(isinstance(item, EconomicSourceRefreshFailure) for item in outcomes))
@@ -141,6 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-id", default="")
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--run-created-at", type=datetime.fromisoformat)
+    parser.add_argument("--scheduled", action="store_true")
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--stage-id")
     parser.add_argument("--db", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
@@ -154,7 +155,11 @@ def main(argv: list[str] | None = None) -> int:
             created = args.run_created_at or datetime.now(UTC)
             if created.tzinfo is None:
                 raise ValueError("original run clock requires a timezone")
-            asof = args.asof or created.astimezone(ZoneInfo("Asia/Tokyo")).date()
+            asof = args.asof or (
+                acquisition_target_date(created)
+                if args.scheduled
+                else created.astimezone(ZoneInfo("Asia/Tokyo")).date()
+            )
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(output).open("a", encoding="utf-8") as stream:
                     print(f"groups={matrix}\nasof={asof.isoformat()}", file=stream)

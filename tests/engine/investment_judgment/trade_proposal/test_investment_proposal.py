@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalError,
     TradeProposal,
+    load_proposal_draft,
     order_readiness,
     proposal_draft_sha256,
 )
@@ -82,6 +83,16 @@ def test_appendix_parses_with_exact_typed_review_hash(payload):
     assert proposal.items[0].terms.notional_yen == Decimal("300000")
     assert order_readiness(proposal.items[0]) == "ready"
     validate_proposal_policy(proposal)
+
+
+def test_draft_has_the_same_hash_as_the_historical_publication(payload):
+    published = TradeProposal.model_validate(payload)
+    draft = load_proposal_draft(payload)
+    assert "published_at" not in draft.payload()
+    assert proposal_draft_sha256(draft) == published.review.draft_sha256
+    assert TradeProposal.model_validate(payload).payload() == payload
+    with pytest.raises(ValidationError, match="published_at"):
+        TradeProposal.model_validate(draft.payload())
 
 
 def test_scope_hash_binds_the_fixed_research_selection_fixture():
@@ -463,8 +474,13 @@ def test_sell_full_holding_and_no_buy_maximum(payload):
     )
     item.update(terms=buy_terms, terms_unavailable_reasons=[])
     assert TradeProposal.model_validate(payload).items[0].terms.side == "sell"
-    buy_terms.update(limit_price_yen="1101", notional_yen="110100")
-    with pytest.raises(ValidationError, match="actual close"):
+    for price in (900, 1101, 1200):
+        buy_terms.update(limit_price_yen=str(price), notional_yen=str(price * 100))
+        proposal = TradeProposal.model_validate(payload)
+        assert proposal.items[0].terms.limit_price_yen == price
+        assert proposal.inputs.quotes[0].price_yen == 1100
+    buy_terms.update(limit_price_yen="3001", notional_yen="300100")
+    with pytest.raises(ValidationError, match="grid rule"):
         TradeProposal.model_validate(payload)
     buy_terms.update(limit_price_yen="1100", notional_yen="110000")
     buy_terms.update(quantity=50, notional_yen="55000")

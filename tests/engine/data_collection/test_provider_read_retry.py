@@ -6,6 +6,7 @@ import gzip
 import io
 import json
 from collections import Counter
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime
 from urllib.parse import parse_qs, urlsplit
@@ -21,7 +22,6 @@ from baibai_engine.data_collection.acquisition.native_records import fetch_nativ
 from baibai_engine.data_collection.acquisition.refresh import (
     SourceRefreshFailure,
     SourceRefreshSuccess,
-    _fetch_with_retry,
     refresh_sources,
 )
 from baibai_engine.data_collection.catalog import require_source
@@ -30,6 +30,7 @@ from baibai_engine.data_collection.receipts.native_sources.store import open_rea
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     ProviderFetchStoppedError,
+    ProviderRateLimitError,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
@@ -44,6 +45,22 @@ DAY = date(2026, 7, 24)
 START = DAY - timedelta(days=14)
 END = DAY + timedelta(days=7)
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
+SHARED_QUOTA_CASES = (
+    pytest.param(
+        ("fred-vixcls", "fred-bamlc0a0cm"),
+        ("vix", "credit"),
+        "jquants-indices-topix",
+        "jp.topix",
+        id="fred-sibling-series",
+    ),
+    pytest.param(
+        ("jquants-indices-topix", "jquants-trades-spec"),
+        ("jp.topix", "jp.foreign_flows"),
+        "fred-vixcls",
+        "vix",
+        id="jquants-distinct-providers",
+    ),
+)
 
 
 class BodyTimeout(io.BytesIO):
@@ -52,6 +69,8 @@ class BodyTimeout(io.BytesIO):
 
 
 def payload(series_id, *, day=DAY, value=None):
+    if series_id == "credit":
+        return f"observation_date,BAMLC0A0CM\n{day.isoformat()},1.2\n".encode()
     if series_id == "vix":
         return f"observation_date,VIXCLS\n{day.isoformat()},{20 if value is None else value}\n".encode()
     if series_id == "jp.topix":
@@ -86,9 +105,11 @@ def wire(monkeypatch):
                 if "investor-types" in url
                 else "jp.topix"
                 if "topix" in url
+                else "credit"
+                if parse_qs(urlsplit(url).query).get("id") == ["BAMLC0A0CM"]
                 else "vix"
             )
-            if series_id != "vix":
+            if series_id not in {"vix", "credit"}:
                 assert kwargs["headers"]["x-api-key"] == "synthetic-key"
             self.calls.append((series_id, url))
             status, headers, value = self.reply(series_id, url)
@@ -102,13 +123,10 @@ def wire(monkeypatch):
 
         def fetch(self, series_id, *, context=None):
             selected_context = self.context if context is None else context
-            native = _fetch_with_retry(
-                lambda: fetch_native_records(
-                    require_source(load_definitions().by_id()[series_id].source_id),
-                    start=START,
-                    end=END,
-                    context=selected_context,
-                ),
+            native = fetch_native_records(
+                require_source(load_definitions().by_id()[series_id].source_id),
+                start=START,
+                end=END,
                 context=selected_context,
             )
             return [row for records in native.values() for row in records]
@@ -145,7 +163,7 @@ def test_one_get_owns_the_initial_plus_five_attempts(wire, series_id, failures):
         (429, {}, {}) if len(wire.calls) <= failures else (200, {}, payload(sid))
     )
     if failures == 6:
-        with pytest.raises(ProviderFetchStoppedError):
+        with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*retries exhausted"):
             wire.fetch(series_id)
     else:
         records = wire.fetch(series_id)
@@ -185,10 +203,98 @@ def test_retry_after_is_respected_by_sdk_and_plain_http(wire, series_id, header,
 @pytest.mark.parametrize("series_id", IDS)
 def test_long_sdk_or_http_wait_cannot_bypass_the_process_deadline(wire, series_id):
     wire.reply = lambda sid, url: (429, {"Retry-After": "900"}, {})
-    with pytest.raises(ProviderFetchStoppedError, match="deadline exhausted"):
+    with pytest.raises(ProviderRateLimitError, match=r"HTTP 429.*deadline exhausted"):
         wire.fetch(series_id)
     assert len(wire.calls) == 2
     assert wire.waits == [900]
+
+
+@pytest.mark.parametrize(
+    ("group_sources", "group_series", "unrelated_source", "unrelated_series"), SHARED_QUOTA_CASES
+)
+@pytest.mark.parametrize("stop", ["provider_deadline", "job_deadline", "retries_exhausted"])
+def test_public_refresh_stops_only_the_rate_limited_group_for_this_pass(
+    wire,
+    tmp_path,
+    monkeypatch,
+    group_sources,
+    group_series,
+    unrelated_source,
+    unrelated_series,
+    stop,
+):
+    database = tmp_path / "rate-limit.sqlite"
+    wire.reply = lambda sid, url: (200, {}, payload(sid))
+    seeded = refresh_sources(group_sources, db_path=database, start=START, end=END)
+    assert all(isinstance(outcome, SourceRefreshSuccess) for outcome in seeded)
+
+    def retained_records():
+        with closing(open_read_only_connection(database)) as connection:
+            return connection.execute(
+                "SELECT * FROM economic_source_records WHERE source_id IN (?, ?) "
+                "ORDER BY source_id, observed_at, fetched_at",
+                group_sources,
+            ).fetchall()
+
+    before = retained_records()
+    assert before
+    wire.calls.clear()
+    delay = "0" if stop == "retries_exhausted" else "1201"
+    if stop == "job_deadline":
+        monkeypatch.setenv("BAIBAI_ACQUISITION_DEADLINE", str(BASE + 60))
+        delay = "61"
+    wire.reply = lambda sid, url: (
+        (429, {"Retry-After": delay}, {"message": "synthetic-key"})
+        if sid == group_series[0]
+        else (200, {}, payload(sid))
+    )
+
+    outcomes = refresh_sources(
+        [*group_sources, unrelated_source], db_path=database, start=START, end=END
+    )
+    assert isinstance(outcomes[0], SourceRefreshFailure)
+    assert "HTTP 429" in outcomes[0].message
+    assert "synthetic-key" not in outcomes[0].message
+    assert isinstance(outcomes[1], SourceRefreshFailure)
+    assert "acquisition group stopped" in outcomes[1].message
+    assert isinstance(outcomes[2], SourceRefreshSuccess)
+    attempts = 6 if stop == "retries_exhausted" else 1
+    assert [sid for sid, _ in wire.calls] == [group_series[0]] * attempts + [unrelated_series]
+    assert wire.waits == []
+    assert retained_records() == before
+
+    wire.calls.clear()
+    wire.reply = lambda sid, url: (200, {}, payload(sid))
+    recovered = refresh_sources(group_sources, db_path=database, start=START, end=END)
+    assert all(isinstance(outcome, SourceRefreshSuccess) for outcome in recovered)
+    assert [sid for sid, _ in wire.calls] == list(group_series)
+
+
+@pytest.mark.parametrize(
+    ("group_sources", "group_series", "unrelated_source", "unrelated_series"), SHARED_QUOTA_CASES
+)
+@pytest.mark.parametrize("failure", ["schema", "403", "503"])
+def test_public_refresh_does_not_stop_quota_siblings_for_non_rate_limit_failures(
+    wire, tmp_path, group_sources, group_series, unrelated_source, unrelated_series, failure
+):
+    wire.reply = lambda sid, url: (
+        (200 if failure == "schema" else int(failure), {"Retry-After": "0"}, b"429 synthetic-key")
+        if sid == group_series[0]
+        else (200, {}, payload(sid))
+    )
+    outcomes = refresh_sources(
+        [*group_sources, unrelated_source],
+        db_path=tmp_path / "non-rate-limit.sqlite",
+        start=START,
+        end=END,
+    )
+    assert isinstance(outcomes[0], SourceRefreshFailure)
+    assert all(isinstance(outcome, SourceRefreshSuccess) for outcome in outcomes[1:])
+    attempts = 6 if failure == "503" else 1
+    assert [sid for sid, _ in wire.calls] == (
+        [group_series[0]] * attempts + [group_series[1], unrelated_series]
+    )
+    assert wire.waits == []
 
 
 @pytest.mark.parametrize("series_id", IDS)

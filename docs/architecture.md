@@ -33,7 +33,7 @@ engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは�
 | `data_collection/providers/` | 提供元別の通信とnative契約。分析分野をprovider名と混在させない。 |
 | `data_collection/receipts/`・`transport/`・`acquisition/` | 原受領の識別・受渡し、通信手段、L1取得の合成。L2の導出や投資判断は行わない。 |
 | `machine_analysis/observations/` | 原本を分析材料へ投影・正規化する。株式、価格、財務、開示、信用・空売り等の取引状況、経済指標、外部評価を区別する。複数分野を含むsource応答の投影は共通入口で束ねる。 |
-| `machine_analysis/models/` | 現在は企業財務・企業成長・市場環境・外部評価・テクニカル分析。特定の問いに答える計算と結果を所有し、候補政策を知らない。 |
+| `machine_analysis/models/` | 企業財務・企業成長・市場環境・外部評価・テクニカル分析・産業動向・社会動向。特定の問いに答える計算と結果を所有し、候補政策を知らない。 |
 | `machine_analysis/generation/` | 入力の固定、モデルに必要な観測の読取、モデル実行、生成世代の保存・読取。計算の途中で別のsourceを取得しない。 |
 | `machine_analysis/screening/policies/` | 保存モデルから候補と理由を選ぶ政策。モデル追加と政策変更は別の変更である。政策結果の保存・読取はScreeningが所有する。 |
 | `machine_analysis/historical_evaluation/` | 機械モデル・候補政策の歴史評価と必要な旧run読取。過去の機械ER/FV・旧Screening規則を現行モデルや候補政策へ混ぜない。 |
@@ -45,7 +45,7 @@ engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは�
 
 snapshotの列・layer・coverage等の定義とSQLite tableの意味は原本／観測のownerが持つ。Storageは明示された定義を使う保存・検証機構であり、公開対象やsource別の受入条件はJobsが合成する。全体hydrate/dehydrateは完全なcatalogとpolicyを必須入力にし、個別の固定読取は必要なownerの契約だけを受け取る。
 
-`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。各domainの算術や保存条件を複製せず、所有者の入口を呼ぶ。`tools/`は開発・診断用で、通常運用の隠れた入口にしない。Webは資産・損益・保有、運用成績、タスクの読取を合成し、候補抽出や判断の成功条件には含めない。最新売買提案レポートは[別企画 #1615](https://github.com/koumatsumoto/baibai-loop/issues/1615)で扱う。
+`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。各domainの算術や保存条件を複製せず、所有者の入口を呼ぶ。`tools/`は開発・診断用で、通常運用の隠れた入口にしない。Webは資産・損益・保有、運用成績、タスク、最新保存提案とexact評価pairの読取を合成し、候補抽出や判断の成功条件には含めない。判断の作成・現在条件の再試算・台帳更新はWebから呼ばない。表示契約は[Web](../web/README.md)が所有する。
 
 ```mermaid
 flowchart TB
@@ -63,6 +63,7 @@ flowchart TB
     J --> P[Portfolio]
     P --> O
     W[Web] --> P
+    W -->|保存提案・exact評価pairの読取| J
 ```
 
 上図は主要な依存方向。領域から保存機構・共通値への依存は省略する。CollectionからL2、観測からモデル、モデル生成から候補政策、PortfolioからL3への逆依存は作らない。工程間で必要な保存・再開の合成と、解析モデル内の算術は別に置く。厳密な境界は[依存契約](../pyproject.toml)で管理する。
@@ -73,11 +74,17 @@ flowchart TB
 
 モデルを追加するときは、計算の所有者と生成への組込みを変更する。候補にどう効かせるかは別に政策として決める。モデル数を固定したL3の一覧で結果を捨てず、個社・業種・市場の結果をそれぞれの対象とともに渡す。同じ価格情報を複数モデルが使うことは、独立した複数の根拠を得たこととは限らない。
 
-生成世代V2は、その世代の対象・予定モデル・関連する共有文脈を固定する。これは重み付けや実行DAGではなく、未生成と生成結果内の欠測を区別するための契約である。L3のsliceは対象企業と必要な共有文脈だけを持ち、再開時に新しいモデル一覧を適用しない。旧V1世代と保存済みSelectionは元の形・hashで読む。新しい既定fieldを旧保存内容へ補ってidentityを変えない。
+産業動向と社会動向は、原受領と別のimmutable抽出artifactから生成する。Observationsが主張の帰属・範囲・否定・条件・精度と原文座標を所有し、モデルは比較可能な差分を計算する。産業の共有subjectはversion付き業界定義、社会は薄い市場共有結果を使う。個社には既存5モデルを維持し、共有subjectを銘柄数や候補政策へ混入させない。本文は固定releaseのexact参照へ分け、旧引用のlineage releaseと保持中のlookup releaseを区別する。
+
+記事の有限選択はObservations readerが担当し、Generationは固定選択から両共有モデルの入力と銘柄への関連を組み立てる。情報サービス業は初版で個社の事業範囲との対応が未確認のため、業界subjectとして独立に読み、銘柄への関連を推測で付けない。TSR調査の明示的な対象除外は、指標の母集団と原文spanに残す。
+
+生成世代V2は、その世代の対象・予定モデル・関連する共有文脈を固定する。これは重み付けや実行DAGではなく、未生成と生成結果内の欠測を区別するための契約である。L3のsliceは対象企業と必要な共有文脈だけを持ち、再開時に新しいモデル一覧を適用しない。旧V1世代と保存済みSelectionへ新しい既定fieldを補ってidentityを変えない。Company Financialsの明示的な保存ID移行では、運用Selectionと公開時の原Selectionを別に保持する。通常再開は運用Selection、公開Proposalの旧hashと旧出典indexはexact Proposalを指定した`operation selection-evidence`の`as_published`原canonicalへ解決する。Proposal・Review・本人報告・訂正・台帳のhashや参照は付け替えない。
 
 ## 判断と進行
 
 Company Researchは一次資料から事業・財務・競争力・経営を調べる。Stock Assessmentは調査と機械観測を統合し、価値・価格・成立条件・リスクリワードを評価する。Independent Reviewは作者と独立して根拠・仮定・算術・反証を検証する。Trade Proposalは検証された評価を価格・cash・保有へ適用する。これらは無リスク認定や、全事実の完全証明を意味しない。
+
+`investment_judgment/judgment_retrospective/`は特定の旧判断と後日根拠の照合・学びをapplication DBへ保存し、企業知識の更新・現在評価・Portfolioの損益・機械手法の歴史較正とは分ける。
 
 解釈と判断はAI、算術・保存・状態管理はエンジンが担当する。Selectionは人間が明示した有限対象・問い・入力を固定する。不足や反証があれば調査・評価へ戻り、工程名だけを理由に必須DAGや承認を増やさない。市場全体の判断は個別企業から独立した入口を持つ。
 
@@ -90,7 +97,7 @@ Operation完了、提案公開、人間の採用、注文、約定は別の状�
 
 | 保存単位 | 役割 |
 | --- | --- |
-| application DB | 判断・Review・提案・Selection・Operation・task・台帳の正本。 |
+| application DB | 部分的な企業調査・判断・Review・提案・Selection・Operation・task・台帳の正本。 |
 | 固定snapshot | L1原本とL2投影を含むimmutable object・manifest。readerは一つのreleaseを固定する。 |
 | source cache SQLite | 原本・投影と取得coverage等を持つ実行用コピー。source単位の部分copyと全体releaseのcopyは別である。 |
 | native source SQLite | 経済等のnative原本・受領・取得記録。必要な観測は固定した読取から導出する。 |

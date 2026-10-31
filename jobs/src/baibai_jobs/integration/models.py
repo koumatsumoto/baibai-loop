@@ -23,6 +23,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
+    economic_selection_id,
     select_saved_economic_generation,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
@@ -88,7 +89,7 @@ def integrate_models(
         selection = select_saved_economic_generation(
             generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
         )
-        selection_id = f"selection-{prepared.release.release_id}"
+        selection_id = economic_selection_id(generation.metadata.generation_id, policy=policy)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=lambda: verify_held(store, handle)
@@ -100,6 +101,7 @@ def integrate_models(
         "models_ready": True,
         "generation_id": generation.metadata.generation_id,
         "selection_id": selection_id,
+        "selection_method": policy.method,
         "company_count": len(subjects),
         "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
@@ -109,7 +111,7 @@ def integrate_models(
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--asof", type=date.fromisoformat, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
@@ -124,7 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         help="optional accounting-period start; omitted retains all available periods",
     )
     parser.add_argument("--candidate-limit", type=int, default=36)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         result = integrate_models(
             store=Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),

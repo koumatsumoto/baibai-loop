@@ -136,9 +136,8 @@ class BrowserFetcher:
 
         One navigation, not several. A download either starts as the navigation
         commits or the edge served something else instead, and repeating the
-        navigation waits out the timeout again for each retry. The refresh pass
-        already retries the whole fetch (:data:`PROVIDER_FETCH_ATTEMPTS`), which
-        is where a second chance belongs.
+        navigation waits out the timeout again for each retry. The caller keeps
+        source refusals separate from a browser that could not start.
         """
 
         try:
@@ -179,14 +178,6 @@ class BrowserFetcher:
             return Path(path).read_bytes()
         finally:
             page.close()
-
-    def fetch_pdf(self, url: str, *, max_bytes: int = _MAX_DOWNLOAD_BYTES) -> bytes:
-        """Read one download and require PDF bytes; the refresh service owns retries."""
-
-        content = self.fetch_download(url, max_bytes=max_bytes)
-        if not content.startswith(b"%PDF"):
-            raise IndicatorsProviderError(f"browser download from {url} is not a PDF")
-        return content
 
     def fetch_html(self, url: str) -> str:
         """Navigate to ``url`` and return the fully rendered HTML."""

@@ -10,6 +10,8 @@ from typing import Any, cast
 
 from pydantic import TypeAdapter
 
+from baibai_engine.investment_judgment.company_research.context import company_context_brief
+from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
@@ -85,6 +87,7 @@ def load_generated_selection_context(
     app_path = database_path(db_path)
     if app_path.exists():
         with closing(connect_read_only(app_path)) as connection:
+            connection.execute("BEGIN")
             ledger = load_ledger_document(connection)
             if ledger is not None:
                 state = replay_events_through(ledger.events, known_at)
@@ -128,14 +131,13 @@ def load_generated_selection_context(
         dict[str, Any],
         project_generated_inputs(models, company_growth_periods=None if compact_screening else 12),
     )
-    if compact_screening:
-        # contextにはOperationの/inputs/generation参照先がない。明示詳細は成長の
-        # 完全payloadを直接渡し、古いquarter/annual観測もその場で読めるようにする。
-        for model in models.models:
-            if model.model_id == "company_growth" and model.subject in detail_targets:
-                security = model_inputs["securities"][model.subject]
-                detail = security if models.subject_plan is None else security["models"]
-                detail["company_growth"] = deepcopy(model.payload)
+    # contextにはOperationの/inputs/generation参照先がない。政策の有無にかかわらず
+    # 明示詳細は完全payloadを渡し、古いquarter/annual観測もその場で読めるようにする。
+    for model in models.models:
+        if model.model_id == "company_growth" and model.subject in detail_targets:
+            security = model_inputs["securities"][model.subject]
+            detail = security if models.subject_plan is None else security["models"]
+            detail["company_growth"] = deepcopy(model.payload)
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     return {
         "schema_version": 3,
@@ -155,6 +157,17 @@ def load_generated_selection_context(
         ),
         "requested_tickers": requested,
         "held_tickers": held,
+        "saved_company_context": {
+            ticker: company_context_brief(item)
+            for ticker, item in read_company_contexts(
+                app_path,
+                tickers=tuple(
+                    sorted(set(requested) | set(held) | set(candidates) | detail_targets)
+                ),
+                as_of=as_of,
+                known_at=known_at,
+            ).items()
+        },
         "model_inputs": model_inputs,
         "saved_market_context_assessment": None
         if context is None

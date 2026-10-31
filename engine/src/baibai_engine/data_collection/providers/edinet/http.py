@@ -81,7 +81,7 @@ class EDINETHTTP:
                     f"EDINET request failed with status {response.status_code}"
                 )
             wait = _retry_after(response.headers.get("Retry-After", ""), received_at)
-            if not rate_limited or wait is None:
+            if wait is None:
                 wait = float(3 * (2**attempt))
             if attempt == 5:
                 if rate_limited:

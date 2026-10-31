@@ -1,14 +1,19 @@
-from dataclasses import replace
+import json
+from dataclasses import asdict, replace
 from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.models.company_financials.earnings import earnings_price
+from baibai_engine.machine_analysis.models.company_financials.earnings import (
+    earnings_price,
+    read_earnings_price,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
+from baibai_engine.primitives.json import canonical_json
 
 ASOF = date(2026, 8, 31)
 RULES = TTMRules(
@@ -58,6 +63,7 @@ def test_signed_profit_and_standalone_companies_remain_representable(profit, bas
     assert result.statement_basis == basis.lower()
     assert result.profit_components[0].disclosure_number == "fy-2026"
     assert result.profit_components[0].disclosed_time == "15:30:00"
+    assert result.profit_period == (date(2025, 4, 1), date(2026, 3, 31))
 
 
 def test_unknown_statement_basis_keeps_amount_without_claiming_comparable_yield():
@@ -93,6 +99,23 @@ def test_forecast_only_document_does_not_invalidate_actual_statement_basis():
     assert result.profit_ttm_yen == 100.0
     assert result.earnings_yield == 0.125
     assert result.unavailable_reason is None
+
+
+def test_same_time_actual_dividend_notice_keeps_statement_profit_and_yield():
+    statement = annual()
+    dividend = replace(
+        statement,
+        disclosure_number="same-time-dividend",
+        document_type="DividendForecastRevision",
+        profit=None,
+        sales=None,
+        shares_outstanding=None,
+        treasury_shares=None,
+        dps_actual_annual=5.0,
+    )
+    result = observation([statement, dividend])
+    assert result.profit_ttm_yen == 100.0
+    assert result.earnings_yield == 0.125
 
 
 def test_latest_quarter_missing_profit_does_not_revive_old_full_year():
@@ -141,6 +164,73 @@ def test_ttm_keeps_actual_operands_instead_of_adding_reported_eps():
         (1, 100.0),
         (-1, 20.0),
     ]
+    assert result.profit_period == (date(2025, 7, 1), date(2026, 6, 30))
+    saved = json.loads(canonical_json(asdict(result)))
+    restored = read_earnings_price(saved)
+    assert restored == result
+    assert restored.profit_period == result.profit_period
+    assert "profit_period" not in asdict(restored)
+    assert canonical_json(asdict(restored)) == canonical_json(saved)
+
+
+def test_accounting_transition_keeps_price_and_shares_without_a_false_ttm_yield():
+    prior = replace(
+        annual(20.0),
+        fiscal_period="1Q",
+        disclosed_at=date(2025, 8, 10),
+        period_end=date(2025, 6, 30),
+        disclosure_number="prior-q1",
+    )
+    current = replace(
+        prior,
+        disclosed_at=date(2026, 8, 10),
+        fiscal_year_end=date(2027, 3, 31),
+        period_start=date(2026, 4, 1),
+        period_end=date(2026, 6, 30),
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+        disclosure_number="current-q1",
+        profit=40.0,
+    )
+    result = observation([prior, annual(), current])
+    assert result.market_cap_yen == 800.0
+    assert result.shares_ex_treasury == 80.0
+    assert result.profit_ttm_yen is None
+    assert result.earnings_yield is None
+
+
+def test_old_saved_earnings_payload_remains_readable_without_a_new_default_on_disk():
+    saved = json.loads(canonical_json(asdict(observation([annual()]))))
+    saved.pop("accounting_standard")
+    before = canonical_json(saved)
+    assert read_earnings_price(saved).profit_ttm_yen == 100.0
+    assert canonical_json(saved) == before
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        ("empty", (None, None)),
+        ("missing_start", (None, date(2026, 3, 31))),
+        ("two_positive", (None, None)),
+        ("missing_positive_end", (None, None)),
+        ("missing_negative_end", (None, None)),
+    ],
+)
+def test_profit_period_does_not_invent_missing_component_dates(shape, expected):
+    result = observation([annual()])
+    part = result.profit_components[0]
+    components = {
+        "empty": (),
+        "missing_start": (replace(part, period_start=None),),
+        "two_positive": (part, part),
+        "missing_positive_end": (
+            part,
+            replace(part, period_end=None),
+            replace(part, coefficient=-1),
+        ),
+        "missing_negative_end": (part, part, replace(part, coefficient=-1, period_end=None)),
+    }[shape]
+    assert replace(result, profit_components=components).profit_period == expected
 
 
 def test_missing_treasury_shares_is_not_assumed_zero():

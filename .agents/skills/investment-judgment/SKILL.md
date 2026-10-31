@@ -34,6 +34,24 @@ uv run baibai-engine investment-judgment selection-context \
   --db stores/application/baibai.sqlite --runs-path stores/screening/runs.sqlite
 ```
 
+以前の候補外・非保有企業を再訪するときは、保存済みResearchとAssessmentの企業一覧を有限に読む。これは買付順位ではない。続きのページは返された`known_at`を固定し、`--after-ticker <NEXT_AFTER_TICKER>`を渡す。気になる企業だけ上の`--compare-ticker`へ接続し、全履歴を自動投入しない。
+
+```bash
+uv run baibai-engine investment-judgment company-research catalog \
+  --asof <ASOF> --known-at <INPUT_KNOWN_AT> --limit 20 --db stores/application/baibai.sqlite
+```
+
+`selection-context`の既存研究は薄い表示で、未review Researchと過去のreview済みAssessmentを分ける。`unreadable`を「調査なし」にせず、briefの省略を反証なしと扱わない。全文は`company-research get --research-id <ID> --sha256 <DIGEST>`または`--assessment-id <ID>`で読む。通常prepareは選定対象だけの開始材料をSelection V4へ固定し、再開時にlatestへ付け替えない。調査中に追加した根拠はAssessment V1へ必要部分をコピーしてReviewする。開始時Selectionは最終評価の全provenanceではない。
+
+以前判断した銘柄を再調査するときは、最近保存された振り返りを有限に読み、今回の問いに関係するものだけexact getする。空一覧は正常で、全社の登録や全履歴読取は要求しない。`has_more`なら必要に応じてlimitを広げる。lessonは現在の企業事実・買付条件ではなく、今回確認する問いへ戻す材料である。再開時に追加で読む記録を元Selectionの開始入力だったように扱わない。
+
+```bash
+uv run baibai-engine investment-judgment judgment-retrospective list \
+  --ticker <TICKER> --limit 20 --db stores/application/baibai.sqlite
+uv run baibai-engine investment-judgment judgment-retrospective get \
+  --retrospective-id <ID> --sha256 <DIGEST> --db stores/application/baibai.sqlite
+```
+
 低PERなら利益の反復性、過去平均なら回復経路、資産proxyなら株主への帰属・解放、成長なら追加投資の見返りを比べる。候補抽出の名称をその企業の価値獲得経路と決めつけず、[経済性の問い](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)へつなぐ。重要でも調べて確定しない未来は、調査の無期限延長でなく条件付き評価へ残す。
 
 企業成長の範囲は保存モデルのrequested_start/endとcoverageで確認する。通常生成は全保持範囲であり、長期の読取は下記の表示期数と完全結果を使う。prepare中に生成範囲を変えたり、最新原本へ付け替えたりしない。[期間・欠測と入力固定](../../../docs/reference/company-growth.md)に従う。
@@ -52,6 +70,16 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 企業成長の通常表示と完全結果の関係は[Investment Judgment投影](../../../docs/reference/company-growth.md#investment-judgmentへの接続)に従う。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げ、`operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内の `kind=research_selection` を読み、`full_result_ref` から完全結果を辿る。既存workspaceの切替は[再開手順](#完了と再開)の `--force` を使う。
 
+産業動向・社会動向は固定Generation V2の `shared_subjects` から読む。初版の自動意味抽出はTSRの医薬品卸/情報サービス業績調査とBOJ調節方針であり、他sourceの索引取得を全ニュース抽出済みと扱わない。payloadのcoverage・抽出状態・省略数を読み、重要な観測の `exact_evidence` をprivateなJSONへ保存する。原文は次で固定読取し、公開logへ転載しない。
+
+```bash
+uv run baibai-engine articles exact-evidence \
+  --release <RETAINED_LOOKUP_RELEASE> --manifest-sha256 <LOOKUP_MANIFEST_SHA256> \
+  --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
+```
+
+lookupを明示し、元lineage release全体を再読できたとは扱わない。Researchのsourceは原典URLを `ref` に、exact descriptorを `used_for` に含めて保存する。予定のfactは決定・発表時点の主張として日付と限定を残し、未来の予定日を発生済みのfact日付へ転記しない。現行Researchの保存検証はこのdescriptorの自動exact照合を保証しない。Assessmentへの転記・Review・再開でもsource/factの参照と限定を保持する。
+
 ## Company Research・Stock Assessment・Independent Review
 
 1. `investment-judgment stock-assessment-scaffold --workspace <WORKSPACE> --ticker <TICKER> --asof <YYYY-MM-DD>`で作る。返された`assessment_draft`を編集し、以下の`<DRAFT>`にそのpathを使う。保有は対象のholding子workspaceを使う。[Stock Assessment](../../../docs/reference/stock-assessment.md)から判断を変える経済的な問いを選び、一次資料へ戻る。[直近ニュース・カタリストの確認](../../../docs/reference/stock-assessment.md#recent-news-research)をCompany Researchの基本手順として行う。
@@ -61,15 +89,30 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 3. `investment-judgment stock-assessment-evaluate <DRAFT>`で確認する。`investment-judgment independent-review-scaffold --workspace <WORKSPACE> --ticker <TICKER>`からReviewを準備し、作者と別の作業者が原典・仮定・算術・反証を検討する。作者の入力や出力のコピーを独立検算としない。[不確実性の受容](../../../docs/reference/stock-assessment.md#uncertainty-and-decision)に従い、未知を一律保留にせず、受けるリスクと見返りの根拠を確認する。
 4. `investment-judgment stock-assessment-evaluate <DRAFT> --review <REVIEW>`で一組を確認し、`investment-judgment stock-assessment-promote --workspace <WORKSPACE> --ticker <TICKER>`で保存する。core変更時はReviewを取り直す。数値未確定でも所見と理由を独立検証した評価は完成でき、調査自体の不足は未完了とする。
 
+初回draftへ保存Researchを転記する場合は`stock-assessment-scaffold --from-research-id <RESEARCH_ID>`を任意指定する。同社・判断時点以前の原資料/事実/事業理解/仮説検討/未解決問いだけを元日付でコピーし、Research ID/hashをdraftのコメントへ残す。source/fact IDは`research_`付きとなり現在quoteと衝突しない。価値獲得仮説を価値差や評価済み結論へ自動昇格せず、価値・結論・Reviewは作者が別途作る。転記元Researchの保存内容は変わらない。既存Assessmentのrefreshとは併用しない。
+
 別日の当日算術は`stock-assessment-scaffold --from-assessment-id <ID>`から[差分refresh](../../../docs/reference/stock-assessment.md#assessment-refresh)を作り、新しいReviewを取る。
+
+### 途中成果の保存と再訪
+
+評価に不足する段階でも、`company-research scaffold --ticker <TICKER> --asof <ASOF> --db <APPLICATION_DB> --out <DRAFT>`から独立Researchを保存できる。既存latestの出典・事実・仮説・問いをコピーする。特定の元記録なら`--from-research-id <ID> --from-sha256 <DIGEST>`を指定する。`investigated_scope`へ今回確認した範囲を記し、必要な追加・訂正・削除を行って`company-research save <DRAFT> --db <APPLICATION_DB>`へ渡す。検索不発も試した範囲と残る問いで保存でき、価値差・買付価格・Reviewを創作しない。
+
+保存は差分メモでなく、その時点で保持する部分的な企業理解のsnapshot。recordの`as_of`は情報境界であり、全内容の再確認日ではない。元source/factの日付と取得時刻を今日へ変えず、引き継いだsupportedを本日再検証済みと扱わない。scaffoldはコピーだけを保証し、著者の削除が意味的に安全かは認定しない。stale priorの競合はlatestを読み直して著者が統合し、blind retryしない。同ID同内容の再送は元の保存時刻を返す。
+
+Research保存はOperation完了やreviewed outcomeではない。中断するときは既存`record-unfinished`へ理由とResearch ID/digestを参照として残せるが、その文字列参照を自動検証済みリンクとは扱わない。
 
 ## Trade Proposal
 
-statusとOperationを読み、保存評価は`operation record-assessment <OPERATION_ID> --assessment-id <ID>`で束縛する。未完了は理由と参照を記録し、対象を自動補充しない。
+statusとOperationを読む。`stock-assessment-promote`は保存評価をOperationへ自動束縛する。別途保存済みの評価を今回へ再利用する場合、または評価の保存後に束縛だけが失敗した場合は`operation record-assessment <OPERATION_ID> --assessment-id <ID>`を使う。評価の保存とOperationの束縛は別transactionである。未完了は理由と参照を記録し、対象を自動補充しない。
 
 ```bash
 uv run baibai-engine operation --db stores/application/baibai.sqlite record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <SOURCE_OR_WORKSPACE_REF>
+```
+
+固定対象を全件被覆し、現在の全outcomeが`unfinished`で、同OperationのProposalが未公開かつ参照未束縛なら、Proposal context・draft・Reviewを作らず[完了と再開](#完了と再開)へ進む。保存済みの部分Researchと未完了理由・参照は残し、`result`に確認した範囲と評価未完了、`next`に未解決の問いや再調査条件を書く。Researchがない未調査でも理由・参照は必要。経済的な見送りや保有判断を`unfinished`へ読み替えて工程を避けない。reviewedを含む場合、または同Operationに公開済みProposalがある場合は以下の通常経路を使い、未束縛の公開済みProposalも省略しない。
+
+```bash
 uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --db stores/application/baibai.sqlite \
   --sqlite-path stores/market/market.sqlite
@@ -86,11 +129,36 @@ uv run baibai-engine investment-judgment trade-proposal-check <DRAFT> --db store
 uv run baibai-engine investment-judgment trade-proposal-publish <REVIEWED_DRAFT> --db stores/application/baibai.sqlite
 ```
 
+売却は[保有継続と回収](../../../docs/reference/trade-proposal.md#holding)に従い、回収・保有継続・回復待ちの理由を内容Reviewへ渡す。残存見返り不足による売却では、実quoteと作者下限の比較をcheckの算術と照合する。重要仮説の破綻による売却では、未確定・無効となったvaluationの下限算術を必須にしない。
+
 checkのvalidとreview_bindingを別に読み、作者と別の作業者が正規modelのdraft_sha256へ内容Reviewを束縛する。[Review・保存・preview](../../../docs/reference/trade-proposal.md#publication-review)に従い、入力事実が変わればsnapshotとReviewを取り直す。
+
+## 判断の振り返り
+
+特定の旧判断と後日事実を照合し、次回への学びを独立に残したいときだけ使う。企業知識の更新だけならResearch、現在の再評価ならrefreshでよく、同じ内容の再記入は不要。新Operation・Selection・独立Reviewや現在の市場入力を振り返りの前提にしない。
+
+```bash
+uv run baibai-engine investment-judgment judgment-retrospective scaffold \
+  --proposal-id <PROPOSAL_ID> --ticker <TICKER> --asof <ASOF> \
+  --db stores/application/baibai.sqlite --out <DRAFT>
+uv run baibai-engine investment-judgment judgment-retrospective save <DRAFT> \
+  --db stores/application/baibai.sqlite
+```
+
+Assessmentだけなら`--proposal-id`と`--ticker`の代わりに`--assessment-id <ID>`を使う。scaffoldはexact参照・当時の判断とReview・固定した関連台帳を一度に返す。`context`を読み、`draft`内の節目・比較・lessonだけを執筆する。元actionやhash、台帳eventを手で転記しない。Assessment-onlyに採否・注文を補わず、deferを経済的な棄却へ読み替えない。
+
+- `milestone`には今回選んだ決算・出来事とその理由を短く書く。`original_claim`は元の対象・条件・期間を保持し、`observed`に今回の観測、`reason`に照合の範囲と理由を分ける。三状態は選んだ主張の支持・反証・未解決であり、提案全体の勝敗ではない。
+- supported/refutedは保存済みResearch又はAssessmentへのexact `reference`と、その文書内の`source_ids`（必要なら`fact_ids`）を`citations`へ付ける。複数文書を引用でき、同名source IDもrefごとに区別する。原典で比較できる企業仮説・再開条件を対象にし、Researchの既存supportedを今回の確認結果としてコピーしない。根拠が足りなければ、理由付きunresolvedだけでも保存できる。
+- 注文・約定やReview完成等の運用条件は固定contextとlessonへ記し、架空のResearch sourceへ転記しない。比較なしでも`lesson.next_time`と`rationale`に意味があれば保存できる。台帳未記録はunknownであり、未約定を推測しない。新たな遅延報告は旧記録へ後付けされず、必要なら新しいscaffoldから別IDで照合する。
+- lessonは次回に変える・変えない具体的な確認と理由にする。「当時1,100円でPmax1,000円」は後日上昇しても反証されず、「当時未公表」は翌月の公表で誤りにならない。後日初めて判明した材料と当時の見落としを分ける。利益が出ても株数basisの誤りは改善対象、明示して受け入れた不利経路での損失だけなら手順変更なしも正常である。実現損益と判断過程を同じ採点にしない。
+
+`as_of`は元発行日以降の情報基準日（JST）で、保存時計とは別。古い資料を後日取得して引用できるが、当時既知だったことや外部URLの原本bytes不変を保証しない。同ID同内容の再送は元記録を返し、後日の続きは新IDにする。誤記の訂正は新draftの`corrects_ref`へ旧ID/digestを指定し、lessonに訂正理由を書く。一覧ではorigin・節目・保存日・訂正先を読み、単一latestを唯一の結論にしない。
 
 ## 完了と再開
 
-公開済み提案を`operation record-proposal <OPERATION_ID> --proposal-id <ID>`へ記録し、現在payloadの固定selection/outcomesを保ってresult/nextを記し、`operation complete <OPERATION_ID> --payload <FILE>`へ渡す。buyを含む完了には具体termsが必要。sellのterms不足は理由付きで調査工程を終了できるが、価格・数量まで完成したと報告しない。人間の採否・broker操作・実約定を完了条件へ補完しない。
+Proposalを使う通常経路では、公開済み提案を`operation record-proposal <OPERATION_ID> --proposal-id <ID>`へ明示的に記録する。いずれの経路も`operation complete <OPERATION_ID> --result '<RESULT>' --next '<NEXT>'`で完了する。完了は保存済みの固定Selection・成果・参照を保ち、提案参照があれば現在の成果と公開済み提案のscopeを照合する。buyを含む完了には具体termsが必要。sellのterms不足は理由付きで調査工程を終了できるが、価格・数量まで完成したと報告しない。人間の採否・broker操作・実約定を完了条件へ補完しない。
+
+`completed`は今回の有限な作業の終了で、評価や売買提案の完成とは限らない。完了状態の正本は`operation show <OPERATION_ID>`で確認する。workspaceの評価statusが`incomplete`でもOperationの完了とは別である。
 
 ```bash
 uv run baibai-engine investment-judgment prepare \
@@ -98,6 +166,19 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --force
 ```
 
-再開は保存入力から投影を復元し、元generation・旧runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。同文の本当の再依頼は新workspaceと新Operationで扱う。
+再開は保存入力から投影を復元し、元generation・旧runやmutable storeへ付け替えない。forceは生成投影を修復し、執筆済みdraftを保つ。commit後のfile失敗も返されたOperation IDから再開する。別activeを上書きせず、完了済みへ追記しない。完了済みのprepareは`already_completed`を返し、forceでもactiveには戻さない。後日の再調査や同文の本当の再依頼は、保存Researchを必要に応じて読み、新workspaceと新Operationで扱う。
 
 後続調査は現在の成果を確定して次Operationへ進む。実際に報告された注文・資金は[Ledger Record](../ledger-record/SKILL.md)、本番反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。monitoringは同じ問いの既存taskを確認して記録する。
+
+## 提案訂正・人間の非購入報告
+
+人間の非購入を新しいno_action提案へ置換しない。[意味と記録項目](../../../docs/reference/trade-proposal.md#提案の訂正と人間の報告)に従い、既存Proposalのexactrefを読む。誤記録の訂正は最新提案のID/hashを取得し、期待値付きで実行する。原本文・Review・完了Operationは変更しない。
+
+```bash
+uv run baibai-engine investment-judgment proposal-records --db <APP_DB> correct <CORRECTION_DRAFT> \
+  --expected-latest-id <ID> --expected-latest-sha256 <SHA256>
+uv run baibai-engine investment-judgment proposal-records --db <APP_DB> report <HUMAN_REPORT_DRAFT>
+uv run baibai-engine investment-judgment proposal-records --db <APP_DB> show <PROPOSAL_ID>
+```
+
+契約は`trade_proposal/record_contracts.py`。保存時刻はエンジンが付ける。訂正は期待latestとexacthashの競合なら停止して読直し、blind retryしない。同ID同内容だけは冪等。本人の文言・報告日時と明示された対象時点を分け、不明な対象時点・注文結果は補完しない。ローカル読戻しで原提案/台帳不変と独立報告を確認後、認可された[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)を行う。

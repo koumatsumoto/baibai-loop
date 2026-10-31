@@ -43,6 +43,7 @@ class EcbFxSource:
             params=None,
             max_bytes=MAX_ZIP_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         try:
             archive = zipfile.ZipFile(io.BytesIO(content))

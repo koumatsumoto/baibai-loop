@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from pydantic import TypeAdapter
 
+from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -14,8 +15,19 @@ from baibai_engine.machine_analysis.generation.contracts import (
     ModelGeneration,
 )
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.models.company_financials.earnings import (
+    EarningsPrice,
+    ProfitComponent,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
-from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.models.company_growth.models import (
+    Change,
+    CompanyGrowth,
+    InputRelease,
+    Observation,
+    PeriodState,
+    Value,
+)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -27,8 +39,13 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_inputs impo
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
     select_saved_economic_generation,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    EconomicPathPolicy,
+    EconomicPathSelection,
+    select_economic_paths,
+)
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.primitives.json import canonical_json
 
 
 def metadata():
@@ -40,21 +57,35 @@ def metadata():
     )
 
 
+def profit_component(coefficient, amount, start, end):
+    return ProfitComponent(
+        coefficient=coefficient,
+        amount_yen=amount,
+        period_start=date.fromisoformat(start),
+        period_end=date.fromisoformat(end),
+        disclosed_at=date(2026, 1, 5),
+        disclosed_time=None,
+        disclosure_number="synthetic-profit",
+        document_type="FinancialStatements_Consolidated_JP",
+    )
+
+
 def payloads(price=100.0):
     cap = price * 100
 
     def observation(kind, start):
-        return {
-            "measurement": kind,
-            "period_start": start,
-            "period_end": "2025-12-31",
-            "statement_basis": "consolidated",
-            "metrics": {
-                "sales": {"value": 1000.0},
-                "operating_profit": {"value": 100.0},
-                "operating_margin": {"value": 0.1},
+        return Observation(
+            measurement=kind,
+            period_start=date.fromisoformat(start),
+            period_end=date(2025, 12, 31),
+            statement_basis="consolidated",
+            accounting_standard="JP",
+            metrics={
+                "sales": Value(value=1000.0),
+                "operating_profit": Value(value=100.0),
+                "operating_margin": Value(value=0.1),
             },
-        }
+        )
 
     changes = []
     for kind, start, prior in [
@@ -67,52 +98,57 @@ def payloads(price=100.0):
             ("operating_margin", 0.02, None),
         ]:
             changes.append(
-                {
-                    "measurement": kind,
-                    "metric": metric,
-                    "comparison": "year_over_year",
-                    "from_start": prior,
-                    "from_end": "2024-12-31",
-                    "to_start": start,
-                    "to_end": "2025-12-31",
-                    "difference": difference,
-                    "rate": rate,
-                    "reason": None,
-                }
+                Change(
+                    measurement=kind,
+                    metric=metric,
+                    from_start=date.fromisoformat(prior),
+                    from_end=date(2024, 12, 31),
+                    to_start=date.fromisoformat(start),
+                    to_end=date(2025, 12, 31),
+                    difference=difference,
+                    rate=rate,
+                )
             )
     return {
-        "company_valuation": {
+        "company_financials": {
             "expected_price_date": "2026-01-05",
-            "earnings_price": {
-                "earnings_yield": 1000.0 / cap,
-                "price_date": "2026-01-05",
-                "price_yen": price,
-                "shares_ex_treasury": 100.0,
-                "market_cap_yen": cap,
-                "statement_basis": "consolidated",
-                "profit_components": [
-                    {
-                        "coefficient": 1,
-                        "amount_yen": 1000.0,
-                        "period_start": "2025-01-01",
-                        "period_end": "2025-12-31",
-                    }
-                ],
-            },
+            "earnings_price": TypeAdapter(EarningsPrice).dump_python(
+                EarningsPrice(
+                    as_of=date(2026, 1, 5),
+                    earnings_yield=1000.0 / cap,
+                    price_date=date(2026, 1, 5),
+                    price_yen=price,
+                    shares_ex_treasury=100.0,
+                    market_cap_yen=cap,
+                    profit_ttm_yen=1000.0,
+                    statement_basis="consolidated",
+                    accounting_standard="JP",
+                    profit_components=(profit_component(1, 1000.0, "2025-01-01", "2025-12-31"),),
+                    unavailable_reason=None,
+                ),
+                mode="json",
+            ),
             "financial": {"market_cap": cap, "pbr": cap / 20000.0, "fcf_ttm": -200.0},
         },
-        "company_growth": {
-            "periods": [
-                {
-                    "period_end": "2025-12-31",
-                    "observations": [
+        "company_growth": CompanyGrowth(
+            ticker="1234",
+            status="available",
+            requested_start=None,
+            requested_end=date(2026, 1, 5),
+            periods=(
+                PeriodState(
+                    fiscal_period="FY",
+                    fiscal_year_end=date(2025, 12, 31),
+                    period_start=date(2025, 1, 1),
+                    period_end=date(2025, 12, 31),
+                    observations=(
                         observation("annual_ttm", "2025-01-01"),
                         observation("quarter", "2025-10-01"),
-                    ],
-                }
-            ],
-            "changes": changes,
-        },
+                    ),
+                ),
+            ),
+            changes=tuple(changes),
+        ).model_dump(mode="json"),
         "market_context": {"master": {"sector_33": "情報・通信業", "name": "合成企業"}},
     }
 
@@ -145,6 +181,18 @@ def test_valid_paths_use_fixed_observations_and_periods():
     assert active(result, "operating_recovery").business_value == 0.02
 
 
+def test_projected_observation_standard_reaches_the_bounded_brief():
+    projected = project(payloads())
+    selection = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selection, mode="json")
+    brief = economic_screening_brief(saved)
+    assert any(
+        observation["accounting_standard"] == "JP"
+        for path in brief["cards"][0]["paths"]
+        for observation in path["evidence"].get("period_basis", [])
+    )
+
+
 def test_price_change_moves_price_axes_not_business_axes():
     before, after = project(payloads()), project(payloads(price=200.0))
     for name in {path.path_id for path in before.paths}:
@@ -155,8 +203,8 @@ def test_price_change_moves_price_axes_not_business_axes():
 
 def test_missing_earnings_and_negative_cash_do_not_remove_growth_or_recovery():
     data = payloads()
-    data["company_valuation"]["earnings_price"]["earnings_yield"] = None
-    data["company_valuation"]["earnings_price"]["unavailable_reason"] = "unavailable_annual_profit"
+    data["company_financials"]["earnings_price"]["earnings_yield"] = None
+    data["company_financials"]["earnings_price"]["unavailable_reason"] = "unavailable_annual_profit"
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "capital_productivity") is None
@@ -166,7 +214,7 @@ def test_missing_earnings_and_negative_cash_do_not_remove_growth_or_recovery():
 
 def test_stale_price_disables_price_coordinates_but_preserves_business_data():
     data = payloads()
-    data["company_valuation"]["expected_price_date"] = "2026-01-06"
+    data["company_financials"]["expected_price_date"] = "2026-01-06"
     result = project(data)
     assert not any(path.eligible for path in result.paths)
     assert any(path.business_value is not None for path in result.paths)
@@ -280,7 +328,7 @@ def test_unknown_sector_is_not_an_industry_peer_group(sector):
 )
 def test_price_gate_requires_all_positive_price_inputs_on_expected_date(field, value):
     data = payloads()
-    data["company_valuation"]["earnings_price"][field] = value
+    data["company_financials"]["earnings_price"][field] = value
     result = project(data)
     assert not result.context["pricing_valid"]
     assert not any(path.eligible for path in result.paths)
@@ -292,26 +340,16 @@ def test_price_gate_requires_all_positive_price_inputs_on_expected_date(field, v
 
 def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start():
     data = payloads()
-    data["company_valuation"]["earnings_price"]["profit_components"] = [
-        {
-            "coefficient": 1,
-            "amount_yen": 500.0,
-            "period_start": "2025-04-01",
-            "period_end": "2025-09-30",
-        },
-        {
-            "coefficient": 1,
-            "amount_yen": 900.0,
-            "period_start": "2024-04-01",
-            "period_end": "2025-03-31",
-        },
-        {
-            "coefficient": -1,
-            "amount_yen": 400.0,
-            "period_start": "2024-04-01",
-            "period_end": "2024-09-30",
-        },
-    ]
+    data["company_financials"]["earnings_price"]["profit_components"] = TypeAdapter(
+        tuple[ProfitComponent, ...]
+    ).dump_python(
+        (
+            profit_component(1, 500.0, "2025-04-01", "2025-09-30"),
+            profit_component(1, 900.0, "2024-04-01", "2025-03-31"),
+            profit_component(-1, 400.0, "2024-04-01", "2024-09-30"),
+        ),
+        mode="json",
+    )
     data["company_growth"]["periods"][0]["period_end"] = "2025-09-30"
     annual = data["company_growth"]["periods"][0]["observations"][0]
     annual.update(period_start="2024-10-01", period_end="2025-09-30")
@@ -332,9 +370,11 @@ def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start(
 @pytest.mark.parametrize("basis", [None, "unknown", "nonconsolidated"])
 def test_income_requires_observed_matching_statement_basis(basis):
     data = payloads()
-    data["company_valuation"]["earnings_price"]["statement_basis"] = basis
+    data["company_financials"]["earnings_price"]["statement_basis"] = basis
     if basis != "nonconsolidated":
-        data["company_growth"]["periods"][0]["observations"][0]["statement_basis"] = basis
+        data["company_growth"]["periods"][0]["observations"][0]["statement_basis"] = (
+            basis or "unknown"
+        )
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "business_expansion") is not None
@@ -358,10 +398,13 @@ def test_period_variants_retain_both_reference_coordinates_before_selection():
 def test_newest_anchor_does_not_search_older_complete_observations():
     data = payloads()
     data["company_growth"]["periods"].append(
-        {
-            "period_end": "2026-03-31",
-            "observations": [],
-        }
+        PeriodState(
+            fiscal_period="1Q",
+            fiscal_year_end=date(2026, 12, 31),
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 3, 31),
+            observations=(),
+        ).model_dump(mode="json")
     )
     result = project(data)
     assert result.context["latest_growth_period"] == "2026-03-31"
@@ -383,8 +426,8 @@ def test_recovery_requires_both_changes_from_same_comparison_interval():
 
 def test_negative_reported_profit_is_retained_in_capital_proxy_not_called_roe():
     data = payloads()
-    data["company_valuation"]["earnings_price"]["earnings_yield"] = -0.1
-    data["company_valuation"]["earnings_price"]["profit_components"][0]["amount_yen"] = -1000.0
+    data["company_financials"]["earnings_price"]["earnings_yield"] = -0.1
+    data["company_financials"]["earnings_price"]["profit_components"][0]["amount_yen"] = -1000.0
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "capital_productivity") is None
@@ -396,11 +439,11 @@ def test_negative_reported_profit_is_retained_in_capital_proxy_not_called_roe():
 
 def test_overflowing_derived_coordinates_are_missing_not_nonfinite():
     data = payloads()
-    earnings = data["company_valuation"]["earnings_price"]
+    earnings = data["company_financials"]["earnings_price"]
     earnings.update(
         price_yen=1e-308, shares_ex_treasury=1.0, market_cap_yen=1e-308, earnings_yield=1e308
     )
-    data["company_valuation"]["financial"].update(market_cap=1e-308, pbr=1e308)
+    data["company_financials"]["financial"].update(market_cap=1e-308, pbr=1e308)
     for observation in data["company_growth"]["periods"][0]["observations"]:
         observation["metrics"]["sales"]["value"] = 1e308
     for change in data["company_growth"]["changes"]:
@@ -439,7 +482,7 @@ def test_added_models_are_referenced_without_automatic_extra_coordinates_or_vote
 
 def test_latest_growth_changes_remain_context_when_improvements_are_not_positive():
     data = payloads()
-    data["company_valuation"]["financial"]["tradable_share_change_yoy"] = 0.15
+    data["company_financials"]["financial"]["tradable_share_change_yoy"] = 0.15
     for change in data["company_growth"]["changes"]:
         if change["measurement"] == "quarter":
             change["difference"] = -1.0
@@ -596,14 +639,14 @@ def test_external_noncomparison_states_are_not_promoted_to_revisions(state):
 
 def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
     data = payloads()
-    data["company_valuation"]["financial"].update(
+    data["company_financials"]["financial"].update(
         same_state_equity_yen=999999.0, consolidation_basis="standalone"
     )
     capital = active(project(data), "capital_productivity")
     assert capital.business_value == pytest.approx(0.05)
     assert capital.evidence["book_amount_implied_by_pbr"] == 20000.0
     assert "not_exposed" in capital.evidence["book_provenance"]
-    data["company_valuation"]["financial"]["market_cap"] = 999.0
+    data["company_financials"]["financial"]["market_cap"] = 999.0
     assert active(project(data), "capital_productivity") is None
 
 
@@ -643,6 +686,52 @@ def test_conflicting_growth_date_matches_only_make_that_metric_unavailable():
     assert active(result, "earning_power") is not None
 
 
+def test_saved_growth_evidence_keeps_missing_fields_and_original_number_representation():
+    data = payloads()
+    growth = data["company_growth"]
+    annual = growth["periods"][0]["observations"][0]
+    annual.pop("share_basis")
+    annual["metrics"]["sales"] = {"value": 1000}
+    sales_change = growth["changes"][0]
+    sales_change.pop("margin_points")
+    sales_change["difference"] = 100
+    before = canonical_json(data)
+    result = project(data)
+    expansion = active(result, "business_expansion")
+    assert (
+        canonical_json(expansion.evidence["sales_observation"]["observation"]) == '{"value":1000}'
+    )
+    assert canonical_json(expansion.evidence["sales_change"]) == canonical_json(sales_change)
+    assert result.context["annual_observation"]["latest_ttm_metrics"] == annual["metrics"]
+    assert result.context["annual_observation"]["latest_ttm_period_status"] is None
+    assert canonical_json(data) == before
+
+
+def test_different_saved_comparison_shapes_remain_ambiguous_even_when_typed_values_match():
+    data = payloads()
+    duplicate = deepcopy(data["company_growth"]["changes"][1])
+    duplicate.pop("margin_points")
+    data["company_growth"]["changes"].append(duplicate)
+    result = project(data)
+    change = result.context["latest_growth_changes"]["operating_profit"]["latest_quarter"]
+    assert change["reason"] == "ambiguous_growth_comparison"
+    assert change["matching_comparison_count"] == 2
+    assert active(result, "business_expansion") is not None
+
+
+def test_missing_comparison_field_does_not_create_a_match_from_the_owner_default():
+    data = payloads()
+    before = project(data)
+    duplicate = deepcopy(data["company_growth"]["changes"][1])
+    duplicate.pop("comparison")
+    data["company_growth"]["changes"].append(duplicate)
+    after = project(data)
+    assert after == before
+    data["company_growth"]["changes"][1].pop("comparison")
+    result = project(data)
+    assert result.context["latest_growth_changes"]["operating_profit"]["latest_quarter"] == {}
+
+
 @pytest.mark.parametrize("metric", ["operating_profit", "operating_margin"])
 @pytest.mark.parametrize("bad_value", [-1.0, 0.0])
 def test_bad_quarter_with_missing_companion_cannot_escape_to_annual(metric, bad_value):
@@ -673,11 +762,13 @@ def test_positive_quarter_with_missing_companion_retains_counterevidence_on_annu
 
 def test_generated_unavailable_growth_reason_is_not_not_generated():
     data = payloads()
-    data["company_growth"] = {
-        "status": "unavailable",
-        "reason": "accounting_period_not_observed",
-        "periods": [],
-    }
+    data["company_growth"] = CompanyGrowth(
+        ticker="1234",
+        status="unavailable",
+        reason="accounting_period_not_observed",
+        requested_start=None,
+        requested_end=date(2026, 1, 5),
+    ).model_dump(mode="json")
     result = project(data)
     assert result.context["growth_status"] == "unavailable"
     assert result.context["growth_reason"] == "accounting_period_not_observed"
@@ -686,7 +777,9 @@ def test_generated_unavailable_growth_reason_is_not_not_generated():
     assert "status" not in result.context["external_assessment"]
 
 
-def owner_generation(*, alternate_quarter_profit=None):
+def owner_generation(
+    *, alternate_quarter_profit=None, alternate_prior_quarter_profit=None, reverse_documents=False
+):
     as_of = date(2026, 8, 31)
     release = InputRelease(release_id="owner-economic-fixture", manifest_sha256="b" * 64)
 
@@ -746,6 +839,17 @@ def owner_generation(*, alternate_quarter_profit=None):
                 disclosure_number="owner-fy-end-change",
             )
         )
+    if alternate_prior_quarter_profit is not None:
+        documents.append(
+            replace(
+                documents[0],
+                fiscal_year_end=date(2026, 6, 30),
+                operating_profit=alternate_prior_quarter_profit,
+                disclosure_number="owner-prior-fy-end-change",
+            )
+        )
+    if reverse_documents:
+        documents.reverse()
     return generate_models(
         generation_id="owner-economic-generation",
         as_of=as_of,
@@ -836,9 +940,66 @@ def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity(t
     )
 
 
+@pytest.mark.parametrize("alternate_prior_profit", [10.0, 50.0])
+def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
+    alternate_prior_profit,
+):
+    generation = owner_generation(alternate_prior_quarter_profit=alternate_prior_profit)
+    reversed_generation = owner_generation(
+        alternate_prior_quarter_profit=alternate_prior_profit, reverse_documents=True
+    )
+    growth_model = generation.result("company_growth", "1001")
+    assert growth_model == reversed_generation.result("company_growth", "1001")
+    assert growth_model.calculation_revision == "company_growth_retrospective_v7"
+    growth = growth_model.payload
+    before = canonical_json(growth)
+    priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]
+    assert [state["fiscal_year_end"] for state in priors] == ["2026-03-31", "2026-06-30"]
+    quarters = [
+        next(item for item in state["observations"] if item["measurement"] == "quarter")
+        for state in priors
+    ]
+    assert [item["metrics"]["operating_profit"]["value"] for item in quarters] == [
+        10.0,
+        alternate_prior_profit,
+    ]
+    assert [
+        item["metrics"]["operating_profit"]["documents"][0]["disclosure_number"]
+        for item in quarters
+    ] == ["owner-2025-1Q", "owner-prior-fy-end-change"]
+    row = project_company("1001", models=generation.models, metadata=generation)
+    reversed_row = project_company(
+        "1001", models=reversed_generation.models, metadata=reversed_generation
+    )
+    assert row == reversed_row
+    latest = row.context["latest_growth_changes"]
+    sales = latest["sales"]["latest_quarter"]
+    assert (sales["from_value"], sales["to_value"], sales["difference"]) == (250.0, 400.0, 150.0)
+    assert sales["rate"] == pytest.approx(0.6)
+    assert active(row, "business_expansion") is not None
+    for metric, expected in (
+        ("operating_profit", 20.0),
+        ("operating_margin", 30.0 / 400.0 - 10.0 / 250.0),
+    ):
+        comparison = latest[metric]["latest_quarter"]
+        assert comparison["from_start"] == "2025-04-01"
+        assert comparison["from_end"] == "2025-06-30"
+        if alternate_prior_profit == 50.0:
+            assert comparison["reason"] == "ambiguous_growth_comparison"
+            assert all(
+                comparison[field] is None
+                for field in ("from_value", "difference", "rate", "margin_points", "sign_change")
+            )
+        else:
+            assert comparison["reason"] is None
+            assert comparison["difference"] == pytest.approx(expected)
+    assert (active(row, "operating_recovery") is None) == (alternate_prior_profit == 50.0)
+    assert canonical_json(growth) == before
+
+
 def test_cash_investment_components_and_source_survive_the_same_fcf():
     first = payloads()
-    first["company_valuation"]["financial"].update(
+    first["company_financials"]["financial"].update(
         edinet_ocf_ttm=100.0,
         capex_ttm=300.0,
         edinet_capex_source="purchase_of_fixed_assets",
@@ -848,7 +1009,7 @@ def test_cash_investment_components_and_source_survive_the_same_fcf():
         edinet_source_period_end="2025-03-31",
     )
     second = deepcopy(first)
-    second["company_valuation"]["financial"].update(edinet_ocf_ttm=-100.0, capex_ttm=100.0)
+    second["company_financials"]["financial"].update(edinet_ocf_ttm=-100.0, capex_ttm=100.0)
     a, b = project(first).context["financial"], project(second).context["financial"]
     assert a["fcf_ttm"] == b["fcf_ttm"] == -200.0
     assert a["edinet_ocf_ttm"] == 100.0
@@ -862,4 +1023,23 @@ def test_cash_investment_components_and_source_survive_the_same_fcf():
         "edinet_source_period_start",
         "edinet_source_period_end",
     ):
-        assert a[field] == b[field] == first["company_valuation"]["financial"][field]
+        assert a[field] == b[field] == first["company_financials"]["financial"][field]
+
+
+def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval():
+    inputs = payloads()
+    reported = {
+        "period_kind": "interim",
+        "amounts": {"operating_cash_flow": 812_758_000.0, "free_cash_flow": 461_335_000.0},
+        "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
+        "filing_fiscal_period": {"start": "2026-01-01", "end": "2026-12-31"},
+        "annual_quality": {"free_cash_flow": "approximated"},
+    }
+    period = {"start": "2025-07-01", "end": "2026-06-30"}
+    inputs["company_financials"]["financial"].update(
+        edinet_reported_flows=reported, ocf_ttm_period=period, ocf_ttm=-1_422_368_000.0
+    )
+    financial = project(inputs).context["financial"]
+    assert financial["edinet_reported_flows"] == reported
+    assert financial["ocf_ttm_period"] == period
+    assert financial["ocf_ttm"] == -1_422_368_000.0

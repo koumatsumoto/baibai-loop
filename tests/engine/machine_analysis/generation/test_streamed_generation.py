@@ -8,7 +8,6 @@ from tests.engine.machine_analysis.generation.test_model_generation_store import
 
 import baibai_engine.machine_analysis.generation.store as generation_store
 from baibai_engine.machine_analysis.generation.contracts import (
-    GeneratedModel,
     GenerationMetadata,
     ModelGenerationStream,
 )
@@ -16,11 +15,6 @@ from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
 )
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_view_selection import (
-    select_saved_generation,
-)
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
 from baibai_engine.primitives.json import canonical_json
 
 
@@ -120,47 +114,3 @@ def test_duplicate_fresh_stream_rolls_back(tmp_path):
     with pytest.raises(GenerationConflictError, match="duplicate"):
         store.publish_stream(stream(original, (original.models[0], original.models[0])))
     assert store.read(original.generation_id) is None
-
-
-@pytest.mark.parametrize("earnings", [None, -0.1, 0.0, 0.100049])
-def test_saved_selection_matches_pure_policy_without_decoding_unused_growth(tmp_path, earnings):
-    path = tmp_path / "runs.sqlite"
-    first = generation(value=earnings)
-    first = type(first)(
-        **first.model_dump(exclude={"models"}),
-        models=tuple(
-            model.model_copy(update={"payload": {"price_momentum": {"value": -0.5}}})
-            if model.model_id == "technical_analysis"
-            else model
-            for model in first.models
-        ),
-    )
-    extra = (
-        GeneratedModel(
-            model_id="technical_analysis",
-            subject="5678",
-            calculation_revision="v1",
-            payload={"price_momentum": {"value": 0.5}},
-        ),
-        GeneratedModel(
-            model_id="company_growth", subject="1234", calculation_revision="v1", payload={}
-        ),
-        first.models[0].model_copy(update={"subject": "5678"}),
-    )
-    original = type(first)(**first.model_dump(exclude={"models"}), models=(*first.models, *extra))
-    ModelGenerationStore(path).publish(original)
-    policy = TwoViewPolicy(earnings_limit=1, combined_limit=1)
-    tickers = ("9999", "5678", "1234")
-    expected = select_generation(original, tickers=tickers, policy=policy)
-    with closing(sqlite3.connect(path)) as connection:
-        connection.execute(
-            "UPDATE generated_model SET payload_gzip=? WHERE model_id='company_growth'",
-            (b"not gzip",),
-        )
-        connection.commit()
-    assert (
-        select_saved_generation(original.generation_id, tickers=tickers, policy=policy, path=path)
-        == expected
-    )
-    with pytest.raises(ValueError, match="not found"):
-        select_saved_generation("absent", tickers=tickers, policy=policy, path=path)

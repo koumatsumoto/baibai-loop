@@ -7,10 +7,8 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
-    _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
     DEFAULT_MIN_BREADTH_SAMPLE,
     NIKKEI225_ETF_PROXY,
-    benchmark_trend_from_series,
 )
 from baibai_engine.machine_analysis.models.market_context.snapshot import (
     _POINT_LOOKBACK_CALENDAR_DAYS,
@@ -26,45 +24,6 @@ from baibai_engine.machine_analysis.observations.prices.adjusted_prices import r
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import MasterSnapshot
 from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
-
-from .benchmark import _load_benchmark_series
-
-
-def prepare_market_context_inputs(
-    *,
-    sqlite_path: Path,
-    asof_date: date,
-    master: MasterSnapshot | None,
-    history_weeks: int = DEFAULT_HISTORY_WEEKS,
-    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-) -> PreparedMarketContext:
-    """既存masterを引き継ぎ、同じ生成の全体/個別viewへ渡す。永続cacheなし。"""
-    start = asof_date - timedelta(days=7 * (history_weeks - 1) + _POINT_LOOKBACK_CALENDAR_DAYS)
-    benchmark_series = _load_benchmark_series(sqlite_path, asof_date, ticker=benchmark_ticker)
-    sector_tickers: dict[str, list[str]] = {}
-    if master is not None:
-        for ticker, security in master.securities.items():
-            sector = security["sector_33"]
-            if security["is_common_stock"] and isinstance(sector, str):
-                sector_tickers.setdefault(sector, []).append(ticker)
-    return PreparedMarketContext(
-        sqlite_path=sqlite_path.resolve(),
-        asof_date=asof_date,
-        history_weeks=history_weeks,
-        start=start,
-        master=master,
-        common_stock_tickers_by_sector={
-            sector: tuple(tickers) for sector, tickers in sector_tickers.items()
-        },
-        series_by_ticker=_load_series(sqlite_path, start=start, end=asof_date),
-        benchmark_ticker=benchmark_ticker,
-        # Keep the original benchmark loader's window, including sparse histories.
-        benchmark_start=asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS),
-        benchmark_prices=dict(benchmark_series),
-        benchmark_trend=benchmark_trend_from_series(
-            benchmark_series, asof_date=asof_date, benchmark_ticker=benchmark_ticker
-        ),
-    )
 
 
 def prepare_market_context_from_bars(

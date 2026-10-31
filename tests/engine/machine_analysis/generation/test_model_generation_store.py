@@ -1,9 +1,10 @@
+import gzip
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.model_generation_fixtures import generation
+from tests.model_generation_fixtures import empty_selection, generation
 
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -14,8 +15,13 @@ from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
 )
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies.two_views import (
+    CandidateView,
+    RankedCompany,
+    TwoViewPolicy,
+    ViewSelection,
+)
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.sqlite.machine_analysis import (
     GENERATION_SCHEMA_SQL,
@@ -41,11 +47,28 @@ def test_generation_round_trip_is_independent_of_candidate_selection(tmp_path):
     assert store.read_subjects(original.generation_id, subjects=()).models == ()
 
 
-def test_partial_input_cannot_be_mistaken_for_a_complete_screening_generation(tmp_path):
+def test_subject_slice_does_not_decode_unselected_payloads(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    store = ModelGenerationStore(path)
+    original = generation()
+    store.publish(original)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE generated_model SET payload_gzip=? WHERE generation_id=? AND subject='market'",
+            (b"not gzip", original.generation_id),
+        )
+    company = store.read_subjects(original.generation_id, subjects=("1234", "1234"))
+    assert company.subjects == ("1234",)
+    assert company.models == tuple(model for model in original.models if model.subject == "1234")
+    with pytest.raises(gzip.BadGzipFile):
+        store.read(original.generation_id)
+
+
+def test_partial_input_cannot_be_published_as_a_complete_generation(tmp_path):
     store = ModelGenerationStore(tmp_path / "runs.sqlite")
     first = generation()
     second_company = GeneratedModel(
-        model_id="company_valuation",
+        model_id="company_financials",
         subject="5678",
         calculation_revision="v1",
         payload={"earnings_price": {"earnings_yield": 0.2}},
@@ -54,13 +77,7 @@ def test_partial_input_cannot_be_mistaken_for_a_complete_screening_generation(tm
         {**first.model_dump(), "models": (*first.models, second_company)}
     )
     store.publish(full)
-    policy = TwoViewPolicy(earnings_limit=1, combined_limit=0)
-    assert select_generation(full, tickers=("1234", "5678"), policy=policy).result.tickers == (
-        "5678",
-    )
     partial = store.read_subjects(full.generation_id, subjects=("1234",))
-    with pytest.raises(TypeError, match="complete model generation"):
-        select_generation(partial, tickers=("1234", "5678"), policy=policy)
     with pytest.raises(TypeError, match="complete model generation"):
         store.publish(partial)
     assert store.read(full.generation_id) == full
@@ -100,19 +117,28 @@ def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp
     path = tmp_path / "runs.sqlite"
     original = generation()
     ModelGenerationStore(path).publish(original)
-    selected = select_generation(
-        original, tickers=("1234", "5678"), policy=TwoViewPolicy(earnings_limit=2, combined_limit=2)
+    selected = ScreeningSelection(
+        original.generation_id,
+        ("1234", "5678"),
+        ViewSelection(
+            TwoViewPolicy(earnings_limit=2, combined_limit=2),
+            (
+                CandidateView("earnings-price", 2, 1, (RankedCompany("1234", 1, 0.100049),)),
+                CandidateView("earnings-price-response", 2, 0, ()),
+            ),
+        ),
     )
 
     def forbidden(*args, **kwargs):
         raise AssertionError("storage must not execute candidate policy")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.two_view_inputs.select_generation",
+        "baibai_engine.machine_analysis.screening.policies.economic_path_selection.select_saved_economic_generation",
         forbidden,
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.two_views.select_views", forbidden
+        "baibai_engine.machine_analysis.screening.policies.economic_paths.select_economic_paths",
+        forbidden,
     )
     store = ScreeningSelectionStore(path)
     assert store.publish("selection-a", selected)
@@ -126,9 +152,7 @@ def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp
 
 
 def test_selection_cannot_reference_an_unpublished_generation(tmp_path):
-    selected = select_generation(
-        generation(), tickers=("1234",), policy=TwoViewPolicy(earnings_limit=1, combined_limit=1)
-    )
+    selected = empty_selection(generation().generation_id)
     store = ScreeningSelectionStore(tmp_path / "runs.sqlite")
     with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
         store.publish("selection-a", selected)
@@ -189,11 +213,7 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
     ):
         store.publish(
             name,
-            select_generation(
-                source,
-                tickers=("1234",),
-                policy=TwoViewPolicy(earnings_limit=limit, combined_limit=0),
-            ),
+            empty_selection(source.generation_id, candidate_limit=limit),
         )
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.executemany(
@@ -209,7 +229,7 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
     cutoff = datetime(2026, 10, 25, 9, tzinfo=UTC)
     assert read_publication(path=path, known_at=cutoff).selection_id == "z-first"
     assert read_publication(path=path, selection_id="a-second", known_at=cutoff) is None
-    assert latest.selection.result.policy.earnings_limit == 2
+    assert latest.selection.result.policy.candidate_limit == 2
     assert read_publication(path=path, before_as_of=current.as_of).selection_id == "late-backfill"
     first = read_publication(path=path, selection_id="z-first")
     store.publish("z-first", first.selection)

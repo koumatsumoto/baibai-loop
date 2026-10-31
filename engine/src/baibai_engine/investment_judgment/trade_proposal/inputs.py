@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from hashlib import sha256
@@ -35,6 +36,7 @@ from baibai_engine.investment_judgment.workflow.operation.progress import (
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
+    GeneratedResearchSelectionV4,
     saved_market_assessment,
 )
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -43,11 +45,12 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.portfolio.holdings.market_observations import (
-    market_basis_is_confirmed,
-    read_unadjusted_close,
+from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
+from baibai_engine.portfolio.holdings.valuation import (
+    holding_episode,
+    holding_market_price,
+    holding_quote,
 )
-from baibai_engine.portfolio.holdings.valuation import holding_episode
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
     MarketPrice,
@@ -60,14 +63,19 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import finite_decimal
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.read import (
+    connect_read_only as connect_market_read_only,
+)
 
 DEFAULT_BUDGET_MIN_YEN = 200_000
 DEFAULT_BUDGET_MAX_YEN = 300_000
+PROPOSAL_TERMS_POLICY_REVISION = "author-selected-terms-v1"
 
 
 def proposal_input_policy_id() -> str:
-    """現在使ったthreshold全体の世代を、入力事実の一部として固定する。"""
-    return "portfolio-policy-" + sha256(canonical_json(PORTFOLIO_POLICY).encode()).hexdigest()
+    """提案条件の意味revisionと使用thresholdを新規入力へ固定する。"""
+    policy = {"proposal_terms": PROPOSAL_TERMS_POLICY_REVISION, "portfolio": PORTFOLIO_POLICY}
+    return "proposal-policy-" + sha256(canonical_json(policy).encode()).hexdigest()
 
 
 def _original_assessment(
@@ -131,6 +139,21 @@ def _original_assessment(
     return None, f"{label}の当初評価・投資理由を確認できない。現在評価では補完しない。"
 
 
+@contextmanager
+def proposal_market_snapshot(
+    sqlite_path: Path, *, connection: sqlite3.Connection | None = None
+) -> Iterator[sqlite3.Connection | None]:
+    """Keep quote, share units and assessment price basis on the same read snapshot."""
+    if connection is not None:
+        yield connection
+    elif sqlite_path.exists():
+        with closing(connect_market_read_only(sqlite_path)) as market_connection:
+            market_connection.execute("BEGIN")
+            yield market_connection
+    else:
+        yield None
+
+
 def collect_proposal_inputs(
     connection: sqlite3.Connection,
     *,
@@ -140,8 +163,9 @@ def collect_proposal_inputs(
     sqlite_path: Path,
     budget_min_yen: int,
     budget_max_yen: int,
+    market_connection: sqlite3.Connection | None = None,
 ) -> ProposalInputs:
-    """callerのread/write transactionで台帳headとmetaを同じ世代から読む。"""
+    """台帳head/metaはcallerのtransaction、quote/basisは一つのmarket snapshotから読む。"""
     if not connection.in_transaction:
         raise ProposalError("proposal input collection requires an existing transaction")
     if now.utcoffset() is None:
@@ -154,47 +178,37 @@ def collect_proposal_inputs(
     quotes: list[QuoteInput] = []
     quantity_basis: dict[str, bool] = {}
     prices: dict[str, MarketPrice] = {}
-    for ticker in sorted(set(tickers) | held_tickers):
-        observed = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=now)
-        if observed is None:
-            quantity_basis[ticker] = False
-            continue
-        quote = QuoteInput(
-            ticker=ticker,
-            price_yen=finite_decimal(observed.close_yen),
-            price_as_of=observed.price_as_of,
-            price_basis="last_close_unadjusted",
-            source_ref="jquants_daily_bars",
-        )
-        quotes.append(quote)
-        if ticker in held_tickers:
-            first_buy, last_trade = holding_episode(ledger, ticker, now)
-            confirmed = (
-                first_buy is not None
-                and last_trade is not None
-                and market_basis_is_confirmed(
-                    basis="shares",
-                    sqlite_path=sqlite_path,
-                    ticker=ticker,
-                    from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
-                    through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
-                )
-            )
-            quantity_basis[ticker] = confirmed
-            if (
-                confirmed
-                and 0
-                <= (now.astimezone(JST).date() - quote.price_as_of).days
-                <= (PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"])
-            ):
-                prices[ticker] = MarketPrice(
-                    ticker=ticker,
-                    price_yen=quote.price_yen,
-                    price_as_of=quote.price_as_of,
-                    source_kind="market_api",
-                    price_basis="unadjusted_close",
-                    source_ref=quote.source_ref,
-                )
+    with proposal_market_snapshot(sqlite_path, connection=market_connection) as market_connection:
+        if market_connection is not None:
+            for ticker in sorted(set(tickers) | held_tickers):
+                if ticker in held_tickers:
+                    observed, confirmed = holding_quote(
+                        ledger,
+                        ticker=ticker,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        connection=market_connection,
+                    )
+                    quantity_basis[ticker] = confirmed
+                    price = holding_market_price(
+                        ticker=ticker, quote=observed, basis_confirmed=confirmed, now=now
+                    )
+                    if price is not None:
+                        prices[ticker] = price
+                else:
+                    observed = read_unadjusted_close(
+                        sqlite_path=sqlite_path, ticker=ticker, at=now, connection=market_connection
+                    )
+                if observed is not None:
+                    quotes.append(
+                        QuoteInput(
+                            ticker=ticker,
+                            price_yen=finite_decimal(observed.close_yen),
+                            price_as_of=observed.price_as_of,
+                            price_basis="last_close_unadjusted",
+                            source_ref="jquants_daily_bars",
+                        )
+                    )
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
@@ -229,13 +243,13 @@ def collect_proposal_inputs(
     classifications: list[SecurityClassification] = []
     if master is not None:
         for ticker in sorted(set(tickers) | held_tickers):
-            row = master.securities.get(ticker)
-            if row is not None and row["market_segment"]:
+            security = master.securities.get(ticker)
+            if security is not None:
                 classifications.append(
                     SecurityClassification(
                         ticker=ticker,
-                        market_segment=str(row["market_segment"]),
-                        is_common_stock=bool(row["is_common_stock"]),
+                        market_segment=security.market_segment,
+                        is_common_stock=security.is_common_stock,
                         snapshot_date=master.as_of,
                     )
                 )
@@ -270,7 +284,7 @@ def collect_proposal_inputs(
 def proposal_liquidity_context(
     selection: ResearchSelection,
 ) -> tuple[LiquidityContext | GeneratedLiquidityContext, ...]:
-    if isinstance(selection, GeneratedResearchSelection):
+    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         generation = selection.inputs.generation
         generated: list[LiquidityContext | GeneratedLiquidityContext] = []
         for target in selection.targets:
@@ -368,6 +382,7 @@ def _context_calculations(
     sqlite_path: Path,
     now: datetime,
     session: date | None,
+    market_connection: sqlite3.Connection | None,
 ) -> dict[str, dict[str, object]]:
     from baibai_engine.investment_judgment.stock_assessment.document import current_price_projection
     from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
@@ -384,7 +399,9 @@ def _context_calculations(
             continue
         pair = assessments[outcome.assessment_ref.assessment_id]
         quote = next((quote for quote in inputs.quotes if quote.ticker == outcome.ticker), None)
-        basis = assessment_quote_basis(pair.document, quote, sqlite_path=sqlite_path)
+        basis = assessment_quote_basis(
+            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+        )
         row: dict[str, object] = {
             "current_quote_projection": current_price_projection(
                 pair.document,
@@ -405,6 +422,7 @@ def _context_calculations(
                     latest=latest[outcome.ticker] == pair.assessment_id,
                     sqlite_path=sqlite_path,
                     now=now,
+                    market_connection=market_connection,
                 )
             )
             valuation = pair.document.valuation
@@ -428,6 +446,7 @@ def _context_calculations(
                         latest=latest[outcome.ticker] == pair.assessment_id,
                         sqlite_path=sqlite_path,
                         now=now,
+                        market_connection=market_connection,
                     )
                 )
                 classification = next(
@@ -459,7 +478,10 @@ def build_proposal_context(
 ) -> ProposalAuthoringContext:
     from baibai_engine.portfolio.holdings.market_observations import next_order_session
 
-    with closing(connect_read_only(db_path)) as connection:
+    with (
+        closing(connect_read_only(db_path)) as connection,
+        proposal_market_snapshot(sqlite_path) as market_connection,
+    ):
         connection.execute("BEGIN")
         row = connection.execute(
             "SELECT * FROM operation_session WHERE operation_id=?", (operation_id,)
@@ -483,6 +505,7 @@ def build_proposal_context(
             sqlite_path=sqlite_path,
             budget_min_yen=DEFAULT_BUDGET_MIN_YEN,
             budget_max_yen=DEFAULT_BUDGET_MAX_YEN,
+            market_connection=market_connection,
         )
         assessments = {
             outcome.assessment_ref.assessment_id: require_assessment_ref(
@@ -519,5 +542,6 @@ def build_proposal_context(
                 sqlite_path=sqlite_path,
                 now=now,
                 session=session,
+                market_connection=market_connection,
             ),
         )

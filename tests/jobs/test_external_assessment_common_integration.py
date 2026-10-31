@@ -1,8 +1,10 @@
+import gzip
 import sqlite3
 import uuid
 from contextlib import closing
 
 import pytest
+from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     _plan,
@@ -23,8 +25,15 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
     save_observations as external_assessment_save_observations,
 )
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
+    R2Error,
 )
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    write_lake_store_origin,
+)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.external_assessment_ready import load_ready, prepare_plan, save_ready
 from baibai_jobs.integration.external_assessments import (
     VALUATION_DATASET,
@@ -174,6 +183,70 @@ def test_failed_decode_in_another_month_keeps_originals_and_does_not_block_healt
     assert external_assessment_history_digests(database, partitions=june) == typed_before
     publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
     results = verify_and_seal(store, state, handle=handle, directory=directory / "mixed-readback")
+    assert len(results) == 1
+    assert results[0]["readback"] == "verified"
+    assert staging.read_terminal(store, failed) is None
+    assert staging.read_terminal(store, staging.read_plan(store, selected[1]["run_id"])) is not None
+
+
+@pytest.mark.parametrize("corruption", ["gzip", "tar", "truncated"])
+def test_invalid_raw_container_keeps_retained_originals_and_allows_healthy_source_publication(
+    independent_plans, corruption
+):
+    store, selected, handle, database, mirror, directory = independent_plans
+    previous = staging.read_plan(store, selected[0]["run_id"])
+    failed = _plan(
+        previous,
+        run_id="monex-broken-container",
+        sources=("monex",),
+        tickers=("6758", "7203"),
+        cohort_size=1,
+    )
+    receipts = []
+    for index, cohort in enumerate(failed.cohorts):
+        source, ticker = cohort.pairs[0]
+        responses = pair_responses(source, ticker, received_at_utc=RECEIVED.replace(month=6))
+        receipts.append(responses[0].receipt_id)
+        _stage(
+            store,
+            failed,
+            index,
+            [
+                (
+                    source,
+                    ticker,
+                    "observed",
+                    responses[0].attempt_id,
+                    external_assessment_decode_attempt(responses),
+                    200,
+                )
+            ],
+            responses,
+        )
+    staging.save_new_plan(store, failed)
+    bad = save_ready(store, prepare_plan(store, failed))
+    good = ready_references(independent_plans)[1]
+    item = load_ready(store, bad)
+    key = item.stages[1][0].raw_bundle_keys[0]
+    payload = {
+        "gzip": b"not a gzip container",
+        "tar": gzip.compress(b"not a tar header"),
+        "truncated": store.values[key].body[:10],
+    }[corruption]
+    store.store_object(key, payload, content_type="application/gzip")
+    june = {(VALUATION_DATASET, 2026, 6)}
+    typed_before = external_assessment_history_digests(database, partitions=june)
+    state = merge_ready(store, [bad, good], database=database)
+    assert state["failed"] == [{"reference": bad, "reason": "ValueError"}]
+    assert [entry["reference"] for entry in state["plans"]] == [good]
+    assert receipts[0] in state["selected_digests"]
+    assert receipts[1] not in state["selected_digests"]
+    assert any(month == 6 for _, month, _ in state["source_history"])
+    assert external_assessment_history_digests(database, partitions=june) == typed_before
+    publisher.publish_market_lake(sqlite_path=database, mirror_root=mirror, store=store)
+    results = verify_and_seal(
+        store, state, handle=handle, directory=directory / "container-readback"
+    )
     assert len(results) == 1
     assert results[0]["readback"] == "verified"
     assert staging.read_terminal(store, failed) is None
@@ -340,3 +413,45 @@ def test_terminal_acknowledgement_loss_does_not_reopen_a_verified_source(
     pending, failed = available_ready(store)
     assert failed == []
     assert reference not in pending
+
+
+@pytest.mark.parametrize("boundary", ["ready", "merge"])
+@pytest.mark.parametrize(
+    "error",
+    [
+        R2Error("transport unavailable"),
+        LakeCASConflict("conditional generation changed"),
+        LakePublishError("R2 is only text in this source-contract error"),
+    ],
+)
+def test_external_source_failure_scope_uses_error_type(tmp_path, monkeypatch, boundary, error):
+    import baibai_jobs.integration.external_assessment_ready as ready
+    import baibai_jobs.integration.external_assessments as integration
+
+    store = MemoryR2Store()
+    reference = {"key": "coordination/external-assessment/run/ready-fixed.json", "sha256": "a" * 64}
+    store.store_object(reference["key"], b"{}")
+
+    def reject(*args, **kwargs):
+        raise error
+
+    database = tmp_path / "market.sqlite"
+    if boundary == "ready":
+        monkeypatch.setattr(ready, "read_plan", reject)
+        expected = {"run_id": "run", "reason": "LakePublishError"}
+    else:
+        with closing(open_connection(database)) as conn, conn:
+            write_lake_store_origin(conn, LakeStoreOrigin("base", "b" * 64))
+        monkeypatch.setattr(integration, "load_ready", reject)
+        expected = {"reference": reference, "reason": "LakePublishError"}
+
+    def invoke():
+        if boundary == "ready":
+            return ready.available_ready(store)[1]
+        return integration.merge_ready(store, [reference], database=database)["failed"]
+
+    if type(error) is not LakePublishError:
+        with pytest.raises(type(error)):
+            invoke()
+    else:
+        assert invoke() == [expected]

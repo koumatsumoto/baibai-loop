@@ -63,7 +63,6 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         max_date=margin_week,
     )
     fin_start = asof - timedelta(days=2200)
-    earnings_date = asof + timedelta(days=7)
     tickers = tuple(f"{1301 + index:04d}" for index in range(100))
     insert_master_rows(
         conn,
@@ -121,25 +120,6 @@ def _seed_complete_coverage(conn: sqlite3.Connection, asof: date) -> None:
         record_count=len(tickers),
         min_date=fin_start.isoformat(),
         max_date=asof.isoformat(),
-    )
-    conn.execute(
-        "INSERT OR REPLACE INTO jpx_earnings_calendar(announcement_date, ticker) VALUES (?, ?)",
-        (
-            earnings_date.isoformat(),
-            "1301",
-        ),
-    )
-    _add_source_coverage(
-        conn,
-        source="jpx_earnings_calendar",
-        coverage_key="get_earnings_calendar_snapshot:current",
-        record_count=1,
-        min_date=earnings_date.isoformat(),
-        max_date=earnings_date.isoformat(),
-    )
-    conn.execute(
-        "UPDATE source_coverage SET fetched_at_utc = ? WHERE source = ?",
-        (f"{asof.isoformat()}T00:00:00+09:00", "jpx_earnings_calendar"),
     )
     conn.execute(
         "INSERT OR REPLACE INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
@@ -321,15 +301,6 @@ class SQLiteCoverageTests(unittest.TestCase):
                     record_count=fin_count,
                     min_date=fin_start.isoformat(),
                     max_date=second.isoformat(),
-                )
-                earnings_range = conn.execute(
-                    "SELECT MIN(announcement_date), MAX(announcement_date), COUNT(*) "
-                    "FROM jpx_earnings_calendar"
-                ).fetchone()
-                conn.execute(
-                    "UPDATE source_coverage SET coverage_start = ?, coverage_end = ?, "
-                    "record_count = ? WHERE source = ?",
-                    (*earnings_range, "jpx_earnings_calendar"),
                 )
                 conn.commit()
 
@@ -898,54 +869,20 @@ class SQLiteCoverageTests(unittest.TestCase):
                 )
             )
 
-    def test_all_past_earnings_calendar_snapshot_reports_issue(self) -> None:
+    def test_calibration_coverage_does_not_require_earnings_calendar(self) -> None:
         asof = date(2026, 5, 8)
         with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute(
-                    "UPDATE jpx_earnings_calendar SET announcement_date = ?",
-                    ((asof - timedelta(days=1)).isoformat(),),
+            with closing(sqlite3.connect(sqlite_path)) as conn:
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM jpx_earnings_calendar").fetchone()[0], 0
                 )
-                conn.execute(
-                    "UPDATE source_coverage SET coverage_start = ?, coverage_end = ? "
-                    "WHERE source = ?",
-                    (
-                        (asof - timedelta(days=1)).isoformat(),
-                        (asof - timedelta(days=1)).isoformat(),
-                        "jpx_earnings_calendar",
-                    ),
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM source_coverage WHERE source='jpx_earnings_calendar'"
+                    ).fetchone()[0],
+                    0,
                 )
-                conn.commit()
-
-            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
-
-            self.assertTrue(
-                any(
-                    issue.source == "jpx_earnings_calendar"
-                    and "only past known dates" in issue.reason
-                    for issue in issues
-                )
-            )
-
-    def test_zero_row_earnings_calendar_reports_issue(self) -> None:
-        asof = date(2026, 5, 8)
-        with _complete_coverage_database() as sqlite_path:
-            with closing(sqlite3.connect(sqlite_path)) as conn, conn:
-                conn.execute("DELETE FROM jpx_earnings_calendar")
-                conn.execute(
-                    "UPDATE source_coverage SET record_count = ? WHERE source = ?",
-                    (0, "jpx_earnings_calendar"),
-                )
-                conn.commit()
-
-            issues = _verify_screening_sqlite_coverage(sqlite_path, asof)
-
-            self.assertTrue(
-                any(
-                    issue.source == "jpx_earnings_calendar" and "row count" in issue.reason
-                    for issue in issues
-                )
-            )
+            self.assertEqual(_verify_screening_sqlite_coverage(sqlite_path, asof), ())
 
     def test_source_coverage_status_reports_issue(self) -> None:
         asof = date(2026, 5, 8)

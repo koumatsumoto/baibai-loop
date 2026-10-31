@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from math import isfinite
+
+from pydantic import JsonValue, TypeAdapter
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
@@ -18,8 +20,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     accounting_period_identity,
+    accounting_standard,
     latest_disclosure_candidates,
     project_financial_documents,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -56,6 +60,29 @@ class EarningsPrice:
     profit_components: tuple[ProfitComponent, ...]
     earnings_yield: float | None
     unavailable_reason: str | None
+    accounting_standard: str | None = None
+
+    @property
+    def profit_period(self) -> tuple[date | None, date | None]:
+        positive = [part for part in self.profit_components if part.coefficient == 1]
+        negative = [part for part in self.profit_components if part.coefficient == -1]
+        if len(positive) == 1 and not negative:
+            return positive[0].period_start, positive[0].period_end
+        if len(positive) == 2 and len(negative) == 1:
+            prior_end = negative[0].period_end
+            endpoints = [part.period_end for part in positive]
+            if prior_end is not None and all(end is not None for end in endpoints):
+                return prior_end + timedelta(days=1), max(
+                    end for end in endpoints if end is not None
+                )
+        return None, None
+
+
+_EARNINGS_PRICE = TypeAdapter(EarningsPrice)
+
+
+def read_earnings_price(payload: dict[str, JsonValue]) -> EarningsPrice:
+    return _EARNINGS_PRICE.validate_python(payload)
 
 
 def earnings_price(
@@ -96,19 +123,33 @@ def earnings_price(
     )
     profit = sum(part.coefficient * part.amount_yen for part in components) if components else None
     basis = statement_basis(rows[0]) if rows else None
-    basis_conflict = any(
-        {
-            statement_basis(candidate)
-            for candidate in latest_disclosure_candidates(
-                [
-                    candidate
-                    for candidate in _actual_rows(normalized.summaries)
-                    if accounting_period_identity(candidate) == accounting_period_identity(row)
-                ]
-            )
-        }
-        != {statement_basis(row)}
+    standard = accounting_standard(rows[0]) if rows else None
+    actual_rows = _actual_rows(normalized.summaries)
+    anchor_period = max(map(accounting_period_identity, actual_rows), default=None)
+    anchor_candidates = latest_disclosure_candidates(
+        [
+            row
+            for row in reporting_basis_rows(actual_rows)
+            if accounting_period_identity(row) == anchor_period
+        ]
+    )
+    component_candidates = [
+        latest_disclosure_candidates(
+            [
+                candidate
+                for candidate in reporting_basis_rows(actual_rows)
+                if accounting_period_identity(candidate) == accounting_period_identity(row)
+            ]
+        )
         for row in rows
+    ]
+    basis_conflict = len({statement_basis(row) for row in anchor_candidates}) > 1 or any(
+        {statement_basis(candidate) for candidate in candidates} != {statement_basis(row)}
+        for row, candidates in zip(rows, component_candidates, strict=True)
+    )
+    standard_conflict = len({accounting_standard(row) for row in anchor_candidates}) > 1 or any(
+        {accounting_standard(candidate) for candidate in candidates} != {accounting_standard(row)}
+        for row, candidates in zip(rows, component_candidates, strict=True)
     )
     price = adjusted_price.price if adjusted_price is not None else None
     price_date = adjusted_price.traded_at if adjusted_price is not None else None
@@ -126,10 +167,12 @@ def earnings_price(
         if not isfinite(market_cap) or market_cap <= 0:
             market_cap = None
             reason = "invalid_market_cap"
+    if reason in (None, "missing_capital_basis") and basis_conflict:
+        reason = "conflicting_statement_basis"
+    if reason in (None, "missing_capital_basis") and standard_conflict:
+        reason = "conflicting_accounting_standard"
     if reason is None and profit is None:
         reason = "unavailable_annual_profit"
-    if reason is None and basis_conflict:
-        reason = "conflicting_statement_basis"
     if reason is None and basis not in ("consolidated", "nonconsolidated"):
         reason = "unknown_statement_basis"
     value = profit / market_cap if reason is None and profit is not None and market_cap else None
@@ -147,4 +190,5 @@ def earnings_price(
         profit_components=components,
         earnings_yield=value,
         unavailable_reason=reason,
+        accounting_standard=None if standard_conflict else standard,
     )

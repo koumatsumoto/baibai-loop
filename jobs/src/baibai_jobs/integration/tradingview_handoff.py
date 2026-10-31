@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
-from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL_IDENTIFIERS
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
@@ -28,9 +28,10 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
-from baibai_jobs.acquisition.tradingview.collector import (
+from baibai_jobs.integration.replay_result import ReplayResult
+from baibai_jobs.maintenance.tradingview_context import (
     calendar_context,
-    preflight_snapshot,
+    snapshot_state,
     universe,
     validate_time,
 )
@@ -64,13 +65,20 @@ class TradingViewHandoff:
 
     @classmethod
     def from_json(cls, value: Mapping[str, Any]) -> TradingViewHandoff:
-        return cls(
-            snapshot_date=date.fromisoformat(value["snapshot_date"]),
-            master_asof=date.fromisoformat(value["master_asof"]),
-            symbols=tuple(value["symbols"]),
-            receipt_ids=tuple(value["receipt_ids"]),
-            master_request_ids=tuple(value["master_request_ids"]),
-        )
+        for field in ("symbols", "receipt_ids", "master_request_ids"):
+            items = value.get(field)
+            if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+                raise ValueError(f"invalid TradingView handoff {field}")
+        try:
+            return cls(
+                snapshot_date=date.fromisoformat(value["snapshot_date"]),
+                master_asof=date.fromisoformat(value["master_asof"]),
+                symbols=tuple(value["symbols"]),
+                receipt_ids=tuple(value["receipt_ids"]),
+                master_request_ids=tuple(value["master_request_ids"]),
+            )
+        except (KeyError, TypeError) as error:
+            raise ValueError("invalid TradingView handoff metadata") from error
 
 
 def export_handoff(source: Path, output: Path, *, day: date, since: datetime) -> TradingViewHandoff:
@@ -144,7 +152,7 @@ def _copy_raw(
     return inserted
 
 
-def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> dict[str, object]:
+def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> ReplayResult:
     """Add original receipts and replay missing tickers; never replace a saved snapshot.
 
     A changed calendar/master universe refuses the handoff. A master received by
@@ -179,7 +187,7 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
             raw_added = _copy_raw(conn, raw, "tradingview_source_receipts", handoff.receipt_ids)
     if not has_master:
         project_request(target, handoff.master_request_ids[0])
-    before = preflight_snapshot(target, handoff.snapshot_date)
+    before = snapshot_state(target, handoff.snapshot_date)
     with closing(open_connection(target)) as conn, conn:
         if tuple(universe(conn, basis)) != handoff.symbols:
             raise SourceDataError("TradingView handoff universe differs from replayed master")
@@ -195,7 +203,7 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
             if (
                 receipt.snapshot_date != handoff.snapshot_date
                 or receipt.master_asof != basis
-                or receipt.tool_name != BATCH_TOOL
+                or receipt.tool_name not in BATCH_TOOL_IDENTIFIERS
                 or receipt.requested_columns != tuple(observations_owner.COLUMNS)
                 or not 1 <= len(receipt.requested_symbols) <= 50
                 or len(set(receipt.requested_symbols)) != len(receipt.requested_symbols)
@@ -233,11 +241,14 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> d
                 ],
             )
             added += conn.total_changes - changes
-    after = preflight_snapshot(target, handoff.snapshot_date)
-    return {
-        **after,
-        "rows_added": added,
-        "raw_receipts_added": raw_added,
-        "rows_before": before.get("rows", 0),
-        "rejected_receipts": rejected,
-    }
+    after = snapshot_state(target, handoff.snapshot_date)
+    return ReplayResult(
+        report={
+            **after,
+            "rows_added": added,
+            "raw_receipts_added": raw_added,
+            "rows_before": before.get("rows", 0),
+            "rejected_receipts": rejected,
+        },
+        complete=not rejected,
+    )

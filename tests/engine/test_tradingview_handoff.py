@@ -4,8 +4,8 @@ from datetime import timedelta
 import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.engine.test_jquants_projection import body, receive
-from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
 from tests.engine.test_tradingview_rebuild import _retain
+from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
 
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.tradingview_handoff import (
@@ -36,12 +36,13 @@ def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selectio
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=1))
     result = import_handoff(stage, canonical, selected)
-    assert result["rows_added"] == 1
-    assert result["rows"] == 2
-    assert result["remaining"] == 1
+    assert result.report["rows_added"] == 1
+    assert result.report["rows"] == 2
+    assert result.complete is True
+    assert result.report["remaining"] == 1
     assert stored(canonical)[0] == before
     assert [row[1] for row in stored(canonical)] == ["1000", "1002"]
-    assert import_handoff(stage, canonical, selected)["rows_added"] == 0
+    assert import_handoff(stage, canonical, selected).report["rows_added"] == 0
     with closing(open_connection(canonical)) as conn:
         assert (
             conn.execute("SELECT source_name FROM jpx_regulation_sources").fetchone()[0]
@@ -70,8 +71,8 @@ def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticke
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW)
     result = import_handoff(stage, canonical, selected)
-    assert result["rows_added"] == 0
-    assert result["raw_receipts_added"] == 1
+    assert result.report["rows_added"] == 0
+    assert result.report["raw_receipts_added"] == 1
     assert stored(canonical) == before
 
 
@@ -100,9 +101,10 @@ def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_pa
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW)
     result = import_handoff(stage, canonical, selected)
-    assert result["raw_receipts_added"] == 1
-    assert result["rows_added"] == 0
-    assert result["rejected_receipts"] == [
+    assert result.complete is False
+    assert result.report["raw_receipts_added"] == 1
+    assert result.report["rows_added"] == 0
+    assert result.report["rejected_receipts"] == [
         {"receipt_id": selected.receipt_ids[0], "reason": "provider_rate_limit"}
     ]
     assert stored(canonical) == []
@@ -128,5 +130,5 @@ def test_new_exact_date_master_is_replayed_from_its_original_pages(tmp_path):
     selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=2))
     assert len(selected.master_request_ids) == 1
     result = import_handoff(stage, canonical, selected)
-    assert result["rows_added"] == 1
-    assert result["expected_universe"] == 2500
+    assert result.report["rows_added"] == 1
+    assert result.report["expected_universe"] == 2500

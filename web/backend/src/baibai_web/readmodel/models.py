@@ -55,7 +55,6 @@ class TaskView(BaseModel):
     # dated" and is the task's own context, not a display leftover.
     event_label: str | None
     event_date: date | None
-    overdue: bool
 
 
 class UpcomingEventView(BaseModel):
@@ -63,7 +62,6 @@ class UpcomingEventView(BaseModel):
     kind: Literal["earnings", "reservation_expiry"]
     ticker: str | None
     label: str
-    days_until: int
 
 
 class DashboardView(BaseModel):
@@ -71,9 +69,10 @@ class DashboardView(BaseModel):
     ledger_exists: bool
     ledger_error: str | None
     ledger_as_of: datetime | None
-    ledger_stale: bool
+    valuation_error: str | None = Field(
+        description="市場評価の読取失敗。台帳事実は保持し、株価等の欠測だけの場合はnull。"
+    )
     valuation_as_of: date | None
-    valuation_stale: bool
     total_capital_yen: int | None
     available_cash_yen: int | None = Field(
         description="台帳上の未予約現金。売却代金は約定時にgrossで計上し、受渡済み資金や証券会社の発注可能額は表さない。"
@@ -100,6 +99,9 @@ class TasksView(BaseModel):
     upcoming_events: list[UpcomingEventView]
     earnings_calendar_available: bool | None = Field(
         default=None, description="保有決算予定の確認可否。保有なし/台帳不明はnull。"
+    )
+    earnings_calendar_error: str | None = Field(
+        default=None, description="決算カレンダーの読取失敗。欠測だけの場合はnull。"
     )
     ledger_error: str | None
 

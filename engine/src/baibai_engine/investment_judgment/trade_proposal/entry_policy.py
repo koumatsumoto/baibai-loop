@@ -30,6 +30,7 @@ type BuyGateCode = Literal[
     "positive_limit_required",
     "limit_above_pmax",
     "available_cash_below_board_lot",
+    "selected_quantity_above_maximum",
 ]
 
 
@@ -38,6 +39,7 @@ class BuyTermsEvaluation:
     hard_blockers: tuple[GateReason, ...]
     maximum_price_yen: Decimal | None
     quantity: int
+    maximum_quantity: int
     current_price_above_maximum: bool | None
     current_price_projection: dict[str, object] | None
     limit_price_projection: dict[str, object] | None
@@ -46,6 +48,12 @@ class BuyTermsEvaluation:
 def _positive_board_lot(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError("positive board_lot and budget guide required")
+    return value
+
+
+def _selected_board_lot_quantity(value: object, board_lot: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0 or value % board_lot:
+        raise ValueError("selected_quantity must be a positive board-lot multiple")
     return value
 
 
@@ -65,8 +73,9 @@ def evaluate_buy_terms(
     available_cash_yen: Decimal,
     budget_max_yen: Decimal,
     board_lot: int,
+    selected_quantity: int | None = None,
 ) -> BuyTermsEvaluation:
-    """Apply hard gates to real observations and size separately at the author's limit."""
+    """実quoteでgateを確認し、作者limitで上限と選択数量を分ける。"""
     if quote is not None and quote.ticker != assessment.input_snapshot.ticker:
         raise ValueError("quote and assessment ticker differ")
     limit = finite_decimal(proposed_limit_yen)
@@ -74,6 +83,8 @@ def evaluate_buy_terms(
     board_lot = _positive_board_lot(board_lot)
     if guide <= 0:
         raise ValueError("positive board_lot and budget guide required")
+    if selected_quantity is not None:
+        selected_quantity = _selected_board_lot_quantity(selected_quantity, board_lot)
     blockers: list[GateReason] = []
 
     def block(code: BuyGateCode, message: str) -> None:
@@ -119,19 +130,25 @@ def evaluate_buy_terms(
         )
         if limit > maximum:
             block("limit_above_pmax", "提案 limit が Base による購入上限を超えています。")
-    quantity = 0
+    maximum_quantity = 0
     if limit <= 0:
         block("positive_limit_required", "提案 limit は正の価格で指定してください。")
     else:
         lot_cost = limit * board_lot
         cash_lots = max(0, int(cash // lot_cost))
         guide_lots = max(1, int(guide // lot_cost))
-        quantity = min(cash_lots, guide_lots) * board_lot
-        if quantity == 0:
+        maximum_quantity = min(cash_lots, guide_lots) * board_lot
+        if maximum_quantity == 0:
             block(
                 "available_cash_below_board_lot",
                 "提案 limit で最低一単元を買う cash が不足しています。",
             )
+    quantity = maximum_quantity if selected_quantity is None else selected_quantity
+    if selected_quantity is not None and selected_quantity > maximum_quantity:
+        block(
+            "selected_quantity_above_maximum",
+            "選択数量が提案limit・確認済みcash・guideによる数量上限を超えています。",
+        )
     projection_basis = reviewed and latest and confirmed_basis
 
     def projection_at(value: Decimal | None) -> dict[str, object] | None:
@@ -153,6 +170,7 @@ def evaluate_buy_terms(
         tuple(blockers),
         maximum,
         0 if blockers else quantity,
+        maximum_quantity,
         None if maximum is None or price is None else price > maximum,
         current_projection,
         limit_projection,

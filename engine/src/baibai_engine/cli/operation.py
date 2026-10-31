@@ -43,14 +43,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     checkpoint = commands.add_parser(
         "checkpoint",
-        help="replace the active session's payload with the current working state",
+        help="update active working notes without changing research progress",
     )
     checkpoint.add_argument("operation_id")
     checkpoint.add_argument(
         "--payload",
         type=Path,
         required=True,
-        help="path to an OperationPayload YAML or JSON file",
+        help="OperationPayload YAML or JSON with unchanged selection and research progress",
     )
 
     show = commands.add_parser(
@@ -60,17 +60,20 @@ def build_parser() -> argparse.ArgumentParser:
     show.add_argument("operation_id", nargs="?")
     show.add_argument("--status", choices=("active", "completed"))
 
+    evidence = commands.add_parser(
+        "selection-evidence", help="read operational inputs or exact opaque publication evidence"
+    )
+    evidence.add_argument("operation_id")
+    evidence.add_argument("--selection-sha256", required=True)
+    evidence.add_argument("--proposal-id")
+
     complete = commands.add_parser(
         "complete",
         help="close an active session once its kind's completion requirements hold",
     )
     complete.add_argument("operation_id")
-    complete.add_argument(
-        "--payload",
-        type=Path,
-        required=True,
-        help="path to an OperationPayload YAML or JSON file",
-    )
+    complete.add_argument("--result", required=True, help="summary of the work and its outcome")
+    complete.add_argument("--next", required=True, help="next action after this Operation")
     assessment = commands.add_parser(
         "record-assessment", help="bind a completed Reviewed Assessment to its fixed target"
     )
@@ -96,7 +99,21 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     service = OperationService(args.db, runs_path=args.runs_path)
     current_time = now or datetime.now(JST)
     try:
-        if args.command == "start":
+        if args.command == "selection-evidence":
+            from baibai_engine.investment_judgment.workflow.selection_evidence import (
+                read_selection_evidence,
+            )
+
+            _emit(
+                read_selection_evidence(
+                    operation_id=args.operation_id,
+                    sha256=args.selection_sha256,
+                    proposal_id=args.proposal_id,
+                    db_path=args.db,
+                ),
+                output_format=args.format,
+            )
+        elif args.command == "start":
             payload = _load_payload(args.payload)
             operation = service.start(
                 session_kind=args.kind,
@@ -117,7 +134,8 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             _emit(
                 service.complete(
                     args.operation_id,
-                    _load_payload(args.payload),
+                    result=args.result,
+                    next=args.next,
                     completed_at=current_time,
                 ).public(),
                 output_format=args.format,

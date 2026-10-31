@@ -15,9 +15,11 @@ Command = Callable[[list[str] | None], int]
 _COMMANDS = {
     "snapshots": "baibai_jobs.publication.snapshot_cli",
     "model-integration": "baibai_jobs.integration.models",
+    "screening-selection": "baibai_jobs.integration.screening_selection",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
-    "tradingview": "baibai_jobs.integration.local_tradingview",
-    "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
+    "tradingview-source": "baibai_jobs.maintenance.tradingview_cli",
+    "article-recovery": "baibai_jobs.maintenance.article_recovery",
+    "article-cutover": "baibai_jobs.maintenance.article_cutover",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",
     "validate-market-context-stores": "baibai_jobs.observability.source_stores",

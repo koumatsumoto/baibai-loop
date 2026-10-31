@@ -56,7 +56,7 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
             # A new explicit request follows the first proposal's completion and
             # human report. The already held/reserved ticker is not selected again.
             selected = seed_generated_selection(
-                runs=case.runs, now=now, tickers=(ticker,), scope="specified_stocks"
+                runs=case.runs, db=case.app, now=now, tickers=(ticker,), scope="specified_stocks"
             )
             operation = case.operations.start(
                 session_kind="capital-allocation",
@@ -135,12 +135,8 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
         )
         completed = case.operations.complete(
             operation.operation_id,
-            operation.payload.model_copy(
-                update={
-                    "result": "具体条件まで提案を完成した。",
-                    "next": "本人の採否・broker操作と報告を待つ。",
-                }
-            ),
+            result="具体条件まで提案を完成した。",
+            next="本人の採否・broker操作と報告を待つ。",
             completed_at=now,
         )
         assert completed.status == "completed"

@@ -82,7 +82,7 @@ class Instance:
     labels: dict[str, str]
 
 
-def read_instance(content: bytes) -> Instance:
+def read_instance(content: bytes, *, include_labels: bool = True) -> Instance:
     try:
         archive = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
@@ -92,7 +92,9 @@ def read_instance(content: bytes) -> Instance:
             info
             for info in archive.infolist()
             if "/PublicDoc/" in info.filename
-            and info.filename.endswith((".xbrl", ".xsd", "_lab.xml"))
+            and info.filename.endswith(
+                (".xbrl", ".xsd", "_lab.xml") if include_labels else (".xbrl",)
+            )
         ]
         if sum(info.file_size for info in selected) > MAX_BUNDLE_BYTES:
             raise SourceFormatError("zip_size_limit")

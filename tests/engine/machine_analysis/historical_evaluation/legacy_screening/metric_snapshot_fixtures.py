@@ -100,6 +100,7 @@ class SnapshotFixtures(unittest.TestCase):
                 ticker="4812",
                 disclosed_at=disclosure,
                 fiscal_period=period,
+                document_type=f"{period}FinancialStatements_Consolidated_JP",
                 fiscal_year_end=date(year, 12, 31),
                 period_start=date(year, 1, 1),
                 period_end=end,

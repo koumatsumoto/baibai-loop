@@ -138,30 +138,3 @@ def avg_daily_volume(
     if len(values) < AVG_VOLUME_MIN_OBSERVED:
         return None
     return mean(values)
-
-
-def turnover_spike(
-    bars: Sequence[JQuantsDailyBar],
-    asof_date: date,
-    latest_sessions: int = 5,
-    baseline_sessions: int = 20,
-) -> float | None:
-    ordered = sorted(
-        (bar for bar in bars if bar.traded_at <= asof_date), key=lambda item: item.traded_at
-    )
-    if len(ordered) < latest_sessions + baseline_sessions:
-        return None
-    latest_values = [
-        bar.turnover_value for bar in ordered[-latest_sessions:] if bar.turnover_value is not None
-    ]
-    baseline_values = [
-        bar.turnover_value
-        for bar in ordered[-(latest_sessions + baseline_sessions) : -latest_sessions]
-        if bar.turnover_value is not None
-    ]
-    if len(latest_values) < latest_sessions or len(baseline_values) < baseline_sessions:
-        return None
-    baseline = mean(baseline_values)
-    if baseline <= 0:
-        return None
-    return mean(latest_values) / baseline

@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.master import insert_master_rows
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
@@ -50,6 +51,21 @@ def holding_case(tmp_path):
             if (date(2026, 6, 3) + timedelta(days=i)).weekday() < 5
         ],
     )
+    start, end = date(2026, 6, 3), NOW.date()
+    days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-holding-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
     return db, market, ledger
 
 
@@ -67,6 +83,10 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
     monkeypatch.setattr(db_sources, "datetime", Clock)
     monkeypatch.setattr(dashboard, "datetime", Clock)
     with closing(sqlite3.connect(market)) as connection, connection:
+        insert_master_rows(
+            connection,
+            [("2026-09-04", "2331", "保有企業", "プライム", "サービス業", "011")],
+        )
         connection.execute("UPDATE jquants_daily_bars SET close=NULL WHERE traded_at='2026-07-01'")
         if missing:
             connection.execute(
@@ -78,10 +98,11 @@ def test_dashboard_reads_market_without_ledger_quotes_and_retains_unknowns(
         DbMarketSource(market),
     )
     assert view.ledger_error is None
+    assert view.valuation_error is None
     assert view.ledger_as_of == ledger.as_of
-    assert view.ledger_stale
     assert view.generated_at == NOW
     assert view.available_cash_yen == 10080500
+    assert view.holdings[0].company_name == "保有企業"
     assert view.holdings[0].quantity == 200
     assert view.holdings[0].deployed_cost_yen == 203000
     assert view.holdings[0].market_value_yen == (None if missing else 200000)

@@ -24,7 +24,7 @@ _DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
 class QuarantinedDocumentEvent:
-    """An operation row whose origin filing cannot be resolved in the input window."""
+    """An operation row whose origin filing cannot be resolved from retained input."""
 
     doc_id: str
     target_doc_id: str | None
@@ -47,9 +47,9 @@ def _canonicalize_document_events(
 ) -> tuple[list[dict[str, Any]], tuple[QuarantinedDocumentEvent, ...]]:
     """Fold EDINET operation rows onto origin filings before ticker selection.
 
-    Returns the folded filings and structured operation rows whose origin is not
-    in scope. The latter most often happens when a filing older than the lookback
-    window is edited or withdrawn inside it.
+    The origin window limits returned filings, not the retained evidence used to
+    resolve operations and parent withdrawals. Only an actually missing origin
+    produces a quarantined event.
     """
     normalized = [dict(document) for document in documents]
     normalized.sort(key=_document_event_sort_key)
@@ -74,15 +74,6 @@ def _canonicalize_document_events(
         if is_event:
             events.append(document)
             continue
-        origin_date = text_or_none(coalesce_field(document, "doc_date"))
-        if origin_start is not None and origin_date is not None:
-            try:
-                if date.fromisoformat(origin_date) < origin_start:
-                    continue
-            except ValueError as exc:
-                raise EDINETProviderError(
-                    f"invalid EDINET origin date: {safe_error_value(origin_date)}"
-                ) from exc
         origins[doc_id] = document
 
     children: dict[str, set[str]] = {}
@@ -165,7 +156,19 @@ def _canonicalize_document_events(
             current["disclosureStatus"] = "0"
     # Operation rows can replace parent metadata after the initial graph check.
     _validate_parent_graph(origins)
-    return list(origins.values()), tuple(
+    selected_origins: list[dict[str, Any]] = []
+    for origin in origins.values():
+        origin_date = text_or_none(coalesce_field(origin, "doc_date"))
+        if origin_start is not None and origin_date is not None:
+            try:
+                if date.fromisoformat(origin_date) < origin_start:
+                    continue
+            except ValueError as exc:
+                raise EDINETProviderError(
+                    f"invalid EDINET origin date: {safe_error_value(origin_date)}"
+                ) from exc
+        selected_origins.append(origin)
+    return selected_origins, tuple(
         sorted(
             quarantined,
             key=lambda item: (

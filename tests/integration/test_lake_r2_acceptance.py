@@ -89,6 +89,8 @@ def _lake_table_contents(path: Path) -> dict[str, list[tuple[object, ...]]]:
 
 
 def _store() -> Boto3R2Store:
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        pytest.fail("R2 acceptance requires serial execution: add -n 0")
     bucket = os.environ["R2_LAKE_ACCEPTANCE_BUCKET"]
     if bucket == "baibai-stores" or "acceptance" not in bucket:
         pytest.fail("R2 acceptance must use a dedicated non-production bucket")

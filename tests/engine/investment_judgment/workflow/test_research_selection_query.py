@@ -3,15 +3,27 @@
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
+from tests.helpers.db_seed import seed_ledger
 from tests.helpers.generated_selection import seed_generated_selection
+from tests.helpers.ledger import load_portfolio_ledger
 
+from baibai_engine.investment_judgment.workflow import selection_query
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
 )
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    CandidateCard,
+    EconomicPathPolicy,
+    EconomicPathSelection,
+    RankedPath,
+)
+from baibai_engine.portfolio.ledger.events import ContributionEvent
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
@@ -45,19 +57,57 @@ def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path
     path = tmp_path / "runs"
     models = (
         GeneratedModel(
-            model_id="company_valuation",
+            model_id="company_financials",
             subject="1234",
             calculation_revision="v1",
             payload={"earnings_price": {"earnings_yield": 0.1}},
         ),
         GeneratedModel(
-            model_id="company_valuation",
+            model_id="company_financials",
             subject="5678",
             calculation_revision="v1",
             payload={"earnings_price": {"earnings_yield": None}, "observed_zero": 0},
         ),
     )
-    selected = seed_generated_selection(runs=path, now=NOW, tickers=("1234", "5678"), models=models)
+    selected = seed_generated_selection(
+        runs=path,
+        now=NOW,
+        tickers=("1234", "5678"),
+        models=models,
+        screening_result=EconomicPathSelection(
+            EconomicPathPolicy(candidate_limit=20),
+            1,
+            (
+                CandidateCard(
+                    ticker="1234",
+                    name=None,
+                    sector=None,
+                    rank=1,
+                    priority=0.5,
+                    strongest_path="earning_power",
+                    paths=(
+                        RankedPath(
+                            "earning_power",
+                            "annual_ttm",
+                            0.1,
+                            0.25,
+                            "market",
+                            "sector",
+                            0.5,
+                            0.5,
+                            1,
+                            1,
+                            0.5,
+                            {},
+                        ),
+                    ),
+                    context={},
+                    model_revisions={},
+                    not_generated=(),
+                ),
+            ),
+        ),
+    )
     before = path.read_bytes()
     baseline = context(path, selected=selected)
     result = context(path, selected=selected, comparisons=("5678", "9999", "5678"))
@@ -66,7 +116,7 @@ def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path
     assert result["screening"] == baseline["screening"]
     assert result["candidate_tickers"] == ["1234"]
     assert result["capacity"] == baseline["capacity"]
-    observed = result["model_inputs"]["securities"]["5678"]["company_valuation"]
+    observed = result["model_inputs"]["securities"]["5678"]["company_financials"]
     assert observed == models[1].payload
     assert result["model_inputs"]["securities"]["9999"]["not_generated"]
     assert path.read_bytes() == before
@@ -123,3 +173,46 @@ def test_missing_model_never_hides_broken_source_schema(tmp_path):
         connection.execute("PRAGMA user_version=999")
     with pytest.raises(RuntimeError, match="schema"):
         context(path, comparisons=("9999",))
+
+
+def test_selection_context_keeps_ledger_metadata_and_events_in_one_snapshot(tmp_path, monkeypatch):
+    app = tmp_path / "absent-app"
+    source = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    seed_ledger(app, source)
+    with closing(sqlite3.connect(app)) as setup:
+        setup.execute("PRAGMA journal_mode=WAL")
+    writer = LedgerStoreService(app)
+    head = writer.append_head()
+    later = source.as_of + timedelta(minutes=1)
+    event = ContributionEvent(
+        type="contribution",
+        event_id="concurrent-deposit",
+        occurred_at=later.isoformat(),
+        amount_yen=100,
+    )
+    replacement = source.model_copy(update={"as_of": later, "events": (*source.events, event)})
+    original_connect = selection_query.connect_read_only
+    committed = []
+
+    def connect(path):
+        connection = original_connect(path)
+
+        def between_meta_and_events(sql):
+            if "FROM ledger_event" in sql and not committed:
+                committed.append(True)
+                writer.apply_document(
+                    expected_head=head,
+                    expected_document=source,
+                    replacement=replacement,
+                )
+
+        connection.set_trace_callback(between_meta_and_events)
+        return connection
+
+    monkeypatch.setattr(selection_query, "connect_read_only", connect)
+    runs = tmp_path / "runs"
+    selected = seed_generated_selection(runs=runs, now=NOW, tickers=("1234",))
+    result = context(runs, selected=selected)
+    assert result["status"] == "ready"
+    assert committed == [True]
+    assert writer.load() == replacement

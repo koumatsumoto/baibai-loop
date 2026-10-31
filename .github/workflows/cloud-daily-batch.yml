@@ -59,12 +59,12 @@ jobs:
           python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: setup
         with:
           python-version-file: .python-version
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         id: setup-uv
         with:
           enable-cache: true
@@ -72,16 +72,6 @@ jobs:
       - name: Sync Python environment
         id: sync
         run: uv sync --locked
-
-      # The lake reads Parquet over R2 through DuckDB's httpfs extension, and runtime
-      # sessions disable extension downloads outright — a read path that could fetch
-      # executable code on demand is not one that fails closed. The install happens here,
-      # before credentials are present, so a missing extension is a setup failure with
-      # nothing published rather than a data failure part-way through a run.
-      # failure policy: 2 — screening cannot read the published lake release without httpfs.
-      - name: Provision DuckDB httpfs extension
-        id: duckdb-httpfs
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
 
       - name: Pin the original integration run clock
         id: clock
@@ -122,7 +112,6 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           jobs/scripts/r2_transfer.sh pull-machine
-          jobs/scripts/r2_transfer.sh pull-app
 
       # The market store arrives holding only what the lake does not own — the coverage
       # ledger and the operator-derived tables. Filling the rest from the current release
@@ -225,6 +214,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
+          jobs/scripts/r2_transfer.sh pull-app
           uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
           jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
 

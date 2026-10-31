@@ -8,7 +8,7 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL_IDENTIFIERS
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
@@ -21,13 +21,13 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     decode_tool_result,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
-from baibai_jobs.acquisition.tradingview.collector import (
-    SourceDataError,
+from baibai_jobs.maintenance.tradingview_context import (
     calendar_context,
     universe,
     validate_time,
 )
 from baibai_jobs.observability.tradingview import (
+    SourceDataError,
     failure_category,
 )
 
@@ -65,7 +65,7 @@ def _replace_selected_day(
     for receipt in receipts:
         if receipt.snapshot_date != day or receipt.master_asof != basis:
             raise SourceDataError("TradingView receipt has a different observation context")
-        if receipt.tool_name != BATCH_TOOL or receipt.requested_columns != columns:
+        if receipt.tool_name not in BATCH_TOOL_IDENTIFIERS or receipt.requested_columns != columns:
             raise SourceDataError("TradingView receipt has an unsupported tool or columns")
         requested = receipt.requested_symbols
         if not 1 <= len(requested) <= 50 or len(requested) != len(set(requested)):

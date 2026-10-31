@@ -9,8 +9,8 @@ from tests.helpers.research_selection import selected_target, selection
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchSelection,
     GeneratedResearchSelectionDraft,
+    GeneratedResearchSelectionV4,
     ResearchSelection,
     parse_selection,
     selection_sha256,
@@ -97,10 +97,14 @@ def test_draft_four_parses_but_canonical_and_new_write_reject_it(tmp_path):
     current_raw = current.model_dump(mode="json")
     current_raw["targets"] = draft_raw["targets"]
     current_raw["inputs"]["generation"]["subjects"].append("1003")
+    current_raw["inputs"]["saved_company_context"]["1003"] = {
+        "research": {"status": "not_found"},
+        "assessment": {"status": "not_found"},
+    }
     with pytest.raises(ValueError, match="saved research capacity"):
-        GeneratedResearchSelection.model_validate(current_raw)
+        GeneratedResearchSelectionV4.model_validate(current_raw)
     current_raw["capacity"]["max_deep_research_targets"] = 4
-    expanded = GeneratedResearchSelection.model_validate(current_raw)
+    expanded = GeneratedResearchSelectionV4.model_validate(current_raw)
     with pytest.raises(ValueError, match="current capacity"):
         OperationService(tmp_path / "app", runs_path=tmp_path / "runs").start(
             session_kind="capital-allocation",

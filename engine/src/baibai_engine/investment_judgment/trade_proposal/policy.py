@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from baibai_engine.investment_judgment.trade_proposal.contracts import ProposalError, TradeProposal
+from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    ProposalError,
+    TradeProposalDraft,
+)
 
 MAX_NEW_BUYS = 1
 
 
-def validate_proposal_policy(proposal: TradeProposal) -> None:
+def validate_proposal_policy(proposal: TradeProposalDraft) -> None:
     """初期版の新規買付上限を検証する。readの構造上限にはしない。"""
 
     if sum(item.action == "buy" for item in proposal.items) > MAX_NEW_BUYS:

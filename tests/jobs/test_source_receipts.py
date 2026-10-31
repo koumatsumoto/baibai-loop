@@ -6,7 +6,9 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
+    R2Error,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import (
@@ -167,3 +169,38 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
         assert next(
             read_snapshots(conn, date(2026, 10, 24), date(2026, 10, 24), source_id="fred-payems")
         ).records == ({"value": "A"},)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        R2Error("transport unavailable"),
+        LakeCASConflict("conditional generation changed"),
+        LakePublishError("R2 is only text in this source-contract error"),
+    ],
+)
+def test_handoff_plan_uses_error_type_not_message_for_failure_scope(tmp_path, monkeypatch, error):
+    import baibai_jobs.acquisition.receipts as receipts
+
+    store = Store()
+    stage(store, tmp_path / "a", "boj-fault")
+    stage(store, tmp_path / "b", "fred_csv-good", "fred_csv")
+    read = receipts.read_private
+
+    def fail_one(selected_store, key):
+        if key == "coordination/economic-sources/boj-fault/handoff.json":
+            raise error
+        return read(selected_store, key)
+
+    monkeypatch.setattr(receipts, "read_private", fail_one)
+    if type(error) is not LakePublishError:
+        with pytest.raises(type(error)):
+            available_handoffs(store)
+    else:
+        entries = available_handoffs(store)
+        assert [entry["invalid"] for entry in entries if entry.get("invalid")] == [
+            "LakePublishError"
+        ]
+        assert [entry["source"] for entry in entries if not entry.get("invalid")] == [
+            "economic-fred_csv"
+        ]

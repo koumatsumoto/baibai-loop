@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
+)
 
 type Metric = Literal[
     "sales",
@@ -21,6 +25,9 @@ type Metric = Literal[
     "total_assets",
 ]
 type Measurement = Literal["reported", "quarter", "annual_ttm", "balance"]
+type PeriodStatus = Literal[
+    "available", "matching_period_not_observed", "accounting_periods_incomparable"
+]
 
 
 class Contract(BaseModel):
@@ -45,6 +52,10 @@ class Observation(Contract):
     period_end: date
     measurement: Measurement
     statement_basis: str
+    # Absent in old saved generations; do not synthesize it when reading them.
+    accounting_standard: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    # Interval construction is independent of missing/conflicting metric operands.
+    period_status: PeriodStatus | None = Field(default=None, exclude_if=lambda value: value is None)
     # Reported EPS and share counts retain each document's native share basis.
     share_basis: Literal["source_reported_unverified"] = "source_reported_unverified"
     metrics: dict[Metric, Value]
@@ -83,6 +94,14 @@ class InputRelease(Contract):
     receipt_cutoff: None = None
 
 
+class ReportedComparison(Contract):
+    observation: FilingComparisons
+    changes: tuple[Change, ...] = ()
+    read_semantics: Literal["each_document_vintage_not_latest_or_ttm"] = (
+        "each_document_vintage_not_latest_or_ttm"
+    )
+
+
 class OptionalContext(Contract):
     status: Literal["not_provided"] = "not_provided"
     reason: str
@@ -103,7 +122,7 @@ class CompanyGrowth(Contract):
     ticker: str
     status: Literal["available", "unavailable"]
     reason: str | None = None
-    calculation_method: str = "company_growth_retrospective_v3"
+    calculation_method: str = "company_growth_retrospective_v7"
     read_semantics: Literal["retained_latest_in_fixed_release_not_point_in_time"] = (
         "retained_latest_in_fixed_release_not_point_in_time"
     )
@@ -129,6 +148,12 @@ class CompanyGrowth(Contract):
     coverage: Coverage = Coverage()
     periods: tuple[PeriodState, ...] = ()
     changes: tuple[Change, ...] = ()
+    reported_comparisons: tuple[ReportedComparison, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    comparison_input_reason: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     per: OptionalContext = OptionalContext(
         reason="price_share_unit_and_parent_profit_alignment_not_verified"
     )

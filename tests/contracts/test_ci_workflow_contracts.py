@@ -61,7 +61,7 @@ def test_python_quality_gates_share_one_runner() -> None:
     assert isinstance(jobs, dict)
     names = set(_by_name("ci.yml", "quality"))
 
-    assert set(jobs) == {"quality", "tradingview_oauth_smoke"}
+    assert set(jobs) == {"quality"}
     assert {
         "Ruff format",
         "Ruff lint",
@@ -73,7 +73,6 @@ def test_python_quality_gates_share_one_runner() -> None:
         "Dependency audit",
         "Build dependency audit",
     } <= names
-    assert not names.intersection(_by_name("ci.yml", "tradingview_oauth_smoke"))
 
 
 def test_ci_pins_an_explicit_worker_count() -> None:
@@ -104,6 +103,7 @@ def test_the_python_dependency_audit_suppresses_nothing(workflow: str, job: str)
 
     assert "uv run pip-audit" in run
     assert "--all-groups" in run
+    assert "--no-deps --disable-pip --strict" in run
     assert "--ignore-vuln" not in run
     assert "|| true" not in run
     build_run = str(by_name["Build dependency audit"]["run"])
@@ -116,6 +116,8 @@ def test_the_python_dependency_audit_suppresses_nothing(workflow: str, job: str)
         assert by_name[scanner]["if"] == "${{ !cancelled() }}"
     assert "build-requirements.txt" not in run
     assert "uv export" not in build_run
+    assert "--no-deps" not in build_run
+    assert "--disable-pip" not in build_run
 
 
 def test_scanners_are_asked_even_after_an_earlier_gate_fails() -> None:

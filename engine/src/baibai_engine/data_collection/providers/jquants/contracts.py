@@ -28,6 +28,10 @@ class JQuantsAcquisitionError(RuntimeError):
         self.request_id = request_id
 
 
+class JQuantsRateLimitError(JQuantsAcquisitionError):
+    """The final HTTP 429 stops further J-Quants acquisition in this pass."""
+
+
 @dataclass(frozen=True, slots=True)
 class JQuantsPage:
     """Decompressed HTTP response content, with no credentials or response headers.
@@ -48,7 +52,8 @@ class JQuantsPage:
         object.__setattr__(self, "received_at", self.received_at.astimezone(UTC))
 
 
-def _envelope(page: JQuantsPage) -> dict[str, Any]:
+def page_envelope(page: JQuantsPage) -> dict[str, Any]:
+    """Decode and validate native rows while preserving pagination metadata."""
     try:
         payload = json.loads(page.body)
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -62,4 +67,4 @@ def _envelope(page: JQuantsPage) -> dict[str, Any]:
 
 def page_records(page: JQuantsPage) -> list[dict[str, Any]]:
     """Read all source fields without normalizing dates, numbers or missing values."""
-    return cast(list[dict[str, Any]], _envelope(page)["data"])
+    return cast(list[dict[str, Any]], page_envelope(page)["data"])

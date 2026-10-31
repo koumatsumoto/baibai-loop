@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from contextlib import ExitStack, closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -32,7 +31,6 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
 )
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
-    IndicatorsProviderError,
     ProviderFetchStoppedError,
     ProviderRateLimitError,
 )
@@ -71,7 +69,7 @@ def refresh_sources(
         raise ValueError("end must be on or after start")
     catalog = load_sources()
     outcomes: list[SourceRefreshOutcome] = []
-    stopped_providers: set[str] = set()
+    stopped_groups: set[str] = set()
     selected = list(dict.fromkeys(source_ids))
     if not any(source_id in catalog for source_id in selected):
         return tuple(
@@ -87,23 +85,21 @@ def refresh_sources(
                 if source_id not in catalog:
                     raise ValueError(f"unknown economic source: {source_id}")
                 source = catalog[source_id]
-                if source.provider in stopped_providers:
-                    raise ProviderFetchStoppedError(
-                        "provider acquisition stopped earlier in this run"
+                policy = source_policy(source)
+                if policy.acquisition_group in stopped_groups:
+                    raise ProviderFetchStoppedError("acquisition group stopped earlier in this run")
+                if policy.mode == "current_only":
+                    if end != datetime.now(ZoneInfo("Asia/Tokyo")).date():
+                        raise ValueError("current-only source cannot recover a historical date")
+                    first = end
+                else:
+                    first = (
+                        recent_start(source, end)
+                        if recent
+                        else start
+                        if start is not None
+                        else _history_start(source, end)
                     )
-                if (
-                    recent
-                    and source_policy(source).mode == "current_only"
-                    and end != datetime.now(ZoneInfo("Asia/Tokyo")).date()
-                ):
-                    raise ValueError("current-only source cannot recover a historical date")
-                first = (
-                    recent_start(source, end)
-                    if recent
-                    else start
-                    if start is not None
-                    else _history_start(source, end)
-                )
                 received = _refresh_source(
                     connection, source, start=first, end=end, context=context
                 )
@@ -119,12 +115,14 @@ def refresh_sources(
                         )
                         first = min(first, missing_start)
                 outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
+            except sqlite3.Error:
+                raise
             except Exception as error:
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)
                     and catalog[source_id].provider in {"spglobal_pmi", "tradingeconomics_pmi"}
                 ):
-                    stopped_providers.add(catalog[source_id].provider)
+                    stopped_groups.add(source_policy(catalog[source_id]).acquisition_group)
                 outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
     return tuple(outcomes)
 
@@ -204,9 +202,7 @@ def _refresh_source(
                         )
                     received += len(records)
         else:
-            records_by_day = _fetch_with_retry(
-                lambda: fetch_native_records(source, start=start, end=end, context=context), context
-            )
+            records_by_day = fetch_native_records(source, start=start, end=end, context=context)
             fetched_at = datetime.now(UTC)
             count = 0
             with connection:
@@ -248,15 +244,3 @@ def _refresh_source(
             record_count=received,
         )
     return received
-
-
-def _fetch_with_retry[T](operation: Callable[[], T], context: FetchContext) -> T:
-    for attempt in range(2):
-        try:
-            return operation()
-        except IndicatorsProviderError as error:
-            context.discard_cached_bytes()
-            if isinstance(error, ProviderFetchStoppedError) or attempt == 1:
-                raise
-            time.sleep(1.0)
-    raise AssertionError("unreachable provider retry loop")

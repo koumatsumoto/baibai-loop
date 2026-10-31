@@ -88,9 +88,7 @@ def frozen_lake_universe(
             {"files": [str(path) for path in paths], "master_asof": master_asof.isoformat()},
         ).fetchall()
     except duckdb.Error as error:
-        raise LakeReadError(
-            f"external assessment master cannot be read: {session.redact(str(error))}"
-        ) from None
+        raise LakeReadError(f"external assessment master cannot be read: {error}") from None
     if len(rows) < MIN_COMMON_STOCK_MASTER_ROWS:
         raise ValueError("external assessment universe requires a complete exact saved master")
     tickers = _common_stock_tickers(masters_from_payloads([row[0] for row in rows]))
@@ -123,9 +121,7 @@ def calendar_master_asof(
                 else []
             )
         except duckdb.Error as error:
-            raise LakeReadError(
-                f"external assessment calendar cannot be read: {session.redact(str(error))}"
-            ) from None
+            raise LakeReadError(f"external assessment calendar cannot be read: {error}") from None
         if overrides:
             merged = {date.fromisoformat(str(day)): business for day, business in rows}
             merged.update(

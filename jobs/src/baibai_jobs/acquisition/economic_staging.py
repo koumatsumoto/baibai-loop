@@ -20,7 +20,7 @@ def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None =
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,119}", stage_id) is None:
         raise ValueError("invalid source handoff identity")
     namespace = namespace or ("market-sources" if market else "economic-sources")
-    if namespace not in {"market-sources", "economic-sources", "source-inputs"}:
+    if namespace not in {"market-sources", "economic-sources", "source-inputs", "article-sources"}:
         raise ValueError("invalid source handoff namespace")
     return f"coordination/{namespace}/{stage_id}"
 
@@ -86,6 +86,14 @@ def load_handoff(
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
+    if (
+        not isinstance(manifest, dict)
+        or not isinstance(manifest.get("receipt_sha256"), str)
+        or type(manifest.get("receipt_bytes")) is not int
+        or not isinstance(manifest.get("receipt_key"), str)
+        or not isinstance(manifest.get("result"), dict)
+    ):
+        raise ValueError("invalid source handoff manifest")
     digest, size = manifest["receipt_sha256"], manifest["receipt_bytes"]
     key = f"{prefix}/receipts-{digest}.sqlite"
     if manifest["receipt_key"] != key or re.fullmatch(r"[0-9a-f]{64}", digest) is None:

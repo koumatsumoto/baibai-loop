@@ -20,7 +20,8 @@ import baibai_jobs.acquisition.external_assessments.staging as external_assessme
 import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
-    LakePublishError,
+    LakeCASConflict,
+    R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionOutcome as ExternalAssessmentCollectionOutcome,
@@ -187,7 +188,7 @@ def test_failed_bundle_acknowledgement_prevents_stage_commit(monkeypatch, capsys
     store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
     client.put_fault = 1, fault
     p = plan()
-    with pytest.raises(LakePublishError):
+    with pytest.raises(LakeCASConflict if fault == "conflict" else R2Error):
         daily.acquire_cohort(store, p, 0)
     assert external_assessment_staging.read_stage(store, p, 0) is None
     output = capsys.readouterr()

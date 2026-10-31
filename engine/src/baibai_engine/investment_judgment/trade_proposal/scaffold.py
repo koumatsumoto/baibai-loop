@@ -11,7 +11,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     GateReason,
     ProposalContentReview,
     ProposalItem,
-    TradeProposal,
+    TradeProposalDraft,
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
@@ -76,18 +76,19 @@ def scaffold_proposal(
         context.liquidity_context,
         assessments={identity: pair.document for identity, pair in context.assessments.items()},
     )
-    proposal = TradeProposal(
+    proposal = TradeProposalDraft(
         proposal_id=proposal_id,
         as_of=now.astimezone(JST).date(),
         prepared_at=now,
-        published_at=now,
         request_scope=context.request_scope,
         research_scope=context.research_scope,
         headline="提案の要点を記述してください。",
         comparison=(
             "完成した評価を現金維持等と比べ、選択理由と反転条件を記す。新規買付は"
             "docs/reference/trade-proposal.md#limit-selectionに従い、"
-            "limit候補の見返り・数量・cashと待機案を比較する。未完成を経済的見送りへ混ぜない。"
+            "limit候補の見返り・選択数量・cashと待機案、no-addで増量できない代償を比較する。"
+            "売却は作者下限での回収と保有継続・回復待ちを比べる。"
+            "未完成を経済的見送りへ混ぜない。"
         ),
         forgone="採らない行動と理由（新規買付では別の指値・待機案）を記述してください。",
         market_context_assessment_id=context.market_context_assessment_id,

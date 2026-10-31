@@ -22,6 +22,7 @@ from typing import cast
 # させると配下の subcommand が丸ごと未検査になるので、未登録の stub は error にする。
 # 表を更新し忘れた delegation は gate をすり抜けない。
 DELEGATED_GROUPS: Mapping[str, str] = {
+    "baibai-engine investment-judgment proposal-records": "baibai_engine.cli.proposal_records",
     "baibai-jobs maintain-market": "baibai_jobs.maintenance.market.cli",
     "baibai-jobs acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "baibai-engine market-context snapshot": ("baibai_engine.cli.market_snapshot"),
@@ -30,6 +31,10 @@ DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine investment-judgment market-context": ("baibai_engine.cli.market_assessment"),
     "baibai-engine investment-judgment stock-assessment-evaluate": (
         "baibai_engine.cli.stock_assessment"
+    ),
+    "baibai-engine investment-judgment company-research": "baibai_engine.cli.company_research",
+    "baibai-engine investment-judgment judgment-retrospective": (
+        "baibai_engine.cli.judgment_retrospective"
     ),
     "baibai-engine investment-judgment calculate": ("baibai_engine.cli.assessment_calculation"),
 }

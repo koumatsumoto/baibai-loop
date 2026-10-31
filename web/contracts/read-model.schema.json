@@ -1,8 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Baibai Loop read model",
-  "schemaVersion": 5,
+  "schemaVersion": 8,
   "roots": {
+    "views/latest-proposal.json": "#/$defs/LatestProposalView",
     "views/outcomes.json": "#/$defs/OutcomesView",
     "views/portfolio-dashboard.json": "#/$defs/DashboardView",
     "views/tasks.json": "#/$defs/TasksView"
@@ -42,9 +43,17 @@
           ],
           "title": "Ledger As Of"
         },
-        "ledger_stale": {
-          "title": "Ledger Stale",
-          "type": "boolean"
+        "valuation_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "市場評価の読取失敗。台帳事実は保持し、株価等の欠測だけの場合はnull。",
+          "title": "Valuation Error"
         },
         "valuation_as_of": {
           "anyOf": [
@@ -57,10 +66,6 @@
             }
           ],
           "title": "Valuation As Of"
-        },
-        "valuation_stale": {
-          "title": "Valuation Stale",
-          "type": "boolean"
         },
         "total_capital_yen": {
           "anyOf": [
@@ -189,9 +194,8 @@
         "ledger_exists",
         "ledger_error",
         "ledger_as_of",
-        "ledger_stale",
+        "valuation_error",
         "valuation_as_of",
-        "valuation_stale",
         "total_capital_yen",
         "available_cash_yen",
         "reserved_cash_yen",
@@ -309,6 +313,134 @@
       "title": "HoldingView",
       "type": "object"
     },
+    "HumanProposalReport": {
+      "additionalProperties": false,
+      "properties": {
+        "report_id": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "proposal_ref": {
+          "$ref": "#/$defs/ProposalReference"
+        },
+        "outcome": {
+          "const": "not_purchased",
+          "title": "Outcome",
+          "type": "string"
+        },
+        "statement": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "reported_at": {
+          "format": "date-time",
+          "title": "Reported At",
+          "type": "string"
+        },
+        "subject_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject At"
+        },
+        "reason_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NonEmptyStr"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context_summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NonEmptyStr"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "report_id",
+        "proposal_ref",
+        "outcome",
+        "statement",
+        "reported_at",
+        "subject_at",
+        "reason_quote",
+        "context_summary",
+        "recorded_at"
+      ],
+      "title": "HumanProposalReport",
+      "type": "object"
+    },
+    "LatestProposalView": {
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "empty",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "proposal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedProposalView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "generated_at",
+        "status",
+        "error",
+        "proposal"
+      ],
+      "title": "LatestProposalView",
+      "type": "object"
+    },
+    "NonEmptyStr": {
+      "minLength": 1,
+      "type": "string"
+    },
     "OutcomesView": {
       "properties": {
         "outcomes": {
@@ -400,6 +532,54 @@
       "title": "PortfolioOutcomeView",
       "type": "object"
     },
+    "ProposalCorrection": {
+      "additionalProperties": false,
+      "properties": {
+        "correction_id": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "erroneous_ref": {
+          "$ref": "#/$defs/ProposalReference"
+        },
+        "replacement_ref": {
+          "$ref": "#/$defs/ProposalReference"
+        },
+        "reason": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "recorded_at": {
+          "format": "date-time",
+          "title": "Recorded At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "correction_id",
+        "erroneous_ref",
+        "replacement_ref",
+        "reason",
+        "recorded_at"
+      ],
+      "title": "ProposalCorrection",
+      "type": "object"
+    },
+    "ProposalReference": {
+      "additionalProperties": false,
+      "properties": {
+        "proposal_id": {
+          "$ref": "#/$defs/NonEmptyStr"
+        },
+        "draft_sha256": {
+          "$ref": "#/$defs/SHA256"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "draft_sha256"
+      ],
+      "title": "ProposalReference",
+      "type": "object"
+    },
     "ReservationView": {
       "properties": {
         "reservation_id": {
@@ -484,6 +664,1091 @@
       "title": "ReservationView",
       "type": "object"
     },
+    "SHA256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "SavedAssessmentReviewView": {
+      "properties": {
+        "reviewed_at": {
+          "format": "date-time",
+          "title": "Reviewed At",
+          "type": "string"
+        },
+        "primary_source_check": {
+          "enum": [
+            "verified",
+            "partially_verified",
+            "unverified"
+          ],
+          "title": "Primary Source Check",
+          "type": "string"
+        },
+        "review_scope": {
+          "title": "Review Scope",
+          "type": "string"
+        },
+        "strongest_countercase": {
+          "title": "Strongest Countercase",
+          "type": "string"
+        },
+        "uncertainty_acceptance_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Uncertainty Acceptance Reason"
+        }
+      },
+      "required": [
+        "reviewed_at",
+        "primary_source_check",
+        "review_scope",
+        "strongest_countercase",
+        "uncertainty_acceptance_reason"
+      ],
+      "title": "SavedAssessmentReviewView",
+      "type": "object"
+    },
+    "SavedAssessmentView": {
+      "properties": {
+        "assessment_id": {
+          "title": "Assessment Id",
+          "type": "string"
+        },
+        "core_sha256": {
+          "title": "Core Sha256",
+          "type": "string"
+        },
+        "review_id": {
+          "title": "Review Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "stance": {
+          "enum": [
+            "supported",
+            "uncertain",
+            "unsupported"
+          ],
+          "title": "Stance",
+          "type": "string"
+        },
+        "investment_case_explanation": {
+          "title": "Investment Case Explanation",
+          "type": "string"
+        },
+        "investment_case_status": {
+          "enum": [
+            "intact",
+            "broken",
+            "uncertain"
+          ],
+          "title": "Investment Case Status",
+          "type": "string"
+        },
+        "investment_case_status_reason": {
+          "title": "Investment Case Status Reason",
+          "type": "string"
+        },
+        "invalidation_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invalidation Conditions",
+          "type": "array"
+        },
+        "review": {
+          "$ref": "#/$defs/SavedAssessmentReviewView"
+        }
+      },
+      "required": [
+        "assessment_id",
+        "core_sha256",
+        "review_id",
+        "as_of",
+        "stance",
+        "investment_case_explanation",
+        "investment_case_status",
+        "investment_case_status_reason",
+        "invalidation_conditions",
+        "review"
+      ],
+      "title": "SavedAssessmentView",
+      "type": "object"
+    },
+    "SavedBuyItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "saved_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedQuoteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liquidity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLiquidityView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unfinished": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnfinishedResearchView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "const": "buy",
+          "title": "Action",
+          "type": "string"
+        },
+        "timing": {
+          "enum": [
+            "at_current_limit",
+            "wait_limit",
+            "place_limit"
+          ],
+          "title": "Timing",
+          "type": "string"
+        },
+        "terms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLimitTermsView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "proposed_limit_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Proposed Limit Yen"
+        },
+        "terms_unavailable_reasons": {
+          "items": {
+            "$ref": "#/$defs/SavedReasonView"
+          },
+          "title": "Terms Unavailable Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ticker",
+        "rationale",
+        "review_conditions",
+        "assessment",
+        "saved_quote",
+        "liquidity",
+        "unfinished",
+        "action",
+        "timing",
+        "terms",
+        "proposed_limit_yen",
+        "terms_unavailable_reasons"
+      ],
+      "title": "SavedBuyItemView",
+      "type": "object"
+    },
+    "SavedDeferItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "saved_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedQuoteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liquidity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLiquidityView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unfinished": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnfinishedResearchView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "const": "defer",
+          "title": "Action",
+          "type": "string"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/SavedReasonView"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "resume_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resume Conditions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ticker",
+        "rationale",
+        "review_conditions",
+        "assessment",
+        "saved_quote",
+        "liquidity",
+        "unfinished",
+        "action",
+        "blockers",
+        "resume_conditions"
+      ],
+      "title": "SavedDeferItemView",
+      "type": "object"
+    },
+    "SavedExposureRowView": {
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "prospective_pct": {
+          "title": "Prospective Pct",
+          "type": "string"
+        },
+        "warning_pct": {
+          "title": "Warning Pct",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "prospective_pct",
+        "warning_pct"
+      ],
+      "title": "SavedExposureRowView",
+      "type": "object"
+    },
+    "SavedHoldItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "saved_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedQuoteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liquidity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLiquidityView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unfinished": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnfinishedResearchView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original_assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original_investment_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Original Investment Reason"
+        },
+        "original_reason_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Original Reason Unavailable Reason"
+        },
+        "case_reassessment_reason": {
+          "title": "Case Reassessment Reason",
+          "type": "string"
+        },
+        "remaining_reward": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedRemainingRewardView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "const": "hold",
+          "title": "Action",
+          "type": "string"
+        },
+        "holding_basis": {
+          "enum": [
+            "investment_case_intact",
+            "sufficient_remaining_reward"
+          ],
+          "title": "Holding Basis",
+          "type": "string"
+        },
+        "return_calculation_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Return Calculation Unavailable Reason"
+        }
+      },
+      "required": [
+        "ticker",
+        "rationale",
+        "review_conditions",
+        "assessment",
+        "saved_quote",
+        "liquidity",
+        "unfinished",
+        "original_assessment",
+        "original_investment_reason",
+        "original_reason_unavailable_reason",
+        "case_reassessment_reason",
+        "remaining_reward",
+        "action",
+        "holding_basis",
+        "return_calculation_unavailable_reason"
+      ],
+      "title": "SavedHoldItemView",
+      "type": "object"
+    },
+    "SavedLimitTermsView": {
+      "properties": {
+        "limit_price_yen": {
+          "title": "Limit Price Yen",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "notional_yen": {
+          "title": "Notional Yen",
+          "type": "string"
+        },
+        "target_session": {
+          "format": "date",
+          "title": "Target Session",
+          "type": "string"
+        },
+        "valuation_as_of": {
+          "format": "date",
+          "title": "Valuation As Of",
+          "type": "string"
+        },
+        "maximum_entry_price_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maximum Entry Price Yen"
+        },
+        "conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Conditions",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "limit_price_yen",
+        "quantity",
+        "notional_yen",
+        "target_session",
+        "valuation_as_of",
+        "maximum_entry_price_yen",
+        "conditions",
+        "warnings"
+      ],
+      "title": "SavedLimitTermsView",
+      "type": "object"
+    },
+    "SavedLiquidityView": {
+      "properties": {
+        "analysis_as_of": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Analysis As Of"
+        },
+        "adv_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Adv Yen"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unavailable Reason"
+        }
+      },
+      "required": [
+        "analysis_as_of",
+        "adv_yen",
+        "unavailable_reason"
+      ],
+      "title": "SavedLiquidityView",
+      "type": "object"
+    },
+    "SavedNoActionItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "saved_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedQuoteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liquidity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLiquidityView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unfinished": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnfinishedResearchView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "const": "no_action",
+          "title": "Action",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticker",
+        "rationale",
+        "review_conditions",
+        "assessment",
+        "saved_quote",
+        "liquidity",
+        "unfinished",
+        "action"
+      ],
+      "title": "SavedNoActionItemView",
+      "type": "object"
+    },
+    "SavedPortfolioExposureView": {
+      "properties": {
+        "total_capital_yen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Capital Yen"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedExposureRowView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sector": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedExposureRowView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "common_factors": {
+          "items": {
+            "$ref": "#/$defs/SavedExposureRowView"
+          },
+          "title": "Common Factors",
+          "type": "array"
+        },
+        "common_factor_unclassified_tickers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Common Factor Unclassified Tickers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "total_capital_yen",
+        "ticker",
+        "sector",
+        "common_factors",
+        "common_factor_unclassified_tickers"
+      ],
+      "title": "SavedPortfolioExposureView",
+      "type": "object"
+    },
+    "SavedProposalItemView": {
+      "discriminator": {
+        "mapping": {
+          "buy": "#/$defs/SavedBuyItemView",
+          "defer": "#/$defs/SavedDeferItemView",
+          "hold": "#/$defs/SavedHoldItemView",
+          "no_action": "#/$defs/SavedNoActionItemView",
+          "sell": "#/$defs/SavedSellItemView"
+        },
+        "propertyName": "action"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SavedBuyItemView"
+        },
+        {
+          "$ref": "#/$defs/SavedHoldItemView"
+        },
+        {
+          "$ref": "#/$defs/SavedSellItemView"
+        },
+        {
+          "$ref": "#/$defs/SavedNoActionItemView"
+        },
+        {
+          "$ref": "#/$defs/SavedDeferItemView"
+        }
+      ]
+    },
+    "SavedProposalView": {
+      "properties": {
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "prepared_at": {
+          "format": "date-time",
+          "title": "Prepared At",
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "title": "Published At",
+          "type": "string"
+        },
+        "request_scope": {
+          "enum": [
+            "discover_new",
+            "specified_stocks",
+            "review_positions"
+          ],
+          "title": "Request Scope",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "comparison": {
+          "title": "Comparison",
+          "type": "string"
+        },
+        "forgone": {
+          "title": "Forgone",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/SavedProposalItemView"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "portfolio_exposure": {
+          "$ref": "#/$defs/SavedPortfolioExposureView"
+        },
+        "corrections": {
+          "items": {
+            "$ref": "#/$defs/ProposalCorrection"
+          },
+          "title": "Corrections",
+          "type": "array"
+        },
+        "human_reports": {
+          "items": {
+            "$ref": "#/$defs/HumanProposalReport"
+          },
+          "title": "Human Reports",
+          "type": "array"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "as_of",
+        "prepared_at",
+        "published_at",
+        "request_scope",
+        "headline",
+        "comparison",
+        "forgone",
+        "warnings",
+        "items",
+        "portfolio_exposure",
+        "corrections",
+        "human_reports"
+      ],
+      "title": "SavedProposalView",
+      "type": "object"
+    },
+    "SavedQuoteView": {
+      "properties": {
+        "price_yen": {
+          "title": "Price Yen",
+          "type": "string"
+        },
+        "price_as_of": {
+          "format": "date",
+          "title": "Price As Of",
+          "type": "string"
+        },
+        "price_basis": {
+          "const": "last_close_unadjusted",
+          "title": "Price Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "price_yen",
+        "price_as_of",
+        "price_basis"
+      ],
+      "title": "SavedQuoteView",
+      "type": "object"
+    },
+    "SavedReasonView": {
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "SavedReasonView",
+      "type": "object"
+    },
+    "SavedRemainingRewardView": {
+      "properties": {
+        "status": {
+          "enum": [
+            "sufficient",
+            "insufficient",
+            "uncertain"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "title": "SavedRemainingRewardView",
+      "type": "object"
+    },
+    "SavedSellItemView": {
+      "properties": {
+        "ticker": {
+          "title": "Ticker",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "review_conditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Review Conditions",
+          "type": "array"
+        },
+        "assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "saved_quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedQuoteView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liquidity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLiquidityView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unfinished": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnfinishedResearchView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original_assessment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedAssessmentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original_investment_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Original Investment Reason"
+        },
+        "original_reason_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Original Reason Unavailable Reason"
+        },
+        "case_reassessment_reason": {
+          "title": "Case Reassessment Reason",
+          "type": "string"
+        },
+        "remaining_reward": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedRemainingRewardView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "action": {
+          "const": "sell",
+          "title": "Action",
+          "type": "string"
+        },
+        "reason_code": {
+          "enum": [
+            "economic_invalidation",
+            "insufficient_remaining_reward"
+          ],
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "terms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SavedLimitTermsView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terms_unavailable_reasons": {
+          "items": {
+            "$ref": "#/$defs/SavedReasonView"
+          },
+          "title": "Terms Unavailable Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ticker",
+        "rationale",
+        "review_conditions",
+        "assessment",
+        "saved_quote",
+        "liquidity",
+        "unfinished",
+        "original_assessment",
+        "original_investment_reason",
+        "original_reason_unavailable_reason",
+        "case_reassessment_reason",
+        "remaining_reward",
+        "action",
+        "reason_code",
+        "terms",
+        "terms_unavailable_reasons"
+      ],
+      "title": "SavedSellItemView",
+      "type": "object"
+    },
     "TaskView": {
       "properties": {
         "task_id": {
@@ -540,10 +1805,6 @@
             }
           ],
           "title": "Event Date"
-        },
-        "overdue": {
-          "title": "Overdue",
-          "type": "boolean"
         }
       },
       "required": [
@@ -554,8 +1815,7 @@
         "ticker",
         "due_date",
         "event_label",
-        "event_date",
-        "overdue"
+        "event_date"
       ],
       "title": "TaskView",
       "type": "object"
@@ -609,6 +1869,19 @@
           "description": "保有決算予定の確認可否。保有なし/台帳不明はnull。",
           "title": "Earnings Calendar Available"
         },
+        "earnings_calendar_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "決算カレンダーの読取失敗。欠測だけの場合はnull。",
+          "title": "Earnings Calendar Error"
+        },
         "ledger_error": {
           "anyOf": [
             {
@@ -628,9 +1901,31 @@
         "next_task",
         "upcoming_events",
         "earnings_calendar_available",
+        "earnings_calendar_error",
         "ledger_error"
       ],
       "title": "TasksView",
+      "type": "object"
+    },
+    "UnfinishedResearchView": {
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "references": {
+          "items": {
+            "type": "string"
+          },
+          "title": "References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "reason",
+        "references"
+      ],
+      "title": "UnfinishedResearchView",
       "type": "object"
     },
     "UpcomingEventView": {
@@ -662,18 +1957,13 @@
         "label": {
           "title": "Label",
           "type": "string"
-        },
-        "days_until": {
-          "title": "Days Until",
-          "type": "integer"
         }
       },
       "required": [
         "event_date",
         "kind",
         "ticker",
-        "label",
-        "days_until"
+        "label"
       ],
       "title": "UpcomingEventView",
       "type": "object"

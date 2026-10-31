@@ -31,6 +31,7 @@ jobs:
     outputs:
       sources: ${{ steps.plan.outputs.sources }}
       asof: ${{ steps.plan.outputs.asof }}
+      edinet_all: ${{ steps.plan.outputs.edinet_all }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Pin the original acquisition run clock
@@ -71,10 +72,11 @@ jobs:
           elif slot == '43 7 * * *':
               selected = all_sources[:5] if day.weekday() < 5 else ['edinet-list']
           else:
-              selected = all_sources if source == 'all' else [source]
+              selected = all_sources[:4] if source == 'all' else [source]
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
               print('sources=' + json.dumps([{'source': item} for item in selected]), file=stream)
               print('asof=' + day.isoformat(), file=stream)
+              print('edinet_all=' + str(not slot and source == 'all').lower(), file=stream)
           PY
 
   source:
@@ -83,6 +85,28 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.sources) }}
+    uses: ./.github/workflows/cloud-market-source.yml
+    with:
+      source: ${{ matrix.source }}
+      asof: ${{ needs.plan.outputs.asof }}
+    secrets: inherit
+
+  edinet-list:
+    needs: plan
+    if: ${{ needs.plan.outputs.edinet_all == 'true' }}
+    uses: ./.github/workflows/cloud-market-source.yml
+    with:
+      source: edinet-list
+      asof: ${{ needs.plan.outputs.asof }}
+    secrets: inherit
+
+  edinet-archives:
+    needs: [plan, edinet-list]
+    if: ${{ needs.plan.outputs.edinet_all == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [edinet-metrics, edinet-facts]
     uses: ./.github/workflows/cloud-market-source.yml
     with:
       source: ${{ matrix.source }}

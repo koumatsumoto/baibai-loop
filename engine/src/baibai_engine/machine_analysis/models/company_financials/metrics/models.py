@@ -35,7 +35,7 @@ class TTMRules(BaseModel):
 
 DEFAULT_TTM_RULES = TTMRules(
     full_year_min_days=330,
-    full_year_max_days=370,
+    full_year_max_days=371,
     period_length_tolerance_ratio=0.1,
     period_end_tolerance_days=45,
 )
@@ -61,6 +61,7 @@ class FinancialSnapshot:
     sales_ttm: float | None
     ocf_ttm: float | None
     edinet_ocf_ttm: float | None = None
+    ocf_ttm_period: dict[str, object] | None = None
     # 比較可能な直近実績の年間 DPS (原本値)・進行期の予想年間 DPS・carry 用配当利回り。
     # dividend_yield は将来 carry なので明示 0 を含む非負の予想 DPS を優先する
     # (forecast_annual)。ただし正の実績 DPS の 2 倍を超える予想は実績へ倒す。

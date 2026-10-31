@@ -181,14 +181,15 @@ if [[ "$1 $2" == "s3api put-object" ]]; then
       exit 255
     fi
   fi
+  # Inject a rejected PUT: neither its body nor its generation is committed.
+  if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}" && "$key" == "${AWS_FAKE_FAIL_PUT_KEY}" ]]; then
+    printf 'An error occurred (InternalError) when calling PutObject\n' >&2
+    exit 253
+  fi
   # Every uploaded body is kept so a test can read what was actually published
   # rather than only that a call was made.
   if [[ -n "$body" && -f "$body" ]]; then
     cp "$body" "${AWS_FAKE_STATE}/put-$(printf '%s' "$key" | tr / _)"
-  fi
-  if [[ -n "${AWS_FAKE_FAIL_PUT_KEY:-}" && "$key" == "${AWS_FAKE_FAIL_PUT_KEY}" ]]; then
-    printf 'An error occurred (InternalError) when calling PutObject\n' >&2
-    exit 253
   fi
   slug="$(printf '%s' "$key" | tr / _)"
   printf 'x' >> "${AWS_FAKE_STATE}/generation-${slug}"
@@ -813,6 +814,18 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     env = _environment(bin_dir, log)
     state = Path(env["AWS_FAKE_STATE"])
     script = root / "jobs/scripts/r2_transfer.sh"
+    env["SNAPSHOT_FAKE_COPY"] = "1"
+    local_stores = [
+        root / "stores" / relative
+        for relative in (
+            "market/market.sqlite",
+            "screening/runs.sqlite",
+            "market_context/indicators.sqlite",
+        )
+    ]
+    for path in local_stores:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"old-store")
 
     def run(command: str, **overrides: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -836,8 +849,13 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     assert '"market.sqlite": "etag-put-1"' in settled
 
     # The failure this recovers from: the second key's PUT does not land.
+    for path in local_stores:
+        path.write_bytes(b"new-store")
     partial = run("push-machine", GITHUB_ACTIONS="true", AWS_FAKE_FAIL_PUT_KEY="runs.sqlite")
     assert partial.returncode != 0
+    assert (state / "put-market.sqlite").read_bytes() == b"new-store"
+    assert (state / "put-runs.sqlite").read_bytes() == b"old-store"
+    assert (state / "generation-runs.sqlite").read_bytes() == b"x"
     # The receipt still names the previous set, which is now not what the bucket holds.
     assert _receipt(state) == settled
 
@@ -1761,7 +1779,9 @@ def test_runs_only_push_refuses_changed_cloud_generation_without_writing(tmp_pat
     assert not any(command.startswith("s3api put-object ") for command in _transfer_commands(log))
 
 
-@pytest.mark.parametrize("missing", [None, "portfolio-dashboard", "tasks", "outcomes"])
+@pytest.mark.parametrize(
+    "missing", [None, "portfolio-dashboard", "tasks", "outcomes", "latest-proposal"]
+)
 @pytest.mark.parametrize("in_actions", [False, True])
 def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     tmp_path, missing, in_actions
@@ -1775,7 +1795,7 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     views = export / "views"
     views.mkdir(parents=True)
     # Even a stale artifact in a reused export directory must not reach the old key.
-    for name in ("dashboard", "portfolio-dashboard", "tasks", "outcomes"):
+    for name in ("dashboard", "portfolio-dashboard", "tasks", "outcomes", "latest-proposal"):
         if name != missing:
             (views / f"{name}.json").write_text('{"synthetic": true}\n')
     completed = subprocess.run(
@@ -1805,22 +1825,22 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     assert completed.returncode == 0, completed.stderr
     assert [command.split()[3] for command in uploads] == [
         f"s3://baibai-serving/views/{name}.json"
-        for name in ("portfolio-dashboard", "tasks", "outcomes")
+        for name in ("portfolio-dashboard", "tasks", "outcomes", "latest-proposal")
     ]
     assert not any("views/dashboard.json" in command for command in commands)
     assert not any("delete-object" in command or "s3 rm" in command for command in commands)
     downloads = [command for command in commands if command.startswith("s3 cp s3://")]
     assert [command.split()[2] for command in downloads] == [
         f"s3://baibai-serving/views/{name}.json"
-        for name in ("portfolio-dashboard", "tasks", "outcomes")
+        for name in ("portfolio-dashboard", "tasks", "outcomes", "latest-proposal")
     ]
-    assert "portfolio views verified from remote readback: 3" in completed.stdout
+    assert "portfolio views verified from remote readback: 4" in completed.stdout
     assert '"synthetic": true' not in completed.stdout + completed.stderr
     assert not list(root.glob(".r2-transfer.*"))
 
 
 @pytest.mark.parametrize("failure", ["FAIL", "CORRUPT"])
-@pytest.mark.parametrize("name", ["portfolio-dashboard", "tasks", "outcomes"])
+@pytest.mark.parametrize("name", ["portfolio-dashboard", "tasks", "outcomes", "latest-proposal"])
 def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, failure, name):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
@@ -1830,7 +1850,7 @@ def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, fa
     export = tmp_path / "export"
     views = export / "views"
     views.mkdir(parents=True)
-    for view in ("portfolio-dashboard", "tasks", "outcomes"):
+    for view in ("portfolio-dashboard", "tasks", "outcomes", "latest-proposal"):
         (views / f"{view}.json").write_text('{"private": "synthetic-private-value"}\n')
     completed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "upload-portfolio-views", str(export)],

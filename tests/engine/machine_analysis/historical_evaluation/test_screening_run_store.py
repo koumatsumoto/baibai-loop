@@ -69,10 +69,10 @@ def _publish(path, payload=None, *, revision=None):
     return seed_saved_run(path, payload, run_revision_id=identity)
 
 
-def test_schema7_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
+def test_schema8_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
-    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 7
-    assert initialize_run_store(path) == 7
+    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 8
+    assert initialize_run_store(path) == 8
     result = _publish(path)
     assert not hasattr(ScreeningRunStore(path), "publish_run")
     with closing(sqlite3.connect(path)) as connection, connection:
@@ -305,7 +305,6 @@ def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -
         market_cap_oku=99,
         avg_turnover_oku=1.25,
         price_history_span_days=20,
-        price_change_1d=0.012345,
         metrics={
             "er_annual": 0.123456,
             "normalized_per_3fy": 10.123456,
@@ -313,7 +312,20 @@ def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -
             "unknown": None,
         },
     )
-    assert stock_analysis_payload(analysis) == {**GOLDEN["rounded_analysis"], "candidate": None}
+    # The golden keeps the original saved shape; replay no longer rebuilds unused market fields.
+    expected = {
+        key: value
+        for key, value in GOLDEN["rounded_analysis"].items()
+        if key
+        not in {
+            "price_change_1d",
+            "price_change_5d",
+            "price_change_20d",
+            "turnover_spike_5d",
+            "sector_relative_strength_percentile",
+        }
+    }
+    assert stock_analysis_payload(analysis) == {**expected, "candidate": None}
     assert analysis.candidate is None
     with pytest.raises(
         ValueError,
@@ -385,7 +397,12 @@ def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
     path = tmp_path / "runs.sqlite"
     row = {
         **_analysis("1111"),
+        "candidate": saved_candidate(),
         "next_earnings_date": "2026-10-20",
+        "price_change_1d": 0.012345,
+        "price_change_5d": 0.0,
+        "price_change_20d": None,
+        "sector_relative_strength_percentile": 0.625,
         "freshness_warnings": [{"original": "retained claim, not recomputed"}],
     }
     row["metrics"] = {
@@ -399,7 +416,6 @@ def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
     saved = ScreeningRunReader(path).get_run(identity)
     assert saved is not None
     exported = published_run_payload(saved)["stock_analyses"][0]
-    assert exported["next_earnings_date"] == row["next_earnings_date"]
-    assert exported["freshness_warnings"] == row["freshness_warnings"]
-    assert exported["metrics"] == row["metrics"]
+    assert exported == row
+    assert "turnover_spike_5d" not in exported
     assert yaml.safe_load(serialize_published_run_yaml(saved))["stock_analyses"][0] == exported

@@ -1,4 +1,4 @@
-"""五モデルと候補抽出の固定合成入力。実企業・実判断ではない。"""
+"""旧Y/YM保存入力の再開用fixture。過去政策を再実行しない。"""
 
 import sqlite3
 from contextlib import closing
@@ -11,14 +11,19 @@ from baibai_engine.machine_analysis.generation.contracts import (
 )
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
-from baibai_engine.machine_analysis.screening.policies.two_view_inputs import select_generation
-from baibai_engine.machine_analysis.screening.policies.two_views import TwoViewPolicy
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies.two_views import (
+    CandidateView,
+    RankedCompany,
+    TwoViewPolicy,
+    ViewSelection,
+)
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
 def seed_generation(path, *, now, as_of, with_price_path=False):
     payloads = {
-        "company_valuation": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
+        "company_financials": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
         "technical_analysis": {"price_momentum": {"value": None, "reason": "missing_endpoint"}},
         "company_growth": CompanyGrowth(
             ticker="1234", status="unavailable", requested_start=None, requested_end=as_of
@@ -58,10 +63,16 @@ def seed_generation(path, *, now, as_of, with_price_path=False):
     ModelGenerationStore(path).publish(generation)
     ScreeningSelectionStore(path).publish(
         "policy-1",
-        select_generation(
-            generation,
-            tickers=("1234", "5678"),
-            policy=TwoViewPolicy(earnings_limit=20, combined_limit=20),
+        ScreeningSelection(
+            generation.generation_id,
+            ("1234", "5678"),
+            ViewSelection(
+                policy=TwoViewPolicy(earnings_limit=20, combined_limit=20),
+                views=(
+                    CandidateView("earnings-price", 20, 1, (RankedCompany("1234", 1, 0.12),)),
+                    CandidateView("earnings-price-response", 20, 0, ()),
+                ),
+            ),
         ),
     )
     with closing(sqlite3.connect(path)) as connection, connection:

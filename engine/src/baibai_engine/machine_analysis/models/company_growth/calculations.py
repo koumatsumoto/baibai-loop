@@ -4,20 +4,30 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, timedelta
+from decimal import Decimal
 
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
     Metric,
     Observation,
     PeriodState,
+    PeriodStatus,
+    ReportedComparison,
     SourceDocument,
     Value,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
     accounting_period_identity,
+    accounting_standard,
     certainly_disclosed_by,
+    comparable_reporting_basis,
     latest_disclosure_candidates,
+    latest_reporting_basis_matches,
+    reporting_basis_rows,
     statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
@@ -61,6 +71,37 @@ _FINANCIAL_SECTORS = {
 }
 
 
+def build_reported_comparison(observation: FilingComparisons) -> ReportedComparison:
+    """Native same-document pairs are independent of the historical J-Quants series."""
+    changes: list[Change] = []
+    for pair in observation.pairs:
+        before, after = pair.comparative, pair.current
+        if before is None or after is None:
+            continue  # The observation retains the missing/conflict reason.
+        prior = Decimal(before.amount) if before.amount is not None else None
+        current = Decimal(after.amount) if after.amount is not None else None
+        difference = current - prior if prior is not None and current is not None else None
+        changes.append(
+            Change(
+                metric=pair.metric,
+                measurement="reported",
+                from_start=before.period_start,
+                from_end=before.period_end,
+                to_start=after.period_start,
+                to_end=after.period_end,
+                from_value=float(prior) if prior is not None else None,
+                to_value=float(current) if current is not None else None,
+                difference=float(difference) if difference is not None else None,
+                rate=float(difference / prior)
+                if difference is not None and prior is not None and prior > 0
+                else None,
+                reason=pair.reason
+                or ("nonpositive_base" if prior is not None and prior <= 0 else None),
+            )
+        )
+    return ReportedComparison(observation=observation, changes=tuple(changes))
+
+
 def _document(row: JQuantsFinancialSummary) -> SourceDocument:
     return SourceDocument(
         disclosure_number=row.disclosure_number,
@@ -71,16 +112,21 @@ def _document(row: JQuantsFinancialSummary) -> SourceDocument:
 
 
 def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinancialSummary | None:
+    issuer_capital = field in {"shares_outstanding", "treasury_shares"}
     candidates = latest_disclosure_candidates(
         [r for r in rows if getattr(r, field) is not None or field in r.unresolved_actual_fields]
     )
     if not candidates or any(field in r.unresolved_actual_fields for r in candidates):
         return None
-    if len({(getattr(r, field), statement_basis(r)) for r in candidates}) != 1:
+    if len({getattr(r, field) for r in candidates}) != 1:
+        return None
+    if (
+        not issuer_capital
+        and len({(statement_basis(r), accounting_standard(r)) for r in candidates}) != 1
+    ):
         return None
     row = sorted(candidates, key=lambda r: r.disclosure_number or "")[-1]
-    bases = {statement_basis(r) for r in latest_disclosure_candidates(rows)}
-    if bases != {statement_basis(row)}:
+    if not issuer_capital and not latest_reporting_basis_matches(rows, row):
         return None
     return row
 
@@ -88,11 +134,22 @@ def _select(rows: Sequence[JQuantsFinancialSummary], field: str) -> JQuantsFinan
 def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) -> Value:
     row = _select(rows, field)
     if row is None:
+        observed = latest_disclosure_candidates(
+            [item for item in rows if getattr(item, field) is not None]
+        )
+        basis_rows = [
+            *observed,
+            *latest_disclosure_candidates(reporting_basis_rows(rows)),
+        ]
         reason = (
             "conflicting_revisions"
             if any(field in r.unresolved_actual_fields for r in rows)
             else "statement_basis_incomparable"
-            if any(getattr(r, field) is not None for r in rows)
+            if observed and len({statement_basis(item) for item in basis_rows}) != 1
+            else "accounting_standard_incomparable"
+            if observed and len({accounting_standard(item) for item in basis_rows}) != 1
+            else "conflicting_revisions"
+            if observed
             else "not_observed"
         )
         return Value(reason=reason)
@@ -102,10 +159,7 @@ def _value(rows: Sequence[JQuantsFinancialSummary], metric: Metric, field: str) 
 
 
 def _compatible(rows: Sequence[JQuantsFinancialSummary]) -> bool:
-    return len({statement_basis(r) for r in rows}) == 1 and statement_basis(rows[0]) in {
-        "consolidated",
-        "nonconsolidated",
-    }
+    return comparable_reporting_basis(rows)
 
 
 def _cumulative_revision_gap(
@@ -183,17 +237,21 @@ def _derived(
     all_rows: Sequence[JQuantsFinancialSummary],
     *,
     ttm: bool,
-) -> tuple[date, dict[Metric, Value]]:
+) -> tuple[date, dict[Metric, Value], PeriodStatus]:
     anchor = current[0]
     assert anchor.period_start is not None
     assert anchor.period_end is not None
     days = period_days(anchor)
     if days is not None and (
-        330 <= days <= 370 and is_annual_period(anchor.period_start, anchor.period_end)
+        330 <= days <= 371 and is_annual_period(anchor.period_start, anchor.period_end)
         if ttm
         else 70 <= days <= 110
     ):
-        return anchor.period_start, {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS}
+        return (
+            anchor.period_start,
+            {m: _value(current, m, f) for m, f in _AMOUNT_FIELDS},
+            "available",
+        )
     start = (
         add_months_clamped(anchor.period_end, -12) + timedelta(days=1)
         if ttm
@@ -215,10 +273,9 @@ def _derived(
             [
                 g
                 for g in groups
-                if anchor.fiscal_year_end is not None
-                and g[0].fiscal_year_end == add_months_clamped(anchor.fiscal_year_end, -12)
+                if g[0].fiscal_year_end == anchor.period_start - timedelta(days=1)
                 and (n := period_days(g[0])) is not None
-                and 330 <= n <= 370
+                and 330 <= n <= 371
             ],
             expected_end=anchor.period_start - timedelta(days=1),
         )
@@ -238,7 +295,7 @@ def _derived(
         )
         if previous is not None:
             selected_groups = [previous]
-    period_reason = None
+    period_reason: PeriodStatus | None = None
     if not selected_groups:
         period_reason = "matching_period_not_observed"
     else:
@@ -271,7 +328,11 @@ def _derived(
         operands = [candidate for candidate in candidates if candidate is not None]
         sources = [row, *operands]
         if not _compatible(sources):
-            metrics[metric] = Value(reason="statement_basis_incomparable")
+            metrics[metric] = Value(
+                reason="statement_basis_incomparable"
+                if len({statement_basis(source) for source in sources}) != 1
+                else "accounting_standard_incomparable"
+            )
             continue
         revision_gap = (
             _cumulative_revision_gap(operands[-1], operands[0], all_rows, field)
@@ -285,7 +346,7 @@ def _derived(
         value = compose_ttm_amount(*values) if ttm else values[0] - values[1]
         metrics[metric] = Value(value=value, documents=tuple(_document(r) for r in sources))
 
-    return start, metrics
+    return start, metrics, period_reason or "available"
 
 
 def build_period_states(
@@ -307,8 +368,11 @@ def build_period_states(
         anchor = latest_disclosure_candidates(group)[0]
         assert anchor.period_start is not None
         assert anchor.period_end is not None
-        bases = {statement_basis(r) for r in latest_disclosure_candidates(group)}
+        latest_basis = latest_disclosure_candidates(reporting_basis_rows(group))
+        bases = {statement_basis(r) for r in latest_basis}
         basis = next(iter(bases)) if len(bases) == 1 else "basis_unresolved"
+        standards = {accounting_standard(r) for r in latest_basis}
+        standard = next(iter(standards)) if len(standards) == 1 else None
         reported = {m: _value(group, m, f) for m, f in _REPORTED_FIELDS}
         _margin(reported, sector)
         balances = {m: _value(group, m, f) for m, f in _BALANCE_FIELDS}
@@ -318,6 +382,7 @@ def build_period_states(
                 period_end=anchor.period_end,
                 measurement="reported",
                 statement_basis=basis,
+                accounting_standard=standard,
                 metrics=reported,
             ),
             Observation(
@@ -325,18 +390,21 @@ def build_period_states(
                 period_end=anchor.period_end,
                 measurement="balance",
                 statement_basis=basis,
+                accounting_standard=standard,
                 metrics=balances,
             ),
         ]
         for ttm in (False, True):
-            start, metrics = _derived(group, groups, rows, ttm=ttm)
+            start, metrics, period_status = _derived(group, groups, rows, ttm=ttm)
             _margin(metrics, sector)
             observations.append(
                 Observation(
                     period_start=start,
                     period_end=anchor.period_end,
                     measurement="annual_ttm" if ttm else "quarter",
+                    period_status=period_status,
                     statement_basis=basis,
+                    accounting_standard=standard,
                     metrics=metrics,
                 )
             )
@@ -354,18 +422,13 @@ def build_period_states(
 
 def _observation_matches(prior: Observation, current: Observation) -> bool:
     # 52/53週暦の最大1週差は許すが、決算月変更を同季節の前年比にしない。
-    return (
-        prior.measurement == current.measurement
-        and prior.statement_basis == current.statement_basis
-        and current.statement_basis in {"consolidated", "nonconsolidated"}
-        and prior_year_dates_match(
-            prior.period_start,
-            prior.period_end,
-            current.period_start,
-            current.period_end,
-            length_tolerance_ratio=0.1,
-            end_tolerance_days=7,
-        )
+    return prior.measurement == current.measurement and prior_year_dates_match(
+        prior.period_start,
+        prior.period_end,
+        current.period_start,
+        current.period_end,
+        length_tolerance_ratio=0.1,
+        end_tolerance_days=7,
     )
 
 
@@ -374,10 +437,19 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
     changes: list[Change] = []
     for current in observations:
         candidates = [p for p in observations if _observation_matches(p, current)]
-        prior = max(candidates, key=lambda o: o.period_end, default=None)
+        prior_end = max((p.period_end for p in candidates), default=None)
+        # Native accounting identities can share an actual interval. Keep every
+        # candidate at the selected end before inspecting metric values; neither
+        # input order nor an older good value may resolve a conflicting prior.
+        priors = [p for p in candidates if p.period_end == prior_end]
+        prior_starts = {p.period_start for p in priors}
+        prior_start = next(iter(prior_starts)) if len(prior_starts) == 1 else None
         for metric, value in current.metrics.items():
-            previous = prior.metrics.get(metric) if prior is not None else None
-            before = previous.value if previous is not None else None
+            prior_values = {
+                previous.value if (previous := p.metrics.get(metric)) is not None else None
+                for p in priors
+            }
+            before = next(iter(prior_values)) if len(prior_values) == 1 else None
             after = value.value
             reason = None
             if metric in {
@@ -387,8 +459,22 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                 "treasury_shares",
             }:
                 reason = "share_basis_unverified"
-            elif prior is None:
+            elif not priors:
                 reason = "comparable_prior_period_not_observed"
+            elif len(prior_starts) != 1 or len(prior_values) != 1:
+                reason = "ambiguous_growth_comparison"
+            elif (
+                current.statement_basis not in {"consolidated", "nonconsolidated"}
+                or any(p.statement_basis != current.statement_basis for p in priors)
+                or current.accounting_standard is None
+                or any(p.accounting_standard != current.accounting_standard for p in priors)
+            ):
+                reason = (
+                    "statement_basis_incomparable"
+                    if current.statement_basis not in {"consolidated", "nonconsolidated"}
+                    or any(p.statement_basis != current.statement_basis for p in priors)
+                    else "accounting_standard_incomparable"
+                )
             elif before is None or after is None:
                 reason = "operand_unavailable"
             difference = (
@@ -400,8 +486,8 @@ def build_changes(states: Sequence[PeriodState]) -> tuple[Change, ...]:
                 Change(
                     metric=metric,
                     measurement=current.measurement,
-                    from_start=prior.period_start if prior else None,
-                    from_end=prior.period_end if prior else None,
+                    from_start=prior_start,
+                    from_end=prior_end,
                     to_start=current.period_start,
                     to_end=current.period_end,
                     from_value=before,

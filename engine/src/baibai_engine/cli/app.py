@@ -43,6 +43,10 @@ class Domain:
 
 # 各 domain の読取・書込責務を、実装のimportなしに一覧できる。
 DOMAINS: Mapping[str, Domain] = {
+    "articles": Domain(
+        module="baibai_engine.cli.articles",
+        summary="private article receipts, extraction saves and fixed exact evidence reads",
+    ),
     "external-assessment": Domain(
         module="baibai_engine.cli.external_assessment",
         summary="saved external assessments and explicit offline observation rebuild",

@@ -105,6 +105,11 @@ def _summary(
         dividend_year_end=dividend_year_end,
         dividend_total_annual=dividend_total_annual,
         average_shares=average_shares,
+        document_type=(
+            f"{fiscal_period}FinancialStatements_Consolidated_JP"
+            if fiscal_period in {"1Q", "2Q", "3Q", "FY"}
+            else None
+        ),
     )
 
 

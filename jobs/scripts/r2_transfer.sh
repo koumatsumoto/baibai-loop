@@ -515,6 +515,11 @@ _push_keys() {
     fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
+    if [[ -n "${ARTICLE_CUTOVER_RECEIPT:-}" ]]; then
+      uv run python -m baibai_jobs.maintenance.article_cutover record-upload \
+        --receipt "${ARTICLE_CUTOVER_RECEIPT}" --key "${key}" \
+        --upload "${transfer_staging}/${key}" --expected-etag "${expected_version}"
+    fi
     if [[ -n "${expected_version}" ]]; then
       # PutObject's If-Match is checked atomically when R2 commits the object. The
       # earlier read avoids an expensive snapshot after an already-visible race;
@@ -626,14 +631,14 @@ pull_app() {
 # must not remove fields still read by the old deployed dashboard. Old keys stay untouched.
 upload_portfolio_views() {
   local directory="$1" name
-  for name in portfolio-dashboard tasks outcomes; do
+  for name in portfolio-dashboard tasks outcomes latest-proposal; do
     [[ -s "${directory}/views/${name}.json" ]] || {
       printf 'missing portfolio view: %s\n' "${name}" >&2
       return 2
     }
   done
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  for name in portfolio-dashboard tasks outcomes; do
+  for name in portfolio-dashboard tasks outcomes latest-proposal; do
     if ! aws_s3 cp "${directory}/views/${name}.json" \
       "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
       --content-type application/json --cache-control no-store \
@@ -644,7 +649,7 @@ upload_portfolio_views() {
   done
   # Verify the actual serving bytes while the caller still holds its publication
   # lease. Never print the payload or a diff: these views contain private assets.
-  for name in portfolio-dashboard tasks outcomes; do
+  for name in portfolio-dashboard tasks outcomes latest-proposal; do
     if ! aws_s3 cp "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
       "${transfer_staging}/${name}.json" >> "${transfer_staging}/transfer.log" 2>&1; then
       printf 'portfolio view readback failed: %s\n' "${name}" >&2
@@ -657,11 +662,11 @@ upload_portfolio_views() {
   done
   cleanup_staging
   transfer_staging=""
-  printf 'portfolio views verified from remote readback: 3\n'
+  printf 'portfolio views verified from remote readback: 4\n'
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-runs|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-article-cutover RECEIPT|resume-article-cutover RECEIPT|push-runs|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -699,6 +704,28 @@ case "${1:-}" in
     ;;
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
+    ;;
+  push-article-cutover)
+    # Only the explicit schema48 -> 49 copy can bypass current/current merge.
+    # Per-key PUTs remain conditional on the complete fresh machine bundle.
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    export ARTICLE_CUTOVER_RECEIPT="$2"
+    uv run python -m baibai_jobs.maintenance.article_cutover verify-cutover \
+      --receipt "$2" --generation-directory "${generation_dir}" \
+      --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
+    push_pulled_keys "${machine_bundle_keys[@]}"
+    ;;
+  resume-article-cutover)
+    # Read back each possibly completed upload before resending only pending keys.
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    export ARTICLE_CUTOVER_RECEIPT="$2"
+    pending="$(uv run python -m baibai_jobs.maintenance.article_cutover resume-plan \
+      --receipt "$2" --generation-directory "${generation_dir}" \
+      --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")"
+    for key in ${pending}; do
+      push_key_if_version "${key}" "$(pulled_version "${key}")"
+    done
+    write_machine_manifest
     ;;
   push-runs)
     # Explicit model-store maintenance; never re-upload unrelated machine stores.

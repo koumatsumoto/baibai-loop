@@ -19,8 +19,8 @@ function holding(ticker: string): HoldingView {
 function dashboard(overrides: Partial<DashboardView> = {}): DashboardView {
   return {
     generated_at: '2026-09-24T20:00:00+09:00', ledger_exists: true,
-    ledger_error: null, ledger_as_of: '2026-09-24', ledger_stale: false,
-    valuation_as_of: '2026-09-24', valuation_stale: false,
+    ledger_error: null, ledger_as_of: '2026-09-24', valuation_error: null,
+    valuation_as_of: '2026-09-24',
     total_capital_yen: 210_000, holdings_market_value_yen: 110_000,
     available_cash_yen: 100_000, reserved_cash_yen: 0,
     realized_gross_pnl_yen: 136_100,
@@ -151,4 +151,27 @@ describe('Dashboard valuation display', () => {
     expect(html).toMatch(/評価損益 合計<\/span><span[^>]*>未評価/)
   })
 
+})
+
+
+it('preserves fractional holding prices and order guards while notionals remain whole yen', () => {
+  const html = renderToStaticMarkup(createElement(TooltipProvider, null,
+    createElement(MemoryRouter, null,
+      createElement(HoldingsTable, {
+        holdings: [{ ...holding('1234'), quantity: 200, deployed_cost_yen: 210_500,
+          market_price_yen: '1052.5', market_value_yen: 210_500,
+          unrealized_pnl_yen: 0, unrealized_pnl_pct: 0 }], warnings: [],
+      }),
+      createElement(PendingOrdersCard, { reservations: [{
+        reservation_id: 'fractional', side: 'buy', ticker: '2222', sector: 'test',
+        remaining_quantity: 100, price_guard_yen: '1052.5', reserved_yen: 105_250,
+        expires_at: null, expiry_label: null, route_label: null,
+      }] }),
+    ),
+  ))
+  expect(html.match(/￥1,052\.5/g)).toHaveLength(3)
+  expect(html).toContain('￥210,500')
+  expect(html).toContain('￥105,250')
+  expect(html).not.toContain('￥1,053')
+  expect(html).not.toContain('￥105,250.0')
 })

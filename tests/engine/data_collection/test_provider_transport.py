@@ -110,8 +110,7 @@ class IndicatorsProviderParserTests(TestCase):
     def test_fetch_text_reports_a_non_utf8_response_as_a_provider_failure(self) -> None:
         session = _StaticSession(_FakeResponse(b"\xff\xfe\x00garbage"))
 
-        # A raw UnicodeDecodeError escapes the refresh's retry, which only knows
-        # about provider errors, leaving the bytes cached for every later series.
+        # Text decoding is a provider failure, not a reason to resend the GET.
         with self.assertRaisesRegex(IndicatorsProviderError, r"is not UTF-8"):
             fetch_text(
                 cast(HttpSession, session),
@@ -146,16 +145,19 @@ class IndicatorsProviderParserTests(TestCase):
                 b"ok",
             )
 
-    def test_discard_cached_bytes_keeps_the_blocked_browser_record(self) -> None:
+    def test_discard_cached_bytes_keeps_other_responses_and_browser_evidence(self) -> None:
         with FetchContext() as context:
-            store_fetched_bytes(context, "https://example.test/data", None, b"ok", max_bytes=1000)
+            store_fetched_bytes(context, "https://example.test/data", None, b"bad", max_bytes=1000)
+            store_fetched_bytes(
+                context, "https://example.test/data", {"month": "1"}, b"ok", max_bytes=1000
+            )
             context.blocked_browser_urls["https://example.test/data"] = "turned away"
 
-            context.discard_cached_bytes()
+            context.discard_cached_bytes("https://example.test/data", None)
 
-            # A retry is worth re-testing the plain request, not a navigation that
-            # already spent a timeout failing against the same edge.
-            self.assertEqual(context.bytes_cache, {})
+            self.assertEqual(
+                context.bytes_cache, {("https://example.test/data", (("month", "1"),)): b"ok"}
+            )
             self.assertEqual(
                 context.blocked_browser_urls, {"https://example.test/data": "turned away"}
             )
@@ -186,8 +188,7 @@ class IndicatorsProviderParserTests(TestCase):
                 "baibai_engine.data_collection.transport.browser.tempfile.TemporaryDirectory",
                 side_effect=OSError("No space left on device"),
             ),
-            # A bare OSError would escape every handler that knows what a provider
-            # failure means, taking the refresh's retry and cache discard with it.
+            # A launch failure must not be mistaken for a refusal by the source.
             self.assertRaisesRegex(BrowserUnavailableError, r"failed to launch headless browser"),
         ):
             BrowserFetcher().fetch_download("https://example.test/data", max_bytes=1000)
@@ -232,43 +233,6 @@ class IndicatorsProviderParserTests(TestCase):
             "XDG_RUNTIME_DIR": "/run/user/1001",
             "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
         }
-
-    def test_pdf_uses_the_shared_download_with_the_callers_limit(self) -> None:
-        from baibai_engine.data_collection.transport.browser import BrowserFetcher
-
-        fetcher = BrowserFetcher()
-        with patch.object(fetcher, "fetch_download", return_value=b"%PDF-test") as download:
-            self.assertEqual(
-                fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234),
-                b"%PDF-test",
-            )
-        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
-
-    def test_pdf_does_not_repeat_a_non_pdf_download_inside_the_provider_retry(self) -> None:
-        from baibai_engine.data_collection.transport.browser import BrowserFetcher
-
-        fetcher = BrowserFetcher()
-        with (
-            patch.object(
-                fetcher, "fetch_download", return_value=b"<html>not a PDF</html>"
-            ) as download,
-            self.assertRaisesRegex(IndicatorsProviderError, "is not a PDF"),
-        ):
-            fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234)
-        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
-
-    def test_pdf_preserves_the_shared_download_failure_without_retrying(self) -> None:
-        from baibai_engine.data_collection.transport.browser import BrowserFetcher
-
-        fetcher = BrowserFetcher()
-        failure = BrowserUnavailableError("browser closed")
-        with (
-            patch.object(fetcher, "fetch_download", side_effect=failure) as download,
-            self.assertRaises(BrowserUnavailableError) as raised,
-        ):
-            fetcher.fetch_pdf("https://example.test/release.pdf", max_bytes=1234)
-        self.assertIs(raised.exception, failure)
-        download.assert_called_once_with("https://example.test/release.pdf", max_bytes=1234)
 
     def test_parse_ecb_reference_csv_preserves_all_native_currencies(self) -> None:
         text = "Date,USD,JPY,AUD,CHF\n2026-05-08,1.1761,184.37,1.6259,N/A\n"

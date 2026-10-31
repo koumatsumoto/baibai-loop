@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.storage.objects.r2 import (
+    LakeCASConflict,
     LakePublishError,
     ObjectStore,
+    R2Error,
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
@@ -81,19 +83,9 @@ def available_handoffs(
                         "integration": integrated,
                     }
                 )
-            except LakePublishError as error:
-                if str(error).startswith("R2 "):
-                    raise
-                ready.append(
-                    {
-                        "market": market,
-                        "stage_id": stage_id,
-                        "source": source_name,
-                        "manifest_sha256": digest,
-                        "invalid": type(error).__name__,
-                    }
-                )
-            except (ValueError, KeyError, TypeError) as error:
+            except (R2Error, LakeCASConflict):
+                raise
+            except (LakePublishError, ValueError, KeyError, TypeError) as error:
                 ready.append(
                     {
                         "market": market,
@@ -107,9 +99,15 @@ def available_handoffs(
         if entry.get("invalid"):
             continue
         watermark = watermarks.get(str(entry["source"]))
+        # An integrated intermediate receipt can still be missing from a stale input.
+        # Only a never-integrated receipt is a newly out-of-order arrival.
         entry["late_before_integrated"] = bool(
             str(entry["source"]) in blocked_sources
-            or (watermark and datetime.fromisoformat(str(entry["started_at"])) < watermark)
+            or (
+                entry["integration"] is None
+                and watermark
+                and datetime.fromisoformat(str(entry["started_at"])) < watermark
+            )
         )
     return sorted(
         ready,
@@ -123,10 +121,13 @@ def available_handoffs(
 
 def download_fixed(store: ObjectStore, entry: dict[str, object], directory: Path) -> None:
     stage_id, market = str(entry["stage_id"]), bool(entry["market"])
-    saved = read_private(store, stage_prefix(stage_id, market=market) + "/handoff.json")
+    namespace = str(entry["namespace"]) if entry.get("namespace") else None
+    saved = read_private(
+        store, stage_prefix(stage_id, market=market, namespace=namespace) + "/handoff.json"
+    )
     if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
         raise LakePublishError("fixed source handoff manifest changed")
-    load_handoff(store, stage_id, directory, market=market)
+    load_handoff(store, stage_id, directory, market=market, namespace=namespace)
 
 
 def seal_integrated(
@@ -136,7 +137,14 @@ def seal_integrated(
     generations: dict[str, str],
     recovery: bool,
 ) -> None:
-    key = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"])) + "/integrated.json"
+    namespace = str(entry["namespace"]) if entry.get("namespace") else None
+    prefix = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"]), namespace=namespace)
+    terminal = (
+        f"recovered-{entry['manifest_sha256']}.json"
+        if entry.get("explicit_article_recovery") and not recovery
+        else "integrated.json"
+    )
+    key = prefix + "/" + terminal
     value = json.dumps(
         {
             "manifest_sha256": entry["manifest_sha256"],

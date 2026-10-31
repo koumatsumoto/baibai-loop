@@ -9,15 +9,18 @@ from pathlib import Path
 
 from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    pending_edinet_document_dates,
     rebuild_edinet_document_day,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     read_unrechecked_edinet_document_dates,
 )
+from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.integration.replay_result import ReplayResult
 
 
 def export_handoff(
@@ -49,7 +52,7 @@ def export_handoff(
     return {"list_receipts": lists, "archives": sorted(archives)}
 
 
-def import_handoff(source: Path, target: Path) -> dict[str, object]:
+def import_handoff(source: Path, target: Path) -> ReplayResult:
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
         closing(open_connection(target)) as conn,
@@ -85,14 +88,28 @@ def import_handoff(source: Path, target: Path) -> dict[str, object]:
                 )
                 added += 1
         if days:
+            days.update(pending_edinet_document_dates(conn, through=max(days)))
             days.update(read_unrechecked_edinet_document_dates(target, before=max(days)))
     failed = []
+    replayed = []
+    # Preserve an eligible prior day on failure. Without one, keep the owner's
+    # failed projection and evidence; successful other dates still commit.
     for day in sorted(days):
-        if rebuild_edinet_document_day(target, day).error is not None:
-            failed.append(day.isoformat())
-    return {
-        "raw_rows_added": added,
-        "replayed_days": [day.isoformat() for day in sorted(days)],
-        "failed_days": failed,
-        "archive_conflicts": conflicts,
-    }
+        with closing(open_connection(target)) as projection, projection:
+            projection.execute("BEGIN IMMEDIATE")
+            previously_covered = date_covered(projection, "edinet_documents", day)
+            if rebuild_edinet_document_day(target, day, connection=projection).error is not None:
+                failed.append(day.isoformat())
+                if previously_covered:
+                    projection.rollback()
+            else:
+                replayed.append(day.isoformat())
+    return ReplayResult(
+        report={
+            "raw_rows_added": added,
+            "replayed_days": replayed,
+            "failed_days": failed,
+            "archive_conflicts": conflicts,
+        },
+        complete=not (failed or conflicts),
+    )

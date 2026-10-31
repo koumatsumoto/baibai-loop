@@ -53,13 +53,6 @@ def market_calendar_business_day(path: Path, day: date) -> bool | None:
     return None if row is None else bool(row[0])
 
 
-def read_price_calendar_basis(
-    connection: sqlite3.Connection, *, as_of: date
-) -> tuple[date | None, tuple[date, ...]]:
-    """保存済み共通calendarだけを使い、個社価格から営業日を補完しない。"""
-    return price_calendar_basis(read_price_calendar(connection, as_of=as_of), as_of=as_of)
-
-
 def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[date, bool]:
     """Share the saved calendar without applying another indicator's history requirement."""
     return {
@@ -70,20 +63,3 @@ def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[
             (as_of.isoformat(),),
         )
     }
-
-
-def price_calendar_basis(
-    calendar: dict[date, bool], *, as_of: date
-) -> tuple[date | None, tuple[date, ...]]:
-    """Yの最新日とMの253営業日を別々に確認し、穴を営業日短縮へ変えない。"""
-    dates = tuple(sorted(day for day, business in calendar.items() if business and day <= as_of))
-    if as_of not in calendar or not dates:
-        return None, ()
-    latest = dates[-1]
-    if sum(latest <= day <= as_of for day in calendar) != (as_of - latest).days + 1:
-        return None, ()
-    if len(dates) >= 253:
-        start = dates[-253]
-        if sum(start <= day <= as_of for day in calendar) != (as_of - start).days + 1:
-            return latest, ()
-    return latest, dates

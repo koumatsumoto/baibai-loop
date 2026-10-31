@@ -48,7 +48,6 @@ from baibai_engine.portfolio.ledger.events import (
     ConfirmedTaxEvent,
     ContributionEvent,
     CostEvent,
-    ExecutionEvent,
     HumanOverride,
     IncomeEvent,
     PortfolioLedgerDocument,
@@ -62,6 +61,7 @@ from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
     compute_portfolio_outcome,
+    outcome_market_tickers,
     outcome_to_payload,
 )
 from baibai_engine.portfolio.performance.store import (
@@ -119,6 +119,10 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_parser.add_argument("--root", type=Path, default=Path.cwd())
     outcome_parser.add_argument("--db", type=Path)
     outcome_parser.add_argument("--benchmark-observation", type=Path, required=True)
+    outcome_parser.add_argument(
+        "--outcome-id",
+        help="immutable publication ID; defaults to outcome-<horizon>-<period-end-date>",
+    )
     outcome_parser.add_argument(
         "--sqlite",
         type=Path,
@@ -296,6 +300,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
             sqlite_path,
             out_path,
             db_path=args.db,
+            outcome_id=args.outcome_id,
         )
     raise AssertionError(f"unreachable command: {args.command!r}")
 
@@ -431,6 +436,7 @@ def _run_outcome(
     out_path: Path | None,
     *,
     db_path: Path | None = None,
+    outcome_id: str | None = None,
 ) -> int:
     """Emit TWR from one market snapshot without fetching data at runtime."""
 
@@ -450,10 +456,6 @@ def _run_outcome(
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    # Unfilled reservations move cash between available and reserved, not into stock.
-    tickers = tuple(
-        sorted({event.ticker for event in ledger.events if isinstance(event, ExecutionEvent)})
-    )
     connection = connect_read_only(sqlite_path) if sqlite_path.exists() else None
     try:
         if connection is None:
@@ -462,11 +464,26 @@ def _run_outcome(
             connection.execute("BEGIN")
             calendar_days, bars = read_portfolio_market_inputs(
                 sqlite_path,
-                tickers,
+                (),
                 benchmark.period_start_date,
                 benchmark.period_end_date,
                 connection=connection,
             )
+            if calendar_days is not None:
+                tickers = outcome_market_tickers(
+                    ledger,
+                    business_days=tuple(day.day for day in calendar_days if day.is_business_day),
+                    start=benchmark.period_start_date,
+                    end=benchmark.period_end_date,
+                )
+                if tickers:
+                    _, bars = read_portfolio_market_inputs(
+                        sqlite_path,
+                        tickers,
+                        benchmark.period_start_date,
+                        benchmark.period_end_date,
+                        connection=connection,
+                    )
         if calendar_days is None:
             payload = _outcome_unresolved_payload(benchmark, "benchmark_unavailable")
         elif bars is None:
@@ -498,7 +515,8 @@ def _run_outcome(
         market_data_coverage_end_date=benchmark.period_end_date.isoformat(),
     )
     payload["benchmark_observation"] = benchmark.model_dump(mode="json")
-    outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
+    if outcome_id is None:
+        outcome_id = f"outcome-{benchmark.horizon}-{benchmark.period_end_date.isoformat()}"
     if out_path is not None and out_path.exists():
         print(f"error: refusing to overwrite existing outcome: {out_path}", file=sys.stderr)
         return 2

@@ -61,6 +61,7 @@ class UmichScaSource:
             params=None,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         return parse_umich_table(series, text, start=start, end=end)
 

@@ -2,7 +2,7 @@
 export const ACTIONS_URL =
   'https://github.com/koumatsumoto/baibai-loop/actions/workflows/cloud-daily-batch.yml'
 
-// Only the retained portfolio and task screens belong in this navigation.
+// Saved proposals are read-only reports, not an authoring or order entry screen.
 export interface NavTab {
   readonly to: string
   readonly label: string
@@ -12,4 +12,5 @@ export interface NavTab {
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: 'Dashboard', match: (pathname) => pathname === '/' },
   { to: '/tasks', label: 'Tasks', match: (pathname) => pathname === '/tasks' },
+  { to: '/proposal', label: '売買提案', match: (pathname) => pathname === '/proposal' },
 ]

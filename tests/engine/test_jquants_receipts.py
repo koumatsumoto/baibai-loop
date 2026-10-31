@@ -139,6 +139,23 @@ def test_malformed_json_is_committed_before_parse_failure(conn):
     assert not conn.in_transaction
 
 
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (b"[]", "lacks a data array"),
+        (b'{"data":{}}', "lacks a data array"),
+        (b'{"data":[null],"pagination_key":"next"}', "non-record row"),
+    ],
+)
+def test_invalid_envelope_is_retained_and_rejected_again_on_complete_read(conn, body, message):
+    with pytest.raises(JQuantsAcquisitionError, match=message):
+        acquire_request(conn, client(Session(body)), "master", {})
+    request_id = retained_id(conn)
+    assert [page.body for page in read_request_pages(conn, request_id)] == [body]
+    with pytest.raises(JQuantsAcquisitionError, match=message):
+        read_complete_request(conn, request_id)
+
+
 def test_second_page_http_failure_leaves_first_page_explicitly_incomplete(conn):
     first, _ = two_pages()
     session = Session(first, requests.ConnectionError("synthetic-test-key"))
@@ -243,7 +260,7 @@ def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     source_path = market_store(tmp_path / "market.sqlite")
     connection = open_connection(source_path)
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 48
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == SQLITE_SCHEMA_VERSION == 49
     first, second = two_pages()
     params = {"date": "2026-10-16"}
     completed_id = acquire_request(connection, client(Session(first, second)), "daily_bars", params)

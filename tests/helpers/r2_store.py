@@ -16,7 +16,7 @@ from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
-    LakePublishError,
+    R2Error,
     RemoteObject,
 )
 
@@ -98,7 +98,7 @@ class MemoryR2Store:
         body = path.read_bytes()
         if content_md5 != _content_md5(body):
             # R2 answers BadDigest, which `Boto3R2Store.put_file` turns into this.
-            raise LakePublishError(f"R2 put-object failed: Content-MD5 does not match body: {key}")
+            raise R2Error(f"R2 put-object failed: Content-MD5 does not match body: {key}")
         self.store_object(key, body, content_type=content_type, sha256=sha256)
         result = self.head(key)
         assert result is not None

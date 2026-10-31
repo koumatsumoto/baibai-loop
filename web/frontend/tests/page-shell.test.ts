@@ -1,56 +1,82 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { Children, createElement, isValidElement, type ReactNode } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter, Route, Routes } from 'react-router'
+import { expect, it, vi } from 'vitest'
 
-// PageShell and AppLayout only unify the pages that actually use them, and nothing in
-// the type system says a new page must. These read the source the way brand.test.ts
-// does, so the convention fails here instead of drifting one page at a time.
+import { AppLayout } from '../src/components/AppLayout'
+import { PageShell } from '../src/components/PageShell'
+import { PageState } from '../src/components/PageState'
+import { RouteErrorBoundary } from '../src/components/RouteErrorBoundary'
+import { DashboardPage } from '../src/pages/DashboardPage'
+import { ProposalPage } from '../src/pages/ProposalPage'
+import { TasksPage } from '../src/pages/TasksPage'
 
-const uiRoot = resolve(import.meta.dirname, '..')
-const pagesDir = resolve(uiRoot, 'src/pages')
+function renderInLayout(page: ReactNode): string {
+  return renderToStaticMarkup(createElement(MemoryRouter, null,
+    createElement(Routes, null,
+      createElement(Route, { element: createElement(AppLayout) },
+        createElement(Route, { path: '/', element: page }),
+      ),
+    ),
+  ))
+}
 
-const pages = readdirSync(pagesDir)
-  .filter((name) => name.endsWith('Page.tsx'))
-  .map((name) => ({ name, source: readFileSync(resolve(pagesDir, name), 'utf8') }))
-
-describe('page skeleton', () => {
-  it('finds every page', () => {
-    expect(pages.map(page => page.name).sort()).toEqual(['DashboardPage.tsx', 'TasksPage.tsx'])
-  })
-
-  it.each(pages)('$name renders through PageShell', ({ source }) => {
-    expect(source).toContain('<PageShell')
-  })
-
-  // The shell is mounted once by the layout route. A page that mounts its own would
-  // draw two headers, and remount the shell on every state it passes through.
-  it.each(pages)('$name does not mount the app shell itself', ({ source }) => {
-    expect(source).not.toContain('<AppShell')
-  })
-
-  // The page container carries the measure, the padding and the gap between sections,
-  // so forbidding a second one is what keeps those three in one place. `max-w-*` on a
-  // cell or a chart stays the element's own business.
-  it.each(pages)('$name does not open its own main element', ({ source }) => {
-    expect(source).not.toContain('<main')
-  })
+it.each<[string, ReactNode, string]>([
+  ['dashboard loading', createElement(DashboardPage), '資産状況を読み込んでいます'],
+  ['tasks loading', createElement(TasksPage), 'Tasks を読み込んでいます'],
+  ['proposal loading', createElement(ProposalPage), '売買提案を読み込んでいます'],
+  ['read error', createElement(PageState, { message: '読取失敗' }), '読取失敗'],
+  ['ready content', createElement(PageShell, { title: '表示内容', children: '用件' }), '用件'],
+])('keeps one navigation and one main through %s', (_name, page, content) => {
+  const html = renderInLayout(page)
+  expect(html.match(/<nav\b/g)).toHaveLength(1)
+  expect(html.match(/<main\b/g)).toHaveLength(1)
+  expect(html).toContain('aria-label="メインナビゲーション"')
+  expect(html).toContain('href="/"')
+  expect(html).toContain('href="/tasks"')
+  expect(html).toContain('href="/proposal"')
+  expect(html).toContain(content)
 })
 
-describe('app shell ownership', () => {
-  const layout = readFileSync(resolve(uiRoot, 'src/components/AppLayout.tsx'), 'utf8')
-  const app = readFileSync(resolve(uiRoot, 'src/App.tsx'), 'utf8')
-
-  it('mounts the shell in the layout route', () => {
-    expect(layout).toContain('<AppShell />')
-    expect(layout).toContain('<Outlet />')
-    expect(app).toContain('<Route element={<AppLayout />}>')
-  })
-
-  // Loading and error states render under the shell, not beside it.
-  it.each(['src/components/LoadingIndicator.tsx', 'src/components/PageState.tsx', 'src/components/PageShell.tsx'])(
-    '%s does not mount the shell',
-    (path) => {
-      expect(readFileSync(resolve(uiRoot, path), 'utf8')).not.toContain('<AppShell')
+it('keeps navigation outside a failed route boundary', () => {
+  const render = RouteErrorBoundary.prototype.render
+  const failedBoundary = vi.spyOn(RouteErrorBoundary.prototype, 'render').mockImplementation(
+    function (this: RouteErrorBoundary) {
+      this.state = RouteErrorBoundary.getDerivedStateFromError()
+      return render.call(this)
     },
   )
+  try {
+    const html = renderInLayout(createElement(PageState, { message: 'page content' }))
+    expect(html.match(/<nav\b/g)).toHaveLength(1)
+    expect(html.match(/<main\b/g)).toHaveLength(1)
+    expect(html).toContain('href="/"')
+    expect(html).toContain('href="/tasks"')
+    expect(html).toContain('href="/proposal"')
+    expect(html).toContain('この画面を表示できませんでした')
+    expect(html).not.toContain('page content')
+  } finally {
+    failedBoundary.mockRestore()
+  }
+})
+
+it.each([
+  ['/', '/'],
+  ['/tasks', '/tasks'],
+  ['/tasks?view=all#top', '/tasks'],
+  ['/proposal', '/proposal'],
+  ['/proposal?view=all#top', '/proposal'],
+])('keys the page boundary by pathname at %s', (entry, pathname) => {
+  const boundaryKeys: (string | null)[] = []
+  function InspectLayout() {
+    const layout = AppLayout()
+    Children.forEach(layout.props.children, (child) => {
+      if (isValidElement(child) && child.type === RouteErrorBoundary) boundaryKeys.push(child.key)
+    })
+    return layout
+  }
+  renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [entry] },
+    createElement(InspectLayout),
+  ))
+  expect(boundaryKeys).toEqual([pathname])
 })

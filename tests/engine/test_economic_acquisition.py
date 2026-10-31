@@ -1,3 +1,4 @@
+import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
 
@@ -284,3 +285,25 @@ def test_pmi_missing_middle_manifest_month_is_not_complete_coverage(tmp_path, mo
     assert "2026-08-01" in outcome.message
     with closing(store.open_read_only_connection(path)) as conn:
         assert len(tuple(read_documents(conn, source_id))) == 2
+
+
+def test_shared_store_failure_stops_before_fetching_another_source(tmp_path, monkeypatch):
+    fetched = []
+
+    def fetch(source, **kwargs):
+        fetched.append(source.source_id)
+        return {DAY: [{"raw": "retained only if storage succeeds"}]}
+
+    def broken_store(*args, **kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
+    monkeypatch.setattr(acquisition, "store_snapshot", broken_store)
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O error"):
+        acquisition.refresh_sources(
+            ["fed-h15", "mof-jgbcm-all"],
+            db_path=tmp_path / "source.sqlite",
+            start=DAY,
+            end=DAY,
+        )
+    assert fetched == ["fed-h15"]

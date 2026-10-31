@@ -240,7 +240,7 @@ def test_domain_import_does_not_start_composition_or_acquisition():
 from baibai_engine.machine_analysis.generation.runners.external_assessment import external_assessment
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context")) for name in sys.modules)
 assert "baibai_jobs.acquisition.external_assessments.collection" not in sys.modules
-assert "baibai_jobs.acquisition.tradingview.collector" not in sys.modules
+assert not any(name.startswith("baibai_jobs.maintenance.tradingview") for name in sys.modules)
 """,
         ],
         check=True,
@@ -321,3 +321,67 @@ assert "baibai_engine.machine_analysis.observations.external_assessments.store" 
         ],
         check=True,
     )
+
+
+def test_new_generation_retains_tradingview_inputs_without_rewriting_saved_history(tmp_path):
+    from baibai_engine.machine_analysis.generation.runners.external_assessment import (
+        generate_external_assessment,
+    )
+    from baibai_engine.machine_analysis.models.external_assessment.models import ExternalAssessment
+
+    path = tmp_path / "market.sqlite"
+    tv_row(path, RECEIVED, eps_forecast_next_fy=10, quote_close=100)
+    save_observations(path, [valuation()])
+    before = path.read_bytes()
+    cutoff = RECEIVED + timedelta(days=30)
+    history = read_observations(path, "1234", cutoff)
+    personal = external_assessment(path, ticker="1234", cutoff=cutoff, evaluated_at=cutoff)
+    assert personal.tradingview.inputs.latest.fetched_at_utc == RECEIVED
+    assert (
+        personal.tradingview.inputs.latest.snapshot_date
+        == RECEIVED.astimezone(ZoneInfo("Asia/Tokyo")).date()
+    )
+    assert personal.tradingview.inputs.latest.eps_forecast_next_fy == 10
+    fixed_payload = personal.model_dump_json()
+    generated = generate_external_assessment(history, evaluated_at=cutoff)
+    assert generated.method_version == "same-series-v6"
+    assert generated.tradingview == personal.tradingview
+    assert generated.tradingview.availability == "forecast_fields_present"
+    assert "eps_forecast_next_fy" in generated.tradingview.forecast_fields
+    assert generated.model_valuations == personal.model_valuations
+    assert ExternalAssessment.model_validate_json(fixed_payload).model_dump_json() == fixed_payload
+    assert path.read_bytes() == before
+
+    from baibai_engine.machine_analysis.observations.external_assessments.history import (
+        TradingViewHistory,
+    )
+
+    historical = generated.model_copy(
+        update={
+            "method_version": "same-series-v5-no-tradingview",
+            "tradingview": generated.tradingview.model_copy(
+                update={
+                    "inputs": TradingViewHistory(),
+                    "availability": "excluded_by_source_terms",
+                    "forecast_fields": (),
+                    "comparisons": (),
+                }
+            ),
+        }
+    ).model_dump_json()
+    assert ExternalAssessment.model_validate_json(historical).model_dump_json() == historical
+
+
+def test_optional_population_read_can_skip_tradingview_rows(tmp_path):
+    path = tmp_path / "market.sqlite"
+    tv_row(path, RECEIVED, eps_forecast_next_fy=10)
+    save_observations(path, [valuation()])
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE tradingview_forecast_snapshots SET eps_forecast_next_fy='invalid'")
+    before = path.read_bytes()
+    result = read_observation_population(
+        path, tickers=("1234",), cutoff=RECEIVED, include_tradingview=False
+    )
+    assert result["1234"].tradingview.latest is None
+    assert result["1234"].model_valuations[0].latest.consensus_target == 1200
+    assert path.read_bytes() == before

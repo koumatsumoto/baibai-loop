@@ -15,10 +15,6 @@ from baibai_engine.data_collection.providers.estat.api import parse_estat_json
 from baibai_engine.data_collection.providers.estat.dashboard import (
     parse_dashboard_json,
 )
-from baibai_engine.data_collection.providers.spglobal.pmi import (
-    Release,
-    _parse_stream,
-)
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
 )
@@ -138,19 +134,6 @@ def _registry_yaml(*, plausible_min: str, plausible_max: str) -> str:
         "    source_id: fed-h15\n"
         f"    plausible_min: {plausible_min}\n"
         f"    plausible_max: {plausible_max}\n"
-    )
-
-
-def _pmi_stream(months: list[str]) -> tuple[Release, ...]:
-    return _parse_stream(
-        "jp_manufacturing",
-        [
-            {
-                "observed_at": month,
-                "url": (f"https://www.pmi.spglobal.com/Public/Home/PressRelease/{index:032x}"),
-            }
-            for index, month in enumerate(months, start=1)
-        ],
     )
 
 
@@ -312,13 +295,6 @@ class _FakeBrowserFetcher:
         self.max_bytes: list[int] = []
 
     def fetch_download(self, url: str, *, max_bytes: int) -> bytes:
-        self.urls.append(url)
-        self.max_bytes.append(max_bytes)
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
-
-    def fetch_pdf(self, url: str, *, max_bytes: int) -> bytes:
         self.urls.append(url)
         self.max_bytes.append(max_bytes)
         if isinstance(self.result, Exception):

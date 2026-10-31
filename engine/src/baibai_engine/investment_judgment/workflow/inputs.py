@@ -13,6 +13,7 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelection,
+    GeneratedResearchSelectionV4,
     ResearchSelectionRecord,
     selection_targets,
 )
@@ -28,10 +29,19 @@ from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import 
 def project_research_inputs(
     selection: ResearchSelectionRecord, *, company_growth_periods: int | None = 12
 ) -> dict[str, JsonValue]:
-    if isinstance(selection, GeneratedResearchSelection):
+    if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4)):
         return {
             **project_generated_inputs(
                 selection.inputs.generation, company_growth_periods=company_growth_periods
+            ),
+            **(
+                {
+                    "saved_company_context": selection.inputs.model_dump(
+                        mode="json", include={"saved_company_context"}
+                    )["saved_company_context"]
+                }
+                if isinstance(selection, GeneratedResearchSelectionV4)
+                else {}
             ),
             "research_as_of": selection.research_as_of.isoformat(),
             "known_at": selection.input_known_at.isoformat(),

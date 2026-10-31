@@ -12,10 +12,6 @@ from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    observation_calendar_context as calendar_context,
-)
-from baibai_engine.machine_analysis.observations.stocks.master_snapshot import master_coverage_key
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
@@ -39,11 +35,6 @@ _TABLES = {
     "edinet-facts": _LISTS,
     "jpx-earnings": (),
     "jpx-regulations": (),
-    "tradingview": (
-        "jquants_market_calendar",
-        "jquants_master_snapshots",
-        "tradingview_forecast_snapshots",
-    ),
 }
 
 
@@ -69,33 +60,19 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         validate_current_schema(raw)
         raw.execute("BEGIN")
         rows_by_table = {}
-        basis = calendar_context(raw, asof)[0].isoformat() if group == "tradingview" else None
         for table in tables:
-            condition = "1=1"
-            values: tuple[object, ...] = ()
-            if group == "tradingview" and table == "jquants_master_snapshots":
-                condition, values = "snapshot_date = ?", (basis,)
-            elif group == "tradingview" and table == "tradingview_forecast_snapshots":
-                condition, values = "snapshot_date >= ?", (asof.isoformat(),)
-            cursor = raw.execute(f"SELECT * FROM {table} WHERE {condition}", values)  # nosec B608
+            cursor = raw.execute(f"SELECT * FROM {table}")  # nosec B608
             placeholders = ",".join("?" for _ in cursor.description or ())
             before = target.total_changes
             target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", cursor)  # nosec B608
             rows_by_table[table] = target.total_changes - before
-        master_key = master_coverage_key(date.fromisoformat(basis)) if basis is not None else None
-        coverage = tuple(
-            table
-            for table in tables
-            if table not in {"edinet_list_responses", "tradingview_forecast_snapshots"}
-        )
+        coverage = tuple(table for table in tables if table != "edinet_list_responses")
         if group == "edinet-facts":
             coverage += ("edinet_research_facts",)
         for name in coverage:
             rows = raw.execute(
-                "SELECT * FROM source_coverage WHERE source = ? "
-                "AND (? != 'tradingview' OR source != 'jquants_master_snapshots' "
-                "OR coverage_key = ?)",
-                (name, group, master_key),
+                "SELECT * FROM source_coverage WHERE source = ?",
+                (name,),
             )
             target.executemany("INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
         source_type = 5 if group == "edinet-metrics" else 1

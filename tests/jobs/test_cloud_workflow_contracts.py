@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -50,7 +52,7 @@ def test_cloud_writers_share_one_non_cancelling_fifo_queue(workflow_name: str) -
         (
             "cloud-materialize.yml",
             "materialize",
-            "Pull stores",
+            "pull-app",
             "Upload serving objects",
             "materialize",
         ),
@@ -100,63 +102,6 @@ def test_every_setup_uv_step_resolves_one_exact_root_version() -> None:
     assert all("version" not in step.get("with", {}) for step in setup_steps)
 
 
-@pytest.mark.parametrize(
-    ("filename", "allowed_step"),
-    [
-        ("cloud-tradingview-snapshot.yml", "Refresh TradingView expectations"),
-        ("ci.yml", "TradingView OAuth smoke"),
-    ],
-)
-def test_tradingview_secrets_are_scoped_to_only_the_acquisition_step(filename, allowed_step):
-    workflow = _workflow(filename)
-    secrets = ("TRADINGVIEW_OAUTH_STATE", "TRADINGVIEW_SECRET_WRITER_TOKEN")
-    for secret in secrets:
-        expression = "${{ secrets." + secret + " }}"
-        assert expression not in str(workflow.get("env", {}))
-        usages = []
-        for job in workflow["jobs"].values():
-            assert expression not in str(job.get("env", {}))
-            for step in job.get("steps", []):
-                if secret in str(step):
-                    usages.append(step["name"])
-                    assert step["env"][secret] == expression
-        assert usages == [allowed_step]
-    if filename == "ci.yml":
-        smoke_job = workflow["jobs"]["tradingview_oauth_smoke"]
-        assert smoke_job["environment"] == "tradingview-runtime"
-        assert smoke_job["needs"] == "quality"
-        assert "needs.quality.result == 'success'" in smoke_job["if"]
-
-
-def test_tradingview_runtime_environment_and_smoke_queue_are_job_scoped() -> None:
-    snapshot = _workflow("cloud-tradingview-snapshot.yml")["jobs"]["snapshot"]
-    assert snapshot["environment"] == "tradingview-runtime"
-    assert "env" not in snapshot
-
-    jobs = _workflow("ci.yml")["jobs"]
-    quality = jobs["quality"]
-    smoke = jobs["tradingview_oauth_smoke"]
-    assert "environment" not in quality
-    assert "cloud-publish" not in str(quality)
-    assert smoke["environment"] == "tradingview-runtime"
-    assert smoke["concurrency"] == {
-        "group": "cloud-publish",
-        "queue": "max",
-        "cancel-in-progress": "false",
-    }
-    assert "env" not in smoke
-    assert [step.get("uses") or step.get("run") for step in smoke["steps"]] == [
-        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-        "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
-        "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884",
-        "uv sync --locked",
-        "uv run baibai-jobs tradingview-source smoke",
-    ]
-    for job in (quality, smoke):
-        assert "TRADINGVIEW_OAUTH_STATE" not in str(job.get("env", {}))
-        assert "TRADINGVIEW_SECRET_WRITER_TOKEN" not in str(job.get("env", {}))
-
-
 def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     commands = "\n".join(str(step.get("run", "")) for step in steps)
@@ -171,5 +116,74 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     by_id = {step.get("id"): step for step in daily}
     assert "upload-stores.outputs.machine == 'success'" in by_id["portfolio-views"]["if"]
     assert daily.index(by_id["portfolio-views"]) > daily.index(by_id["source-seal"])
+    assert [step.get("id") for step in daily if "pull-app" in step.get("run", "")] == [
+        "portfolio-views"
+    ]
+    assert by_id["portfolio-views"]["run"].splitlines()[0] == "jobs/scripts/r2_transfer.sh pull-app"
+    assert "pull-machine" in by_id["pull"]["run"]
     assert "baibai_web" not in by_id["batch"]["run"]
     assert "baibai_web" not in by_id["source-seal"]["run"]
+
+
+def test_materialize_keeps_verified_application_independent_of_market_failure():
+    steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    by_id = {step.get("id"): step for step in steps}
+    app, market, materialize = (by_id[name] for name in ("pull-app", "market", "materialize"))
+    upload = next(step for step in steps if step.get("name") == "Upload serving objects")
+    assert steps.index(app) < steps.index(market) < steps.index(materialize) < steps.index(upload)
+    assert app["run"] == "jobs/scripts/r2_transfer.sh pull-app"
+    assert market["run"].splitlines() == [
+        "jobs/scripts/r2_transfer.sh pull-market",
+        "jobs/scripts/r2_transfer.sh hydrate-market",
+    ]
+    assert "continue-on-error" not in market
+    assert materialize["if"] == "${{ !cancelled() && steps.pull-app.outcome == 'success' }}"
+    assert materialize["env"]["MARKET_OUTCOME"] == "${{ steps.market.outcome }}"
+    assert upload["if"] == "${{ !cancelled() && steps.materialize.outcome == 'success' }}"
+
+
+@pytest.mark.parametrize(
+    ("market_outcome", "market_present"),
+    [("success", True), ("failure", True), ("failure", False)],
+)
+def test_materialize_excludes_unverified_market_copies_but_keeps_application(
+    tmp_path, market_outcome, market_present
+):
+    steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    materialize = next(step for step in steps if step.get("id") == "materialize")
+    app = tmp_path / "stores/application/baibai.sqlite"
+    app.parent.mkdir(parents=True)
+    app.write_bytes(b"verified application")
+    market = tmp_path / "stores/market/market.sqlite"
+    if market_present:
+        market.parent.mkdir(parents=True)
+        market.write_bytes(b"downloaded market")
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    uv = binary / "uv"
+    uv.write_text(
+        "#!/bin/sh\nif test -f stores/market/market.sqlite; then echo present; else echo absent; fi\n"
+    )
+    uv.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", materialize["run"]],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "MARKET_OUTCOME": market_outcome,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    verified = market_outcome == "success"
+    assert result.stdout.strip() == ("present" if verified else "absent")
+    assert app.read_bytes() == b"verified application"
+    if market_present:
+        retained = market if verified else tmp_path / "unverified-market/market.sqlite"
+        assert retained.read_bytes() == b"downloaded market"

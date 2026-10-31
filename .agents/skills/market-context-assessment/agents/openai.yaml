@@ -1,5 +1,5 @@
 interface:
-  display_name: "Market Context assessment"
+  display_name: "Market Assessment"
   short_description: "保存入力から小さな市場環境判断を作り、独立検証後に発行する"
   default_prompt: "$market-context-assessment を使い、明示された対象日と入力確定時刻で保存情報を読み、重要変化・反証・不確実性・調査とリスクへの含意を小さな判断へまとめて独立検証後に発行する。"
 policy:

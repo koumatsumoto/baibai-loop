@@ -1,0 +1,60 @@
+<xbrli:xbrl xmlns:jpdei_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpdei/2013-08-31/jpdei_cor" xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2024-11-01/jpigp_cor" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:jpcrp040300-ssr_E00043-000="http://disclosure.edinet-fsa.go.jp/jpcrp040300/ssr/001/E00043-000/2026-06-30/01/2026-08-10" xmlns:jpcrp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpcrp/2024-11-01/jpcrp_cor" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <xbrli:context id="FilingDateInstant">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00043-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:instant>2026-08-10</xbrli:instant>
+</xbrli:period>
+</xbrli:context>
+  <xbrli:context id="InterimDuration">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00043-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2026-01-01</xbrli:startDate>
+<xbrli:endDate>2026-06-30</xbrli:endDate>
+</xbrli:period>
+</xbrli:context>
+  <xbrli:context id="Prior1InterimDuration">
+<xbrli:entity>
+<xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E00043-000</xbrli:identifier>
+</xbrli:entity>
+<xbrli:period>
+<xbrli:startDate>2025-01-01</xbrli:startDate>
+<xbrli:endDate>2025-06-30</xbrli:endDate>
+</xbrli:period>
+</xbrli:context>
+  <xbrli:unit id="pure">
+<xbrli:measure>xbrli:pure</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit id="JPY">
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unit>
+  <xbrli:unit id="JPYPerShares">
+<xbrli:divide>
+<xbrli:unitNumerator>
+<xbrli:measure>iso4217:JPY</xbrli:measure>
+</xbrli:unitNumerator>
+<xbrli:unitDenominator>
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unitDenominator>
+</xbrli:divide>
+</xbrli:unit>
+  <xbrli:unit id="shares">
+<xbrli:measure>xbrli:shares</xbrli:measure>
+</xbrli:unit>
+  <jpigp_cor:RevenueIFRS contextRef="Prior1InterimDuration" decimals="-6" unitRef="JPY">1048867000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:RevenueIFRS contextRef="InterimDuration" decimals="-6" unitRef="JPY">1000495000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS contextRef="Prior1InterimDuration" decimals="-6" unitRef="JPY">616882000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS contextRef="InterimDuration" decimals="-6" unitRef="JPY">618713000000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS contextRef="Prior1InterimDuration" decimals="-6" unitRef="JPY">223527000000</jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS>
+  <jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS contextRef="InterimDuration" decimals="-6" unitRef="JPY">263147000000</jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS>
+  <jpigp_cor:RevenueIFRS contextRef="Prior1InterimDuration" decimals="-6" unitRef="JPY">1048867000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS contextRef="Prior1InterimDuration" decimals="-6" unitRef="JPY">223527000000</jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS>
+  <jpigp_cor:RevenueIFRS contextRef="InterimDuration" decimals="-6" unitRef="JPY">1000495000000</jpigp_cor:RevenueIFRS>
+  <jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS contextRef="InterimDuration" decimals="-6" unitRef="JPY">263147000000</jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS>
+  <jpdei_cor:SecurityCodeDEI contextRef="FilingDateInstant">16050</jpdei_cor:SecurityCodeDEI>
+  <jpdei_cor:AccountingStandardsDEI contextRef="FilingDateInstant">IFRS</jpdei_cor:AccountingStandardsDEI>
+  <jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI contextRef="FilingDateInstant">true</jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI>
+  </xbrli:xbrl>

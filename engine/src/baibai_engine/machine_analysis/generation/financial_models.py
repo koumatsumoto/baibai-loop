@@ -14,6 +14,12 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.financial_
     build_financial_snapshot,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.models.company_financials.reported_flows import (
+    financial_observation_payload,
+)
+from baibai_engine.machine_analysis.models.company_growth.calculations import (
+    build_reported_comparison,
+)
 from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
@@ -21,6 +27,9 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
 )
 from baibai_engine.machine_analysis.models.technical_analysis.generation import (
     generate_technical_analysis,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -53,11 +62,12 @@ def generate_financial_and_price_models(
     growth_start: date | None = None,
     edinet: EdinetMetricRecord | None = None,
     price_path: dict[str, object] | None = None,
+    comparisons: Sequence[FilingComparisons] = (),
 ) -> tuple[GeneratedModel, ...]:
-    """同じ個社入力から企業価値・企業成長・テクニカル分析を生成する。
+    """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
 
     barsはas_ofと同じ調整基準。財務原本の全履歴を受け取り、企業成長の振り返りと
-    企業価値の開示日cutoffは各ownerの意味を保つ。EDINETによる詳細調査はL3へ委ねる。
+    企業財務の開示日cutoffは各ownerの意味を保つ。EDINETによる詳細調査はL3へ委ねる。
     市場環境・外部評価はそれぞれの共有読取から別途同じgenerationへ組み込む。
     """
     ticker = normalize_ticker(ticker)
@@ -87,7 +97,7 @@ def generate_financial_and_price_models(
             else "stale_price",
         )
     price = latest.price if latest is not None and latest.price > 0 else None
-    financial = asdict(
+    financial = financial_observation_payload(
         build_financial_snapshot(
             price,
             documents,
@@ -95,7 +105,8 @@ def generate_financial_and_price_models(
             ttm_rules,
             adjustment_events=adjustment_events,
             asof_date=as_of,
-        )
+        ),
+        edinet,
     )
     # 変化の正準材料は企業成長。価格欠測で独立した財務観測を消さない。
     financial = {key: value for key, value in financial.items() if key not in _GROWTH_FIELDS}
@@ -106,15 +117,28 @@ def generate_financial_and_price_models(
         as_of=as_of,
         input_release=input_release,
         start=growth_start,
+        comparisons=comparisons,
     )
+    # The growth query's display window must not narrow the financial model.
+    reported = tuple(
+        build_reported_comparison(item)
+        for item in comparisons
+        if item.source_submit_datetime.date() <= as_of
+    )
+    if reported:
+        financial["reported_comparisons"] = [item.model_dump(mode="json") for item in reported]
     technical = generate_technical_analysis(
         bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates, price_path=price_path
     )
     return (
         GeneratedModel(
-            model_id="company_valuation",
+            model_id="company_financials",
             subject=ticker,
-            calculation_revision=f"{VALUATION_CALCULATION_REVISION}-observations-v7",
+            calculation_revision=(
+                f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
+                if reported
+                else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
+            ),
             payload=json.loads(
                 canonical_json(
                     {

@@ -26,6 +26,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.query import (
     get_investment_proposal,
+    load_latest_investment_proposal,
     preview_current_terms,
 )
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
@@ -62,13 +63,15 @@ def test_owner_resolves_an_exact_id_hash_review_pair(tmp_path, part):
     assert case.app.read_bytes() == before
 
 
-@pytest.mark.parametrize("mutation", ["draft-hash", "item-index", "exact-reference", "buy-binding"])
+@pytest.mark.parametrize(
+    "mutation", ["draft-hash", "item-index", "exact-reference", "buy-binding", "publication-time"]
+)
 def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tmp_path, mutation):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     with closing(sqlite3.connect(case.app)) as connection, connection:
         if mutation == "item-index":
             connection.execute("UPDATE investment_proposal_item SET action='no_action'")
@@ -78,6 +81,13 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
             connection.execute("DROP TRIGGER investment_proposal_immutable")
             if mutation == "draft-hash":
                 connection.execute("UPDATE investment_proposal SET draft_sha256=?", ("0" * 64,))
+            elif mutation == "publication-time":
+                raw = proposal.payload()
+                raw["published_at"] = PREPARED.isoformat()
+                connection.execute(
+                    "UPDATE investment_proposal SET payload=?,published_at=?",
+                    (json.dumps(raw), raw["published_at"]),
+                )
             else:
                 raw = proposal.payload()
                 raw["items"][0]["assessment_ref"]["review_id"] = review_id(90)
@@ -94,6 +104,7 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
         "item-index": "stored proposal item index differs",
         "exact-reference": "Assessment reference differs",
         "buy-binding": "stored proposal buy binding differs",
+        "publication-time": "prepared_at <= reviewed_at <= published_at",
     }[mutation]
     for reader in (
         lambda: get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id),
@@ -106,15 +117,20 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
     ):
         with pytest.raises(ValueError, match=error):
             reader()
+    with (
+        closing(connect_read_only(case.app)) as connection,
+        pytest.raises(ValueError, match=error),
+    ):
+        load_latest_investment_proposal(connection)
     assert case.app.read_bytes() == before
 
 
 def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     document, review = pair_payload(review_number=90)
     newer = AssessmentStoreService(
         case.app, clock=lambda: PUBLISHED + timedelta(minutes=1)

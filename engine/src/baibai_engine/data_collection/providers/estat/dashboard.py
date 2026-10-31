@@ -81,6 +81,7 @@ class EStatDashboardSource:
             },
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         return parse_dashboard_json(
             text,

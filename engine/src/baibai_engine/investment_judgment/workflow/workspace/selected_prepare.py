@@ -6,8 +6,10 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from types import EllipsisType
+from typing import Literal, cast
 
+from baibai_engine.investment_judgment.company_research.query import read_company_contexts
 from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
 from baibai_engine.investment_judgment.market_assessment.query import latest_assessment
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -19,9 +21,10 @@ from baibai_engine.investment_judgment.workflow.operation.progress import select
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.operation.validation import validate_target_purposes
 from baibai_engine.investment_judgment.workflow.selection import (
-    GeneratedResearchInputs,
+    GeneratedResearchInputsV4,
     GeneratedResearchSelection,
     GeneratedResearchSelectionDraft,
+    GeneratedResearchSelectionV4,
     ResearchScope,
     ResearchSelectionRecord,
     ResearchTarget,
@@ -60,7 +63,7 @@ def _same_draft(
     draft: GeneratedResearchSelectionDraft,
 ) -> bool:
     return (
-        isinstance(selection, GeneratedResearchSelection)
+        isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
         and selection.request == draft.request
         and selection.research_as_of == draft.research_as_of
         and selection.input_known_at == draft.input_known_at
@@ -73,7 +76,7 @@ def _same_draft(
 
 def _generated_selection(
     draft: GeneratedResearchSelectionDraft, *, runs_path: Path, app_path: Path
-) -> GeneratedResearchSelection:
+) -> GeneratedResearchSelectionV4:
     if draft.request.scope == "discover_new" and draft.screening_selection_id is None:
         raise ValueError("discovery requires an explicit saved screening selection")
     publication = None
@@ -87,14 +90,20 @@ def _generated_selection(
     if models is None:
         raise ValueError("chosen model generation is unavailable")
     context = latest_assessment(app_path, as_of=draft.research_as_of, known_at=draft.input_known_at)
-    return GeneratedResearchSelection(
+    return GeneratedResearchSelectionV4(
         request=draft.request,
         research_as_of=draft.research_as_of,
         input_known_at=draft.input_known_at,
         selection_summary=draft.selection_summary,
         targets=draft.targets,
         capacity=CURRENT_RESEARCH_CAPACITY,
-        inputs=GeneratedResearchInputs(
+        inputs=GeneratedResearchInputsV4(
+            saved_company_context=read_company_contexts(
+                app_path,
+                tickers=tuple(t.ticker for t in draft.targets),
+                as_of=draft.research_as_of,
+                known_at=draft.input_known_at,
+            ),
             generation=models,
             screening_selection_id=draft.screening_selection_id,
             screening_selection=None if publication is None else publication.selection,
@@ -114,7 +123,7 @@ def prepare_selected_workspace(
     runs_path: Path,
     now: datetime,
     force: bool = False,
-    company_growth_periods: int | None = 12,
+    company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     if not isinstance(draft, GeneratedResearchSelectionDraft):
         raise ResearchWorkspaceConflictError("new Research requires a generated selection draft")
@@ -201,7 +210,7 @@ def resume_selected_workspace(
     workspace: Path,
     now: datetime,
     force: bool = False,
-    company_growth_periods: int | None = 12,
+    company_growth_periods: int | EllipsisType | None = ...,
 ) -> SelectedResearchPreparation:
     operation = OperationService(db_path).get(operation_id)
     selection = selection_binding(operation.payload)
@@ -216,6 +225,8 @@ def resume_selected_workspace(
             raise ResearchWorkspaceConflictError("workspace belongs to another Operation")
         # Force repairs generated projection, never changes binding or authored drafts.
         workspace_selection(manifest, db_path=db_path)
+        if isinstance(company_growth_periods, EllipsisType):
+            company_growth_periods = cast("int | None", manifest.get("company_growth_periods", 12))
     return _materialize(
         operation,
         selection,
@@ -233,8 +244,12 @@ def _materialize(
     *,
     status: Literal["prepared", "resumed", "already_completed"],
     force: bool,
-    company_growth_periods: int | None,
+    company_growth_periods: int | EllipsisType | None,
 ) -> SelectedResearchPreparation:
+    # 省略時は上で既存workspaceの表示を引き継ぎ、新規投影だけ12期から始める。
+    # Noneは保存済み全期間の明示指定として区別する。
+    if isinstance(company_growth_periods, EllipsisType):
+        company_growth_periods = 12
     digest = selection_sha256(selection)
     projection = project_research_inputs(selection, company_growth_periods=company_growth_periods)
     purpose = "holding" if selection.request.scope == "review_positions" else "fundamental_research"
@@ -247,7 +262,7 @@ def _materialize(
     }
     has_growth = (
         any(model.model_id == "company_growth" for model in selection.inputs.generation.models)
-        if isinstance(selection, GeneratedResearchSelection)
+        if isinstance(selection, (GeneratedResearchSelection, GeneratedResearchSelectionV4))
         else any("company_growth" in row for row in selection.inputs.securities_context.values())
     )
     if has_growth:

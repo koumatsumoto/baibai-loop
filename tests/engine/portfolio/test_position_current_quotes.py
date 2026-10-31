@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.screening_sqlite import seed_daily_bars
+from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 
 from baibai_engine.portfolio.ledger.drafts import (
     apply_draft,
@@ -20,6 +20,23 @@ from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
+
+
+def _seed_calendar(path: Path, start: date, end: date) -> None:
+    days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar(day, holiday_division) VALUES (?, ?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+        add_source_coverage(
+            connection,
+            source="jquants_market_calendar",
+            coverage_key="synthetic-calendar",
+            min_date=start.isoformat(),
+            max_date=end.isoformat(),
+            record_count=len(days),
+        )
 
 
 @pytest.fixture
@@ -35,6 +52,7 @@ def holding_case(tmp_path):
             if (date(2026, 6, 3) + timedelta(days=i)).weekday() < 5
         ],
     )
+    _seed_calendar(market, date(2026, 6, 3), NOW.date())
     return db, market, ledger
 
 
@@ -130,8 +148,21 @@ def test_override_constraints_are_price_independent_and_expiry_uses_valuation_in
     assert service.load().as_of == ledger.as_of
 
 
-@pytest.mark.parametrize("factor", [1.0, 0.5, None])
-def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
+@pytest.mark.parametrize("bought_on", ["2026-09-04", "2026-09-07"])
+@pytest.mark.parametrize(
+    ("factor", "kind", "unchanged"),
+    [
+        (1.0, None, True),
+        (0.5, "1", False),
+        (2.0, "2", False),
+        (0.8, "3", True),
+        (0.5, None, False),
+        (None, None, False),
+    ],
+)
+def test_intraday_basis_checks_known_actions_even_without_new_fill(
+    tmp_path, bought_on, factor, kind, unchanged
+):
     from tests.helpers.screening_sqlite import seed_daily_bars
 
     from baibai_engine.portfolio.holdings.valuation import current_portfolio, holding_quote
@@ -147,13 +178,13 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
                 dict(
                     type="opening_balance",
                     event_id="opening",
-                    occurred_at="2026-09-07T08:00:00+09:00",
+                    occurred_at=f"{bought_on}T08:00:00+09:00",
                     amount_yen=1000000,
                 ),
                 dict(
                     type="reservation",
                     event_id="reserve",
-                    occurred_at="2026-09-07T09:00:00+09:00",
+                    occurred_at=f"{bought_on}T09:00:00+09:00",
                     reservation_id="order",
                     order_id="order",
                     ticker="2331",
@@ -161,12 +192,12 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
                     common_factors=[],
                     quantity=100,
                     price_guard_yen=500,
-                    expires_at="2026-09-07T15:30:00+09:00",
+                    expires_at=f"{bought_on}T15:30:00+09:00",
                 ),
                 dict(
                     type="execution",
                     event_id="fill",
-                    occurred_at="2026-09-07T09:01:00+09:00",
+                    occurred_at=f"{bought_on}T09:01:00+09:00",
                     execution_id="fill",
                     reservation_id="order",
                     ticker="2331",
@@ -179,14 +210,27 @@ def test_intraday_fill_must_bridge_quote_and_quantity_dates(tmp_path, factor):
     )
     market = tmp_path / "market.sqlite"
     seed_daily_bars(market, [("2331", "2026-09-04", 1000, 1), ("2331", "2026-09-07", None, factor)])
+    with closing(sqlite3.connect(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET ex_right_type = ? WHERE traded_at = '2026-09-07'",
+            (kind,),
+        )
+        connection.execute(
+            "INSERT INTO jquants_daily_bars "
+            "(ticker, traded_at, close, adjustment_factor, ex_right_type) "
+            "VALUES ('2331', '2026-09-08', 99999, 0.5, '1')"
+        )
+    _seed_calendar(market, date(2026, 9, 4), now.date())
     quote, confirmed = holding_quote(ledger, ticker="2331", sqlite_path=market, now=now)
     assert quote.price_as_of.isoformat() == "2026-09-04"
-    assert confirmed is (factor == 1.0)
+    assert quote.close_yen == 1000
+    assert confirmed is unchanged
     snapshot = current_portfolio(ledger, sqlite_path=market, now=now)
     assert snapshot.available_cash_yen == 950000
     assert snapshot.holdings[0].quantity == 100
     assert snapshot.holdings[0].deployed_cost_yen == 50000
-    assert snapshot.total_capital_yen == (1050000 if factor == 1.0 else None)
+    assert snapshot.reserved_cash_yen == 0
+    assert snapshot.total_capital_yen == (1050000 if unchanged else None)
 
 
 def test_partial_sale_waits_for_session_then_restores_valuation(holding_case):
@@ -228,17 +272,29 @@ def test_partial_sale_waits_for_session_then_restores_valuation(holding_case):
     )
 
 
-def test_current_portfolio_leaves_stale_market_quotes_unvalued(holding_case):
-    from baibai_engine.portfolio.holdings.valuation import current_portfolio
+@pytest.mark.parametrize(
+    ("valuation_at", "fresh"),
+    [
+        (NOW - timedelta(days=1), True),
+        (NOW.replace(hour=10), True),
+        (NOW + timedelta(days=30), False),
+    ],
+)
+def test_absent_intraday_or_holiday_bar_does_not_invent_a_share_action(
+    holding_case, valuation_at, fresh
+):
+    from baibai_engine.portfolio.holdings.valuation import current_portfolio, holding_quote
 
     _, market, ledger = holding_case
-    valuation_at = NOW + timedelta(days=30)
+    quote, confirmed = holding_quote(ledger, ticker="2331", sqlite_path=market, now=valuation_at)
+    assert quote.price_as_of == date(2026, 9, 4)
+    assert confirmed
     snapshot = current_portfolio(ledger, sqlite_path=market, now=valuation_at)
     assert snapshot.as_of == valuation_at
     assert snapshot.available_cash_yen == 10080500
     assert snapshot.holdings[0].quantity == 200
-    assert snapshot.holdings[0].market_value_yen is None
-    assert snapshot.total_capital_yen is None
+    assert snapshot.holdings[0].market_value_yen == (200000 if fresh else None)
+    assert (snapshot.total_capital_yen is not None) is fresh
 
 
 @pytest.mark.parametrize("valuation_at", [NOW - timedelta(days=1), NOW + timedelta(days=1)])

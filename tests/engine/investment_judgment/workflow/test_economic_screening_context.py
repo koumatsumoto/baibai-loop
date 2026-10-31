@@ -1,5 +1,6 @@
 """新政策の有限カード・共有文脈・明示詳細と、固定入力からの再開。"""
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -22,6 +23,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
+)
+from baibai_engine.investment_judgment.workflow.workspace.files import (
+    ResearchWorkspaceConflictError,
 )
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     prepare_selected_workspace,
@@ -79,6 +83,7 @@ def seed_economic_generation(path, *, scoped=True):
                                     period_end=date(year, 12, 31),
                                     measurement="annual_ttm",
                                     statement_basis="consolidated",
+                                    accounting_standard="JP",
                                     metrics={"sales": Value(value=float(year))},
                                 ),
                                 Observation(
@@ -86,6 +91,7 @@ def seed_economic_generation(path, *, scoped=True):
                                     period_end=date(year, 12, 31),
                                     measurement="quarter",
                                     statement_basis="consolidated",
+                                    accounting_standard="JP",
                                     metrics={"sales": Value(value=year / 10)},
                                 ),
                             ),
@@ -389,6 +395,62 @@ def test_explicit_candidate_and_non_candidate_details_keep_all_n_models(
         assert details["not_generated"] == []
 
 
+@pytest.mark.parametrize("scoped", [False, True])
+def test_generation_only_context_cli_keeps_complete_growth_and_all_detail_models(
+    tmp_path, capsys, scoped
+):
+    from baibai_engine.cli.investment_judgment import main
+
+    runs = tmp_path / "runs"
+    generation, _ = seed_economic_generation(runs, scoped=scoped)
+    before = runs.read_bytes()
+    assert (
+        main(
+            [
+                "selection-context",
+                "--request",
+                "指定銘柄と対照の長期変化を調べる",
+                "--scope",
+                "specified_stocks",
+                "--ticker",
+                "1234",
+                "--compare-ticker",
+                "9999",
+                "--generation-id",
+                generation.generation_id,
+                "--runs-path",
+                str(runs),
+                "--db",
+                str(tmp_path / "absent"),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["screening_selection_id"] is None
+    assert result["screening"] is None
+    assert result["candidate_tickers"] == []
+    assert result["requested_tickers"] == ["1234"]
+    assert set(result["model_inputs"]["securities"]) == {"1234", "9999"}
+    for ticker in ("1234", "9999"):
+        detail = result["model_inputs"]["securities"][ticker]
+        models = detail["models"] if scoped else detail
+        assert models["stress_probe"] == generation.result("stress_probe", ticker).payload
+        assert models["catalyst_probe"] == generation.result("catalyst_probe", ticker).payload
+        growth = models["company_growth"]
+        assert growth == generation.result("company_growth", ticker).payload
+        assert "full_result_ref" not in growth
+        assert len(growth["periods"]) == 20
+        oldest = growth["periods"][0]["observations"]
+        assert oldest[0]["measurement"] == "annual_ttm"
+        assert oldest[0]["metrics"]["sales"]["value"] == 2005.0
+        assert oldest[1]["measurement"] == "quarter"
+        assert oldest[1]["metrics"]["sales"]["value"] == 200.5
+        assert detail["not_generated"] == []
+    assert runs.read_bytes() == before
+
+
 def test_held_details_remain_available_without_promoting_them_to_requested(tmp_path, monkeypatch):
     import baibai_engine.investment_judgment.workflow.selection_query as query
 
@@ -454,6 +516,8 @@ def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_witho
     original = project_research_inputs(saved)
     raw, digest = saved.model_dump(mode="json"), selection_sha256(saved)
     growth_projection = original["securities"]["1234"]["models"]["company_growth"]
+    assert yaml.safe_load((workspace / "manifest.yaml").read_text())["company_growth_periods"] == 12
+    assert growth_projection["display_scope"]["period_count"] == 12
     complete = raw
     for segment in growth_projection["full_result_ref"].strip("/").split("/"):
         complete = complete[int(segment)] if isinstance(complete, list) else complete[segment]
@@ -471,3 +535,127 @@ def test_prepare_saves_full_economic_policy_and_chosen_models_then_resumes_witho
     restored = parse_selection(raw)
     assert restored.model_dump(mode="json") == raw
     assert selection_sha256(restored) == digest
+
+
+@pytest.mark.parametrize("periods", [None, 24])
+@pytest.mark.parametrize("force", [False, True])
+@pytest.mark.parametrize("source", ["operation", "selection"])
+def test_omitted_growth_periods_resume_inherits_workspace_for_api_and_cli(
+    tmp_path, capsys, periods, force, source
+):
+    from baibai_engine.cli.investment_judgment import main
+
+    runs = tmp_path / "runs"
+    generation, _ = seed_economic_generation(runs)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(
+            text="長期の問いを調査", scope="specified_stocks", requested_tickers=("1234",)
+        ),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=generation.generation_id,
+        selection_summary="保存した長期変化を使う",
+        targets=(selected_target("1234"),),
+    )
+    workspace, db = tmp_path / "research", tmp_path / "app.sqlite"
+    prepare_arguments = dict(draft=draft, runs_path=runs, db_path=db, workspace=workspace, now=NOW)
+    prepared = prepare_selected_workspace(**prepare_arguments, company_growth_periods=periods)
+    saved = selection_binding(OperationService(db).get(prepared.operation_id).payload)
+    raw, digest = saved.model_dump(mode="json"), selection_sha256(saved)
+    output, manifest = workspace / "domain-inputs.yaml", workspace / "manifest.yaml"
+    expected_output, expected_manifest = output.read_bytes(), manifest.read_bytes()
+    projection = yaml.safe_load(expected_output)["securities"]["1234"]["models"]["company_growth"]
+    assert projection["display_scope"]["period_count"] == 20
+    assert projection["display_scope"]["latest_period_limit"] == periods
+    assert yaml.safe_load(expected_manifest)["company_growth_periods"] == periods
+    authored = workspace / "assessment-draft.yaml"
+    authored.write_text("執筆済みdraftを保つ", encoding="utf-8")
+    selection_file = tmp_path / "selection.json"
+    selection_file.write_text(draft.model_dump_json(), encoding="utf-8")
+    runs.unlink()
+
+    if source == "selection":
+        resumed = prepare_selected_workspace(**prepare_arguments, force=force)
+        source_arguments = ["--selection-file", str(selection_file)]
+    else:
+        resumed = resume_selected_workspace(
+            operation_id=prepared.operation_id,
+            db_path=db,
+            workspace=workspace,
+            now=NOW,
+            force=force,
+        )
+        source_arguments = ["--operation-id", prepared.operation_id]
+    assert resumed.status == "resumed"
+    assert resumed.selection_sha256 == digest
+    assert output.read_bytes() == expected_output
+    assert manifest.read_bytes() == expected_manifest
+
+    assert (
+        main(
+            [
+                "prepare",
+                *source_arguments,
+                "--db",
+                str(db),
+                "--workspace",
+                str(workspace),
+                "--runs-path",
+                str(runs),
+                *(["--force"] if force else []),
+            ],
+            now=NOW,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["selection_sha256"] == digest
+    assert output.read_bytes() == expected_output
+    assert manifest.read_bytes() == expected_manifest
+    assert authored.read_text(encoding="utf-8") == "執筆済みdraftを保つ"
+    restored = selection_binding(OperationService(db).get(prepared.operation_id).payload)
+    assert restored.model_dump(mode="json") == raw
+    assert selection_sha256(restored) == digest
+
+
+@pytest.mark.parametrize(("initial", "changed"), [(None, 12), (24, None)])
+def test_explicit_growth_period_change_still_requires_force(tmp_path, initial, changed):
+    runs = tmp_path / "runs"
+    generation, _ = seed_economic_generation(runs)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(
+            text="表示範囲を切り替える", scope="specified_stocks", requested_tickers=("1234",)
+        ),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=generation.generation_id,
+        selection_summary="固定入力は変更しない",
+        targets=(selected_target("1234"),),
+    )
+    workspace, db = tmp_path / "research", tmp_path / "app.sqlite"
+    prepared = prepare_selected_workspace(
+        draft=draft,
+        runs_path=runs,
+        db_path=db,
+        workspace=workspace,
+        now=NOW,
+        company_growth_periods=initial,
+    )
+    output, manifest = workspace / "domain-inputs.yaml", workspace / "manifest.yaml"
+    before = output.read_bytes(), manifest.read_bytes()
+    arguments = dict(
+        operation_id=prepared.operation_id,
+        db_path=db,
+        workspace=workspace,
+        now=NOW,
+        company_growth_periods=changed,
+    )
+    with pytest.raises(ResearchWorkspaceConflictError, match="generated input drift"):
+        resume_selected_workspace(**arguments)
+    assert (output.read_bytes(), manifest.read_bytes()) == before
+    resumed = resume_selected_workspace(**arguments, force=True)
+    assert resumed.selection_sha256 == prepared.selection_sha256
+    growth = yaml.safe_load(output.read_text())["securities"]["1234"]["models"]["company_growth"]
+    assert growth["display_scope"]["latest_period_limit"] == changed
+    assert yaml.safe_load(manifest.read_text())["company_growth_periods"] == changed

@@ -28,8 +28,8 @@ vi.mock('../src/api/client', () => ({ fetchJson: vi.fn() }))
 function dashboard(): DashboardView {
   return {
     generated_at: '2026-10-16T09:00:00+09:00', ledger_exists: true,
-    ledger_error: null, ledger_as_of: null, ledger_stale: false,
-    valuation_as_of: null, valuation_stale: false,
+    ledger_error: null, ledger_as_of: null, valuation_error: null,
+    valuation_as_of: null,
     total_capital_yen: null, available_cash_yen: null, reserved_cash_yen: null,
     holdings_market_value_yen: null, deployed_cost_yen: null,
     realized_gross_pnl_yen: null, cash_pct: null, reserved_pct: null, deployed_pct: null,
@@ -60,6 +60,42 @@ it.each(['invalid ledger', ''])('does not describe an unreadable ledger as an em
   expect(html).not.toContain('前回実行からの変化')
 })
 
+it.each(['obsolete market SQLite schema', 'file is not a database'])(
+  'keeps ledger facts visible and labels only market valuation as unreadable (%s)', valuationError => {
+    const data: DashboardView = {
+      ...dashboard(), valuation_error: valuationError,
+      available_cash_yen: 10_190_500, reserved_cash_yen: 119_000,
+      deployed_cost_yen: 99_000, realized_gross_pnl_yen: 6_000,
+      holdings: [{
+        ticker: '2331', company_name: null, sector: 'サービス業', quantity: 100,
+        deployed_cost_yen: 99_000, market_price_yen: null, market_price_as_of: null,
+        market_value_yen: null, unrealized_pnl_yen: null, unrealized_pnl_pct: null,
+      }],
+      reservations: [{
+        reservation_id: 'reservation-8929-pending', side: 'buy', ticker: '8929', sector: '不動産業',
+        remaining_quantity: 100, price_guard_yen: '1190', reserved_yen: 119_000,
+        expires_at: '2026-07-31T15:30:00+09:00', expiry_label: '2026-07-31', route_label: null,
+      }],
+    }
+    hooks.values.set(0, data)
+    const html = render()
+    expect(html).toContain('市場評価を読み込めません')
+    expect(html).toContain(valuationError)
+    expect(html).toContain('資産と損益')
+    expect(html).toContain('￥10,190,500')
+    expect(html).toContain('￥119,000')
+    expect(html).toContain('+￥6,000')
+    expect(html).toContain('2331')
+    expect(html).toContain('8929')
+    expect(html).toContain('100 株')
+    expect(html).toContain('￥990')
+    expect(html).toContain('未評価: 2331')
+    expect(html).not.toContain('台帳を読み込めません')
+    expect(html).not.toContain('保有銘柄はありません')
+    expect(html).not.toContain('株価基準')
+  },
+)
+
 it('keeps portfolio information visible when the independent outcomes request fails', () => {
   hooks.values.set(0, dashboard())
   hooks.values.set(2, 'outcomes unavailable')
@@ -81,4 +117,27 @@ it('routes an outcomes request failure to its own state, not the portfolio error
   expect(hooks.setters[2]).toHaveBeenCalledWith('outcomes unavailable')
   expect(hooks.setters[3]).not.toHaveBeenCalled()
   expect(hooks.setters[0]).toHaveBeenCalledWith(dashboard())
+})
+
+
+it('distinguishes display generation, last ledger record, and quote basis', () => {
+  hooks.values.set(0, { ...dashboard(),
+    generated_at: '2026-10-16T13:43:00Z',
+    ledger_as_of: '2026-10-12T01:30:00Z',
+    valuation_as_of: '2026-10-15',
+  })
+  const html = render()
+  expect(html).toMatch(/表示データ生成 <time[^>]*dateTime="2026-10-16T13:43:00Z"[^>]*>2026-10-16 22:43 JST/)
+  expect(html).toMatch(/台帳最終記録 <time[^>]*dateTime="2026-10-12T01:30:00Z"[^>]*>2026-10-12 10:30 JST/)
+  expect(html).toContain('株価基準 2026-10-15')
+})
+
+it('still shows the generation stamp when the ledger is absent or unreadable', () => {
+  for (const ledgerError of [null, 'invalid ledger']) {
+    hooks.values.set(0, { ...dashboard(), ledger_exists: false, ledger_error: ledgerError })
+    hooks.setters = []
+    const html = render()
+    expect(html).toContain('表示データ生成')
+    expect(html).not.toContain('台帳最終記録')
+  }
 })

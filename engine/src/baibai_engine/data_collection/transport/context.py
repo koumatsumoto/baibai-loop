@@ -10,6 +10,8 @@ import requests
 from baibai_engine.data_collection.transport.http import (
     AcquisitionDeadlineExceeded,
     check_acquisition_deadline,
+    retry_after_delay,
+    wait_for_read_retry,
 )
 
 if TYPE_CHECKING:
@@ -38,7 +40,7 @@ class ProviderFetchStoppedError(IndicatorsProviderError):
 
 
 class ProviderRateLimitError(ProviderFetchStoppedError):
-    """Stop new requests to this provider after a rate-limit response."""
+    """Stop new requests sharing this acquisition group's quota for the current pass."""
 
 
 class SourceWithheldError(IndicatorsProviderError):
@@ -87,20 +89,9 @@ class FetchContext:
         self.purpose = purpose
         self._browser: BrowserFetcher | None = None
 
-    def discard_cached_bytes(self) -> None:
-        """Drop every cached response before a retry.
-
-        A source can answer HTTP 200 with a block page (FRB's edge does this for
-        datacenter IPs), which caches as if it were data. Keeping it would make the
-        retry re-read the same bad bytes and would fail every later series that
-        shares the URL, so a failed fetch invalidates the cache instead.
-
-        The blocked-browser record survives: a browser navigation costs a minute
-        to fail, and an edge that turned one away turns the next one away too.
-        What a retry is worth re-testing is the plain request, not that.
-        """
-
-        self.bytes_cache.clear()
+    def discard_cached_bytes(self, url: str, params: Mapping[str, str] | None) -> None:
+        """Drop only this unusable response, keeping other receipts and browser evidence."""
+        self.bytes_cache.pop(_bytes_cache_key(url, params), None)
 
     def browser_fetcher(self) -> BrowserFetcher:
         self.check_deadline()
@@ -156,17 +147,24 @@ def fetch_text(
     max_bytes: int,
     headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
+    retry_transient: bool = False,
 ) -> str:
     content = fetch_bytes(
-        session, url, params=params, max_bytes=max_bytes, headers=headers, context=context
+        session,
+        url,
+        params=params,
+        max_bytes=max_bytes,
+        headers=headers,
+        context=context,
+        retry_transient=retry_transient,
     )
     try:
         return content.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        # A decode failure belongs to the response, not to the program. Left as a
-        # UnicodeDecodeError it escapes the refresh's retry, which only knows
-        # about provider errors, and the bytes that caused it stay in the shared
-        # cache for every later series to decode and fail on again.
+        # Decoding is not a transport retry. Do not poison later reads of this
+        # resource, but retain other successfully received responses in the pass.
+        if context is not None:
+            context.discard_cached_bytes(url, params)
         raise IndicatorsProviderError(f"response from {url} is not UTF-8: {exc}") from exc
 
 
@@ -211,13 +209,64 @@ def fetch_bytes(
     max_bytes: int,
     headers: Mapping[str, str] | None = None,
     context: FetchContext | None = None,
+    retry_transient: bool = False,
 ) -> bytes:
+    """Receive one resource; native bulk readers may retry its transient failures once.
+
+    Document readers retain their single-GET policy. FRED owns its separate
+    adapter budget, so it does not opt into this retry.
+    """
     if context is not None:
         context.check_deadline()
     key = _bytes_cache_key(url, params)
     if context is not None and key in context.bytes_cache:
         return context.bytes_cache[key]
+    for attempt in range(2 if retry_transient else 1):
+        try:
+            content = _fetch_bytes_once(
+                session, url, params=params, max_bytes=max_bytes, headers=headers, context=context
+            )
+        except requests.RequestException as exc:
+            response = exc.response
+            retryable = (
+                response is not None and response.status_code in {500, 502, 503, 504}
+            ) or isinstance(
+                exc,
+                (
+                    requests.ConnectionError,
+                    requests.Timeout,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ContentDecodingError,
+                ),
+            )
+            if not retry_transient or attempt == 1 or not retryable:
+                raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
+            delay = retry_after_delay(
+                response.headers.get("Retry-After") if response is not None else None,
+                fallback=1.0,
+            )
+            try:
+                wait_for_read_retry(delay)
+            except AcquisitionDeadlineExceeded as error:
+                raise ProviderFetchStoppedError(str(error)) from error
+        else:
+            if context is not None:
+                context.bytes_cache[key] = content
+            return content
+    raise AssertionError("unreachable GET retry loop")
+
+
+def _fetch_bytes_once(
+    session: HttpSession,
+    url: str,
+    *,
+    params: dict[str, str] | None,
+    max_bytes: int,
+    headers: Mapping[str, str] | None,
+    context: FetchContext | None,
+) -> bytes:
     try:
+        check_acquisition_deadline()
         response = session.get(
             url, params=params, headers=headers, timeout=HTTP_TIMEOUT_SECONDS, stream=True
         )
@@ -248,8 +297,8 @@ def fetch_bytes(
             # A source can answer 2xx with no body at all: federalreserve.gov's edge
             # does this to datacenter IPs instead of serving the CSV. No parser has a
             # reading for zero bytes, so failing here keeps a blocked fetch from being
-            # reported as a format change, keeps the empty body out of the cache every
-            # series sharing the URL reads, and makes the fetch retryable. The status
+            # reported as a format change and keeps the empty body out of the cache.
+            # H.15 owns its explicit alternative transport selection. The status
             # and content type name what the source actually answered with.
             _guard_response(
                 content,
@@ -260,10 +309,8 @@ def fetch_bytes(
                     f"content-type {response.headers.get('Content-Type')!r})"
                 ),
             )
-    except requests.RequestException as exc:
-        raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
-    if context is not None:
-        context.bytes_cache[key] = content
+    except AcquisitionDeadlineExceeded as error:
+        raise ProviderFetchStoppedError(str(error)) from error
     return content
 
 
@@ -277,17 +324,4 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
             # Keep the existing response category without inferring the reason
             # for the refusal or permission to use another route.
             raise SourceWithheldError(f"source withheld {url}: {exc}") from exc
-        raise IndicatorsProviderError(f"failed to fetch {url}: {exc}") from exc
-
-
-def parse_float(value: str) -> float:
-    try:
-        return float(value.replace(",", ""))
-    except ValueError as exc:
-        raise IndicatorsProviderError(f"invalid numeric value: {value!r}") from exc
-
-
-def parse_optional_float(value: str | None) -> float | None:
-    if value is None or not value or value in {"ND", "."}:
-        return None
-    return parse_float(value)
+        raise

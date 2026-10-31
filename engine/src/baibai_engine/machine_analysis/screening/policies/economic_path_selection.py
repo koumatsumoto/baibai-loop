@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import gzip
-import json
 from collections.abc import Sequence
-from contextlib import closing
-from itertools import groupby
 from pathlib import Path
 
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel, GenerationMetadata
+from baibai_engine.machine_analysis.generation.query import stream_generation_subjects
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
@@ -17,9 +13,12 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
     select_economic_paths,
 )
-from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
+
+
+def economic_selection_id(generation_id: str, *, policy: EconomicPathPolicy) -> str:
+    """新規候補のidentityを固定世代と政策methodに結びつける。"""
+    return f"selection-{generation_id}-{policy.method}"
 
 
 def select_saved_economic_generation(
@@ -33,38 +32,15 @@ def select_saved_economic_generation(
     subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
     if len(set(subjects)) != len(subjects):
         raise ValueError("screening universe must contain unique companies")
-    with closing(connect_read_only(path)) as connection:
-        connection.execute("BEGIN")
-        row = connection.execute(
-            "SELECT header FROM model_generation WHERE generation_id=?", (generation_id,)
-        ).fetchone()
-        if row is None:
+    with stream_generation_subjects(generation_id, subjects=subjects, path=path) as generation:
+        if generation is None:
             raise ValueError("model generation not found")
-        metadata = GenerationMetadata.model_validate_json(row[0])
-        # 並べ替えるのは対象のキーだけ。payloadは同じ読取断面から主キーで個別に読む。
-        keys = connection.execute(
-            "SELECT subject,model_id FROM generated_model WHERE generation_id=? "
-            "AND subject IN (SELECT value FROM json_each(?)) ORDER BY subject,model_id",
-            (generation_id, canonical_json(subjects)),
-        )
+        metadata, companies = generation
         coordinates: dict[str, CompanyCoordinates] = {}
-        for subject, group in groupby(keys, key=lambda item: item[0]):
-            models: list[GeneratedModel] = []
-            for _, model_id in group:
-                saved = connection.execute(
-                    "SELECT calculation_revision,payload_gzip FROM generated_model "
-                    "WHERE generation_id=? AND model_id=? AND subject=?",
-                    (generation_id, model_id, subject),
-                ).fetchone()
-                models.append(
-                    GeneratedModel(
-                        subject=subject,
-                        model_id=model_id,
-                        calculation_revision=saved[0],
-                        payload=json.loads(gzip.decompress(saved[1])),
-                    )
-                )
-            coordinates[subject] = project_company(subject, models=tuple(models), metadata=metadata)
+        for subject, models in companies:
+            coordinates[subject] = project_company(subject, models=models, metadata=metadata)
+            # 次社の復元前に、この社のpayload参照を手放す。
+            del models
         for subject in subjects:
             if subject not in coordinates:
                 coordinates[subject] = project_company(subject, models=(), metadata=metadata)

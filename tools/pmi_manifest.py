@@ -148,7 +148,7 @@ def release_index_entries(context: FetchContext) -> tuple[IndexEntry, ...]:
     if entries:
         return entries
     # Do not reuse a response whose HTML contained no recognized index entries.
-    context.discard_cached_bytes()
+    context.discard_cached_bytes(RELEASE_INDEX_URL, None)
     return parse_release_index(context.browser_fetcher().fetch_html(RELEASE_INDEX_URL))
 
 

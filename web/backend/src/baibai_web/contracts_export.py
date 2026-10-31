@@ -1,6 +1,6 @@
 """Generate the read-model contract and the UI types built from it.
 
-`readmodel.models` is the only description of the JSON the UI reads: `materialize`
+The `readmodel` models are the only description of the JSON the UI reads: `materialize`
 writes it to `views/*.json` and the local API answers with the same shapes. Restating
 that description in TypeScript by hand leaves two files that agree only as long as
 somebody remembers, and a backend rename lands in production the next batch while the
@@ -29,10 +29,11 @@ from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
 from baibai_web.readmodel.models import DashboardView, OutcomesView, TasksView
+from baibai_web.readmodel.proposal_models import LatestProposalView
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
 TYPES_PATH = Path("web/frontend/src/api/types.ts")
-CONTRACT_SCHEMA_VERSION = 5
+CONTRACT_SCHEMA_VERSION = 8
 
 # Every artifact the UI reads through `/api`, and the model that writes it. The keys are
 # the serving paths `web/contracts/routes.json` maps those routes to, and a test pins
@@ -41,11 +42,12 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/portfolio-dashboard.json": DashboardView,
     "views/outcomes.json": OutcomesView,
     "views/tasks.json": TasksView,
+    "views/latest-proposal.json": LatestProposalView,
 }
 COMPUTED_VIEWS: Mapping[str, type[BaseModel]] = {}
 
 _GENERATED_HEADER = """\
-// Generated from web/backend/src/baibai_web/readmodel/models.py.
+// Generated from the Python models in web/backend/src/baibai_web/readmodel/.
 // Run `uv run python -m baibai_web.contracts_export` after changing those models;
 // `tools/quality/drift/check_readmodel_contract.py` refuses a stale copy.
 """

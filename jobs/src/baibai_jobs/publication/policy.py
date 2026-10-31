@@ -17,6 +17,30 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
     profile="production",
     datasets=(
         ReleaseDatasetPolicy(
+            dataset="articles.source_receipts",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="articles.projection_runs",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="articles.observations",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
+            dataset="articles.extraction_artifacts",
+            required=False,
+            carries_history=True,
+            require_complete_coverage=False,
+        ),
+        ReleaseDatasetPolicy(
             dataset="jquants.source_pages",
             required=False,
             carries_history=True,
@@ -124,7 +148,8 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             dataset="edinet.documents",
             required=True,
             carries_history=True,
-            require_complete_coverage=True,
+            # Failed list days remain explicit without blocking independent sources.
+            require_complete_coverage=False,
         ),
         ReleaseDatasetPolicy(
             dataset="edinet.segment_facts",

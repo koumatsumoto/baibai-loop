@@ -52,6 +52,7 @@ class BojTimeSeriesSource:
             params=params,
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             context=context,
+            retry_transient=True,
         )
         return parse_boj_timeseries_json(
             series,

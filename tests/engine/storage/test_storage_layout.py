@@ -8,7 +8,7 @@ def test_collection_http_and_mcp_adapters_do_not_load_analysis_domains():
     code = """
 import sys
 from baibai_engine.data_collection.transport import public_pages as equity_http
-from baibai_engine.data_collection.providers.tradingview import auth, authorize, client
+from baibai_engine.data_collection.providers.tradingview import receipts
 for prefix in (
     'baibai_engine.machine_analysis.models.external_assessment',
     'baibai_engine.market',
@@ -21,9 +21,7 @@ for prefix in (
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 assert equity_http.MIN_REQUEST_INTERVAL_SECONDS == 2.0
-assert client.SERVER_URL == 'https://mcp.tradingview.com/mcp'
-assert auth.SECRET_NAME == 'TRADINGVIEW_OAUTH_STATE'
-assert callable(authorize.authorize)
+assert callable(receipts.read_tool_results)
 """
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -37,9 +35,7 @@ from baibai_engine.storage.snapshots import models as lake_models
 for prefix in (
     'baibai_engine.data_collection.external_assessment',
     'baibai_engine.machine_analysis.observations.external_assessments.store',
-    'baibai_jobs.acquisition.tradingview.collector',
-    'baibai_engine.data_collection.providers.tradingview.client',
-    'baibai_engine.data_collection.providers.tradingview.auth',
+    'baibai_jobs.maintenance.tradingview_context',
     'baibai_engine.storage.sqlite.source_cache',
     'baibai_engine.storage.snapshots.writer',
 ):

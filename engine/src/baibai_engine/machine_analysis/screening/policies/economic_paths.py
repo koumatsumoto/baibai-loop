@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from typing import Annotated, Literal
 
@@ -20,7 +20,12 @@ Percentile = Annotated[CoordinateValue, Field(gt=0, lt=1)]
 class EconomicPathPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    method: Literal["best-economic-path-v1"] = "best-economic-path-v1"
+    method: Literal[
+        "best-economic-path-v1",
+        "best-economic-path-v2",
+        "best-economic-path-v3",
+        "best-economic-path-v4",
+    ] = "best-economic-path-v4"
     candidate_limit: Annotated[int, Field(ge=0, le=36)] = 36
 
 
@@ -48,6 +53,15 @@ class CompanyCoordinates:
 
 
 @dataclass(frozen=True, slots=True)
+class PathNormalization:
+    """Hの同一経路内順位。母集団は二軸参照群ではなく有効企業群。"""
+
+    percentile: Percentile
+    population: Annotated[int, Field(strict=True, gt=0)]
+    midrank: CoordinateValue
+
+
+@dataclass(frozen=True, slots=True)
 class RankedPath:
     path_id: PathId
     variant: str
@@ -61,6 +75,9 @@ class RankedPath:
     business_population: Annotated[int, Field(strict=True, gt=0)]
     score: Percentile
     evidence: dict[str, JsonValue]
+    normalization: Annotated[
+        PathNormalization | None, Field(exclude_if=lambda value: value is None)
+    ] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +110,8 @@ def select_economic_paths(
     companies: Sequence[CompanyCoordinates], *, policy: EconomicPathPolicy
 ) -> EconomicPathSelection:
     """各軸の母集団を先に固定する。欠測の片軸補完や経路の投票はしない。"""
+    if policy.method != "best-economic-path-v4":
+        raise ValueError("historical economic policy is read-only; use the current policy")
     if len({row.ticker for row in companies}) != len(companies):
         raise ValueError("economic screening requires one row per ticker")
     # variantは適用期間を先に選ぶためのもの。座標の期間・basisはgroupが定める。
@@ -117,6 +136,7 @@ def select_economic_paths(
                     population[row.ticker] = value
     populations = {key: sorted(values.values()) for key, values in observations.items()}
     ranked: list[tuple[CompanyCoordinates, tuple[RankedPath, ...]]] = []
+    path_scores: dict[PathId, list[float]] = {}
     for row in companies:
         paths: list[RankedPath] = []
         for path in row.paths:
@@ -126,28 +146,58 @@ def select_economic_paths(
             business = populations[(path.path_id, "business", path.business_group)]
             price_percentile = _midrank(prices, path.price_value)
             business_percentile = _midrank(business, path.business_value)
-            paths.append(
-                RankedPath(
-                    path_id=path.path_id,
-                    variant=path.variant,
-                    price_value=path.price_value,
-                    business_value=path.business_value,
-                    price_group=path.price_group,
-                    business_group=path.business_group,
-                    price_percentile=price_percentile,
-                    business_percentile=business_percentile,
-                    price_population=len(prices),
-                    business_population=len(business),
-                    score=2
-                    * price_percentile
-                    * business_percentile
-                    / (price_percentile + business_percentile),
-                    evidence=path.evidence,
+            ranked_path = RankedPath(
+                path_id=path.path_id,
+                variant=path.variant,
+                price_value=path.price_value,
+                business_value=path.business_value,
+                price_group=path.price_group,
+                business_group=path.business_group,
+                price_percentile=price_percentile,
+                business_percentile=business_percentile,
+                price_population=len(prices),
+                business_population=len(business),
+                score=2
+                * price_percentile
+                * business_percentile
+                / (price_percentile + business_percentile),
+                evidence=path.evidence,
+            )
+            paths.append(ranked_path)
+            path_scores.setdefault(path.path_id, []).append(ranked_path.score)
+        if paths:
+            ranked.append((row, tuple(paths)))
+    distributions = {path_id: sorted(values) for path_id, values in path_scores.items()}
+    normalized: list[tuple[CompanyCoordinates, tuple[RankedPath, ...]]] = []
+    for row, ranked_paths in ranked:
+        comparable: list[RankedPath] = []
+        for ranked_path in ranked_paths:
+            distribution = distributions[ranked_path.path_id]
+            left = bisect_left(distribution, ranked_path.score)
+            right = bisect_right(distribution, ranked_path.score)
+            percentile = (left + right) / (2 * len(distribution))
+            comparable.append(
+                replace(
+                    ranked_path,
+                    normalization=PathNormalization(
+                        percentile=percentile,
+                        population=len(distribution),
+                        midrank=len(distribution) - (left + right - 1) / 2,
+                    ),
                 )
             )
-        if paths:
-            ranked.append((row, tuple(sorted(paths, key=lambda item: (-item.score, item.path_id)))))
-    ranked.sort(key=lambda item: (-item[1][0].score, item[0].ticker))
+        normalized.append(
+            (
+                row,
+                tuple(
+                    sorted(
+                        comparable,
+                        key=lambda item: (-_path_priority(item), item.path_id),
+                    )
+                ),
+            )
+        )
+    normalized.sort(key=lambda item: (-_path_priority(item[1][0]), item[0].ticker))
     return EconomicPathSelection(
         policy=policy,
         eligible_count=len(ranked),
@@ -157,14 +207,14 @@ def select_economic_paths(
                 name=row.name,
                 sector=row.sector,
                 rank=rank,
-                priority=paths[0].score,
+                priority=_path_priority(paths[0]),
                 strongest_path=paths[0].path_id,
                 paths=paths,
                 context=row.context,
                 model_revisions=row.model_revisions,
                 not_generated=row.not_generated,
             )
-            for rank, (row, paths) in enumerate(ranked[: policy.candidate_limit], start=1)
+            for rank, (row, paths) in enumerate(normalized[: policy.candidate_limit], start=1)
         ),
     )
 
@@ -176,3 +226,9 @@ def _validate_coordinate(value: object) -> None:
 
 def _midrank(values: list[float], value: float) -> float:
     return (bisect_left(values, value) + bisect_right(values, value)) / (2 * len(values))
+
+
+def _path_priority(path: RankedPath) -> float:
+    if path.normalization is None:
+        raise ValueError("new economic path requires its within-path normalization")
+    return path.normalization.percentile

@@ -49,6 +49,7 @@ class MultplSource:
             max_bytes=MAX_CSV_RESPONSE_BYTES,
             headers={"User-Agent": _USER_AGENT},
             context=context,
+            retry_transient=True,
         )
         return parse_multpl_table(series, text, start=start, end=end)
 

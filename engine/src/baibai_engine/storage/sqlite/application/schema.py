@@ -4,9 +4,91 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 25
+APPLICATION_SCHEMA_VERSION = 29
 
-SCHEMA_SQL = """
+SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL = """
+CREATE TABLE selection_identity_migration (
+    operation_id TEXT PRIMARY KEY REFERENCES operation_session(operation_id),
+    migration_id TEXT NOT NULL CHECK (migration_id = 'company-financials-id-v1'),
+    recorded_at TEXT NOT NULL,
+    published_selection_sha256 TEXT NOT NULL CHECK (length(published_selection_sha256) = 64),
+    operational_selection_sha256 TEXT NOT NULL CHECK (length(operational_selection_sha256) = 64),
+    published_selection_canonical TEXT NOT NULL CHECK (json_valid(published_selection_canonical)),
+    CHECK (published_selection_sha256 <> operational_selection_sha256)
+) STRICT;
+CREATE TRIGGER selection_identity_migration_no_update BEFORE UPDATE ON selection_identity_migration
+BEGIN SELECT RAISE(ABORT, 'selection migration evidence is immutable'); END;
+CREATE TRIGGER selection_identity_migration_no_delete BEFORE DELETE ON selection_identity_migration
+BEGIN SELECT RAISE(ABORT, 'selection migration evidence is immutable'); END;
+"""
+
+PROPOSAL_RECORDS_SCHEMA_SQL = """
+CREATE TABLE proposal_correction (
+    correction_id TEXT PRIMARY KEY,
+    erroneous_proposal_id TEXT UNIQUE NOT NULL REFERENCES investment_proposal(proposal_id),
+    replacement_proposal_id TEXT NOT NULL REFERENCES investment_proposal(proposal_id),
+    recorded_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    CHECK (erroneous_proposal_id <> replacement_proposal_id)
+) STRICT;
+CREATE TABLE proposal_human_report (
+    report_id TEXT PRIMARY KEY,
+    proposal_id TEXT NOT NULL REFERENCES investment_proposal(proposal_id),
+    recorded_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload))
+) STRICT;
+CREATE INDEX proposal_human_report_proposal_idx
+ON proposal_human_report(proposal_id, recorded_at, report_id);
+CREATE TRIGGER proposal_correction_no_update BEFORE UPDATE ON proposal_correction
+BEGIN SELECT RAISE(ABORT, 'proposal correction is immutable'); END;
+CREATE TRIGGER proposal_correction_no_delete BEFORE DELETE ON proposal_correction
+BEGIN SELECT RAISE(ABORT, 'proposal correction is immutable'); END;
+CREATE TRIGGER proposal_human_report_no_update BEFORE UPDATE ON proposal_human_report
+BEGIN SELECT RAISE(ABORT, 'human proposal report is immutable'); END;
+CREATE TRIGGER proposal_human_report_no_delete BEFORE DELETE ON proposal_human_report
+BEGIN SELECT RAISE(ABORT, 'human proposal report is immutable'); END;
+"""
+
+COMPANY_RESEARCH_SCHEMA_SQL = """
+CREATE TABLE company_research (
+    research_id TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    prior_research_id TEXT REFERENCES company_research(research_id),
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    payload_sha256 TEXT NOT NULL,
+    CHECK (prior_research_id IS NULL OR prior_research_id <> research_id)
+) STRICT;
+CREATE INDEX company_research_latest_idx
+ON company_research(ticker, as_of, recorded_at, research_id);
+CREATE TRIGGER company_research_immutable
+BEFORE UPDATE ON company_research
+BEGIN
+    SELECT RAISE(ABORT, 'saved Company Research is immutable');
+END;
+"""
+
+JUDGMENT_RETROSPECTIVE_SCHEMA_SQL = """
+CREATE TABLE judgment_retrospective (
+    retrospective_id TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload)),
+    payload_sha256 TEXT NOT NULL
+) STRICT;
+CREATE INDEX judgment_retrospective_ticker_recorded_idx
+ON judgment_retrospective(ticker, recorded_at, retrospective_id);
+CREATE TRIGGER judgment_retrospective_immutable
+BEFORE UPDATE ON judgment_retrospective
+BEGIN
+    SELECT RAISE(ABORT, 'saved Judgment Retrospective is immutable');
+END;
+"""
+
+SCHEMA_SQL = (
+    """
 CREATE TABLE task (
     task_id TEXT PRIMARY KEY,
     status TEXT NOT NULL CHECK (status IN ('open', 'done', 'dropped')),
@@ -192,5 +274,16 @@ CREATE TABLE portfolio_outcome (
 CREATE INDEX portfolio_outcome_period_idx
 ON portfolio_outcome(period_end_date, horizon, outcome_id);
 """
+    + COMPANY_RESEARCH_SCHEMA_SQL
+    + JUDGMENT_RETROSPECTIVE_SCHEMA_SQL
+    + PROPOSAL_RECORDS_SCHEMA_SQL
+    + SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL
+)
 
-__all__ = ["APPLICATION_SCHEMA_VERSION", "SCHEMA_SQL"]
+__all__ = [
+    "APPLICATION_SCHEMA_VERSION",
+    "COMPANY_RESEARCH_SCHEMA_SQL",
+    "JUDGMENT_RETROSPECTIVE_SCHEMA_SQL",
+    "SCHEMA_SQL",
+    "SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL",
+]

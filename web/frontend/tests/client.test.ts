@@ -57,11 +57,11 @@ describe('fetchJson headers', () => {
     expect(headers.get('Accept')).toBe('application/json')
   })
 
-  it('adds a bearer Authorization header when a view password is stored', async () => {
+  it.each(['/api/dashboard', '/api/proposal/latest'])('adds the existing bearer password for %s', async path => {
     const password = 'stored-view-secret'
     setViewPassword(password)
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
-    await fetchJson('/api/dashboard')
+    await fetchJson(path)
     expect(requestHeaders().get('Authorization')).toBe(`Bearer ${password}`)
   })
 
@@ -73,13 +73,13 @@ describe('fetchJson headers', () => {
 })
 
 describe('fetchJson 401 handling', () => {
-  it('clears the stored password and signals it was rejected on a 401 from /api/', async () => {
+  it.each(['/api/dashboard', '/api/proposal/latest'])('clears the rejected password and reopens the gate for %s', async path => {
     setViewPassword('rejected-secret')
     const listener = vi.fn()
     const unsubscribe = subscribeAuthRequired(listener)
     fetchMock.mockResolvedValue(jsonResponse({ detail: 'unauthorized' }, 401))
     try {
-      await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
+      await expect(fetchJson(path)).rejects.toBeInstanceOf(ApiError)
       expect(getViewPassword()).toBeNull()
       expect(listener).toHaveBeenCalledTimes(1)
       expect(listener).toHaveBeenCalledWith('rejected')
@@ -167,7 +167,7 @@ describe('shared read session', () => {
     setViewPassword('owner-secret')
     bootstrap()
     fetchMock.mockResolvedValue(jsonResponse({}, 401))
-    await Promise.allSettled([fetchJson('/api/dashboard'), fetchJson('/api/tasks')])
+    await Promise.allSettled([fetchJson('/api/dashboard'), fetchJson('/api/tasks'), fetchJson('/api/proposal/latest')])
     expect(getSharedToken()).toBeNull()
     expect(getViewPassword()).toBe('owner-secret')
   })

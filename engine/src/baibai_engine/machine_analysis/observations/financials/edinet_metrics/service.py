@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_observed_documents,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
     select_document_candidates,
 )
@@ -38,7 +42,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
     EDINETProviderError,
 )
 from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, connect_current
 
 
 class EdinetMetricReader(Protocol):
@@ -114,6 +118,16 @@ def prepare_edinet_metric_plan(
         return None
 
     try:
+        # Required day lists still define acquisition completeness. Older retained
+        # observations only resolve operation ancestry; never fetch their history
+        # or admit them as extraction/archive candidates outside the window.
+        connection = connect_current(sqlite_path)
+        if connection is not None:
+            with closing(connection):
+                connection.execute("BEGIN")
+                documents.extend(
+                    read_observed_documents(connection, through=start - timedelta(days=1))
+                )
         selection = select_document_candidates(documents, origin_start=start)
     except (EDINETProviderError, SQLiteSchemaError, sqlite3.Error, OSError, ValueError) as exc:
         message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"

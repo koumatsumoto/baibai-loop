@@ -14,15 +14,15 @@ uv run baibai-engine --help
 
 setupは`.cache/dev/`へPython開発環境を用意する。shellごとにenv.shをsourceし、checkoutを移したらsetupを再実行する。secretや実storeがなくてもfixtureを使える。Windowsでの編集・依存導入はPOSIX運用scriptの動作確認とは別である。
 
-browser・DuckDB httpfsが必要な場合だけ追加する。
+browserが必要な場合だけ追加する。
 
 ```bash
-bash tools/setup-dev.sh --with-browser --with-httpfs
+bash tools/setup-dev.sh --with-browser
 ```
 
 Webを編集する場合だけ`.node-version`のNodeとnpmを用意し、`npm --prefix web/frontend ci`、`npm --prefix web/edge ci`で依存を導入する。build・testは対象HEADのCIで確認する。
 
-基本setupと追加downloadの成功を区別する。httpfsはDuckDBが使うextension cacheに導入する必要があり、任意pathへの配置だけでは使えない。remote拡張を使えない場合は[固定releaseのローカルhydrate](../jobs/OPERATIONS.md#local-release-hydrate)を使える。403をproxy解除・TLS無効化で迂回しない。
+基本setupと追加downloadの成功を区別する。403をproxy解除・TLS無効化で迂回しない。
 
 ## 実行環境と接続
 
@@ -38,9 +38,9 @@ Webを編集する場合だけ`.node-version`のNodeとnpmを用意し、`npm --
 
 branchで変更し、PRの対象HEADのCIで確認する。push前の完全local gateは必須にしない。具体的な検査commandと対象は[workflows](../.github/workflows/)・`pyproject.toml`・各package設定を正本とし、ここへコピーしない。失敗を直したら新しいHEADで確認する。
 
-domainの契約はownerのtest、CLI・Jobsは入出力と接続を検証する。同じvalidationを内部計算や全層へ重ねず、fixture共通化は意味が同じ場合に行う。Ruffのformatter targetはPython runtimeと異なり、複数例外捕捉の括弧を保つため`py313`を使う。
+domainの契約はownerのtest、CLI・Jobsは入出力と接続を検証する。同じvalidationを内部計算や全層へ重ねず、fixture共通化は意味が同じ場合に行う。
 
-必要な実store・provider確認は合成fixtureと分ける。指標・取得・Reading methodを変えた場合の観測store確認は[運用](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ進む。L2入力確認にL3全履歴の先行検査は要求しない。文書だけの変更でlive取得や本番再発行をしない。
+必要な実store・provider確認は合成fixtureと分ける。専用bucketを共有するR2受入は`-n 0`で逐次実行する。指標・取得・Reading methodを変えた場合の観測store確認は[運用](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ進む。L2入力確認にL3全履歴の先行検査は要求しない。文書だけの変更でlive取得や本番再発行をしない。
 
 R2ストレージのintegration testは外部への書込・削除を伴うため、明示依頼された専用の空bucketとcredentialがある場合だけ実行する。既存本番データを読む有限の受入とは別で、そちらも対象・保存先・書込範囲を明示して実施する。通常CIのskipを本番受入成功と扱わない。
 

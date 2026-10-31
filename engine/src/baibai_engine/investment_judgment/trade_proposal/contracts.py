@@ -441,15 +441,14 @@ class ProposalContentReview(_ProposalValue):
         return self
 
 
-class TradeProposal(_ProposalValue):
-    """不変の提案本文と、当時の入力・比較範囲・具体条件。"""
+class TradeProposalDraft(_ProposalValue):
+    """作者と独立Reviewerが固定する本文。発行時計はserviceが所有する。"""
 
     kind: Literal["investment_proposal"] = "investment_proposal"
     schema_version: Literal[3] = 3
     proposal_id: Annotated[NonEmptyStr, Field(pattern=rf"^investment-proposal-{_UUID_PATTERN}$")]
     as_of: ISODate
     prepared_at: Instant
-    published_at: Instant
     request_scope: RequestScope
     research_scope: ProposalResearchScope
     headline: NonEmptyStr
@@ -472,8 +471,8 @@ class TradeProposal(_ProposalValue):
 
     @model_validator(mode="after")
     def _scope_and_terms(self) -> Self:
-        if not self.prepared_at <= self.review.reviewed_at <= self.published_at:
-            raise ValueError("proposal requires prepared_at <= reviewed_at <= published_at")
+        if self.prepared_at > self.review.reviewed_at:
+            raise ValueError("proposal requires prepared_at <= reviewed_at")
         purpose = "holding" if self.request_scope == "review_positions" else "new"
         if any(target.purpose != purpose for target in self.research_scope.targets):
             raise ValueError("request scope and target purpose differ")
@@ -550,7 +549,7 @@ class TradeProposal(_ProposalValue):
                 raise ValueError("buy terms require valuation based on proposal as_of")
             if item.timing == "wait_limit" and terms.limit_price_yen >= quote.price_yen:
                 raise ValueError("wait_limit must be below the actual quote")
-        if item.action == "sell" or item.timing == "at_current_limit":
+        if item.action == "buy" and item.timing == "at_current_limit":
             current_limit = floor_common_stock_limit(
                 quote.price_yen,
                 target_session=terms.target_session,
@@ -570,7 +569,29 @@ class TradeProposal(_ProposalValue):
         return self.model_dump(mode="json")
 
 
-def proposal_draft_sha256(proposal: TradeProposal) -> str:
+class TradeProposal(TradeProposalDraft):
+    """不変の保存済み提案。読取時も当時の発行時計とReview順序を検証する。"""
+
+    published_at: Instant
+
+    @model_validator(mode="after")
+    def _publication_time(self) -> Self:
+        if self.review.reviewed_at > self.published_at:
+            raise ValueError("proposal requires prepared_at <= reviewed_at <= published_at")
+        return self
+
+
+def load_proposal_draft(payload: object) -> TradeProposalDraft:
+    """書込入口だけで発行metadataを除く。保存済み読取には使わない。"""
+
+    if isinstance(payload, TradeProposalDraft):
+        payload = payload.model_dump(mode="python")
+    if isinstance(payload, dict):
+        payload = {key: value for key, value in payload.items() if key != "published_at"}
+    return TradeProposalDraft.model_validate(payload)
+
+
+def proposal_draft_sha256(proposal: TradeProposalDraft) -> str:
     """Reviewと発行時刻以外の、入力/条件/warning/固定scope全体をhashする。"""
 
     payload = proposal.model_dump(mode="json", exclude={"review", "published_at"})

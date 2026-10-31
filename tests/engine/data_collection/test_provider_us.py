@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import date
 from typing import cast
 from unittest import TestCase
+from unittest.mock import patch
 
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
@@ -26,6 +27,7 @@ from baibai_engine.data_collection.transport.context import (
     BrowserUnavailableError,
     HttpSession,
     IndicatorsProviderError,
+    ProviderFetchStoppedError,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
@@ -567,8 +569,7 @@ class IndicatorsProviderParserTests(TestCase):
         browser = _FakeBrowserFetcher(b"\xff\xfe\x00garbage")
 
         with _context_with_browser(browser) as context:
-            # A decode error is not an IndicatorsProviderError, so escaping as one
-            # would deny the refresh its retry and leave the bytes cached.
+            # Bad browser bytes remain a provider failure and never enter the cache.
             with self.assertRaises(IndicatorsProviderError):
                 FrbH15Source().fetch_records(
                     series,
@@ -633,6 +634,27 @@ class IndicatorsProviderParserTests(TestCase):
             self.assertEqual(context.blocked_browser_urls, {})
 
         self.assertEqual(reached_browser, 2)
+
+    def test_h15_deadline_is_not_remembered_as_a_source_refusal(self) -> None:
+        browser = _FakeBrowserFetcher(AssertionError("deadline must prevent navigation"))
+        with _context_with_browser(browser) as context:
+            with (
+                patch.object(
+                    context,
+                    "browser_fetcher",
+                    side_effect=ProviderFetchStoppedError("acquisition job deadline exhausted"),
+                ),
+                self.assertRaisesRegex(ProviderFetchStoppedError, "deadline exhausted"),
+            ):
+                FrbH15Source().fetch_records(
+                    require_source("fed-h15"),
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, _StaticSession(_FakeResponse(b""))),
+                    context=context,
+                )
+            self.assertEqual(context.blocked_browser_urls, {})
+            self.assertEqual(browser.urls, [])
 
     def test_h15_does_not_fall_back_to_a_browser_for_a_failure_that_is_not_a_block(self) -> None:
         series = require_source("fed-h15")

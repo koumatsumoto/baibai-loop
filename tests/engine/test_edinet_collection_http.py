@@ -222,12 +222,12 @@ def test_invalid_or_past_retry_after_header(header, expected_wait, clock):
     assert clock == [expected_wait]
 
 
-def test_server_error_uses_backoff_even_with_retry_after(clock):
+def test_server_error_honors_retry_after(clock):
     unavailable = response(status_code=503)
     unavailable.headers["Retry-After"] = "99"
     session = Session(unavailable, response(b"ok"))
     http.EDINETHTTP(KEY, session=session).fetch_list(DAY)
-    assert clock == [3.0]
+    assert clock == [99.0]
     assert unavailable.close_count == 1
 
 
@@ -336,3 +336,15 @@ def test_provider_does_not_close_injected_session_after_acquisition(tmp_path):
     assert provider.list_documents(DAY) == []
     provider.close()
     assert session.close_count == 0
+
+
+def test_server_retry_after_beyond_deadline_stops_without_early_request(clock, monkeypatch):
+    monkeypatch.setattr("time.time", lambda: NOW.timestamp())
+    monkeypatch.setenv("BAIBAI_ACQUISITION_DEADLINE", str(NOW.timestamp() + 10))
+    unavailable = response(status_code=503)
+    unavailable.headers["Retry-After"] = "99"
+    session = Session(unavailable)
+    with pytest.raises(AcquisitionDeadlineExceeded):
+        http.EDINETHTTP(KEY, session=session).fetch_list(DAY)
+    assert len(session.calls) == 1
+    assert clock == []

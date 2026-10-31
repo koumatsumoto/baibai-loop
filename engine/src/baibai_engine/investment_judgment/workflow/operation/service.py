@@ -16,7 +16,10 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
     proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
+from baibai_engine.investment_judgment.trade_proposal.query import (
+    has_published_proposal_for_operation,
+    load_investment_proposal,
+)
 from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
@@ -39,7 +42,9 @@ from baibai_engine.investment_judgment.workflow.operation.validation import (
     validate_progress,
     validate_selection,
 )
-from baibai_engine.investment_judgment.workflow.selection import GeneratedResearchSelection
+from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchSelectionV4,
+)
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.primitives.json import canonical_json
@@ -89,9 +94,9 @@ class OperationService:
             raise OperationConflictError(
                 "start with `investment-judgment prepare`; one research_selection is required"
             )
-        if not isinstance(selection, GeneratedResearchSelection):
+        if not isinstance(selection, GeneratedResearchSelectionV4):
             raise OperationConflictError(
-                "new Research requires a saved model generation; legacy selections are resume-only"
+                "new Research requires Selection V4; legacy selections are resume-only"
             )
         if selection.capacity != CURRENT_RESEARCH_CAPACITY:
             raise OperationConflictError("new Research requires the current capacity policy")
@@ -183,19 +188,35 @@ class OperationService:
     def checkpoint(
         self, operation_id: str, payload: OperationPayload, *, now: datetime | None = None
     ) -> OperationSession:
+        operation = self.get(operation_id)
+        if progress_binding(payload) != progress_binding(operation.payload):
+            raise OperationConflictError(
+                "checkpoint cannot change research_progress; reload and use record-* commands"
+            )
         return self._replace_active(
-            operation_id, payload=payload, completed_at=None, checked_at=now
+            operation_id,
+            payload=payload,
+            completed_at=None,
+            checked_at=now,
+            expected_payload=operation.payload,
         )
 
     def complete(
         self,
         operation_id: str,
-        payload: OperationPayload,
         *,
+        result: str,
+        next: str,
         completed_at: datetime,
     ) -> OperationSession:
         try:
-            return self._replace_active(operation_id, payload=payload, completed_at=completed_at)
+            operation = self.get(operation_id)
+            return self._replace_active(
+                operation_id,
+                payload=operation.payload.model_copy(update={"result": result, "next": next}),
+                completed_at=completed_at,
+                expected_payload=operation.payload,
+            )
         except (OperationCompletionError, OperationConflictError):
             raise
         except ValueError as error:
@@ -372,7 +393,7 @@ class OperationService:
                 before = _from_row(row)
                 if expected_payload is not None and before.payload != expected_payload:
                     raise OperationConflictError(
-                        "research progress changed; reload before recording outcome"
+                        "research progress changed; reload before updating Operation"
                     )
                 if before.status != "active":
                     raise OperationConflictError(
@@ -397,7 +418,8 @@ class OperationService:
                     complete=completed_at is not None,
                     previous=progress_binding(before.payload),
                 )
-                if progress.outcomes:
+                # Completion adds notes, not a new representation of stored artifacts.
+                if progress.outcomes and completed_at is None:
                     payload = with_progress(payload, progress)
                 if progress.proposal_ref is not None:
                     _require_published_proposal(
@@ -412,7 +434,16 @@ class OperationService:
                         or progress.proposal_ref != progress_binding(before.payload).proposal_ref,
                     )
                 if completed_at is not None:
-                    if selected_before.targets and progress.proposal_ref is None:
+                    # Coverage is already exact. Check publication under this writer
+                    # transaction: publishing does not itself bind the Operation ref.
+                    if (
+                        selected_before.targets
+                        and progress.proposal_ref is None
+                        and (
+                            not all(outcome.status == "unfinished" for outcome in progress.outcomes)
+                            or has_published_proposal_for_operation(connection, operation_id)
+                        )
+                    ):
                         raise OperationCompletionError(
                             "completion requires one published Trade Proposal reference"
                         )

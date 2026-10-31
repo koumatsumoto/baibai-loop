@@ -3,6 +3,7 @@
 import json
 import socket
 import sqlite3
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,8 +17,14 @@ from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import historical_operation, selected_target, selection
 
 from baibai_engine.cli.investment_judgment import main
+from baibai_engine.investment_judgment.company_research.document import ResearchDraft
+from baibai_engine.investment_judgment.company_research.store import (
+    ResearchStoreService,
+    require_research_ref,
+)
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     TradeProposal,
+    load_proposal_draft,
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
@@ -40,6 +47,7 @@ from baibai_engine.investment_judgment.workflow.workspace import (
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
 )
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
 
@@ -376,28 +384,96 @@ def test_active_binding_cannot_be_changed_with_force(tmp_path, change):
         )
 
 
-def test_completed_retry_and_real_same_text_request_have_different_identities(tmp_path):
-    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW)
+def test_unfinished_completion_retains_partial_research_and_allows_a_new_prepared_request(tmp_path):
+    value = seed_generated_selection(runs=tmp_path / "runs", now=NOW, tickers=("1234", "5678"))
     first = prepare(tmp_path, value=value)
-    service = OperationService(tmp_path / "app")
-    operation = service.get(first.operation_id)
-    service.complete(
-        first.operation_id,
-        operation.payload.model_copy(
-            update={"result": "no targets with reason", "next": "new request"}
-        ),
-        completed_at=NOW,
+    db = tmp_path / "app"
+    service = OperationService(db)
+    saved_at = NOW + timedelta(seconds=1)
+    research = ResearchStoreService(db, clock=lambda: saved_at).save(
+        ResearchDraft.model_validate(
+            {
+                "research_id": "partial-1234",
+                "document": {
+                    "ticker": "1234",
+                    "as_of": NOW.date(),
+                    "investigated_scope": "借換条件の一次資料を検索したが確定できない",
+                    "unresolved_questions": ["次回開示で借換条件を確認する"],
+                },
+            }
+        )
     )
-    assert prepare(tmp_path, value=value).status == "already_completed"
-    second = prepare(tmp_path, value=value, workspace=tmp_path / "new-workspace")
+    for ticker in ("1234", "5678"):
+        operation = service.record_unfinished(
+            first.operation_id,
+            ticker=ticker,
+            reason="一次資料が不足し評価未完了",
+            references=(research.reference.research_id, research.reference.payload_sha256)
+            if ticker == "1234"
+            else ("synthetic-unavailable-source",),
+            now=saved_at,
+        )
+    fixed_hash = selection_sha256(selection_binding(operation.payload))
+    completed = service.complete(
+        first.operation_id,
+        result="部分Researchを保存し今回の作業を終了、評価は未完了",
+        next="次回開示で借換条件を確認する",
+        completed_at=saved_at,
+    )
+    assert service.active() is None
+    assert completed.payload.artifacts == operation.payload.artifacts
+    assert completed.payload.canonical_refs == operation.payload.canonical_refs
+    assert selection_sha256(selection_binding(completed.payload)) == fixed_hash
+    assert (
+        compute_status(first.workspace, db_path=db, now=saved_at)["workspace_status"]
+        == "incomplete"
+    )
+    resumed = prepare(tmp_path, value=value, now=saved_at)
+    assert resumed.status == "already_completed"
+    assert resumed.next_step is None
+    assert (
+        resume_selected_workspace(
+            operation_id=first.operation_id,
+            db_path=db,
+            workspace=first.workspace,
+            now=saved_at,
+            force=True,
+        ).next_step
+        is None
+    )
+    next_now = saved_at + timedelta(seconds=1)
+    next_selection = seed_generated_selection(
+        runs=tmp_path / "runs", now=next_now, tickers=("1234", "5678"), db=db
+    )
+    second = prepare(
+        tmp_path, value=next_selection, workspace=tmp_path / "new-workspace", now=next_now
+    )
     assert second.operation_id != first.operation_id
     assert second.status == "prepared"
+    assert service.active().operation_id == second.operation_id
+    second_selection = selection_binding(service.get(second.operation_id).payload)
+    assert second_selection.request.text == value.request.text
+    reused_research = second_selection.inputs.saved_company_context["1234"].research
+    assert reused_research.role == "unreviewed_research"
+    assert reused_research.record == research
+    assert service.get(first.operation_id) == completed
+    with closing(connect_read_only(db)) as connection:
+        assert require_research_ref(connection, research.reference) == research
+        for table in (
+            "investment_proposal",
+            "investment_proposal_item",
+            "stock_assessment",
+            "stock_assessment_review",
+            "position_decision_reference",
+            "ledger_event",
+        ):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
     with pytest.raises(ResearchWorkspaceConflictError, match="another Operation"):
         resume_selected_workspace(
             operation_id=second.operation_id,
             db_path=tmp_path / "app",
             workspace=first.workspace,
-            now=NOW,
+            now=next_now,
             force=True,
         )
 
@@ -461,7 +537,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     saved_selection = selection_binding(
         OperationService(tmp_path / "app").get(prepared.operation_id).payload
     )
-    assert saved_selection.schema_version == (3 if generated else 2)
+    assert saved_selection.schema_version == (4 if generated else 2)
     fixed_hash = selection_sha256(saved_selection)
     workspace = prepared.workspace
     assert not (workspace / "research-workspace.yaml").exists()
@@ -546,7 +622,7 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     assert checked["valid"] is True
     assert checked["review_binding"] == "stale"
     assert unchanged == (draft_path.read_bytes(), (workspace / "domain-inputs.yaml").read_bytes())
-    draft = TradeProposal.model_validate(raw)
+    draft = load_proposal_draft(raw)
     draft = draft.model_copy(
         update={
             "review": draft.review.model_copy(
@@ -581,23 +657,14 @@ def test_selected_promote_proposal_and_completion_use_current_scope(
     operation = service.get(prepared.operation_id)
     complete = service.complete(
         prepared.operation_id,
-        operation.payload.model_copy(
-            update={
-                "artifacts": (
-                    *operation.payload.artifacts,
-                    {
-                        "kind": "investment_proposal",
-                        "ref": proposal.proposal_id,
-                    },
-                ),
-                "result": "proposal complete",
-                "next": "human decision",
-            }
-        ),
+        result="proposal complete",
+        next="human decision",
         completed_at=NOW,
     )
     assert complete.status == "completed"
     assert service.get(prepared.operation_id) == complete
+    assert complete.payload.artifacts == operation.payload.artifacts
+    assert complete.payload.canonical_refs == operation.payload.canonical_refs
     assert "human_confirmation" not in complete.payload.model_dump()
     assert (
         main(["trade-proposal-preview", "--proposal-id", proposal_id, *common_args], now=NOW) == 0

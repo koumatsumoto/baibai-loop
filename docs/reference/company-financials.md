@@ -20,14 +20,16 @@ Yは報告された年間利益総額を現在の普通株時価総額で割る�
 
 実績TTMは会計期間で最新実績を選び、比較する前年FY・前年同期間を確定してから必要fieldを見る。配当/予想だけの文書で実績を消さず、最新実績訂正の欠測を古いrevisionや別期間で補わない。単一四半期の単純年率化はTTMではない。連結/単体区分を揃えても連結範囲や会計方針の不変までは保証しない。
 
+決算短信`DocType`の会計基準JP・US・JMIS・IFRSは連結/単体区分と別に解決する。対象期間と最新訂正候補を固定してから、YoY、TTM、利益率、複数FYの平均で同じ基準か確認する。Foreign・REITなど基準未確定の書類は比較を成立させず、報告額と独立した価格・株数・配当は残す。異基準の旧FYへ候補政策を迂回させない。
+
+EDINETの同一文書current/comparativeは、[企業成長の出典付き比較](company-growth.md#edinet同一文書の比較)と同じ`reported_comparisons`を追加保存する。J-Quantsの報告値・TTM・価格倍率のoperandへ横結合せず、組替値を取得できない企業や既存の独立した財務経路を除外しない。
+
 利益価格の内訳は保持したsource内の最新公表された期間別金額と開示日・時刻・文書番号を保持するが、訂正同士の経済的整合まで照合済みとはしない。前年累計の数値配信が通期より後でも、通期公表日までに訂正内容が別資料で公表されている場合があるため、配信順だけで誤額と認定したり一律に除外したりしない。L3は重要な訂正について原典の対応を確認する。企業成長の保守的な累計訂正制約と、最新公表額の算術を同じ契約と扱わない。
 
 
 合成は円総額で行い、1株換算は最後に一度だけ行う。各期EPSは異なる平均株数で割られており、EPSの和差では株式数が変わった企業を誤る。FinancialSnapshotのEPSは時価総額と同じ自己株控除後分母で組み直した値で、会社開示の期中平均株数EPSとは別である。
 
-3FY平均EPSのnormalized PERは、連続FYとsplit-safe basisを揃えた算術平均。循環や一時損益を経済的に正常化した利益ではない。旧Normalized Earningsの候補抽出で使っていたが、現行の候補政策のmembershipや順位へは使わない。旧機械ER/FV anchorへも投入しない。後者は長期比較で増分効果を支持せず、[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-02-normalized-per-production/report.md)とした。必要年度の不正・欠測を古い年度で埋めない。
-
-YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。旧指標の選択利益に経常/純利益fallbackがあっても、営業利益を代替しない。新しい五モデルの成長変化はcompany_growthが所有し、負基準の旧前年比を併記しない。
+YoYは同じ会計期間・利益field・連結区分を比較し、直前開示とのQoQを読み替えない。比較不能のnullは改善なしではない。負の前年利益の比率符号だけで改善を読まず、赤字縮小を別に扱う。旧指標の選択利益に経常/純利益fallbackがあっても、営業利益を代替しない。現行モデルの成長変化はcompany_growthが所有し、負基準の旧前年比を併記しない。
 
 ## 資本と株式単位
 
@@ -53,6 +55,12 @@ OCFとcapexは同じcontext・scopeを使い、合算と内訳を二重計上せ
 
 exact/approximated/unavailableは取得フローと期間の品質。年次metadataの12か月確認と、半期等を完全TTMへ合成できることは別で、半期CFを機械年率化しない。net cashは時点残高で12か月フローではない。品質は経済的持続性・株主回収可能性・倍率全体の正しさの認定ではない。
 
+現行 generation の `financial.edinet_reported_flows` は報告額を `amounts` に一度だけ保持し、年次・半期・累計の種類、連結basis、出所、既存抽出ownerの `annual_quality` を一緒に渡す。旧物理列の `*_ttm` は改名・再保存せず、新規モデルでは同値のTTM aliasを出さない。半期・変則年度・期間不明を単純年率化せず、年間額として成立しないFCF yield・EV/EBITDAは出さない。年次exactの報告額と利回りは維持するが、最新終端のTTMを意味しない。規模照合で倍率へ不適格な場合も報告額自体は消さず、`edinet_failure_reasons` を併記する。
+
+`filing_fiscal_period` は既知の書類年度を保持する。現行metric storeはnative contextの日付を保存していないため、`measurement_period` は理由付き不明のままにし、年度metadataや提出日から推定しない。年次exactの既存認定もnative fact durationの観測済みを意味しない。一方、短信の `ocf_ttm_period` は値と同じ構成要素の実期間・金額・開示identityと合成方法を示す。March annualの報告FCFとJune trailing CFOなどを、同じ期間の差引きに使わない。短信提供値とEDINET原典の精度差も元値のまま残す。
+
+この意味変更は新しい企業財務generation revisionに限り、旧generation・判断hash・再開payloadへ既定値を補わない。EDINETの全年代TTM化やFY＋当期YTD−前年YTDの新規合成は行っていない。
+
 Investment JudgmentのBS文脈で測定日やdebt scopeが未保存なら、最新開示日・書類期末・最大carry lagから推定しない。金額と品質だけでなく原典の時点・連結・単位・内訳を必要な範囲で確認する。
 
 ## 配当と還元
@@ -63,13 +71,7 @@ DPSの会社予想と実績を対象期・basisごとに分ける。L3の期間�
 
 basis未解決と無配・未観測を分け、独立して使える予想まで妨げない。相殺して累積factorが1でも変更をなかったことにしない。原本の明細・総額・株数は残し、未解決年度を飛ばして増配率やstreakを復活させない。将来carryを実現配当へ読み替えない。
 
-## 相対比較と自己レンジ
-
-旧runの倍率業種中央値は当時のScreeningの共通資格母集団で作る。新しい五モデルの市場・同業文脈とは区別する。母数下限は少数の中央値へ依存しすぎないための慣例で、経済的最適値ではない。軸ごとの欠測が異なるので業種/市場fallbackも軸ごとに異なる。market fallbackのgapを「同業より割安」と読まず、構成の違いとbasisを併記する。
-
-自己レンジは**現在fundamentalsを固定し、過去価格だけを動かした倍率比較**。各日の当時利益・資本から再現した倍率履歴ではない。min/max内の位置は観測順位のpercentileではなく、短い履歴の位置0も長期割安の証拠ではない。bar本数、履歴期間proxy、scope内の相対密度を合わせて読む。密度は取引calendarの完全性を証明しない。
-
-真の倍率履歴anchorへの置換は、必要な5y確認窓が成立せず[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-08-17-self-range-vs-multiple-history/report.md)とした。
+## 価格と株数のbasis
 
 価格調整はraw closeとfactorからas-of basisを作り、取得世代の異なるprovider調整済み価格を接続しない。価格日より後のfactorを使い、権利落ち日当日に二重適用しない。factor0をイベントなしとせず、正の有限係数を要求する。
 

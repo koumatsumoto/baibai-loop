@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
 from baibai_engine.machine_analysis.generation.runners.security_context import (
     build_security_market_contexts,
 )
+from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
 from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
     VALUATION_HISTORY_SESSIONS,
 )
@@ -29,6 +30,9 @@ from baibai_engine.machine_analysis.models.technical_analysis.price_path import 
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
+    read_comparison_population,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -38,7 +42,6 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 )
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    price_calendar_basis,
     read_price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -98,8 +101,8 @@ def read_and_generate_models(
         subjects = tuple(
             sorted(
                 ticker
-                for ticker, row in master.securities.items()
-                if row["is_common_stock"] and str(row["market_segment"]).upper() in ELIGIBLE_MARKETS
+                for ticker, security in master.securities.items()
+                if security.is_common_stock and security.market_segment.upper() in ELIGIBLE_MARKETS
             )
         )
         if not subjects:
@@ -112,8 +115,10 @@ def read_and_generate_models(
         connection.execute("BEGIN")
         for row in read_financial_documents(connection, start=date.min, end=date.max):
             documents[row.ticker].append(row)
+        comparisons = read_comparison_population(
+            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+        )
         calendar = read_price_calendar(connection, as_of=as_of)
-        expected_price_date, trading_dates = price_calendar_basis(calendar, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
             (window[0] for window in path_calendar.windows.values() if window is not None),
@@ -170,16 +175,28 @@ def read_and_generate_models(
             as_of=as_of,
             benchmark_ticker=prepared.benchmark_ticker,
         )
-    histories = read_observation_population(path, tickers=subjects, cutoff=evaluation_time)
+    histories = read_observation_population(
+        path, tickers=subjects, cutoff=evaluation_time, include_tradingview=True
+    )
     edinet = EDINETReader(path).load_metric_records(as_of)
+    trends = read_trend_inputs(
+        path,
+        release_id=market_release.release_id,
+        release_sha256=market_release.manifest_sha256,
+        cutoff=evaluation_time,
+        as_of=as_of,
+    )
     companies = [
         CompanyModelInputs(
             ticker=ticker,
             financial_documents=documents.get(ticker, ()),
             adjusted_bars=prices.get(ticker, ()),
             adjustment_events=events.get(ticker, ()),
-            sector=None if master is None else _sector(master.securities.get(ticker)),
+            sector=master.securities[ticker].sector_33
+            if master is not None and ticker in master.securities
+            else None,
             edinet=edinet.get(ticker),
+            comparisons=comparisons.get(ticker, ()),
             price_path=price_paths[ticker],
         )
         for ticker in subjects
@@ -203,8 +220,8 @@ def read_and_generate_models(
         },
         financial_release=market_release,
         companies=companies,
-        trading_dates=trading_dates,
-        expected_price_date=expected_price_date,
+        trading_dates=path_calendar.trading_dates,
+        expected_price_date=path_calendar.expected_price_date,
         ttm_rules=ttm_rules,
         external_observations=histories,
         market_context={
@@ -216,9 +233,5 @@ def read_and_generate_models(
         securities_context=contexts,
         market_context_revision="shared-market-context-price-path-v2",
         growth_start=growth_start,
+        trends=trends,
     )
-
-
-def _sector(security: dict[str, object] | None) -> str | None:
-    value = None if security is None else security.get("sector_33")
-    return value if isinstance(value, str) else None

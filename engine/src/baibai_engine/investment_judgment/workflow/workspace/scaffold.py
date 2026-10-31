@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from baibai_engine.investment_judgment.company_research.document import ResearchRecord
+from baibai_engine.investment_judgment.company_research.store import load_research
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
@@ -75,8 +77,11 @@ def scaffold_assessment(
     db_path: Path | None = None,
     force: bool = False,
     from_assessment_id: str | None = None,
+    from_research_id: str | None = None,
     out: Path | None = None,
 ) -> dict[str, object]:
+    if from_assessment_id is not None and from_research_id is not None:
+        raise ResearchWorkspaceConflictError("choose Research seed or Assessment refresh, not both")
     manifest = _load_mapping(workspace / "manifest.yaml", label="workspace manifest")
     gate = require_authoring_selection(
         manifest, ticker=ticker, action="scaffold research", db_path=db_path
@@ -101,9 +106,16 @@ def scaffold_assessment(
         raise ResearchWorkspaceDataError("assessment predates the fixed Research selection")
     # The refresh path preserves saved source/fact dates and does not read a new quote.
     quote = None
+    research: ResearchRecord | None = None
     with closing(connect_read_only(database_path(db_path))) as connection:
         connection.execute("BEGIN")
         supersedes_id = latest_assessment_id(connection, ticker)
+        if from_research_id is not None:
+            research = load_research(connection, from_research_id)
+            if research.document.ticker != ticker:
+                raise ResearchWorkspaceConflictError("Research seed must belong to this ticker")
+            if research.document.as_of > as_of or research.recorded_at > retrieved_at:
+                raise ResearchWorkspaceDataError("Research seed is after the assessment time")
         if from_assessment_id is not None:
             pair = load_reviewed_assessment(connection, from_assessment_id)
             if pair.document.input_snapshot.ticker != ticker:
@@ -115,6 +127,18 @@ def scaffold_assessment(
         quote = read_unadjusted_close(sqlite_path=sqlite_path, ticker=ticker, at=price_cutoff)
         sources: list[dict[str, object]] = []
         facts: list[dict[str, object]] = []
+        if research is not None:
+            # Namespaced copies preserve original dates and reference relationships;
+            # the new quote can never replace a saved Research fact with the same ID.
+            for source in research.document.sources:
+                item = source.model_dump(mode="json")
+                item["source_id"] = f"research_{source.source_id}"
+                sources.append(item)
+            for fact in research.document.facts:
+                item = fact.model_dump(mode="json")
+                item["fact_id"] = f"research_{fact.fact_id}"
+                item["source_ids"] = [f"research_{ref}" for ref in fact.source_ids]
+                facts.append(item)
         if quote is not None:
             sources.append(
                 {
@@ -172,7 +196,11 @@ def scaffold_assessment(
             },
             "permanent_loss_risks": [],
             "findings": {
-                "business_understanding": None,
+                "business_understanding": (
+                    research.document.business_understanding.text
+                    if research is not None and research.document.business_understanding is not None
+                    else None
+                ),
                 "value_gap_explanation": None,
                 "realization": {
                     "mechanism": None,
@@ -180,9 +208,21 @@ def scaffold_assessment(
                     "timing_reason": None,
                     "delay_risk": None,
                 },
-                "hypotheses": [],
-                "unresolved_questions": [],
-                "source_ids": [],
+                "hypotheses": [
+                    {
+                        **hypothesis.model_dump(mode="json"),
+                        "source_ids": [f"research_{ref}" for ref in hypothesis.source_ids],
+                    }
+                    for hypothesis in (() if research is None else research.document.hypotheses)
+                ],
+                "unresolved_questions": (
+                    [] if research is None else list(research.document.unresolved_questions)
+                ),
+                "source_ids": (
+                    []
+                    if research is None
+                    else [f"research_{source.source_id}" for source in research.document.sources]
+                ),
             },
             "conclusion": {
                 "stance": "uncertain",
@@ -215,7 +255,16 @@ def scaffold_assessment(
             "supersedes_id": supersedes_id,
         }
     write_text_atomic(identity_path, _dump_yaml(identity))
-    content = _ASSESSMENT_DRAFT_HEADER + _dump_yaml(payload)
+    seed_header = (
+        ""
+        if research is None
+        else (
+            f"# 転記元Research: {research.reference.research_id!r} "
+            f"sha256={research.reference.payload_sha256}\n"
+            "# 原資料の確認時刻を保持した転記。価値・結論・Reviewは別途作成する。\n"
+        )
+    )
+    content = _ASSESSMENT_DRAFT_HEADER + seed_header + _dump_yaml(payload)
     write_text_atomic(path, content)
     if out is not None and out.resolve() != path:
         write_text_atomic(out, content)
@@ -224,6 +273,7 @@ def scaffold_assessment(
         "price_as_of": None if quote is None else quote.price_as_of.isoformat(),
         "close_yen": None if quote is None else quote.close_yen,
         "from_assessment_id": from_assessment_id,
+        "from_research_id": from_research_id,
         "assessment_id": identity["assessment_id"],
         "exported_draft": None if out is None else str(out),
     }

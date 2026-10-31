@@ -67,7 +67,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-engine investment-judgment")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser(
+        "proposal-records", help="proposal corrections and human reports", add_help=False
+    )
+    subparsers.add_parser(
         "market-context", help="explicit market judgment and saved history", add_help=False
+    )
+    subparsers.add_parser(
+        "company-research", help="save/revisit partial company research", add_help=False
+    )
+    subparsers.add_parser(
+        "judgment-retrospective",
+        help="compare a saved judgment with later evidence",
+        add_help=False,
     )
     context_parser = subparsers.add_parser(
         "selection-context", help="read saved inputs for AI target selection"
@@ -111,8 +122,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument(
         "--company-growth-periods",
         type=_growth_display_periods,
-        default=12,
-        help="display latest N saved growth periods, or all; does not change saved inputs",
+        default=...,
+        help=(
+            "display latest N saved growth periods, or all; "
+            "defaults to the existing workspace setting, or 12 for a new workspace; "
+            "does not change saved inputs"
+        ),
     )
     prepare_parser.add_argument(
         "--force", action="store_true", help="repair generated projections; retain authored drafts"
@@ -134,7 +149,9 @@ def build_parser() -> argparse.ArgumentParser:
     assessment_parser.add_argument("--asof", required=True, type=date.fromisoformat)
     assessment_parser.add_argument("--out", type=Path)
     assessment_parser.add_argument("--force", action="store_true")
-    assessment_parser.add_argument("--from-assessment-id")
+    seed = assessment_parser.add_mutually_exclusive_group()
+    seed.add_argument("--from-assessment-id")
+    seed.add_argument("--from-research-id")
 
     review_parser = subparsers.add_parser(
         "independent-review-scaffold", help="bind an independent Review to a stable Assessment"
@@ -193,6 +210,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else list(argv)
+    if arguments and arguments[0] == "proposal-records":
+        from baibai_engine.cli.proposal_records import main as proposal_records_main
+
+        return proposal_records_main(arguments[1:])
+    if arguments and arguments[0] == "company-research":
+        from baibai_engine.cli.company_research import main as company_research_main
+
+        return company_research_main(arguments[1:], now=now)
+    if arguments and arguments[0] == "judgment-retrospective":
+        from baibai_engine.cli.judgment_retrospective import main as judgment_retrospective_main
+
+        return judgment_retrospective_main(arguments[1:], now=now)
     if arguments and arguments[0] == "market-context":
         from baibai_engine.cli.market_assessment import main as market_context_main
 
@@ -301,6 +330,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                         db_path=args.db,
                         force=args.force,
                         from_assessment_id=args.from_assessment_id,
+                        from_research_id=args.from_research_id,
                         out=args.out,
                     ),
                     out,
@@ -366,7 +396,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
             case "trade-proposal-check" | "trade-proposal-publish":
                 from baibai_engine.investment_judgment.trade_proposal.contracts import (
-                    TradeProposal,
+                    load_proposal_draft,
                     proposal_draft_sha256,
                 )
                 from baibai_engine.investment_judgment.trade_proposal.service import (
@@ -377,7 +407,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     payload = safe_load(args.draft.read_text(encoding="utf-8"))
                 except yaml.YAMLError as error:
                     raise ValueError(f"invalid proposal YAML: {args.draft}: {error}") from error
-                proposal = TradeProposal.model_validate(payload)
+                proposal = load_proposal_draft(payload)
                 service = TradeProposalService(
                     args.db,
                     sqlite_path=args.sqlite_path,

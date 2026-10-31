@@ -37,7 +37,19 @@ def test_check_without_r2_reports_real_local_completeness(tmp_path, capsys, fail
         "external": None,
     }
     if failed_part == "handoff":
-        report["handoffs"] = [{"failed": True}]
+        report["handoffs"] = [
+            {
+                "entry": {
+                    "source": "market-sources-unreadable",
+                    "stage_id": "broken",
+                    "invalid": "ValueError",
+                },
+                "result": {"reason": "invalid_handoff"},
+                "applied": False,
+                "failed": True,
+                "recovery": True,
+            }
+        ]
     elif failed_part == "edinet":
         # Initial production bootstrap: no handoffs, metrics list still missing.
         report["extractions"]["edinet-metrics"]["exit_code"] = 1
@@ -50,7 +62,19 @@ def test_check_without_r2_reports_real_local_completeness(tmp_path, capsys, fail
     before = path.read_bytes()
     entries_before = set(tmp_path.iterdir())
     assert source_integration.main(["check", "--directory", str(tmp_path)]) == expected
-    assert capsys.readouterr().err == ""
+    output = capsys.readouterr()
+    assert output.err == ""
+    summary = json.loads(output.out)
+    if failed_part == "handoff":
+        assert summary["failed_handoffs"] == [
+            {
+                "source": "market-sources-unreadable",
+                "stage_id": "broken",
+                "result": {"reason": "invalid_handoff"},
+            }
+        ]
+    if failed_part == "edinet":
+        assert summary["failed_extractions"] == {"edinet-metrics": {"exit_code": 1}}
     assert path.read_bytes() == before
     assert set(tmp_path.iterdir()) == entries_before
 

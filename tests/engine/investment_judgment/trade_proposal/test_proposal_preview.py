@@ -53,9 +53,9 @@ def test_preview_separates_actual_quote_and_saved_limit_without_writes(tmp_path)
 def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_path):
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     before = _snapshot(case.app)
     with closing(sqlite3.connect(case.market)) as connection, connection:
         connection.execute("UPDATE jquants_daily_bars SET close=900")
@@ -123,6 +123,7 @@ def test_preview_reports_current_budget_warnings_separately_from_saved_terms(tmp
         now=PUBLISHED + timedelta(minutes=5),
     )
     assert preview.status == "changed"
+    assert preview.items[0]["saved_limit_revalidation"]["quantity"] == 300
     assert preview.current_inputs.budget_min_yen == 350000
     assert "budget_guide_under" in preview.items[0]["current_terms_warnings"]
     assert preview.items[0]["saved_terms"]["warnings"] == saved_warnings
@@ -140,9 +141,8 @@ def test_preview_does_not_require_active_operation_or_compare_current_progress(t
     )
     case.operations.complete(
         recorded.operation_id,
-        recorded.payload.model_copy(
-            update={"result": "完成した比較で見送る。", "next": "重要な変化があれば新Research。"}
-        ),
+        result="完成した比較で見送る。",
+        next="重要な変化があれば新Research。",
         completed_at=PUBLISHED,
     )
     assert (
@@ -169,9 +169,9 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
             "reason": "同日起点で残存見返りが十分と確認した。",
         }
         proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
-    TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED).publish(
-        proposal
-    )
+    proposal = TradeProposalService(
+        case.app, sqlite_path=case.market, clock=lambda: PUBLISHED
+    ).publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
@@ -228,7 +228,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
-    service.publish(proposal)
+    proposal = service.publish(proposal)
     before = _snapshot(case.app)
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
@@ -278,4 +278,60 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
     assert after_pair.core_sha256 == original_hash
     assert after_pair.document.valuation.required_annual_return_pct == 3
     assert after_pair.document.valuation.horizon_months == horizon_months
+    assert _snapshot(case.app) == before
+
+
+@pytest.mark.parametrize(
+    ("selected", "current_cash", "maximum", "blocked"),
+    [
+        (100, 600000, 300, False),
+        (100, 250000, 200, False),
+        (100, 100000, 100, False),
+        (100, 99999, 0, True),
+        (300, 200000, 200, True),
+    ],
+)
+def test_saved_quantity_is_revalidated_without_resizing_when_cash_changes(
+    tmp_path, selected, current_cash, maximum, blocked
+):
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_event_draft
+    from baibai_engine.portfolio.ledger.events import ContributionEvent, WithdrawalEvent
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
+
+    case = backend_case(tmp_path, cash_yen=500000)
+    raw = reviewed_proposal(case).payload()
+    raw["items"][0]["terms"].update(quantity=selected, notional_yen=str(selected * 1000))
+    proposal = bind_review(raw, {case.pair.assessment_id: case.pair.document})
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    check = service.check(proposal)
+    assert check.valid
+    assert check.calculations["1234"]["quantity"] == selected
+    assert check.calculations["1234"]["maximum_quantity"] == 300
+    published = service.publish(proposal)
+    store = LedgerStoreService(case.app)
+    values = dict(
+        event_id="synthetic-cash-change",
+        occurred_at=PUBLISHED + timedelta(minutes=1),
+        amount_yen=abs(current_cash - 500000),
+    )
+    event = (
+        ContributionEvent(type="contribution", **values)
+        if current_cash > 500000
+        else WithdrawalEvent(type="withdrawal", **values)
+    )
+    apply_draft(store, build_event_draft(store, event), human_confirmed=True)
+    before = _snapshot(case.app)
+    preview = preview_current_terms(
+        proposal_id=proposal.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(minutes=5),
+    )
+    row = preview.items[0]
+    assert preview.status == ("blocked" if blocked else "changed")
+    assert row["saved_terms"]["quantity"] == selected
+    assert row["saved_limit_revalidation"]["quantity"] == (0 if blocked else selected)
+    assert row["saved_limit_revalidation"]["maximum_quantity"] == maximum
+    assert bool(row["saved_limit_revalidation"]["hard_blockers"]) is blocked
+    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
     assert _snapshot(case.app) == before

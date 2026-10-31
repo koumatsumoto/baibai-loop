@@ -56,7 +56,7 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 
 原測定は日本/米国のS&P Global製造業headline PMIとサービスBusiness Activity Indexの4系列。ISM・製造業Output・Compositeへ置換しない。現行catalogは公式PDF経路のままで、下記Trading Economics（TE）adapterはまだ通常取得へ切り替えていない。保存済公式PDFと既存source IDは変更しない。
 
-2026-10-29の有限確認では、認証・偽装User-AgentなしのPython urllibでTEの公開4記事と日本製造業indexをHTTP 200で受領した。一方、通常adapterのFetchContext（requests）による日本製造業indexの最初のGETはHTTP 403だった。別header・transport・proxyへの切替や反復取得はしていない。**公開記事の解析成功と通常取得の復旧は別であり、本番取得・保存・公開・読戻しは未検証**。
+2026-10-29の有限確認では、認証・偽装User-AgentなしのPython urllibでTEの公開4記事と日本製造業indexをHTTP 200で受領した。一方、通常adapterのFetchContext（requests）による日本製造業indexの最初のGETはHTTP 403だった。別header・transport・proxyへの切替や反復取得はしていない。**公開記事の解析成功と通常取得の復旧は別であり、本番取得・保存・公開・読戻しは未検証**。 2026-10-31にも主担当が通常adapterの日本製造業indexを有限再確認し、最初のGETが403で停止した。今回の受領文書は0件で、transport変更・既知記事への迂回・反復取得はしていない。
 
 別の公式配信候補も有限確認した。[auじぶん銀行の既知PMI landing](https://www.jibunbank.co.jp/landing/jibunbank_japan_pmi/)は通常GETで200だったが、現行PMI記事・公表linkのない銀行汎用ページだった。S&Pの[日本10月commentary](https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/10/japans-october-flash-pmi-points-to-sustained-solid-growth-and-rising-cost-pressures)と[米10月commentary](https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/10/us-flash-pmi-signals-sustained-strong-growth-but-also-further-inflation-uplift-in-october)本文は読めるが、4つのheadline確報表ではなく、Composite/Outputを代用しない。米記事が案内する新しい[10月速報原本](https://www.pmi.spglobal.com/Public/Home/PressRelease/07d16568e63346999890940d47639cd9)を通常FetchContextで一度GETすると403 Forbiddenで停止した。TEだけの障害から全PMI経路の不可能を推定せず、確認済み候補と未確認の継続coverageを区別する。
 
@@ -128,7 +128,7 @@ L1はMCP SDK CallToolResultの保存可能な表現で、HTTP wire bytesやSDK�
 
 各行を実受領cutoff以内へ限定し、観測後の次の取引機会より前へ遡及させない。休日の同値を独立sampleにしない。正常rowのnull、明示unresolved、行がない未取得と技術障害を分ける。部分公開は全市場の代表標本ではなく、L1 replayでも元の受領時刻を維持する。
 
-quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。取得・復旧は[TradingView運用](../../jobs/OPERATIONS.md#tradingview-expectations)へ進む。
+quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。公式connectorの明示受領、保存・モデル入力と履歴の扱いは[TradingView運用](../../jobs/OPERATIONS.md#tradingview-expectations)に従う。
 
 <a id="public-research-reports"></a>
 ## 公開企業レポート
