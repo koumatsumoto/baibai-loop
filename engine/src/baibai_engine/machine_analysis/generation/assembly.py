@@ -36,6 +36,9 @@ from baibai_engine.machine_analysis.models.social_trends.calculations import cal
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -57,6 +60,7 @@ class CompanyModelInputs:
     sector: str | None
     edinet: EdinetMetricRecord | None = None
     price_path: dict[str, object] | None = None
+    comparisons: Sequence[FilingComparisons] = ()
 
 
 def generate_models(
@@ -163,6 +167,7 @@ def generate_models(
                 growth_start=growth_start,
                 edinet=company.edinet,
                 price_path=company.price_path,
+                comparisons=company.comparisons,
             )
             history = external_observations.get(ticker)
             if history is not None:

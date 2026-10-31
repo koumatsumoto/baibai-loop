@@ -6,7 +6,10 @@ import json
 import sqlite3
 from collections.abc import Mapping
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import duckdb
 
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     _canonicalize_document_events,
@@ -61,7 +64,10 @@ def read_stored_documents(
 
 
 def read_observed_documents(
-    connection: sqlite3.Connection, *, through: date, start: date | None = None
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    *,
+    through: date,
+    start: date | None = None,
 ) -> list[dict[str, Any]]:
     """Read retained evidence, without claiming completeness of acquisition days.
 
@@ -85,11 +91,14 @@ def read_observed_documents(
         "ORDER BY d.doc_date, d.sequence_number",
         (through.isoformat(), start_iso, start_iso),
     )
+    assert cursor.description is not None
     columns = tuple(column[0] for column in cursor.description)
     current_date: str | None = None
     native: dict[tuple[int, str], dict[str, Any]] | None = None
     documents: list[dict[str, Any]] = []
-    for values in cursor:
+    # DuckDB uses the connection as its cursor. Preserve this result before the
+    # per-day native-list queries below, exactly as for the SQLite projection.
+    for values in cursor.fetchall():
         projected = dict(zip(columns, values, strict=True))
         doc_date = str(projected["doc_date"])
         if doc_date != current_date:

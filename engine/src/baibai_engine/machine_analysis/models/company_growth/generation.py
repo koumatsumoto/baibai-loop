@@ -9,11 +9,15 @@ from itertools import pairwise
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
+    build_reported_comparison,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import (
     CompanyGrowth,
     Coverage,
     InputRelease,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -31,6 +35,8 @@ def generate_company_growth(
     input_release: InputRelease,
     start: date | None = None,
     end: date | None = None,
+    comparisons: Sequence[FilingComparisons] = (),
+    comparison_input_reason: str | None = None,
 ) -> CompanyGrowth:
     """期間端で表示を限定し、固定releaseに残る訂正履歴は入力に維持する。"""
     ticker = normalize_ticker(ticker)
@@ -46,10 +52,33 @@ def generate_company_growth(
     displayed = tuple(
         s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
     )
+    if any(item.ticker != ticker for item in comparisons):
+        raise ValueError("reported comparisons contain a different ticker")
+    reported = tuple(
+        build_reported_comparison(item)
+        for item in comparisons
+        if item.source_submit_datetime.date() <= as_of
+        and (
+            item.current_period_end is None
+            or (
+                (start is None or start <= item.current_period_end)
+                and item.current_period_end <= end
+            )
+        )
+    )
     return result.model_copy(
         update={
-            "status": "available" if displayed else "unavailable",
-            "reason": None if displayed else "accounting_period_not_observed",
+            "status": "available"
+            if displayed or any(c.changes for c in reported)
+            else "unavailable",
+            "reason": None
+            if displayed or any(c.changes for c in reported)
+            else "accounting_period_not_observed",
+            "reported_comparisons": reported,
+            "comparison_input_reason": comparison_input_reason,
+            "calculation_method": "company_growth_retrospective_v8-edinet-comparisons"
+            if reported
+            else result.calculation_method,
             "input_release": input_release,
             "periods": displayed,
             "changes": tuple(

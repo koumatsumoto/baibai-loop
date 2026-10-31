@@ -7,6 +7,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
+)
+
 type Metric = Literal[
     "sales",
     "operating_profit",
@@ -90,6 +94,14 @@ class InputRelease(Contract):
     receipt_cutoff: None = None
 
 
+class ReportedComparison(Contract):
+    observation: FilingComparisons
+    changes: tuple[Change, ...] = ()
+    read_semantics: Literal["each_document_vintage_not_latest_or_ttm"] = (
+        "each_document_vintage_not_latest_or_ttm"
+    )
+
+
 class OptionalContext(Contract):
     status: Literal["not_provided"] = "not_provided"
     reason: str
@@ -136,6 +148,12 @@ class CompanyGrowth(Contract):
     coverage: Coverage = Coverage()
     periods: tuple[PeriodState, ...] = ()
     changes: tuple[Change, ...] = ()
+    reported_comparisons: tuple[ReportedComparison, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
+    comparison_input_reason: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     per: OptionalContext = OptionalContext(
         reason="price_share_unit_and_parent_profit_alignment_not_verified"
     )

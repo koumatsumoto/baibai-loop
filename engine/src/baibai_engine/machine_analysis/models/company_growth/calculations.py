@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import date, timedelta
+from decimal import Decimal
 
 from baibai_engine.machine_analysis.models.company_growth.models import (
     Change,
@@ -11,8 +12,12 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     Observation,
     PeriodState,
     PeriodStatus,
+    ReportedComparison,
     SourceDocument,
     Value,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     AccountingPeriodKey,
@@ -64,6 +69,37 @@ _FINANCIAL_SECTORS = {
     "保険業",
     "その他金融業",
 }
+
+
+def build_reported_comparison(observation: FilingComparisons) -> ReportedComparison:
+    """Native same-document pairs are independent of the historical J-Quants series."""
+    changes: list[Change] = []
+    for pair in observation.pairs:
+        before, after = pair.comparative, pair.current
+        if before is None or after is None:
+            continue  # The observation retains the missing/conflict reason.
+        prior = Decimal(before.amount) if before.amount is not None else None
+        current = Decimal(after.amount) if after.amount is not None else None
+        difference = current - prior if prior is not None and current is not None else None
+        changes.append(
+            Change(
+                metric=pair.metric,
+                measurement="reported",
+                from_start=before.period_start,
+                from_end=before.period_end,
+                to_start=after.period_start,
+                to_end=after.period_end,
+                from_value=float(prior) if prior is not None else None,
+                to_value=float(current) if current is not None else None,
+                difference=float(difference) if difference is not None else None,
+                rate=float(difference / prior)
+                if difference is not None and prior is not None and prior > 0
+                else None,
+                reason=pair.reason
+                or ("nonpositive_base" if prior is not None and prior <= 0 else None),
+            )
+        )
+    return ReportedComparison(observation=observation, changes=tuple(changes))
 
 
 def _document(row: JQuantsFinancialSummary) -> SourceDocument:

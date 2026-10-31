@@ -30,6 +30,9 @@ from baibai_engine.machine_analysis.models.technical_analysis.price_path import 
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
+    read_comparison_population,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -112,6 +115,9 @@ def read_and_generate_models(
         connection.execute("BEGIN")
         for row in read_financial_documents(connection, start=date.min, end=date.max):
             documents[row.ticker].append(row)
+        comparisons = read_comparison_population(
+            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+        )
         calendar = read_price_calendar(connection, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
@@ -190,6 +196,7 @@ def read_and_generate_models(
             if master is not None and ticker in master.securities
             else None,
             edinet=edinet.get(ticker),
+            comparisons=comparisons.get(ticker, ()),
             price_path=price_paths[ticker],
         )
         for ticker in subjects
