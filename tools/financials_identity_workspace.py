@@ -1,6 +1,7 @@
 """旧workspace全体を監査保全し、completedの運用投影だけを新directoryへ復元する。"""
 
 import argparse
+import hashlib
 import json
 import shutil
 from datetime import UTC, datetime
@@ -13,14 +14,20 @@ from baibai_engine.investment_judgment.workflow.selection_evidence import read_s
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     resume_selected_workspace,
 )
-from tools.financials_identity import file_sha256
+
+
+def _file_sha256(path: Path) -> str:
+    with path.open("rb") as source:
+        return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def _files(root: Path) -> dict[str, str]:
     if root.is_symlink() or any(path.is_symlink() for path in root.rglob("*")):
         raise ValueError("workspace archive requires regular files without symlinks")
     return {
-        str(path.relative_to(root)): file_sha256(path) for path in root.rglob("*") if path.is_file()
+        str(path.relative_to(root)): _file_sha256(path)
+        for path in root.rglob("*")
+        if path.is_file()
     }
 
 
