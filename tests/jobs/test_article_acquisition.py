@@ -891,3 +891,44 @@ def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache
     assert observed == wanted
     state, _ = load_planning(store, source)
     assert load_frontier_cursor(store, state)["pending"] == []
+
+
+def test_partial_discovery_before_body_queue_still_saves_all_discovered_work(
+    tmp_path, monkeypatch
+):
+    from baibai_engine.data_collection.transport.articles import ArticleBudgetExceeded
+
+    feed = (
+        b"<rss><channel><item><guid>one</guid>"
+        b"<link>https://news.web.nhk/news/one</link><title>One</title>"
+        b"</item></channel></rss>"
+    )
+    session = Session([Response(200, feed)])
+    original = articles.fetch_article
+    calls = 0
+
+    def stop_after_first(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise ArticleBudgetExceeded("synthetic deadline")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(articles, "fetch_article", stop_after_first)
+    store = MemoryR2Store()
+    publish_planning_input(store, "nhk_news", {})
+    report = articles.acquire_source(
+        store,
+        source="nhk_news",
+        slot=SLOT,
+        identity="partial-discovery",
+        directory=tmp_path / "partial-discovery",
+        session=session,
+    )
+    assert report["bodies"] == 0
+    assert report["continuation_only"] is False
+    assert "ArticleBudgetExceeded" in report["failures"]
+    state, _ = load_planning(store, "nhk_news")
+    frontier = load_frontier_cursor(store, state)
+    assert [url for url, _ in frontier["pending"]] == ["https://news.web.nhk/news/one"]
+    assert len(frontier["observed"]) == 1
