@@ -10,7 +10,11 @@ from baibai_engine.machine_analysis.observations.articles.store import read_obse
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import articles
-from baibai_jobs.acquisition.article_planning import load_planning, publish_planning_input
+from baibai_jobs.acquisition.article_planning import (
+    load_frontier_cursor,
+    load_planning,
+    publish_planning_input,
+)
 from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
 
@@ -315,7 +319,8 @@ def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monk
     assert report["omitted_url_count"] == 0
     planning, _ = load_planning(store, source)
     assert len(planning.pending) == 1
-    assert planning.cursor["pending_urls"] == [f"https://www.tsr-net.co.jp{urls[-1]}"]
+    frontier = load_frontier_cursor(store, planning)
+    assert [item[0] for item in frontier["pending"]] == [f"https://www.tsr-net.co.jp{urls[-1]}"]
     assert json.loads((packet / "result.json").read_text())["continuation_only"] is True
 
     def acquire(_store, *, source, **_kwargs):
@@ -410,7 +415,7 @@ def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
         assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 2
 
 
-def test_cursor_overflow_is_not_a_successful_continuation(tmp_path, monkeypatch):
+def test_large_index_retains_all_pending_work_outside_the_mutable_summary(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
@@ -436,10 +441,12 @@ def test_cursor_overflow_is_not_a_successful_continuation(tmp_path, monkeypatch)
     )
     planning, _ = load_planning(store, "tsr_data")
     assert report["status"] == "partial"
-    assert report["continuation_only"] is False
-    assert "pending_cursor_overflow" in report["failures"]
-    assert report["omitted_url_count"] == 1
-    assert len(planning.cursor["pending_urls"]) == articles.MAX_REQUEST_STATES
+    assert report["continuation_only"] is True
+    assert report["failures"] == []
+    assert report["omitted_url_count"] == 0
+    frontier = load_frontier_cursor(store, planning)
+    assert len(frontier["pending"]) == articles.MAX_REQUEST_STATES + 1
+    assert set(planning.cursor) == {"format", "stage"}
     monkeypatch.setattr(
         articles,
         "acquire_source",
@@ -461,7 +468,7 @@ def test_cursor_overflow_is_not_a_successful_continuation(tmp_path, monkeypatch)
                 str(tmp_path / "group"),
             ]
         )
-        == 1
+        == 0
     )
 
 
@@ -652,7 +659,9 @@ def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(tmp_path, monke
     assert first_report["status"] == "partial"
     planning, _ = load_planning(store, "nhk_news")
     url = "https://news.web.nhk/news/example"
-    original = planning.cursor["pending_evidence"][url]
+    frontier = load_frontier_cursor(store, planning)
+    pending = next(refs for pending_url, refs in frontier["pending"] if pending_url == url)
+    original = frontier["indexes"][pending[0][0]]
     assert original["stage"]["manifest_sha256"] == first_report["manifest_sha256"]
     second = tmp_path / "second"
     second_report = articles.acquire_source(
@@ -828,3 +837,54 @@ def test_nhk_conflicting_guids_for_one_url_keep_raw_without_guessed_projection(
     assert result.report["projection_failures"]
     with closing(connect_read_only(tmp_path / "market.sqlite")) as conn:
         assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 5
+
+
+def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache(
+    tmp_path, monkeypatch
+):
+    from baibai_jobs.acquisition.article_planning import acknowledge_stage
+
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    source = "tsr_data"
+    rows = [{"url": f"/data/detail/native-{i}.html", "title": f"Synthetic {i}"}
+            for i in range(137)]
+    feed = json.dumps(rows).encode()
+    wanted = {"https://www.tsr-net.co.jp" + row["url"] for row in rows}
+    observed = set()
+
+    class NativeSession:
+        def get(self, url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            if url == articles.SOURCES[source].entry_url:
+                return Response(200, feed)
+            assert url in wanted
+            observed.add(url)
+            return Response(200, b"<div class='entry'>Synthetic body</div>")
+
+    class Clock(datetime):
+        instant = SLOT
+
+        @classmethod
+        def now(cls, _tz):
+            return cls.instant
+
+    monkeypatch.setattr(articles, "datetime", Clock)
+    monkeypatch.setattr("baibai_engine.data_collection.transport.articles.datetime", Clock)
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    for number in range(24):
+        Clock.instant = SLOT + timedelta(days=number)
+        report = articles.acquire_source(
+            store, source=source, slot=Clock.instant, identity=str(number),
+            directory=tmp_path / f"slot-{number}", session=NativeSession(),
+        )
+        assert report["bodies"] <= 8
+        assert report["failures"] == []
+        state, _ = load_planning(store, source)
+        assert len(state.requests) <= 128
+        acknowledge_stage(store, state.pending[-1])
+    assert observed == wanted
+    state, _ = load_planning(store, source)
+    assert load_frontier_cursor(store, state)["pending"] == []

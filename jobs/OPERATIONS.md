@@ -139,12 +139,16 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 
 `cloud-article-sources`は01:13/05:13/09:13/13:13/17:13/21:13 UTCの最大6 slot/日。TSR data/flashだけ13:13の日次slotで取得する。13:43の日次統合は到着済みstageを固定し、記事取得の完了を待たない。slotは元run作成時計から固定し、実受領日時・公表日時・公開世代を別に保つ。遅延/rerunを過去時刻の取得とは扱わない。
 
-source別summaryは`coordination/article-planning/<source>.json`。validator・具体的200 receiptのstage/hash・有限cursor・not-before・未統合stageだけを含み、各128 request/128 KiB、未統合42 stageまでとする。128 KiBは日本語をASCII escapeで膨張させないcompact UTF-8 JSONの実bytesへ適用し、項目・cursor・原本参照を削って収めない。上限到達時は保持中の範囲を消して進めず統合/限定回復へ進む。初回summaryは`integration.sources inputs`で**取得有効化前**に発行する。summary不存在を空DBや全market pullで代替しない。通常resumeはsource数分のsummary GETと必要な304 baseline stageだけで、全stage LIST・本文全履歴の再取得をしない。private原本保存後だけcursorをCAS更新する。CAS競合で孤立した原本stageは正確なID/hashで回復できるためproviderを再取得しない。
+source別summaryは`coordination/article-planning/<source>.json`。validator・具体的200 receiptのstage/hash・有限cursor・not-before・未統合stageだけを含み、各128 request/128 KiB、未統合42 stageまでとする。128 KiBは日本語をASCII escapeで膨張させないcompact UTF-8 JSONの実bytesへ適用し、項目・cursor・原本参照を削って収めない。上限到達時は保持中の範囲を消して進めず統合/限定回復へ進む。初回summaryは`integration.sources inputs`で**取得有効化前**に発行する。summary不存在を空DBや全market pullで代替しない。通常resumeはsource数分のsummary GETと、必要な304 baseline・未処理workset・index原本だけを読み、全stage LIST・本文全履歴の再取得をしない。private原本保存後だけcursorをCAS更新する。CAS競合で孤立した原本stageは正確なID/hashで回復できるためproviderを再取得しない。
 
 各adapterの上限は`providers/articles/contracts.py`が正本。初期値は1 index page（みんかぶ3）・最大8本文（楽天iframeは0）・展開後24 MB/source・120秒/source、GET試行上限は`2 × (page上限 + 本文上限)`。NHKは4 feed（政治/経済/国際/主要）を1 providerとしてfeed 1 MiB/HTML 2 MiB/総20 MiB、本文8 URL内に48時間以内の既知URL再検証最大2を含める。同GUIDの本文GETをまとめてもfeed受領と概要は別々に保持する。NHKは直列開始間隔1秒以上、他の新GETは5秒以上空け、304 baselineなしの無条件再取得も同じGET予算を消費する。401/403/parse失敗はtransport retryしない。HTTP redirectは追わず、未確認canonical host・Direct_Loginへ巡回を広げない。財務省の`insideLink`に明示された即時meta-refreshだけは、同一HTTPS hostの通常ページを別GET・別受領として既存本文予算内で取得する。案内ページを転送先本文へ置き換えず、二段目の案内・別host・認証情報付きURLへは追従しない。財務総研の直近一年講演会一覧は一覧本文と参照URLまでとし、更新通知一件から過去の全講演PDFを巡回しない。みんかぶは先頭pageの重複取得と続きpage、トウシルは新URLと直近既知URLの有限再検証を行う。残URL/cursorと省略数はprivateに保持し、楽天20見出し窓や全履歴の完全回収を保証しない。
 財務省の国債金利CSV（当月・全履歴の既知URL）はHTMLへdecodeせず、既存mof_jgb sourceと同じCP932として表の全文・空欄・注記を保持する。これは文字表現の投影であり、年限・和暦・値の観測解釈を新しく行わず、既存の金利系列と独立した根拠へ数えない。原受領のencodingや旧投影は上書きせず、財務省のparser revisionを分ける。
 
 日銀の金融システムレポートは汎用HTML用上限を超えるため、日銀本文だけの応答上限を設ける。feed・source全体・group全体の予算と取得回数は増やさない。日銀のXLSX原本はHTMLへdecodeせず、シート名・セル座標とともに明示セルを部分テキストへ投影する。式は原式の文字列として残し、計算結果・表示書式・図表を復元したとは扱わない。セル訪問数とZIP展開サイズの上限超過は失敗として残す。旧投影は保持し、日銀のparser revisionを分けて再投影する。
+
+NHK・TSRの未処理URLは、validator cacheから独立したworksetとしてimmutable handoffへ保存し、mutable planning V2はそのexact stage参照だけを持つ。直前の正常index原本との差分で新着を判定し、並替えやcache evictionを新着扱いしない。新着・継続FIFOの先頭を再検証より先に選び、最大2新着/2再検証と残りFIFOで既存本文予算を共有する。失敗は未処理の末尾へ戻す。GUID/titleをmutable summaryへ大量複製せず、原indexのreceipt/locatorへ戻す。worksetは1MBを目安上限にし、private handoff全体の2MB上限も維持する。新着を格納できない場合は古い未処理を捨てず、対象index参照と失敗を保存して次のHTTP前に停止する。旧省略数は自動的に0へしない。旧cursorと保持indexから候補を回収し、過去の未回収範囲は別に残す。BOJ/MOF等の添付queueは本変更の対象外。
+
+V2へ切替後に旧codeで取得を再開しない。旧readerはformat不一致で停止する。切替前に旧HEADのpublic取得runを確認し、稼働中の取得へ同じsourceを書かせない。通常統合のacknowledgementは未統合stage列だけを減らし、現在worksetとそのindex原本参照は保持する。planning CAS失敗で残ったstageの原本回復と、最新cursorの復元は別であり、後続取得が進んだcursorを古い計画で巻き戻さない。
 
 slot結果の`partial`は未取得のURL/pageが残る場合も維持する。原本stageと有限cursorを正常保存でき、`continuation_only=true`の場合だけjobは成功終了し、次slotへ継続する。HTTP・parse・deadline・非前進page・cursor省略・private保存/計画CAS失敗は成功扱いせず、保存済み原本と失敗理由を別々に確認する。
 

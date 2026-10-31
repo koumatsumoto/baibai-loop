@@ -182,3 +182,48 @@ def test_planning_budgets_utf8_without_dropping_japanese_evidence():
 def test_compact_planning_still_refuses_actual_byte_overflow():
     with pytest.raises(ValueError, match="bytes budget"):
         ArticlePlanning("nhk_news", {}, cursor={"title": "あ" * 45_000}).encoded()
+
+
+def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
+    from baibai_jobs.acquisition.article_frontier import FRONTIER_FORMAT, FRONTIER_REF_FORMAT
+    from baibai_jobs.acquisition.article_planning import load_frontier_cursor
+
+    remote = MemoryR2Store()
+    source = "nhk_news"
+    publish_planning_input(remote, source, {})
+    state, etag = load_planning(remote, source)
+    stage_id = "nhk_news-frontier"
+    cursor = {
+        "format": FRONTIER_FORMAT,
+        "indexes": [{"stage": {"stage_id": stage_id}, "index_receipt_id": "index"}],
+        "observed": {"https://news.web.nhk/index": 0},
+        "pending": [["https://news.web.nhk/article", [[0, "/item/0"]]]],
+        "legacy_omitted": 190,
+        "next_page": None,
+        "capacity_blocked_indexes": [],
+    }
+    entry = commit_stage(
+        remote,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id=stage_id,
+        directory=_packet(tmp_path, source),
+        requests={},
+        cursor=cursor,
+        not_before=None,
+    )
+    saved, _ = load_planning(remote, source)
+    assert saved.to_json()["format"] == "article-planning-v2"
+    assert saved.cursor == {"format": FRONTIER_REF_FORMAT, "stage": entry}
+    resolved = load_frontier_cursor(remote, saved)
+    assert resolved["indexes"][0]["stage"] == entry
+    assert resolved["legacy_omitted"] == 190
+    acknowledge_stage(remote, entry)
+    after, _ = load_planning(remote, source)
+    assert after.pending == ()
+    assert load_frontier_cursor(remote, after) == resolved
+    bad = dict(entry, manifest_sha256="0" * 64)
+    invalid = ArticlePlanning(source, {}, cursor={"format": FRONTIER_REF_FORMAT, "stage": bad})
+    with pytest.raises(LakePublishError, match="manifest differs"):
+        load_frontier_cursor(remote, invalid)
