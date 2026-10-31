@@ -95,7 +95,7 @@ def read_comparison_population(
     if observations:
         cursor = connection.execute(
             "SELECT doc_id, zip_content FROM edinet_source_archives "
-            "WHERE source_type = 1 ORDER BY doc_id"
+            "WHERE source_type = 1"
         )
         while batch := cursor.fetchmany(8):
             for doc_id, content in batch:
