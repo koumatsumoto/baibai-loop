@@ -35,7 +35,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
-from baibai_engine.investment_judgment.workflow.workspace.files import ResearchWorkspaceConflictError
+from baibai_engine.investment_judgment.workflow.workspace.files import (
+    ResearchWorkspaceConflictError,
+)
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     resume_selected_workspace,
 )
@@ -61,9 +63,7 @@ def reference(proposal):
     )
 
 
-def evidence_case(
-    tmp_path, monkeypatch, *, generation_version=1, selection_version=4, damage=None
-):
+def evidence_case(tmp_path, monkeypatch, *, generation_version=1, selection_version=4, damage=None):
     """署名は旧入力に対して先に作る。現schemaへ小さな既知の保存状態をseedする。"""
     if generation_version == 2:
         generation_type = generation_helpers.ModelGeneration
@@ -164,12 +164,6 @@ def evidence_case(
             context_summary="架空の文脈",
         )
     )
-    case.operations.complete(
-        case.operation.operation_id,
-        result="架空の有限判断完了",
-        next="本人の判断は別記録",
-        completed_at=PUBLISHED + timedelta(minutes=2),
-    )
     published = canonical_json(case.selected.model_dump(mode="json"))
     raw = case.selected.model_dump(mode="json")
     # 汎用変換や旧schemaは持たず、この2モデルの合成保存状態だけを明示する。
@@ -186,22 +180,28 @@ def evidence_case(
         NEW: "original-calculation"
     }
     operational = parse_selection(raw)
-    payload = case.operations.get(case.operation.operation_id).payload.model_dump(mode="json")
+    operation = case.operations.get(case.operation.operation_id)
+    assert operation.status == "active"
+    payload = operation.payload.model_dump(mode="json")
+    payload["result"] = "架空の有限判断完了"
+    payload["next"] = "本人の判断は別記録"
     for index, artifact in enumerate(payload["artifacts"]):
         if artifact.get("kind") == "research_selection":
             payload["artifacts"][index] = operational.model_dump(mode="json")
     if damage == "duplicate_selection":
         payload["artifacts"].append(operational.model_dump(mode="json"))
     with sqlite3.connect(case.app) as connection:
+        # 完了serviceや変換の試験ではなく、現schemaの既知の保存状態をseedする。
+        # 通常writerが作った原署名を保ち、completed行のUPDATE/DELETEは行わない。
         connection.execute(
-            "UPDATE operation_session SET payload=? WHERE operation_id=?",
-            (canonical_json(payload), case.operation.operation_id),
+            "UPDATE operation_session SET status=?,completed_at=?,payload=? WHERE operation_id=?",
+            (
+                "active" if damage == "active" else "completed",
+                None if damage == "active" else (PUBLISHED + timedelta(minutes=2)).isoformat(),
+                canonical_json(payload),
+                case.operation.operation_id,
+            ),
         )
-        if damage == "active":
-            connection.execute(
-                "UPDATE operation_session SET status='active',completed_at=NULL WHERE operation_id=?",
-                (case.operation.operation_id,),
-            )
         if damage != "no_receipt":
             connection.execute(
                 "INSERT INTO selection_identity_migration VALUES (?,?,?,?,?,?)",
@@ -255,11 +255,15 @@ def test_original_signature_human_report_and_original_index_stay_exact(
     b = json.loads(new["canonical_json"])["inputs"]["generation"]["models"]
     assert [model["model_id"] for model in a] == ["company_growth", OLD]
     assert [model["model_id"] for model in b] == [NEW, "company_growth"]
-    assert a[1]["payload"] == b[0]["payload"] == {
-        "amount": "123456789.000",
-        "decimals": "-3",
-        "unknown": None,
-    }
+    assert (
+        a[1]["payload"]
+        == b[0]["payload"]
+        == {
+            "amount": "123456789.000",
+            "decimals": "-3",
+            "unknown": None,
+        }
+    )
     assert before == hashlib.sha256(case.app.read_bytes()).hexdigest()
 
 
@@ -268,7 +272,7 @@ def test_original_signature_human_report_and_original_index_stay_exact(
 )
 def test_damaged_receipt_or_operation_is_not_reinterpreted(tmp_path, monkeypatch, damage):
     case, original, _, _ = evidence_case(tmp_path, monkeypatch, damage=damage)
-    with pytest.raises(ValueError, match="exact inputs|one fixed selection"):
+    with pytest.raises(ValueError, match=r"exact inputs|one fixed selection"):
         read_selection_evidence(
             operation_id=case.operation.operation_id,
             sha256=original.research_scope.selection_sha256,

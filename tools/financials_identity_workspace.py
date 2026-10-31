@@ -25,7 +25,9 @@ def _files(root: Path) -> dict[str, str]:
     if root.is_symlink() or any(path.is_symlink() for path in root.rglob("*")):
         raise ValueError("workspace archive requires regular files without symlinks")
     return {
-        str(path.relative_to(root)): _file_sha256(path) for path in root.rglob("*") if path.is_file()
+        str(path.relative_to(root)): _file_sha256(path)
+        for path in root.rglob("*")
+        if path.is_file()
     }
 
 
