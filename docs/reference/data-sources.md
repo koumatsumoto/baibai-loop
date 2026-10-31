@@ -51,6 +51,32 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 
 松井証券の買建評価損益率は同社内の信用買建の一系列で、全市場・追証人数・二市場信用残を直接観測しない。公表符号と注記を保ち、紹介算式から符号を修正しない。年のない表示日は受領JST日から14日以内の月日・曜日の一意候補による推定で、当時の公表年の証明ではない。再掲で鮮度を進めず、受領vintageを公表時刻と呼ばない。背景情報に限り、既存価格下落と独立した悪材料として加算しない。
 
+<a id="pmi-public-articles"></a>
+### PMIの公開記事経路（#1477、未有効化）
+
+原測定は日本/米国のS&P Global製造業headline PMIとサービスBusiness Activity Indexの4系列。ISM・製造業Output・Compositeへ置換しない。現行catalogは公式PDF経路のままで、下記Trading Economics（TE）adapterはまだ通常取得へ切り替えていない。保存済公式PDFと既存source IDは変更しない。
+
+2026-10-29の有限確認では、認証・偽装User-AgentなしのPython urllibでTEの公開4記事と日本製造業indexをHTTP 200で受領した。一方、通常adapterのFetchContext（requests）による日本製造業indexの最初のGETはHTTP 403だった。別header・transport・proxyへの切替や反復取得はしていない。**公開記事の解析成功と通常取得の復旧は別であり、本番取得・保存・公開・読戻しは未検証**。 2026-10-31にも主担当が通常adapterの日本製造業indexを有限再確認し、最初のGETが403で停止した。今回の受領文書は0件で、transport変更・既知記事への迂回・反復取得はしていない。
+
+別の公式配信候補も有限確認した。[auじぶん銀行の既知PMI landing](https://www.jibunbank.co.jp/landing/jibunbank_japan_pmi/)は通常GETで200だったが、現行PMI記事・公表linkのない銀行汎用ページだった。S&Pの[日本10月commentary](https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/10/japans-october-flash-pmi-points-to-sustained-solid-growth-and-rising-cost-pressures)と[米10月commentary](https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/10/us-flash-pmi-signals-sustained-strong-growth-but-also-further-inflation-uplift-in-october)本文は読めるが、4つのheadline確報表ではなく、Composite/Outputを代用しない。米記事が案内する新しい[10月速報原本](https://www.pmi.spglobal.com/Public/Home/PressRelease/07d16568e63346999890940d47639cd9)を通常FetchContextで一度GETすると403 Forbiddenで停止した。TEだけの障害から全PMI経路の不可能を推定せず、確認済み候補と未確認の継続coverageを区別する。
+
+| 2026年9月確報 | TE記事 | 別編集・配信経路での同月照合 |
+| --- | --- | --- |
+| 日本製造業 54.1 | [10月1日記事](https://tradingeconomics.com/japan/manufacturing-pmi/news/588414) | [Reuters](https://ca.marketscreener.com/news/japan-september-factory-growth-slows-to-6-month-low-pmi-shows-ce785ad3da8cf024) |
+| 日本サービス 51.3 | [10月5日記事](https://tradingeconomics.com/japan/services-pmi/news/589330) | [Reuters](https://www.marketscreener.com/news/japan-service-sector-activity-slows-from-5-month-high-pmi-shows-ce785ddbdf89fe24) |
+| 米製造業 55.9 | [10月1日記事](https://tradingeconomics.com/united-states/manufacturing-pmi/news/588819) | [The Manufacturer](https://www.themanufacturer.com/articles/u-s-manufacturing-growth-accelerates-to-strongest-level-since-2022/) |
+| 米サービス 58.8 | [10月5日記事](https://tradingeconomics.com/united-states/services-pmi/news/589603) | [Investrade日報](https://investrade.com/market-review-october-05-2026/) |
+
+上表は本文で確認した値と期の照合で、別経済測定による二票や将来の全月coverageの保証ではない。TE4記事の受領HTMLを新readerで有限に再読し、上表の4値を確報として抽出できた。検索snippetを観測storeへ転記せず、原文全文をrepo/Issueへ再配布しない。
+
+[TE公開規約](https://tradingeconomics.com/terms.aspx)のpersonal analysis向け限定licenseを確認した。公開少量readを個人・非公開分析に用いる候補とし、API契約・課金・credential追加は行わない。規約が継続自動保存まで明示許諾すると断定はしない。robots.txtに禁止記載がないことだけを利用許諾にはしない。[S&P FAQ](https://www.spglobal.com/market-intelligence/en/solutions/products/resources/pmi-faq)による速報は確報の先行推計で、別の月次標本ではない。
+
+adapterはindexの当該国/系列の公開記事linkと、選択期間内の既知記事URLを限定再確認する。本文は`news_description`の先頭段落だけを読み、後続News Streamの別月速報、前月値、予想、Output/Compositeを採用しない。国・系列・明示対象年月・現在値と速報比較の関係からphaseを確認し、日付だけで月の不整合を修正しない。`selected_urls`は明示された既知URLだけの有限取得口であり、index拒否時の自動fallbackではない。この口の通常transport実取得は未検証で、403後に試していない。
+
+TE原文はHTML、配信元は`tradingeconomics`、原測定元は`spglobal`として保存する。URL別request identityで同月速報/確報/再発行を共存させ、通常の変更受領履歴に同URL訂正を追加する。L2は同月確報を速報より優先し、遅着速報で降格せず月1標本にする。同phaseの再発行は記事公表日、受領順で選ぶ。最新選択原文が読めなければ旧usable値へ戻さない。受領は成功しても主記事identity/抽出の失敗は残す。
+
+TEのJSON-LD `datePublished`/`dateModified`、実受領日時、共通取得runによる最後の確認を分ける。TE記事時刻をS&P自体の公表日時や過去の初回既知時刻としない。新しい取得で固定済みResearch入力を変更せず、過去の季調改訂の網羅・indexに載らなくなった未受領記事の発見・完全PITは保証しない。通常経路の取得可能性と将来月/phase coverageを確かめてからcatalog切替と本番限定受入へ進む。
+
 ## EDINET
 
 一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Financialsのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
