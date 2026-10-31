@@ -19,7 +19,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_re
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
-
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -37,9 +36,9 @@ from baibai_engine.storage.snapshots.objects import mirror_path, open_lake
 from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
     materialize_partitions,
+    partition_objects,
     resolve_release,
     selected_partitions,
-    partition_objects,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import LakeStoreOrigin
 
@@ -136,7 +135,8 @@ def _read_fixed_financial_population(
             for item in required:
                 accepted = accepted_dataset(release, item)
                 item_paths = materialize_partitions(
-                    cache, dataset=accepted,
+                    cache,
+                    dataset=accepted,
                     partitions=selected_partitions(release, accepted.name),
                 )
                 if item_paths:
@@ -146,12 +146,15 @@ def _read_fixed_financial_population(
                 materialized.append(bool(item_paths))
             if all(materialized):
                 comparisons = read_comparison_population(
-                    session.connection, as_of=as_of,
+                    session.connection,
+                    as_of=as_of,
                     tickers=(ticker,) if ticker is not None else None,
                 )
         return {
             code: FixedFinancialDocuments(
-                tuple(grouped.get(code, ())), sectors.get(code), comparisons.get(code, ()),
+                tuple(grouped.get(code, ())),
+                sectors.get(code),
+                comparisons.get(code, ()),
                 comparison_input_reason,
             )
             for code in sorted(grouped.keys() | sectors.keys() | comparisons.keys())

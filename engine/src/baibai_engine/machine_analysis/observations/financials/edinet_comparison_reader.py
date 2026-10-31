@@ -50,7 +50,8 @@ def read_comparison_population(
     )
     selected = set(tickers) if tickers is not None else None
     blocked_tickers = {
-        event.ticker for event in quarantined
+        event.ticker
+        for event in quarantined
         if event.ticker is not None and event.document_type in {"120", "130", "160", "170"}
     }
     blocked_ids = {value for event in quarantined for value in (event.doc_id, event.target_doc_id)}
@@ -103,13 +104,16 @@ def read_comparison_population(
                 received.add(doc_id)
                 base = observations[doc_id]
                 if doc_id not in ready:
-                    observations[doc_id] = base.model_copy(update={
-                        "source_sha256": hashlib.sha256(bytes(content)).hexdigest()
-                    })
+                    observations[doc_id] = base.model_copy(
+                        update={"source_sha256": hashlib.sha256(bytes(content)).hexdigest()}
+                    )
                     continue
                 extracted = extract_comparisons(
-                    content=bytes(content), ticker=base.ticker, doc_id=doc_id,
-                    submitted=ready[doc_id], document_type=base.document_type,
+                    content=bytes(content),
+                    ticker=base.ticker,
+                    doc_id=doc_id,
+                    submitted=ready[doc_id],
+                    document_type=base.document_type,
                 )
                 observations[doc_id] = extracted.model_copy(
                     update={"parent_doc_id": base.parent_doc_id}
@@ -133,7 +137,7 @@ def read_comparison_population(
     population: dict[str, list[FilingComparisons]] = {}
     for item in sorted(
         (observations[key] for key in included),
-        key=lambda item: (item.source_submit_datetime, item.source_doc_id)
+        key=lambda item: (item.source_submit_datetime, item.source_doc_id),
     ):
         population.setdefault(item.ticker, []).append(item)
     return {ticker: tuple(items) for ticker, items in population.items()}

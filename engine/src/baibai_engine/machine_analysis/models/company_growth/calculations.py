@@ -81,16 +81,24 @@ def build_reported_comparison(observation: FilingComparisons) -> ReportedCompari
         prior = Decimal(before.amount) if before.amount is not None else None
         current = Decimal(after.amount) if after.amount is not None else None
         difference = current - prior if prior is not None and current is not None else None
-        changes.append(Change(
-            metric=pair.metric, measurement="reported",
-            from_start=before.period_start, from_end=before.period_end,
-            to_start=after.period_start, to_end=after.period_end,
-            from_value=float(prior) if prior is not None else None,
-            to_value=float(current) if current is not None else None,
-            difference=float(difference) if difference is not None else None,
-            rate=float(difference / prior) if difference is not None and prior is not None and prior > 0 else None,
-            reason=pair.reason or ("nonpositive_base" if prior is not None and prior <= 0 else None),
-        ))
+        changes.append(
+            Change(
+                metric=pair.metric,
+                measurement="reported",
+                from_start=before.period_start,
+                from_end=before.period_end,
+                to_start=after.period_start,
+                to_end=after.period_end,
+                from_value=float(prior) if prior is not None else None,
+                to_value=float(current) if current is not None else None,
+                difference=float(difference) if difference is not None else None,
+                rate=float(difference / prior)
+                if difference is not None and prior is not None and prior > 0
+                else None,
+                reason=pair.reason
+                or ("nonpositive_base" if prior is not None and prior <= 0 else None),
+            )
+        )
     return ReportedComparison(observation=observation, changes=tuple(changes))
 
 

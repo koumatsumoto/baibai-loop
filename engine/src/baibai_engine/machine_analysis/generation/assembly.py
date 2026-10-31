@@ -36,10 +36,10 @@ from baibai_engine.machine_analysis.models.social_trends.calculations import cal
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

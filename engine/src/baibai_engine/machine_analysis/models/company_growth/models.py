@@ -151,7 +151,9 @@ class CompanyGrowth(Contract):
     reported_comparisons: tuple[ReportedComparison, ...] = Field(
         default=(), exclude_if=lambda value: not value
     )
-    comparison_input_reason: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    comparison_input_reason: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     per: OptionalContext = OptionalContext(
         reason="price_share_unit_and_parent_profit_alignment_not_verified"
     )

@@ -30,10 +30,10 @@ from baibai_engine.machine_analysis.models.technical_analysis.price_path import 
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )

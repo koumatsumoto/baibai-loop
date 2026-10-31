@@ -17,10 +17,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_financials.reported_flows import (
     financial_observation_payload,
 )
-from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_reported_comparison,
 )
+from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import (
     TECHNICAL_CALCULATION_REVISION,
@@ -28,10 +28,10 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
 from baibai_engine.machine_analysis.models.technical_analysis.generation import (
     generate_technical_analysis,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -121,13 +121,12 @@ def generate_financial_and_price_models(
     )
     # The growth query's display window must not narrow the financial model.
     reported = tuple(
-        build_reported_comparison(item) for item in comparisons
+        build_reported_comparison(item)
+        for item in comparisons
         if item.source_submit_datetime.date() <= as_of
     )
     if reported:
-        financial["reported_comparisons"] = [
-            item.model_dump(mode="json") for item in reported
-        ]
+        financial["reported_comparisons"] = [item.model_dump(mode="json") for item in reported]
     technical = generate_technical_analysis(
         bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates, price_path=price_path
     )

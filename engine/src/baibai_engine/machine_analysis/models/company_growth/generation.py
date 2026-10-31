@@ -11,13 +11,13 @@ from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_period_states,
     build_reported_comparison,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
-    FilingComparisons,
-)
 from baibai_engine.machine_analysis.models.company_growth.models import (
     CompanyGrowth,
     Coverage,
     InputRelease,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
@@ -68,12 +68,17 @@ def generate_company_growth(
     )
     return result.model_copy(
         update={
-            "status": "available" if displayed or any(c.changes for c in reported) else "unavailable",
-            "reason": None if displayed or any(c.changes for c in reported) else "accounting_period_not_observed",
+            "status": "available"
+            if displayed or any(c.changes for c in reported)
+            else "unavailable",
+            "reason": None
+            if displayed or any(c.changes for c in reported)
+            else "accounting_period_not_observed",
             "reported_comparisons": reported,
             "comparison_input_reason": comparison_input_reason,
             "calculation_method": "company_growth_retrospective_v8-edinet-comparisons"
-            if reported else result.calculation_method,
+            if reported
+            else result.calculation_method,
             "input_release": input_release,
             "periods": displayed,
             "changes": tuple(

@@ -102,7 +102,8 @@ def _presentation(content: bytes, kind: str) -> tuple[str, str, set[str]]:
     links: list[tuple[str, str, set[str]]] = []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         files = [
-            f for f in archive.infolist()
+            f
+            for f in archive.infolist()
             if "/PublicDoc/" in f.filename and f.filename.endswith("_pre.xml")
         ]
         if sum(f.file_size for f in files) > MAX_BUNDLE_BYTES:
@@ -115,7 +116,8 @@ def _presentation(content: bytes, kind: str) -> tuple[str, str, set[str]]:
                     continue
                 concepts = {
                     loc.get(f"{{{XLINK}}}href", "").partition("#")[2]
-                    for loc in link if local_name(loc.tag) == "loc"
+                    for loc in link
+                    if local_name(loc.tag) == "loc"
                 }
                 links.append((file.filename, role, concepts))
     if len(links) != 1:
@@ -129,8 +131,8 @@ def _context(instance: Instance, name: str, consolidated: bool) -> Context:
     if context is None or context.period_start is None:
         raise SourceFormatError("comparison_duration_missing")
     dimensions = tuple((local_name(a), local_name(m)) for a, m in context.dimensions)
-    expected = () if consolidated else (
-        ("ConsolidatedOrNonConsolidatedAxis", "NonConsolidatedMember"),
+    expected = (
+        () if consolidated else (("ConsolidatedOrNonConsolidatedAxis", "NonConsolidatedMember"),)
     )
     if dimensions != expected:
         raise SourceFormatError("comparison_scope_unsupported")
@@ -207,7 +209,7 @@ def extract_comparisons(
         )
         if kind is None:
             raise SourceFormatError("comparison_document_type_unsupported")
-        instance = read_instance(content)
+        instance = read_instance(content, include_labels=False)
         if _dei(instance, "SecurityCodeDEI") != ticker + "0":
             raise SourceFormatError("comparison_security_mismatch")
         if _dei(instance, "AccountingStandardsDEI") != "IFRS":
@@ -216,24 +218,42 @@ def extract_comparisons(
         if scope not in {"true", "false"}:
             raise SourceFormatError("comparison_scope_unknown")
         consolidated = scope == "true"
-        base = base.model_copy(update={
-            "accounting_standard": "IFRS",
-            "statement_basis": "consolidated" if consolidated else "nonconsolidated",
-        })
-        current = _context(instance, "CurrentYearDuration" if kind == "annual" else "InterimDuration", consolidated)
-        prior = _context(instance, "Prior1YearDuration" if kind == "annual" else "Prior1InterimDuration", consolidated)
-        assert current.period_start is not None and prior.period_start is not None
-        if current.issuer_id != prior.issuer_id or not prior_year_dates_match(
-            date.fromisoformat(prior.period_start), date.fromisoformat(prior.period_end),
-            date.fromisoformat(current.period_start), date.fromisoformat(current.period_end),
-            length_tolerance_ratio=0.1, end_tolerance_days=7,
-        ) or date.fromisoformat(current.period_end) > base.source_submit_datetime.date():
+        base = base.model_copy(
+            update={
+                "accounting_standard": "IFRS",
+                "statement_basis": "consolidated" if consolidated else "nonconsolidated",
+            }
+        )
+        current = _context(
+            instance, "CurrentYearDuration" if kind == "annual" else "InterimDuration", consolidated
+        )
+        prior = _context(
+            instance,
+            "Prior1YearDuration" if kind == "annual" else "Prior1InterimDuration",
+            consolidated,
+        )
+        assert current.period_start is not None
+        assert prior.period_start is not None
+        if (
+            current.issuer_id != prior.issuer_id
+            or not prior_year_dates_match(
+                date.fromisoformat(prior.period_start),
+                date.fromisoformat(prior.period_end),
+                date.fromisoformat(current.period_start),
+                date.fromisoformat(current.period_end),
+                length_tolerance_ratio=0.1,
+                end_tolerance_days=7,
+            )
+            or date.fromisoformat(current.period_end) > base.source_submit_datetime.date()
+        ):
             raise SourceFormatError("comparison_periods_incomparable")
         presentation = _presentation(content, kind)
-        base = base.model_copy(update={
-            "current_period_start": date.fromisoformat(current.period_start),
-            "current_period_end": date.fromisoformat(current.period_end),
-        })
+        base = base.model_copy(
+            update={
+                "current_period_start": date.fromisoformat(current.period_start),
+                "current_period_end": date.fromisoformat(current.period_end),
+            }
+        )
         pairs: list[ComparativeOperands] = []
         for metric in _CONCEPTS:
             if metric == "parent_profit" and not consolidated:
@@ -241,10 +261,19 @@ def extract_comparisons(
             try:
                 after = _amount(instance, current, metric, presentation)
                 before = _amount(instance, prior, metric, presentation)
-                pairs.append(ComparativeOperands(
-                    metric=metric, current=after, comparative=before,
-                    reason=None if after and before and after.amount is not None and before.amount is not None else "comparison_operand_not_observed",
-                ))
+                pairs.append(
+                    ComparativeOperands(
+                        metric=metric,
+                        current=after,
+                        comparative=before,
+                        reason=None
+                        if after
+                        and before
+                        and after.amount is not None
+                        and before.amount is not None
+                        else "comparison_operand_not_observed",
+                    )
+                )
             except SourceFormatError as exc:
                 pairs.append(ComparativeOperands(metric=metric, reason=str(exc)))
         return base.model_copy(update={"pairs": tuple(pairs)})
