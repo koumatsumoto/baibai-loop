@@ -173,7 +173,11 @@ def test_mof_csv_does_not_abort_later_documents_and_keeps_original_receipt(tmp_p
     assert result.complete is True
     with closing(connect_read_only(database)) as conn:
         observations = read_observations(conn, result.report["observation_ids"])
-    csv_observation = next(item for item in observations if item.original_url == csv_url)
+    csv_observation = next(
+        item for item in observations if item.receipt_id == original["receipt_id"]
+    )
+    assert csv_observation.original_url == csv_url
+    assert csv_observation.native_locator == "/csv"
     assert csv_observation.text == csv_text
     assert csv_observation.native_metadata["encoding"] == "cp932"
     assert any(

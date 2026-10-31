@@ -85,7 +85,11 @@ class ArticlePlanning:
         # Budget actual UTF-8 JSON, not six-byte escapes for each Japanese character.
         # This changes no fields or bounds and never evicts saved cursor/evidence.
         payload = json.dumps(
-            self.to_json(), sort_keys=True, allow_nan=False, ensure_ascii=False, separators=(",", ":")
+            self.to_json(),
+            sort_keys=True,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
         ).encode("utf-8")
         if len(payload) > MAX_PLANNING_BYTES:
             raise ValueError("article planning summary exceeds its bytes budget")
