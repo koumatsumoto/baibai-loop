@@ -848,8 +848,7 @@ def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
     source = "tsr_data"
-    rows = [{"url": f"/data/detail/native-{i}.html", "title": f"Synthetic {i}"}
-            for i in range(137)]
+    rows = [{"url": f"/data/detail/native-{i}.html", "title": f"Synthetic {i}"} for i in range(137)]
     feed = json.dumps(rows).encode()
     wanted = {"https://www.tsr-net.co.jp" + row["url"] for row in rows}
     observed = set()
@@ -877,8 +876,12 @@ def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache
     for number in range(24):
         Clock.instant = SLOT + timedelta(days=number)
         report = articles.acquire_source(
-            store, source=source, slot=Clock.instant, identity=str(number),
-            directory=tmp_path / f"slot-{number}", session=NativeSession(),
+            store,
+            source=source,
+            slot=Clock.instant,
+            identity=str(number),
+            directory=tmp_path / f"slot-{number}",
+            session=NativeSession(),
         )
         assert report["bodies"] <= 8
         assert report["failures"] == []

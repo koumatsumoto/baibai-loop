@@ -391,12 +391,16 @@ def acquire_source(
                 and datetime.fromisoformat(planning[url]["receipt"]["received_at"]) >= recent_after
             ][: policy.max_revalidate_bodies]
             queue = (
-                frontier.queue(known)
-                if frontier is not None
-                else list(dict.fromkeys([*known, *pending_urls, *fresh]))
-            ) if policy.max_bodies else []
+                (
+                    frontier.queue(known)
+                    if frontier is not None
+                    else list(dict.fromkeys([*known, *pending_urls, *fresh]))
+                )
+                if policy.max_bodies
+                else []
+            )
             if frontier is not None:
-                queue = queue[:policy.max_bodies]
+                queue = queue[: policy.max_bodies]
                 frontier_queued = True
             pending_urls = []
             seen_bodies: set[str] = set()
@@ -420,19 +424,12 @@ def acquire_source(
                     continue  # Alias/login/foreign-host identities do not expand crawling.
                 seen_bodies.add(url)
                 link = evidence_for(url) if frontier is not None else None
-                if frontier is not None and (link is None or not attach_prior_index(link)):
-                    failed.append("document_identity_unbound")
-                    frontier.complete(url, success=False)
-                    active_url = None
-                    continue
                 receipt, body = receive(url, "document")
                 bodies += 1
                 active_url = None
                 if frontier is None:
                     link = evidence_for(url)
-                bound = link is not None and (
-                    frontier is not None or attach_prior_index(link)
-                )
+                bound = link is not None and attach_prior_index(link)
                 if bound:
                     assert link is not None
                     document_evidence[receipt.receipt_id] = {

@@ -235,7 +235,6 @@ def commit_stage(
     return entry
 
 
-
 def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
     """Read one exact workset before HTTP, retaining old cursors for migration."""
     cursor = state.cursor
@@ -260,9 +259,7 @@ def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str
     return {
         **frontier,
         "indexes": [
-            {**item, "stage": entry}
-            if item["stage"].get("stage_id") == entry["stage_id"]
-            else item
+            {**item, "stage": entry} if item["stage"].get("stage_id") == entry["stage_id"] else item
             for item in frontier["indexes"]
         ],
     }

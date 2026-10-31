@@ -39,6 +39,8 @@ class Scenario:
         self.sequence += 1
         identity = str(self.sequence)
         reference = {"stage": {"stage_id": identity}, "index_receipt_id": identity}
+        # Real parsers assign unique locators across the whole combined index.
+        items = tuple(item.model_copy(update={"locator": f"/{i}"}) for i, item in enumerate(items))
         self.raw[identity] = items
         frontier.observe("https://synthetic.invalid/index", reference, items)
         known = [item.url for item in items if item.url in self.cache][:2]
@@ -98,8 +100,9 @@ def test_reordered_indexes_are_not_new_but_native_revision_is():
     scenario = Scenario()
     raw = entries(3)
     scenario.step(raw)
-    reordered = tuple(item.model_copy(update={"locator": f"/{i}"})
-                      for i, item in enumerate(reversed(raw)))
+    reordered = tuple(
+        item.model_copy(update={"locator": f"/{i}"}) for i, item in enumerate(reversed(raw))
+    )
     frontier, _ = scenario.step(reordered)
     assert frontier.new == []
     changed = entries(3, revision="two")
@@ -122,8 +125,9 @@ def test_cross_feed_guid_conflict_is_not_bound_to_arbitrary_first_item():
     snapshots = {"first": raw, "second": second}
     frontier = ArticleFrontier({}, lambda ref: snapshots[ref["index_receipt_id"]])
     for name in snapshots:
-        frontier.observe(name, {"stage": {"stage_id": name}, "index_receipt_id": name},
-                         snapshots[name])
+        frontier.observe(
+            name, {"stage": {"stage_id": name}, "index_receipt_id": name}, snapshots[name]
+        )
     assert frontier.queue([]) == [raw[0].url]
     assert frontier.evidence(raw[0].url) is None
     frontier.complete(raw[0].url, success=False)
