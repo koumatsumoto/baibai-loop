@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 
 def seed_generation(path, *, now, as_of, with_price_path=False):
     payloads = {
-        "company_valuation": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
+        "company_financials": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
         "technical_analysis": {"price_momentum": {"value": None, "reason": "missing_endpoint"}},
         "company_growth": CompanyGrowth(
             ticker="1234", status="unavailable", requested_start=None, requested_end=as_of

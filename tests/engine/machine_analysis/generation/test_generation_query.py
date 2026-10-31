@@ -21,13 +21,13 @@ def test_subject_stream_filters_fixed_generation_and_materializes_one_company_at
             "models": (
                 *fixed.models,
                 GeneratedModel(
-                    model_id="company_valuation",
+                    model_id="company_financials",
                     subject="5678",
                     calculation_revision="v2",
                     payload={"earnings_price": {"earnings_yield": 0.2}},
                 ),
                 GeneratedModel(
-                    model_id="company_valuation",
+                    model_id="company_financials",
                     subject="9999",
                     calculation_revision="v1",
                     payload={"earnings_price": {"earnings_yield": 100.0}},

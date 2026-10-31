@@ -93,7 +93,7 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
     )
     saved = ModelGeneration.model_validate_json(generated.model_dump_json())
     assert saved == generated
-    valuation = saved.result("company_valuation", "1001").payload
+    valuation = saved.result("company_financials", "1001").payload
     assert valuation["earnings_price"]["earnings_yield"] == profit / 800
     assert valuation["earnings_basis"] == "reported_profit_before_common_share_allocations"
     assert valuation["earnings_composition_basis"] == (
@@ -122,12 +122,12 @@ def test_owner_results_round_trip_into_selection_without_legacy_er(profit):
 
 def test_missing_price_does_not_erase_the_financial_history_or_invent_zero_yield():
     models = {model.model_id: model.payload for model in generate(documents=(document(),), bars=())}
-    assert models["company_valuation"]["financial"]["market_price_yen"] is None
-    assert models["company_valuation"]["financial"]["market_cap"] is None
-    assert models["company_valuation"]["financial"]["sales"] == 1000.0
-    assert models["company_valuation"]["financial"]["eps"] == 1.25
-    assert models["company_valuation"]["earnings_price"]["earnings_yield"] is None
-    assert models["company_valuation"]["earnings_price"]["unavailable_reason"] == "missing_price"
+    assert models["company_financials"]["financial"]["market_price_yen"] is None
+    assert models["company_financials"]["financial"]["market_cap"] is None
+    assert models["company_financials"]["financial"]["sales"] == 1000.0
+    assert models["company_financials"]["financial"]["eps"] == 1.25
+    assert models["company_financials"]["earnings_price"]["earnings_yield"] is None
+    assert models["company_financials"]["earnings_price"]["unavailable_reason"] == "missing_price"
     assert models["company_growth"]["status"] == "available"
     assert models["technical_analysis"]["price_momentum"]["status"] == "missing_endpoint"
 
@@ -528,7 +528,7 @@ def test_reported_annual_cfo_interval_keeps_known_dates_and_source():
 
 def test_saved_old_model_retains_its_payload_without_new_period_defaults():
     old = GeneratedModel(
-        model_id="company_valuation",
+        model_id="company_financials",
         subject="1001",
         calculation_revision="continuous-annual-input-v45-observations-v7",
         payload={"financial": {"edinet_ocf_ttm": 812_758_000.0, "fcf_ttm": 461_335_000.0}},

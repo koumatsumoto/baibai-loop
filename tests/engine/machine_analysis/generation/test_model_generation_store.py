@@ -68,7 +68,7 @@ def test_partial_input_cannot_be_published_as_a_complete_generation(tmp_path):
     store = ModelGenerationStore(tmp_path / "runs.sqlite")
     first = generation()
     second_company = GeneratedModel(
-        model_id="company_valuation",
+        model_id="company_financials",
         subject="5678",
         calculation_revision="v1",
         payload={"earnings_price": {"earnings_yield": 0.2}},

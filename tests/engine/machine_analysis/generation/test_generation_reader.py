@@ -58,7 +58,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
     assert result.inputs["market_snapshot"].sha256 == snapshot.ref.sha256
     assert result.inputs["market_snapshot"].reference == snapshot.ref.source_id
     company_model_ids = {
-        "company_valuation",
+        "company_financials",
         "company_growth",
         "technical_analysis",
         "external_assessment",
@@ -245,7 +245,7 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
     assert reader.call_count == 1
     assert result.inputs["market_snapshot"].sha256 == snapshot.ref.sha256
     for ticker in ("7203", "8306"):
-        financial = result.result("company_valuation", ticker).payload["financial"]
+        financial = result.result("company_financials", ticker).payload["financial"]
         assert financial["cash"] == 123.0
         assert financial["edinet_snapshot_asof"] == BASE.isoformat()
         assert financial["edinet_snapshot_recorded_at_utc"] == RECORDED

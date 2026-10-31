@@ -110,7 +110,7 @@ def payloads(price=100.0):
                 )
             )
     return {
-        "company_valuation": {
+        "company_financials": {
             "expected_price_date": "2026-01-05",
             "earnings_price": TypeAdapter(EarningsPrice).dump_python(
                 EarningsPrice(
@@ -203,8 +203,8 @@ def test_price_change_moves_price_axes_not_business_axes():
 
 def test_missing_earnings_and_negative_cash_do_not_remove_growth_or_recovery():
     data = payloads()
-    data["company_valuation"]["earnings_price"]["earnings_yield"] = None
-    data["company_valuation"]["earnings_price"]["unavailable_reason"] = "unavailable_annual_profit"
+    data["company_financials"]["earnings_price"]["earnings_yield"] = None
+    data["company_financials"]["earnings_price"]["unavailable_reason"] = "unavailable_annual_profit"
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "capital_productivity") is None
@@ -214,7 +214,7 @@ def test_missing_earnings_and_negative_cash_do_not_remove_growth_or_recovery():
 
 def test_stale_price_disables_price_coordinates_but_preserves_business_data():
     data = payloads()
-    data["company_valuation"]["expected_price_date"] = "2026-01-06"
+    data["company_financials"]["expected_price_date"] = "2026-01-06"
     result = project(data)
     assert not any(path.eligible for path in result.paths)
     assert any(path.business_value is not None for path in result.paths)
@@ -328,7 +328,7 @@ def test_unknown_sector_is_not_an_industry_peer_group(sector):
 )
 def test_price_gate_requires_all_positive_price_inputs_on_expected_date(field, value):
     data = payloads()
-    data["company_valuation"]["earnings_price"][field] = value
+    data["company_financials"]["earnings_price"][field] = value
     result = project(data)
     assert not result.context["pricing_valid"]
     assert not any(path.eligible for path in result.paths)
@@ -340,7 +340,7 @@ def test_price_gate_requires_all_positive_price_inputs_on_expected_date(field, v
 
 def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start():
     data = payloads()
-    data["company_valuation"]["earnings_price"]["profit_components"] = TypeAdapter(
+    data["company_financials"]["earnings_price"]["profit_components"] = TypeAdapter(
         tuple[ProfitComponent, ...]
     ).dump_python(
         (
@@ -370,7 +370,7 @@ def test_income_uses_actual_composite_ttm_interval_not_earliest_component_start(
 @pytest.mark.parametrize("basis", [None, "unknown", "nonconsolidated"])
 def test_income_requires_observed_matching_statement_basis(basis):
     data = payloads()
-    data["company_valuation"]["earnings_price"]["statement_basis"] = basis
+    data["company_financials"]["earnings_price"]["statement_basis"] = basis
     if basis != "nonconsolidated":
         data["company_growth"]["periods"][0]["observations"][0]["statement_basis"] = (
             basis or "unknown"
@@ -426,8 +426,8 @@ def test_recovery_requires_both_changes_from_same_comparison_interval():
 
 def test_negative_reported_profit_is_retained_in_capital_proxy_not_called_roe():
     data = payloads()
-    data["company_valuation"]["earnings_price"]["earnings_yield"] = -0.1
-    data["company_valuation"]["earnings_price"]["profit_components"][0]["amount_yen"] = -1000.0
+    data["company_financials"]["earnings_price"]["earnings_yield"] = -0.1
+    data["company_financials"]["earnings_price"]["profit_components"][0]["amount_yen"] = -1000.0
     result = project(data)
     assert active(result, "earning_power") is None
     assert active(result, "capital_productivity") is None
@@ -439,11 +439,11 @@ def test_negative_reported_profit_is_retained_in_capital_proxy_not_called_roe():
 
 def test_overflowing_derived_coordinates_are_missing_not_nonfinite():
     data = payloads()
-    earnings = data["company_valuation"]["earnings_price"]
+    earnings = data["company_financials"]["earnings_price"]
     earnings.update(
         price_yen=1e-308, shares_ex_treasury=1.0, market_cap_yen=1e-308, earnings_yield=1e308
     )
-    data["company_valuation"]["financial"].update(market_cap=1e-308, pbr=1e308)
+    data["company_financials"]["financial"].update(market_cap=1e-308, pbr=1e308)
     for observation in data["company_growth"]["periods"][0]["observations"]:
         observation["metrics"]["sales"]["value"] = 1e308
     for change in data["company_growth"]["changes"]:
@@ -482,7 +482,7 @@ def test_added_models_are_referenced_without_automatic_extra_coordinates_or_vote
 
 def test_latest_growth_changes_remain_context_when_improvements_are_not_positive():
     data = payloads()
-    data["company_valuation"]["financial"]["tradable_share_change_yoy"] = 0.15
+    data["company_financials"]["financial"]["tradable_share_change_yoy"] = 0.15
     for change in data["company_growth"]["changes"]:
         if change["measurement"] == "quarter":
             change["difference"] = -1.0
@@ -639,14 +639,14 @@ def test_external_noncomparison_states_are_not_promoted_to_revisions(state):
 
 def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
     data = payloads()
-    data["company_valuation"]["financial"].update(
+    data["company_financials"]["financial"].update(
         same_state_equity_yen=999999.0, consolidation_basis="standalone"
     )
     capital = active(project(data), "capital_productivity")
     assert capital.business_value == pytest.approx(0.05)
     assert capital.evidence["book_amount_implied_by_pbr"] == 20000.0
     assert "not_exposed" in capital.evidence["book_provenance"]
-    data["company_valuation"]["financial"]["market_cap"] = 999.0
+    data["company_financials"]["financial"]["market_cap"] = 999.0
     assert active(project(data), "capital_productivity") is None
 
 
@@ -999,7 +999,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
 
 def test_cash_investment_components_and_source_survive_the_same_fcf():
     first = payloads()
-    first["company_valuation"]["financial"].update(
+    first["company_financials"]["financial"].update(
         edinet_ocf_ttm=100.0,
         capex_ttm=300.0,
         edinet_capex_source="purchase_of_fixed_assets",
@@ -1009,7 +1009,7 @@ def test_cash_investment_components_and_source_survive_the_same_fcf():
         edinet_source_period_end="2025-03-31",
     )
     second = deepcopy(first)
-    second["company_valuation"]["financial"].update(edinet_ocf_ttm=-100.0, capex_ttm=100.0)
+    second["company_financials"]["financial"].update(edinet_ocf_ttm=-100.0, capex_ttm=100.0)
     a, b = project(first).context["financial"], project(second).context["financial"]
     assert a["fcf_ttm"] == b["fcf_ttm"] == -200.0
     assert a["edinet_ocf_ttm"] == 100.0
@@ -1023,7 +1023,7 @@ def test_cash_investment_components_and_source_survive_the_same_fcf():
         "edinet_source_period_start",
         "edinet_source_period_end",
     ):
-        assert a[field] == b[field] == first["company_valuation"]["financial"][field]
+        assert a[field] == b[field] == first["company_financials"]["financial"][field]
 
 
 def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval():
@@ -1036,7 +1036,7 @@ def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval(
         "annual_quality": {"free_cash_flow": "approximated"},
     }
     period = {"start": "2025-07-01", "end": "2026-06-30"}
-    inputs["company_valuation"]["financial"].update(
+    inputs["company_financials"]["financial"].update(
         edinet_reported_flows=reported, ocf_ttm_period=period, ocf_ttm=-1_422_368_000.0
     )
     financial = project(inputs).context["financial"]

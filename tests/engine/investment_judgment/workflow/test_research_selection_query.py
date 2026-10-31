@@ -57,13 +57,13 @@ def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path
     path = tmp_path / "runs"
     models = (
         GeneratedModel(
-            model_id="company_valuation",
+            model_id="company_financials",
             subject="1234",
             calculation_revision="v1",
             payload={"earnings_price": {"earnings_yield": 0.1}},
         ),
         GeneratedModel(
-            model_id="company_valuation",
+            model_id="company_financials",
             subject="5678",
             calculation_revision="v1",
             payload={"earnings_price": {"earnings_yield": None}, "observed_zero": 0},
@@ -116,7 +116,7 @@ def test_comparisons_do_not_change_request_policy_or_saved_observations(tmp_path
     assert result["screening"] == baseline["screening"]
     assert result["candidate_tickers"] == ["1234"]
     assert result["capacity"] == baseline["capacity"]
-    observed = result["model_inputs"]["securities"]["5678"]["company_valuation"]
+    observed = result["model_inputs"]["securities"]["5678"]["company_financials"]
     assert observed == models[1].payload
     assert result["model_inputs"]["securities"]["9999"]["not_generated"]
     assert path.read_bytes() == before

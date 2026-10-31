@@ -69,10 +69,10 @@ def _publish(path, payload=None, *, revision=None):
     return seed_saved_run(path, payload, run_revision_id=identity)
 
 
-def test_schema7_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
+def test_schema8_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
-    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 7
-    assert initialize_run_store(path) == 7
+    assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 8
+    assert initialize_run_store(path) == 8
     result = _publish(path)
     assert not hasattr(ScreeningRunStore(path), "publish_run")
     with closing(sqlite3.connect(path)) as connection, connection:

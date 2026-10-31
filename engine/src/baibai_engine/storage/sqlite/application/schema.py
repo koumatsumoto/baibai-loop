@@ -4,7 +4,23 @@ Runtime code creates the current shape or rejects a different version; semantic
 cutovers are explicit operator work against a verified backup.
 """
 
-APPLICATION_SCHEMA_VERSION = 28
+APPLICATION_SCHEMA_VERSION = 29
+
+SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL = """
+CREATE TABLE selection_identity_migration (
+    operation_id TEXT PRIMARY KEY REFERENCES operation_session(operation_id),
+    migration_id TEXT NOT NULL CHECK (migration_id = 'company-financials-id-v1'),
+    recorded_at TEXT NOT NULL,
+    published_selection_sha256 TEXT NOT NULL CHECK (length(published_selection_sha256) = 64),
+    operational_selection_sha256 TEXT NOT NULL CHECK (length(operational_selection_sha256) = 64),
+    published_selection_canonical TEXT NOT NULL CHECK (json_valid(published_selection_canonical)),
+    CHECK (published_selection_sha256 <> operational_selection_sha256)
+) STRICT;
+CREATE TRIGGER selection_identity_migration_no_update BEFORE UPDATE ON selection_identity_migration
+BEGIN SELECT RAISE(ABORT, 'selection migration evidence is immutable'); END;
+CREATE TRIGGER selection_identity_migration_no_delete BEFORE DELETE ON selection_identity_migration
+BEGIN SELECT RAISE(ABORT, 'selection migration evidence is immutable'); END;
+"""
 
 PROPOSAL_RECORDS_SCHEMA_SQL = """
 CREATE TABLE proposal_correction (
@@ -261,6 +277,7 @@ ON portfolio_outcome(period_end_date, horizon, outcome_id);
     + COMPANY_RESEARCH_SCHEMA_SQL
     + JUDGMENT_RETROSPECTIVE_SCHEMA_SQL
     + PROPOSAL_RECORDS_SCHEMA_SQL
+    + SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL
 )
 
 __all__ = [
@@ -268,4 +285,5 @@ __all__ = [
     "COMPANY_RESEARCH_SCHEMA_SQL",
     "JUDGMENT_RETROSPECTIVE_SCHEMA_SQL",
     "SCHEMA_SQL",
+    "SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL",
 ]

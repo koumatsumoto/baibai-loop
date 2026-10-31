@@ -123,7 +123,7 @@ def test_projection_is_detached_and_old_selection_hash_is_unchanged(tmp_path):
     saved = ModelGenerationStore(runs).read_subjects("fixed-synthetic", subjects=("1234", "market"))
     before = saved.model_dump_json()
     projection = project_generated_inputs(saved)
-    projection["securities"]["1234"]["company_valuation"]["earnings_price"]["earnings_yield"] = 999
+    projection["securities"]["1234"]["company_financials"]["earnings_price"]["earnings_yield"] = 999
     assert saved.model_dump_json() == before
     legacy = selection(now=NOW, tickers=("1234",))
     raw = legacy.model_dump(mode="json")
