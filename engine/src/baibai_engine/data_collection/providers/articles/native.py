@@ -13,10 +13,12 @@ from pypdf import PdfReader
 
 from baibai_engine.data_collection.providers.articles.contracts import NativeArticle
 from baibai_engine.data_collection.providers.articles.html import Node, parse_html, plain_text
+from baibai_engine.data_collection.providers.articles.workbook import parse_workbook
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
 
 PARSER_REVISION = "article-native-v1"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
+BOJ_PARSER_REVISION = "article-native-boj-v2"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -28,7 +30,11 @@ class NativeArticleUnsupported(ValueError):
 
 def parser_revision_for(source: str) -> str:
     """Keep other provider observations on their saved parser identity."""
-    return MINKABU_PARSER_REVISION if source == "minkabu_news" else PARSER_REVISION
+    if source == "minkabu_news":
+        return MINKABU_PARSER_REVISION
+    if source == "boj_news":
+        return BOJ_PARSER_REVISION
+    return PARSER_REVISION
 
 
 def _minkabu_card_body(nodes: list[Node]) -> Node | None:
@@ -353,6 +359,8 @@ def _nhk_public_description(
 def parse_document(
     source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
 ) -> NativeArticle:
+    if source == "boj_news" and body.startswith(b"PK\x03\x04"):
+        return parse_workbook(body, source=source, url=url, title=title)
     if body.startswith(b"%PDF-"):
         reader = PdfReader(io.BytesIO(body))
         if reader.is_encrypted or len(reader.pages) > 100:
