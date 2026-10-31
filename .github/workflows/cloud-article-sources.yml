@@ -1,78 +1,117 @@
-name: cloud-article-sources
+name: minkabu HTTP comparison (temporary)
 
 on:
-  schedule:
-    # Six slots/day; 13:13 UTC precedes the independent 13:43 daily integration.
-    - cron: '13 1,5,9,13,17,21 * * *'
   workflow_dispatch:
     inputs:
       group:
-        description: '取得group（各sourceのdue/cooldown判定は維持）'
+        description: '公開HTTPの有限比較のみ。本番保存なし。'
         type: choice
-        default: all
-        options: [all, public, minkabu, rakuten]
+        options: [minkabu]
+        default: minkabu
 
 permissions:
   contents: read
 
 jobs:
-  acquire:
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [public, minkabu, rakuten]
-    # The shared hosts use exactly the collector's existing host queue. No global
-    # provider barrier, publication lease, or machine model calculation here.
+  diagnose:
     concurrency:
-      group: source-host-${{ matrix.group == 'public' && 'article-public' || matrix.group }}
+      group: source-host-minkabu
       queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Select group before credentials
-        id: scope
-        env:
-          REQUESTED_GROUP: ${{ inputs.group || 'all' }}
-          GROUP: ${{ matrix.group }}
-        run: |
-          case "$REQUESTED_GROUP" in all|public|minkabu|rakuten) ;; *) exit 2 ;; esac
-          if [ "$REQUESTED_GROUP" = all ] || [ "$REQUESTED_GROUP" = "$GROUP" ]; then
-            echo 'selected=true' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: steps.scope.outputs.selected == 'true'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version-file: .python-version
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        if: steps.scope.outputs.selected == 'true'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           enable-cache: true
       - run: uv sync --locked
-        if: steps.scope.outputs.selected == 'true'
-      - name: Pin original slot and reserve private staging time
-        id: clock
-        if: steps.scope.outputs.selected == 'true'
+      - name: Compare public requests without credentials or production writes
         env:
-          GH_TOKEN: ${{ github.token }}
+          GROUP: ${{ inputs.group }}
         run: |
-          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
-          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
-          echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 15 * 60 ))" >> "$GITHUB_ENV"
-      - name: Acquire due sources and save each partial privately
-        if: steps.scope.outputs.selected == 'true'
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          GROUP: ${{ matrix.group }}
-          CREATED_AT: ${{ steps.clock.outputs.created_at }}
-          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: >-
-          uv run python -m baibai_jobs.acquisition.articles
-          --group "$GROUP" --created-at "$CREATED_AT" --identity "$IDENTITY"
-          --directory "$RUNNER_TEMP/article-handoffs"
+          timeout --signal=TERM --kill-after=10s 180s uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import time
+          
+          import requests
+          import urllib3
+          
+          from baibai_engine.data_collection.transport.identity import PUBLIC_RESEARCH_USER_AGENT
+          from baibai_engine.data_collection.transport.public_pages import MINKABU_PUBLIC_HEADERS
+          
+          assert os.environ["GROUP"] == "minkabu"
+          html = dict(MINKABU_PUBLIC_HEADERS)
+          news = {
+              "User-Agent": PUBLIC_RESEARCH_USER_AGENT,
+              "Accept": "application/json, application/xml, text/html, application/pdf;q=0.9, */*;q=0.5",
+          }
+          cases = [
+              ("profile_html", "https://minkabu.jp/stock/2204", html),
+              ("news_html", "https://minkabu.jp/news", html),
+              ("news_normal", "https://minkabu.jp/news", news),
+              ("news_conditional", "https://minkabu.jp/news", {
+                  **news, "If-None-Match": 'W/"6c332a32c0998befdc79633ca5a1a73c"',
+              }),
+          ]
+          safe_request = ("User-Agent", "Accept", "Accept-Encoding", "Connection",
+                          "If-None-Match", "If-Modified-Since")
+          safe_response = ("Content-Type", "Content-Length", "Server", "X-Cache", "Retry-After")
+          print(json.dumps({"requests": requests.__version__, "urllib3": urllib3.__version__,
+                            "head": os.environ["GITHUB_SHA"]}))
+          for number, (name, url, headers) in enumerate(cases):
+              if number:
+                  time.sleep(5)
+              started = time.monotonic()
+              with requests.Session() as session:
+                  assert session.trust_env and session.verify is True
+                  assert session.adapters["https://"].max_retries.total == 0
+                  try:
+                      with session.get(url, headers=headers, stream=True, allow_redirects=False,
+                                       timeout=30) as response:
+                          status = response.status_code
+                          limit = 4_000_000 if status == 200 else 8192
+                          captured = bytearray()
+                          truncated = False
+                          for chunk in response.iter_content(chunk_size=65536):
+                              remaining = limit - len(captured)
+                              captured.extend(chunk[:remaining])
+                              if len(chunk) > remaining or time.monotonic() - started > 35:
+                                  truncated = True
+                                  break
+                          lowered = bytes(captured).lower()
+                          flags = [label for label, word in (
+                              ("captcha_text", b"captcha"),
+                              ("human_verification_text", b"verify you are human"),
+                              ("access_denied_text", b"access denied"),
+                              ("request_blocked_text", b"request blocked"),
+                              ("cloudflare_challenge_text", b"challenge-platform"),
+                          ) if word in lowered]
+                          sent = response.request.headers
+                          print(json.dumps({
+                              "case": name, "url": url, "status": status,
+                              "request_headers": {k: sent[k] for k in safe_request if k in sent},
+                              "cookie_sent": "Cookie" in sent,
+                              "authorization_sent": "Authorization" in sent,
+                              "response_headers": {
+                                  k: response.headers[k][:300] for k in safe_response
+                                  if k in response.headers
+                              },
+                              "captured_bytes": len(captured), "truncated": truncated,
+                              "captured_sha256": hashlib.sha256(captured).hexdigest(),
+                              "body_markers_not_diagnosis": flags,
+                              "seconds": round(time.monotonic() - started, 3),
+                          }))
+                          if status != 200 or flags or truncated:
+                              print(json.dumps({"stopped_after": name, "no_retry": True}))
+                              break
+                  except requests.RequestException as error:
+                      print(json.dumps({"case": name, "transport_error": type(error).__name__,
+                                        "no_retry": True}))
+                      break
+          PY
