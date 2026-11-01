@@ -12,6 +12,12 @@ from typing import Any
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
+from baibai_jobs.acquisition.article_frontier import (
+    FRONTIER_FORMAT,
+    FRONTIER_REF_FORMAT,
+    FRONTIER_SOURCES,
+    bind_local_stage,
+)
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
@@ -57,7 +63,9 @@ class ArticlePlanning:
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "format": "article-planning-v1",
+            "format": "article-planning-v2"
+            if self.cursor.get("format") == FRONTIER_REF_FORMAT
+            else "article-planning-v1",
             "source": self.source,
             "generations": self.generations,
             "last_slot": self.last_slot,
@@ -98,8 +106,14 @@ class ArticlePlanning:
     @classmethod
     def decode(cls, payload: bytes, source: str) -> ArticlePlanning:
         value = json.loads(payload)
-        if value.get("format") != "article-planning-v1" or value.get("source") != source:
+        if value.get("format") not in {"article-planning-v1", "article-planning-v2"} or (
+            value.get("source") != source
+        ):
             raise ValueError("article planning source/format mismatch")
+        if value["format"] == "article-planning-v2" and (
+            value["cursor"].get("format") != FRONTIER_REF_FORMAT
+        ):
+            raise ValueError("article planning v2 requires an exact frontier reference")
         result = cls(
             source=source,
             generations=value["generations"],
@@ -201,7 +215,9 @@ def commit_stage(
         for url, value in requests.items()
     }
     bound_cursor = cursor
-    if cursor.get("pending_evidence"):
+    if cursor.get("format") == FRONTIER_FORMAT:
+        bound_cursor = {"format": FRONTIER_REF_FORMAT, "stage": entry}
+    elif cursor.get("pending_evidence"):
         bound_cursor = {
             **cursor,
             "pending_evidence": {
@@ -222,6 +238,107 @@ def commit_stage(
     )
     put_private(store, source_key(state.source), candidate.encoded(), previous_etag=expected_etag)
     return entry
+
+
+def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
+    """Read one exact workset before HTTP, retaining old cursors for migration."""
+    cursor = state.cursor
+    if cursor.get("format") != FRONTIER_REF_FORMAT:
+        return cursor
+    entry = cursor["stage"]
+    if (
+        entry.get("source") != state.source
+        or entry.get("namespace") != ARTICLE_NAMESPACE
+        or entry.get("market") is not True
+    ):
+        raise ValueError("article frontier source differs")
+    saved = read_private(
+        store, stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE) + "/handoff.json"
+    )
+    if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
+        raise LakePublishError("article frontier manifest differs or is missing")
+    report = json.loads(saved.payload)["result"]
+    frontier = report["planning"]["cursor"]
+    if report["source"] != state.source or frontier.get("format") != FRONTIER_FORMAT:
+        raise ValueError("article frontier source/format mismatch")
+    return {
+        **frontier,
+        "indexes": [
+            {**item, "stage": entry} if item["stage"].get("stage_id") == entry["stage_id"] else item
+            for item in frontier["indexes"]
+        ],
+    }
+
+
+def legacy_omission_evidence(
+    store: ObjectStore, state: ArticlePlanning
+) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """Prove a v1 omission is recoverable from its exact complete index window.
+
+    Only the matching committed plan with a full successful body budget qualifies.
+    No early failure can have displaced an older pending URL from its retained tail.
+    Re-enumerating every retained index plus the saved pending list is a superset
+    of this slot's omitted URLs. This does not prove coverage of earlier feed gaps.
+    """
+    omitted = state.cursor.get("omitted_url_count", 0)
+    if state.source not in FRONTIER_SOURCES or not omitted or not state.last_slot:
+        return None
+    policy = SOURCES[state.source]
+    prefix = f"{state.source}-{_clock(state.last_slot):%Y%m%dT%H%M}-"
+    candidates = list(state.pending)
+    candidates.extend(value["stage"] for value in state.requests.values() if "stage" in value)
+    seen = set()
+    for entry in candidates:
+        identity = (entry.get("stage_id"), entry.get("manifest_sha256"))
+        if identity in seen or not str(identity[0]).startswith(prefix):
+            continue
+        seen.add(identity)
+        if (
+            entry.get("source") != state.source
+            or entry.get("namespace") != ARTICLE_NAMESPACE
+            or entry.get("market") is not True
+        ):
+            continue
+        saved = read_private(
+            store, stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE) + "/handoff.json"
+        )
+        if saved is None or hashlib.sha256(saved.payload).hexdigest() != entry["manifest_sha256"]:
+            raise LakePublishError("legacy frontier manifest differs or is missing")
+        report = json.loads(saved.payload)["result"]
+        prior = report.get("planning", {})
+        bound_requests = {
+            url: bind_local_stage(value, entry) for url, value in prior.get("requests", {}).items()
+        }
+        old_cursor = prior.get("cursor", {})
+        bound_cursor = {
+            **old_cursor,
+            "pending_evidence": {
+                url: bind_local_stage(value, entry)
+                for url, value in old_cursor.get("pending_evidence", {}).items()
+            },
+        }
+        if (
+            report.get("source") != state.source
+            or report.get("status") != "partial"
+            or report.get("continuation_only") is not False
+            or report.get("failures") != ["pending_cursor_overflow"]
+            or report.get("bodies") != policy.max_bodies
+            or report.get("pages") != policy.max_pages
+            or report.get("omitted_url_count") != omitted
+            or prior.get("slot") != state.last_slot
+            or prior.get("not_before") != state.not_before
+            or bound_requests != state.requests
+            or bound_cursor != state.cursor
+        ):
+            continue
+        references = [
+            {"stage": entry, "index_receipt_id": receipt_id}
+            for receipt_id in report["receipt_ids"]
+            if report["projection_kinds"].get(receipt_id) == "index"
+        ]
+        if len(references) >= policy.max_pages:
+            return entry, references
+    return None
 
 
 def pending_handoffs(store: ObjectStore) -> list[dict[str, Any]]:

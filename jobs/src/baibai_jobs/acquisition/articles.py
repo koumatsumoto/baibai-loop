@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from baibai_engine.data_collection.providers.articles.contracts import SOURCES
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle
 from baibai_engine.data_collection.providers.articles.native import (
     next_index_url,
     parse_document,
@@ -35,12 +35,20 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.article_frontier import (
+    FRONTIER_FORMAT,
+    FRONTIER_SOURCES,
+    MAX_FRONTIER_BYTES,
+    ArticleFrontier,
+)
 from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
     MAX_REQUEST_STATES,
     commit_stage,
     is_due,
+    legacy_omission_evidence,
+    load_frontier_cursor,
     load_planning,
     slot_at,
 )
@@ -94,8 +102,9 @@ def acquire_source(
         min_interval_seconds=policy.min_interval_seconds or 5.0,
     )
     planning = dict(state.requests)
-    pending_urls = list(state.cursor.get("pending_urls", []))
-    saved_evidence = state.cursor.get("pending_evidence", {})
+    cursor = load_frontier_cursor(store, state) if source in FRONTIER_SOURCES else state.cursor
+    pending_urls = list(cursor.get("pending_urls", []))
+    saved_evidence = cursor.get("pending_evidence", {})
     if not isinstance(saved_evidence, dict):
         saved_evidence = {}
     receipt_ids: list[str] = []
@@ -109,9 +118,14 @@ def acquire_source(
     next_page: str | None = None
     partial = False
     evidence_by_url: dict[str, list[dict[str, str]]] = {}
+    frontier: ArticleFrontier | None = None
+    index_cache: dict[tuple[str, str], tuple[NativeArticle, ...]] = {}
+    policy_excluded = 0
     with closing(open_connection(directory / "receipts.sqlite")) as conn:
 
         def evidence_for(url: str) -> dict[str, Any] | None:
+            if frontier is not None:
+                return frontier.evidence(url)
             candidates = evidence_by_url.get(url, [])
             if candidates:
                 identities = {(item["article_id"], item["title"]) for item in candidates}
@@ -169,6 +183,41 @@ def acquire_source(
                 receipt_ids.append(identity)
                 kinds[identity] = "index"
             return True
+
+        def resolve_index(reference: dict[str, Any]) -> tuple[NativeArticle, ...]:
+            entry = reference["stage"]
+            receipt_id = reference["index_receipt_id"]
+            key = (entry["stage_id"], receipt_id)
+            if key in index_cache:
+                return index_cache[key]
+            if entry["stage_id"] == stage_id:
+                original = read_receipt(conn, receipt_id)
+                if original.body_ref is None:
+                    raise ArticleStoreError("frontier index has no original body")
+                body = read_body(conn, original.body_ref)
+            else:
+                if (
+                    entry.get("source") != source
+                    or entry.get("namespace") != ARTICLE_NAMESPACE
+                    or entry.get("market") is not True
+                ):
+                    raise ArticleStoreError("frontier index differs from its source")
+                if entry["stage_id"] not in downloaded:
+                    packet = directory / f"baseline-{len(downloaded)}"
+                    download_fixed(store, entry, packet)
+                    downloaded[entry["stage_id"]] = packet / "receipts.sqlite"
+                with closing(connect_read_only(downloaded[entry["stage_id"]])) as old:
+                    original = read_receipt(old, receipt_id)
+                    if original.body_ref is None:
+                        raise ArticleStoreError("frontier index has no original body")
+                    body = read_body(old, original.body_ref)
+            if original.source != source:
+                raise ArticleStoreError("frontier index differs from its source")
+            items = parse_index(
+                source, body, url=original.requested_url, encoding=original.encoding or "utf-8"
+            )
+            index_cache[key] = items
+            return items
 
         def receive(
             url: str, kind: Literal["index", "document"]
@@ -256,7 +305,34 @@ def acquire_source(
             body = read_body(conn, final.body_ref) if final.body_ref is not None else None
             return final, body
 
+        if source in FRONTIER_SOURCES:
+            frontier = ArticleFrontier(cursor, resolve_index)
+            if cursor.get("format") != FRONTIER_FORMAT:
+                recovery = legacy_omission_evidence(store, state)
+                if recovery is not None:
+                    entry, references = recovery
+                    for reference in references:
+                        frontier.seed_legacy_index(reference)
+                    frontier.legacy_recovery = {
+                        "stage": entry,
+                        "requeued_omitted_count": frontier.legacy_omitted,
+                    }
+                    frontier.legacy_omitted = 0
+                else:
+                    # Unknown old omissions stay visible; recover available raw without guessing.
+                    for entry_url in policy.entry_urls:
+                        prior = planning.get(entry_url)
+                        if prior is not None:
+                            frontier.seed_legacy_index(
+                                {
+                                    "stage": prior["stage"],
+                                    "index_receipt_id": prior["receipt"]["receipt_id"],
+                                }
+                            )
+            if frontier.encoded_size() > MAX_FRONTIER_BYTES:
+                raise ValueError("saved article work exceeds the frontier bound; recover exactly")
         queue: list[str] = []
+        frontier_queued = False
         active_url: str | None = None
         try:
             # Always overlap the front page, then continue the previous bounded page
@@ -292,6 +368,13 @@ def acquire_source(
                     partial = True
                     page_url = entry_urls.pop(0) if entry_urls else None
                     continue
+                if frontier is not None:
+                    reference = {
+                        "stage": {"stage_id": stage_id},
+                        "index_receipt_id": receipt.receipt_id,
+                    }
+                    index_cache[(stage_id, receipt.receipt_id)] = native
+                    frontier.observe(page_url, reference, native)
                 for item in native:
                     fetch_url = str(item.metadata.get("fetch_url") or item.url)
                     discovered_by_identity.setdefault(item.article_id, fetch_url)
@@ -306,7 +389,7 @@ def acquire_source(
                 next_page = next_index_url(
                     source, body, url=page_url, encoding=receipt.encoding or "utf-8"
                 )
-                resume_page = state.cursor.get("next_page") if pages == 1 else None
+                resume_page = cursor.get("next_page") if pages == 1 else None
                 page_url = entry_urls.pop(0) if entry_urls else resume_page or next_page
                 if page_url in seen_pages:
                     failed.append("index_page_cycle")
@@ -323,8 +406,17 @@ def acquire_source(
                 and datetime.fromisoformat(planning[url]["receipt"]["received_at"]) >= recent_after
             ][: policy.max_revalidate_bodies]
             queue = (
-                list(dict.fromkeys([*known, *pending_urls, *fresh])) if policy.max_bodies else []
+                (
+                    frontier.queue(known)
+                    if frontier is not None
+                    else list(dict.fromkeys([*known, *pending_urls, *fresh]))
+                )
+                if policy.max_bodies
+                else []
             )
+            if frontier is not None:
+                queue = queue[: policy.max_bodies]
+                frontier_queued = True
             pending_urls = []
             seen_bodies: set[str] = set()
             while queue and bodies < policy.max_bodies:
@@ -341,21 +433,30 @@ def acquire_source(
                     or urlsplit(url).scheme != "https"
                 ):
                     active_url = None
+                    policy_excluded += 1
+                    if frontier is not None:
+                        frontier.pending.pop(url, None)
                     continue  # Alias/login/foreign-host identities do not expand crawling.
                 seen_bodies.add(url)
+                link = evidence_for(url) if frontier is not None else None
                 receipt, body = receive(url, "document")
                 bodies += 1
                 active_url = None
-                link = evidence_for(url)
-                if link is not None and attach_prior_index(link):
+                if frontier is None:
+                    link = evidence_for(url)
+                bound = link is not None and attach_prior_index(link)
+                if bound:
+                    assert link is not None
                     document_evidence[receipt.receipt_id] = {
                         field: link[field]
                         for field in ("index_receipt_id", "article_id", "native_locator", "title")
                     }
-                elif source == "nhk_news":
+                elif source == "nhk_news" or frontier is not None:
                     # Its GUID may differ from the URL. Keep raw and mark the
                     # unresolved identity rather than inventing a URL identity.
                     failed.append("document_identity_unbound")
+                if frontier is not None:
+                    frontier.complete(url, success=body is not None and bound)
                 if body is None:
                     pending_urls.append(url)
                 elif source in {"boj_news", "mof_news"} and not body.startswith(b"%PDF-"):
@@ -389,25 +490,39 @@ def acquire_source(
             # No source text/URL/error messages enter logs. Completed L1 remains
             # eligible for staging even if a later request or native parse fails.
             failed.append(type(error).__name__)
+            if frontier is not None and active_url is not None:
+                frontier.complete(active_url, success=False)
             pending_urls = list(
                 dict.fromkeys([*pending_urls, *([active_url] if active_url else []), *queue])
             )
             partial = True
-        # Keeping a finite cursor is honest about omitted backlog, not completeness.
-        omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
-        if omitted_urls:
-            failed.append("pending_cursor_overflow")
+        if frontier is not None:
+            if not frontier_queued:
+                frontier.queue([])
+            frontier.next_page = next_page
+            pending_urls = list(frontier.pending)
+            omitted_urls = frontier.legacy_omitted
+            if omitted_urls:
+                failed.append("legacy_omission_unresolved")
+            if frontier.capacity_blocked:
+                failed.append("frontier_capacity_exceeded")
+            cursor = frontier.wire()
+        else:
+            # Legacy attachment discovery remains independently bounded.
+            omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
+            if omitted_urls:
+                failed.append("pending_cursor_overflow")
+            cursor = {
+                "pending_urls": pending_urls[:MAX_REQUEST_STATES],
+                "pending_evidence": {
+                    url: link
+                    for url in pending_urls[:MAX_REQUEST_STATES]
+                    if (link := evidence_for(url)) is not None
+                },
+                "next_page": next_page,
+                "omitted_url_count": omitted_urls,
+            }
         continuation_only = bool(pending_urls or next_page) and not (failed or partial)
-        cursor = {
-            "pending_urls": pending_urls[:MAX_REQUEST_STATES],
-            "pending_evidence": {
-                url: link
-                for url in pending_urls[:MAX_REQUEST_STATES]
-                if (link := evidence_for(url)) is not None
-            },
-            "next_page": next_page,
-            "omitted_url_count": omitted_urls,
-        }
         # Current index and recent bodies only; old raw history stays in immutable stages.
         planning = dict(list(planning.items())[-MAX_REQUEST_STATES:])
         report = {
@@ -423,6 +538,8 @@ def acquire_source(
             "failures": sorted(set(failed)),
             "pages": pages,
             "bodies": bodies,
+            "pending_url_count": len(pending_urls),
+            "policy_excluded_count": policy_excluded,
             "requests_used": budget.requests_used,
             "bytes_used": budget.bytes_used,
             "acquisition_seconds": round((datetime.now(UTC) - started).total_seconds(), 3),
