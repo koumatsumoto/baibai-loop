@@ -2,6 +2,7 @@ import json
 from contextlib import closing
 
 import pytest
+from tests.helpers.native_handoff import stage
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
@@ -10,7 +11,6 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     R2Error,
 )
-from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import (
     available_handoffs,
     download_fixed,
@@ -18,47 +18,8 @@ from baibai_jobs.acquisition.receipts import (
 )
 
 
-class Store(MemoryR2Store):
-    def iter_objects(self, prefix):
-        yield from [
-            (key, len(value.body))
-            for key, value in sorted(self.values.items())
-            if key.startswith(prefix)
-        ]
-
-
-def stage(
-    store, directory, stage_id, group="boj", *, started_at="2026-10-24T07:43:00+00:00", value=None
-):
-    directory.mkdir()
-    from datetime import date, datetime
-
-    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
-
-    with closing(initialize_database(directory / "receipts.sqlite")) as conn, conn:
-        if value is not None:
-            store_snapshot(
-                conn,
-                source_id="fred-payems",
-                observed_at=date(2026, 10, 24),
-                fetched_at=datetime.fromisoformat(started_at),
-                records=[{"value": value}],
-            )
-    (directory / "result.json").write_text(
-        json.dumps(
-            {
-                "group": group,
-                "asof": "2026-10-24",
-                "started_at": started_at,
-                "sources": [],
-            }
-        )
-    )
-    save_handoff(store, stage_id, directory)
-
-
 def test_integration_freezes_available_receipts_without_waiting_for_later_source(tmp_path):
-    store = Store()
+    store = MemoryR2Store()
     stage(store, tmp_path / "a", "boj-2026-10-24-a")
     frozen = available_handoffs(store)
     # An unrelated slow source finishes only after integration's input boundary.
@@ -72,7 +33,7 @@ def test_integration_freezes_available_receipts_without_waiting_for_later_source
 
 
 def test_fixed_receipt_manifest_cannot_be_replaced_between_plan_and_apply(tmp_path):
-    store = Store()
+    store = MemoryR2Store()
     stage(store, tmp_path / "a", "boj-2026-10-24-a")
     frozen = available_handoffs(store)
     key = "coordination/economic-sources/boj-2026-10-24-a/handoff.json"
@@ -85,7 +46,7 @@ def test_fixed_receipt_manifest_cannot_be_replaced_between_plan_and_apply(tmp_pa
 
 
 def test_source_resume_listing_does_not_read_unrelated_receipt_manifests(tmp_path):
-    store = Store()
+    store = MemoryR2Store()
     stage(store, tmp_path / "a", "boj-2026-10-24-a")
     stage(store, tmp_path / "b", "fred_csv-2026-10-24-b", "fred_csv")
     store.get_keys.clear()
@@ -95,7 +56,7 @@ def test_source_resume_listing_does_not_read_unrelated_receipt_manifests(tmp_pat
 
 
 def test_malformed_handoff_does_not_block_other_ready_source(tmp_path):
-    store = Store()
+    store = MemoryR2Store()
     stage(store, tmp_path / "good", "boj-2026-10-24-good")
     store.store_object("coordination/economic-sources/broken/handoff.json", b"{invalid JSON")
     selected = available_handoffs(store)
@@ -118,7 +79,7 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     from baibai_jobs.integration.native_source_merge import merge_stores
     from baibai_jobs.integration.sources import apply
 
-    store = Store()
+    store = MemoryR2Store()
     canonical = tmp_path / "canonical.sqlite"
     with closing(initialize_database(canonical)) as conn, conn:
         store_snapshot(
@@ -182,7 +143,7 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
 def test_handoff_plan_uses_error_type_not_message_for_failure_scope(tmp_path, monkeypatch, error):
     import baibai_jobs.acquisition.receipts as receipts
 
-    store = Store()
+    store = MemoryR2Store()
     stage(store, tmp_path / "a", "boj-fault")
     stage(store, tmp_path / "b", "fred_csv-good", "fred_csv")
     read = receipts.read_private
