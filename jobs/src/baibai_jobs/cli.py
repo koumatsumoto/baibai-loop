@@ -18,6 +18,7 @@ _COMMANDS = {
     "screening-selection": "baibai_jobs.integration.screening_selection",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
     "tradingview-source": "baibai_jobs.maintenance.tradingview_cli",
+    "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
     "article-recovery": "baibai_jobs.maintenance.article_recovery",
     "article-cutover": "baibai_jobs.maintenance.article_cutover",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",

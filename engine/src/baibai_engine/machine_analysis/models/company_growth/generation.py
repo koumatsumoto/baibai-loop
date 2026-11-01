@@ -23,6 +23,10 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_statements import (
+    PdfStatement,
+    build_pdf_supplement,
+)
 from baibai_engine.primitives.stocks import normalize_ticker
 
 
@@ -37,6 +41,8 @@ def generate_company_growth(
     end: date | None = None,
     comparisons: Sequence[FilingComparisons] = (),
     comparison_input_reason: str | None = None,
+    pdf_statements: Sequence[PdfStatement] = (),
+    pdf_input_reason: str | None = None,
 ) -> CompanyGrowth:
     """期間端で表示を限定し、固定releaseに残る訂正履歴は入力に維持する。"""
     ticker = normalize_ticker(ticker)
@@ -66,17 +72,21 @@ def generate_company_growth(
             )
         )
     )
+    if any(item.ticker != ticker for item in pdf_statements):
+        raise ValueError("PDF statements contain a different ticker")
+    pdf = build_pdf_supplement(pdf_statements, as_of=as_of)
+    available = bool(displayed or any(c.changes for c in reported) or (pdf and pdf.comparisons))
     return result.model_copy(
         update={
-            "status": "available"
-            if displayed or any(c.changes for c in reported)
-            else "unavailable",
-            "reason": None
-            if displayed or any(c.changes for c in reported)
-            else "accounting_period_not_observed",
+            "status": "available" if available else "unavailable",
+            "reason": None if available else "accounting_period_not_observed",
             "reported_comparisons": reported,
             "comparison_input_reason": comparison_input_reason,
-            "calculation_method": "company_growth_retrospective_v8-edinet-comparisons"
+            "pdf_supplement": pdf,
+            "pdf_input_reason": pdf_input_reason,
+            "calculation_method": "company_growth_retrospective_v9-pdf-display"
+            if pdf is not None
+            else "company_growth_retrospective_v8-edinet-comparisons"
             if reported
             else result.calculation_method,
             "input_release": input_release,

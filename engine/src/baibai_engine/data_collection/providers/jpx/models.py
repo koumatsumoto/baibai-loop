@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import urlparse
@@ -21,5 +22,11 @@ class JPXResponse:
 
 def validate_jpx_url(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "https" or parsed.netloc != "www.jpx.co.jp":
+    disclosure = (
+        parsed.netloc == "www2.jpx.co.jp"
+        and re.fullmatch(r"/disc/[0-9A-Z]{4}0/1401\d{14}\.pdf", parsed.path) is not None
+        and not parsed.query
+        and not parsed.fragment
+    )
+    if parsed.scheme != "https" or (parsed.netloc != "www.jpx.co.jp" and not disclosure):
         raise JPXAcquisitionError("JPX source must use https://www.jpx.co.jp/")

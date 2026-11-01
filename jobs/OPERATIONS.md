@@ -510,6 +510,27 @@ main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrat
 期待外差分、取得失敗、世代競合、lease失効で後段を止める。準備コピーを本番へ戻さず、再抽出後にhydrateせず、旧値のrevisionだけを付け替えない。通常dailyへ意味移行を代行させない。
 
 <a id="edinet-source-archives"></a>
+## JPX決算PDFの表示額による補完
+
+詳細APIの未契約を契約変更で解消せず、実際に取得したJPX決算PDFを明示的に取り込める。
+`financial-pdf-source --receipts <JSON> --directory <NEW_PRIVATE_DIRECTORY>`はHTTPを行わず、
+新しい有限handoffへ保存する。JSONは1〜8件の配列で、各要素に`requested_url`、`file`（JSONからの相対path）、
+`sha256`、`request_started_at`、`captured_at`、`http_status: 200`、`content_type: application/pdf`を持つ。
+時刻は実際の取得ログのtimezone付きUTCで、`captured_at`は本文保存・hash計算を含み得る記録上の取得完了時刻。
+ファイルmtime、公表日、移行実行時刻から受領時刻を作らない。原本・URL・hashは取り込み前に照合する。
+
+保存先は既存JPX原受領bundleの`financial_statements` collectionで、schema移行や既存原本の書換えは不要。
+明示handoffは`python -m baibai_jobs.integration.source_handoff stage --source jpx-financial-pdfs
+--directory <DIRECTORY> --stage-id <NEW_ID>`から通常の共通統合・固定release・モデル生成へ渡す。
+このsourceを通常dailyの自動取得へ追加せず、既知の公開URLだけを対象にする。
+
+初版は、IFRS連結・百万円未満切捨て・前年組替の明記がある二列表と、p1六科目集約表が一致する形式だけを読む。
+対応外、訂正表題、矛盾は理由付き欠測で残す。表示額・期間・表の行列・原本hash・公表日の精度を保持し、
+企業財務・企業成長に同じ`pdf_supplement`を付加する。年度実績と同一文書内の当期・比較期から作るTTMも
+表示額由来と明示し、J-Quantsの精密値、EPS分子、既存TTM・利益利回り・候補政策は上書きしない。
+保持した文書vintageの算術であり、後日訂正の網羅性や最新正準値を保証しない。未取得の訂正・未対応表は別の未達である。
+旧保存結果は再serializeせず、新しいgenerationで反映する。fixture CIと実PDF読取・固定release読戻しを区別する。
+
 ## EDINET原本とCompany Research facts
 
 原本再利用は明示したmarket SQLiteのedinet_source_archivesから行い、以前の端末ZIPを暗黙に取り込まない。stored_onは初回保存UTC日で開示・初回利用可能日ではない。受領ZIPとL2の選択文書・metricsを混同せず、取得エラーで既存ZIPを上書きしない。

@@ -43,6 +43,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     PriceBar,
@@ -61,6 +62,7 @@ class CompanyModelInputs:
     edinet: EdinetMetricRecord | None = None
     price_path: dict[str, object] | None = None
     comparisons: Sequence[FilingComparisons] = ()
+    pdf_statements: Sequence[PdfStatement] = ()
 
 
 def generate_models(
@@ -168,6 +170,7 @@ def generate_models(
                 edinet=company.edinet,
                 price_path=company.price_path,
                 comparisons=company.comparisons,
+                pdf_statements=company.pdf_statements,
             )
             history = external_observations.get(ticker)
             if history is not None:
