@@ -21,6 +21,7 @@ from baibai_jobs.acquisition.article_planning import (
 )
 from baibai_jobs.maintenance.article_recovery import exact_entry
 
+
 def test_six_wakeups_do_not_assume_a_fixed_tsr_launch_hour():
     news = ArticlePlanning("boj_news", {})
     tsr = ArticlePlanning("tsr_data", {})

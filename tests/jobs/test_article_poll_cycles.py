@@ -2,8 +2,8 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.article_acquisition import SLOT, Response, Session
+from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_engine.data_collection.transport.articles as transport
 from baibai_jobs.acquisition import articles

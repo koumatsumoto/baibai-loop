@@ -5,8 +5,8 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.article_acquisition import SLOT, Response, Session, receipt
+from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.article_discovery as worksets
 from baibai_engine.data_collection.providers.articles.contracts import NativeLink

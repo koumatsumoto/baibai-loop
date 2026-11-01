@@ -5,8 +5,8 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.article_acquisition import SLOT, _packet, receipt
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.objects.r2 import LakePublishError

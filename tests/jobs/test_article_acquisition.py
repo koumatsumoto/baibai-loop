@@ -21,6 +21,7 @@ from baibai_jobs.acquisition.cooldown import extend, quota_key
 from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
 
+
 def test_external_assessment_quota_wait_blocks_article_before_http(tmp_path):
     store = MemoryR2Store()
     publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
