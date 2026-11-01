@@ -15,12 +15,12 @@ from tests.helpers.external_assessment_html import (
 )
 from tests.helpers.external_assessment_http import HostRateClock as Clock
 from tests.helpers.external_assessment_http import HostRateSession as Session
-from tests.helpers.external_assessment_stages import FakeObjectStore, completed_pair, plan
+from tests.helpers.external_assessment_publication import integrate_ready_plans
 from tests.helpers.external_assessment_publication import (
     independent_plans as independent_plans,
 )
-from tests.helpers.external_assessment_publication import integrate_ready_plans
 from tests.helpers.external_assessment_publication import publication as publication
+from tests.helpers.external_assessment_stages import FakeObjectStore, completed_pair, plan
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.sources as sources

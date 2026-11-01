@@ -37,11 +37,13 @@ def test_progress_reader_imports_without_site_packages_or_engine(tmp_path):
             sys.executable,
             "-S",
             "-c",
-            "import json, sys; "
-            "from baibai_jobs.observability.tradingview_progress import safe_progress; "
-            "assert not any(name.startswith(('baibai_engine', 'httpx', 'mcp')) "
-            "for name in sys.modules); "
-            "print(json.dumps(safe_progress({'requests_attempted': 0, 'token': 'private'})))",
+            (
+                "import json, sys; "
+                "from baibai_jobs.observability.tradingview_progress import safe_progress; "
+                "assert not any(name.startswith(('baibai_engine', 'httpx', 'mcp')) "
+                "for name in sys.modules); "
+                "print(json.dumps(safe_progress({'requests_attempted': 0, 'token': 'private'})))"
+            ),
         ],
         env={**os.environ, "PYTHONPATH": str(root / "jobs/src")},
         cwd=tmp_path,

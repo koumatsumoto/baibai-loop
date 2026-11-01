@@ -33,4 +33,3 @@ def safe_progress(payload: dict[str, object]) -> dict[str, object]:
         if key in payload
         and (payload[key] is None or type(payload[key]) in (str, int, float, bool))
     }
-

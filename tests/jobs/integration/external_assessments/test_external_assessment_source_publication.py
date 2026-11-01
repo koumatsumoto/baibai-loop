@@ -14,9 +14,6 @@ from tests.helpers.external_assessment_html import (
 )
 from tests.helpers.external_assessment_http import RawSession as Session
 from tests.helpers.external_assessment_http import connect as connect
-from tests.helpers.external_assessment_publication import _plan as _plan
-from tests.helpers.external_assessment_publication import _stage as _stage
-from tests.helpers.external_assessment_publication import publication as publication
 from tests.helpers.external_assessment_publication import (
     RECEIVED,
     integrate_ready_plans,
@@ -24,6 +21,9 @@ from tests.helpers.external_assessment_publication import (
     ready_reference,
     upload_bundle,
 )
+from tests.helpers.external_assessment_publication import _plan as _plan
+from tests.helpers.external_assessment_publication import _stage as _stage
+from tests.helpers.external_assessment_publication import publication as publication
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.integration.external_assessments as integration

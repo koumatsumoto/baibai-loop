@@ -4,7 +4,6 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.external_assessment_publication import (
     RECEIVED,
     _plan,
@@ -15,6 +14,7 @@ from tests.helpers.external_assessment_publication import (
     independent_plans as independent_plans,
 )
 from tests.helpers.external_assessment_publication import publication as publication
+from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.external_assessments.staging as staging
 import baibai_jobs.publication.snapshot_publication as publisher
