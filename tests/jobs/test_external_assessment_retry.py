@@ -125,10 +125,20 @@ def test_retry_cannot_sleep_into_next_cycle(monkeypatch, clock):
     report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=5))
     assert report["provider_requests"] == 1
     assert len(client.calls) == 1
-    assert clock.sleeps == []
+    assert clock.sleeps == [source_http.SOURCE_REQUEST_INTERVAL_SECONDS]
+    assert report["stop_reason"] == "cycle_finished"
     saved = staging.read_stage(store, p, 0)[0]
     assert saved.result.entries[0].state == "failure"
     assert saved.result.entries[0].http_status == 429
+
+
+def test_host_spacing_cannot_start_request_after_cycle_deadline(monkeypatch, clock):
+    p, store = plan(), FakeObjectStore()
+    client = wire_collector(monkeypatch, store, p, clock, [])
+    report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=0.1))
+    assert report["provider_requests"] == 0
+    assert client.calls == []
+    assert store.puts == []
 
 
 @pytest.mark.parametrize(("source", "limit"), [("monex", 6), ("rakuten", 12), ("kabumap", 6)])

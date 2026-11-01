@@ -69,14 +69,19 @@ def _nhk_description(text):
 
 
 @pytest.mark.parametrize("target_status", [200, 403])
+@pytest.mark.parametrize("bureau", [False, True])
 def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
-    tmp_path, monkeypatch, target_status
+    tmp_path, monkeypatch, target_status, bureau
 ):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
     notice_url = "https://www.mof.go.jp/insideLink/synthetic.html"
-    target_url = "https://www.mof.go.jp/pri/research/seminar/lmeeting.htm"
+    target_url = (
+        "https://lfb.mof.go.jp/renkei/torikumi.html"
+        if bureau
+        else "https://www.mof.go.jp/pri/research/seminar/lmeeting.htm"
+    )
     feed = (
         f"<rss><channel><item><title>Synthetic</title><link>{notice_url}</link>"
         "</item></channel></rss>"
@@ -84,7 +89,7 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
     notice = f'<meta http-equiv="refresh" content="0;url={target_url}">'.encode()
     target_body = (
         '<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">'
-        '<main>本文<a href="old.pdf">Old reference</a></main>'
+        "<main>本文" + ("" if bureau else '<a href="old.pdf">Old reference</a>') + "</main>"
     ).encode("shift_jis")
     session = Session(
         [
@@ -127,7 +132,8 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         assert "本文" in target.text
         target_receipt = next(item for item in receipts if item["requested_url"] == target_url)
         assert target_receipt["encoding"] == "shift_jis"
-        assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
+        if not bureau:
+            assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
         assert target.receipt_id != notice_observation.receipt_id
         assert target.article_id != notice_observation.article_id
     else:

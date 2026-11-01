@@ -70,7 +70,9 @@ def clock(monkeypatch, value):
         ),
     ],
 )
-def test_current_daily_cycle_survives_midnight_and_advances_at_next_due(created, now, day, eligible):
+def test_current_daily_cycle_survives_midnight_and_advances_at_next_due(
+    created, now, day, eligible
+):
     assert external_assessment_target_date(created, now) == (day, eligible)
 
 
@@ -221,9 +223,13 @@ def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monk
     assert all("/year=2025/" in key for key in master_reads)
 
 
-def test_delayed_source_prepare_retains_cycle_without_touching_store_or_provider(tmp_path, monkeypatch):
+def test_delayed_source_prepare_retains_cycle_without_touching_store_or_provider(
+    tmp_path, monkeypatch
+):
     clock(monkeypatch, datetime(2026, 10, 12, 6, 29, tzinfo=UTC))
-    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: pytest.fail("planning touched R2"))
+    monkeypatch.setattr(
+        sources, "Boto3R2Store", lambda **kwargs: pytest.fail("planning touched R2")
+    )
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     assert (

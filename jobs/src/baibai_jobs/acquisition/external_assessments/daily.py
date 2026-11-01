@@ -41,6 +41,7 @@ from baibai_jobs.acquisition.external_assessments.cohorts import (
     record_outcome,
     summarize,
 )
+from baibai_jobs.acquisition.external_assessments.collection import DEFAULT_PAIR_TIME_LIMIT_SECONDS
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionResult as ExternalAssessmentCollectionResult,
 )
@@ -292,7 +293,15 @@ def acquire_cohort(
                 break
             final_result: ExternalAssessmentCollectionResult | None = None
             for retry in range(MAX_PAIR_RETRIES + 1):
-                if collect_before is not None and datetime.now(UTC) >= collect_before:
+                pair_seconds = (
+                    min(
+                        DEFAULT_PAIR_TIME_LIMIT_SECONDS,
+                        (collect_before - datetime.now(UTC)).total_seconds(),
+                    )
+                    if collect_before is not None
+                    else DEFAULT_PAIR_TIME_LIMIT_SECONDS
+                )
+                if pair_seconds <= 0:
                     stop_reason = "cycle_finished"
                     break
                 received_html: list[EquityWebSourceResponse] = []
@@ -304,6 +313,7 @@ def acquire_cohort(
                     source=entry.source,
                     on_received_html=received_html.append,
                     rate_limiter=rate_limiter,
+                    time_limit_seconds=pair_seconds,
                 )
                 timings["collection_elapsed_seconds"] += time.monotonic() - collection_started
                 if len(result.outcomes) != 1 or len(result.observations) > 1:
