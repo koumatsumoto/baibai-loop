@@ -6,7 +6,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
-from tests.engine.test_edinet_research_facts import facts
+from tests.helpers.edinet_research_sources import facts
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import lake as lake
 

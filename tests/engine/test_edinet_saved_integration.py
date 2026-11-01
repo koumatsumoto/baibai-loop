@@ -5,10 +5,10 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from tests.engine.test_edinet_metric_eligibility import BASE, TARGET, _seed
-from tests.engine.test_edinet_research_facts import source_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.edinet_metrics import _edinet_csv_zip
+from tests.helpers.edinet_research_sources import source_zip
+from tests.helpers.edinet_saved_inputs import BASE, TARGET, _next_listing, _seed
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
@@ -61,15 +61,6 @@ def test_incomplete_historical_window_is_not_shrunk_or_marked_extracted(tmp_path
     assert "document_window_incomplete" in report["edinet-metrics"]["deferred_inputs"]
     assert report["edinet-metrics"]["snapshot_asof"] == BASE.isoformat()
     assert path.read_bytes() == before
-
-
-def _next_listing(path):
-    documents = _seed(path)
-    for offset in (1, 2):
-        store_edinet_documents(path, BASE + timedelta(days=offset), [])
-    updated = dict(documents[0])
-    updated.update(docID="S100NEXT", submitDateTime="2026-04-27 12:00")
-    store_edinet_documents(path, TARGET, [updated])
 
 
 def test_new_list_waits_for_csv_then_extracts_its_actual_source_day(tmp_path):

@@ -1,9 +1,10 @@
 import json
 from contextlib import closing
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.engine.test_edinet_metric_eligibility import BASE, RECORDED, TARGET, _seed
+from tests.helpers.edinet_handoff_inputs import DAY, STAMP, projection_state, receive
+from tests.helpers.edinet_saved_inputs import BASE, RECORDED, TARGET, _seed
 
 from baibai_engine.data_collection.providers.edinet.archives import (
     archive_keys,
@@ -24,34 +25,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_reader import
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.edinet_handoff import export_handoff, import_handoff
-
-DAY = date(2026, 10, 15)
-STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
-
-
-def receive(path, doc_id, stamp, *, day=DAY):
-    payload = {
-        "metadata": {"resultset": {"count": 1}},
-        "results": [{"seqNumber": 1, "docID": doc_id, "secCode": "72030"}],
-    }
-    with closing(open_connection(path)) as conn:
-        return retain_list_response(
-            conn, doc_date=day, received_at=stamp, body=json.dumps(payload).encode()
-        )
-
-
-def projection_state(path):
-    with closing(open_connection(path)) as conn:
-        return (
-            conn.execute(
-                "SELECT * FROM edinet_documents ORDER BY doc_date, sequence_number"
-            ).fetchall(),
-            conn.execute("SELECT * FROM edinet_document_lists ORDER BY doc_date").fetchall(),
-            conn.execute(
-                "SELECT * FROM source_coverage WHERE source = 'edinet_documents' "
-                "ORDER BY coverage_key"
-            ).fetchall(),
-        )
 
 
 def test_late_edinet_list_uses_all_retained_receipts_without_custom_lww(tmp_path):
