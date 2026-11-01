@@ -32,6 +32,7 @@ jobs:
       cancel-in-progress: false
     outputs:
       handoff: ${{ steps.stage.outputs.handoff }}
+      expected_unavailable: ${{ steps.acquire.outputs.expected_unavailable }}
     steps:
       - name: Reserve time for private receipt export and staging
         run: echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 45 * 60 ))" >> "$GITHUB_ENV"
@@ -111,5 +112,6 @@ jobs:
           SOURCE_GROUP: economic-${{ inputs.group }}
           ASOF: ${{ inputs.asof }}
           ACQUIRE_RESULT: ${{ needs.acquire.result }}
+          EXPECTED_UNAVAILABLE: ${{ needs.acquire.outputs.expected_unavailable }}
           STAGE_RESULT: ${{ needs.acquire.outputs.handoff != '' && 'success' || 'failure' }}
         run: python3 -m baibai_jobs.observability.source_discord

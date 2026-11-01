@@ -493,6 +493,8 @@ optionsのall-historyは保存済み古い日を再利用して直近と不足�
 
 PMI manifestは公表翌週にdry-run→更新→対象月refresh→公表値照合→commitする。
 
+PMIは既存のprovider別jobで分離済み。確認済みのHTTP 403だけで取得が止まり、private受領の保存が成功した場合は、取得失敗・HTTP status・欠測を残したままDiscordの繰返し失敗通知だけを省略する。Actionsは成功に変えず、ログにUNAVAILABLEを表示する。403を未公表と推測せず、空応答・manifest不足・parse失敗・429・5xx・保存失敗・取消は従来どおり通知する。公表前の当月値を要求するためのjobや日程台帳は追加しない。
+
 ```bash
 uv run python -m tools.pmi_manifest --dry-run
 uv run python -m tools.pmi_manifest

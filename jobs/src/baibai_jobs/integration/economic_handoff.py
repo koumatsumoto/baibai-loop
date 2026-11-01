@@ -85,6 +85,8 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
         row: dict[str, object] = {"source_id": outcome.source_id}
         if isinstance(outcome, EconomicSourceRefreshFailure):
             row["status"] = "failed"
+            if outcome.http_status is not None:
+                row["http_status"] = outcome.http_status
         else:
             row.update(
                 status="ok",
@@ -104,11 +106,20 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
         "asof": asof.isoformat(),
         "sources": rows,
     }
+    failures = [item for item in outcomes if isinstance(item, EconomicSourceRefreshFailure)]
+    # Only the already-observed PMI HTTP refusal is a non-actionable notice.
+    # Keep failure exit/status/receipts; empty bodies and other errors still alert.
+    expected_unavailable = (
+        group in {"spglobal_pmi", "tradingeconomics_pmi"}
+        and bool(failures)
+        and all(item.http_status == 403 for item in failures)
+    )
     # Provider error text stays local; the handoff keeps source identity/ranges/counts.
     write_json_atomic(directory / "result.json", report)
     if output := os.environ.get("GITHUB_OUTPUT"):
         with Path(output).open("a", encoding="utf-8") as stream:
             print("stage_ready=true", file=stream)
+            print(f"expected_unavailable={str(expected_unavailable).lower()}", file=stream)
     print(json.dumps(report, ensure_ascii=False))
     return int(any(isinstance(item, EconomicSourceRefreshFailure) for item in outcomes))
 
