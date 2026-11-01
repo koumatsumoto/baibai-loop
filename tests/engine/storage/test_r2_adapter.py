@@ -8,7 +8,12 @@ import pytest
 from botocore.exceptions import ClientError, ReadTimeoutError
 
 from baibai_engine.storage.objects import r2 as object_storage
-from baibai_engine.storage.objects.r2 import Boto3R2Store, LakeCASConflict, LakePublishError, R2Error
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    R2Error,
+)
 
 
 def test_r2_account_id_rejects_endpoint_injection() -> None:
