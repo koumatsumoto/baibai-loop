@@ -66,9 +66,9 @@ def delete_source_coverage(conn: sqlite3.Connection, source: str) -> None:
 def source_coverage_sources(conn: sqlite3.Connection) -> tuple[str, ...]:
     """Return the distinct source names that currently have coverage rows.
 
-    This is the set of sources an invalidate can target: coverage bookkeeping is
-    the single source of truth for what has been fetched, so a name absent here
-    has nothing to invalidate and is reported as unknown rather than accepted.
+    This is the set of projected coverage claims an invalidate can target. A name
+    absent here has no coverage to invalidate; it does not prove there are no L1
+    receipts. Original request pages are retained independently of this table.
     """
     rows = conn.execute("SELECT DISTINCT source FROM source_coverage ORDER BY source").fetchall()
     return tuple(str(row[0]) for row in rows)

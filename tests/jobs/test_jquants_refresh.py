@@ -35,7 +35,11 @@ from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, seal
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
-from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
+from baibai_jobs.maintenance.source_refresh.jquants import (
+    JQuantsRefresh,
+    all_issues_daily_margin_backfill_candidate_dates,
+    all_issues_daily_margin_candidate_dates,
+)
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -703,3 +707,55 @@ def test_failed_projection_keeps_committed_source_receipt(database):
             {"data": [bar("2026-10-15", 100.0)]}
         ]
         assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("status", "count"), [("ok", 1), ("ok", 0), ("partial", 1), ("failed", 1)]
+)
+def test_daily_and_backfill_margin_plans_share_coverage_but_not_publication_boundary(
+    database, status, count
+):
+    first, latest = day("2026-09-25"), day("2026-09-28")
+    with sqlite3.connect(database) as conn:
+        conn.executemany(
+            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES ('1301',?,100)",
+            [(value,) for value in ("2026-09-24", first.isoformat(), latest.isoformat())],
+        )
+        conn.execute(
+            "INSERT INTO source_coverage VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "jquants_all_issues_daily_margin",
+                "get_mkt_margin_interest:2026-09-25..2026-09-25",
+                first.isoformat(),
+                first.isoformat(),
+                "2026-09-28T00:00:00Z",
+                count,
+                status,
+                None,
+            ),
+        )
+    before = database.read_bytes()
+    expected = [] if status == "ok" and count > 0 else [first]
+    assert all_issues_daily_margin_candidate_dates(database, day("2026-09-01"), latest) == expected
+    assert all_issues_daily_margin_backfill_candidate_dates(
+        database, day("2026-09-01"), latest
+    ) == [*expected, latest]
+    assert all_issues_daily_margin_candidate_dates(database, latest, latest) == []
+    assert all_issues_daily_margin_backfill_candidate_dates(database, latest, latest) == [latest]
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("initialized", [False, True])
+def test_margin_planning_missing_history_is_empty_without_creating_or_writing(
+    tmp_path, initialized
+):
+    path = tmp_path / "market.sqlite"
+    if initialized:
+        open_connection(path).close()
+    before = path.read_bytes() if initialized else None
+    for planner in (
+        all_issues_daily_margin_candidate_dates,
+        all_issues_daily_margin_backfill_candidate_dates,
+    ):
+        assert planner(path, day("2026-09-25"), day("2026-09-28")) == []
+    assert (path.read_bytes() if path.exists() else None) == before
