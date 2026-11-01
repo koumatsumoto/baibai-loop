@@ -12,7 +12,7 @@ from tests.helpers.external_assessment_html import (
     rakuten_html,
     rakuten_no_estimates_html,
 )
-from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
+from tests.helpers.external_assessment_stages import FakeObjectStore, plan
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.daily as daily

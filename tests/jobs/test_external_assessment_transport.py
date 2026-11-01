@@ -12,8 +12,8 @@ import pytest
 import requests
 from botocore.exceptions import ClientError, ReadTimeoutError
 from tests.helpers.external_assessment_html import monex_html
-from tests.jobs.external_assessment_response_fixtures import response
-from tests.jobs.test_external_assessment_daily import FakeObjectStore, observation, plan
+from tests.helpers.external_assessment_responses import response
+from tests.helpers.external_assessment_stages import FakeObjectStore, observation, plan
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
