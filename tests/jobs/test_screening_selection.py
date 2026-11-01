@@ -5,7 +5,7 @@ import sqlite3
 from datetime import UTC, date, datetime
 
 from pydantic import TypeAdapter
-from tests.model_generation_fixtures import generation
+from tests.helpers.model_generation import generation
 
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,

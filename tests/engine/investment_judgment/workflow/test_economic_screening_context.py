@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from pydantic import TypeAdapter
-from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import selected_target
+from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding

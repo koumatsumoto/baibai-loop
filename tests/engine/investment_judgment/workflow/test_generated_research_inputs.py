@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 import yaml
-from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import selected_target, selection
+from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import GeneratedLiquidityContext
 from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context

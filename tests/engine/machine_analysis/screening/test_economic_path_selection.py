@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 
 import pytest
-from tests.model_generation_fixtures import generation
+from tests.helpers.model_generation import generation
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection

@@ -6,7 +6,7 @@ from itertools import permutations
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
-from tests.model_generation_fixtures import generation
+from tests.helpers.model_generation import generation
 
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
