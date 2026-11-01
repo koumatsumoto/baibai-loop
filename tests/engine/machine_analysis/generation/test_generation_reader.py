@@ -3,7 +3,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.engine.test_edinet_metric_eligibility import BASE, RECORDED, TARGET, _seed
+from tests.helpers.edinet_saved_inputs import BASE, RECORDED, TARGET, _seed
 from tests.helpers.lake_release import market_store
 
 import baibai_engine.machine_analysis.generation.inputs as generation_reader

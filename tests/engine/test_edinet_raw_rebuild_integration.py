@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 import requests
-from tests.engine.test_edinet_research_facts import source_zip
 from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
+from tests.helpers.edinet_research_sources import source_zip
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive

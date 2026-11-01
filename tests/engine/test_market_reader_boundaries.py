@@ -371,7 +371,7 @@ def test_margin_coverage_and_observations_share_a_snapshot(
 
 @pytest.mark.parametrize("reader_kind", ["baseline", "metrics", "documents"])
 def test_edinet_coverage_and_rows_share_a_snapshot(tmp_path, monkeypatch, reader_kind):
-    from tests.engine.test_edinet_metric_eligibility import BASE, _seed
+    from tests.helpers.edinet_saved_inputs import BASE, _seed
 
     path = tmp_path / "market.sqlite"
     _seed(path)

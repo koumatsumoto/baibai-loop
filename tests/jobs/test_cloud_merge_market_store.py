@@ -866,7 +866,7 @@ class TestCommand:
 def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     import json
 
-    from tests.engine.test_edinet_research_facts import facts
+    from tests.helpers.edinet_research_sources import facts
 
     from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
         extraction_status,

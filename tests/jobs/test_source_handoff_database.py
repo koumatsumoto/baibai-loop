@@ -133,7 +133,7 @@ def test_archive_resume_projects_staged_list_without_common_integration(tmp_path
     from contextlib import closing
     from datetime import UTC, datetime
 
-    from tests.engine.test_edinet_handoff import receive
+    from tests.helpers.edinet_handoff_inputs import receive
     from tests.jobs.test_source_receipts import Store
 
     from baibai_engine.machine_analysis.observations.financials.edinet_models import (
@@ -190,7 +190,7 @@ def test_resume_replays_integrated_intermediate_receipts_but_not_unintegrated_la
     from contextlib import closing
     from datetime import UTC, datetime, timedelta
 
-    from tests.engine.test_edinet_handoff import receive
+    from tests.helpers.edinet_handoff_inputs import receive
     from tests.jobs.test_source_receipts import Store
 
     import baibai_jobs.acquisition.receipts as receipts

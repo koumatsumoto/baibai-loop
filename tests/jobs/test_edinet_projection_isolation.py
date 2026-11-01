@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import timedelta
 
 import pytest
-from tests.engine.test_edinet_handoff import DAY, STAMP, projection_state, receive
+from tests.helpers.edinet_handoff_inputs import DAY, STAMP, projection_state, receive
 from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.jobs.test_source_receipts import Store
