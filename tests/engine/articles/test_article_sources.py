@@ -304,26 +304,32 @@ def test_orphan_304_is_returned_even_when_recovery_budget_is_exhausted():
     assert session.get.call_count == 1
 
 
-def test_boj_document_cap_accepts_larger_reports_without_increasing_source_budget():
-    policy = SOURCES["boj_news"]
+@pytest.mark.parametrize("source", ["boj_news", "mof_news"])
+@pytest.mark.parametrize("size", [4_000_005, 12_000_001])
+def test_public_document_cap_accepts_reports_but_stays_bounded(source, size):
+    policy = SOURCES[source]
     assert policy.response_limit("index") == 4_000_000
     assert policy.response_limit("document") == 12_000_000
     assert policy.max_bytes == 24_000_000
-    assert SOURCES["mof_news"].response_limit("document") == 4_000_000
-    body = b"%PDF-" + b"x" * 4_000_000
+    body = b"%PDF-" + b"x" * (size - 5)
     session = Mock(spec=requests.Session)
     session.get.return_value = response(200, body)
     budget = ArticleBudget.start(max_requests=1, max_bytes=policy.max_bytes, seconds=30)
     (attempt,) = fetch_article(
         session,
         source=policy.source_id,
-        url="https://www.boj.or.jp/synthetic.pdf",
+        url=policy.entry_url.rsplit("/", 1)[0] + "/synthetic.pdf",
         allowed_hosts=policy.allowed_hosts,
         budget=budget,
         max_response_bytes=policy.response_limit("document"),
     )
-    assert attempt.receipt.status == "ok"
-    assert attempt.body == body
+    if size <= policy.response_limit("document"):
+        assert attempt.receipt.status == "ok"
+        assert attempt.body == body
+    else:
+        assert attempt.receipt.status == "budget_exceeded"
+        assert attempt.body is None
+        assert attempt.receipt.body_ref is None
     assert budget.bytes_used == len(body)
 
 

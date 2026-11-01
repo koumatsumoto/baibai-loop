@@ -137,5 +137,8 @@ SOURCES = {
         # 任意subdomainへ広げず、案内と転送先を別受領として保持する。
         frozenset({"www.mof.go.jp", "lfb.mof.go.jp", "www.customs.go.jp"}),
         exact_routes=(("www.customs.go.jp", "/toukei/latest/index.htm"),),
+        # 財務局の公開添付PDFはHTML用の4MB上限を超える。
+        # BOJと同じ文書上限とし、feed/source/groupの予算は増やさない。
+        max_document_bytes=12_000_000,
     ),
 }
