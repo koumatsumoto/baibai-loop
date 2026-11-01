@@ -5,6 +5,12 @@ from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
+from tests.helpers.external_assessment_html import (
+    monex_html,
+    official_html,
+    rakuten_html,
+    rakuten_no_estimates_html,
+)
 
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
@@ -13,41 +19,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 
 RECEIVED = datetime(2026, 10, 10, 16, 30, tzinfo=UTC)
-
-
-def monex_html(ticker="7203", *, value="1,234円"):
-    tables = "".join(
-        f"<table><tr><th>{label}</th></tr><tr><td>{value}</td></tr></table>"
-        for label in (
-            "PER基準<span>会社予想</span>",
-            "PER基準<span>アナリスト予想</span>",
-            "PBR基準",
-            "目標株価コンセンサス",
-        )
-    )
-    return (
-        f'<input id="stockCd" value="{ticker}"><div class="theory_summary_inner">'
-        "<table><tr><th>株価 (10/10)</th></tr><tr><td>999円</td></tr></table>"
-        + tables
-        + '</div><span class="cheap">割安</span><span class="expensive">割高</span>'
-        + '<div><th>レーティング</th><img class="summary_blur" src="locked.png"></div>'
-    )
-
-
-def official_html(ticker="7203"):
-    return f'''<meta property="og:url" content="{rakuten.public_url(ticker)}">
-    <script>var requestURL="{rakuten.IFRAME_BASE}";
-    var requestPARAM="{rakuten.IFRAME_PARAMETER}";
-    ifrSrc = requestURL + requestPARAM + getRIC();</script><iframe id="ifr" src="/blank.html"></iframe>'''
-
-
-def rakuten_html(ticker="7203", *, value="3.25"):
-    return f"""<div class="segment-s last-child"><h3><span>レーティング</span></h3>
-    <table><thead><tr><th>現在値</th><th>1週間前</th><th>1ヶ月前</th><th>3ヶ月前</th></tr></thead>
-    <tbody><tr><td><em>{value}</em></td><td>4.10</td><td>4.20</td><td>4.30</td></tr></tbody></table></div>
-    <div><h3>コンセンサスの推移（数値）</h3><span>アナリスト数：99人</span></div>
-    <table><thead><tr><th>コード</th><th>会社名</th><th>レーティング</th></tr></thead>
-    <tbody><tr><th>{ticker}</th><td>合成会社</td><td>{value}</td></tr><tr><th>9432</th><td>合成別会社</td><td>2.0</td></tr></tbody></table>"""
 
 
 def rakuten_chart_binding(ticker="7203"):
@@ -59,17 +30,6 @@ def rakuten_chart_binding(ticker="7203"):
 
 def rakuten_peer_only_html(ticker="7203"):
     return rakuten_html("9432", value="--") + rakuten_chart_binding(ticker)
-
-
-def rakuten_no_estimates_html():
-    # Synthetic form of the shared live shell. Asset names and cache keys are
-    # not response identity; 6091 also occurs incidentally inside 20260918.
-    return """<html><head><title>合成ページ</title>
-    <link rel="stylesheet" href="css/system/default.css?20260918">
-    <script src="js/chart_op_cons.min.js"></script></head><body>
-    <body id="system"><div id="str-container"><div id="str-main">
-    <div class="box-02"><p>この銘柄のアナリスト業績予測情報はありません。</p></div>
-    </div></div></body></body></html>"""
 
 
 def parse_monex(html=None, **kwargs):

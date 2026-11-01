@@ -10,7 +10,10 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.engine.test_external_assessment_host_rate import Clock, Session
-from tests.engine.test_external_assessment_sources import official_html, rakuten_html
+from tests.helpers.external_assessment_html import (
+    official_html,
+    rakuten_html,
+)
 from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )

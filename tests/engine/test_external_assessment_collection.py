@@ -12,7 +12,11 @@ from pathlib import Path
 
 import pytest
 import requests
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
+from tests.helpers.external_assessment_html import (
+    monex_html,
+    official_html,
+    rakuten_html,
+)
 
 import baibai_jobs.acquisition.external_assessments.cli as cli
 import baibai_jobs.acquisition.external_assessments.collection as collection

@@ -4,7 +4,11 @@ from datetime import timedelta
 
 import pytest
 import requests
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
+from tests.helpers.external_assessment_html import (
+    monex_html,
+    official_html,
+    rakuten_html,
+)
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
@@ -204,7 +208,7 @@ def test_token_wait_timeout_is_unattempted_with_no_http(clock):
 def test_minkabu_404_requires_explicit_profile_evidence_and_retains_only_received_200(
     clock, linked
 ):
-    from tests.engine.test_minkabu import no_coverage_html
+    from tests.helpers.external_assessment_html import no_coverage_html
 
     from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
         decode_attempt,
@@ -245,7 +249,7 @@ def test_minkabu_never_uses_profile_to_bypass_denial_or_http_failure(clock, stat
 
 
 def test_minkabu_404_with_unconfirmed_profile_is_failure_not_normal_null(clock):
-    from tests.engine.test_minkabu import no_coverage_html
+    from tests.helpers.external_assessment_html import no_coverage_html
 
     client = Session(
         clock, [(404, "not found", {}), (200, no_coverage_html().replace("対象外", "不明"), {})]
@@ -258,7 +262,7 @@ def test_minkabu_404_with_unconfirmed_profile_is_failure_not_normal_null(clock):
 
 
 def test_minkabu_identifies_actual_client_without_changing_other_sources(clock):
-    from tests.engine.test_minkabu import html
+    from tests.helpers.external_assessment_html import minkabu_html as html
 
     client = Session(clock, [(200, html(), {}), (200, monex_html(), {})])
     limiter = source_http.HostRateLimiter()

@@ -7,9 +7,11 @@ import uuid
 from contextlib import closing
 
 import pytest
-from tests.engine.test_external_assessment_sources import monex_html
-from tests.engine.test_minkabu import html as minkabu_html
-from tests.engine.test_minkabu import no_coverage_html
+from tests.helpers.external_assessment_html import (
+    minkabu_html,
+    monex_html,
+    no_coverage_html,
+)
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     integrate_ready_plans,

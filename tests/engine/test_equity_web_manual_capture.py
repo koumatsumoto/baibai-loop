@@ -10,8 +10,12 @@ from datetime import UTC, datetime
 
 import pytest
 from tests.engine.test_external_assessment_collection import BytesSession, _original
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
-from tests.engine.test_kabumap import html as kabumap_html
+from tests.helpers.external_assessment_html import (
+    kabumap_html,
+    monex_html,
+    official_html,
+    rakuten_html,
+)
 from tests.jobs.external_assessment_publication_fixtures import pair_responses
 
 import baibai_engine.data_collection.transport.public_pages as source_http
