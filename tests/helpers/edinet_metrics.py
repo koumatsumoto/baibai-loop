@@ -29,7 +29,6 @@ class FakeEDINETMetricReader:
             raise EDINETProviderError(f"stored EDINET archive is unavailable for {doc_id}") from exc
 
 
-
 def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     rows = [
         ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
@@ -64,7 +63,6 @@ def _edinet_csv_zip(*, include_debt: bool = True) -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/test.csv", text.encode("utf-16"))
     return buffer.getvalue()
-
 
 
 def _edinet_document(

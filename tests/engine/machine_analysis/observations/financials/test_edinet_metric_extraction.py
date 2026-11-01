@@ -77,7 +77,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             self.assertEqual(record.source_period_end, date(2026, 3, 31))
             self.assertIn("selected=1 reused=0 parsed=1", buffer.getvalue())
 
-
     def test_recording_a_failure_keeps_the_snapshot_when_the_store_cannot_be_read(
         self,
     ) -> None:
@@ -121,7 +120,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(remaining, 1)
-
 
     def test_extract_edinet_metrics_command_returns_zero_for_quality_issues(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -169,7 +167,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             self.assertEqual(reuse_provider.read_calls, [])
             self.assertIn("reused=1 parsed=0", reuse_buffer.getvalue())
             self.assertIn("quality_issues=1", reuse_buffer.getvalue())
-
 
     def test_extract_edinet_metrics_command_quarantines_affected_ticker_and_continues(
         self,
@@ -225,7 +222,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             self.assertIn("S100MISSING(edit,type=120,ticker=7203)", stderr.getvalue())
             self.assertIn("quarantined_events=1 quarantined_tickers=1", stdout.getvalue())
             self.assertIn("quarantine_sample=S100MISSING:edit:120", stdout.getvalue())
-
 
     def test_extract_edinet_metrics_command_uses_baseline_to_quarantine_withdrawal_ticker(
         self,
@@ -307,7 +303,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             )
             self.assertEqual(second_provider.read_calls, [])
 
-
     def test_extract_edinet_metrics_command_fails_when_no_filings_selected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
@@ -331,7 +326,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(row[0], "failed")
             self.assertIn("no EDINET filings selected", row[1])
-
 
     def test_extract_edinet_metrics_command_fails_closed_on_document_listing_error(self) -> None:
         class FailingListReader(FakeEDINETMetricReader):
@@ -374,7 +368,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
                     ("edinet_metrics", asof.isoformat()),
                 ).fetchone()
             self.assertEqual(row, ("ok", None))
-
 
     def test_extract_edinet_metrics_command_fails_on_invalid_document_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -428,7 +421,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
                 ).fetchone()
             self.assertEqual(row, ("ok", None))
 
-
     def test_extract_edinet_metrics_command_fails_closed_on_missing_stored_csv(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
@@ -481,7 +473,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
                     ("edinet_metrics", asof.isoformat()),
                 ).fetchone()
             self.assertEqual(row, ("ok", None))
-
 
     def test_extract_edinet_metrics_reuses_cross_asof_and_same_asof(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -539,7 +530,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             )
             self.assertEqual(same_asof.read_calls, [])
             self.assertIn("baseline_asof=2026-04-25", same_output.getvalue())
-
 
     def test_extract_edinet_metrics_mixed_delta_matches_forced_full_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -618,7 +608,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             assert incremental is not None
             self.assertNotIn("9682", incremental)
 
-
     def test_extract_edinet_metrics_document_edit_event_forces_reextraction(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
@@ -658,7 +647,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
                 0,
             )
             self.assertEqual(second.read_calls, ["S100SAME"])
-
 
     def test_extract_edinet_metrics_empty_csv_can_recover_with_repaired_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -704,7 +692,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
                 0,
             )
             self.assertEqual(second.read_calls, ["S100EMPTY"])
-
 
     def test_extract_edinet_metrics_skips_failed_baseline_and_excludes_future(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -761,7 +748,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             self.assertEqual(before_all_snapshots.read_calls, ["S100BASE"])
             self.assertIn("baseline_asof=none", before_output.getvalue())
 
-
     def test_extract_edinet_metrics_rejects_corrupt_latest_ok_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
@@ -796,7 +782,6 @@ class EdinetMetricExtractionTests(unittest.TestCase):
             self.assertEqual(provider.read_calls, [])
             self.assertIn("baseline is corrupt", stderr.getvalue())
             self.assertIsNone(read_edinet_metrics(sqlite_path, date(2026, 4, 25)))
-
 
     def test_extract_edinet_metrics_revision_mismatch_rebuilds(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

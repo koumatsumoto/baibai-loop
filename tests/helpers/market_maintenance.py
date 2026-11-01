@@ -209,7 +209,6 @@ class FakeJQuantsProvider:
         pass
 
 
-
 @dataclass
 class FakeEDINETProvider:
     documents: list[dict[str, object]] | None = None
@@ -231,7 +230,6 @@ class FakeEDINETProvider:
     def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
         self.bootstrap_calls.append((start, end))
         return {"ok": 1}
-
 
 
 @dataclass
