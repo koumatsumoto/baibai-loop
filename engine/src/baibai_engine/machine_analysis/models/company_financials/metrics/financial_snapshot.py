@@ -57,6 +57,9 @@ from baibai_engine.machine_analysis.observations.financials.metric_quality impor
     OperatingProfitSource,
     TTMQuality,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    PdfFinancialSelection,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
@@ -73,6 +76,7 @@ def build_financial_snapshot(
     *,
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
+    pdf_selection: PdfFinancialSelection | None = None,
 ) -> FinancialSnapshot:
     normalization = _normalize_summaries_with_status(
         project_financial_documents(summaries, asof_date),
@@ -115,6 +119,15 @@ def build_financial_snapshot(
     cfo_prior = _prior_year_summary(summaries, ttm_rules, field_name="cfo")
     eps_cumulative = eps_row.cumulative_eps if eps_row else None
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", ttm_rules)
+    selected_pdf = pdf_selection is not None and (
+        pdf_selection.current is not None or pdf_selection.blocks_legacy_ttm
+    )
+    if selected_pdf:
+        assert pdf_selection is not None
+        profit_ttm = pdf_selection.amounts_yen.get("parent_profit")
+        profit_quality = (
+            TTMQuality.APPROXIMATED if profit_ttm is not None else TTMQuality.UNAVAILABLE
+        )
     # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
     # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
     # latest 行だけを見ると四半期行が最新になる断面で PBR 等が季節的に大量欠損
@@ -181,6 +194,11 @@ def build_financial_snapshot(
     shares_ex_treasury = capital_basis.shares_ex_treasury
     operating_profit_ttm, _ = _ttm_value(summaries, "operating_profit", ttm_rules)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", ttm_rules)
+    if selected_pdf:
+        assert pdf_selection is not None
+        operating_profit_ttm = pdf_selection.amounts_yen.get("operating_profit")
+        sales_ttm = pdf_selection.amounts_yen.get("sales")
+        sales_quality = TTMQuality.APPROXIMATED if sales_ttm is not None else TTMQuality.UNAVAILABLE
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", ttm_rules)
     # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
     # TTM 系列は短信由来である。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の

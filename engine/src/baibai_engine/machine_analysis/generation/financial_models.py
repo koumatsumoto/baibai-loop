@@ -35,6 +35,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    select_pdf_financials,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
@@ -83,12 +86,14 @@ def generate_financial_and_price_models(
         (bar for bar in adjusted_bars if bar.traded_at <= as_of), key=lambda bar: bar.traded_at
     )
     latest = bars[-1] if bars else None
+    pdf_selection = select_pdf_financials(documents, pdf_statements, as_of=as_of)
     earnings = earnings_price(
         documents,
         adjusted_price=latest,
         adjustment_events=adjustment_events,
         as_of=as_of,
         ttm_rules=ttm_rules,
+        pdf_selection=pdf_selection,
     )
     if earnings.earnings_yield is not None and earnings.price_date != expected_price_date:
         earnings = replace(
@@ -107,6 +112,7 @@ def generate_financial_and_price_models(
             ttm_rules,
             adjustment_events=adjustment_events,
             asof_date=as_of,
+            pdf_selection=pdf_selection,
         ),
         edinet,
     )
@@ -132,6 +138,8 @@ def generate_financial_and_price_models(
         financial["reported_comparisons"] = [item.model_dump(mode="json") for item in reported]
     if growth.pdf_supplement is not None:
         financial["pdf_supplement"] = growth.pdf_supplement.model_dump(mode="json")
+    if pdf_selection is not None:
+        financial["pdf_selection"] = pdf_selection.model_dump(mode="json")
     technical = generate_technical_analysis(
         bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates, price_path=price_path
     )
@@ -140,7 +148,7 @@ def generate_financial_and_price_models(
             model_id="company_financials",
             subject=ticker,
             calculation_revision=(
-                f"{VALUATION_CALCULATION_REVISION}-observations-v10-pdf-display"
+                f"{VALUATION_CALCULATION_REVISION}-observations-v11-pdf-selection"
                 if growth.pdf_supplement is not None
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
                 if reported
@@ -154,7 +162,9 @@ def generate_financial_and_price_models(
                         "earnings_price": asdict(earnings),
                         "earnings_basis": "reported_profit_before_common_share_allocations",
                         "earnings_composition_basis": (
-                            "latest_reported_period_amounts_not_restatement_reconciled"
+                            "selected_retained_pdf_restated_display_amounts"
+                            if pdf_selection is not None and pdf_selection.current is not None
+                            else "latest_reported_period_amounts_not_restatement_reconciled"
                         ),
                         "expected_price_date": expected_price_date,
                         "financial": financial,

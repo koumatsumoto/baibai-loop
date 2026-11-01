@@ -29,6 +29,9 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    PdfFinancialSelection,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
@@ -92,6 +95,7 @@ def earnings_price(
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     as_of: date,
     ttm_rules: TTMRules,
+    pdf_selection: PdfFinancialSelection | None = None,
 ) -> EarningsPrice:
     """同一基準へ揃えた株数と価格で時価総額を作り、年間利益を一度だけ割る。
 
@@ -124,6 +128,37 @@ def earnings_price(
     profit = sum(part.coefficient * part.amount_yen for part in components) if components else None
     basis = statement_basis(rows[0]) if rows else None
     standard = accounting_standard(rows[0]) if rows else None
+    if pdf_selection is not None and pdf_selection.current is not None:
+        current = pdf_selection.current
+        parts = []
+        if pdf_selection.status == "available":
+            documents = [(current, False, 1)]
+            if pdf_selection.annual is not None:
+                documents += [(pdf_selection.annual, False, 1), (current, True, -1)]
+            for document, comparative, coefficient in documents:
+                pair = next(pair for pair in document.pairs if pair.metric == "parent_profit")
+                assert document.published_on is not None
+                parts.append(
+                    ProfitComponent(
+                        coefficient=coefficient,
+                        amount_yen=(pair.comparative if comparative else pair.current) * 1_000_000,
+                        period_start=document.comparative_start
+                        if comparative
+                        else document.current_start,
+                        period_end=document.comparative_end
+                        if comparative
+                        else document.current_end,
+                        disclosed_at=document.published_on,
+                        disclosed_time=None,
+                        disclosure_number=document.disclosure_number,
+                        document_type="PDFDisplayFinancialStatements_Consolidated_IFRS",
+                    )
+                )
+        components = tuple(parts)
+        profit = pdf_selection.amounts_yen.get("parent_profit")
+        basis, standard = current.statement_basis, current.accounting_standard
+    if pdf_selection is not None and pdf_selection.blocks_legacy_ttm:
+        components, profit = (), None
     actual_rows = _actual_rows(normalized.summaries)
     anchor_period = max(map(accounting_period_identity, actual_rows), default=None)
     anchor_candidates = latest_disclosure_candidates(

@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.time import JST
 
-REVISION = "pdf-ifrs-display-statements-v1"
+REVISION = "pdf-ifrs-display-statements-v2"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
 _ROWS: dict[Metric, str] = {
     "sales": "売上高",
@@ -148,7 +148,6 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
         _require(f"コード番号{base.ticker}" in compact, "pdf_issuer_mismatch")
         _require("百万円未満切捨て" in compact, "pdf_precision_unknown")
         title = first.split("上場会社名", 1)[0]
-        _require("訂正" not in title, "pdf_correction_requires_resolution")
         dates = re.findall(_DATE, title)
         _require(len(dates) == 1, "pdf_publication_date_unknown")
         published = _date(dates[0])

@@ -15,6 +15,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     Observation,
     PeriodState,
 )
+from baibai_engine.machine_analysis.models.company_growth.pdf_selection import (
+    pdf_comparison_prior,
+)
 
 
 class CompanyGrowthReader:
@@ -76,6 +79,9 @@ class CompanyGrowthReader:
     def comparison_prior(self, observation: Observation, change: Change) -> tuple[Observation, ...]:
         if self.model is None:
             return ()
+        if change.source_sha256 is not None:
+            prior = pdf_comparison_prior(self.model.pdf_selection, observation, change)
+            return (prior,) if prior is not None else ()
         return tuple(
             item
             for state in self.model.periods
