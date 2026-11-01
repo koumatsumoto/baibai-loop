@@ -234,7 +234,9 @@ def test_original_union_cutoff_and_fixed_release(tmp_path, monkeypatch):
     )
 
     native_path = next(
-        p for p in (tmp_path / "mirror" / "lake").rglob("*.parquet") if "jpx.source_responses" in str(p)
+        p
+        for p in (tmp_path / "mirror" / "lake").rglob("*.parquet")
+        if "jpx.source_responses" in str(p)
     )
     preserved = native_path.read_bytes()
     native_path.unlink()
