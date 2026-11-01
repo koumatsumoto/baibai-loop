@@ -8,7 +8,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import openpyxl
+import pytest
 
+import baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts as catalysts
 from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
     ValuationCatalystError,
     edinet_code_to_ticker,
@@ -349,6 +351,14 @@ class EdinetCodeMappingTest(unittest.TestCase):
                 after = edinet_code_to_ticker(connection, through=date(2026, 8, 11))
             self.assertEqual(before, {"E1": "1301"})
             self.assertEqual(after, {"E3": "1303"})
+
+
+def test_workbook_is_closed_when_monthly_rows_are_missing(mocker):
+    workbook = mocker.Mock(worksheets=[])
+    mocker.patch.object(catalysts.openpyxl, "load_workbook", return_value=workbook)
+    with pytest.raises(catalysts.ValuationCatalystError, match="no monthly rows"):
+        catalysts.parse_tse_capital_policy_workbook(b"workbook")
+    workbook.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

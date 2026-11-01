@@ -1,4 +1,4 @@
-"""倍率・自己価格レンジとcarryによる機械期待収益推計。
+"""旧runの倍率・自己価格レンジとcarryによる機械期待収益推計。
 
 意味・単位・入力basisは docs/reference/estimate-calibration.md が所有する。
 候補選抜と企業固有の調査 Projection は扱わない。
@@ -12,7 +12,7 @@ from math import isfinite
 from statistics import fmean
 from typing import Literal
 
-# 現在の MODEL_V1 policy parameters。実証的な変更は long-horizon authority を満たす
+# 旧機械推計 MODEL_V1 の policy parameters。実証的な変更は long-horizon authority を満たす
 # artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
 # Researchの条件付き評価・購入要求率とは別の推計仮定である。
 # docs/reference/estimate-calibration.md
