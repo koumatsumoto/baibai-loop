@@ -38,6 +38,7 @@ from baibai_engine.machine_analysis.observations.financials.pdf_statements impor
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.primitives.json import canonical_json
+from baibai_engine.storage.snapshots.objects import LakeObjectError
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.financial_pdfs import receive
@@ -231,6 +232,23 @@ def test_original_union_cutoff_and_fixed_release(tmp_path, monkeypatch):
         ).pdf_statements
         == expected
     )
+
+    native_path = next(
+        p for p in (tmp_path / "mirror" / "lake").rglob("*.parquet") if "jpx.source_responses" in str(p)
+    )
+    preserved = native_path.read_bytes()
+    native_path.unlink()
+    partial = read_fixed_financial_documents(
+        tmp_path / "mirror", origin=origin, ticker="9268", as_of=ASOF
+    )
+    assert partial.documents == fixed.documents
+    assert partial.pdf_statements == ()
+    assert partial.pdf_input_reason == "fixed_pdf_objects_not_materialized"
+    native_path.write_bytes(preserved[:-1] + bytes([preserved[-1] ^ 1]))
+    with pytest.raises(LakeObjectError, match="differs"):
+        read_fixed_financial_documents(
+            tmp_path / "mirror", origin=origin, ticker="9268", as_of=ASOF
+        )
 
 
 def test_models_share_supplement_without_overwriting_precise_or_historical_values():

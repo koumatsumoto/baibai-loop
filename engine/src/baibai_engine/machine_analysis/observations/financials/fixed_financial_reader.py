@@ -40,6 +40,7 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import m
 from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
     JQUANTS_MASTER_SNAPSHOTS,
 )
+from baibai_engine.storage.snapshots.contracts import LakeDataset
 from baibai_engine.storage.snapshots.objects import mirror_path, open_lake
 from baibai_engine.storage.snapshots.reader import (
     accepted_dataset,
@@ -126,69 +127,56 @@ def _read_fixed_financial_population(
         grouped: dict[str, list[JQuantsFinancialSummary]] = {}
         for row in documents:
             grouped.setdefault(row.ticker, []).append(row)
-        comparisons: dict[str, tuple[FilingComparisons, ...]] = {}
-        comparison_input_reason = None
-        required = (EDINET_DOCUMENTS, EDINET_DOCUMENT_LISTS, EDINET_SOURCE_ARCHIVES)
-        published = all(item.name in release.dataset_names() for item in required)
-        # This reader is explicitly local-only. Missing optional native objects do
-        # not invalidate the independently verified J-Quants observations. Present
-        # objects still pass the normal digest/schema checks and fail on corruption.
-        present = published and all(
-            mirror_path(mirror, obj.key).is_file()
-            for item in required
-            for obj in partition_objects(selected_partitions(release, item.name))
-        )
-        if published and not present:
-            comparison_input_reason = "fixed_comparison_objects_not_materialized"
-        if present:
+
+        def optional_views(
+            datasets: tuple[LakeDataset, ...], *, missing_reason: str
+        ) -> tuple[bool, str | None]:
+            """任意の原本をlocalだけで開く。未配置だけを欠測にし、破損は通常検証で失敗する。"""
+            if not all(item.name in release.dataset_names() for item in datasets):
+                return False, None
+            if not all(
+                mirror_path(mirror, obj.key).is_file()
+                for item in datasets
+                for obj in partition_objects(selected_partitions(release, item.name))
+            ):
+                return False, missing_reason
             materialized = []
-            for item in required:
+            for item in datasets:
                 accepted = accepted_dataset(release, item)
                 item_paths = materialize_partitions(
                     cache,
                     dataset=accepted,
-                    partitions=selected_partitions(release, accepted.name),
+                    partitions=selected_partitions(release, item.name),
                 )
                 if item_paths:
                     session.connection.read_parquet([str(p) for p in item_paths]).create_view(
                         item.sqlite_table
                     )
                 materialized.append(bool(item_paths))
-            if all(materialized):
-                comparisons = read_comparison_population(
-                    session.connection,
-                    as_of=as_of,
-                    tickers=(ticker,) if ticker is not None else None,
-                )
-        pdf_statements: dict[str, tuple[PdfStatement, ...]] = {}
-        pdf_input_reason = None
-        pdf_datasets = (JPX_SOURCE_BUNDLES, JPX_SOURCE_RESPONSES)
-        pdf_published = all(item.name in release.dataset_names() for item in pdf_datasets)
-        pdf_present = pdf_published and all(
-            mirror_path(mirror, obj.key).is_file()
-            for item in pdf_datasets
-            for obj in partition_objects(selected_partitions(release, item.name))
+            return all(materialized), None
+
+        comparisons: dict[str, tuple[FilingComparisons, ...]] = {}
+        comparisons_ready, comparison_input_reason = optional_views(
+            (EDINET_DOCUMENTS, EDINET_DOCUMENT_LISTS, EDINET_SOURCE_ARCHIVES),
+            missing_reason="fixed_comparison_objects_not_materialized",
         )
-        if pdf_published and not pdf_present:
-            pdf_input_reason = "fixed_pdf_objects_not_materialized"
-        if pdf_present:
-            materialized = []
-            for item in pdf_datasets:
-                accepted = accepted_dataset(release, item)
-                item_paths = materialize_partitions(
-                    cache, dataset=accepted, partitions=selected_partitions(release, item.name)
-                )
-                if item_paths:
-                    session.connection.read_parquet([str(p) for p in item_paths]).create_view(
-                        item.sqlite_table
-                    )
-                materialized.append(bool(item_paths))
-            if all(materialized):
-                pdf_statements = read_pdf_statements(
-                    session.connection,
-                    as_of=as_of,
-                    tickers=(ticker,) if ticker is not None else None,
-                )
+        if comparisons_ready:
+            comparisons = read_comparison_population(
+                session.connection,
+                as_of=as_of,
+                tickers=(ticker,) if ticker is not None else None,
+            )
+        pdf_statements: dict[str, tuple[PdfStatement, ...]] = {}
+        pdf_ready, pdf_input_reason = optional_views(
+            (JPX_SOURCE_BUNDLES, JPX_SOURCE_RESPONSES),
+            missing_reason="fixed_pdf_objects_not_materialized",
+        )
+        if pdf_ready:
+            pdf_statements = read_pdf_statements(
+                session.connection,
+                as_of=as_of,
+                tickers=(ticker,) if ticker is not None else None,
+            )
         return {
             code: FixedFinancialDocuments(
                 tuple(grouped.get(code, ())),
