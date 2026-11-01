@@ -22,7 +22,6 @@ from baibai_engine.machine_analysis.observations.economic_indicators.service imp
     IndicatorsService,
 )
 
-
 DAY = date(2026, 7, 24)
 
 
@@ -35,6 +34,7 @@ def table(weighted, index_based):
     )
 
 
+@pytest.mark.parametrize("missing", ["-", "", "&mdash;"])
 def test_missing_revision_does_not_restore_prior_native_value(tmp_path, monkeypatch, missing):
     path = tmp_path / "indicators.sqlite"
     series = next(
@@ -92,6 +92,14 @@ def test_unreadable_numeric_text_is_retained_but_not_a_successful_reading(tmp_pa
         assert row["weighted_text"] == "unreadable"
 
 
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<html>challenge</html>",
+        "<table></table>",
+        "<table><tr><td>Unexpected layout</td></tr></table>",
+    ],
+)
 def test_unrecognized_empty_html_does_not_claim_successful_empty_history(html):
     series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes")
     with pytest.raises(nikkei_indexes.IndicatorsProviderError, match="data rows missing"):
