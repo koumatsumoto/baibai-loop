@@ -32,7 +32,6 @@ def test_local_rotation_is_independent_and_reloaded(tmp_path, monkeypatch):
     assert storage.rotation_count == 1
 
 
-
 @pytest.mark.parametrize("kind", ["missing", "invalid", "unreadable"])
 def test_bad_local_state_never_falls_back_to_cloud(tmp_path, monkeypatch, kind):
     import baibai_jobs.acquisition.tradingview.cli as cli
@@ -48,7 +47,6 @@ def test_bad_local_state_never_falls_back_to_cloud(tmp_path, monkeypatch, kind):
     with pytest.raises(AuthenticationError) as error:
         cli.credential_storage(path)
     assert "private-token" not in str(error.value)
-
 
 
 def test_local_save_failure_does_not_adopt_tokens_or_leak_payload(tmp_path, monkeypatch, capsys):
@@ -69,7 +67,6 @@ def test_local_save_failure_does_not_adopt_tokens_or_leak_payload(tmp_path, monk
     assert storage.rotation_count == 0
     assert "private" not in str(error.value)
     assert capsys.readouterr().out == ""
-
 
 
 def test_implicit_cloud_storage_still_writes_environment_secret(monkeypatch):

@@ -68,7 +68,6 @@ def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: P
     conn.close()
 
 
-
 def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
     path = store(tmp_path / "market.sqlite", 1)
     with closing(open_connection(path)) as conn, conn:
