@@ -11,13 +11,13 @@ from tests.helpers.screening_sqlite import (
     insert_financial_record,
 )
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_normalized_profit_signals,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import build_panel
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_normalized_profit_signals,
-)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 

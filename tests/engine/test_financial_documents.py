@@ -12,6 +12,9 @@ from typing import Any
 
 import pytest
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_normalized_profit_signals,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
 )
@@ -23,9 +26,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.financial_
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _latest_actual_row,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_normalized_profit_signals,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     latest_forecast_source,
@@ -768,7 +768,7 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(reverse: bool) -> None:
-    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
         _latest_fy_revisions,
     )
 
@@ -856,9 +856,11 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
 def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order(
     reverse: bool,
 ) -> None:
-    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
         _asof_basis_fy_dps,
         _latest_fy_revisions,
+    )
+    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
         _resolve_dividend_carry,
     )
     from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -1586,7 +1588,7 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
 
 @pytest.mark.parametrize("dps", [0, 7])
 def test_tied_fy_period_conflict_does_not_select_by_input_order(dps):
-    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
         _latest_fy_revisions,
     )
 
@@ -1603,7 +1605,7 @@ def test_tied_fy_period_conflict_does_not_select_by_input_order(dps):
 
 
 def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
-    from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
         _latest_fy_revisions,
     )
 

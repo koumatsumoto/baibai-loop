@@ -15,6 +15,9 @@ from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric
     SnapshotFixtures,
 )
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_normalized_profit_signals,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
     build_metrics,
 )
@@ -27,9 +30,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
     build_shares_outstanding_index,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _ttm_value
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_normalized_profit_signals,
-)
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 

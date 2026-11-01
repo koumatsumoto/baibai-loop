@@ -17,6 +17,9 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     _asof_basis_dividend as _forward_asof_basis_dividend,
 )
 from baibai_engine.machine_analysis.historical_evaluation.forward import _FYDividendObservation
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_shareholder_return_change_signals,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
     build_metrics,
 )
@@ -26,7 +29,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
     _resolve_dividend_carry,
-    build_shareholder_return_change_signals,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
