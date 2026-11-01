@@ -70,33 +70,11 @@ jobs:
           PY
 
       - name: Ruff format
-        run: |
-          set +e
-          output="$(uv run ruff format --check --diff . 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            output="${output//'%'/'%25'}"
-            output="${output//$'\r'/'%0D'}"
-            output="${output//$'\n'/'%0A'}"
-            printf '::error title=Ruff format diff::%s\n' "$output"
-          fi
-          exit "$status"
+        run: uv run ruff format --check --diff .
 
       - name: Ruff lint
         if: ${{ !cancelled() }}
-        run: |
-          set +e
-          output="$(uv run ruff check . 2>&1)"
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            output="${output//'%'/'%25'}"
-            output="${output//$'\r'/'%0D'}"
-            output="${output//$'\n'/'%0A'}"
-            printf '::error title=Ruff lint diff::%s\n' "$output"
-          fi
-          exit "$status"
+        run: uv run ruff check .
 
       - name: Type check
         if: ${{ !cancelled() }}

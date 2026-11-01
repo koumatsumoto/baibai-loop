@@ -129,8 +129,6 @@ def test_failed_export_preserves_successful_authoritative_save(
     assert not output.exists()
     assert investment_judgment.main([command, *get_args, "--db", str(app)], now=NOW) == 0
     saved = json.loads(capsys.readouterr().out)
-    assert (
-        investment_judgment.main([command, "save", str(source), "--db", str(app)], now=NOW) == 0
-    )
+    assert investment_judgment.main([command, "save", str(source), "--db", str(app)], now=NOW) == 0
     retried = json.loads(capsys.readouterr().out)
     assert retried == (saved["record"] if command == "judgment-retrospective" else saved)
