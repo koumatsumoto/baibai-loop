@@ -468,8 +468,8 @@ def acquire_source(
                     )
                     target = document.metadata.get("redirect_target_url")
                     if isinstance(target, str) and target not in queue:
-                        # The native parser accepts only MOF's explicit same-host
-                        # insideLink notice. The target is a separate GET/receipt,
+                        # Only an explicit MOF insideLink within its source host
+                        # boundary is accepted. The target is a separate GET/receipt,
                         # spending the existing body/request/byte/time budgets.
                         queue.insert(0, target)
                     attachments = document.metadata.get("attachments", [])

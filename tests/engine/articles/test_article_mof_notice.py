@@ -16,26 +16,31 @@ def notice(target=TARGET, delay="0"):
     return f'<meta http-equiv="refresh" content="{delay};url={target}" />'.encode()
 
 
-def test_notice_retains_explicit_target_without_claiming_body_or_publication_date():
-    item = parse_document("mof_news", notice(), url=NOTICE, title="案内の見出し")
+@pytest.mark.parametrize("target", [TARGET, "https://lfb.mof.go.jp/renkei/torikumi.html"])
+def test_notice_retains_explicit_target_without_claiming_body_or_publication_date(target):
+    item = parse_document("mof_news", notice(target), url=NOTICE, title="案内の見出し")
     assert item.url == NOTICE
     assert item.title == "案内の見出し"
     assert item.content_scope == "unavailable"
     assert item.text == ""
     assert item.published_raw is None
-    assert item.metadata == {"redirect_target_url": TARGET}
+    assert item.metadata == {"redirect_target_url": target}
     assert item.missing_parts == ("redirect_target_body_is_a_separate_receipt",)
-    assert parser_revision_for("mof_news") == "article-native-mof-v4"
+    assert parser_revision_for("mof_news") == "article-native-mof-v5"
 
 
 @pytest.mark.parametrize(
     "target",
     [
         "https://example.com/document.htm",
+        "https://unlisted.mof.go.jp/document.htm",
+        "https://lfb.mof.go.jp.example.com/document.htm",
         "http://www.mof.go.jp/document.htm",
+        "http://lfb.mof.go.jp/document.htm",
         "https://user@www.mof.go.jp/document.htm",
         "https://www.mof.go.jp:8443/document.htm",
         "https://www.mof.go.jp/insideLink/next.html",
+        "https://lfb.mof.go.jp/insideLink/next.html",
         NOTICE,
         "javascript:alert(1)",
     ],
@@ -203,7 +208,7 @@ def test_mof_pdf_reprojection_preserves_original_and_prior_failure(tmp_path):
         save_projection(conn, old, ())
         new, (item,) = project_receipt(conn, receipt.receipt_id, kind="document")
         assert new.status == "parsed"
-        assert new.parser_revision == "article-native-mof-v4"
+        assert new.parser_revision == "article-native-mof-v5"
         assert "Synthetic procurement answer" in item.text
         assert read_body(conn, receipt.body_ref) == body
         repeated, _ = project_receipt(conn, receipt.receipt_id, kind="document")
