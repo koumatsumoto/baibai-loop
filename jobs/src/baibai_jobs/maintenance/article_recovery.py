@@ -189,11 +189,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        arguments = dict(
-            source=args.source,
-            stage_id=args.stage_id,
-            manifest_sha256=args.manifest_sha256,
-        )
+        arguments = {
+            "source": args.source,
+            "stage_id": args.stage_id,
+            "manifest_sha256": args.manifest_sha256,
+        }
         if args.command == "prepare":
             prepare(store, args.directory, **arguments)
         else:

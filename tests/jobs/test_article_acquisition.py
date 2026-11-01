@@ -577,6 +577,7 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     # Keep the workset independently intact: only the evictable HTTP validator's
     # old baseline is damaged below. Losing pending work must fail before GET.
     from tests.jobs.test_article_planning import _packet
+
     from baibai_jobs.acquisition.article_planning import commit_stage
 
     private = tmp_path / "independent-workset"

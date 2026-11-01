@@ -133,7 +133,7 @@ SOURCES = {
     "mof_news": ArticleSource(
         "mof_news",
         "https://www.mof.go.jp/news.rss",
-        # 本省RSSのinsideLinkが案内する財務局も同じsourceの明示された取得範囲。
+        # 本省RSSが案内する財務局と税関latestも同じsourceの明示された取得範囲。
         # 任意subdomainへ広げず、案内と転送先を別受領として保持する。
         frozenset({"www.mof.go.jp", "lfb.mof.go.jp", "www.customs.go.jp"}),
         exact_routes=(("www.customs.go.jp", "/toukei/latest/index.htm"),),
