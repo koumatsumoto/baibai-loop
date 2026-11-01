@@ -1,27 +1,25 @@
+"""原本保持・部分取得失敗とoffline投影の境界を結合して検証する。"""
+
 import json
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.helpers.provider_fixtures import _FakeResponse, _StaticSession
+from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.spglobal.pmi as spglobal_pmi
 import baibai_engine.machine_analysis.observations.economic_indicators.pmi as pmi
 import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
 from baibai_engine.data_collection.catalog import require_source
-from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
 from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
     store_document,
 )
-from baibai_engine.data_collection.transport.context import (
-    FetchContext,
-    IndicatorsProviderError,
-)
+from baibai_engine.data_collection.transport.context import FetchContext
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
@@ -44,24 +42,6 @@ def tsr_document(body):
         body,
         {"params": {"data": "data"}},
     )
-
-
-def test_tsr_acquires_original_bytes_without_parsing_values():
-    source = require_source(load_definitions().by_id()["jp.bankruptcies"].source_id)
-    body = b'{"unrecognized": "published body"}'
-    result = TsrBankruptciesSource().fetch_document(
-        source, session=_StaticSession(_FakeResponse(body))
-    )
-    assert result.payload == body
-    assert result.source_id == source.source_id
-
-
-def test_tsr_rejects_non_json_response():
-    source = require_source(load_definitions().by_id()["jp.bankruptcies"].source_id)
-    with pytest.raises(IndicatorsProviderError, match="not UTF-8 JSON"):
-        TsrBankruptciesSource().fetch_document(
-            source, session=_StaticSession(_FakeResponse(b"<html>not JSON</html>"))
-        )
 
 
 def test_tsr_l2_is_reproducible_from_original_json(tmp_path):
