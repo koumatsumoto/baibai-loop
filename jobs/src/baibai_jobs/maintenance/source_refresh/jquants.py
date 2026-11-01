@@ -403,28 +403,7 @@ def all_issues_daily_margin_candidate_dates(
     start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
     if not sqlite_path.exists() or start >= asof:
         return []
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return []
-    try:
-        trading_days = [
-            date.fromisoformat(str(row[0]))
-            for row in conn.execute(
-                "SELECT DISTINCT traded_at FROM jquants_daily_bars "
-                "WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
-                (start.isoformat(), asof.isoformat()),
-            )
-        ]
-        covered = {
-            str(row[0])
-            for row in conn.execute(
-                "SELECT coverage_key FROM source_coverage "
-                "WHERE source = ? AND status = 'ok' AND record_count > 0",
-                (ALL_ISSUES_DAILY_MARGIN_SOURCE,),
-            )
-        }
-    finally:
-        conn.close()
+    trading_days, covered = _daily_margin_planning_state(sqlite_path, start, asof)
     # Publication is on the following business day, so the newest trading day has
     # not yet become available. An empty all-issues response cannot describe a
     # complete business-day snapshot and remains a retry target.
@@ -442,9 +421,17 @@ def all_issues_daily_margin_backfill_candidate_dates(
     start = max(start, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE)
     if not sqlite_path.exists() or start > end:
         return []
+    trading_days, covered = _daily_margin_planning_state(sqlite_path, start, end)
+    return [day for day in trading_days if all_issues_daily_margin_coverage_key(day) not in covered]
+
+
+def _daily_margin_planning_state(
+    sqlite_path: Path, start: date, end: date
+) -> tuple[list[date], set[str]]:
+    """日次起動と明示backfillで共有する保存状態。公表待ちの境界はcallerが決める。"""
     conn = connect_current(sqlite_path)
     if conn is None:
-        return []
+        return [], set()
     try:
         trading_days = [
             date.fromisoformat(str(row[0]))
@@ -464,4 +451,4 @@ def all_issues_daily_margin_backfill_candidate_dates(
         }
     finally:
         conn.close()
-    return [day for day in trading_days if all_issues_daily_margin_coverage_key(day) not in covered]
+    return trading_days, covered

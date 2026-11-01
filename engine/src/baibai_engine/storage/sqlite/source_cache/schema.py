@@ -1,7 +1,7 @@
 """Current-schema DDL and shape validation for the rebuildable market cache.
 
 This is the single physical store (`market.sqlite`): the market price/calendar
-tables and the screening fundamentals/regulation tables share one file, one
+tables, financial/disclosure projections and retained L1 receipts share one file, one
 schema version, and one connection path. Each owner declares its table semantics;
 this module composes the physical schema and validates its shape without choosing
 models, candidates, or publication policy.
@@ -112,11 +112,7 @@ _SCHEMA_SQL = (
     + TSE_CAPITAL_POLICY_SNAPSHOTS_DDL
     + JPX_DELISTINGS_DDL
     + TENDER_OFFER_EXIT_VALUES_DDL
-)
-
-
-_SCHEMA_SQL += (
-    TV_DDL
+    + TV_DDL
     + MODEL_VALUATION_DDL
     + ANALYST_RATING_DDL
     + QUANTS_SCORE_DDL

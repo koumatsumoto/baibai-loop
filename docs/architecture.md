@@ -106,9 +106,9 @@ Operation完了、提案公開、人間の採用、注文、約定は別の状�
 
 通常のsource取得は担当範囲のread-only inputから原受領handoffを作り、全体正本を直接更新しない。共通統合は開始時点で受入対象となるimmutable handoffを固定し、全sourceの完了を待たずに各ownerの投影を適用する。同じ入力からモデル生成・候補保存を終えてからreleaseを公開する。原本受領の成功とL2投影の成功を一つにしない。部分copyへ全体releaseの所属情報を付けない。
 
-取得の起動時刻、対象期間、実受領時刻、公開時刻は別である。再実行の充足条件は保持済みの原受領とその要求範囲で判断し、L2の欠測を埋めるために取得済み原本を取り直さない。具体的なcycle・再開単位・予算はsource ownerが持ち、[sourceの入口](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)から辿る。
+取得の起動時刻、対象期間、実受領時刻、公開時刻は別である。再実行では原受領の充足とL2投影の充足を区別する。原本の再利用・再投影を分離する方針と、現在のsource別の再取得条件は同一ではない。具体的なcycle・再開単位・予算はsource ownerが持ち、[sourceの入口](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)から辿る。
 
-現行のhandoff契約は全source共通ではない。記事は未処理workと未統合stage、TradingViewは当日要求の充足、公開HTML外部評価は固定planとconfirmed readyをそれぞれ保持する。外部評価の通常readyは全固定pairの試行完了を必要とし、明示した部分公開後のterminalはそのplanを閉じる。全sourceが任意の途中成果を継続公開・再開できるという保証ではない。未実装の共通化は企画Issueへ分け、実装済みの正本・再開条件を上書きしない。
+現行のhandoff契約は全source共通ではない。J-Quantsは投影coverageによる取得計画と原本からの共通統合を分けており、取得側がL2欠測時に既存原本を探して自動再投影する契約ではない。記事は未処理workと未統合stage、TradingViewは当日要求の充足、公開HTML外部評価は固定planとconfirmed readyをそれぞれ保持する。外部評価の通常readyは全固定pairの試行完了を必要とし、明示した部分公開後のterminalはそのplanを閉じる。全sourceが任意の途中成果を継続公開・再開できるという保証ではない。未実装の共通化は企画Issueへ分け、実装済みの正本・再開条件を上書きしない。
 
 L3は必要なモデル断面・政策結果をapplication DBへ複写し、再開時に可変storeから再計算しない。生成cacheと政策結果の整理はJobsが参照順とtransactionを束ね、生成側に候補政策の削除責務を持たせない。原本・判断・取引履歴はcache整理の対象ではない。
 
