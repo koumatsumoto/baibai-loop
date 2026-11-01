@@ -782,7 +782,7 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
         _canonicalize_document_events,
     )
-    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
         read_edinet_documents,
     )
 

@@ -11,6 +11,7 @@ from baibai_engine.data_collection.providers.edinet.archives import (
 )
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_edinet_documents,
     read_observed_documents,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
@@ -18,9 +19,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
     extract_saved_edinet,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
-    read_edinet_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered

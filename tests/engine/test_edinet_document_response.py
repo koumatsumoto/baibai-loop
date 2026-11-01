@@ -10,7 +10,7 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.http_doubles import FakeSession, json_response
 
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError

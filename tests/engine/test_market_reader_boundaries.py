@@ -18,6 +18,7 @@ from baibai_engine.machine_analysis.historical_evaluation.grid import (
     month_end_asof_grid,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import _coverage_floors
+from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_next_earnings_dates,
 )
@@ -127,7 +128,7 @@ def test_bar_readers_share_decoding_and_corrupt_row_behavior(tmp_path, scoped, c
 @pytest.mark.parametrize(
     ("module", "reader_name", "source"),
     [
-        (edinet_store, "read_edinet_documents", "edinet_documents"),
+        (edinet_document_store, "read_edinet_documents", "edinet_documents"),
         (edinet_store, "read_edinet_metrics", "edinet_metrics"),
         (jpx_reader, "read_jpx_regulations", "jpx_regulation_flags"),
         (jpx_reader, "read_jpx_earnings_calendar_snapshot", "jpx_earnings_calendar"),
@@ -389,15 +390,16 @@ def test_edinet_coverage_and_rows_share_a_snapshot(tmp_path, monkeypatch, reader
                     writer.execute("UPDATE source_coverage SET status = 'failed'")
             return super().execute(sql, parameters)
 
+    store = edinet_document_store if reader_kind == "documents" else edinet_store
     monkeypatch.setattr(
-        edinet_store,
+        store,
         "connect_current",
         lambda path: sqlite3.connect(
             path.resolve().as_uri() + "?mode=ro", uri=True, factory=ConcurrentRead
         ),
     )
     reader = getattr(
-        edinet_store,
+        store,
         "read_edinet_metric_baseline"
         if reader_kind == "baseline"
         else f"read_edinet_{reader_kind}",

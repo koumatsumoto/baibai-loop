@@ -1,4 +1,4 @@
-"""EDINET開示・抽出baselineの読取とcoverage/count/品質の整合検査。"""
+"""EDINET指標・抽出baselineの読取とcoverage/count/品質の整合検査。"""
 
 from __future__ import annotations
 
@@ -8,11 +8,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
-    read_stored_documents,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     normalize_metric_record,
 )
@@ -211,43 +207,6 @@ def _validate_deferred_coverage(
         raise EDINETMetricBaselineError(f"EDINET partial coverage is invalid for {key}") from exc
     if not valid:
         raise EDINETMetricBaselineError(f"EDINET partial coverage is inconsistent for {key}")
-
-
-def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, Any]] | None:
-    """Read retained origins and source-key-preserving operations for one day.
-
-    Missing coverage returns None; database query failures propagate.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        conn.execute("BEGIN")
-        if not date_covered(conn, "edinet_documents", on_date):
-            return None
-        return read_stored_documents(conn, through=on_date, start=on_date)
-    finally:
-        conn.close()
-
-
-def read_unrechecked_edinet_document_dates(sqlite_path: Path, *, before: date) -> tuple[date, ...]:
-    """Return document-list dates without proof of a later source recheck."""
-    if not sqlite_path.exists():
-        return ()
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return ()
-    try:
-        rows = conn.execute(
-            "SELECT doc_date FROM edinet_document_lists "
-            "WHERE rechecked_asof IS NULL AND doc_date < ? ORDER BY doc_date",
-            (before.isoformat(),),
-        ).fetchall()
-    finally:
-        conn.close()
-    return tuple(date.fromisoformat(str(row[0])) for row in rows)
 
 
 def read_edinet_metrics(

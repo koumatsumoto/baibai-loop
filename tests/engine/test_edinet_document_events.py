@@ -15,14 +15,14 @@ from baibai_engine.data_collection.providers.edinet.receipts import retain_list_
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     _canonicalize_document_events,
 )
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_edinet_documents,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
     document_inventory,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
-    read_edinet_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

@@ -16,6 +16,7 @@ from baibai_engine.data_collection.providers.edinet.receipts import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_current_filing_documents,
+    read_edinet_documents,
     read_stored_documents,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_projection import (
@@ -24,9 +25,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_list_project
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     store_edinet_document_projection,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
-    read_edinet_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
