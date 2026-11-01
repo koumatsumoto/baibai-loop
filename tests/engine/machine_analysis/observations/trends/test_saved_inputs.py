@@ -686,5 +686,7 @@ def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path, monke
     # This checks selection only; historical parser equivalence is separate.
     with monkeypatch.context() as old_reader:
         old_reader.setattr(extraction, "TSR_REVISION", "tsr-performance-v2")
-        assert read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == old.artifact_id
+        assert (
+            read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == old.artifact_id
+        )
     assert read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == new.artifact_id
