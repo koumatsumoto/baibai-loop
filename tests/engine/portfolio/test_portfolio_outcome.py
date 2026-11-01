@@ -836,3 +836,70 @@ def test_outcome_cli_preserves_same_period_publications_after_delayed_cost(tmp_p
     assert main(revised_args) == 0
     assert yaml.safe_load(capsys.readouterr().out) == revised
     assert store.list() == (revised, original)
+
+
+@pytest.mark.parametrize("resolved", [False, True])
+def test_outcome_export_does_not_overwrite_a_file_created_after_preflight(
+    tmp_path, monkeypatch, capsys, resolved
+):
+    ledger = _ledger()
+    if resolved:
+        ledger = ledger.model_copy(update={"events": ledger.events[:1]})
+    args, application = _prepare_outcome_cli(tmp_path, ledger)
+    output = tmp_path / "outcome.yaml"
+    original_exists = Path.exists
+    retained = "another writer's export\n"
+
+    def create_after_check(path):
+        if path == output and not original_exists(path):
+            path.write_text(retained, encoding="utf-8")
+            return False
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", create_after_check)
+    assert main([*args, "--out", str(output)]) == 2
+    emitted = capsys.readouterr()
+    assert emitted.out == ""
+    assert "failed to export portfolio outcome" in emitted.err
+    assert ("publication retained" in emitted.err) is resolved
+    assert output.read_text(encoding="utf-8") == retained
+    saved = PortfolioOutcomeStore(application).list()
+    assert len(saved) == int(resolved)
+    if resolved:
+        assert saved[0]["status"] == "resolved"
+        assert saved[0]["ending_cash_yen"] == 1000
+
+
+def test_outcome_export_does_not_follow_an_existing_dangling_symlink(tmp_path, capsys):
+    ledger = _ledger()
+    args, application = _prepare_outcome_cli(
+        tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
+    )
+    output, destination = tmp_path / "outcome.yaml", tmp_path / "other.yaml"
+    output.symlink_to(destination)
+    assert main([*args, "--out", str(output)]) == 2
+    emitted = capsys.readouterr()
+    assert emitted.out == ""
+    assert "publication retained" in emitted.err
+    assert output.is_symlink()
+    assert not destination.exists()
+    assert len(PortfolioOutcomeStore(application).list()) == 1
+
+
+def test_outcome_export_succeeds_once_and_rejects_a_preexisting_file(tmp_path, capsys):
+    import yaml
+
+    ledger = _ledger()
+    args, application = _prepare_outcome_cli(
+        tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
+    )
+    output = tmp_path / "exports" / "outcome.yaml"
+    assert main([*args, "--out", str(output)]) == 0
+    emitted = yaml.safe_load(capsys.readouterr().out)
+    retained = output.read_bytes()
+    assert yaml.safe_load(retained) == emitted
+    assert PortfolioOutcomeStore(application).list() == (emitted,)
+    assert main([*args, "--out", str(output)]) == 2
+    assert "refusing to overwrite existing outcome" in capsys.readouterr().err
+    assert output.read_bytes() == retained
+    assert PortfolioOutcomeStore(application).list() == (emitted,)
