@@ -1,8 +1,8 @@
 from contextlib import closing
 
+from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview import DAY
 from tests.helpers.tradingview import store as market_store
-from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

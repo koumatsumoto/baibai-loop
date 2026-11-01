@@ -471,7 +471,7 @@ def test_no_backfill_or_preclose_collection(tmp_path: Path, observed: datetime) 
     async def forbidden(symbols, _columns):
         pytest.fail("provider must not be called")
 
-    with pytest.raises(FetchError, match="backfill"):
+    with pytest.raises(FetchError, match="recorded day and observation window"):
         asyncio.run(collect(path, DAY, forbidden, clock=lambda: observed))
     assert not stored(path)
 

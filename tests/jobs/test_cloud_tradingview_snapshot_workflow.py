@@ -168,7 +168,7 @@ def test_private_partial_receipts_survive_failed_cooldown_until_common_integrati
     downloaded = tmp_path / "downloaded"
     load_handoff(remote, "tradingview-partial", downloaded, market=True)
     result = import_handoff(downloaded / "receipts.sqlite", canonical, handoff)
-    assert result["rows_added"] == 50
+    assert result.report["rows_added"] == 50
     assert stored(canonical) == stored(local)
 
 

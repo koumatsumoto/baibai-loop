@@ -30,9 +30,6 @@ from baibai_engine.data_collection.providers.tradingview.client import (
     connect,
     fetch_batch,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
-    observations as observations_owner,
-)
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_jobs.acquisition.tradingview.collector import (
     JST,
