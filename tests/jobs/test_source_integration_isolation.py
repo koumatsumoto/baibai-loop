@@ -4,8 +4,7 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
-from tests.engine.test_jquants_handoff import calendar
-from tests.engine.test_jquants_projection import FIRST_AT, body, receive
+from tests.helpers.jquants_receipts import FIRST_AT, body, calendar, receive
 from tests.jobs.test_source_receipts import Store, stage
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots

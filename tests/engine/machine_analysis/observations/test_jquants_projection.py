@@ -10,7 +10,9 @@ from datetime import UTC, date, datetime
 import pyarrow.parquet as pq
 import pytest
 import requests
+from tests.helpers.jquants_receipts import DAY, FIRST_AT, Session, body, receive, source_record
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_snapshot
 from baibai_engine.data_collection.providers.jquants.acquisition import (
@@ -45,27 +47,7 @@ from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
-DAY = "2026-10-16"
-FIRST_AT = datetime(2026, 10, 16, 16, 30, tzinfo=UTC)
 CORRECTION_AT = datetime(2026, 10, 17, 12, 45, tzinfo=UTC)
-
-
-class Session(requests.Session):
-    def __init__(self, *replies):
-        super().__init__()
-        self.replies = iter(replies)
-        self.calls = []
-
-    def get(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        reply = next(self.replies)
-        if isinstance(reply, Exception):
-            raise reply
-        response = requests.Response()
-        response.status_code = 200
-        response._content = reply
-        response._content_consumed = True
-        return response
 
 
 @pytest.fixture
@@ -75,23 +57,6 @@ def db_path(tmp_path):
     return path
 
 
-def body(records, *, cursor=None):
-    payload = {"data": records}
-    if cursor is not None:
-        payload["pagination_key"] = cursor
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-
-
-def receive(db_path, source, query, raw_body, received_at):
-    session = Session(raw_body)
-    client = JQuantsHTTP("synthetic-test-key", session=session, clock=lambda: received_at)
-    conn = open_connection(db_path)
-    try:
-        return acquire_request(conn, client, source, query)
-    finally:
-        conn.close()
-
-
 def coverage(db_path, source):
     with sqlite3.connect(db_path) as conn:
         return conn.execute(
@@ -99,55 +64,6 @@ def coverage(db_path, source):
             "record_count, status, error FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
-
-
-def source_record(source, on_date):
-    if source == "financial_summaries":
-        return {"Code": "13010", "DiscDate": on_date, "DiscNo": on_date, "CurPerType": "FY"}
-    if source == "short_sale_reports":
-        return {
-            "Code": "13010",
-            "DiscDate": on_date,
-            "CalcDate": on_date,
-            "SSName": "Reporter A",
-            "ShrtPosToSO": 0.006,
-        }
-    if source == "margin_interest":
-        return {
-            "Code": "13010",
-            "Date": on_date,
-            "LongVol": 5000,
-            "ShrtVol": 1000,
-            "LongStdVol": 3000,
-            "LongNegVol": 2000,
-            "ShrtStdVol": 800,
-            "ShrtNegVol": 200,
-            "IssType": "2",
-        }
-    if source == "margin_alerts":
-        return {
-            "Code": "13010",
-            "PubDate": on_date,
-            "AppDate": on_date,
-            "PubReason": "designation",
-            "ShrtOut": 1000,
-            "ShrtOutChg": 0,
-            "ShrtOutRatio": 0.1,
-            "LongOut": 2000,
-            "LongOutChg": 0,
-            "LongOutRatio": 0.2,
-            "SLRatio": 0.5,
-            "ShrtNegOut": 100,
-            "ShrtNegOutChg": 0,
-            "ShrtStdOut": 900,
-            "ShrtStdOutChg": 0,
-            "LongNegOut": 200,
-            "LongNegOutChg": 0,
-            "LongStdOut": 1800,
-            "LongStdOutChg": 0,
-            "TSEMrgnRegCls": "none",
-        }
-    raise AssertionError(f"unexpected source: {source}")
 
 
 @pytest.mark.parametrize(

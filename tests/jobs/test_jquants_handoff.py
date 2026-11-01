@@ -3,7 +3,8 @@ from datetime import timedelta
 
 import pytest
 import requests
-from tests.engine.test_jquants_projection import DAY, FIRST_AT, Session, body, receive
+from tests.helpers.jquants_receipts import DAY, FIRST_AT, Session, body, calendar, receive
+from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.data_collection.providers.jquants.acquisition import (
     acquire_request,
@@ -18,17 +19,6 @@ from baibai_engine.machine_analysis.observations.jquants_projection import proje
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff, import_handoff
-
-
-def calendar(path, first, last, division, received):
-    from datetime import date
-
-    start, end = date.fromisoformat(first), date.fromisoformat(last)
-    rows = [
-        {"Date": (start + timedelta(days=i)).isoformat(), "HolDiv": str(division)}
-        for i in range((end - start).days + 1)
-    ]
-    return receive(path, "market_calendar", {"from": first, "to": last}, body(rows), received)
 
 
 def test_late_old_calendar_keeps_its_nonoverlap_and_the_newer_overlap(tmp_path):
