@@ -146,7 +146,7 @@ def publish_planning_input(store: ObjectStore, source: str, generations: dict[st
     put_private(store, key, ArticlePlanning(source, generations).encoded(), previous_etag=None)
 
 
-def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime) -> bool:
+def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime, manual: bool = False) -> bool:
     slot, now = _clock(slot.isoformat()), _clock(now.isoformat())
     if slot != slot_at(slot) or slot > now:
         raise ValueError("invalid article acquisition slot")
@@ -158,7 +158,7 @@ def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime) -> bool:
         raise ValueError("article pending stage limit reached; integration/recovery required")
     # TSR runs in the pre-integration slot once per UTC day. A delayed run records
     # its actual received_at and never claims to have acquired at the slot time.
-    return state.source not in TSR_SOURCES or slot.hour == 13
+    return manual or state.source not in TSR_SOURCES or slot.hour == 13
 
 
 def commit_stage(

@@ -287,3 +287,24 @@ def test_legacy_omission_requires_exact_successful_window_even_after_ack(
         )
     else:
         assert result is None
+
+
+@pytest.mark.parametrize("source", ["tsr_data", "tsr_flash"])
+def test_manual_tsr_only_bypasses_scheduled_hour(source):
+    slot = SLOT.replace(hour=1)
+    assert not is_due(ArticlePlanning(source, {}), slot=slot, now=slot)
+    assert is_due(ArticlePlanning(source, {}), slot=slot, now=slot, manual=True)
+    for state in (
+        ArticlePlanning(source, {}, last_slot=slot.isoformat()),
+        ArticlePlanning(source, {}, not_before=(slot + timedelta(hours=1)).isoformat()),
+    ):
+        assert not is_due(state, slot=slot, now=slot, manual=True)
+    with pytest.raises(ValueError, match="pending stage limit"):
+        is_due(
+            ArticlePlanning(source, {}, pending=tuple({} for _ in range(42))),
+            slot=slot,
+            now=slot,
+            manual=True,
+        )
+    with pytest.raises(ValueError, match="invalid article acquisition slot"):
+        is_due(ArticlePlanning(source, {}), slot=slot, now=slot - timedelta(seconds=1), manual=True)
