@@ -147,19 +147,28 @@ def publish_planning_input(store: ObjectStore, source: str, generations: dict[st
     put_private(store, key, ArticlePlanning(source, generations).encoded(), previous_etag=None)
 
 
-def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime, manual: bool = False) -> bool:
+def index_poll_due(source: str, *, now: datetime, received_at: datetime | None) -> bool:
+    """A saved native index receipt, not an attempted slot, fulfils a daily poll."""
+    if source not in TSR_SOURCES:
+        return True
+    now = _clock(now.isoformat())
+    boundary = now.replace(hour=13, minute=13, second=0, microsecond=0)
+    if boundary > now:
+        boundary -= timedelta(days=1)
+    return received_at is None or _clock(received_at.isoformat()) < boundary
+
+
+def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime) -> bool:
     slot, now = _clock(slot.isoformat()), _clock(now.isoformat())
     if slot != slot_at(slot) or slot > now:
         raise ValueError("invalid article acquisition slot")
-    if state.last_slot and _clock(state.last_slot) >= slot:
+    if state.source not in TSR_SOURCES and state.last_slot and _clock(state.last_slot) >= slot:
         return False
     if state.not_before and _clock(state.not_before) > now:
         return False
     if len(state.pending) >= MAX_PENDING_STAGES:
         raise ValueError("article pending stage limit reached; integration/recovery required")
-    # TSR runs in the pre-integration slot once per UTC day. A delayed run records
-    # its actual received_at and never claims to have acquired at the slot time.
-    return manual or state.source not in TSR_SOURCES or slot.hour == 13
+    return True
 
 
 def commit_stage(

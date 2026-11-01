@@ -803,9 +803,9 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
     assert documents[0].article_version_id == documents[1].article_version_id
 
 
-@pytest.mark.parametrize(("hour", "manual"), [(13, False), (1, True)])
+@pytest.mark.parametrize("hour", [1, 13, 17])
 def test_tsr_index_observation_binds_document_title_without_heading(
-    tmp_path, monkeypatch, hour, manual
+    tmp_path, monkeypatch, hour
 ):
     slot = SLOT.replace(hour=hour)
 
@@ -830,7 +830,6 @@ def test_tsr_index_observation_binds_document_title_without_heading(
         identity="test",
         directory=packet,
         session=session,
-        manual=manual,
     )
     database = tmp_path / "market.sqlite"
     result = import_handoff("tsr_data", database, packet)
@@ -986,14 +985,20 @@ def test_partial_discovery_before_body_queue_still_saves_all_discovered_work(tmp
     assert len(frontier["observed"]) == 1
 
 
-@pytest.mark.parametrize("manual", [False, True])
-def test_article_cli_passes_manual_selection(tmp_path, monkeypatch, manual):
+def test_article_cli_resolves_current_tsr_slot_after_a_long_host_queue(tmp_path, monkeypatch):
     calls = []
+    actual = SLOT + timedelta(days=2, hours=5)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return actual
 
     def acquire(_store, **kwargs):
         calls.append(kwargs)
         return {"source": kwargs["source"], "status": "not_due"}
 
+    monkeypatch.setattr(articles, "datetime", Clock)
     monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
     monkeypatch.setattr(articles, "acquire_source", acquire)
     args = [
@@ -1006,8 +1011,9 @@ def test_article_cli_passes_manual_selection(tmp_path, monkeypatch, manual):
         "--directory",
         str(tmp_path),
     ]
-    if manual:
-        args.append("--manual")
     assert articles.main(args) == 0
     assert {call["source"] for call in calls} == set(articles.GROUPS["public"])
-    assert all(call["manual"] is manual and call["slot"] == SLOT for call in calls)
+    assert all("manual" not in call for call in calls)
+    for call in calls:
+        expected = articles.slot_at(actual) if call["source"] in articles.TSR_SOURCES else SLOT
+        assert call["slot"] == expected

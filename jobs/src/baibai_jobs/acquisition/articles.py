@@ -51,7 +51,9 @@ from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
     MAX_REQUEST_STATES,
+    TSR_SOURCES,
     commit_stage,
+    index_poll_due,
     is_due,
     legacy_omission_evidence,
     load_discovery_cursor,
@@ -101,7 +103,6 @@ def acquire_source(
     directory: Path,
     session: requests.Session,
     group_budget: GroupBudget | None = None,
-    manual: bool = False,
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
@@ -111,7 +112,7 @@ def acquire_source(
     shared_deadline, _ = read_deadline(store, key)
     if shared_deadline is not None and started < shared_deadline:
         return {"source": source, "status": "not_due", "reason": "retry_not_before"}
-    if not is_due(state, slot=slot, now=started, manual=manual):
+    if not is_due(state, slot=slot, now=started):
         return {"source": source, "status": "not_due"}
     policy = SOURCES[source]
     if group_budget is not None and group_budget.remaining_bytes <= 0:
@@ -152,6 +153,7 @@ def acquire_source(
     evidence_by_url: dict[str, list[dict[str, str]]] = {}
     frontier: ArticleFrontier | None = None
     index_cache: dict[tuple[str, str], tuple[NativeArticle, ...]] = {}
+    index_receipts: dict[tuple[str, str], ArticleReceipt] = {}
     policy_excluded = 0
     with closing(open_connection(directory / "receipts.sqlite")) as conn:
 
@@ -249,6 +251,7 @@ def acquire_source(
                 source, body, url=original.requested_url, encoding=original.encoding or "utf-8"
             )
             index_cache[key] = items
+            index_receipts[key] = original
             return items
 
         def restore_discovery(reference: dict[str, Any]) -> tuple[ArticleReceipt, bytes]:
@@ -432,6 +435,17 @@ def acquire_source(
                             )
             if frontier.encoded_size() > MAX_FRONTIER_BYTES:
                 raise ValueError("saved article work exceeds the frontier bound; recover exactly")
+        received_index = max(
+            (
+                item.received_at
+                for item in index_receipts.values()
+                if item.requested_url in policy.entry_urls
+            ),
+            default=None,
+        )
+        poll_due = index_poll_due(source, now=started, received_at=received_index)
+        if not poll_due and frontier is not None and not frontier.pending:
+            return {"source": source, "status": "not_due", "reason": "index_and_queue_complete"}
         queue: list[str] = []
         frontier_queued = False
         active_url: str | None = None
@@ -449,10 +463,10 @@ def acquire_source(
                     original, retained_body = restore_discovery(reference)
                     pending_urls = discover(identity, original, retained_body, pending_urls)
                     discovery_replays += 1
-            # Always overlap the front page, then continue the previous bounded page
-            # window. It is not a claim to recover everything lost from a rolling feed.
-            entry_urls = list(policy.entry_urls)
-            page_url: str | None = entry_urls.pop(0)
+            # A fulfilled TSR index cycle is reused while its unfinished document
+            # FIFO advances. Other feeds keep their existing overlap/revalidation.
+            entry_urls = list(policy.entry_urls) if poll_due else []
+            page_url: str | None = entry_urls.pop(0) if entry_urls else None
             seen_pages = set()
             discovered_by_identity: dict[str, str] = {}
             while page_url and pages < policy.max_pages:
@@ -662,6 +676,7 @@ def acquire_source(
             "continuation_only": continuation_only,
             "failures": sorted(set(failed)),
             "pages": pages,
+            "index_reused": not poll_due,
             "bodies": bodies,
             "pending_url_count": len(pending_urls),
             "policy_excluded_count": policy_excluded,
@@ -704,10 +719,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", choices=tuple(GROUPS), required=True)
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
-    parser.add_argument("--manual", action="store_true")
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.created_at.tzinfo is None or args.created_at > datetime.now(UTC):
+        parser.error("created-at must be a past timezone-aware clock")
     reports = []
     group_budget = GroupBudget(GROUP_BYTES[args.group])
     store = ArticleObjectMetrics(
@@ -720,12 +736,11 @@ def main(argv: list[str] | None = None) -> int:
                 report = acquire_source(
                     store,
                     source=source,
-                    slot=slot_at(args.created_at),
+                    slot=slot_at(datetime.now(UTC) if source in TSR_SOURCES else args.created_at),
                     identity=args.identity,
                     directory=args.directory / source,
                     session=session,
                     group_budget=group_budget,
-                    manual=args.manual,
                 )
             except Exception as error:
                 report = {"source": source, "status": "failed", "reason": type(error).__name__}
