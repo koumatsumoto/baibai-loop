@@ -19,7 +19,7 @@ from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.yaml import safe_load
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 
 

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.engine.portfolio.test_position_outcome_store import _publication
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
+from tests.helpers.outcome_publication import _publication
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,

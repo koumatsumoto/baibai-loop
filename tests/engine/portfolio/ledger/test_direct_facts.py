@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 import yaml
-from tests.engine.portfolio.test_position_decision_references import NOW, _binding_count, _service
+from tests.helpers.manual_facts import NOW, _binding_count, _service
 
 from baibai_engine.cli.portfolio import main
 from baibai_engine.portfolio.ledger.broker_facts import BrokerFactRecordingError

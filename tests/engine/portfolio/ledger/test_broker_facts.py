@@ -17,7 +17,7 @@ from baibai_engine.portfolio.ledger.events import (
     reservation_snapshots,
 )
 
-FIXTURE = Path(__file__).parents[2] / "fixtures" / "portfolio-ledger" / "representative.yaml"
+FIXTURE = Path(__file__).parents[3] / "fixtures" / "portfolio-ledger" / "representative.yaml"
 JST = ZoneInfo("Asia/Tokyo")
 PROPOSAL = "https://github.com/koumatsumoto/baibai-loop/issues/360#issuecomment-1"
 

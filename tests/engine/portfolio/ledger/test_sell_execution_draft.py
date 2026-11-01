@@ -21,7 +21,7 @@ from baibai_engine.portfolio.ledger.events import (
 )
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 JST = ZoneInfo("Asia/Tokyo")
 OCCURRED_AT = datetime(2026, 7, 12, 10, 0, tzinfo=JST)
