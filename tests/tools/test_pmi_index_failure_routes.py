@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.data_collection.transport.context import (
     IndicatorsProviderError,
