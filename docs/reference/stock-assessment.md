@@ -59,7 +59,7 @@ resolved valuationは原価格、比較期間、案件ごとの[要求年率](..
 
 terminalは分配後に残る価値、cashは比較期間の累積分配。同じ起点の未調整1株へ揃える。配当・資産売却・買戻しを二重算入せず、終期の権利落ち後価格と未入金配当権利を分ける。権利確定前の未公表配当は仮定とし、公表済みだけの条件と混ぜない。
 
-純粋算術は[investment_judgment/scenario.py](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
+純粋算術は[stock_assessment/scenario.py](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)が所有する。年率は条件付き・投資家の税費用控除前・分配再投資なしで、確率加重期待値やIRRではない。企業利益に含めた税・営業費用を除く意味ではない。計算・判定の精度を表示丸めへ合わせない。
 
 <a id="valuation-model-choice"></a>
 ### modelと期間

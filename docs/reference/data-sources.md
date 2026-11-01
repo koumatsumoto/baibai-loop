@@ -4,6 +4,21 @@
 
 取得と原本はData Collection、選択・単位変換・計算はL2が所有する。取得toolの障害を原資料の不存在にせず、同じ公表元のAPI・CSV・索引を調べる。異なる時刻・定義のsourceを無説明に接続しない。主な取得先と能力は既存source catalog・provider、L2の列と式は各領域の定義が正本である。
 
+<a id="source-owners"></a>
+## 取得範囲と実装の入口
+
+source catalogは経済原本の一覧であり、L1全体の一覧ではない。取得先・要求範囲・保存形式は各owner、起動時刻は[Actions](../../.github/workflows/)、遅延時の対象日・cycleは[Jobs schedule](../../jobs/src/baibai_jobs/schedule.py)とsourceの計画が所有する。設定をここへ複写せず、実取得・保存・投影・公開の実績は別に確認する。
+
+| 対象 | 正準の入口 |
+| --- | --- |
+| 経済統計・市場指標 | [source catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)と[acquisition](../../engine/src/baibai_engine/data_collection/acquisition/) |
+| 株式・企業開示・公開資料 | [J-Quants](../../engine/src/baibai_engine/data_collection/providers/jquants/)・[JPX](../../engine/src/baibai_engine/data_collection/providers/jpx/)・[EDINET](../../engine/src/baibai_engine/data_collection/providers/edinet/) |
+| ニュース・機関公表記事 | [article source契約](../../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)・[取得と再開](../../jobs/src/baibai_jobs/acquisition/articles.py) |
+| 公開HTML外部評価 | [source別取得](../../jobs/src/baibai_jobs/acquisition/external_assessments/)・[公開ページ通信](../../engine/src/baibai_engine/data_collection/transport/public_pages.py) |
+| TradingView | [native契約と要求充足](../../engine/src/baibai_engine/data_collection/providers/tradingview/)・[取得](../../jobs/src/baibai_jobs/acquisition/tradingview/) |
+
+L2での比較価値が未確認でも、許可されたL1の取得元・頻度・保持範囲を自動で縮小しない。取得することと判断に採用することは別で、変更の採否は[開発方針](../doctrine.md#development-investment-policy)に従う。
+
 ## 入手不能と利用条件
 
 一次統計の二次配信は、公式経路を確認してもsource側の継続的な問題で解決できず、同じ期間・定義・数値を複数経路で確認できた場合だけ一次未確認と明示して使う。失敗した一次inputと実読した二次inputを分け、判断は採用したsourceへ結ぶ。単一値・不一致・toolの一時障害では代用せず、AIが観測storeへ転記しない。Tier外の速報補助もその旨を示す。
@@ -59,6 +74,15 @@ PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公�
 TE経路は同じS&P測定の別配信であり、独立した経済測定ではない。ISM・製造業Output・Compositeを代用せず、速報と確報、対象月、配信時刻と元測定の公表時刻を区別する。原文受領とidentity/数値抽出の成功を分け、取得失敗を旧値や検索snippetの転記で隠さない。完全な改訂履歴・当時PITの再現は保証しない。
 
 取得条件と原文identityは[provider](../../engine/src/baibai_engine/data_collection/providers/tradingeconomics/)、観測値の選択はL2の所有実装を正本とする。明示URL入口は拒否後の自動fallbackではない。取得可能性・継続coverage・利用範囲を確認せずcatalogを切り替えない。有限実験・配信候補・採否は[Issue #1477](https://github.com/koumatsumoto/baibai-loop/issues/1477)と[当時の確認記録](https://github.com/koumatsumoto/baibai-loop/blob/d6c085d433ab0e5561b14b46a5595c7abf84e340/docs/reference/data-sources.md#pmi-public-articles)に残す。
+
+<a id="public-articles"></a>
+## ニュース・機関公表記事
+
+索引の受領、本文の受領、リンクの発見、文章の投影、主張の抽出は別の進捗である。RSSや一覧だけを取得して全記事を本文実読済みと扱わず、見出し・概要・全文・部分テキストの範囲を保持する。記事公表日・更新日・実受領日を混同せず、未知の日付を取得日で埋めない。
+
+[NHK・TSR・みんかぶ・楽天・トウシル・日銀・財務省のsource契約](../../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)がURL範囲と取得予算を持つ。[native parser](../../engine/src/baibai_engine/data_collection/providers/articles/native.py)が提供形式を読み、[Observations](../../engine/src/baibai_engine/machine_analysis/observations/articles/)が日付・範囲・出典を保つ投影と抽出artifactを所有する。HTML本文が取れても全ての主張が機械抽出済みとは限らない。
+
+案内ページと転送先、本文と添付資料は別の原受領で、親子の出典を残す。財務省の金利CSVの文字表現は経済系列と独立した測定ではない。日銀XLSXのセル投影は書式・図表や式の計算結果の復元ではない。欠けた本文・未対応形式・抽出失敗を「出来事なし」へ変換しない。[取得・再開とexact回復](../../jobs/OPERATIONS.md#article-acquisition)は保存済み原本を基準に行う。
 
 ## EDINET
 
