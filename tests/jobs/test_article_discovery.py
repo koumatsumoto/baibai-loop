@@ -2,15 +2,15 @@ import hashlib
 import json
 from contextlib import closing
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
+from tests.helpers.article_acquisition import SLOT, Response, Session, receipt
 from tests.helpers.r2_store import MemoryR2Store
-from tests.jobs.test_article_acquisition import SLOT, Response, Session
 
 import baibai_jobs.acquisition.article_discovery as worksets
 from baibai_engine.data_collection.providers.articles.contracts import NativeLink
-from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
+from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -27,19 +27,6 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.external_assessments.staging import put_private
 from baibai_jobs.maintenance.article_recovery import register_discovery
-
-
-def receipt(identity="original", body=b"synthetic"):
-    return ArticleReceipt(
-        receipt_id=identity,
-        source="mof_news",
-        requested_url="https://www.mof.go.jp/insideLink/example.html",
-        received_at=datetime(2026, 11, 1, tzinfo=UTC),
-        status="ok",
-        http_status=200,
-        encoding="utf-8",
-        body_ref=BodyRef(receipt_id=identity, sha256=hashlib.sha256(body).hexdigest()),
-    )
 
 
 def test_parent_completion_and_child_admission_are_one_state_change(monkeypatch):
@@ -68,7 +55,7 @@ def test_same_url_new_original_is_new_discovery_but_exact_replay_is_not():
 
 
 def test_pending_discovery_and_children_survive_validator_eviction(tmp_path):
-    from tests.jobs.test_article_planning import _packet
+    from tests.helpers.article_acquisition import _packet
 
     remote = MemoryR2Store()
     publish_planning_input(remote, "mof_news", {})
@@ -100,7 +87,7 @@ def test_pending_discovery_and_children_survive_validator_eviction(tmp_path):
 def test_discovery_cas_failure_preserves_parent_to_child_workset_for_exact_recovery(
     tmp_path, monkeypatch
 ):
-    from tests.jobs.test_article_planning import _packet
+    from tests.helpers.article_acquisition import _packet
 
     remote = MemoryR2Store()
     publish_planning_input(remote, "mof_news", {})
@@ -255,7 +242,7 @@ def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(tmp_pa
 
 
 def test_registered_legacy_original_resumes_same_slot_without_index_get(tmp_path, monkeypatch):
-    from tests.jobs.test_article_planning import _packet
+    from tests.helpers.article_acquisition import _packet
 
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
