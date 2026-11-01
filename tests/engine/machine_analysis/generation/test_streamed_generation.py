@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import closing
 
 import pytest
-from tests.engine.machine_analysis.generation.test_model_generation_store import generation
+from tests.helpers.model_generation import generation
 
 import baibai_engine.machine_analysis.generation.store as generation_store
 from baibai_engine.machine_analysis.generation.contracts import (
