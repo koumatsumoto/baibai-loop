@@ -15,6 +15,7 @@ from baibai_jobs.acquisition.article_planning import (
     load_planning,
     publish_planning_input,
 )
+from baibai_jobs.acquisition.cooldown import extend, quota_key
 from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
 
@@ -49,6 +50,25 @@ class Session:
         self.headers.append(kwargs["headers"])
         self.urls.append(_url)
         return next(self.responses)
+
+
+def test_external_assessment_quota_wait_blocks_article_before_http(tmp_path):
+    store = MemoryR2Store()
+    publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
+    extend(store, quota_key("minkabu"), datetime.now(UTC) + timedelta(hours=1))
+    session = Session([])
+    packet = tmp_path / "waiting"
+    report = articles.acquire_source(
+        store,
+        source="minkabu_news",
+        slot=SLOT,
+        identity="next-work",
+        directory=packet,
+        session=session,
+    )
+    assert report["reason"] == "retry_not_before"
+    assert session.urls == []
+    assert not packet.exists()
 
 
 def _nhk_description(text):

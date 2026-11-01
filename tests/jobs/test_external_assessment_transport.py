@@ -152,13 +152,14 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         assert len(calls) == 50
         runs.append((elapsed, operations, durable, report))
     slow, fast = runs
-    assert slow[1] == {"HEAD": 4, "PUT": 2}
-    assert fast[1] == {"HEAD": 2, "PUT": 2}
+    # Both modes read the cross-run source quota before any provider request.
+    assert slow[1] == {"HEAD": 5, "PUT": 2}
+    assert fast[1] == {"HEAD": 3, "PUT": 2}
     assert fast[2].result.observations == slow[2].result.observations
-    assert slow[0] == pytest.approx(3.1)
-    assert fast[0] == pytest.approx(2.9)
-    assert fast[3]["storage_elapsed_seconds"] == pytest.approx(0.4)
-    assert slow[3]["storage_elapsed_seconds"] == pytest.approx(0.6)
+    assert slow[0] == pytest.approx(3.2)
+    assert fast[0] == pytest.approx(3.0)
+    assert fast[3]["storage_elapsed_seconds"] == pytest.approx(0.5)
+    assert slow[3]["storage_elapsed_seconds"] == pytest.approx(0.7)
 
 
 @pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])

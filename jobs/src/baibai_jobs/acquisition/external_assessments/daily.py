@@ -29,6 +29,7 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
 from baibai_jobs.acquisition.dependencies import (
     available_dependencies,
     latest_dependency,
@@ -276,6 +277,11 @@ def acquire_cohort(
     original = stage
     provider_requests = 0
     stop_reason = None
+    # Quota waits survive run/cycle changes, unlike per-pair retry counters.
+    storage_started = time.monotonic()
+    not_before = {source: read_deadline(store, quota_key(source))[0] for source in plan.sources}
+    timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
+    new_deadlines: dict[str, datetime] = {}
     rate_limiter = rate_limiter or ExternalAssessmentHostRateLimiter()
     with ExitStack() as resources:
         bundle = resources.enter_context(RawBundle(plan.run_id, index))
@@ -285,6 +291,9 @@ def acquire_cohort(
         for entry in sorted(original.result.entries, key=lambda entry: entry.ticker):
             if entry.state != "unattempted":
                 continue
+            if (waiting := not_before[entry.source]) is not None and datetime.now(UTC) < waiting:
+                stop_reason = "retry_not_before"
+                break
             if collect_before is not None and datetime.now(UTC) >= collect_before:
                 stop_reason = "cycle_finished"
                 break
@@ -335,6 +344,11 @@ def acquire_cohort(
                     stop_reason = result.stop_reason or "soft_budget"
                     break
                 final_result = result
+                if result.retry_after_not_before_utc is not None:
+                    deadline = result.retry_after_not_before_utc
+                    new_deadlines[entry.source] = max(
+                        new_deadlines.get(entry.source, deadline), deadline
+                    )
                 if result.outcomes[0].status != "rate_limited":
                     stop_reason = result.stop_reason
                     break
@@ -402,6 +416,11 @@ def acquire_cohort(
                 bundle.finish()
                 bundle.upload(store)
                 stage = replace(stage, raw_bundle_keys=(*stage.raw_bundle_keys, bundle_key))
+            # Keep captured originals before the quota/progress checkpoint. An
+            # unsatisfied long Retry-After must not disappear at process exit.
+            for source, deadline in new_deadlines.items():
+                if deadline > datetime.now(UTC):
+                    extend(store, quota_key(source), deadline)
             stage = commit_stage(store, plan, stage, previous=previous)
         timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     return _cohort_report(plan, stage, stop_reason, started, timings, provider_requests)
