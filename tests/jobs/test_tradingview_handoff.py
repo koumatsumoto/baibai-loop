@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pytest
 from mcp.types import CallToolResult, TextContent
-from tests.engine.test_jquants_projection import body, receive
+from tests.helpers.jquants_receipts import body, receive
 from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, store, stored
 
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

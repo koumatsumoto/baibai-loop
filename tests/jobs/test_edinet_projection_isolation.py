@@ -8,7 +8,7 @@ from datetime import timedelta
 
 import pytest
 from tests.engine.test_edinet_handoff import DAY, STAMP, projection_state, receive
-from tests.engine.test_jquants_handoff import calendar
+from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.jobs.test_source_receipts import Store
 

@@ -306,7 +306,7 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
 def test_margin_coverage_and_observations_share_a_snapshot(
     tmp_path, monkeypatch, source, table, day, reader_name
 ):
-    from tests.engine.test_jquants_projection import FIRST_AT, body, receive, source_record
+    from tests.helpers.jquants_receipts import FIRST_AT, body, receive, source_record
 
     from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 

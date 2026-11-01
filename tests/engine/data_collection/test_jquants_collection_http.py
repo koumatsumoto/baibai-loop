@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
+from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import make_master_records
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError

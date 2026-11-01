@@ -8,8 +8,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 import requests
-from tests.engine.test_jquants_projection import source_record
+from tests.helpers.jquants_receipts import source_record
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
