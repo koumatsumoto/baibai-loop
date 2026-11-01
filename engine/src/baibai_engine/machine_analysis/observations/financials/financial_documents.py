@@ -1,4 +1,4 @@
-"""Financial disclosure decoding and point-in-time forecast projection; no I/O."""
+"""Financial disclosure decoding and as-of forecasts from retained inputs; no I/O."""
 
 from __future__ import annotations
 

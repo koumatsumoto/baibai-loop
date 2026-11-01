@@ -1,4 +1,4 @@
-"""Pure EDINET field decoding shared by HTTP adapters, CSV parsing and SQLite reads."""
+"""Pure EDINET field decoding for retained document observations, CSV and SQLite reads."""
 
 from __future__ import annotations
 
