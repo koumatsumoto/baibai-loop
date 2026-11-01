@@ -109,6 +109,52 @@ def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch, 
     assert "current-only" in outcomes[0].message
 
 
+def test_delayed_live_refresh_moves_only_current_pages_to_the_actual_jst_day(tmp_path, monkeypatch):
+    import baibai_engine.data_collection.acquisition.refresh as acquisition
+
+    now = datetime(2026, 11, 1, 15, 1, tzinfo=UTC)
+    actual_day = date(2026, 11, 2)
+    cycle_day = date(2026, 11, 1)
+    calls = {}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz or UTC)
+
+    def fetch_documents(source, *, start, end, **kwargs):
+        calls[source.source_id] = (start, end)
+        return ()
+
+    def fetch_records(source, *, start, end, **kwargs):
+        calls[source.source_id] = (start, end)
+        return {}
+
+    monkeypatch.setattr(acquisition, "datetime", Clock)
+    monkeypatch.setattr(acquisition, "fetch_source_documents", fetch_documents)
+    monkeypatch.setattr(acquisition, "fetch_native_records", fetch_records)
+    database = tmp_path / "source.sqlite"
+    outcomes = refresh_sources(
+        ["matsui-margin", "fed-h15"],
+        db_path=database,
+        start=None,
+        end=cycle_day,
+        recent=True,
+        current_only_now=True,
+    )
+    assert all(isinstance(item, SourceRefreshSuccess) for item in outcomes)
+    assert calls["matsui-margin"] == (actual_day, actual_day)
+    assert calls["fed-h15"][1] == cycle_day
+    assert outcomes[0].start == outcomes[0].end == actual_day
+    assert outcomes[1].end == cycle_day
+    with closing(initialize_database(database)) as conn:
+        rows = conn.execute(
+            "SELECT range_start, range_end FROM economic_source_runs WHERE source_id = ?",
+            ("matsui-margin",),
+        ).fetchall()
+    assert [tuple(row) for row in rows] == [(actual_day.isoformat(), actual_day.isoformat())]
+
+
 def test_failed_all_history_attempt_does_not_reopen_itself_during_recent_refresh(tmp_path):
     from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 
