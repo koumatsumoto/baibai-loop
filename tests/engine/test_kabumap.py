@@ -5,8 +5,8 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
 from tests.helpers.external_assessment_html import kabumap_html as html
+from tests.helpers.external_assessment_universe import ASOF, seed_database
 from tests.helpers.master import insert_master_rows
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, stage
 from tests.jobs.test_external_assessment_raw import Session
