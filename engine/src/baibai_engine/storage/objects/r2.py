@@ -284,7 +284,10 @@ def _raise_r2_error(operation: str, error: ClientError) -> Never:
 
 
 def _operation_timeout(payload_bytes: int | None) -> int:
-    """A per-attempt read timeout the object's own size can satisfy."""
+    """Leave time for control-plane latency and a conservative object transfer.
+
+    Botocore applies this budget to each attempt, not the whole retry sequence.
+    """
     if payload_bytes is None or payload_bytes <= 0:
         return _BASE_OPERATION_TIMEOUT_SECONDS
     transfer = -(-payload_bytes // _MIN_TRANSFER_BYTES_PER_SECOND)
