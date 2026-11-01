@@ -1,79 +1,22 @@
-name: cloud-article-sources
-
+name: minkabu bounded header comparison
 on:
-  schedule:
-    # Six slots/day; 13:13 UTC precedes the independent 13:43 daily integration.
-    - cron: '13 1,5,9,13,17,21 * * *'
   workflow_dispatch:
-    inputs:
-      group:
-        description: '取得group（TSRの定期時刻外も取得。同slot重複・cooldownは維持）'
-        type: choice
-        default: all
-        options: [all, public, minkabu, rakuten]
-
 permissions:
   contents: read
-
 jobs:
-  acquire:
-    strategy:
-      fail-fast: false
-      matrix:
-        group: [public, minkabu, rakuten]
-    # The shared hosts use exactly the collector's existing host queue. No global
-    # provider barrier, publication lease, or machine model calculation here.
+  compare:
     concurrency:
-      group: source-host-${{ matrix.group == 'public' && 'article-public' || matrix.group }}
+      group: source-host-minkabu
       queue: max
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Select group before credentials
-        id: scope
-        env:
-          REQUESTED_GROUP: ${{ inputs.group || 'all' }}
-          GROUP: ${{ matrix.group }}
-        run: |
-          case "$REQUESTED_GROUP" in all|public|minkabu|rakuten) ;; *) exit 2 ;; esac
-          if [ "$REQUESTED_GROUP" = all ] || [ "$REQUESTED_GROUP" = "$GROUP" ]; then
-            echo 'selected=true' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: steps.scope.outputs.selected == 'true'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version-file: .python-version
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        if: steps.scope.outputs.selected == 'true'
-        with:
-          enable-cache: true
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
       - run: uv sync --locked
-        if: steps.scope.outputs.selected == 'true'
-      - name: Pin original slot and reserve private staging time
-        id: clock
-        if: steps.scope.outputs.selected == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
-          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
-          echo "BAIBAI_ACQUISITION_DEADLINE=$(( $(date +%s) + 15 * 60 ))" >> "$GITHUB_ENV"
-      - name: Acquire due sources and save each partial privately
-        if: steps.scope.outputs.selected == 'true'
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          GROUP: ${{ matrix.group }}
-          CREATED_AT: ${{ steps.clock.outputs.created_at }}
-          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          args=(--group "$GROUP" --created-at "$CREATED_AT" --identity "$IDENTITY")
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then args+=(--manual); fi
-          uv run python -m baibai_jobs.acquisition.articles "${args[@]}" \
-            --directory "$RUNNER_TEMP/article-handoffs"
+      - name: Compare four ordinary requests without secrets or network configuration changes
+        run: uv run python tools/diagnose_minkabu_headers.py
