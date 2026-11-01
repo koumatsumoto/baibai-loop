@@ -105,6 +105,10 @@ SOURCES = {
         max_document_bytes=12_000_000,
     ),
     "mof_news": ArticleSource(
-        "mof_news", "https://www.mof.go.jp/news.rss", frozenset({"www.mof.go.jp"})
+        "mof_news",
+        "https://www.mof.go.jp/news.rss",
+        # 本省RSSのinsideLinkが案内する財務局も同じsourceの明示された取得範囲。
+        # 任意subdomainへ広げず、案内と転送先を別受領として保持する。
+        frozenset({"www.mof.go.jp", "lfb.mof.go.jp"}),
     ),
 }

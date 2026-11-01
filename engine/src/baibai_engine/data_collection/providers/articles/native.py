@@ -12,7 +12,7 @@ from xml.etree import ElementTree as ET  # nosec B405 -- bounded _feed_root reje
 from pydantic import JsonValue
 from pypdf import PdfReader
 
-from baibai_engine.data_collection.providers.articles.contracts import NativeArticle
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle
 from baibai_engine.data_collection.providers.articles.html import Node, parse_html, plain_text
 from baibai_engine.data_collection.providers.articles.workbook import parse_workbook
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
@@ -20,7 +20,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 PARSER_REVISION = "article-native-v1"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
 BOJ_PARSER_REVISION = "article-native-boj-v2"
-MOF_PARSER_REVISION = "article-native-mof-v4"
+MOF_PARSER_REVISION = "article-native-mof-v5"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -361,7 +361,7 @@ def _nhk_public_description(
 
 
 def _mof_inside_link(nodes: list[Node], *, url: str, title: str) -> NativeArticle | None:
-    """財務省の明示的な同一host案内だけ。案内自体を転送先本文とはしない。"""
+    """本省の明示案内をsourceの許可host内で一段だけ読む。案内は本文とは別受領。"""
     origin = urlsplit(url)
     if origin.hostname != "www.mof.go.jp" or not origin.path.startswith("/insideLink/"):
         return None
@@ -379,7 +379,7 @@ def _mof_inside_link(nodes: list[Node], *, url: str, title: str) -> NativeArticl
     parsed = urlsplit(target)
     if (
         parsed.scheme != "https"
-        or parsed.hostname != "www.mof.go.jp"
+        or parsed.hostname not in SOURCES["mof_news"].allowed_hosts
         or parsed.username is not None
         or parsed.password is not None
         or parsed.port not in {None, 443}
@@ -496,8 +496,17 @@ def parse_document(
             ),
             None,
         )
-    if region is None and source == "mof_news" and urlsplit(url).path.startswith("/pri/"):
-        regions = [node for node in nodes if node.attrs.get("id") == "contents-wrap"]
+    if region is None and source == "mof_news":
+        location = urlsplit(url)
+        # 財務局と財務総研の確認済み本文領域だけを使い、ページ全体へfallbackしない。
+        region_id = (
+            "mainArea"
+            if location.hostname == "lfb.mof.go.jp"
+            else "contents-wrap"
+            if location.hostname == "www.mof.go.jp" and location.path.startswith("/pri/")
+            else None
+        )
+        regions = [node for node in nodes if region_id and node.attrs.get("id") == region_id]
         if len(regions) == 1:
             region = regions[0]
             heading = next(
