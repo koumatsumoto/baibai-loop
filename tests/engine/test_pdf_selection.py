@@ -289,3 +289,14 @@ def test_annual_current_eps_only_correction_does_not_hide_unchanged_profit():
     assert result.annual_latest_disclosure_number == row.disclosure_number
     assert result.annual_revision_basis == "latest_reconfirmed_unchanged_amounts"
     assert result.amounts_yen["parent_profit"] == 2_469_000_000
+
+
+def test_unchanged_current_annual_does_not_reconfirm_its_comparative_column():
+    row = replace(
+        document(True), disclosure_number="annual-correction", disclosed_at=date(2026, 6, 19)
+    )
+    financial, growth, _ = models(documents=[document(True), row], pdfs=[statement(True)])
+    selected = financial.payload["financial"]["pdf_selection"]
+    assert selected["status"] == "available"
+    assert selected["comparative_verified"] is False
+    assert all("source_sha256" not in change for change in growth.payload["changes"])

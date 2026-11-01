@@ -45,6 +45,7 @@ class PdfFinancialSelection(BaseModel):
     status: Literal["available", "unavailable"]
     reason: str | None = None
     blocks_legacy_ttm: bool = False
+    comparative_verified: bool = True
     read_semantics: Literal["latest_within_retained_disclosures"] = (
         "latest_within_retained_disclosures"
     )
@@ -203,6 +204,7 @@ def select_pdf_financials(
         return PdfFinancialSelection(
             status="available",
             current=current,
+            comparative_verified=current.disclosure_number == current_row.disclosure_number,
             annual_latest_disclosure_number=current_row.disclosure_number,
             annual_revision_basis="same_disclosure"
             if current.disclosure_number == current_row.disclosure_number

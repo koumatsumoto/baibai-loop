@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Literal
 
 from baibai_engine.machine_analysis.models.company_growth.calculations import _margin
 from baibai_engine.machine_analysis.models.company_growth.models import (
@@ -42,20 +43,23 @@ def _metrics(
     reason: str | None = None,
     *,
     sector: str | None = None,
+    precision: Literal["published_display_amounts", "derived_from_truncated_display_amounts"] = (
+        "published_display_amounts"
+    ),
 ) -> dict[Metric, Value]:
     result: dict[Metric, Value] = {
         metric: Value(
             value=amounts.get(metric),
             reason=reason,
             documents=sources,
-            precision="published_display_amounts",
+            precision=precision,
         )
         for metric in _INCOME_METRICS
     }
     _margin(result, sector)
     if result["operating_margin"].value is not None:
         result["operating_margin"] = result["operating_margin"].model_copy(
-            update={"precision": "published_display_amounts"}
+            update={"precision": "derived_from_truncated_display_amounts"}
         )
     return result
 
@@ -103,7 +107,13 @@ def apply_pdf_periods(
     assert current.current_start is not None
     assert current.current_end is not None
     sources = (_source(current),) + ((_source(selected.annual),) if selected.annual else ())
-    annual_metrics = _metrics(selected.amounts_yen, sources, selected.reason, sector=sector)
+    annual_metrics = _metrics(
+        selected.amounts_yen,
+        sources,
+        selected.reason,
+        sector=sector,
+        precision="derived_from_truncated_display_amounts",
+    )
     reported_metrics = _metrics(
         {pair.metric: pair.current * 1_000_000 for pair in current.pairs},
         (_source(current),),
@@ -167,6 +177,8 @@ def apply_pdf_changes(
             else change
             for change in changes
         )
+    if not selected.comparative_verified:
+        return tuple(changes)
     current = selected.current
     assert current.current_start is not None
     assert current.current_end is not None
@@ -218,7 +230,7 @@ def apply_pdf_changes(
                     else "nonpositive_base"
                     if prior is not None and prior <= 0
                     else None,
-                    "precision": "published_display_amounts",
+                    "precision": "derived_from_truncated_display_amounts",
                     "source_sha256": current.source_sha256,
                 }
             )
