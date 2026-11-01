@@ -12,14 +12,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
 
 import requests
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle
 from baibai_engine.data_collection.providers.articles.native import (
+    discover_links,
+    discovery_revision_for,
     next_index_url,
-    parse_document,
     parse_index,
 )
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
@@ -35,6 +35,12 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.article_discovery import (
+    DISCOVERY_SOURCES,
+    MAX_DISCOVERY_BYTES,
+    MAX_DISCOVERY_REPLAYS,
+    DiscoveryWork,
+)
 from baibai_jobs.acquisition.article_frontier import (
     FRONTIER_FORMAT,
     FRONTIER_SOURCES,
@@ -45,13 +51,17 @@ from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
     MAX_REQUEST_STATES,
+    TSR_SOURCES,
     commit_stage,
+    index_poll_due,
     is_due,
     legacy_omission_evidence,
+    load_discovery_cursor,
     load_frontier_cursor,
     load_planning,
     slot_at,
 )
+from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
 from baibai_jobs.acquisition.receipts import download_fixed
 
 # The two shared hosts use the same Actions concurrency keys as the existing
@@ -69,6 +79,16 @@ GROUPS = {
 GROUP_BYTES = {"public": 80 * 1024 * 1024, "minkabu": 24 * 1024 * 1024, "rakuten": 24 * 1024 * 1024}
 
 
+def cooldown_key(source: str) -> str:
+    # Match the existing shared quota across article/equity workflows. Public
+    # providers keep independent waits; the two TSR streams share one provider.
+    quota = next(
+        (group for group in ("minkabu", "rakuten") if source in GROUPS[group]),
+        "tsr" if source in {"tsr_data", "tsr_flash"} else source,
+    )
+    return quota_key(quota)
+
+
 @dataclass
 class GroupBudget:
     remaining_bytes: int
@@ -83,12 +103,28 @@ def acquire_source(
     directory: Path,
     session: requests.Session,
     group_budget: GroupBudget | None = None,
-    manual: bool = False,
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
-    if not is_due(state, slot=slot, now=started, manual=manual):
+    key = cooldown_key(source)
+    if state.not_before is not None and datetime.fromisoformat(state.not_before) > started:
+        extend(store, key, datetime.fromisoformat(state.not_before))
+    shared_deadline, _ = read_deadline(store, key)
+    if shared_deadline is not None and started < shared_deadline:
+        return {"source": source, "status": "not_due", "reason": "retry_not_before"}
+    cursor = load_discovery_cursor(store, state) if source in DISCOVERY_SOURCES else state.cursor
+    discovery = DiscoveryWork(cursor) if source in DISCOVERY_SOURCES else None
+    resume_pending = discovery is not None and (
+        bool(cursor.get("pending_urls"))
+        or any(
+            item["attempted_revision"] != discovery_revision_for(source)
+            for item in discovery.pending.values()
+        )
+    )
+    if not is_due(state, slot=slot, now=started, resume_pending=resume_pending):
         return {"source": source, "status": "not_due"}
+    if source in FRONTIER_SOURCES:
+        cursor = load_frontier_cursor(store, state)
     policy = SOURCES[source]
     if group_budget is not None and group_budget.remaining_bytes <= 0:
         return {"source": source, "status": "deferred_budget"}
@@ -103,7 +139,8 @@ def acquire_source(
         min_interval_seconds=policy.min_interval_seconds or 5.0,
     )
     planning = dict(state.requests)
-    cursor = load_frontier_cursor(store, state) if source in FRONTIER_SOURCES else state.cursor
+    discovery_replays = 0
+    discovery_edges: dict[str, list[dict[str, Any]]] = {}
     pending_urls = list(cursor.get("pending_urls", []))
     saved_evidence = cursor.get("pending_evidence", {})
     if not isinstance(saved_evidence, dict):
@@ -121,6 +158,7 @@ def acquire_source(
     evidence_by_url: dict[str, list[dict[str, str]]] = {}
     frontier: ArticleFrontier | None = None
     index_cache: dict[tuple[str, str], tuple[NativeArticle, ...]] = {}
+    index_receipts: dict[tuple[str, str], ArticleReceipt] = {}
     policy_excluded = 0
     with closing(open_connection(directory / "receipts.sqlite")) as conn:
 
@@ -218,7 +256,77 @@ def acquire_source(
                 source, body, url=original.requested_url, encoding=original.encoding or "utf-8"
             )
             index_cache[key] = items
+            index_receipts[key] = original
             return items
+
+        def restore_discovery(reference: dict[str, Any]) -> tuple[ArticleReceipt, bytes]:
+            entry = reference["stage"]
+            identity = reference["receipt_id"]
+            if entry.get("stage_id") != stage_id and (
+                entry.get("source") != source
+                or entry.get("namespace") != ARTICLE_NAMESPACE
+                or entry.get("market") is not True
+            ):
+                raise ArticleStoreError("discovery original belongs to another source")
+            if not conn.execute(
+                "SELECT 1 FROM article_source_receipts WHERE receipt_id=?", (identity,)
+            ).fetchone():
+                key = entry["stage_id"]
+                if key not in downloaded:
+                    packet = directory / f"baseline-{len(downloaded)}"
+                    download_fixed(store, entry, packet)
+                    downloaded[key] = packet / "receipts.sqlite"
+                with closing(connect_read_only(downloaded[key])) as old, conn:
+                    read_receipt(old, identity, receipt_sha256=reference["receipt_sha256"])
+                    copy_receipt_closure(old, conn, identity)
+            original = read_receipt(conn, identity, receipt_sha256=reference["receipt_sha256"])
+            if (
+                original.source != source
+                or original.requested_url != reference["url"]
+                or original.body_ref is None
+                or original.body_ref.model_dump() != reference["body_ref"]
+                or (original.encoding or "utf-8") != reference["encoding"]
+            ):
+                raise ArticleStoreError("discovery original reference differs")
+            body = read_body(conn, original.body_ref)
+            if (link := reference.get("index_evidence")) is not None:
+                if not attach_prior_index(link):
+                    raise ArticleStoreError("discovery index evidence is unavailable")
+                document_evidence[identity] = {
+                    field: link[field]
+                    for field in ("index_receipt_id", "article_id", "native_locator", "title")
+                }
+            if identity not in kinds:
+                receipt_ids.append(identity)
+                kinds[identity] = "document"
+            return original, body
+
+        def discover(
+            identity: str, receipt: ArticleReceipt, body: bytes, queue: list[str]
+        ) -> list[str]:
+            nonlocal policy_excluded
+            assert discovery is not None
+            revision = discovery_revision_for(source)
+            try:
+                links = discover_links(
+                    source, body, url=receipt.requested_url, encoding=receipt.encoding or "utf-8"
+                )
+            except ValueError:
+                # Only native parsing is inside this catch. Missing/corrupt R2
+                # originals are operational failures, never parser-version waits.
+                discovery.unsupported(identity, revision)
+                return queue
+            accepted = tuple(
+                link
+                for link in links
+                if policy.allows_url(link.url) and link.url != receipt.requested_url
+            )
+            policy_excluded += len(links) - len(accepted)
+            admitted = discovery.admit(identity, accepted, queue, revision=revision)
+            if admitted is None:
+                failed.append("discovery_capacity_exceeded")
+                return queue
+            return admitted
 
         def receive(
             url: str, kind: Literal["index", "document"]
@@ -332,14 +440,46 @@ def acquire_source(
                             )
             if frontier.encoded_size() > MAX_FRONTIER_BYTES:
                 raise ValueError("saved article work exceeds the frontier bound; recover exactly")
+        received_index = max(
+            (
+                item.received_at
+                for item in index_receipts.values()
+                if item.requested_url in policy.entry_urls
+            ),
+            default=None,
+        )
+        poll_due = index_poll_due(source, now=started, received_at=received_index)
+        if (
+            discovery is not None
+            and state.last_slot is not None
+            and datetime.fromisoformat(state.last_slot) == slot
+        ):
+            # A saved polling slot is not a completed discovery workset. Resume
+            # retained parents/children without repeating that slot's index GET.
+            poll_due = False
+        if not poll_due and frontier is not None and not frontier.pending:
+            return {"source": source, "status": "not_due", "reason": "index_and_queue_complete"}
         queue: list[str] = []
         frontier_queued = False
         active_url: str | None = None
         try:
-            # Always overlap the front page, then continue the previous bounded page
-            # window. It is not a claim to recover everything lost from a rolling feed.
-            entry_urls = list(policy.entry_urls)
-            page_url: str | None = entry_urls.pop(0)
+            if discovery is not None:
+                revision = discovery_revision_for(source)
+                replay_started = time.monotonic()
+                for identity, reference in list(discovery.pending.items()):
+                    if reference["attempted_revision"] == revision:
+                        continue
+                    if discovery_replays >= MAX_DISCOVERY_REPLAYS or (
+                        time.monotonic() - replay_started >= 30
+                    ):
+                        break
+                    original, retained_body = restore_discovery(reference)
+                    pending_urls = discover(identity, original, retained_body, pending_urls)
+                    discovery_replays += 1
+            # A fulfilled TSR index cycle is reused while its unfinished document
+            # FIFO advances. Other feeds keep their existing overlap/revalidation.
+            entry_urls = list(policy.entry_urls) if poll_due else []
+            page_url: str | None = entry_urls.pop(0) if entry_urls else None
             seen_pages = set()
             discovered_by_identity: dict[str, str] = {}
             while page_url and pages < policy.max_pages:
@@ -421,6 +561,10 @@ def acquire_source(
             pending_urls = []
             seen_bodies: set[str] = set()
             while queue and bodies < policy.max_bodies:
+                if discovery is not None and discovery.encoded_size(queue) > MAX_DISCOVERY_BYTES:
+                    failed.append("discovery_capacity_exceeded")
+                    partial = True
+                    break
                 if cooldown and datetime.fromisoformat(cooldown) > datetime.now(UTC):
                     partial = True
                     break
@@ -429,20 +573,21 @@ def acquire_source(
                 if url in seen_bodies:
                     active_url = None
                     continue
-                if (
-                    urlsplit(url).hostname not in policy.allowed_hosts
-                    or urlsplit(url).scheme != "https"
-                ):
+                if not policy.allows_url(url):
                     active_url = None
                     policy_excluded += 1
                     if frontier is not None:
                         frontier.pending.pop(url, None)
                     continue  # Alias/login/foreign-host identities do not expand crawling.
                 seen_bodies.add(url)
+                parent_links = discovery.children.get(url, []) if discovery is not None else []
+                for edge in parent_links:
+                    restore_discovery(edge["parent"])
                 link = evidence_for(url) if frontier is not None else None
                 receipt, body = receive(url, "document")
                 bodies += 1
-                active_url = None
+                if parent_links:
+                    discovery_edges[receipt.receipt_id] = parent_links
                 if frontier is None:
                     link = evidence_for(url)
                 bound = link is not None and attach_prior_index(link)
@@ -460,29 +605,13 @@ def acquire_source(
                     frontier.complete(url, success=body is not None and bound)
                 if body is None:
                     pending_urls.append(url)
-                elif source in {"boj_news", "mof_news"} and not body.startswith(b"%PDF-"):
-                    # Only explicit attachments from the permitted document body are
-                    # candidates; linked PDF GETs spend the same source body budget.
-                    document = parse_document(
-                        source, body, url=url, encoding=receipt.encoding or "utf-8"
+                elif discovery is not None:
+                    identity = discovery.register(
+                        receipt, {"stage_id": stage_id}, link if bound else None
                     )
-                    target = document.metadata.get("redirect_target_url")
-                    if isinstance(target, str) and target not in queue:
-                        # The native parser accepts only MOF's explicit same-host
-                        # insideLink notice. The target is a separate GET/receipt,
-                        # spending the existing body/request/byte/time budgets.
-                        queue.insert(0, target)
-                    attachments = document.metadata.get("attachments", [])
-                    if (
-                        isinstance(attachments, list)
-                        and document.metadata.get("attachment_scope")
-                        != "rolling_listing_reference_only"
-                    ):
-                        queue[:0] = [
-                            link
-                            for link in attachments
-                            if isinstance(link, str) and link not in queue
-                        ]
+                    queue = discover(identity, receipt, body, queue)
+                    discovery.children.pop(url, None)
+                active_url = None
                 if receipt.cooldown_until is not None:
                     partial = True
                     break
@@ -508,6 +637,25 @@ def acquire_source(
             if frontier.capacity_blocked:
                 failed.append("frontier_capacity_exceeded")
             cursor = frontier.wire()
+        elif discovery is not None:
+            # The durable workset, not the 128-entry validator cache, owns pending
+            # discovery and child requests. Preserve every unfinished reference.
+            pending_urls = list(dict.fromkeys(pending_urls))
+            omitted_urls = int(cursor.get("omitted_url_count", 0))
+            cursor = discovery.wire(
+                {
+                    "pending_urls": pending_urls,
+                    "pending_evidence": {
+                        url: link for url in pending_urls if (link := evidence_for(url)) is not None
+                    },
+                    "next_page": next_page,
+                    "omitted_url_count": omitted_urls,
+                }
+            )
+            if discovery.pending:
+                failed.append("discovery_pending")
+            if omitted_urls:
+                failed.append("legacy_omission_unresolved")
         else:
             # Legacy attachment discovery remains independently bounded.
             omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
@@ -534,10 +682,14 @@ def acquire_source(
             "receipt_ids": receipt_ids,
             "projection_kinds": kinds,
             "document_evidence": document_evidence,
+            "discovery_edges": discovery_edges,
+            "discovery_replays": discovery_replays,
+            "discovery_pending_count": len(discovery.pending) if discovery is not None else 0,
             "status": "partial" if failed or partial or pending_urls or next_page else "completed",
             "continuation_only": continuation_only,
             "failures": sorted(set(failed)),
             "pages": pages,
+            "index_reused": not poll_due,
             "bodies": bodies,
             "pending_url_count": len(pending_urls),
             "policy_excluded_count": policy_excluded,
@@ -547,22 +699,29 @@ def acquire_source(
             "omitted_url_count": omitted_urls,
         }
     write_json_atomic(directory / "result.json", report)
-    saved_stage = commit_stage(
-        store,
-        state=state,
-        expected_etag=etag,
-        slot=slot,
-        stage_id=stage_id,
-        directory=directory,
-        requests=planning,
-        cursor=cursor,
-        not_before=cooldown,
-    )
+    try:
+        saved_stage = commit_stage(
+            store,
+            state=state,
+            expected_etag=etag,
+            slot=slot,
+            stage_id=stage_id,
+            directory=directory,
+            requests=planning,
+            cursor=cursor,
+            not_before=cooldown,
+        )
+    finally:
+        # A saved raw handoff can outlive a failed cursor CAS. Preserve its quota
+        # wait independently so another source/run cannot immediately request again.
+        if cooldown is not None and datetime.fromisoformat(cooldown) > datetime.now(UTC):
+            extend(store, key, datetime.fromisoformat(cooldown))
     return {
         **{
             key: value
             for key, value in report.items()
-            if key not in {"projection_kinds", "receipt_ids", "document_evidence"}
+            if key
+            not in {"projection_kinds", "receipt_ids", "document_evidence", "discovery_edges"}
         },
         "stage_id": saved_stage["stage_id"],
         "manifest_sha256": saved_stage["manifest_sha256"],
@@ -573,10 +732,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", choices=tuple(GROUPS), required=True)
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
-    parser.add_argument("--manual", action="store_true")
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.created_at.tzinfo is None or args.created_at > datetime.now(UTC):
+        parser.error("created-at must be a past timezone-aware clock")
     reports = []
     group_budget = GroupBudget(GROUP_BYTES[args.group])
     store = ArticleObjectMetrics(
@@ -589,12 +749,11 @@ def main(argv: list[str] | None = None) -> int:
                 report = acquire_source(
                     store,
                     source=source,
-                    slot=slot_at(args.created_at),
+                    slot=slot_at(datetime.now(UTC) if source in TSR_SOURCES else args.created_at),
                     identity=args.identity,
                     directory=args.directory / source,
                     session=session,
                     group_budget=group_budget,
-                    manual=args.manual,
                 )
             except Exception as error:
                 report = {"source": source, "status": "failed", "reason": type(error).__name__}

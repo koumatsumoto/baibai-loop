@@ -11,10 +11,12 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_planning import (
+    load_discovery_cursor,
     load_frontier_cursor,
     load_planning,
     publish_planning_input,
 )
+from baibai_jobs.acquisition.cooldown import extend, quota_key
 from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
 
@@ -51,6 +53,25 @@ class Session:
         return next(self.responses)
 
 
+def test_external_assessment_quota_wait_blocks_article_before_http(tmp_path):
+    store = MemoryR2Store()
+    publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
+    extend(store, quota_key("minkabu"), datetime.now(UTC) + timedelta(hours=1))
+    session = Session([])
+    packet = tmp_path / "waiting"
+    report = articles.acquire_source(
+        store,
+        source="minkabu_news",
+        slot=SLOT,
+        identity="next-work",
+        directory=packet,
+        session=session,
+    )
+    assert report["reason"] == "retry_not_before"
+    assert session.urls == []
+    assert not packet.exists()
+
+
 def _nhk_description(text):
     document = {
         "@type": "NewsArticle",
@@ -69,14 +90,19 @@ def _nhk_description(text):
 
 
 @pytest.mark.parametrize("target_status", [200, 403])
+@pytest.mark.parametrize("bureau", [False, True])
 def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
-    tmp_path, monkeypatch, target_status
+    tmp_path, monkeypatch, target_status, bureau
 ):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
     notice_url = "https://www.mof.go.jp/insideLink/synthetic.html"
-    target_url = "https://www.mof.go.jp/pri/research/seminar/lmeeting.htm"
+    target_url = (
+        "https://lfb.mof.go.jp/renkei/torikumi.html"
+        if bureau
+        else "https://www.mof.go.jp/pri/research/seminar/lmeeting.htm"
+    )
     feed = (
         f"<rss><channel><item><title>Synthetic</title><link>{notice_url}</link>"
         "</item></channel></rss>"
@@ -84,7 +110,7 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
     notice = f'<meta http-equiv="refresh" content="0;url={target_url}">'.encode()
     target_body = (
         '<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">'
-        '<main>本文<a href="old.pdf">Old reference</a></main>'
+        "<main>本文" + ("" if bureau else '<a href="old.pdf">Old reference</a>') + "</main>"
     ).encode("shift_jis")
     session = Session(
         [
@@ -127,7 +153,8 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         assert "本文" in target.text
         target_receipt = next(item for item in receipts if item["requested_url"] == target_url)
         assert target_receipt["encoding"] == "shift_jis"
-        assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
+        if not bureau:
+            assert target.native_metadata["attachment_scope"] == "rolling_listing_reference_only"
         assert target.receipt_id != notice_observation.receipt_id
         assert target.article_id != notice_observation.article_id
     else:
@@ -217,7 +244,7 @@ def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path,
     assert report["bodies"] == 1
     assert len(session.urls) == 2
     state, _ = load_planning(store, "mof_news")
-    assert state.cursor["pending_urls"] == [target_url]
+    assert load_discovery_cursor(store, state)["pending_urls"] == [target_url]
 
 
 def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch):
@@ -547,6 +574,27 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     )
     planning, _ = load_planning(store, "boj_news")
     stage_id = planning.requests[articles.SOURCES["boj_news"].entry_url]["stage"]["stage_id"]
+    # Keep the workset independently intact: only the evictable HTTP validator's
+    # old baseline is damaged below. Losing pending work must fail before GET.
+    from tests.jobs.test_article_planning import _packet
+
+    from baibai_jobs.acquisition.article_planning import commit_stage
+
+    private = tmp_path / "independent-workset"
+    private.mkdir()
+    current, etag = load_planning(store, "boj_news")
+    commit_stage(
+        store,
+        state=current,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="intact-workset",
+        directory=_packet(private),
+        requests=current.requests,
+        cursor=load_discovery_cursor(store, current),
+        not_before=current.not_before,
+        advance_slot=False,
+    )
     key = f"coordination/article-sources/{stage_id}/handoff.json"
     if damaged == "missing":
         store.values.pop(key)
@@ -755,10 +803,8 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
     assert documents[0].article_version_id == documents[1].article_version_id
 
 
-@pytest.mark.parametrize(("hour", "manual"), [(13, False), (1, True)])
-def test_tsr_index_observation_binds_document_title_without_heading(
-    tmp_path, monkeypatch, hour, manual
-):
+@pytest.mark.parametrize("hour", [1, 13, 17])
+def test_tsr_index_observation_binds_document_title_without_heading(tmp_path, monkeypatch, hour):
     slot = SLOT.replace(hour=hour)
 
     class Clock(datetime):
@@ -782,7 +828,6 @@ def test_tsr_index_observation_binds_document_title_without_heading(
         identity="test",
         directory=packet,
         session=session,
-        manual=manual,
     )
     database = tmp_path / "market.sqlite"
     result = import_handoff("tsr_data", database, packet)
@@ -938,14 +983,20 @@ def test_partial_discovery_before_body_queue_still_saves_all_discovered_work(tmp
     assert len(frontier["observed"]) == 1
 
 
-@pytest.mark.parametrize("manual", [False, True])
-def test_article_cli_passes_manual_selection(tmp_path, monkeypatch, manual):
+def test_article_cli_resolves_current_tsr_slot_after_a_long_host_queue(tmp_path, monkeypatch):
     calls = []
+    actual = SLOT + timedelta(days=2, hours=5)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, _tz):
+            return actual
 
     def acquire(_store, **kwargs):
         calls.append(kwargs)
         return {"source": kwargs["source"], "status": "not_due"}
 
+    monkeypatch.setattr(articles, "datetime", Clock)
     monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
     monkeypatch.setattr(articles, "acquire_source", acquire)
     args = [
@@ -958,8 +1009,9 @@ def test_article_cli_passes_manual_selection(tmp_path, monkeypatch, manual):
         "--directory",
         str(tmp_path),
     ]
-    if manual:
-        args.append("--manual")
     assert articles.main(args) == 0
     assert {call["source"] for call in calls} == set(articles.GROUPS["public"])
-    assert all(call["manual"] is manual and call["slot"] == SLOT for call in calls)
+    assert all("manual" not in call for call in calls)
+    for call in calls:
+        expected = articles.slot_at(actual) if call["source"] in articles.TSR_SOURCES else SLOT
+        assert call["slot"] == expected

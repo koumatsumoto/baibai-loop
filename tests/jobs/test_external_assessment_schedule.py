@@ -56,18 +56,21 @@ def clock(monkeypatch, value):
     ("created", "now", "day", "eligible"),
     [
         (CREATED, CREATED, date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 12, 10, 13, tzinfo=UTC), date(2026, 10, 11), True),
-        (CREATED, datetime(2026, 10, 12, 6, 29, tzinfo=UTC), date(2026, 10, 11), False),
+        (CREATED, datetime(2026, 10, 11, 15, 43, tzinfo=UTC), date(2026, 10, 11), True),
+        (CREATED, datetime(2026, 10, 11, 22, 13, tzinfo=UTC), date(2026, 10, 11), True),
+        (CREATED, datetime(2026, 10, 12, 10, 12, 59, tzinfo=UTC), date(2026, 10, 11), True),
+        (CREATED, datetime(2026, 10, 12, 10, 13, tzinfo=UTC), date(2026, 10, 12), True),
+        (CREATED, datetime(2026, 10, 12, 6, 29, tzinfo=UTC), date(2026, 10, 11), True),
         (CREATED, datetime(2026, 10, 12, 6, 30, tzinfo=UTC), date(2026, 10, 11), True),
         (
             datetime(2026, 10, 12, 0, tzinfo=UTC),
             datetime(2026, 10, 12, 10, 13, tzinfo=UTC),
-            date(2026, 10, 11),
+            date(2026, 10, 12),
             True,
         ),
     ],
 )
-def test_original_cron_day_survives_queue_delay_rerun_and_close_boundary(
+def test_current_daily_cycle_survives_midnight_and_advances_at_next_due(
     created, now, day, eligible
 ):
     assert external_assessment_target_date(created, now) == (day, eligible)
@@ -84,6 +87,54 @@ def test_original_cron_day_survives_queue_delay_rerun_and_close_boundary(
 def test_invalid_run_clocks_fail_closed(created, now):
     with pytest.raises(ValueError, match="clock"):
         external_assessment_target_date(created, now)
+
+
+@pytest.mark.parametrize("delayed_days", [0, 1, 3])
+def test_host_queue_resolves_one_cycle_before_credentials_and_handoff(
+    tmp_path, monkeypatch, delayed_days
+):
+    now = datetime(2026, 10, 11 + delayed_days, 10, 13, tzinfo=UTC)
+    clock(monkeypatch, now)
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: pytest.fail("resolve touched R2"))
+    output = tmp_path / "output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    assert (
+        sources.main(
+            [
+                "resolve",
+                "--source",
+                "monex",
+                "--run-id",
+                "external-assessment-daily-monex-2026-10-11",
+                "--observation-date",
+                "2026-10-11",
+            ]
+        )
+        == 0
+    )
+    assert outputs(output) == {
+        "run_id": f"external-assessment-daily-monex-{now.date().isoformat()}",
+        "observation_date": now.date().isoformat(),
+    }
+
+
+def test_manual_exact_plan_is_not_rebound_and_invalid_cycle_is_rejected():
+    run_id = "external-assessment-daily-monex-2026-10-11"
+    now = datetime(2026, 10, 14, 10, 13, tzinfo=UTC)
+    assert sources.resolve_queued_selection(
+        source="monex", run_id=run_id, observation_date=None, now=now
+    ) == (run_id, None)
+    with pytest.raises(ValueError, match="differs"):
+        sources.resolve_queued_selection(
+            source="monex", run_id=run_id, observation_date=date(2026, 10, 12), now=now
+        )
+    with pytest.raises(ValueError, match="future"):
+        sources.resolve_queued_selection(
+            source="monex",
+            run_id=run_id,
+            observation_date=date(2026, 10, 11),
+            now=datetime(2026, 10, 11, 10, 12, tzinfo=UTC),
+        )
 
 
 @pytest.mark.parametrize("day", [date(2026, 10, 9), date(2026, 10, 11), date(2026, 10, 12)])
@@ -172,15 +223,20 @@ def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monk
     assert all("/year=2025/" in key for key in master_reads)
 
 
-def test_before_close_source_prepare_does_not_touch_store_or_provider(tmp_path, monkeypatch):
+def test_delayed_source_prepare_retains_cycle_without_touching_store_or_provider(
+    tmp_path, monkeypatch
+):
     clock(monkeypatch, datetime(2026, 10, 12, 6, 29, tzinfo=UTC))
-    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: pytest.fail("before-close R2"))
+    monkeypatch.setattr(
+        sources, "Boto3R2Store", lambda **kwargs: pytest.fail("planning touched R2")
+    )
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     assert (
         sources.main(["prepare", "--source", "monex", "--run-created-at", CREATED.isoformat()]) == 0
     )
-    assert outputs(output)["eligible"] == "false"
+    assert outputs(output)["eligible"] == "true"
+    assert outputs(output)["observation_date"] == "2026-10-11"
 
 
 @pytest.mark.parametrize("command", ["plan", "acquire", "publish", "publish-confirmed-partial"])

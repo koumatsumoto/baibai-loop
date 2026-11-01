@@ -17,7 +17,14 @@ from pathlib import Path
 
 from mcp.types import CallToolResult
 
-from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
+from baibai_engine.data_collection.providers.tradingview.accounting import (
+    BatchAccountingError,
+    account_batch,
+)
+from baibai_engine.data_collection.providers.tradingview.contract import (
+    BATCH_TOOL,
+    BATCH_TOOL_IDENTIFIERS,
+)
 from baibai_engine.data_collection.providers.tradingview.receipts import (
     read_tool_results,
     retain_tool_result,
@@ -56,6 +63,48 @@ BatchFetch = Callable[[list[str], list[str]], Awaitable[CallToolResult]]
 
 
 ProgressHook = Callable[[CollectionProgress], None]
+
+
+def _retained_coverage(
+    conn: sqlite3.Connection, day: date, basis: date, expected: set[str], *, business: bool
+) -> set[str]:
+    """A complete native answer survives a failed numeric projection.
+
+    This checks the actual request and response, not just receipt existence.
+    Failed envelopes and incomplete requested fields remain eligible for a retry.
+    Projection repair uses the explicit receipt rebuild, never a replacement GET.
+    """
+    identities = [
+        row[0]
+        for row in conn.execute(
+            "SELECT receipt_id FROM tradingview_source_receipts WHERE snapshot_date=?",
+            (day.isoformat(),),
+        )
+    ]
+    covered: set[str] = set()
+    for receipt in read_tool_results(conn, identities):
+        requested = receipt.requested_symbols
+        if (
+            receipt.master_asof != basis
+            or receipt.tool_name not in BATCH_TOOL_IDENTIFIERS
+            or receipt.requested_columns != tuple(observations_owner.COLUMNS)
+            or not 1 <= len(requested) <= 50
+            or len(requested) != len(set(requested))
+            or not set(requested) <= expected
+        ):
+            continue
+        try:
+            validate_time(day, receipt.received_at_utc, is_business_day=business)
+            data, _ = account_batch(decode_tool_result(receipt.result_json), requested)
+        except (observations_owner.FetchError, BatchAccountingError):
+            continue
+        if any(
+            not isinstance(row, dict) or not set(receipt.requested_columns) <= row.keys()
+            for row in data.values()
+        ):
+            continue
+        covered.update(requested)
+    return covered
 
 
 def _snapshot_state(
@@ -128,15 +177,26 @@ def _snapshot_state(
             "requests_attempted": 0,
             "symbols_requested": 0,
         }
+    native = _retained_coverage(conn, day, basis, set(symbols), business=business)
+    missing_projection = len(remaining)
+    remaining = [symbol for symbol in remaining if symbol not in native]
     return remaining, {
         **context,
         **_stored_quality(conn, day),
-        "status": "needs_fetch",
+        "status": "needs_fetch" if remaining else "originals_saved",
         "snapshot_date": day.isoformat(),
         "needs_master": False,
         "rows": len(stored),
         "expected_universe": len(symbols),
-        "remaining": len(remaining),
+        "remaining": missing_projection,
+        "remaining_requests": len(remaining),
+        "projection_pending": missing_projection - len(remaining),
+        "native_received": len(native),
+        **(
+            {"rows_added": 0, "requests_attempted": 0, "symbols_requested": 0}
+            if not remaining
+            else {}
+        ),
     }
 
 
@@ -205,7 +265,7 @@ async def collect(
             raise SourceDataError("Exact-date J-Quants master is unavailable")
         stored_rows = prior["rows"]
         assert isinstance(stored_rows, int)
-        expected_universe = len(symbols) + stored_rows
+        expected_universe = int(str(prior["expected_universe"]))
         rows_added = 0
         consecutive_bad = 0
         stop_reason: str | None = None
@@ -356,6 +416,7 @@ async def collect(
             )
         current = replace(current, phase="complete")
         emit()
+        _, final_state = _snapshot_state(conn, day, master_asof=master_asof)
         return {
             **asdict(current),
             "last_failure": failure_line(last_error) if last_error is not None else None,
@@ -365,6 +426,8 @@ async def collect(
             "rows": total_rows,
             "rows_added": rows_added,
             "remaining": remaining,
+            "remaining_requests": final_state.get("remaining_requests", 0),
+            "projection_pending": final_state.get("projection_pending", 0),
             "stop_reason": stop_reason,
             "unresolved": int(totals[1] or 0),
             "normal_nulls": _stored_quality(conn, day)["normal_nulls"],

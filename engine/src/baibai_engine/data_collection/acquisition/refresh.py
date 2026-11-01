@@ -64,10 +64,13 @@ def refresh_sources(
     start: date | None,
     end: date,
     recent: bool = False,
+    current_only_now: bool = False,
 ) -> tuple[SourceRefreshOutcome, ...]:
     """Refresh each named source once; None start explicitly requests its history."""
     if recent and start is not None:
         raise ValueError("recent refresh cannot have an explicit start")
+    if current_only_now and not recent:
+        raise ValueError("current-only current-day selection requires a recent refresh")
     if start is not None and end < start:
         raise ValueError("end must be on or after start")
     catalog = load_sources()
@@ -98,10 +101,16 @@ def refresh_sources(
                         )
                     )
                     continue
+                source_end = end
                 if policy.mode == "current_only":
-                    if end != datetime.now(ZoneInfo("Asia/Tokyo")).date():
+                    today = datetime.now(ZoneInfo("Asia/Tokyo")).date()
+                    # A scheduled wake-up may be late. Only a current-page source
+                    # moves to the actual fetch day; archive/range inputs stay fixed.
+                    if current_only_now:
+                        source_end = today
+                    if source_end != today:
                         raise ValueError("current-only source cannot recover a historical date")
-                    first = end
+                    first = source_end
                 else:
                     first = (
                         recent_start(source, end)
@@ -111,7 +120,7 @@ def refresh_sources(
                         else _history_start(source, end)
                     )
                 received = _refresh_source(
-                    connection, source, start=first, end=end, context=context
+                    connection, source, start=first, end=source_end, context=context
                 )
                 if recent:
                     for missing_start, missing_end in recovery_ranges(connection, source, end):
@@ -124,7 +133,7 @@ def refresh_sources(
                             recheck_existing=False,
                         )
                         first = min(first, missing_start)
-                outcomes.append(SourceRefreshSuccess(source_id, first, end, received))
+                outcomes.append(SourceRefreshSuccess(source_id, first, source_end, received))
             except sqlite3.Error:
                 raise
             except Exception as error:

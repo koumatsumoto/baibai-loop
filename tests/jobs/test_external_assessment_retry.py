@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -108,6 +109,39 @@ def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(mo
     assert len(store.puts) == 2  # one stage, one bundle
 
 
+def test_expired_cycle_keeps_unattempted_pairs_without_http_or_writes(monkeypatch, clock):
+    p, store = plan(), FakeObjectStore()
+    client = wire_collector(monkeypatch, store, p, clock, [])
+    report = daily.acquire_cohort(store, p, 0, collect_before=BASE)
+    assert report["provider_requests"] == 0
+    assert report["stop_reason"] == "cycle_finished"
+    assert report["state_counts"]["unattempted"] == 1
+    assert client.calls == []
+    assert store.puts == []
+
+
+def test_retry_cannot_sleep_into_next_cycle(monkeypatch, clock):
+    p, store = plan(), FakeObjectStore()
+    client = wire_collector(monkeypatch, store, p, clock, [(429, "8", "denied")])
+    report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=5))
+    assert report["provider_requests"] == 1
+    assert len(client.calls) == 1
+    assert clock.sleeps == [source_http.SOURCE_REQUEST_INTERVAL_SECONDS]
+    assert report["stop_reason"] == "cycle_finished"
+    saved = staging.read_stage(store, p, 0)[0]
+    assert saved.result.entries[0].state == "failure"
+    assert saved.result.entries[0].http_status == 429
+
+
+def test_host_spacing_cannot_start_request_after_cycle_deadline(monkeypatch, clock):
+    p, store = plan(), FakeObjectStore()
+    client = wire_collector(monkeypatch, store, p, clock, [])
+    report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=0.1))
+    assert report["provider_requests"] == 0
+    assert client.calls == []
+    assert store.puts == []
+
+
 @pytest.mark.parametrize(("source", "limit"), [("monex", 6), ("rakuten", 12), ("kabumap", 6)])
 def test_initial_plus_five_retry_stops_and_saved_failure_is_not_retried(
     monkeypatch, clock, source, limit
@@ -179,6 +213,16 @@ def test_retry_deadline_outside_budget_records_failure_and_resume_only_missing(
     assert len(client.calls) == 1
     store.events.clear()
     next_client = wire_collector(monkeypatch, store, p, clock, [(200, None, monex_html("7203"))])
+    if header == "18000":
+        waiting = daily.acquire_cohort(store, p, 0)
+        assert waiting["provider_requests"] == 0
+        assert waiting["stop_reason"] == "retry_not_before"
+        assert next_client.calls == []
+        assert staging.read_stage(store, p, 0)[0] == partial
+        # A new work label must respect the same source quota, not reset it.
+        other = replace(p, run_id="next-cycle-same-source")
+        assert daily.acquire_cohort(store, other, 0)["provider_requests"] == 0
+        clock.elapsed += 18001
     assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
     assert len(next_client.calls) == 1
     assert "7203" in next_client.calls[0][0]

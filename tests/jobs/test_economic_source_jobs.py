@@ -146,6 +146,15 @@ def test_each_provider_saves_receipts_without_full_db_or_integration_wait():
         assert forbidden not in text
     assert "integration.economic_handoff input --group" in text
     assert "baibai-jobs model-integration" in str(workflow("cloud-daily-batch.yml"))
+    assert parent["jobs"]["source"]["with"]["current_only_now"] == (
+        "${{ github.event_name == 'schedule' || inputs.asof == '' }}"
+    )
+    assert source["on"]["workflow_call"]["inputs"]["current_only_now"]["default"] == "false"
+    acquire_step = next(
+        step for step in source["jobs"]["acquire"]["steps"] if step.get("id") == "acquire"
+    )
+    assert acquire_step["env"]["CURRENT_ONLY_NOW"] == "${{ inputs.current_only_now }}"
+    assert "--current-only-now" in acquire_step["run"]
 
 
 @pytest.mark.parametrize("failure", [403, 429, 500, "empty", "parse", "message_only"])

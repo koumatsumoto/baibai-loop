@@ -29,7 +29,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     utc_datetime,
 )
 
-from ...observations.external_assessments.tradingview.observations import (
+from ...observations.external_assessments.tradingview.contract import (
     FIELDS,
 )
 

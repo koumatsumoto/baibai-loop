@@ -6,27 +6,13 @@ import math
 from datetime import UTC, datetime
 from typing import Any, Literal, get_args
 
-# Raw field names below were observed with a 50-symbol Official MCP request.
-FIELDS = {
-    "analyst_rating": "AnalystRating",
-    "recommendation_total": "recommendation_total",
-    "price_target_average": "price_target_average",
-    "price_target_high": "price_target_high",
-    "price_target_low": "price_target_low",
-    "eps_forecast_next_fq": "earnings_per_share_forecast_next_fq",
-    "eps_forecast_next_fy": "earnings_per_share_forecast_next_fy",
-    "revenue_forecast_next_fq": "revenue_forecast_next_fq",
-    "revenue_forecast_next_fy": "revenue_forecast_next_fy",
-    "forward_pe": "price_earnings_fwd",
-    "forward_ps": "price_sales_fwd",
-    "forward_ev_ebitda": "enterprise_value_ebitda_fwd",
-    "ebitda_estimate_fy": "ebitda_estimate_fy",
-    "free_cash_flow_estimate_fy": "free_cash_flow_estimate_fy",
-    "capex_estimate_fy": "capital_expenditures_estimate_fy",
-    "total_debt_estimate_fy": "total_debt_estimate_fy",
-    "quote_close": "close",
-    "quote_currency": "currency",
-}
+from baibai_engine.data_collection.providers.tradingview.accounting import (
+    BatchAccountingError,
+    account_batch,
+)
+
+from .contract import FIELDS
+
 COLUMNS = list(FIELDS.values())
 
 
@@ -67,24 +53,10 @@ def normalize_batch(
 ) -> list[dict[str, Any]]:
     if fetched_at.tzinfo is None:
         raise ValueError("fetched_at must be timezone-aware")
-    data, missing = payload.get("data"), payload.get("missing")
-    if (
-        payload.get("success") is not True
-        or not isinstance(data, dict)
-        or not isinstance(missing, list)
-    ):
-        raise ProviderPayloadError("malformed_envelope")
-    if any(
-        not isinstance(item, dict) or not isinstance(item.get("symbol"), str) for item in missing
-    ):
-        raise ProviderPayloadError("malformed_missing_symbols")
-    missing = [item["symbol"] for item in missing]
-    if len(missing) != len(set(missing)):
-        raise ProviderPayloadError("duplicate_missing_symbol")
-    if set(data) & set(missing) or set(data) | set(missing) != set(symbols):
-        raise ProviderPayloadError("response_accounting_mismatch")
-    if payload.get("count") != len(data) or payload.get("missing_count") != len(missing):
-        raise ProviderPayloadError("response_count_mismatch")
+    try:
+        data, missing = account_batch(payload, symbols)
+    except BatchAccountingError as exc:
+        raise ProviderPayloadError(exc.reason) from None
     # Explicit missing receipts remain unresolved regardless of batch composition.
     # Accounted symbols do not establish available forecasts or provider health.
     rows = []

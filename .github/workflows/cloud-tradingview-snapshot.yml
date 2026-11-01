@@ -162,6 +162,8 @@ jobs:
               print(failure_line(exc), file=sys.stderr)
               raise SystemExit(1) from None
           status = str(result["status"])
+          if status == "originals_saved":
+              print("::warning::TradingView native requests are fulfilled; L2 projection remains pending. Rebuild from retained receipts; do not refetch.")
           rows = int(result.get("rows", 0))
           needs_master = str(result.get("needs_master", False)).lower()
           Path(os.environ["RUNNER_TEMP"], "tradingview-preflight.json").write_text(json.dumps(result), encoding="utf-8")
@@ -263,7 +265,7 @@ jobs:
                   report = json.loads(lines[-1])
                   value = report.get("status") if isinstance(report, dict) else None
                   if type(value) is not str or value not in {
-                      "saved", "partial", "already_saved", "skipped_historical_asof"
+                      "saved", "partial", "already_saved", "originals_saved", "skipped_historical_asof"
                   }:
                       raise ValueError("invalid TradingView status")
                   if value in {"saved", "partial"}:
@@ -417,7 +419,7 @@ jobs:
 
           retry_times = re.findall(r"(?:^|; )retry_not_before_utc=([0-9T:+.Z-]+)(?:;|$)", safe_errors, re.MULTILINE)
           no_fetch = os.environ.get("ACQUISITION_OUTCOME") == "skipped" or os.environ.get("TRADINGVIEW") in {
-              "already_saved", "skipped_historical_asof"
+              "already_saved", "originals_saved", "skipped_historical_asof"
           }
           values = {
               "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),
@@ -433,6 +435,9 @@ jobs:
               "rows": os.environ.get("ROWS") or acquisition.get("rows"),
               "expected_universe": os.environ.get("EXPECTED_UNIVERSE") or acquisition.get("expected_universe"),
               "remaining": os.environ.get("REMAINING") or acquisition.get("remaining"),
+              "remaining_requests": acquisition.get("remaining_requests"),
+              "projection_pending": acquisition.get("projection_pending"),
+              "native_received": acquisition.get("native_received"),
               "unresolved": os.environ.get("UNRESOLVED") or acquisition.get("unresolved"),
               "stop_reason": os.environ.get("STOP_REASON"),
               "requests_attempted": progress.get("requests_attempted", 0 if no_fetch else None),

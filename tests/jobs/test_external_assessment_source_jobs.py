@@ -24,7 +24,7 @@ import baibai_jobs.acquisition.external_assessments.staging as staging
 from baibai_jobs.acquisition.external_assessments.cohorts import new_result, plan_bytes
 
 
-def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch):
+def test_source_ids_are_disjoint_and_current_cycle_is_selected(monkeypatch):
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -35,10 +35,10 @@ def test_source_ids_are_disjoint_and_original_run_date_is_preserved(monkeypatch)
         source="all", batch_id=None, created_at=datetime(2026, 10, 11, 10, 13, tzinfo=UTC)
     )
     assert eligible
-    assert day.isoformat() == "2026-10-11"
+    assert day.isoformat() == "2026-10-12"
     assert len({item["run_id"] for item in selected}) == 4
     assert all(
-        item["run_id"] == f"external-assessment-daily-{item['source']}-2026-10-11"
+        item["run_id"] == f"external-assessment-daily-{item['source']}-2026-10-12"
         for item in selected
     )
     one, _, _ = sources.selection(source="monex", batch_id="manual", created_at=None)
@@ -260,6 +260,13 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     assert "inputs.operation == 'collect'" in acquire["if"]
     assert "cloud-publish" not in str(acquire)
     assert "publish" not in child["jobs"]
+    cycle = next(step for step in acquire["steps"] if step.get("id") == "cycle")
+    assert "sources resolve" in cycle["run"]
+    assert "R2_ACCESS_KEY_ID" not in str(cycle)
+    assert acquire["outputs"]["run_id"] == "${{ steps.cycle.outputs.run_id }}"
+    assert acquire["outputs"]["observation_date"] == "${{ steps.cycle.outputs.observation_date }}"
+    notification = child["jobs"]["notify"]["steps"][-1]
+    assert "needs.acquire.outputs.observation_date" in notification["env"]["ASOF"]
     handoff = child["jobs"]["handoff"]
     assert handoff["needs"] == "acquire"
     assert "always()" in handoff["if"]
@@ -267,6 +274,7 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     ready = next(step for step in handoff["steps"] if step.get("id") == "ready")
     assert "acquisition.external_assessments.sources ready" in ready["run"]
     assert '--selection-json "$SOURCE_RUNS"' in ready["run"]
+    assert "needs.acquire.outputs.run_id || inputs.run_id" in ready["env"]["SOURCE_RUNS"]
     assert '--master-asof "$MASTER_ASOF"' in ready["run"]
     assert "--confirmed-partial" in ready["run"]
     for forbidden in (

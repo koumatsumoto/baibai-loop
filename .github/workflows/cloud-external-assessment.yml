@@ -51,7 +51,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - name: Pin the original scheduled run clock
+      - name: Read the scheduled wake-up clock
         id: clock
         if: ${{ github.event_name == 'schedule' }}
         env:
@@ -59,7 +59,7 @@ jobs:
         run: |
           created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
           printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
-      - name: Freeze the exact source identities before credentials
+      - name: Resolve source cycle candidates before credentials
         id: plan
         env:
           SOURCE: ${{ inputs.source || 'all' }}

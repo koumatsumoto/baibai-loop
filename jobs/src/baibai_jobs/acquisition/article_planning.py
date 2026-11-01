@@ -12,6 +12,7 @@ from typing import Any
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
+from baibai_jobs.acquisition.article_discovery import DISCOVERY_FORMAT, DISCOVERY_REF_FORMAT
 from baibai_jobs.acquisition.article_frontier import (
     FRONTIER_FORMAT,
     FRONTIER_REF_FORMAT,
@@ -64,7 +65,7 @@ class ArticlePlanning:
     def to_json(self) -> dict[str, Any]:
         return {
             "format": "article-planning-v2"
-            if self.cursor.get("format") == FRONTIER_REF_FORMAT
+            if self.cursor.get("format") in {FRONTIER_REF_FORMAT, DISCOVERY_REF_FORMAT}
             else "article-planning-v1",
             "source": self.source,
             "generations": self.generations,
@@ -111,7 +112,7 @@ class ArticlePlanning:
         ):
             raise ValueError("article planning source/format mismatch")
         if value["format"] == "article-planning-v2" and (
-            value["cursor"].get("format") != FRONTIER_REF_FORMAT
+            value["cursor"].get("format") not in {FRONTIER_REF_FORMAT, DISCOVERY_REF_FORMAT}
         ):
             raise ValueError("article planning v2 requires an exact frontier reference")
         result = cls(
@@ -146,19 +147,32 @@ def publish_planning_input(store: ObjectStore, source: str, generations: dict[st
     put_private(store, key, ArticlePlanning(source, generations).encoded(), previous_etag=None)
 
 
-def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime, manual: bool = False) -> bool:
+def index_poll_due(source: str, *, now: datetime, received_at: datetime | None) -> bool:
+    """A saved native index receipt, not an attempted slot, fulfils a daily poll."""
+    if source not in TSR_SOURCES:
+        return True
+    now = _clock(now.isoformat())
+    boundary = now.replace(hour=13, minute=13, second=0, microsecond=0)
+    if boundary > now:
+        boundary -= timedelta(days=1)
+    return received_at is None or _clock(received_at.isoformat()) < boundary
+
+
+def is_due(
+    state: ArticlePlanning, *, slot: datetime, now: datetime, resume_pending: bool = False
+) -> bool:
     slot, now = _clock(slot.isoformat()), _clock(now.isoformat())
     if slot != slot_at(slot) or slot > now:
         raise ValueError("invalid article acquisition slot")
-    if state.last_slot and _clock(state.last_slot) >= slot:
-        return False
+    if state.source not in TSR_SOURCES and state.last_slot:
+        previous = _clock(state.last_slot)
+        if previous > slot or (previous == slot and not resume_pending):
+            return False
     if state.not_before and _clock(state.not_before) > now:
         return False
     if len(state.pending) >= MAX_PENDING_STAGES:
         raise ValueError("article pending stage limit reached; integration/recovery required")
-    # TSR runs in the pre-integration slot once per UTC day. A delayed run records
-    # its actual received_at and never claims to have acquired at the slot time.
-    return manual or state.source not in TSR_SOURCES or slot.hour == 13
+    return True
 
 
 def commit_stage(
@@ -172,6 +186,7 @@ def commit_stage(
     requests: dict[str, dict[str, Any]],
     cursor: dict[str, Any],
     not_before: str | None,
+    advance_slot: bool = True,
 ) -> dict[str, Any]:
     """Commit raw first; a CAS failure leaves an exact recoverable immutable stage."""
     report = json.loads((directory / "result.json").read_text())
@@ -217,6 +232,8 @@ def commit_stage(
     bound_cursor = cursor
     if cursor.get("format") == FRONTIER_FORMAT:
         bound_cursor = {"format": FRONTIER_REF_FORMAT, "stage": entry}
+    elif cursor.get("format") == DISCOVERY_FORMAT:
+        bound_cursor = {"format": DISCOVERY_REF_FORMAT, "stage": entry}
     elif cursor.get("pending_evidence"):
         bound_cursor = {
             **cursor,
@@ -230,7 +247,7 @@ def commit_stage(
     candidate = ArticlePlanning(
         state.source,
         state.generations,
-        slot.isoformat(),
+        slot.isoformat() if advance_slot else state.last_slot,
         not_before,
         bound_requests,
         bound_cursor,
@@ -240,12 +257,10 @@ def commit_stage(
     return entry
 
 
-def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
-    """Read one exact workset before HTTP, retaining old cursors for migration."""
-    cursor = state.cursor
-    if cursor.get("format") != FRONTIER_REF_FORMAT:
-        return cursor
-    entry = cursor["stage"]
+def _load_workset(
+    store: ObjectStore, state: ArticlePlanning, expected_format: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    entry = state.cursor["stage"]
     if (
         entry.get("source") != state.source
         or entry.get("namespace") != ARTICLE_NAMESPACE
@@ -259,14 +274,47 @@ def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str
         raise LakePublishError("article frontier manifest differs or is missing")
     report = json.loads(saved.payload)["result"]
     frontier = report["planning"]["cursor"]
-    if report["source"] != state.source or frontier.get("format") != FRONTIER_FORMAT:
+    if report["source"] != state.source or frontier.get("format") != expected_format:
         raise ValueError("article frontier source/format mismatch")
+    return frontier, entry
+
+
+def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
+    """Read one exact workset before HTTP, retaining old cursors for migration."""
+    if state.cursor.get("format") != FRONTIER_REF_FORMAT:
+        return state.cursor
+    frontier, entry = _load_workset(store, state, FRONTIER_FORMAT)
     return {
         **frontier,
         "indexes": [
             {**item, "stage": entry} if item["stage"].get("stage_id") == entry["stage_id"] else item
             for item in frontier["indexes"]
         ],
+    }
+
+
+def load_discovery_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
+    if state.cursor.get("format") != DISCOVERY_REF_FORMAT:
+        return state.cursor
+    cursor, entry = _load_workset(store, state, DISCOVERY_FORMAT)
+
+    def bind_reference(value: dict[str, Any]) -> dict[str, Any]:
+        value = bind_local_stage(value, entry)
+        if value.get("index_evidence") is not None:
+            value = {**value, "index_evidence": bind_local_stage(value["index_evidence"], entry)}
+        return value
+
+    return {
+        **cursor,
+        "discoveries": {key: bind_reference(value) for key, value in cursor["discoveries"].items()},
+        "discovery_children": {
+            url: [{**edge, "parent": bind_reference(edge["parent"])} for edge in edges]
+            for url, edges in cursor["discovery_children"].items()
+        },
+        "pending_evidence": {
+            url: bind_local_stage(value, entry)
+            for url, value in cursor.get("pending_evidence", {}).items()
+        },
     }
 
 
