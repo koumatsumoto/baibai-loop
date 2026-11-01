@@ -7,11 +7,11 @@ from datetime import date
 from unittest import TestCase
 
 from tests.helpers.network import _no_real_network as _no_real_network
-from tests.helpers.provider_fixtures import _source
+from tests.helpers.provider_fixtures import _FakeResponse, _RaisingSession, _source, _StaticSession
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.providers import fred
-from baibai_engine.data_collection.providers.fred import parse_fred_csv
+from baibai_engine.data_collection.providers.fred import FredSource, parse_fred_csv
 from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.transport.context import IndicatorsProviderError
@@ -96,4 +96,31 @@ class NativeParserTests(TestCase):
                 "date,DGS10\n2026-05-01,4.39\n",
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 2),
+            )
+
+    def test_fred_source_wraps_request_exception(self) -> None:
+        series = _source("fred_csv", "DGS10")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"):
+            FredSource().fetch_records(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=_RaisingSession(),
+            )
+
+    def test_fred_source_rejects_oversized_response(self) -> None:
+        series = _source("fred_csv", "DGS10")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "too large"):
+            FredSource().fetch_records(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=_StaticSession(
+                    _FakeResponse(
+                        b"",
+                        headers={"Content-Length": "9000000"},
+                    )
+                ),
             )
