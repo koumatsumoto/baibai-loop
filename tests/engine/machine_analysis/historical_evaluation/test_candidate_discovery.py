@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
-from pathlib import Path
 from random import Random
 
 import pytest
+from tests.helpers.legacy_candidates import (
+    GOLDEN,
+    REQUIRED_JPX_FLAGS,
+    RULES,
+    _analysis,
+    _discover,
+)
 
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery import (
     candidates as candidates_module,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
     CandidateDiscoveryContractError,
-    build_candidate_contexts,
     candidate_discovery_method_hash,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
@@ -25,18 +29,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
     candidate_rows,
     reinvestment_coordinates,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
-
-SCREENING_RULES = load_screening_rules()
-RULES = SCREENING_RULES.candidate_discovery
-REQUIRED_JPX_FLAGS = SCREENING_RULES.universe.required_jpx_flags
-GOLDEN = json.loads(Path("tests/fixtures/screening/candidate-discovery-golden.json").read_text())
-
-
-def _discover(rows: list[dict[str, object]]) -> CandidateDiscoveryResult:
-    return build_candidate_contexts(rows, rules=RULES, required_jpx_flags=REQUIRED_JPX_FLAGS)
 
 
 def _ranks(result: CandidateDiscoveryResult, approach: str) -> dict[str, int]:
@@ -45,50 +37,6 @@ def _ranks(result: CandidateDiscoveryResult, approach: str) -> dict[str, int]:
         for ticker, context in result.contexts.items()
         for reason in context.reasons
         if reason.valuation_approach_id == approach
-    }
-
-
-def _analysis(
-    ticker: str,
-    *,
-    per: float = 10.0,
-    normalized_per: float = 10.0,
-    asset_ratio: float = 0.5,
-    p_s: float = 1.0,
-) -> dict[str, object]:
-    return {
-        "ticker": ticker,
-        "name": ticker,
-        "sector_33": "情報・通信業",
-        "market_cap_oku": 500,
-        "avg_turnover_oku": 5.0,
-        "price_history_span_days": 1000,
-        "jpx_flags": [],
-        "per_forward": per,
-        "per_trailing": per + 1,
-        "pbr": 0.8,
-        "p_s": p_s,
-        "ev_ebitda": 5.0,
-        "pcfr": 8.0,
-        "metrics": {
-            "per_forward_sector_gap": per / 20.0 - 1.0,
-            "normalized_per_3fy": normalized_per,
-            "fcf_yield": 0.08,
-            "ocf_yield": 0.10,
-            "asset_backed_ratio": asset_ratio,
-            "net_cash_to_market_cap": 0.25,
-            "pbr_sector_gap": -0.3,
-            "equity_ratio": 0.6,
-            "p_s_sector_gap": -0.4,
-            "sales_yoy": 0.05,
-            "operating_profit_ttm": 12.0,
-            "sales_ttm": 100.0,
-            "total_assets": 200.0,
-            "same_state_equity_yen": 120.0,
-            "debt": 20.0,
-            "cash": 30.0,
-            "er_annual": 0.1,
-        },
     }
 
 

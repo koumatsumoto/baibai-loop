@@ -7,10 +7,7 @@ from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric
     _security,
     _summary,
 )
-from tests.engine.machine_analysis.historical_evaluation.test_candidate_discovery import (
-    _analysis,
-    _discover,
-)
+from tests.helpers.legacy_candidates import _analysis, _discover
 
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery import (
     candidates as discovery,

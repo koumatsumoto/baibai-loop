@@ -8,11 +8,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.engine.machine_analysis.historical_evaluation.test_candidate_discovery import (
-    GOLDEN,
-    _analysis,
-)
-from tests.helpers.screening_run import saved_candidate, seed_saved_run
+from tests.helpers.legacy_candidates import GOLDEN, _analysis, _publish, _run
+from tests.helpers.screening_run import saved_candidate
 
 import baibai_engine.storage.sqlite.machine_analysis as machine_store
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
@@ -20,12 +17,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.projection import (
     candidate_rows,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
-    production_rules_contract_hash,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
@@ -41,32 +32,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.scree
     stock_analysis_payload,
 )
 from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
-
-RULES = load_screening_rules()
-RULES_HASH = production_rules_contract_hash(RULES.model_dump_json())
-
-
-def _run(*, rows=None, asof="2026-10-14", at=None):
-    return {
-        "schema_version": 1,
-        "kind": "stock_analysis_run",
-        "run_id": f"screening-{asof.replace('-', '')}",
-        "run_date": asof,
-        "asof_date": asof,
-        "run_at": at or f"{asof}T18:00:00+09:00",
-        "universe_size": len(rows) if rows is not None else 1,
-        "screening_rules_hash": RULES_HASH,
-        "er_model_version": "expected-return-v1",
-        "stock_analyses": [{**_analysis("1111"), "candidate": saved_candidate(rank=1)}]
-        if rows is None
-        else rows,
-    }
-
-
-def _publish(path, payload=None, *, revision=None):
-    payload = _run() if payload is None else payload
-    identity = revision or f"saved-{payload['asof_date']}-{payload['run_at']}"
-    return seed_saved_run(path, payload, run_revision_id=identity)
 
 
 def test_schema8_keeps_generation_and_selection_separate_from_legacy_runs(tmp_path: Path) -> None:
