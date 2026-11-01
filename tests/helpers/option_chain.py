@@ -113,4 +113,3 @@ def _chain(
                 )
             )
     return quotes
-
