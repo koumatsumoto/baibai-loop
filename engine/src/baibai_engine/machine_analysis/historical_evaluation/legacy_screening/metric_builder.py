@@ -10,6 +10,16 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.histo
     VALUATION_HISTORY_SESSIONS,
     build_valuation_history,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    PRICE_HISTORY_WINDOW_DAYS,
+    MarginBalance,
+    avg_daily_volume,
+    gap_from_low,
+    latest_bar_on_or_before,
+    margin_supply_demand,
+    price_change,
+    realized_volatility,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative import (
     VALUATION_METRICS,
     relative_valuation,
@@ -26,18 +36,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.financial_
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
-)
-from baibai_engine.machine_analysis.models.market_context.history import (
-    PRICE_HISTORY_WINDOW_DAYS,
-    avg_daily_volume,
-    gap_from_low,
-    latest_bar_on_or_before,
-    price_change,
-    realized_volatility,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import (
-    MarginBalance,
-    margin_supply_demand,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (

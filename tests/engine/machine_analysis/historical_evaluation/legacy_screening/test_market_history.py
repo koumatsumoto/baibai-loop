@@ -4,7 +4,9 @@ from datetime import date, timedelta
 
 from tests.helpers.network import _no_real_network as _no_real_network
 
-from baibai_engine.machine_analysis.models.market_context.history import avg_daily_volume
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    avg_daily_volume,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.machine_analysis.models.market_context.margin import MarginBalance
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    MarginBalance,
+)
 from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     MarginCadence,
     published_margin_balance_dates,

@@ -49,6 +49,9 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
     VALUATION_HISTORY_SESSIONS,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    MARKET_CONTEXT_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
 )
@@ -75,9 +78,6 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import (
-    MARKET_CONTEXT_CALCULATION_REVISION,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -1217,8 +1217,12 @@ class DerivedCacheIdentityTests(unittest.TestCase):
     """列や宣言済み計算 revision の変更がキャッシュ版へ反映されることを確認する。"""
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
-        from baibai_engine.machine_analysis.historical_evaluation import evaluation
-        from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
+        from baibai_engine.machine_analysis.historical_evaluation import (
+            evaluation,
+        )
+        from baibai_engine.machine_analysis.historical_evaluation import (
+            store as calibration_store,
+        )
 
         Patch = Callable[[], AbstractContextManager[object]]
         # One input per row: what is changed, and whether the derived version has to

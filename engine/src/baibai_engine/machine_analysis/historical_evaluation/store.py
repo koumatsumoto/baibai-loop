@@ -26,6 +26,9 @@ from baibai_engine.machine_analysis.historical_evaluation.forward import (
     ForwardObservationPolicy,
     ForwardReturnRow,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    MARKET_CONTEXT_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     DIAGNOSTIC_FIELD_NAMES,
     PANEL_CALCULATION_REVISION,
@@ -36,9 +39,6 @@ from baibai_engine.machine_analysis.historical_evaluation.panel import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import (
-    MARKET_CONTEXT_CALCULATION_REVISION,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.paths import CALIBRATION_DIR

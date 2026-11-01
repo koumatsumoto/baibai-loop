@@ -9,6 +9,11 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.machine_analysis.historical_evaluation import store as calibration_store
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    MarginBalance,
+    MarginSupplyDemand,
+    margin_supply_demand,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
     DerivedMetrics,
 )
@@ -21,11 +26,6 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import (
-    MarginBalance,
-    MarginSupplyDemand,
-    margin_supply_demand,
 )
 
 WEEK = date(2026, 7, 24)

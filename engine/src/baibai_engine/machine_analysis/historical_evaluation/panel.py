@@ -41,6 +41,9 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.histo
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
     read_margin_supply_demand_inputs,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
+    MARKET_CONTEXT_CALCULATION_REVISION,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder import (
     build_metrics,
     group_adjustment_events_by_ticker,
@@ -68,9 +71,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.capital im
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.market_context.margin import (
-    MARKET_CONTEXT_CALCULATION_REVISION,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import read_jpx_regulations
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
