@@ -14,12 +14,12 @@ from tests.helpers.external_assessment_html import (
     official_html,
     rakuten_html,
 )
+from tests.helpers.external_assessment_stages import FakeObjectStore, completed_pair, plan
 from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,
 )
 from tests.jobs.external_assessment_publication_fixtures import integrate_ready_plans
 from tests.jobs.external_assessment_publication_fixtures import publication as publication
-from tests.jobs.test_external_assessment_daily import FakeObjectStore, completed_pair, plan
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.sources as sources

@@ -11,14 +11,14 @@ import pytest
 import yaml
 from tests.engine.test_external_assessment_pair_collection import Session
 from tests.helpers.external_assessment_html import monex_html
-from tests.helpers.external_assessment_universe import build_master_lake
-from tests.jobs.test_external_assessment_daily import (
+from tests.helpers.external_assessment_stages import (
     FakeObjectStore,
     completed_pair,
     plan,
     seed_stage,
     wire_success,
 )
+from tests.helpers.external_assessment_universe import build_master_lake
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
