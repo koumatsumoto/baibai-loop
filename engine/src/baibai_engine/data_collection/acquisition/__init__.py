@@ -1,1 +1,1 @@
-"""原本・provider-native契約。L2の観測や投資判断を所有しない。"""
+"""providerの取得を合成し、native原本・受領・coverageを保持する。L2は計算しない。"""

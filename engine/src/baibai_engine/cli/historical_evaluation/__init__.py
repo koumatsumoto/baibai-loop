@@ -1,4 +1,1 @@
-"""Screening command modules; the unified CLI dispatches to ``app.main``.
-
-Import command implementations from their owning modules, not an eager package facade.
-"""
+"""旧モデル・候補政策の歴史評価CLI。各操作は所有moduleから読み込む。"""
