@@ -39,7 +39,6 @@ jobs:
       cooldown-check-allowed: ${{ steps.cooldown-check.outputs.allowed }}
       cooldown-check-outcome: ${{ steps.cooldown-check.outcome }}
       cooldown-save-outcome: ${{ steps.cooldown-save.outcome }}
-      duckdb-httpfs-outcome: ${{ steps.duckdb-httpfs.outcome }}
       handoff: ${{ steps.stage.outputs.handoff }}
       hydrate-outcome: ${{ steps.hydrate.outcome }}
       master-outcome: ${{ steps.master.outcome }}
@@ -119,10 +118,6 @@ jobs:
         id: sync
         if: steps.target.outputs.eligible == 'true'
         run: uv sync --locked
-      - name: Provision DuckDB httpfs extension
-        id: duckdb-httpfs
-        if: steps.target.outputs.eligible == 'true'
-        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
       - name: Read only TradingView scoped input
         id: pull
         if: steps.target.outputs.eligible == 'true'
