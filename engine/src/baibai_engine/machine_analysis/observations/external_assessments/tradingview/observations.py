@@ -6,6 +6,11 @@ import math
 from datetime import UTC, datetime
 from typing import Any, Literal, get_args
 
+from baibai_engine.data_collection.providers.tradingview.accounting import (
+    BatchAccountingError,
+    account_batch,
+)
+
 # Raw field names below were observed with a 50-symbol Official MCP request.
 FIELDS = {
     "analyst_rating": "AnalystRating",
@@ -67,24 +72,10 @@ def normalize_batch(
 ) -> list[dict[str, Any]]:
     if fetched_at.tzinfo is None:
         raise ValueError("fetched_at must be timezone-aware")
-    data, missing = payload.get("data"), payload.get("missing")
-    if (
-        payload.get("success") is not True
-        or not isinstance(data, dict)
-        or not isinstance(missing, list)
-    ):
-        raise ProviderPayloadError("malformed_envelope")
-    if any(
-        not isinstance(item, dict) or not isinstance(item.get("symbol"), str) for item in missing
-    ):
-        raise ProviderPayloadError("malformed_missing_symbols")
-    missing = [item["symbol"] for item in missing]
-    if len(missing) != len(set(missing)):
-        raise ProviderPayloadError("duplicate_missing_symbol")
-    if set(data) & set(missing) or set(data) | set(missing) != set(symbols):
-        raise ProviderPayloadError("response_accounting_mismatch")
-    if payload.get("count") != len(data) or payload.get("missing_count") != len(missing):
-        raise ProviderPayloadError("response_count_mismatch")
+    try:
+        data, missing = account_batch(payload, symbols)
+    except BatchAccountingError as exc:
+        raise ProviderPayloadError(exc.reason) from None
     # Explicit missing receipts remain unresolved regardless of batch composition.
     # Accounted symbols do not establish available forecasts or provider health.
     rows = []
