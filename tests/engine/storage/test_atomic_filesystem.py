@@ -56,5 +56,5 @@ def test_directory_fsync_closes_its_descriptor_even_on_failure(tmp_path, monkeyp
     else:
         fsync_directory(tmp_path)
     assert len(descriptors) == 1
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="Bad file descriptor"):
         os.fstat(descriptors[0])

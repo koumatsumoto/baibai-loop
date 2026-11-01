@@ -42,7 +42,8 @@ def test_notification_module_does_not_own_storage_writer():
 def test_failed_atomic_replace_keeps_the_old_json_and_removes_temporary(tmp_path, monkeypatch):
     from pathlib import Path
 
-    path = tmp_path / "result.json"
+    path = tmp_path / "json-output" / "result.json"
+    path.parent.mkdir()
     path.write_bytes(b"previous")
 
     def fail_replace(self, target):
@@ -52,4 +53,4 @@ def test_failed_atomic_replace_keeps_the_old_json_and_removes_temporary(tmp_path
     with pytest.raises(OSError, match="synthetic rename failure"):
         json_io.write_json_atomic(path, {"status": "new"})
     assert path.read_bytes() == b"previous"
-    assert list(tmp_path.iterdir()) == [path]
+    assert list(path.parent.iterdir()) == [path]
