@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import cast
 from unittest import TestCase
 
