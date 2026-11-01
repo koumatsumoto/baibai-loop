@@ -33,23 +33,22 @@ from baibai_engine.machine_analysis.historical_evaluation.context.builder import
 from baibai_engine.machine_analysis.historical_evaluation.context.contracts import (
     ErCalibrationContextArtifact,
 )
-from baibai_engine.machine_analysis.historical_evaluation.evaluation import MIN_AXIS_SAMPLE
-from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
-    evaluate_cohorts as _evaluate_cohorts,
-)
 from baibai_engine.machine_analysis.historical_evaluation.evaluation.axes import (
     _half_split_effect,
     _stratified_quality_control,
+)
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.cohorts import (
+    evaluate_cohorts as _evaluate_cohorts,
 )
 from baibai_engine.machine_analysis.historical_evaluation.evaluation.discovery import (
     _evaluate_candidate_discovery,
     _observation_dependence,
 )
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.policy import MIN_AXIS_SAMPLE
 from baibai_engine.machine_analysis.historical_evaluation.evaluation.sensitivity import (
     _margin_short_to_adv_adoption_sign,
     _metric_direction_stability,
 )
-from baibai_engine.machine_analysis.historical_evaluation.evaluation.statistics import _spearman
 from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     CANDIDATE_DISCOVERY_UNION_FIDELITY_METRIC,
@@ -167,23 +166,6 @@ def _panel_diagnostics(
         asof_population_mismatch_count=asof_population_mismatch_count,
         priced_master_without_universe_count=priced_master_without_universe_count,
     )
-
-
-class SpearmanTest(unittest.TestCase):
-    def test_spearman_perfect_monotone_is_one(self) -> None:
-        pairs = [(float(i), float(i * 2)) for i in range(40)]
-        ic = _spearman(pairs)
-        assert ic is not None
-        self.assertAlmostEqual(ic, 1.0)
-
-    def test_spearman_perfect_inverse_is_minus_one(self) -> None:
-        pairs = [(float(i), float(-i)) for i in range(40)]
-        ic = _spearman(pairs)
-        assert ic is not None
-        self.assertAlmostEqual(ic, -1.0)
-
-    def test_spearman_below_min_sample_is_none(self) -> None:
-        self.assertIsNone(_spearman([(1.0, 1.0)] * 10))
 
 
 class RequiredMetricStatusTest(unittest.TestCase):

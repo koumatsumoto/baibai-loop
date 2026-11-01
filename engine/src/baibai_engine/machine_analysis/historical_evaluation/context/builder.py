@@ -33,7 +33,12 @@ from baibai_engine.machine_analysis.historical_evaluation.context.query import (
 from baibai_engine.machine_analysis.historical_evaluation.estimates import (
     EXPECTED_RETURN_MODEL_VERSION,
 )
-from baibai_engine.machine_analysis.historical_evaluation.evaluation import TRAP_EXCESS_THRESHOLD
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.policy import (
+    TRAP_EXCESS_THRESHOLD,
+)
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.statistics import (
+    annualize_return,
+)
 from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     ESTIMATOR_POLICY_MANDATORY_METRICS,
     ESTIMATOR_POLICY_SUBJECT,
@@ -358,7 +363,7 @@ def _cohort_entries(
         ):
             raise CalibrationContextError("forward status is inconsistent")
         price_annual = (
-            _annualize(forward.price_return, years=years)
+            annualize_return(forward.price_return, years=years)
             if forward.resolved and forward.price_return is not None
             else None
         )
@@ -377,7 +382,7 @@ def _cohort_entries(
                 or forward.total_return is None
             ):
                 raise CalibrationContextError("resolved dividend outcome is invalid")
-            total_annual = _annualize(forward.total_return, years=years)
+            total_annual = annualize_return(forward.total_return, years=years)
             if total_annual is None:
                 raise CalibrationContextError("resolved total outcome is invalid")
             total_reason = None
@@ -535,13 +540,6 @@ def _nearest_rank(values: Sequence[float], probability: float) -> float:
         raise CalibrationContextError("nearest-rank quantile requires values and 0 < p <= 1")
     ordered = sorted(values)
     return ordered[max(0, ceil(probability * len(ordered)) - 1)]
-
-
-def _annualize(value: float, *, years: float) -> float | None:
-    if years <= 0 or value < -1:
-        return None
-    result = (1 + value) ** (1 / years) - 1
-    return float(result) if isfinite(result) else None
 
 
 def _rounded(value: float | None) -> float | None:

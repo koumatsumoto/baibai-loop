@@ -1218,10 +1218,10 @@ class DerivedCacheIdentityTests(unittest.TestCase):
 
     def test_the_identity_follows_every_input_that_decides_compatibility(self) -> None:
         from baibai_engine.machine_analysis.historical_evaluation import (
-            evaluation,
-        )
-        from baibai_engine.machine_analysis.historical_evaluation import (
             store as calibration_store,
+        )
+        from baibai_engine.machine_analysis.historical_evaluation.evaluation import (
+            policy as evaluation,
         )
 
         Patch = Callable[[], AbstractContextManager[object]]

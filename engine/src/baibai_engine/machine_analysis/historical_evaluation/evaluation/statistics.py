@@ -95,7 +95,8 @@ def _rounded_delta(left: object, right: object) -> float | None:
     return round(float(left) - float(right), 6)
 
 
-def _annualize_return(value: float, *, years: float) -> float | None:
+def annualize_return(value: float, *, years: float) -> float | None:
+    """共通の期間収益を幾何年率へ換算する。予測の収束係数とは別の算術。"""
     if years <= 0 or value < -1:
         return None
     annualized = (1 + value) ** (1 / years) - 1
