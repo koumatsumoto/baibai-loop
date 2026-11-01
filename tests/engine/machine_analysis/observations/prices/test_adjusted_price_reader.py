@@ -1,3 +1,5 @@
+"""銘柄別の調整係数と一括/scoped読取の一致を検証する。"""
+
 from contextlib import closing
 from datetime import date
 
