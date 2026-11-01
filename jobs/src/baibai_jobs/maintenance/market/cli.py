@@ -10,6 +10,10 @@ from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.cli.environment import load_project_env
+from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
+    CapitalPolicyError,
+    TSECapitalPolicyRefreshSummary,
+)
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_lists_command,
@@ -20,10 +24,6 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
-    TSECapitalPolicyRefreshSummary,
-    ValuationCatalystError,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
 )
@@ -58,11 +58,11 @@ from baibai_jobs.maintenance.market.delisting_cli import (
     refresh_jpx_delistings_command,
     refresh_tender_offer_exits_command,
 )
-from baibai_jobs.maintenance.market.providers import ProviderBundle
-from baibai_jobs.maintenance.market.valuation_catalyst_cli import (
+from baibai_jobs.maintenance.market.disclosures_cli import (
     backfill_edinet_identity_command,
     refresh_tse_capital_policy_command,
 )
+from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
@@ -281,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
         except (
             JPXProviderError,
             DelistingSourceError,
-            ValuationCatalystError,
+            CapitalPolicyError,
             SQLiteSchemaError,
             sqlite3.Error,
             ValueError,

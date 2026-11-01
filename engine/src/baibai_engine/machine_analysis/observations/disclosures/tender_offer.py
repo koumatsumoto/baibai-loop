@@ -31,19 +31,19 @@ from baibai_engine.machine_analysis.observations.disclosures.delistings import (
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_current_filing_documents,
 )
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
-    TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE,
-    TENDER_OFFER_REGISTRATION_DOC_TYPE,
-    TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE,
-    TENDER_OFFER_RESULT_DOC_TYPE,
-    TENDER_OFFER_WITHDRAWAL_DOC_TYPE,
-    edinet_code_to_ticker,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     is_usable_filing_status,
+    parse_sec_code,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
+
+# EDINET tender-offer document type codes for the filing window below.
+TENDER_OFFER_REGISTRATION_DOC_TYPE = "240"
+TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE = "250"
+TENDER_OFFER_WITHDRAWAL_DOC_TYPE = "260"
+TENDER_OFFER_RESULT_DOC_TYPE = "270"
+TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE = "280"
 
 # JPX may name the squeeze-out mechanism rather than its preceding tender offer.
 # These reasons select cases to investigate; only the filing evidence below can
@@ -78,6 +78,27 @@ _DASHES = "―—－-‐‑–"
 
 class TenderOfferError(RuntimeError):
     """A tender-offer filing cannot be read into an exit value without guessing."""
+
+
+def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> dict[str, str]:
+    """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
+
+    Only filing dates through the caller's cutoff participate. Later discoveries
+    or conflicts must not change an earlier lookup. A code seen against more than
+    one ticker in that window is dropped rather than picked between.
+    """
+    observed: dict[str, set[str]] = {}
+    for edinet_code, sec_code in connection.execute(
+        "SELECT DISTINCT edinet_code, sec_code FROM edinet_documents "
+        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL AND doc_date <= ?",
+        (through.isoformat(),),
+    ):
+        try:
+            ticker = parse_sec_code(sec_code)
+        except EDINETProviderError:
+            continue
+        observed.setdefault(str(edinet_code), set()).add(ticker)
+    return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}
 
 
 class TenderOfferDocumentReader(Protocol):

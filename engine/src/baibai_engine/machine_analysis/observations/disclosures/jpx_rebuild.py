@@ -13,6 +13,11 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     JPXSourceBundle,
     read_complete_bundle,
 )
+from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
+    TSECapitalPolicyRefreshSummary,
+    parse_tse_capital_policy_workbook,
+    store_tse_capital_policy_rows,
+)
 from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     DelistingRecord,
     DelistingSourceError,
@@ -35,11 +40,6 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXRegulationSnapshot,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import JPX_REGULATION_URLS
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
-    TSECapitalPolicyRefreshSummary,
-    parse_tse_capital_policy_workbook,
-    store_tse_capital_policy_rows,
-)
 from baibai_engine.machine_analysis.observations.normalization import (
     normalize_ticker_or_none,
     to_str_or_none,

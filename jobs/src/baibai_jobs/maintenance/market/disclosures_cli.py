@@ -1,4 +1,4 @@
-"""Maintenance commands for TSE policy and EDINET valuation-catalyst facts."""
+"""Maintenance commands for TSE policy observations and EDINET filing identities."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import TextIO
 
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
-    ValuationCatalystError,
+from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
+    CapitalPolicyError,
 )
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
@@ -33,7 +33,7 @@ def refresh_tse_capital_policy_command(
             summary = refresh.refresh_capital_policy_snapshot(datetime.now(JST).date())
     except (
         JPXProviderError,
-        ValuationCatalystError,
+        CapitalPolicyError,
         SQLiteSchemaError,
         OSError,
         sqlite3.Error,

@@ -52,8 +52,8 @@ from baibai_jobs.maintenance.market.cache import (
     FIN_SUMMARY_REVISION_OVERLAP_DAYS,
     refresh_edinet_documents_command,
 )
+from baibai_jobs.maintenance.market.disclosures_cli import backfill_edinet_identity_command
 from baibai_jobs.maintenance.market.providers import ProviderBundle
-from baibai_jobs.maintenance.market.valuation_catalyst_cli import backfill_edinet_identity_command
 
 # The store path every command below derives from the working directory.
 _STORE = Path("stores/market/market.sqlite")

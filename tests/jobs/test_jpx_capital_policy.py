@@ -23,14 +23,14 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     read_complete_bundle,
     retain_bundle_response,
 )
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
+from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
     TSE_CAPITAL_POLICY_URL,
-    ValuationCatalystError,
+    CapitalPolicyError,
     parse_tse_capital_policy_workbook,
     store_tse_capital_policy_rows,
 )
+from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -44,7 +44,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
-from baibai_jobs.maintenance.market.valuation_catalyst_cli import (
+from baibai_jobs.maintenance.market.disclosures_cli import (
     refresh_tse_capital_policy_command,
 )
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
@@ -243,7 +243,7 @@ def test_http_failure_or_malformed_200_preserves_old_l2(tmp_path: Path) -> None:
 
     malformed = b"malformed workbook bytes\x00\xff"
     bad_body = _session(malformed)
-    with pytest.raises(ValuationCatalystError, match="failed to parse"):
+    with pytest.raises(CapitalPolicyError, match="failed to parse"):
         JPXRefresh(sqlite_path=path, session=bad_body).refresh_capital_policy_snapshot(ASOF)
     with sqlite3.connect(path) as conn:
         complete = read_complete_bundle(conn, _bundle_ids(path)[2])
@@ -322,7 +322,7 @@ def test_rebuild_cli_never_acquires(tmp_path: Path, capsys: pytest.CaptureFixtur
 
 
 def test_explicit_refresh_cli_uses_jpx_refresh_and_closes_it(tmp_path: Path) -> None:
-    with patch("baibai_jobs.maintenance.market.valuation_catalyst_cli.JPXRefresh") as fake:
+    with patch("baibai_jobs.maintenance.market.disclosures_cli.JPXRefresh") as fake:
         instance = fake.return_value
         instance.refresh_capital_policy_snapshot.return_value.sheet_count = 2
         instance.refresh_capital_policy_snapshot.return_value.row_count = 3

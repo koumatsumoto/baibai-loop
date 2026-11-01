@@ -1,9 +1,8 @@
-"""TSE capital-policy workbook facts and EDINET identities for tender-offer readers."""
+"""TSE capital-policy workbook observations, separate from valuation assumptions."""
 
 from __future__ import annotations
 
 import re
-import sqlite3
 from calendar import monthrange
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -14,26 +13,17 @@ from typing import Literal
 
 import openpyxl
 
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 TSE_CAPITAL_POLICY_URL = "https://www.jpx.co.jp/equities/follow-up/jr4eth0000004vj2-att/list.xlsx"
-
-# EDINET tender-offer document type codes used by the calibration exit reader.
-TENDER_OFFER_REGISTRATION_DOC_TYPE = "240"
-TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE = "250"
-TENDER_OFFER_WITHDRAWAL_DOC_TYPE = "260"
-TENDER_OFFER_RESULT_DOC_TYPE = "270"
-TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE = "280"
 
 _MONTH_SHEET_RE = re.compile(r"(?:【過去分】)?開示企業一覧（(\d{4})年(\d{1,2})月末時点）")
 
 type CapitalPolicyStatus = Literal["disclosed", "considering"]
 
 
-class ValuationCatalystError(RuntimeError):
+class CapitalPolicyError(RuntimeError):
     """A primary-source payload cannot be converted without guessing."""
 
 
@@ -69,7 +59,7 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
     try:
         workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:
-        raise ValuationCatalystError("failed to parse TSE capital-policy workbook") from exc
+        raise CapitalPolicyError("failed to parse TSE capital-policy workbook") from exc
 
     raw_rows: list[tuple[date, str, CapitalPolicyStatus, str | None, date | None, bool]] = []
     sheet_months: list[date] = []
@@ -100,9 +90,9 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
     finally:
         workbook.close()
     if not sheet_months or not raw_rows:
-        raise ValuationCatalystError("TSE capital-policy workbook has no monthly rows")
+        raise CapitalPolicyError("TSE capital-policy workbook has no monthly rows")
     if len(sheet_months) != len(set(sheet_months)):
-        raise ValuationCatalystError("TSE capital-policy workbook repeats a snapshot month")
+        raise CapitalPolicyError("TSE capital-policy workbook repeats a snapshot month")
 
     earliest_sheet = min(sheet_months)
     first_disclosed: dict[str, date] = {}
@@ -134,7 +124,7 @@ def parse_tse_capital_policy_workbook(content: bytes) -> tuple[TSECapitalPolicyR
 def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPolicyRow]) -> int:
     """Atomically replace the full view with one successfully decoded workbook."""
     if not rows:
-        raise ValuationCatalystError("refusing to replace TSE capital-policy facts with zero rows")
+        raise CapitalPolicyError("refusing to replace TSE capital-policy facts with zero rows")
     connection = open_connection(sqlite_path)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -166,26 +156,6 @@ def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPo
     finally:
         connection.close()
 
-
-def edinet_code_to_ticker(connection: sqlite3.Connection, *, through: date) -> dict[str, str]:
-    """Resolve EDINET codes through the (edinetCode, secCode) pairs the list observed.
-
-    Only filing dates through the caller's cutoff participate. Later discoveries
-    or conflicts must not change an earlier lookup. A code seen against more than
-    one ticker in that window is dropped rather than picked between.
-    """
-    observed: dict[str, set[str]] = {}
-    for edinet_code, sec_code in connection.execute(
-        "SELECT DISTINCT edinet_code, sec_code FROM edinet_documents "
-        "WHERE edinet_code IS NOT NULL AND sec_code IS NOT NULL AND doc_date <= ?",
-        (through.isoformat(),),
-    ):
-        try:
-            ticker = parse_sec_code(sec_code)
-        except EDINETProviderError:
-            continue
-        observed.setdefault(str(edinet_code), set()).add(ticker)
-    return {code: next(iter(values)) for code, values in observed.items() if len(values) == 1}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -225,7 +195,7 @@ def _resolve_tse_columns(rows: Sequence[Sequence[object]], *, sheet: str) -> _TS
         None,
     )
     if header_index is None or header_index + 1 >= len(rows):
-        raise ValuationCatalystError(f"TSE capital-policy sheet has no typed header: {sheet}")
+        raise CapitalPolicyError(f"TSE capital-policy sheet has no typed header: {sheet}")
     group = _forward_filled_labels(rows[header_index])
     detail = [_text(value) for value in rows[header_index + 1]]
     width = max(len(group), len(detail))
@@ -233,7 +203,7 @@ def _resolve_tse_columns(rows: Sequence[Sequence[object]], *, sheet: str) -> _TS
     def find(predicate: Callable[[int], bool], label: str) -> int:
         column = next((index for index in range(width) if predicate(index)), None)
         if column is None:
-            raise ValuationCatalystError(f"TSE capital-policy sheet has no {label} column: {sheet}")
+            raise CapitalPolicyError(f"TSE capital-policy sheet has no {label} column: {sheet}")
         return column
 
     def at(labels: Sequence[str], index: int) -> str:
@@ -277,12 +247,12 @@ def _capital_policy_status(value: str) -> CapitalPolicyStatus:
         return "disclosed"
     if value == "検討中":
         return "considering"
-    raise ValuationCatalystError(f"unknown TSE capital-policy status: {value!r}")
+    raise CapitalPolicyError(f"unknown TSE capital-policy status: {value!r}")
 
 
 def _ticker_from_excel(value: object) -> str:
     if isinstance(value, bool):
-        raise ValuationCatalystError(f"invalid TSE ticker: {value!r}")
+        raise CapitalPolicyError(f"invalid TSE ticker: {value!r}")
     if isinstance(value, int):
         raw = str(value)
     elif isinstance(value, float) and value.is_integer():
@@ -292,7 +262,7 @@ def _ticker_from_excel(value: object) -> str:
     try:
         return normalize_ticker(raw)
     except ValueError as exc:
-        raise ValuationCatalystError(f"invalid TSE ticker: {value!r}") from exc
+        raise CapitalPolicyError(f"invalid TSE ticker: {value!r}") from exc
 
 
 def _excel_date(value: object) -> date | None:
@@ -308,14 +278,14 @@ def _excel_date(value: object) -> date | None:
             raw.replace("/", "-").replace("年", "-").replace("月", "-").removesuffix("日")
         )
     except ValueError as exc:
-        raise ValuationCatalystError(f"invalid TSE update date: {raw!r}") from exc
+        raise CapitalPolicyError(f"invalid TSE update date: {raw!r}") from exc
 
 
 def _calendar_month_end(year: int, month: int) -> date:
     try:
         return date(year, month, monthrange(year, month)[1])
     except ValueError as exc:
-        raise ValuationCatalystError(f"invalid TSE snapshot month: {year}-{month}") from exc
+        raise CapitalPolicyError(f"invalid TSE snapshot month: {year}-{month}") from exc
 
 
 def _cell(values: Sequence[object], index: int) -> object | None:
@@ -331,16 +301,10 @@ def _date_iso(value: date | None) -> str | None:
 
 
 __all__ = (
-    "TENDER_OFFER_REGISTRATION_CORRECTION_DOC_TYPE",
-    "TENDER_OFFER_REGISTRATION_DOC_TYPE",
-    "TENDER_OFFER_RESULT_CORRECTION_DOC_TYPE",
-    "TENDER_OFFER_RESULT_DOC_TYPE",
-    "TENDER_OFFER_WITHDRAWAL_DOC_TYPE",
+    "CapitalPolicyError",
     "CapitalPolicyStatus",
     "TSECapitalPolicyRefreshSummary",
     "TSECapitalPolicyRow",
-    "ValuationCatalystError",
-    "edinet_code_to_ticker",
     "parse_tse_capital_policy_workbook",
     "store_tse_capital_policy_rows",
 )
