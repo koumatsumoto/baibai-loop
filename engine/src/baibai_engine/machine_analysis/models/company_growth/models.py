@@ -48,9 +48,9 @@ class SourceDocument(Contract):
 
 
 class Value(Contract):
-    precision: Literal["published_display_amounts", "derived_from_truncated_display_amounts"] | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
+    precision: (
+        Literal["published_display_amounts", "derived_from_truncated_display_amounts"] | None
+    ) = Field(default=None, exclude_if=lambda value: value is None)
     value: FiniteFloat | None = None
     reason: str | None = None
     documents: tuple[SourceDocument, ...] = ()
@@ -79,9 +79,9 @@ class PeriodState(Contract):
 
 
 class Change(Contract):
-    precision: Literal["published_display_amounts", "derived_from_truncated_display_amounts"] | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
+    precision: (
+        Literal["published_display_amounts", "derived_from_truncated_display_amounts"] | None
+    ) = Field(default=None, exclude_if=lambda value: value is None)
     source_sha256: str | None = Field(default=None, exclude_if=lambda value: value is None)
     metric: Metric
     measurement: Measurement
