@@ -4,8 +4,7 @@ from datetime import timedelta
 import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.engine.test_jquants_projection import body, receive
-from tests.engine.test_tradingview_rebuild import _retain
-from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
+from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, store, stored
 
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.tradingview_handoff import (
@@ -24,10 +23,10 @@ def test_late_partial_handoff_adds_missing_rows_without_narrowing_saved_selectio
         store(tmp_path / "source.sqlite", 3),
         store(tmp_path / "canonical.sqlite", 3),
     )
-    first = _retain(canonical, _sdk(payload(["TSE:1000"])))
+    first = retain_result(canonical, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(canonical, DAY, [first])
     before = stored(canonical)[0]
-    _retain(source, _sdk(payload(["TSE:1002"])), symbols=("TSE:1002",))
+    retain_result(source, _sdk(payload(["TSE:1002"])), symbols=("TSE:1002",))
     with closing(open_connection(canonical)) as conn, conn:
         conn.execute(
             "INSERT INTO jpx_regulation_sources VALUES (?, ?, ?)",
@@ -62,12 +61,12 @@ def test_a_canonical_first_row_is_retained_even_when_a_handoff_repeats_its_ticke
         store(tmp_path / "source.sqlite", 1),
         store(tmp_path / "canonical.sqlite", 1),
     )
-    first = _retain(canonical, _sdk(payload(["TSE:1000"])))
+    first = retain_result(canonical, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(canonical, DAY, [first])
     before = stored(canonical)
     changed = payload(["TSE:1000"])
     changed["data"]["TSE:1000"]["close"] = 999
-    _retain(source, _sdk(changed), received=NOW + timedelta(minutes=1))
+    retain_result(source, _sdk(changed), received=NOW + timedelta(minutes=1))
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW)
     result = import_handoff(stage, canonical, selected)
@@ -81,7 +80,7 @@ def test_new_canonical_universe_refuses_the_old_handoff_before_receiving_rows(tm
         store(tmp_path / "source.sqlite", 1),
         store(tmp_path / "canonical.sqlite", 2),
     )
-    _retain(source, _sdk(payload(["TSE:1000"])))
+    retain_result(source, _sdk(payload(["TSE:1000"])))
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW)
     with pytest.raises(SourceDataError, match="universe"):
@@ -95,7 +94,7 @@ def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_pa
         store(tmp_path / "source.sqlite", 1),
         store(tmp_path / "canonical.sqlite", 1),
     )
-    _retain(
+    retain_result(
         source, CallToolResult(isError=True, content=[TextContent(type="text", text="HTTP 429")])
     )
     stage = tmp_path / "stage.sqlite"
@@ -125,7 +124,7 @@ def test_new_exact_date_master_is_replayed_from_its_original_pages(tmp_path):
     receive(source, "master", {"date": DAY.isoformat()}, body(records), NOW - timedelta(seconds=1))
     with closing(open_connection(canonical)) as conn, conn:
         conn.execute("DELETE FROM jquants_master_snapshots")
-    _retain(source, _sdk(payload(["TSE:1000"])))
+    retain_result(source, _sdk(payload(["TSE:1000"])))
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=2))
     assert len(selected.master_request_ids) == 1
