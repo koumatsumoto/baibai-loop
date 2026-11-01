@@ -63,7 +63,9 @@ def test_partial_and_later_selected_receipts_rebuild_exact_rows(tmp_path: Path) 
     first_ids = [
         retain_result(path, _sdk(payload(["TSE:1000"]))),
         retain_result(path, _sdk({"success": True}), symbols=("TSE:1001",)),
-        retain_result(path, _sdk(payload(["TSE:1002"], missing=["TSE:1002"])), symbols=("TSE:1002",)),
+        retain_result(
+            path, _sdk(payload(["TSE:1002"], missing=["TSE:1002"])), symbols=("TSE:1002",)
+        ),
     ]
     partial = rebuild_from_receipts(path, DAY, first_ids)
     assert (partial["rows"], partial["unresolved"], partial["remaining"]) == (2, 1, 1)
@@ -75,7 +77,10 @@ def test_partial_and_later_selected_receipts_rebuild_exact_rows(tmp_path: Path) 
     _copy_receipts_only(path, clean, first_ids)
     rebuild_from_receipts(clean, DAY, first_ids)
     assert stored(clean) == first_rows
-    final_ids = [*first_ids, retain_result(path, _sdk(payload(["TSE:1001"])), symbols=("TSE:1001",))]
+    final_ids = [
+        *first_ids,
+        retain_result(path, _sdk(payload(["TSE:1001"])), symbols=("TSE:1001",)),
+    ]
     final = rebuild_from_receipts(path, DAY, final_ids)
     assert (final["rows"], final["unresolved"], final["remaining"]) == (3, 1, 0)
     assert [row for row in stored(path) if row[1] != "1001"] == first_rows
