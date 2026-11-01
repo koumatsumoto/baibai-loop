@@ -51,12 +51,12 @@ def test_resume_accepts_plain_saved_report_and_retains_incomplete_replay(tmp_pat
     from contextlib import closing
     from datetime import UTC, datetime
 
-    from tests.jobs.test_source_receipts import Store
+    from tests.helpers.r2_store import MemoryR2Store
 
     from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
     from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
-    store = Store()
+    store = MemoryR2Store()
     mocker.patch.object(source_handoff, "Boto3R2Store", return_value=store)
     source, target = tmp_path / "source.sqlite", tmp_path / "scoped.sqlite"
     stamp = datetime(2026, 10, 24, 7, tzinfo=UTC)
@@ -134,7 +134,7 @@ def test_archive_resume_projects_staged_list_without_common_integration(tmp_path
     from datetime import UTC, datetime
 
     from tests.helpers.edinet_handoff_inputs import receive
-    from tests.jobs.test_source_receipts import Store
+    from tests.helpers.r2_store import MemoryR2Store
 
     from baibai_engine.machine_analysis.observations.financials.edinet_models import (
         EDINETProviderError,
@@ -143,7 +143,7 @@ def test_archive_resume_projects_staged_list_without_common_integration(tmp_path
     from baibai_engine.storage.sqlite.source_cache.schema import open_connection
     from baibai_jobs.acquisition.economic_staging import save_handoff
 
-    store = Store()
+    store = MemoryR2Store()
     mocker.patch.object(source_handoff, "Boto3R2Store", return_value=store)
     stamp = datetime(2026, 10, 29, 7, tzinfo=UTC)
     source, target = tmp_path / "list.sqlite", tmp_path / "scoped.sqlite"
@@ -191,7 +191,7 @@ def test_resume_replays_integrated_intermediate_receipts_but_not_unintegrated_la
     from datetime import UTC, datetime, timedelta
 
     from tests.helpers.edinet_handoff_inputs import receive
-    from tests.jobs.test_source_receipts import Store
+    from tests.helpers.r2_store import MemoryR2Store
 
     import baibai_jobs.acquisition.receipts as receipts
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
@@ -200,7 +200,7 @@ def test_resume_replays_integrated_intermediate_receipts_but_not_unintegrated_la
     from baibai_engine.storage.sqlite.source_cache.schema import open_connection
     from baibai_jobs.acquisition.economic_staging import save_handoff
 
-    store = Store()
+    store = MemoryR2Store()
     mocker.patch.object(source_handoff, "Boto3R2Store", return_value=store)
     stamp = datetime(2026, 10, 24, 7, tzinfo=UTC)
     integrated_at = stamp
