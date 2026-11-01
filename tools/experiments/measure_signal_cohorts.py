@@ -36,8 +36,8 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
     read_panel,
     read_panel_meta,
 )
+from baibai_engine.storage.paths import CALIBRATION_DIR
 
-DEFAULT_CALIBRATION_DIR = Path("stores/screening/calibration")
 DEFAULT_HORIZONS = ("1y", "3y", "5y")
 HORIZON_YEARS: Mapping[str, int] = {"1y": 1, "3y": 3, "5y": 5}
 DEFAULT_ER_THRESHOLD = 0.085
@@ -458,7 +458,7 @@ def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> 
             "Read-only: never changes screening rules, E[r], or stored runs."
         )
     )
-    parser.add_argument("--calibration-dir", type=Path, default=DEFAULT_CALIBRATION_DIR)
+    parser.add_argument("--calibration-dir", type=Path, default=CALIBRATION_DIR)
     parser.add_argument("--horizon", action="append", dest="horizons", choices=DEFAULT_HORIZONS)
     parser.add_argument("--er-threshold", type=float, default=DEFAULT_ER_THRESHOLD)
     parser.add_argument(
