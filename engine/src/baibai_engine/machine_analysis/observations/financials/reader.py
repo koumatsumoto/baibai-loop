@@ -81,7 +81,7 @@ def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
 
 
 def count_fin_summaries(sqlite_path: Path, start: date, end: date) -> int:
-    """Count stored summary rows in `[start, end]`; 0 when the store cannot be read."""
+    """Count stored summary rows; an absent store is 0, schema/query failures propagate."""
     if not sqlite_path.exists():
         return 0
     conn = connect_current(sqlite_path)
