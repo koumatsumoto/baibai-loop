@@ -1048,3 +1048,41 @@ def test_zero_publication_lag_and_margin_override_nonzero_defaults() -> None:
     assert resolved.next_print_estimate(observed_at) == date(2026, 7, 1)
     assert resolved.stale_after(observed_at) == date(2026, 7, 1)
     assert resolved.staleness_warn_days == 31
+
+
+@pytest.mark.parametrize(
+    ("observed", "next_print"),
+    [
+        (date(2026, 2, 28), date(2026, 3, 30)),  # Mar 28 is Saturday, then Monday.
+        (date(2026, 4, 30), date(2026, 6, 1)),  # May 30 is Saturday, then Monday.
+        (date(2024, 2, 29), date(2024, 3, 29)),
+    ],
+)
+def test_publication_month_shift_preserves_day_number_not_month_end(observed, next_print):
+    rule = (
+        load_reading_rules(DEFAULT_RULES_PATH)
+        .model_copy(
+            update={"overrides": {"test.month_shift": SeriesOverride(publication_lag_days=0)}}
+        )
+        .resolve(series_id="test.month_shift", frequency="monthly")
+    )
+    assert rule.next_print_estimate(observed) == next_print
+
+
+def test_trend_anchor_month_shift_does_not_promote_to_previous_month_end():
+    definition = series_definition("test.month_anchor", frequency="monthly")
+    published = load_reading_rules(DEFAULT_RULES_PATH)
+    rules = published.model_copy(
+        update={"overrides": {definition.series_id: SeriesOverride(short_trend_months=1)}}
+    )
+    points = [(date(2026, 1, 28), 10.0), (date(2026, 1, 31), 20.0), (date(2026, 2, 28), 30.0)]
+    reading = compute_reading(
+        series=[definition],
+        reader=store_reader(observations(definition.series_id, points)),
+        rules=rules,
+        rules_revision="test",
+        asof=date(2026, 2, 28),
+    ).series[0]
+    assert reading.short_trend is not None
+    assert reading.short_trend.anchor_observed_at == date(2026, 1, 28)
+    assert reading.short_trend.change == 20.0

@@ -88,7 +88,7 @@ class ReadingSnapshot:
 def snapshot_payload(snapshot: ReadingSnapshot) -> dict[str, object]:
     """Pure wire form for an arbitrary-reader snapshot.
 
-    Store consumers add their reader-specific semantics once in reading.query;
+    Store consumers add reader-specific semantics in generation.runners.market_reading;
     this serializer makes no claim about which vintages the supplied reader selected.
     """
 

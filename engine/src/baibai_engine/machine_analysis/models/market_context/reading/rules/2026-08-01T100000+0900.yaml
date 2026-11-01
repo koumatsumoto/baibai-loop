@@ -2,7 +2,7 @@
 #
 # 全登録 series に規則が解決することが要件であり、系列追加が本ファイルの編集を
 # 要求しない。したがって frequency 別の defaults を正とし、override は「default が
-# 事実に反する系列」だけに書く。網羅性は tests/engine/market_context/test_reading.py が保証する。
+# 事実に反する系列」だけに書く。網羅性は tests/engine/machine_analysis/models/market_context/test_reading.py が保証する。
 #
 # 用語と限界:
 # - percentile_window_years は統計窓。statistic は percentile / z-score の比較対象を

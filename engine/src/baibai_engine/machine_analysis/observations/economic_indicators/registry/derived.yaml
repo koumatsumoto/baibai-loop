@@ -1,5 +1,5 @@
 # Virtual L2 series computed from current selected source observations on read.
-# reading_key names reading/formulas.py. No separate stored observation,
+# reading_key selects the sibling ../formulas.py. No separate stored observation,
 # acquisition, refresh order, or correction cascade is needed for these formulas.
 series:
   - series_id: us.net_liquidity
