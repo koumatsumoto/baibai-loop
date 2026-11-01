@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.engine.test_external_assessment_daily_verification import build_master_lake
+from tests.helpers.external_assessment_universe import build_master_lake
 from tests.helpers.jquants_receipts import Session, body, receive
 from tests.helpers.screening_sqlite import make_master_records
 from tests.jobs.test_external_assessment_daily import wire_success
