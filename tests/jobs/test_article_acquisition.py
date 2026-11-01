@@ -804,9 +804,7 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize("hour", [1, 13, 17])
-def test_tsr_index_observation_binds_document_title_without_heading(
-    tmp_path, monkeypatch, hour
-):
+def test_tsr_index_observation_binds_document_title_without_heading(tmp_path, monkeypatch, hour):
     slot = SLOT.replace(hour=hour)
 
     class Clock(datetime):
