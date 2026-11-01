@@ -20,31 +20,16 @@ class ProviderSpec:
     # prove exact historical API availability: J-Quants flows can serve later
     # corrections, and older periods may retain only the latest revision.
     point_in_time_vintage: bool = False
-    # Credential env var names required to fetch (diagnostics only; values are
-    # read from the environment by the provider, never stored in the registry).
+    # Required credential variable names, never their values. The provider reads
+    # values from its supplied environment; the registry does not open credentials.
     required_env: tuple[str, ...] = ()
 
 
-JQUANTS_OPTIONS_SPEC = ProviderSpec(
-    name="jquants_options",
-    all_history_rolling_years=10,
-    required_env=("JQUANTS_API_KEY",),
-)
-
-CFTC_SPEC = ProviderSpec(name="cftc", all_history_start=date(2000, 1, 1))
-ECB_FX_SPEC = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
-FRB_H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
-MULTPL_SPEC = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
-
+# Publication-vintage selection is shared with the read-only L2 contract. Keep
+# this capability pure so a reader does not import the acquisition implementation.
 JQUANTS_FLOWS_SPEC = ProviderSpec(
     name="jquants_flows",
     all_history_rolling_years=10,
     point_in_time_vintage=True,
-    required_env=("JQUANTS_API_KEY",),
-)
-
-JQUANTS_INDICES_SPEC = ProviderSpec(
-    name="jquants_indices",
-    all_history_rolling_years=10,
     required_env=("JQUANTS_API_KEY",),
 )

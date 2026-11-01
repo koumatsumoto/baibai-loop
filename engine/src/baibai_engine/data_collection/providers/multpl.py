@@ -4,7 +4,7 @@ from datetime import date
 from html.parser import HTMLParser
 
 from baibai_engine.data_collection.catalog import SourceDefinition
-from baibai_engine.data_collection.provider_contracts import MULTPL_SPEC
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
 from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
@@ -30,7 +30,7 @@ _HISTORY_FLOOR_BY_SLUG = {
 class MultplSource:
     """Retain dated table cells and the page's own source explanation for L2."""
 
-    spec = MULTPL_SPEC
+    spec = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
     name = spec.name
 
     def fetch_records(
