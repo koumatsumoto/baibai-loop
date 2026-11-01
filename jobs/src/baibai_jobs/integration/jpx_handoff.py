@@ -15,6 +15,7 @@ from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pdf
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
@@ -24,6 +25,7 @@ from baibai_jobs.integration.replay_result import ReplayResult
 # These three owners replace their entire current view. Regulations replace only
 # one as-of day. Keep these contracts explicit rather than using a provider LWW.
 _GLOBAL_COLLECTIONS = {"earnings_calendar", "capital_policy", "delistings"}
+_COLLECTIONS = _GLOBAL_COLLECTIONS | {"regulations", "financial_statements"}
 
 
 def export_handoff(
@@ -31,7 +33,7 @@ def export_handoff(
 ) -> tuple[str, ...]:
     if output.exists():
         raise FileExistsError(output)
-    if collection not in _GLOBAL_COLLECTIONS | {"regulations"} or since.tzinfo is None:
+    if collection not in _COLLECTIONS or since.tzinfo is None:
         raise ValueError("invalid JPX handoff selection")
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
@@ -57,7 +59,7 @@ def export_handoff(
 def import_handoff(
     source: Path, target: Path, bundle_ids: tuple[str, ...], *, collection: str
 ) -> ReplayResult:
-    if collection not in _GLOBAL_COLLECTIONS | {"regulations"}:
+    if collection not in _COLLECTIONS:
         raise ValueError("invalid JPX handoff collection")
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
@@ -79,6 +81,31 @@ def import_handoff(
                     raw, conn, table, [(key,) for key in bundle_ids], selection="bundle_id"
                 )
                 for table in ("jpx_source_bundles", "jpx_source_responses")
+            )
+        if collection == "financial_statements":
+            # Additive originals, never provider-wide latest-wins or replacement.
+            # L2 is deterministic on fixed read; report unsupported inputs here too.
+            failures = []
+            for bundle_id in bundle_ids:
+                try:
+                    bundle = read_complete_bundle(conn, bundle_id)
+                    for receipt in bundle.responses:
+                        response = receipt.response
+                        value = extract_pdf(
+                            content=response.body, source_url=response.requested_url,
+                            received_at=response.received_at, bundle_id=bundle_id,
+                            resource_name=receipt.resource_name,
+                        )
+                        if receipt.resource_name != "pdf:" + value.disclosure_number:
+                            raise ValueError("financial PDF resource differs from disclosure")
+                        if value.reason:
+                            failures.append({"bundle_id": bundle_id, "reason": value.reason})
+                except (JPXBundleError, ValueError) as error:
+                    failures.append({"bundle_id": bundle_id, "reason": str(error)})
+            return ReplayResult(
+                report={"raw_rows_added": added, "retained_bundles": list(bundle_ids),
+                        "projection_failures": failures},
+                complete=not failures,
             )
         selected = []
         incomplete = []

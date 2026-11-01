@@ -50,10 +50,14 @@ SOURCES = (
     "edinet-list",
     "edinet-metrics",
     "edinet-facts",
+    "jpx-financial-pdfs",
 )
 _EDINET_SOURCES = {"edinet-list", "edinet-metrics", "edinet-facts"}
 _JQUANTS_SOURCES = {"jquants-market", "jquants-financial"}
-_JPX_COLLECTION = {"jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations"}
+_JPX_COLLECTION = {
+    "jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations",
+    "jpx-financial-pdfs": "financial_statements",
+}
 
 
 def _retained_archive_keys(database: Path) -> set[tuple[str, int]]:
@@ -245,10 +249,9 @@ def main(argv: list[str] | None = None) -> int:
             status = 0
             acquisition_report: dict[str, object] = {}
             if args.command == "acquire":
-                if args.source == "tradingview":
+                if args.source in {"tradingview", "jpx-financial-pdfs"}:
                     raise ValueError(
-                        "Use the official connector and tradingview-source receive; "
-                        "no live client here"
+                        "Use the source's explicit original receipt import; no live client here"
                     )
                 if (
                     args.source.startswith("jquants-")

@@ -35,6 +35,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     PriceBar,
@@ -63,6 +64,7 @@ def generate_financial_and_price_models(
     edinet: EdinetMetricRecord | None = None,
     price_path: dict[str, object] | None = None,
     comparisons: Sequence[FilingComparisons] = (),
+    pdf_statements: Sequence[PdfStatement] = (),
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
 
@@ -118,6 +120,7 @@ def generate_financial_and_price_models(
         input_release=input_release,
         start=growth_start,
         comparisons=comparisons,
+        pdf_statements=pdf_statements,
     )
     # The growth query's display window must not narrow the financial model.
     reported = tuple(
@@ -127,6 +130,8 @@ def generate_financial_and_price_models(
     )
     if reported:
         financial["reported_comparisons"] = [item.model_dump(mode="json") for item in reported]
+    if growth.pdf_supplement is not None:
+        financial["pdf_supplement"] = growth.pdf_supplement.model_dump(mode="json")
     technical = generate_technical_analysis(
         bars, ticker=ticker, as_of=as_of, trading_dates=trading_dates, price_path=price_path
     )
@@ -135,7 +140,9 @@ def generate_financial_and_price_models(
             model_id="company_financials",
             subject=ticker,
             calculation_revision=(
-                f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
+                f"{VALUATION_CALCULATION_REVISION}-observations-v10-pdf-display"
+                if growth.pdf_supplement is not None
+                else f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
                 if reported
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             ),

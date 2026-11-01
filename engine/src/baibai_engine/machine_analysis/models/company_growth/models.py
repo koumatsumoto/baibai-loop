@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfSupplement
 
 type Metric = Literal[
     "sales",
@@ -154,6 +155,10 @@ class CompanyGrowth(Contract):
     comparison_input_reason: str | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    pdf_supplement: PdfSupplement | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    pdf_input_reason: str | None = Field(default=None, exclude_if=lambda value: value is None)
     per: OptionalContext = OptionalContext(
         reason="price_share_unit_and_parent_profit_alignment_not_verified"
     )

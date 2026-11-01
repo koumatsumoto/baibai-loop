@@ -73,4 +73,6 @@ def company_growth(
         end=end,
         comparisons=fixed.comparisons,
         comparison_input_reason=fixed.comparison_input_reason,
+        pdf_statements=fixed.pdf_statements,
+        pdf_input_reason=fixed.pdf_input_reason,
     )

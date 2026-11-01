@@ -9,6 +9,10 @@ from pathlib import Path
 from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
     EDINET_SOURCE_ARCHIVES,
 )
+from baibai_engine.data_collection.providers.jpx.snapshot_contracts import (
+    JPX_SOURCE_BUNDLES,
+    JPX_SOURCE_RESPONSES,
+)
 from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
     EDINET_DOCUMENT_LISTS,
     EDINET_DOCUMENTS,
@@ -22,6 +26,10 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparisons i
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_statement_reader import (
+    read_pdf_statements,
+)
+from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
 from baibai_engine.machine_analysis.observations.financials.reader import (
     read_financial_documents,
 )
@@ -49,6 +57,8 @@ class FixedFinancialDocuments:
     sector: str | None
     comparisons: tuple[FilingComparisons, ...] = ()
     comparison_input_reason: str | None = None
+    pdf_statements: tuple[PdfStatement, ...] = ()
+    pdf_input_reason: str | None = None
 
 
 def read_fixed_financial_documents(
@@ -150,12 +160,42 @@ def _read_fixed_financial_population(
                     as_of=as_of,
                     tickers=(ticker,) if ticker is not None else None,
                 )
+        pdf_statements: dict[str, tuple[PdfStatement, ...]] = {}
+        pdf_input_reason = None
+        pdf_datasets = (JPX_SOURCE_BUNDLES, JPX_SOURCE_RESPONSES)
+        pdf_published = all(item.name in release.dataset_names() for item in pdf_datasets)
+        pdf_present = pdf_published and all(
+            mirror_path(mirror, obj.key).is_file()
+            for item in pdf_datasets
+            for obj in partition_objects(selected_partitions(release, item.name))
+        )
+        if pdf_published and not pdf_present:
+            pdf_input_reason = "fixed_pdf_objects_not_materialized"
+        if pdf_present:
+            materialized = []
+            for item in pdf_datasets:
+                accepted = accepted_dataset(release, item)
+                item_paths = materialize_partitions(
+                    cache, dataset=accepted, partitions=selected_partitions(release, item.name)
+                )
+                if item_paths:
+                    session.connection.read_parquet([str(p) for p in item_paths]).create_view(
+                        item.sqlite_table
+                    )
+                materialized.append(bool(item_paths))
+            if all(materialized):
+                pdf_statements = read_pdf_statements(
+                    session.connection, as_of=as_of,
+                    tickers=(ticker,) if ticker is not None else None,
+                )
         return {
             code: FixedFinancialDocuments(
                 tuple(grouped.get(code, ())),
                 sectors.get(code),
                 comparisons.get(code, ()),
                 comparison_input_reason,
+                pdf_statements.get(code, ()),
+                pdf_input_reason,
             )
-            for code in sorted(grouped.keys() | sectors.keys() | comparisons.keys())
+            for code in sorted(grouped.keys() | sectors.keys() | comparisons.keys() | pdf_statements.keys())
         }
