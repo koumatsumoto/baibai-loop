@@ -364,8 +364,8 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
 
 export function DashboardPage() {
   const [data, setData] = useState<DashboardView | null>(null)
-  const [operations, setOperations] = useState<OutcomesView | null>(null)
-  const [operationsError, setOperationsError] = useState<string | null>(null)
+  const [outcomes, setOutcomes] = useState<OutcomesView | null>(null)
+  const [outcomesError, setOutcomesError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -377,10 +377,10 @@ export function DashboardPage() {
         setError(reason instanceof Error ? reason.message : 'Dashboard を読み込めませんでした')
       })
     fetchJson<OutcomesView>('/api/outcomes', { signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setOperations(value) })
+      .then(value => { if (!controller.signal.aborted) setOutcomes(value) })
       .catch((reason: unknown) => {
         if (controller.signal.aborted) return
-        setOperationsError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
+        setOutcomesError(reason instanceof Error ? reason.message : '運用成績を読み込めませんでした')
       })
     return () => controller.abort()
   }, [])
@@ -414,9 +414,9 @@ export function DashboardPage() {
 
       {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
-      {operationsError !== null
-        ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{operationsError}</AlertDescription></Alert>
-        : operations && <OutcomeCard outcomes={operations.outcomes} />}
+      {outcomesError !== null
+        ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomesError}</AlertDescription></Alert>
+        : outcomes && <OutcomeCard outcomes={outcomes.outcomes} />}
     </PageShell>
   )
 }
