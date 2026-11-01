@@ -287,8 +287,6 @@ class TSECapitalPolicyWorkbookTest(unittest.TestCase):
             parse_tse_capital_policy_workbook(content)
 
 
-
-
 def test_workbook_is_closed_when_monthly_rows_are_missing(mocker):
     workbook = mocker.Mock(worksheets=[])
     mocker.patch.object(capital_policy.openpyxl, "load_workbook", return_value=workbook)

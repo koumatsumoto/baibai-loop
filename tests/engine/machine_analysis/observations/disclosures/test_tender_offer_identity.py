@@ -6,7 +6,9 @@ from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from baibai_engine.machine_analysis.observations.disclosures.tender_offer import edinet_code_to_ticker
+from baibai_engine.machine_analysis.observations.disclosures.tender_offer import (
+    edinet_code_to_ticker,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 

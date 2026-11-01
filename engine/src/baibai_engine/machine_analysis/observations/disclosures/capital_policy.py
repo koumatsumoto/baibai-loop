@@ -157,7 +157,6 @@ def store_tse_capital_policy_rows(sqlite_path: Path, rows: Sequence[TSECapitalPo
         connection.close()
 
 
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _TSEColumns:
     """Where each field sits on one monthly sheet, resolved from its own header."""
