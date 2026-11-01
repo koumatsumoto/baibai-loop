@@ -113,3 +113,38 @@ def test_discovery_registration_is_idempotent_and_preserves_live_source_state(tm
     assert repeated == {"status": "already_registered", "registered": 0}
     assert store.put_keys == writes
     assert store.values[key].body == old_manifest
+
+
+def test_discovery_recovery_rejects_index_evidence_from_another_source(tmp_path):
+    store = MemoryR2Store()
+    packet = _packet(tmp_path, "mof_news")
+    original = receipt()
+    foreign = receipt("foreign-index").model_copy(update={"source": "boj_news"})
+    with closing(open_connection(packet / "receipts.sqlite")) as conn, conn:
+        retain_receipt(conn, original, body=b"synthetic")
+        retain_receipt(conn, foreign, body=b"synthetic")
+    report = {
+        "source": "mof_news",
+        "started_at": SLOT.isoformat(),
+        "asof": SLOT.date().isoformat(),
+        "receipt_ids": [original.receipt_id, foreign.receipt_id],
+        "projection_kinds": {original.receipt_id: "document", foreign.receipt_id: "index"},
+        "document_evidence": {original.receipt_id: {"index_receipt_id": foreign.receipt_id}},
+    }
+    (packet / "result.json").write_text(json.dumps(report))
+    save_handoff(store, "mixed-source", packet, namespace="article-sources")
+    digest = hashlib.sha256(
+        store.values["coordination/article-sources/mixed-source/handoff.json"].body
+    ).hexdigest()
+    publish_planning_input(store, "mof_news", {})
+    writes = list(store.put_keys)
+    with pytest.raises(ValueError, match="index differs from its source"):
+        register_discovery(
+            store,
+            tmp_path / "recovery",
+            source="mof_news",
+            stage_id="mixed-source",
+            manifest_sha256=digest,
+            receipt_ids=[original.receipt_id],
+        )
+    assert store.put_keys == writes

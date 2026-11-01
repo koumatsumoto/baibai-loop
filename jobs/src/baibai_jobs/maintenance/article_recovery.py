@@ -127,8 +127,14 @@ def register_discovery(
             link = original_report.get("document_evidence", {}).get(identity)
             if link is not None:
                 index_id = link["index_receipt_id"]
-                if original_report["projection_kinds"].get(index_id) != "index":
+                if (
+                    index_id not in original_report["receipt_ids"]
+                    or original_report["projection_kinds"].get(index_id) != "index"
+                ):
                     raise ValueError("recovery document index is not in its exact stage")
+                index_receipt = read_receipt(raw, index_id)
+                if index_receipt.source != source or index_receipt.body_ref is None:
+                    raise ValueError("recovery index differs from its source original")
                 copy_receipt_closure(raw, retained, index_id)
                 kinds[index_id] = "index"
                 evidence[identity] = link
