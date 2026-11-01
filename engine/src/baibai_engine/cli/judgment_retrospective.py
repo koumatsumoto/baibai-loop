@@ -24,7 +24,7 @@ from baibai_engine.investment_judgment.judgment_retrospective.store import (
 )
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
-from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.storage.filesystem import write_text_new
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     instant = now or datetime.now(JST)
     try:
-        if args.out is not None and args.out.exists():
+        if args.out is not None and (args.out.exists() or args.out.is_symlink()):
             raise RetrospectiveConflictError(f"output already exists: {args.out}")
         payload: object
         match args.command:
@@ -100,7 +100,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 raise AssertionError(f"unreachable command: {args.command}")
         content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         if args.out is not None:
-            write_text_atomic(args.out, content)
+            try:
+                write_text_new(args.out, content)
+            except FileExistsError as error:
+                raise RetrospectiveConflictError(f"output already exists: {args.out}") from error
         sys.stdout.write(content)
         return 0
     except RetrospectiveConflictError as error:
