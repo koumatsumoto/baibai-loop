@@ -755,11 +755,15 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
     assert documents[0].article_version_id == documents[1].article_version_id
 
 
-def test_tsr_index_observation_binds_document_title_without_heading(tmp_path, monkeypatch):
+@pytest.mark.parametrize("hour, manual", [(13, False), (1, True)])
+def test_tsr_index_observation_binds_document_title_without_heading(
+    tmp_path, monkeypatch, hour, manual
+):
+    slot = SLOT.replace(hour=hour)
     class Clock(datetime):
         @classmethod
         def now(cls, _tz):
-            return SLOT + timedelta(minutes=1)
+            return slot + timedelta(minutes=1)
 
     monkeypatch.setattr(articles, "datetime", Clock)
     index = json.dumps(
@@ -773,10 +777,11 @@ def test_tsr_index_observation_binds_document_title_without_heading(tmp_path, mo
     articles.acquire_source(
         store,
         source="tsr_data",
-        slot=SLOT,
+        slot=slot,
         identity="test",
         directory=packet,
         session=session,
+        manual=manual,
     )
     database = tmp_path / "market.sqlite"
     result = import_handoff("tsr_data", database, packet)
@@ -930,3 +935,30 @@ def test_partial_discovery_before_body_queue_still_saves_all_discovered_work(tmp
     frontier = load_frontier_cursor(store, state)
     assert [url for url, _ in frontier["pending"]] == ["https://news.web.nhk/news/one"]
     assert len(frontier["observed"]) == 1
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_article_cli_passes_manual_selection(tmp_path, monkeypatch, manual):
+    calls = []
+
+    def acquire(_store, **kwargs):
+        calls.append(kwargs)
+        return {"source": kwargs["source"], "status": "not_due"}
+
+    monkeypatch.setattr(articles, "Boto3R2Store", lambda **_: MemoryR2Store())
+    monkeypatch.setattr(articles, "acquire_source", acquire)
+    args = [
+        "--group",
+        "public",
+        "--created-at",
+        SLOT.isoformat(),
+        "--identity",
+        "test",
+        "--directory",
+        str(tmp_path),
+    ]
+    if manual:
+        args.append("--manual")
+    assert articles.main(args) == 0
+    assert {call["source"] for call in calls} == set(articles.GROUPS["public"])
+    assert all(call["manual"] is manual and call["slot"] == SLOT for call in calls)

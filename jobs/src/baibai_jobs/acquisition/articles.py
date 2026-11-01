@@ -83,10 +83,11 @@ def acquire_source(
     directory: Path,
     session: requests.Session,
     group_budget: GroupBudget | None = None,
+    manual: bool = False,
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
-    if not is_due(state, slot=slot, now=started):
+    if not is_due(state, slot=slot, now=started, manual=manual):
         return {"source": source, "status": "not_due"}
     policy = SOURCES[source]
     if group_budget is not None and group_budget.remaining_bytes <= 0:
@@ -572,6 +573,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group", choices=tuple(GROUPS), required=True)
     parser.add_argument("--created-at", type=datetime.fromisoformat, required=True)
+    parser.add_argument("--manual", action="store_true")
     parser.add_argument("--identity", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -592,6 +594,7 @@ def main(argv: list[str] | None = None) -> int:
                     directory=args.directory / source,
                     session=session,
                     group_budget=group_budget,
+                    manual=args.manual,
                 )
             except Exception as error:
                 report = {"source": source, "status": "failed", "reason": type(error).__name__}
