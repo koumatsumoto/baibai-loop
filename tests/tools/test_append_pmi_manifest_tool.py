@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 import tools.pmi_manifest as tool
+from tests.helpers.network import _no_real_network as _no_real_network
 from tools.pmi_manifest import (
     STREAM_TITLES,
     IndexEntry,
