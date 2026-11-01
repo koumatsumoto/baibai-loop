@@ -40,16 +40,11 @@ from baibai_engine.storage.snapshots.models import (
     validate_release_policy as validate_lake_release_policy,
 )
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
+from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
 _MAX_POINTER_BYTES = 64 * 1024
-# A per-attempt read timeout that is shorter than the transfer it guards turns a
-# slow object into an avoidable retry. The floor covers control-plane latency; the
-# transfer term is derived from the object's own size at a throughput well below
-# what this link has measured (11.9 MB/s over the 2 GB store upload that preceded
-# the lake, and 300 MB of Parquet in the first full release publication). Botocore's
-# retry policy applies this value to each attempt; it is not an overall deadline.
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,7 +314,7 @@ class _RemotePublication:
             self.downloaded_bytes += temporary_path.stat().st_size
             if (
                 temporary_path.stat().st_size != expected_size
-                or _sha256(temporary_path) != expected_sha256
+                or sha256_file(temporary_path) != expected_sha256
             ):
                 raise LakePublishError(f"remote object bytes postcondition failed: {key}")
             if destination is not None:
@@ -392,7 +387,10 @@ def publish_release(
                     raise LakePublishError("lake graph contains an unsupported source reference")
             for item in partition.objects:
                 object_path = _mirror_path(mirror_root, item.key)
-                if _sha256(object_path) != item.sha256 or object_path.stat().st_size != item.bytes:
+                if (
+                    sha256_file(object_path) != item.sha256
+                    or object_path.stat().st_size != item.bytes
+                ):
                     raise LakePublishError(f"local object does not match manifest: {item.key}")
                 uploads.append(
                     (
@@ -681,14 +679,6 @@ def _sealed_upload(path: Path) -> Iterator[tuple[Path, str, str, int]]:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _content_md5(path: Path) -> str:

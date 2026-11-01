@@ -42,6 +42,7 @@ from baibai_engine.storage.snapshots.reader import (
 )
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.snapshots.release import create_release as create_lake_release
+from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import (
     LakeBuildError,
     LakeBuildReport,
@@ -314,13 +315,13 @@ def _fetch(
     # Through the validating resolver rather than a join: these keys come off a remote
     # pointer, and a join would follow one that escaped the mirror.
     path = lake_mirror_path(mirror_root, key)
-    if path.is_file() and _file_sha256(path) == expected_sha256:
+    if path.is_file() and sha256_file(path) == expected_sha256:
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=path.parent, prefix=f".{path.name}.") as directory:
         candidate = Path(directory) / path.name
         store.download_file(key, candidate)
-        actual_sha256 = _file_sha256(candidate)
+        actual_sha256 = sha256_file(candidate)
         if actual_sha256 != expected_sha256:
             raise LakePublishError(
                 f"downloaded lake object digest mismatch: {key}; "
@@ -329,14 +330,6 @@ def _fetch(
         candidate.replace(path)
         fsync_directory(path.parent)
     return path
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def build_parser() -> argparse.ArgumentParser:
