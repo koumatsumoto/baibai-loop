@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import sys
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
@@ -131,8 +132,16 @@ def sealed_sqlite_snapshot(
     sealed = workspace / "snapshot.sqlite"
     try:
         try:
-            required = max(sqlite_path.stat().st_size * 2, 64 * 1024 * 1024)
-            if shutil.disk_usage(workspace).free < required:
+            source_bytes = sqlite_path.stat().st_size
+            required = max(source_bytes * 2, 64 * 1024 * 1024)
+            free_bytes = shutil.disk_usage(workspace).free
+            print(
+                f"lake snapshot capacity: source_bytes={source_bytes} "
+                f"required_bytes={required} free_bytes={free_bytes} "
+                f"sufficient={str(free_bytes >= required).lower()}",
+                file=sys.stderr,
+            )
+            if free_bytes < required:
                 raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
             schema_version = create_snapshot(sqlite_path, sealed)
             if schema_version != SQLITE_SCHEMA_VERSION:
