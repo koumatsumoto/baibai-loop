@@ -164,7 +164,7 @@ def build_stock_analysis_metrics(
         # Normalized Earnings Powerのeligibility/orderと利益cycle比較に使い、FV/E[r]には入れない。
         "normalized_per_3fy": normalized_per_3fy,
         "fin_latest_disclosed_date": _date_iso(financial.latest_financial_disclosure_date),
-        # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は valuation/estimates.py。
+        # 機械 E[r] はannual_ratio (0.08 = 8%/年)。成分と前提は historical_evaluation/estimates.py。
         "er_annual": estimate.er_annual if estimate else None,
         "er_reversion_annual": estimate.reversion_annual if estimate else None,
         "er_carry_annual": estimate.carry_annual if estimate else None,

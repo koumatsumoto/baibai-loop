@@ -1,7 +1,7 @@
 """Historical calibration scope: common stocks with a usable price observation.
 
 This retained algorithm reconstructs the former Stock Analysis population; it does
-not define the current five-model generation universe. Size and liquidity are not
+not define the current model-generation universe. Size and liquidity are not
 scope conditions: market cap, average turnover, price-history span, and JPX
 regulation flags are recorded as facts on each snapshot and applied as
 analysis-layer context or parameters by Candidate Discovery. The only structural exclusions are

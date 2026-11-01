@@ -1,4 +1,4 @@
-"""既存source取得・旧較正が共有する暦日窓。新五モデルの読取上限ではない。"""
+"""既存source取得・旧較正が共有する暦日窓。現行モデルの読取上限ではない。"""
 
 BARS_INPUT_WINDOW_DAYS = 1200
 FIN_INPUT_WINDOW_DAYS = 730

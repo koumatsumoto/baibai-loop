@@ -1,4 +1,4 @@
-"""旧較正replay用の母集団・価格basis。現行五モデルの生成対象や選定政策とは別。"""
+"""旧較正replay用の母集団・価格basis。現行モデルの生成対象や選定政策とは別。"""
 
 from __future__ import annotations
 

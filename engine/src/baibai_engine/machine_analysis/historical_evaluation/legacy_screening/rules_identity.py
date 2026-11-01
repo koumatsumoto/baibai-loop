@@ -1,4 +1,4 @@
-"""旧runと較正文脈の意味identity。新しい五モデル・候補政策のidentityではない。"""
+"""旧runと較正文脈の意味identity。現行モデル・候補政策のidentityではない。"""
 
 from __future__ import annotations
 

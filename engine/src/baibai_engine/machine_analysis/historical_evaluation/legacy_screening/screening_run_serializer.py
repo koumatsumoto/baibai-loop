@@ -78,7 +78,7 @@ def stock_analysis_payload(analysis: StockAnalysis) -> dict[str, object]:
 
     calibrationで使う丸め済み座標を維持する。保存済みrunのexportは
     published_run_payloadでraw値を返し、この再計算用のshapeへ変換しない。
-    新しい五モデルへこの丸めや旧候補契約を適用しない。
+    現行モデルへこの丸めや旧候補契約を適用しない。
     """
     entry: dict[str, object] = {}
     entry["ticker"] = QuotedString(analysis.ticker)
