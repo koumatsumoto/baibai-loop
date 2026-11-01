@@ -32,3 +32,29 @@ def test_atomic_writer_preserves_previous_content_when_replace_fails(tmp_path, m
         writer(path, "new" if text else b"new")
     assert path.read_bytes() == b"previous"
     assert list(path.parent.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_directory_fsync_closes_its_descriptor_even_on_failure(tmp_path, monkeypatch, failure):
+    import os
+
+    from baibai_engine.storage.filesystem import fsync_directory
+
+    descriptors = []
+    real_fsync = os.fsync
+
+    def sync(descriptor):
+        descriptors.append(descriptor)
+        if failure:
+            raise OSError("synthetic directory sync failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", sync)
+    if failure:
+        with pytest.raises(OSError, match="synthetic directory sync failure"):
+            fsync_directory(tmp_path)
+    else:
+        fsync_directory(tmp_path)
+    assert len(descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])

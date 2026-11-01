@@ -7,6 +7,8 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from baibai_engine.storage.filesystem import fsync_directory
+
 
 class ImmutableInstallError(RuntimeError):
     pass
@@ -32,7 +34,7 @@ def install_immutable_bytes(
             validate(temporary.read_bytes())
         try:
             os.link(temporary, path)
-            _fsync_directory(path.parent)
+            fsync_directory(path.parent)
             return True
         except FileExistsError:
             if path.read_bytes() != payload:
@@ -53,17 +55,9 @@ def install_immutable_file(path: Path, captured: Path, *, expected_sha256: str) 
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.link(captured, path)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
         return True
     except FileExistsError:
         if sha256_file(path) != expected_sha256:
             raise ImmutableInstallError(f"immutable file already differs: {path}") from None
         return False
-
-
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)

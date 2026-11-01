@@ -14,6 +14,8 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError, ConnectTimeoutError, ReadTimeoutError
 
+from baibai_engine.storage.filesystem import fsync_directory
+
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
     from mypy_boto3_s3.type_defs import PutObjectRequestTypeDef
@@ -201,7 +203,7 @@ class Boto3R2Store:
                     f"R2 get-object size mismatch: expected {expect_bytes}, got {written}"
                 )
             temporary_path.replace(path)
-            _fsync_directory(path.parent)
+            fsync_directory(path.parent)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
@@ -287,14 +289,6 @@ def _operation_timeout(payload_bytes: int | None) -> int:
         return _BASE_OPERATION_TIMEOUT_SECONDS
     transfer = -(-payload_bytes // _MIN_TRANSFER_BYTES_PER_SECOND)
     return _BASE_OPERATION_TIMEOUT_SECONDS + transfer
-
-
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _required(env: Mapping[str, str], name: str) -> str:
