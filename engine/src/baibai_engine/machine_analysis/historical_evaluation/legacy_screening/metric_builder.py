@@ -6,7 +6,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative_valuation import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
+    VALUATION_HISTORY_SESSIONS,
+    build_valuation_history,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative import (
     VALUATION_METRICS,
     relative_valuation,
 )
@@ -16,10 +20,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
     DerivedMetrics,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
-    VALUATION_HISTORY_SESSIONS,
-    build_valuation_history,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,

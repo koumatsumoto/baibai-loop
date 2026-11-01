@@ -10,7 +10,7 @@ from statistics import median
 from types import MappingProxyType
 from typing import NamedTuple
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative_valuation import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative import (
     MIN_SECTOR_MEDIAN_POPULATION,
     normalized_earnings_sector_gaps,
 )

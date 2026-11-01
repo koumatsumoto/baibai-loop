@@ -16,7 +16,7 @@ def production_rules_contract_hash(
     from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
         BARS_INPUT_WINDOW_DAYS,
     )
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
         VALUATION_HISTORY_SESSIONS,
     )
     from baibai_engine.machine_analysis.models.market_context.margin import (

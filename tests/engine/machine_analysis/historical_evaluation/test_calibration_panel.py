@@ -43,6 +43,9 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
     candidate_discovery_method_hash,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
 )
@@ -51,9 +54,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     UNIVERSE_SCOPE_REVISION,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
-    VALUATION_HISTORY_SESSIONS,
 )
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PRE2019_SELF_RANGE_POLICY,

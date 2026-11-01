@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import median
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
     self_range_position,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (

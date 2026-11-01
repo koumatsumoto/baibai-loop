@@ -12,7 +12,9 @@ from tests.helpers.market_context import security_context_from_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
-from baibai_engine.machine_analysis.generation.runners.security_context import SELF_RANGE_WINDOW_BARS
+from baibai_engine.machine_analysis.generation.runners.security_context import (
+    SELF_RANGE_WINDOW_BARS,
+)
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_jpx_regulations,
