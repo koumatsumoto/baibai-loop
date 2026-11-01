@@ -20,8 +20,6 @@ from pydantic import BaseModel, ConfigDict
 
 from baibai_engine.storage.filesystem import write_text_atomic
 
-# GitHub Secret identifier
-
 SECRET_NAME = "TRADINGVIEW_OAUTH_STATE"  # nosec B105
 RUNTIME_ENVIRONMENT = "tradingview-runtime"
 

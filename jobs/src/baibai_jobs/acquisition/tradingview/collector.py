@@ -1,4 +1,4 @@
-"""Serial, resumable TradingView collection with one commit per valid batch."""
+"""Serial TradingView acquisition; retain each result before projecting its batch."""
 
 from __future__ import annotations
 
@@ -44,16 +44,18 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
-from baibai_jobs.maintenance.tradingview_context import JST as JST
-from baibai_jobs.maintenance.tradingview_context import _stored_quality
-from baibai_jobs.maintenance.tradingview_context import calendar_context as calendar_context
-from baibai_jobs.maintenance.tradingview_context import universe as universe
-from baibai_jobs.maintenance.tradingview_context import validate_time as validate_time
-from baibai_jobs.observability.tradingview import CollectionFailure as CollectionFailure
-from baibai_jobs.observability.tradingview import CollectionProgress as CollectionProgress
-from baibai_jobs.observability.tradingview import SourceDataError as SourceDataError
-from baibai_jobs.observability.tradingview import TimeGuardError as TimeGuardError
+from baibai_jobs.maintenance.tradingview_context import (
+    JST,
+    calendar_context,
+    stored_quality,
+    universe,
+    validate_time,
+)
 from baibai_jobs.observability.tradingview import (
+    CollectionFailure,
+    CollectionProgress,
+    SourceDataError,
+    TimeGuardError,
     failure_category,
     failure_line,
 )
@@ -153,7 +155,7 @@ def _snapshot_state(
             raise SourceDataError("Stored TradingView rows lack exact-date master")
         return None, {
             **context,
-            **_stored_quality(conn, day),
+            **stored_quality(conn, day),
             "status": "needs_fetch",
             "snapshot_date": day.isoformat(),
             "needs_master": True,
@@ -167,7 +169,7 @@ def _snapshot_state(
     if not remaining:
         return remaining, {
             **context,
-            **_stored_quality(conn, day),
+            **stored_quality(conn, day),
             "status": "already_saved",
             "snapshot_date": day.isoformat(),
             "rows": len(stored),
@@ -182,7 +184,7 @@ def _snapshot_state(
     remaining = [symbol for symbol in remaining if symbol not in native]
     return remaining, {
         **context,
-        **_stored_quality(conn, day),
+        **stored_quality(conn, day),
         "status": "needs_fetch" if remaining else "originals_saved",
         "snapshot_date": day.isoformat(),
         "needs_master": False,
@@ -430,7 +432,7 @@ async def collect(
             "projection_pending": final_state.get("projection_pending", 0),
             "stop_reason": stop_reason,
             "unresolved": int(totals[1] or 0),
-            "normal_nulls": _stored_quality(conn, day)["normal_nulls"],
+            "normal_nulls": stored_quality(conn, day)["normal_nulls"],
         }
     except Exception as exc:
         if current is None:

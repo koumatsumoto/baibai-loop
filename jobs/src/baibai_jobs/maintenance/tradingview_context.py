@@ -54,7 +54,8 @@ def validate_time(day: date, now: datetime, *, is_business_day: bool = True) -> 
         raise TimeGuardError("Receipt time must match its recorded day and observation window")
 
 
-def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
+def stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
+    """Read retained L2 quality; native request completion is checked separately."""
     # Identifiers are fixed by the physical snapshot contract.
     null_counts = ",".join(f"SUM(fetch_status='ok' AND {name} IS NULL)" for name in FIELDS)
     row = conn.execute(
@@ -103,5 +104,5 @@ def snapshot_state(path: Path, day: date) -> dict[str, object]:
             "rows": len(stored),
             "expected_universe": len(expected),
             "remaining": len(expected - stored),
-            **_stored_quality(conn, day),
+            **stored_quality(conn, day),
         }
