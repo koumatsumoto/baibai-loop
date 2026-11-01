@@ -26,7 +26,7 @@ L1〜L3は情報の性質であり、Jobs・エンジン・AI・人間は実行�
 
 ## 責務と配置
 
-engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは「何が変わると一緒に変更するか」で分け、旧名のimport facadeで関係を隠さない。
+engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは「何が変わると一緒に変更するか」で分け、旧名のimport facadeで関係を隠さない。同じ規則をJobs・CLI・表示へ複写せず、所有者の入口へ集める。局所的な理由は所有実装の近くへ残す。[実装と文書の整理方針](documentation.md)を変更時にも適用する。
 
 | 配置 | 所有する責務・境界 |
 | --- | --- |
@@ -76,9 +76,9 @@ flowchart TB
 
 産業動向と社会動向は、原受領と別のimmutable抽出artifactから生成する。Observationsが主張の帰属・範囲・否定・条件・精度と原文座標を所有し、モデルは比較可能な差分を計算する。産業の共有subjectはversion付き業界定義、社会は薄い市場共有結果を使う。個社には既存5モデルを維持し、共有subjectを銘柄数や候補政策へ混入させない。本文は固定releaseのexact参照へ分け、旧引用のlineage releaseと保持中のlookup releaseを区別する。
 
-記事の有限選択はObservations readerが担当し、Generationは固定選択から両共有モデルの入力と銘柄への関連を組み立てる。情報サービス業は初版で個社の事業範囲との対応が未確認のため、業界subjectとして独立に読み、銘柄への関連を推測で付けない。TSR調査の明示的な対象除外は、指標の母集団と原文spanに残す。
+記事の有限選択はObservations readerが担当し、Generationは固定選択から両共有モデルの入力と銘柄への関連を組み立てる。個社への対応が未確認の業界subjectを推測で銘柄へ付けず、原典の対象除外・母集団・出典を保持する。具体的な選択と対応は[生成owner](../engine/src/baibai_engine/machine_analysis/generation/)から辿る。
 
-生成世代V2は、その世代の対象・予定モデル・関連する共有文脈を固定する。これは重み付けや実行DAGではなく、未生成と生成結果内の欠測を区別するための契約である。L3のsliceは対象企業と必要な共有文脈だけを持ち、再開時に新しいモデル一覧を適用しない。旧V1世代と保存済みSelectionへ新しい既定fieldを補ってidentityを変えない。Company Financialsの明示的な保存ID移行では、運用Selectionと公開時の原Selectionを別に保持する。通常再開は運用Selection、公開Proposalの旧hashと旧出典indexはexact Proposalを指定した`operation selection-evidence`の`as_published`原canonicalへ解決する。Proposal・Review・本人報告・訂正・台帳のhashや参照は付け替えない。
+生成世代は、その世代の対象・予定モデル・関連する共有文脈を固定する。これは重み付けや実行DAGではなく、未生成と生成結果内の欠測を区別するための契約である。L3のsliceは対象企業と必要な共有文脈だけを持ち、再開時に新しいモデル一覧や既定fieldを補わない。保存identityと公開時の原入力を保持し、明示移行後の通常再開と過去の出典照合は[運用手順](../jobs/OPERATIONS.md#financials-identity-cutover)で区別する。
 
 ## 判断と進行
 

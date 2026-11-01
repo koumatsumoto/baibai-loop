@@ -8,4 +8,4 @@
 
 投資と開発の判断基準は[doctrine](docs/doctrine.md)、環境準備と検証は[development](docs/development.md)にあります。実操作は[Investment Judgment](.agents/skills/investment-judgment/SKILL.md)、[取引事実の記録](.agents/skills/ledger-record/SKILL.md)、[市場判断](.agents/skills/market-context-assessment/SKILL.md)、[運用手順](jobs/OPERATIONS.md)から進めます。
 
-文書を変更するときは[文書の残し方・削り方](docs/documentation.md)に従い、実装の転記ではなく価値・背景・責務の理解を支える情報へ絞ります。
+コードと文書を変更するときは[実装と文書の整理方針](docs/documentation.md)に従います。実装の所有者と理由をコードの近くへ集め、文書は全体像・索引・必要な運用への入口に絞ります。
