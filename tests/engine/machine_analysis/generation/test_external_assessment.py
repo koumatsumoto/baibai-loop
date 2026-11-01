@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
+from tests.helpers.external_assessment_observations import RECEIVED, rating, valuation
 
 from baibai_engine.cli.external_assessment import main
 from baibai_engine.machine_analysis.generation.runners.external_assessment import (
