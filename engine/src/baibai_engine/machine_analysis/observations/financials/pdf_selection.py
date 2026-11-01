@@ -192,7 +192,8 @@ def select_pdf_financials(
             reason=reason,
             period_start=current_row.period_start,
             period_end=current_row.period_end,
-            blocks_legacy_ttm=not current_is_annual and any(
+            blocks_legacy_ttm=not current_is_annual
+            and any(
                 (item.current_start, item.current_end)
                 == (current_row.period_start, current_row.period_end)
                 for item in retained
