@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -212,6 +213,16 @@ def test_retry_deadline_outside_budget_records_failure_and_resume_only_missing(
     assert len(client.calls) == 1
     store.events.clear()
     next_client = wire_collector(monkeypatch, store, p, clock, [(200, None, monex_html("7203"))])
+    if header == "18000":
+        waiting = daily.acquire_cohort(store, p, 0)
+        assert waiting["provider_requests"] == 0
+        assert waiting["stop_reason"] == "retry_not_before"
+        assert next_client.calls == []
+        assert staging.read_stage(store, p, 0)[0] == partial
+        # A new work label must respect the same source quota, not reset it.
+        other = replace(p, run_id="next-cycle-same-source")
+        assert daily.acquire_cohort(store, other, 0)["provider_requests"] == 0
+        clock.elapsed += 18001
     assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
     assert len(next_client.calls) == 1
     assert "7203" in next_client.calls[0][0]

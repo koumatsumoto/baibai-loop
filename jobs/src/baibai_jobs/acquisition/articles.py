@@ -52,6 +52,7 @@ from baibai_jobs.acquisition.article_planning import (
     load_planning,
     slot_at,
 )
+from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
 from baibai_jobs.acquisition.receipts import download_fixed
 
 # The two shared hosts use the same Actions concurrency keys as the existing
@@ -67,6 +68,16 @@ GROUPS = {
 
 # Independently allocated group caps total 128 MiB/slot; no shared mutable quota.
 GROUP_BYTES = {"public": 80 * 1024 * 1024, "minkabu": 24 * 1024 * 1024, "rakuten": 24 * 1024 * 1024}
+
+
+def cooldown_key(source: str) -> str:
+    # Match the existing shared quota across article/equity workflows. Public
+    # providers keep independent waits; the two TSR streams share one provider.
+    quota = next(
+        (group for group in ("minkabu", "rakuten") if source in GROUPS[group]),
+        "tsr" if source in {"tsr_data", "tsr_flash"} else source,
+    )
+    return quota_key(quota)
 
 
 @dataclass
@@ -87,6 +98,12 @@ def acquire_source(
 ) -> dict[str, Any]:
     started = datetime.now(UTC)
     state, etag = load_planning(store, source)
+    key = cooldown_key(source)
+    if state.not_before is not None and datetime.fromisoformat(state.not_before) > started:
+        extend(store, key, datetime.fromisoformat(state.not_before))
+    shared_deadline, _ = read_deadline(store, key)
+    if shared_deadline is not None and started < shared_deadline:
+        return {"source": source, "status": "not_due", "reason": "retry_not_before"}
     if not is_due(state, slot=slot, now=started, manual=manual):
         return {"source": source, "status": "not_due"}
     policy = SOURCES[source]
@@ -547,17 +564,23 @@ def acquire_source(
             "omitted_url_count": omitted_urls,
         }
     write_json_atomic(directory / "result.json", report)
-    saved_stage = commit_stage(
-        store,
-        state=state,
-        expected_etag=etag,
-        slot=slot,
-        stage_id=stage_id,
-        directory=directory,
-        requests=planning,
-        cursor=cursor,
-        not_before=cooldown,
-    )
+    try:
+        saved_stage = commit_stage(
+            store,
+            state=state,
+            expected_etag=etag,
+            slot=slot,
+            stage_id=stage_id,
+            directory=directory,
+            requests=planning,
+            cursor=cursor,
+            not_before=cooldown,
+        )
+    finally:
+        # A saved raw handoff can outlive a failed cursor CAS. Preserve its quota
+        # wait independently so another source/run cannot immediately request again.
+        if cooldown is not None and datetime.fromisoformat(cooldown) > datetime.now(UTC):
+            extend(store, key, datetime.fromisoformat(cooldown))
     return {
         **{
             key: value

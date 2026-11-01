@@ -64,7 +64,7 @@ class Store:
 def test_missing_expired_and_future_deadline(tmp_path, monkeypatch, capsys, hours):
     store = Store()
     if hours is not None:
-        cooldown.extend(store, NOW + timedelta(hours=hours))
+        cooldown.extend(store, cooldown.KEY, NOW + timedelta(hours=hours))
 
     class Clock(datetime):
         @classmethod
@@ -84,11 +84,11 @@ def test_missing_expired_and_future_deadline(tmp_path, monkeypatch, capsys, hour
 def test_extension_is_monotonic_and_recovers_ambiguous_write(fault):
     store = Store()
     store.fault = fault
-    cooldown.extend(store, NOW + timedelta(hours=5))
-    actual, _ = cooldown.read_deadline(store)
+    cooldown.extend(store, cooldown.KEY, NOW + timedelta(hours=5))
+    actual, _ = cooldown.read_deadline(store, cooldown.KEY)
     assert actual >= NOW + timedelta(hours=5)
     writes = store.writes
-    cooldown.extend(store, NOW + timedelta(hours=1))
+    cooldown.extend(store, cooldown.KEY, NOW + timedelta(hours=1))
     assert store.writes == writes
 
 
@@ -97,7 +97,7 @@ def test_storage_failure_is_not_a_successful_record(fault):
     store = Store()
     store.fault = fault
     with pytest.raises((cooldown.CooldownError, LakePublishError)):
-        cooldown.extend(store, NOW)
+        cooldown.extend(store, cooldown.KEY, NOW)
 
 
 @pytest.mark.parametrize(
@@ -113,15 +113,15 @@ def test_corrupt_state_stops_acquisition(body):
     store = Store()
     store.body = body
     with pytest.raises(cooldown.CooldownError):
-        cooldown.read_deadline(store)
+        cooldown.read_deadline(store, cooldown.KEY)
 
 
 def test_generation_change_stops_acquisition():
     store = Store()
-    cooldown.extend(store, NOW)
+    cooldown.extend(store, cooldown.KEY, NOW)
     store.fault = "generation"
     with pytest.raises(cooldown.CooldownError):
-        cooldown.read_deadline(store)
+        cooldown.read_deadline(store, cooldown.KEY)
 
 
 def test_partial_and_failure_record_only_the_latest_safe_deadline(tmp_path):
