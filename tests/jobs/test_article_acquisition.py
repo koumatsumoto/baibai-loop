@@ -755,7 +755,7 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
     assert documents[0].article_version_id == documents[1].article_version_id
 
 
-@pytest.mark.parametrize("hour, manual", [(13, False), (1, True)])
+@pytest.mark.parametrize(("hour", "manual"), [(13, False), (1, True)])
 def test_tsr_index_observation_binds_document_title_without_heading(
     tmp_path, monkeypatch, hour, manual
 ):
