@@ -655,7 +655,9 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         )
         assert preview.status == "unchanged"
         assert preview.items[0]["blockers"] == []
-        assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+        assert (
+            get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+        )
     assert commits == 1
     monkeypatch.setattr(input_reader, "read_unadjusted_close", read_quote)
     # The next independent read sees the whole correction. No reader closes or
