@@ -28,7 +28,7 @@ releaseへの収録境界、開示日cutoff、L3の入力確定時刻は別で�
 
 比較期の日付をCSV相対年度名や一覧の年度末から作らず、提出日時より前の評価には使用しない。訂正・取下げは既存EDINET操作行の解決に従い、欠けた訂正ZIPを以前の文書から埋めない。全vintageを明示し、原本未配置は比較入力の不足として既存J-Quants観測と分ける。存在する固定objectのhash不一致は従来どおり読取を止める。新しい必須取得やschema変更はなく、保存済みpayload/ID/hashは書き換えない。
 
-実証fixtureは[436A年次・INPEX半期](../../tests/fixtures/edinet/comparisons/README.md)。Q1/Q3や他の本表roleへ可用性を一般化しない。[Issue #1683](https://github.com/koumatsumoto/baibai-loop/issues/1683)の9268 Q1の同一短信XBRL取得は既存subscription対象外の403で未解決であり、PDF座標の差1,549百万円・TTM営業利益11,386百万円等は自動復元していない。J-Quantsとの文書対応やTTMへの接続は未提供で、TTM三項の同基準条件を緩めない。取得不能の比較と経済的な解釈はL3へ残す。
+実証fixtureは[436A年次・INPEX半期](../../tests/fixtures/edinet/comparisons/README.md)。このEDINET経路の可用性をQ1/Q3や他の本表roleへ一般化しない。保存PDFを使う組替比較・TTMは後述の別経路であり、XBRLを取得できたことにはならない。具体的な取得制約と本番受入結果は[Issue #1683](https://github.com/koumatsumoto/baibai-loop/issues/1683)に残す。
 
 赤字縮小・黒字化は元の実額と符号変化で読み、負/ゼロ基準の通常率だけで改善を決めない。営業利益を経常利益で代替せず、金融業へ非金融の営業利益率を当てはめない。EPS・株数は原値を残すが、株式basis未検証の変化率は作らない。
 
@@ -36,7 +36,7 @@ PER・peer比較は現版では未提供。価格・利益・資本の単位対�
 
 ## PDF組替比較の選択
 
-保存PDFの最新開示照合は企業財務と同じ`pdf_selection`を使う。選択した同一文書の比較欄は当期/Q1の前年比較へ、年度＋当期−比較期はTTMへ接続する。原本hash・文書日時・表示額精度を残し、旧原観測の基準を変更しない。金融業/業種未確認の利益率制約は維持する。選択と訂正の運用は[取得・受入手順](../../jobs/OPERATIONS.md)を参照。
+保存PDFの最新開示照合は企業財務と同じ[選択owner](../../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_selection.py)を使う。選択した同一文書の比較欄は当期/Q1の前年比較へ、年度＋当期−比較期はTTMへ接続する。最新とは保持開示の範囲内であり、未受領の訂正まで確認済みとはしない。表示額由来の近似・原本hash・文書日時を残し、旧原観測の基準を変更しない。金融業/業種未確認の利益率制約は維持する。選択と訂正の運用は[取得・受入手順](../../jobs/OPERATIONS.md#jpx決算pdfの表示額による補完)を参照。
 
 ## Investment Judgmentへの接続
 
