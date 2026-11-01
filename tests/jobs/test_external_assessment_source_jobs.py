@@ -264,6 +264,9 @@ def test_workflow_stages_each_source_without_waiting_for_its_siblings():
     assert "sources resolve" in cycle["run"]
     assert "R2_ACCESS_KEY_ID" not in str(cycle)
     assert acquire["outputs"]["run_id"] == "${{ steps.cycle.outputs.run_id }}"
+    assert acquire["outputs"]["observation_date"] == "${{ steps.cycle.outputs.observation_date }}"
+    notification = child["jobs"]["notify"]["steps"][-1]
+    assert "needs.acquire.outputs.observation_date" in notification["env"]["ASOF"]
     handoff = child["jobs"]["handoff"]
     assert handoff["needs"] == "acquire"
     assert "always()" in handoff["if"]

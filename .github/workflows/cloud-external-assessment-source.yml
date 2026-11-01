@@ -40,6 +40,7 @@ jobs:
     timeout-minutes: 300
     outputs:
       run_id: ${{ steps.cycle.outputs.run_id }}
+      observation_date: ${{ steps.cycle.outputs.observation_date }}
     env:
       SOURCE: ${{ inputs.source }}
       SOURCE_RUN_ID: ${{ inputs.run_id }}
@@ -115,7 +116,7 @@ jobs:
           PYTHONPATH: jobs/src
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SOURCE_GROUP: external-${{ inputs.source }}
-          ASOF: ${{ inputs.observation_date || inputs.master_asof }}
+          ASOF: ${{ needs.acquire.outputs.observation_date || inputs.observation_date || inputs.master_asof }}
           ACQUIRE_RESULT: ${{ needs.acquire.result }}
           STAGE_RESULT: ${{ needs.handoff.result }}
         run: python3 -m baibai_jobs.observability.source_discord
