@@ -10,7 +10,7 @@ import pytest
 from tests.helpers.edinet_handoff_inputs import DAY, STAMP, projection_state, receive
 from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
-from tests.jobs.test_source_receipts import Store
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
@@ -46,7 +46,7 @@ from baibai_jobs.publication.policy import release_policy_for_profile
 def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after_hydrate(
     tmp_path, monkeypatch, new_day, other_partial
 ):
-    store = Store()
+    store = MemoryR2Store()
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     receive(market, "S100OLD", STAMP)
     rebuild_edinet_document_day(market, DAY)

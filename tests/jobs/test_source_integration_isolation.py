@@ -5,7 +5,8 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.jquants_receipts import FIRST_AT, body, calendar, receive
-from tests.jobs.test_source_receipts import Store, stage
+from tests.helpers.native_handoff import stage
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
@@ -22,7 +23,7 @@ from baibai_jobs.integration.sources import apply
 def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_source(
     tmp_path, monkeypatch
 ):
-    store = Store()
+    store = MemoryR2Store()
     market, source = tmp_path / "market.sqlite", tmp_path / "source.sqlite"
     prior = calendar(market, "2026-10-01", "2026-10-10", 1, FIRST_AT)
     project_request(market, prior)
@@ -96,7 +97,7 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
 def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
     tmp_path, monkeypatch, projection_failed
 ):
-    store = Store()
+    store = MemoryR2Store()
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     for path, initialize in ((market, open_connection), (economic, initialize_database)):
         with closing(initialize(path)):
@@ -144,7 +145,7 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
 
 
 def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False, market_report=None):
-    store = Store()
+    store = MemoryR2Store()
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     for path, initialize in ((market, open_connection), (economic, initialize_database)):
         with closing(initialize(path)):
