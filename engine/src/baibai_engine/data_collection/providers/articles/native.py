@@ -496,8 +496,17 @@ def parse_document(
             ),
             None,
         )
-    if region is None and source == "mof_news" and urlsplit(url).path.startswith("/pri/"):
-        regions = [node for node in nodes if node.attrs.get("id") == "contents-wrap"]
+    if region is None and source == "mof_news":
+        location = urlsplit(url)
+        # 財務局と財務総研の確認済み本文領域だけを使い、ページ全体へfallbackしない。
+        region_id = (
+            "mainArea"
+            if location.hostname == "lfb.mof.go.jp"
+            else "contents-wrap"
+            if location.hostname == "www.mof.go.jp" and location.path.startswith("/pri/")
+            else None
+        )
+        regions = [node for node in nodes if region_id and node.attrs.get("id") == region_id]
         if len(regions) == 1:
             region = regions[0]
             heading = next(

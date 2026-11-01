@@ -84,6 +84,25 @@ def test_pri_body_excludes_site_heading_navigation_and_footer():
         parse_document("mof_news", html + html, url=TARGET, encoding="shift_jis")
 
 
+def test_bureau_body_uses_its_native_region_without_broadening_other_hosts():
+    body = (
+        '<header><h1>サイト名</h1></header><nav>共通ナビ</nav>'
+        '<div id="mainArea"><h1>合成の財務局資料</h1><p>合成本文</p></div>'
+        '<footer>共通フッター</footer>'
+    ).encode()
+    target = "https://lfb.mof.go.jp/renkei/torikumi.html"
+    item = parse_document("mof_news", body, url=target)
+    assert item.title == "合成の財務局資料"
+    assert item.content_scope == "partial_text"
+    assert "合成本文" in item.text
+    assert all(text not in item.text for text in ("サイト名", "共通ナビ", "共通フッター"))
+    assert item.published_raw is None
+    with pytest.raises(NativeArticleUnsupported):
+        parse_document("mof_news", body + body, url=target)
+    with pytest.raises(NativeArticleUnsupported):
+        parse_document("mof_news", body, url=TARGET)
+
+
 @pytest.mark.parametrize(
     "url",
     [
