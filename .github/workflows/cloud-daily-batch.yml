@@ -114,7 +114,7 @@ jobs:
           jobs/scripts/r2_transfer.sh pull-machine
 
       # The market store arrives holding only what the lake does not own — the coverage
-      # ledger and the operator-derived tables. Filling the rest from the current release
+      # ledger and store metadata. Filling lake-owned observations and originals from current
       # is what makes it the store every reader already expects. It fails closed on the
       # published row counts, so a fill that silently did nothing cannot reach screening
       # as an empty universe.

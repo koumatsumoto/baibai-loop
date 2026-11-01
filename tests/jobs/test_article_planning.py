@@ -1,7 +1,8 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import pytest
+from tests.helpers.article_acquisition import SLOT, _packet
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
@@ -19,9 +20,6 @@ from baibai_jobs.acquisition.article_planning import (
     source_key,
 )
 from baibai_jobs.maintenance.article_recovery import exact_entry
-
-SLOT = datetime(2026, 10, 29, 13, 13, tzinfo=UTC)
-
 
 def test_six_wakeups_do_not_assume_a_fixed_tsr_launch_hour():
     news = ArticlePlanning("boj_news", {})
@@ -42,20 +40,6 @@ def test_missing_input_is_not_an_empty_success_and_cooldown_survives_slots():
     state = ArticlePlanning("boj_news", {}, not_before=(SLOT + timedelta(hours=6)).isoformat())
     assert not is_due(state, slot=SLOT + timedelta(hours=4), now=SLOT + timedelta(hours=4))
     assert is_due(state, slot=SLOT + timedelta(hours=8), now=SLOT + timedelta(hours=8))
-
-
-def _packet(tmp_path, source="boj_news"):
-    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-
-    directory = tmp_path / source
-    directory.mkdir()
-    open_connection(directory / "receipts.sqlite").close()
-    (directory / "result.json").write_text(
-        json.dumps(
-            {"source": source, "started_at": SLOT.isoformat(), "asof": SLOT.date().isoformat()}
-        )
-    )
-    return directory
 
 
 def test_private_raw_precedes_planning_and_summary_never_reads_past_stages(tmp_path):

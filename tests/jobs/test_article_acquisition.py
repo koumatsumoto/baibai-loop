@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from tests.helpers.article_acquisition import SLOT, Response, Session
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.machine_analysis.observations.articles.store import read_observations
@@ -19,39 +20,6 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.cooldown import extend, quota_key
 from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
-
-SLOT = datetime(2026, 10, 29, 13, 13, tzinfo=UTC)
-
-
-class Response:
-    def __init__(self, status, body):
-        self.status_code = status
-        self.body = body
-        self.headers = {"ETag": '"feed-v1"', "Content-Type": "application/xml"}
-        self.encoding = "utf-8"
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        pass
-
-    def iter_content(self, **_):
-        yield self.body
-
-
-class Session:
-    def __init__(self, responses):
-        self.responses = iter(responses)
-        self.headers = []
-        self.urls = []
-
-    def get(self, _url, **kwargs):
-        assert kwargs["allow_redirects"] is False
-        self.headers.append(kwargs["headers"])
-        self.urls.append(_url)
-        return next(self.responses)
-
 
 def test_external_assessment_quota_wait_blocks_article_before_http(tmp_path):
     store = MemoryR2Store()
@@ -576,7 +544,7 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     stage_id = planning.requests[articles.SOURCES["boj_news"].entry_url]["stage"]["stage_id"]
     # Keep the workset independently intact: only the evictable HTTP validator's
     # old baseline is damaged below. Losing pending work must fail before GET.
-    from tests.jobs.test_article_planning import _packet
+    from tests.helpers.article_acquisition import _packet
 
     from baibai_jobs.acquisition.article_planning import commit_stage
 
