@@ -390,6 +390,8 @@ def _direction(change: float) -> TrendDirection:
 
 
 def _months_before(value: date, months: int) -> date:
+    # Preserve the day number when available, not the month-end convention used
+    # by primitives.dates.add_months_clamped (Feb 28 -> Jan 28, not Jan 31).
     total = value.year * 12 + (value.month - 1) - months
     year, month = divmod(total, 12)
     day = min(value.day, _days_in_month(year, month + 1))
