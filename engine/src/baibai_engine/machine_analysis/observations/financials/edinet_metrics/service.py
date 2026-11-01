@@ -1,4 +1,4 @@
-"""EDINET metricの取得・抽出・保存。原CSVから抽出意味revision付きで保存する。"""
+"""保存済みEDINET CSVから指標を抽出・保存する。通信はJobsの取得入口が所有する。"""
 
 from __future__ import annotations
 

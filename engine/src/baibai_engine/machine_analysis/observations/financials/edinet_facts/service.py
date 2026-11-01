@@ -1,4 +1,4 @@
-"""Acquire and extract annual Research facts, or re-extract stored XBRL archives."""
+"""Plan and extract annual research observations from retained XBRL archives."""
 
 from __future__ import annotations
 

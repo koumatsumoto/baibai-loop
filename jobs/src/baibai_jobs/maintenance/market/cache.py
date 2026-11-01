@@ -158,9 +158,9 @@ def backfill_history_command(
 
     ``bootstrap-cache`` derives its windows from one as-of, which is right when the
     question is "can this run proceed" and wrong when the question is "does the store
-    reach back far enough". Covering years that way costs one 1200-day and one 730-day
-    re-fetch per as-of; naming the window once costs one pass, and the coverage merge
-    joins it to what is already held.
+    reach back far enough". Repeated as-of runs revisit overlapping price and
+    financial windows; naming the window once requests one bounded pass, and
+    coverage merges it with what is already held.
 
     Source-specific failures are independent, but exhausted shared quota ends the
     pass. Chunks already covered are skipped, so a run interrupted after hours
@@ -314,10 +314,9 @@ def backfill_master_command(
 
     A calibration cohort becomes production evidence only when its population
     comes from a master snapshot of its own date. ``bootstrap-cache`` reaches
-    that state as a side effect of also re-fetching a 1200-day bar window and a
-    730-day summary window, which costs hours per date; the snapshot itself is
-    one request. Backfilling a monthly grid is therefore one cheap pass here
-    instead of one expensive pass per cohort.
+    that state alongside broad price and financial windows; the master snapshot
+    itself is one request. Backfilling a monthly grid here avoids planning those
+    unrelated windows for every cohort.
 
     Each date is independent: a date the provider cannot answer is reported and
     the pass continues, and the exit code is non-zero if any date failed. A date

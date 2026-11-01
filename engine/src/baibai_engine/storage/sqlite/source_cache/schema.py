@@ -16,8 +16,8 @@ import sqlite3
 from functools import lru_cache
 from pathlib import Path
 
-from baibai_engine.data_collection.providers.edinet.contract import EDINET_LIST_RESPONSES_DDL
 from baibai_engine.data_collection.providers.edinet.storage_contracts import (
+    EDINET_LIST_RESPONSES_DDL,
     EDINET_SOURCE_ARCHIVES_DDL,
 )
 from baibai_engine.data_collection.providers.jpx.contract import JPX_SOURCE_BUNDLES_DDL
