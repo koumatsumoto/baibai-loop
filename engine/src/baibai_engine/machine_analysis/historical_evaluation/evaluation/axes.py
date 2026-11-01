@@ -25,12 +25,12 @@ from baibai_engine.machine_analysis.historical_evaluation.evaluation.policy impo
     AxisSpec,
 )
 from baibai_engine.machine_analysis.historical_evaluation.evaluation.statistics import (
-    _annualize_return,
     _decile_values,
     _group_stats,
     _rounded_delta,
     _spearman,
     _weighted_mean,
+    annualize_return,
 )
 from baibai_engine.machine_analysis.historical_evaluation.forward import (
     TOTAL_RETURN_BASIS,
@@ -651,8 +651,8 @@ def _evaluate_er_level_calibration(
             continue
         assert forward.price_return is not None
         assert forward.total_return is not None
-        price_annual = _annualize_return(forward.price_return, years=years)
-        total_annual = _annualize_return(forward.total_return, years=years)
+        price_annual = annualize_return(forward.price_return, years=years)
+        total_annual = annualize_return(forward.total_return, years=years)
         if price_annual is None or total_annual is None:
             continue
         entries.append((row, price_annual, total_annual))
@@ -671,7 +671,7 @@ def _evaluate_er_level_calibration(
         quintiles.append(
             {
                 # This diagnostic uses observed outcomes. Display-context boundaries
-                # are separately derived from all declared predictions in context.py.
+                # are separately derived from all declared predictions in context/builder.py.
                 "max_predicted_er_annual": round(
                     max(float(row.er_annual or 0.0) for row, _, _ in chunk), 6
                 ),

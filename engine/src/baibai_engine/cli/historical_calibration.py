@@ -18,7 +18,9 @@ from baibai_engine.machine_analysis.historical_evaluation.context.builder import
 from baibai_engine.machine_analysis.historical_evaluation.estimates import (
     EXPECTED_RETURN_MODEL_VERSION,
 )
-from baibai_engine.machine_analysis.historical_evaluation.evaluation import evaluate_cohorts
+from baibai_engine.machine_analysis.historical_evaluation.evaluation.cohorts import (
+    evaluate_cohorts,
+)
 from baibai_engine.machine_analysis.historical_evaluation.evidence import (
     CANDIDATE_DISCOVERY_APPROACH_SUBJECT,
     DECISION_SUBJECTS,
