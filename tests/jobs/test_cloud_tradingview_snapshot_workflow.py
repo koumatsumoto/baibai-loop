@@ -54,7 +54,6 @@ def test_metadata_order_and_exclusive_writer():
         "setup",
         "setup-uv",
         "sync",
-        "duckdb-httpfs",
         "pull",
         "hydrate",
         "preflight",
@@ -179,7 +178,6 @@ def test_gates_secret_scopes_and_durability():
         "setup",
         "setup-uv",
         "sync",
-        "duckdb-httpfs",
         "pull",
         "hydrate",
         "preflight",
@@ -729,3 +727,11 @@ def test_skipped_acquisition_summary_keeps_stored_quality(tmp_path, status, expe
         assert f"| {name} | {value} |" in text
     assert "price_target_average" in text
     assert "| last_fetched_at_utc | 2026-10-11T00:01:00+00:00 |" in text
+
+
+def test_scoped_receipt_workflow_does_not_require_remote_duckdb_extension():
+    text = PATH.read_text(encoding="utf-8")
+    assert "httpfs" not in text
+    assert "hydrate-market" not in text
+    assert "source_handoff input --source tradingview" in text
+    assert "source_handoff resume --source tradingview" in text
