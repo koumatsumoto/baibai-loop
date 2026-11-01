@@ -1056,7 +1056,10 @@ def test_final_parity_failure_keeps_previous_release(tmp_path, monkeypatch, fail
 
 @pytest.mark.parametrize("failure", ["space", "schema", "capture", "interrupted"])
 def test_sealed_snapshot_cleans_capture_failures_without_touching_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
 ) -> None:
     source = tmp_path / "market.sqlite"
     source.write_bytes(b"unchanged source")
@@ -1090,6 +1093,11 @@ def test_sealed_snapshot_cleans_capture_failures_without_touching_source(
         pytest.fail("failed capture exposed a snapshot")
     assert not workspace.exists()
     assert source.read_bytes() == b"unchanged source"
+    capacity_log = capsys.readouterr().err
+    assert "lake snapshot capacity: source_bytes=16 required_bytes=67108864" in capacity_log
+    if failure == "space":
+        assert "free_bytes=0 sufficient=false" in capacity_log
+    assert str(source) not in capacity_log
 
 
 def test_gc_does_not_follow_staging_symlink_into_unowned_file(tmp_path: Path) -> None:
