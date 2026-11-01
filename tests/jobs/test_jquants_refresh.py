@@ -709,9 +709,7 @@ def test_failed_projection_keeps_committed_source_receipt(database):
         assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize(
-    ("status", "count"), [("ok", 1), ("ok", 0), ("partial", 1), ("failed", 1)]
-)
+@pytest.mark.parametrize(("status", "count"), [("ok", 1), ("ok", 0), ("partial", 1), ("failed", 1)])
 def test_daily_and_backfill_margin_plans_share_coverage_but_not_publication_boundary(
     database, status, count
 ):
