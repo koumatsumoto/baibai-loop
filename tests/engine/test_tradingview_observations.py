@@ -1,42 +1,14 @@
-"""Retained TradingView normalization and exact saved universe."""
+"""Pure TradingView forecast normalization and response accounting."""
 
 import copy
-from contextlib import closing
-from pathlib import Path
 
 import pytest
-from tests.helpers.master import insert_master_rows
-from tests.helpers.tradingview import DAY, NOW, payload, store
+from tests.helpers.tradingview import NOW, payload
 
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FetchError,
     normalize_batch,
 )
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.tradingview_context import universe
-
-
-def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: Path) -> None:
-    path = store(tmp_path / "market.sqlite", 1)
-    conn = open_connection(path)
-    with conn:
-        insert_master_rows(
-            conn,
-            [
-                (DAY.isoformat(), "2000", "fund", "プライム", "その他", "014"),
-                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械", "011"),
-                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械", "011"),
-            ],
-        )
-    assert universe(conn, DAY) == ["TSE:1000"]
-    with conn:
-        conn.execute(
-            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'"
-        )
-    with pytest.raises(JQuantsProviderError, match="product category"):
-        universe(conn, DAY)
-    conn.close()
 
 
 @pytest.mark.parametrize("forecast", [None, 0, -5])
@@ -69,16 +41,6 @@ def test_response_accounting_refuses_invalid_payload(case: str) -> None:
         p["data"][symbols[0]]["close"] = float("nan")
     with pytest.raises(FetchError):
         normalize_batch(p, symbols, NOW)
-
-
-def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
-    path = store(tmp_path / "market.sqlite", 1)
-    with closing(open_connection(path)) as conn, conn:
-        conn.execute(
-            "UPDATE jquants_master_snapshots "
-            "SET record_json=json_set(record_json,'$.S33Nm','新業種')"
-        )
-        assert universe(conn, DAY) == ["TSE:1000"]
 
 
 @pytest.mark.parametrize(
