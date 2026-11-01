@@ -270,7 +270,6 @@ def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str
     }
 
 
-
 def legacy_omission_evidence(
     store: ObjectStore, state: ArticlePlanning
 ) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:

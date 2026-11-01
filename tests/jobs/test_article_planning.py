@@ -230,7 +230,7 @@ def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "failures,bodies,recoverable",
+    ("failures", "bodies", "recoverable"),
     [
         (["pending_cursor_overflow"], 8, True),
         (["http_error", "pending_cursor_overflow"], 8, False),
@@ -279,8 +279,11 @@ def test_legacy_omission_requires_exact_successful_window_even_after_ack(
         assert result == (entry, [{"stage": entry, "index_receipt_id": "index"}])
         from dataclasses import replace
 
-        assert legacy_omission_evidence(
-            remote, replace(saved, cursor={**cursor, "pending_urls": ["changed"]})
-        ) is None
+        assert (
+            legacy_omission_evidence(
+                remote, replace(saved, cursor={**cursor, "pending_urls": ["changed"]})
+            )
+            is None
+        )
     else:
         assert result is None
