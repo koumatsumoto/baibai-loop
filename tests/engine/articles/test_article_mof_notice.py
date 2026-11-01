@@ -4,6 +4,7 @@ import pytest
 
 from baibai_engine.data_collection.providers.articles.native import (
     NativeArticleUnsupported,
+    discover_links,
     parse_document,
     parser_revision_for,
 )
@@ -26,7 +27,7 @@ def test_notice_retains_explicit_target_without_claiming_body_or_publication_dat
     assert item.published_raw is None
     assert item.metadata == {"redirect_target_url": target}
     assert item.missing_parts == ("redirect_target_body_is_a_separate_receipt",)
-    assert parser_revision_for("mof_news") == "article-native-mof-v5"
+    assert parser_revision_for("mof_news") == "article-native-mof-v6"
 
 
 @pytest.mark.parametrize(
@@ -41,6 +42,9 @@ def test_notice_retains_explicit_target_without_claiming_body_or_publication_dat
         "https://www.mof.go.jp:8443/document.htm",
         "https://www.mof.go.jp/insideLink/next.html",
         "https://lfb.mof.go.jp/insideLink/next.html",
+        "https://www.mof.go.jp/outside_link/next.html",
+        "https://www.customs.go.jp/another-page.htm",
+        "https://www.customs.go.jp/toukei/latest/index.htm?alternate=1",
         NOTICE,
         "javascript:alert(1)",
     ],
@@ -48,6 +52,25 @@ def test_notice_retains_explicit_target_without_claiming_body_or_publication_dat
 def test_notice_does_not_expand_host_scheme_credentials_port_or_redirect_chain(target):
     with pytest.raises(NativeArticleUnsupported):
         parse_document("mof_news", notice(target), url=NOTICE)
+
+
+def test_customs_notice_is_a_separate_bounded_link_and_listing_does_not_expand_history():
+    origin = "https://www.mof.go.jp/outside_link/synthetic.html"
+    target = "https://www.customs.go.jp/toukei/latest/index.htm"
+    links = discover_links("mof_news", notice(target), url=origin)
+    assert [(item.locator, item.url) for item in links] == [("/html/meta-refresh", target)]
+    item = parse_document("mof_news", notice(target), url=origin)
+    assert item.content_scope == "unavailable"
+    body = b'<div id="main"><h1>Latest</h1><a href="../old.pdf">Old</a></div>'
+    assert discover_links("mof_news", body, url=target) == ()
+    projected = parse_document("mof_news", body, url=target)
+    assert projected.metadata["attachments"] == ["https://www.customs.go.jp/toukei/old.pdf"]
+    assert projected.metadata["attachment_scope"] == "rolling_listing_reference_only"
+    assert projected.published_raw is None
+
+
+def test_link_discovery_does_not_require_pdf_body_projection():
+    assert discover_links("mof_news", b"%PDF-not-extractable", url=TARGET) == ()
 
 
 @pytest.mark.parametrize(
@@ -227,7 +250,7 @@ def test_mof_pdf_reprojection_preserves_original_and_prior_failure(tmp_path):
         save_projection(conn, old, ())
         new, (item,) = project_receipt(conn, receipt.receipt_id, kind="document")
         assert new.status == "parsed"
-        assert new.parser_revision == "article-native-mof-v5"
+        assert new.parser_revision == "article-native-mof-v6"
         assert "Synthetic procurement answer" in item.text
         assert read_body(conn, receipt.body_ref) == body
         repeated, _ = project_receipt(conn, receipt.receipt_id, kind="document")
