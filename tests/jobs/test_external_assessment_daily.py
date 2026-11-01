@@ -8,8 +8,8 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.engine.test_external_assessment_daily_verification import ASOF, build_master_lake
 from tests.helpers.external_assessment_html import monex_html
+from tests.helpers.external_assessment_universe import ASOF, build_master_lake
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_response_fixtures import response
 
