@@ -21,6 +21,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
     prior_year_dates_match,
 )
 from baibai_engine.primitives.dates import add_months_clamped
+from baibai_engine.primitives.time import JST
 
 REVISION = "pdf-ifrs-display-statements-v1"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
@@ -151,7 +152,9 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
         dates = re.findall(_DATE, title)
         _require(len(dates) == 1, "pdf_publication_date_unknown")
         published = _date(dates[0])
-        _require(published <= base.received_at.date(), "pdf_publication_after_receipt")
+        _require(
+            published <= base.received_at.astimezone(JST).date(), "pdf_publication_after_receipt"
+        )
         candidates = [
             (number, page)
             for number, page in enumerate(normalized, 1)
@@ -213,15 +216,13 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
             (headline[0], current_start, current_end),
             (headline[1], prior_start, prior_end),
         ):
-            label = re.fullmatch(r"(\d{4})年(\d+)月期(第1四半期)?", row[0])
-            assert label is not None
-            year, month = int(label[1]), int(label[2])
+            header = re.fullmatch(r"(\d{4})年(\d+)月期(第1四半期)?", row[0])
+            assert header is not None
+            year, month = int(header[1]), int(header[2])
             fiscal_end = date(year, month, monthrange(year, month)[1])
             fiscal_start = add_months_clamped(fiscal_end, -12) + timedelta(days=1)
             expected_end = (
-                add_months_clamped(fiscal_start, 3) - timedelta(days=1)
-                if label[3]
-                else fiscal_end
+                add_months_clamped(fiscal_start, 3) - timedelta(days=1) if header[3] else fiscal_end
             )
             _require(start == fiscal_start and end == expected_end, "pdf_headline_period_conflict")
         pairs = []

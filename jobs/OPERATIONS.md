@@ -510,9 +510,7 @@ main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrat
 期待外差分、取得失敗、世代競合、lease失効で後段を止める。準備コピーを本番へ戻さず、再抽出後にhydrateせず、旧値のrevisionだけを付け替えない。通常dailyへ意味移行を代行させない。
 
 <a id="edinet-source-archives"></a>
-## EDINET原本とCompany Research facts
-
-### JPX決算PDFの表示額による補完
+## JPX決算PDFの表示額による補完
 
 詳細APIの未契約を契約変更で解消せず、実際に取得したJPX決算PDFを明示的に取り込める。
 `financial-pdf-source --receipts <JSON> --directory <NEW_PRIVATE_DIRECTORY>`はHTTPを行わず、
@@ -532,6 +530,8 @@ main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrat
 表示額由来と明示し、J-Quantsの精密値、EPS分子、既存TTM・利益利回り・候補政策は上書きしない。
 保持した文書vintageの算術であり、後日訂正の網羅性や最新正準値を保証しない。未取得の訂正・未対応表は別の未達である。
 旧保存結果は再serializeせず、新しいgenerationで反映する。fixture CIと実PDF読取・固定release読戻しを区別する。
+
+## EDINET原本とCompany Research facts
 
 原本再利用は明示したmarket SQLiteのedinet_source_archivesから行い、以前の端末ZIPを暗黙に取り込まない。stored_onは初回保存UTC日で開示・初回利用可能日ではない。受領ZIPとL2の選択文書・metricsを混同せず、取得エラーで既存ZIPを上書きしない。
 

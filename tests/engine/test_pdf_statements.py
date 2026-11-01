@@ -144,6 +144,11 @@ def test_missing_ambiguous_and_future_annual_do_not_fill_ttm():
     assert not build_pdf_supplement([changed_basis, current], as_of=ASOF).ttm
 
 
+def test_publication_date_is_japanese_calendar_not_utc_day():
+    captured = base().model_copy(update={"received_at": datetime(2026, 8, 6, 16, tzinfo=UTC)})
+    assert extract_pages(captured, pages()).reason is None
+
+
 def seed(path, monkeypatch):
     def fake_extract(**kwargs):
         annual = kwargs["source_url"] == FY_URL
