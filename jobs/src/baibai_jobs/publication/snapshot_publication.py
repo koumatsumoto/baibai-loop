@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import sys
 import tempfile
 import time
@@ -25,6 +24,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
 from baibai_engine.storage.snapshots.keys import dataset_manifest_key as lake_dataset_manifest_key
@@ -327,7 +327,7 @@ def _fetch(
                 f"expected {expected_sha256}, got {actual_sha256}"
             )
         candidate.replace(path)
-        _fsync_directory(path.parent)
+        fsync_directory(path.parent)
     return path
 
 
@@ -337,14 +337,6 @@ def _file_sha256(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def build_parser() -> argparse.ArgumentParser:
