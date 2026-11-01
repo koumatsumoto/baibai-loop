@@ -411,19 +411,19 @@ def test_refresh_retry_preserves_identity_but_explicit_material_change_gets_new_
 def test_refresh_file_failure_retry_preserves_scaffolded_identity(case, monkeypatch):
     _db, workspace, _operation = case
     prior, latest = _prior_and_latest(case)
-    writer = scaffold_module.write_text_atomic
+    writer = scaffold_module.write_text_new
 
     def fail_draft(path, content):
         if path.name == "assessment-draft.yaml":
             raise OSError("synthetic draft write failure")
         writer(path, content)
 
-    monkeypatch.setattr(scaffold_module, "write_text_atomic", fail_draft)
+    monkeypatch.setattr(scaffold_module, "write_text_new", fail_draft)
     with pytest.raises(OSError, match="draft write failure"):
         scaffold(case, from_assessment_id=prior.assessment_id)
     identity = yaml.safe_load((workspace / "1234/assessment-publication.yaml").read_text())
     assert not (workspace / "1234/assessment-draft.yaml").exists()
-    monkeypatch.setattr(scaffold_module, "write_text_atomic", writer)
+    monkeypatch.setattr(scaffold_module, "write_text_new", writer)
     resumed = scaffold(case, from_assessment_id=prior.assessment_id)
     assert resumed["assessment_id"] == identity["assessment_id"]
     assert identity["supersedes_id"] == latest.assessment_id
