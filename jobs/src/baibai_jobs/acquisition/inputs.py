@@ -43,6 +43,7 @@ _TABLES = {
         "jquants_market_calendar",
         "jquants_master_snapshots",
         "tradingview_forecast_snapshots",
+        "tradingview_source_receipts",
     ),
 }
 
@@ -75,7 +76,10 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             values: tuple[object, ...] = ()
             if group == "tradingview" and table == "jquants_master_snapshots":
                 condition, values = "snapshot_date = ?", (basis,)
-            elif group == "tradingview" and table == "tradingview_forecast_snapshots":
+            elif group == "tradingview" and table in {
+                "tradingview_forecast_snapshots",
+                "tradingview_source_receipts",
+            }:
                 condition, values = "snapshot_date >= ?", (asof.isoformat(),)
             cursor = raw.execute(f"SELECT * FROM {table} WHERE {condition}", values)  # nosec B608
             placeholders = ",".join("?" for _ in cursor.description or ())
@@ -86,7 +90,12 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         coverage = tuple(
             table
             for table in tables
-            if table not in {"edinet_list_responses", "tradingview_forecast_snapshots"}
+            if table
+            not in {
+                "edinet_list_responses",
+                "tradingview_forecast_snapshots",
+                "tradingview_source_receipts",
+            }
         )
         if group == "edinet-facts":
             coverage += ("edinet_research_facts",)

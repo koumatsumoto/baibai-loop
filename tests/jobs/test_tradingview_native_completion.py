@@ -14,6 +14,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     COLUMNS,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 
 
@@ -112,3 +113,22 @@ def test_explicit_native_missing_is_received_but_not_a_forecast(tmp_path):
     assert state["status"] == "originals_saved"
     assert state["native_received"] == 1
     assert state["rows"] == 0
+
+
+def test_scoped_input_keeps_current_native_receipts_without_old_history(tmp_path):
+    path = store(tmp_path / "canonical.sqlite", 1)
+    response = payload(["TSE:1000"])
+    response["data"]["TSE:1000"]["close"] = "not a number"
+    current = retain(path, response)
+    retain(path, response, snapshot_date=DAY - timedelta(days=1))
+    scoped = tmp_path / "scoped.sqlite"
+    report = export_source_input(path, scoped, group="tradingview", asof=DAY)
+    assert report["rows"]["tradingview_source_receipts"] == 1
+    with closing(open_connection(scoped)) as conn:
+        assert conn.execute("SELECT receipt_id FROM tradingview_source_receipts").fetchall() == [
+            (current,)
+        ]
+    state = preflight_snapshot(scoped, DAY, now=NOW)
+    assert state["status"] == "originals_saved"
+    assert state["projection_pending"] == 1
+    assert state["remaining_requests"] == 0
