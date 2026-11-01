@@ -146,9 +146,7 @@ def publish_planning_input(store: ObjectStore, source: str, generations: dict[st
     put_private(store, key, ArticlePlanning(source, generations).encoded(), previous_etag=None)
 
 
-def is_due(
-    state: ArticlePlanning, *, slot: datetime, now: datetime, manual: bool = False
-) -> bool:
+def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime, manual: bool = False) -> bool:
     slot, now = _clock(slot.isoformat()), _clock(now.isoformat())
     if slot != slot_at(slot) or slot > now:
         raise ValueError("invalid article acquisition slot")

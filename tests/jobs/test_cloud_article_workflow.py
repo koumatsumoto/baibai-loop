@@ -32,5 +32,8 @@ def test_manual_article_dispatch_passes_manual_flag_without_changing_clock():
     )
     steps = workflow["jobs"]["acquire"]["steps"]
     acquire = next(step for step in steps if step.get("name", "").startswith("Acquire due"))
-    assert 'if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then args+=(--manual); fi' in acquire["run"]
+    assert (
+        'if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then args+=(--manual); fi'
+        in acquire["run"]
+    )
     assert '--created-at "$CREATED_AT"' in acquire["run"]

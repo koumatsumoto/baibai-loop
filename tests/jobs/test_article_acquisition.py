@@ -760,6 +760,7 @@ def test_tsr_index_observation_binds_document_title_without_heading(
     tmp_path, monkeypatch, hour, manual
 ):
     slot = SLOT.replace(hour=hour)
+
     class Clock(datetime):
         @classmethod
         def now(cls, _tz):
