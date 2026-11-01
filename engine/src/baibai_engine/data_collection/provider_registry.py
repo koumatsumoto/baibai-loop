@@ -1,22 +1,25 @@
+"""List acquisition capabilities from their owners, without constructing clients.
+
+The catalog selects active source requests. A registered adapter alone does not
+activate a source or give it permission to fetch.
+"""
+
 from __future__ import annotations
 
-from baibai_engine.data_collection.provider_contracts import (
-    CFTC_SPEC,
-    ECB_FX_SPEC,
-    JQUANTS_FLOWS_SPEC,
-    JQUANTS_INDICES_SPEC,
-    JQUANTS_OPTIONS_SPEC,
-    MULTPL_SPEC,
-    ProviderSpec,
-)
+from baibai_engine.data_collection.provider_contracts import JQUANTS_FLOWS_SPEC, ProviderSpec
 from baibai_engine.data_collection.providers.boj.timeseries import BojTimeSeriesSource
 from baibai_engine.data_collection.providers.boj.workbooks import BojSource
+from baibai_engine.data_collection.providers.cftc import CftcSource
+from baibai_engine.data_collection.providers.ecb.fx import EcbFxSource
 from baibai_engine.data_collection.providers.estat.api import EStatSource
 from baibai_engine.data_collection.providers.estat.dashboard import EStatDashboardSource
 from baibai_engine.data_collection.providers.federal_reserve.h15 import FrbH15Source
 from baibai_engine.data_collection.providers.fred import FredSource
+from baibai_engine.data_collection.providers.jquants.indices import JQuantsIndicesSource
+from baibai_engine.data_collection.providers.jquants.options import OptionChainSource
 from baibai_engine.data_collection.providers.matsui.margin import MatsuiMarginSource
 from baibai_engine.data_collection.providers.mof.jgb import MofJgbSource
+from baibai_engine.data_collection.providers.multpl import MultplSource
 from baibai_engine.data_collection.providers.nikkei.indices import NikkeiIndexesSource
 from baibai_engine.data_collection.providers.spglobal.pmi import SpGlobalPmiSource
 from baibai_engine.data_collection.providers.tradingeconomics.pmi import TradingEconomicsPmiSource
@@ -49,10 +52,10 @@ def registered_specs() -> tuple[ProviderSpec, ...]:
         MofJgbSource.spec,
         BojTimeSeriesSource.spec,
         UmichScaSource.spec,
-        JQUANTS_OPTIONS_SPEC,
-        CFTC_SPEC,
-        MULTPL_SPEC,
-        ECB_FX_SPEC,
+        OptionChainSource.spec,
+        CftcSource.spec,
+        MultplSource.spec,
+        EcbFxSource.spec,
         JQUANTS_FLOWS_SPEC,
-        JQUANTS_INDICES_SPEC,
+        JQuantsIndicesSource.spec,
     )

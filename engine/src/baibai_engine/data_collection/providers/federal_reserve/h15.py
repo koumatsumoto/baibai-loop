@@ -6,10 +6,7 @@ from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from baibai_engine.data_collection.catalog import SourceDefinition
-from baibai_engine.data_collection.provider_contracts import (
-    FRB_H15_PACKAGE_SERIES,
-    ProviderSpec,
-)
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
 from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
@@ -25,7 +22,7 @@ from baibai_engine.data_collection.transport.context import (
 
 # Single H.15 package that carries every Treasury constant-maturity series; one
 # download via FetchContext.bytes_cache serves all frb_h15 series in a run.
-_H15_PACKAGE_SERIES = FRB_H15_PACKAGE_SERIES
+_H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
 # The public CSV may return an empty body or HTML rather than data. Headers and
 # a browser response are transport alternatives, not evidence of access policy.
 _USER_AGENT = (

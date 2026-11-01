@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from datetime import date
 from importlib.resources import files
 from unittest import TestCase
 
@@ -192,3 +193,32 @@ class ProviderRegistryTests(TestCase):
             IndicatorsProviderError, "unsupported indicator provider: nonexistent_provider"
         ):
             provider_spec("nonexistent_provider")
+
+
+@pytest.mark.parametrize(
+    ("provider", "start", "rolling", "required_env"),
+    [
+        ("cftc", date(2000, 1, 1), None, ()),
+        ("ecb_fx", date(1999, 1, 1), None, ()),
+        ("multpl", date(1871, 1, 1), None, ()),
+        ("jquants_indices", None, 10, ("JQUANTS_API_KEY",)),
+        ("jquants_options", None, 10, ("JQUANTS_API_KEY",)),
+    ],
+)
+def test_acquisition_capabilities_keep_their_bounds_at_the_provider_owner(
+    provider, start, rolling, required_env
+):
+    from baibai_engine.data_collection.providers.cftc import CftcSource
+    from baibai_engine.data_collection.providers.ecb.fx import EcbFxSource
+    from baibai_engine.data_collection.providers.jquants.indices import JQuantsIndicesSource
+    from baibai_engine.data_collection.providers.jquants.options import OptionChainSource
+    from baibai_engine.data_collection.providers.multpl import MultplSource
+
+    owners = (CftcSource, EcbFxSource, MultplSource, JQuantsIndicesSource, OptionChainSource)
+    owner = next(item for item in owners if item.spec.name == provider)
+    spec = provider_spec(provider)
+    assert spec is owner.spec
+    assert spec.all_history_start == start
+    assert spec.all_history_rolling_years == rolling
+    assert spec.required_env == required_env
+    assert not spec.point_in_time_vintage

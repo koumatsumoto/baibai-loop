@@ -6,15 +6,20 @@ import os
 from collections.abc import Mapping, Sequence
 from datetime import date
 
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.providers.jquants.native import read_native_pages
 from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
 from baibai_engine.data_collection.transport.retry import jquants_read_client, read_deadline
 
-_API_KEY_ENV = "JQUANTS_API_KEY"
-
 
 class OptionChainSource:
     """One authenticated transport and deadline for an application acquisition pass."""
+
+    spec = ProviderSpec(
+        name="jquants_options",
+        all_history_rolling_years=10,
+        required_env=("JQUANTS_API_KEY",),
+    )
 
     def __init__(self, context: FetchContext) -> None:
         self._deadline = read_deadline("jquants_options", context)
@@ -38,10 +43,11 @@ class OptionChainSource:
 
 
 def _read_api_key() -> str:
-    token = os.environ.get(_API_KEY_ENV)
+    name = OptionChainSource.spec.required_env[0]
+    token = os.environ.get(name)
     if not token:
         raise ProviderFetchStoppedError(
-            f"missing {_API_KEY_ENV}; set it in the environment or .env to fetch jquants_options"
+            f"missing {name}; set it in the environment or .env to fetch jquants_options"
         )
     return token
 

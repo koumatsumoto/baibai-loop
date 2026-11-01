@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import date
 
 from baibai_engine.data_collection.catalog import SourceDefinition
-from baibai_engine.data_collection.provider_contracts import ECB_FX_SPEC
+from baibai_engine.data_collection.provider_contracts import ProviderSpec
 from baibai_engine.data_collection.receipts.native_sources.records import NativeRecords
 from baibai_engine.data_collection.transport.context import (
     MAX_ZIP_RESPONSE_BYTES,
@@ -25,7 +25,7 @@ ECB_FX_CSV_NAME = "eurofxref-hist.csv"
 class EcbFxSource:
     """Retain ECB euro-reference CSV fields without calculating currency crosses."""
 
-    spec = ECB_FX_SPEC
+    spec = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
     name = spec.name
 
     def fetch_records(
