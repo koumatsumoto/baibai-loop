@@ -10,6 +10,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import requests
+
 from baibai_engine.data_collection.acquisition.documents import fetch_source_documents
 from baibai_engine.data_collection.acquisition.native_records import fetch_native_records
 from baibai_engine.data_collection.acquisition.policy import (
@@ -49,6 +51,7 @@ class SourceRefreshSuccess:
 class SourceRefreshFailure:
     source_id: str
     message: str
+    http_status: int | None = None
 
 
 type SourceRefreshOutcome = SourceRefreshSuccess | SourceRefreshFailure
@@ -69,7 +72,7 @@ def refresh_sources(
         raise ValueError("end must be on or after start")
     catalog = load_sources()
     outcomes: list[SourceRefreshOutcome] = []
-    stopped_groups: set[str] = set()
+    stopped_groups: dict[str, int | None] = {}
     selected = list(dict.fromkeys(source_ids))
     if not any(source_id in catalog for source_id in selected):
         return tuple(
@@ -87,7 +90,14 @@ def refresh_sources(
                 source = catalog[source_id]
                 policy = source_policy(source)
                 if policy.acquisition_group in stopped_groups:
-                    raise ProviderFetchStoppedError("acquisition group stopped earlier in this run")
+                    outcomes.append(
+                        SourceRefreshFailure(
+                            source_id,
+                            "acquisition group stopped earlier in this run",
+                            stopped_groups[policy.acquisition_group],
+                        )
+                    )
+                    continue
                 if policy.mode == "current_only":
                     if end != datetime.now(ZoneInfo("Asia/Tokyo")).date():
                         raise ValueError("current-only source cannot recover a historical date")
@@ -118,12 +128,21 @@ def refresh_sources(
             except sqlite3.Error:
                 raise
             except Exception as error:
+                cause: BaseException | None = error
+                http_status = None
+                while cause is not None:
+                    if isinstance(cause, requests.HTTPError) and cause.response is not None:
+                        http_status = cause.response.status_code
+                        break
+                    cause = cause.__cause__
                 if isinstance(error, ProviderRateLimitError) or (
                     isinstance(error, ProviderFetchStoppedError)
                     and catalog[source_id].provider in {"spglobal_pmi", "tradingeconomics_pmi"}
                 ):
-                    stopped_groups.add(source_policy(catalog[source_id]).acquisition_group)
-                outcomes.append(SourceRefreshFailure(source_id, redact_credentials(str(error))))
+                    stopped_groups[source_policy(catalog[source_id]).acquisition_group] = http_status
+                outcomes.append(
+                    SourceRefreshFailure(source_id, redact_credentials(str(error)), http_status)
+                )
     return tuple(outcomes)
 
 

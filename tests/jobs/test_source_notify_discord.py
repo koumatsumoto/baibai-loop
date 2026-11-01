@@ -61,3 +61,27 @@ def test_source_failure_has_batch_identity_and_suppresses_run_preview(monkeypatc
     assert "Executor: GitHub Actions" in text
     assert "取得ジョブ: 失敗 / private受領: 成功" in text
     assert text.endswith("Run: <https://github.com/owner/repo/actions/runs/12/attempts/2>")
+
+
+@pytest.mark.parametrize(
+    ("source", "acquired", "staged", "flag", "quiet"),
+    [
+        ("economic-spglobal_pmi", "failure", "success", "true", True),
+        ("economic-tradingeconomics_pmi", "failure", "success", "true", True),
+        ("economic-spglobal_pmi", "failure", "failure", "true", False),
+        ("economic-spglobal_pmi", "cancelled", "success", "true", False),
+        ("economic-spglobal_pmi", "failure", "success", "false", False),
+        ("economic-fred_csv", "failure", "success", "true", False),
+    ],
+)
+def test_only_confirmed_pmi_refusal_with_saved_receipts_is_quiet(
+    monkeypatch, mocker, capsys, source, acquired, staged, flag, quiet
+):
+    monkeypatch.setenv("SOURCE_GROUP", source)
+    monkeypatch.setenv("ACQUIRE_RESULT", acquired)
+    monkeypatch.setenv("STAGE_RESULT", staged)
+    monkeypatch.setenv("EXPECTED_UNAVAILABLE", flag)
+    deliver = mocker.patch.object(source_discord, "deliver", return_value=None)
+    assert source_discord.main() == 0
+    assert deliver.call_count == (0 if quiet else 1)
+    assert ("[UNAVAILABLE]" in capsys.readouterr().out) is quiet
