@@ -599,3 +599,74 @@ def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
     assert {reason.code for reason in reasons} == (
         set() if unchanged else {"quantity_basis_unconfirmed"}
     )
+
+
+@pytest.mark.parametrize("consumer", ["context", "check", "preview"])
+def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, monkeypatch, consumer):
+    from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
+    from baibai_engine.investment_judgment.trade_proposal.query import preview_current_terms
+
+    case = backend_case(tmp_path)
+    proposal = reviewed_proposal(case)
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    if consumer == "preview":
+        proposal = service.publish(proposal)
+    with closing(sqlite3.connect(case.market)) as setup:
+        assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
+    read_quote = input_reader.read_unadjusted_close
+    commits = 0
+
+    def quote_then_correct(**kwargs):
+        nonlocal commits
+        quote = read_quote(**kwargs)
+        with closing(sqlite3.connect(case.market)) as writer, writer:
+            writer.execute("UPDATE jquants_daily_bars SET close = 2200")
+            writer.execute(
+                "UPDATE jquants_master_snapshots "
+                "SET record_json = json_set(record_json, '$.ProdCat', '014')"
+            )
+            writer.execute(
+                "UPDATE jquants_market_calendar SET holiday_division = '0' "
+                "WHERE day = '2026-10-15'"
+            )
+        commits += 1
+        return quote
+
+    monkeypatch.setattr(input_reader, "read_unadjusted_close", quote_then_correct)
+    if consumer == "context":
+        context = build_proposal_context(
+            operation_id=case.operation.operation_id,
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=PUBLISHED,
+        )
+        assert context.inputs.quotes[0].price_yen == Decimal(1100)
+        assert context.inputs.security_classification[0].is_common_stock
+        assert context.next_order_session.isoformat() == "2026-10-15"
+        assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "1000"
+    elif consumer == "check":
+        assert service.check(proposal).valid
+    else:
+        preview = preview_current_terms(
+            proposal_id=proposal.proposal_id,
+            db_path=case.app,
+            sqlite_path=case.market,
+            now=PUBLISHED,
+        )
+        assert preview.status == "unchanged"
+        assert preview.items[0]["blockers"] == []
+        assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    assert commits == 1
+    monkeypatch.setattr(input_reader, "read_unadjusted_close", read_quote)
+    # The next independent read sees the whole correction. No reader closes or
+    # commits its caller's snapshot, and no saved proposal is rewritten.
+    corrected = build_proposal_context(
+        operation_id=case.operation.operation_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED,
+    )
+    assert corrected.inputs.quotes[0].price_yen == Decimal(2200)
+    assert not corrected.inputs.security_classification[0].is_common_stock
+    assert corrected.next_order_session.isoformat() == "2026-10-16"
+    assert corrected.calculations["1234"]["maximum_common_grid_price_yen"] is None

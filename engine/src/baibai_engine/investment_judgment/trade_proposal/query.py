@@ -204,7 +204,9 @@ def _preview_buy(
         classification = next(
             (row for row in inputs.security_classification if row.ticker == item.ticker), None
         )
-        session = next_order_session(sqlite_path=sqlite_path, now=now)
+        session = next_order_session(
+            sqlite_path=sqlite_path, now=now, connection=market_connection
+        )
         grid = (
             None
             if classification is None or session is None
@@ -452,7 +454,13 @@ def preview_current_terms(
                     )
             if item.action in {"buy", "sell"}:
                 blockers.extend(
-                    terms_unavailable_reasons(item, inputs, sqlite_path=sqlite_path, now=now)
+                    terms_unavailable_reasons(
+                        item,
+                        inputs,
+                        sqlite_path=sqlite_path,
+                        now=now,
+                        market_connection=market_connection,
+                    )
                 )
                 if item.terms is None:
                     blockers.append(
@@ -462,7 +470,7 @@ def preview_current_terms(
                         )
                     )
                 elif item.terms.target_session != next_order_session(
-                    sqlite_path=sqlite_path, now=now
+                    sqlite_path=sqlite_path, now=now, connection=market_connection
                 ):
                     blockers.append(
                         GateReason(

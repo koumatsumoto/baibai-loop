@@ -152,7 +152,9 @@ def _validate_action(
                 )
             )
     if item.action in {"buy", "sell"}:
-        unavailable = terms_unavailable_reasons(item, inputs, sqlite_path=sqlite_path, now=now)
+        unavailable = terms_unavailable_reasons(
+            item, inputs, sqlite_path=sqlite_path, now=now, market_connection=market_connection
+        )
         if item.terms is None:
             if {reason.code for reason in unavailable} != {
                 reason.code for reason in item.terms_unavailable_reasons
@@ -175,7 +177,9 @@ def _validate_action(
                         message="売却条件の評価日は参照した保存評価の基準日へ一致させてください。",
                     )
                 )
-            if item.terms.target_session != next_order_session(sqlite_path=sqlite_path, now=now):
+            if item.terms.target_session != next_order_session(
+                sqlite_path=sqlite_path, now=now, connection=market_connection
+            ):
                 blockers.append(
                     GateReason(
                         code="target_session_not_next_available",
