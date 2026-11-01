@@ -626,8 +626,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
                 "SET record_json = json_set(record_json, '$.ProdCat', '014')"
             )
             writer.execute(
-                "UPDATE jquants_market_calendar SET holiday_division = '0' "
-                "WHERE day = '2026-10-15'"
+                "UPDATE jquants_market_calendar SET holiday_division = '0' WHERE day = '2026-10-15'"
             )
         commits += 1
         return quote
