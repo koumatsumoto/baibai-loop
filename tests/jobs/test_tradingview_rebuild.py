@@ -5,22 +5,17 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from mcp.types import CallToolResult, TextContent
-from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
+from tests.helpers.tradingview import DAY, NOW, _sdk, payload, retain_result, store, stored
 
 import baibai_jobs.acquisition.tradingview.cli as cli
-from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import (
     read_tool_results,
-    retain_tool_result,
-)
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-    COLUMNS,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.tradingview_rebuild import (
@@ -63,35 +58,12 @@ def _copy_receipts_only(source: Path, target: Path, receipt_ids: list[str]) -> N
         )
 
 
-def _retain(
-    path: Path,
-    result: CallToolResult,
-    *,
-    day: date = DAY,
-    master: date = DAY,
-    columns: tuple[str, ...] = tuple(COLUMNS),
-    received=NOW,
-    symbols: tuple[str, ...] = ("TSE:1000",),
-) -> str:
-    with closing(open_connection(path)) as conn:
-        return retain_tool_result(
-            conn,
-            snapshot_date=day,
-            master_asof=master,
-            tool_name=BATCH_TOOL,
-            received_at_utc=received,
-            requested_symbols=symbols,
-            requested_columns=columns,
-            result=result,
-        )
-
-
 def test_partial_and_later_selected_receipts_rebuild_exact_rows(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 3)
     first_ids = [
-        _retain(path, _sdk(payload(["TSE:1000"]))),
-        _retain(path, _sdk({"success": True}), symbols=("TSE:1001",)),
-        _retain(path, _sdk(payload(["TSE:1002"], missing=["TSE:1002"])), symbols=("TSE:1002",)),
+        retain_result(path, _sdk(payload(["TSE:1000"]))),
+        retain_result(path, _sdk({"success": True}), symbols=("TSE:1001",)),
+        retain_result(path, _sdk(payload(["TSE:1002"], missing=["TSE:1002"])), symbols=("TSE:1002",)),
     ]
     partial = rebuild_from_receipts(path, DAY, first_ids)
     assert (partial["rows"], partial["unresolved"], partial["remaining"]) == (2, 1, 1)
@@ -103,7 +75,7 @@ def test_partial_and_later_selected_receipts_rebuild_exact_rows(tmp_path: Path) 
     _copy_receipts_only(path, clean, first_ids)
     rebuild_from_receipts(clean, DAY, first_ids)
     assert stored(clean) == first_rows
-    final_ids = [*first_ids, _retain(path, _sdk(payload(["TSE:1001"])), symbols=("TSE:1001",))]
+    final_ids = [*first_ids, retain_result(path, _sdk(payload(["TSE:1001"])), symbols=("TSE:1001",))]
     final = rebuild_from_receipts(path, DAY, final_ids)
     assert (final["rows"], final["unresolved"], final["remaining"]) == (3, 1, 0)
     assert [row for row in stored(path) if row[1] != "1001"] == first_rows
@@ -115,7 +87,7 @@ def test_partial_and_later_selected_receipts_rebuild_exact_rows(tmp_path: Path) 
 
 def test_all_missing_normal_receipt_rebuilds_unresolved_not_null(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
-    receipt_id = _retain(path, _sdk(payload(["TSE:1000"], missing=["TSE:1000"])))
+    receipt_id = retain_result(path, _sdk(payload(["TSE:1000"], missing=["TSE:1000"])))
     result = rebuild_from_receipts(path, DAY, [receipt_id])
     assert (result["rows"], result["unresolved"], result["remaining"]) == (1, 1, 0)
     assert stored(path)[0][4] == "unresolved"
@@ -137,7 +109,7 @@ def test_received_error_is_saved_before_rejection(tmp_path: Path, kind: str) -> 
         response = CallToolResult(isError=False, content=[TextContent(type="text", text="{bad")])
         expected = "provider_response"
 
-    _retain(path, response)
+    retain_result(path, response)
     assert stored(path) == []
     ids = _ids(path)
     assert len(ids) == 1
@@ -158,12 +130,12 @@ def test_failed_raw_write_and_misdated_receipt_never_create_l2(tmp_path: Path) -
             "BEGIN SELECT RAISE(ABORT, 'local storage failure'); END"
         )
     with pytest.raises(sqlite3.IntegrityError):
-        _retain(path, _sdk(payload(["TSE:1000"])))
+        retain_result(path, _sdk(payload(["TSE:1000"])))
     assert _ids(path) == []
     assert stored(path) == []
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute("DROP TRIGGER fail_raw")
-    receipt_id = _retain(path, _sdk(payload(["TSE:1000"])), received=NOW + timedelta(days=1))
+    receipt_id = retain_result(path, _sdk(payload(["TSE:1000"])), received=NOW + timedelta(days=1))
     with pytest.raises(RebuildError) as replay:
         rebuild_from_receipts(path, DAY, [receipt_id])
     assert replay.value.rejected == ({"receipt_id": receipt_id, "reason": "time_guard"},)
@@ -173,7 +145,7 @@ def test_failed_raw_write_and_misdated_receipt_never_create_l2(tmp_path: Path) -
 
 def test_replay_refuses_overlap_and_wrong_context_without_changing_l2(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
-    good = _retain(path, _sdk(payload(["TSE:1000"])))
+    good = retain_result(path, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(path, DAY, (good,))
     with closing(sqlite3.connect(path)) as conn, conn:
         row = conn.execute(
@@ -185,16 +157,16 @@ def test_replay_refuses_overlap_and_wrong_context_without_changing_l2(tmp_path: 
             ("2026-09-19", *row[1:]),
         )
     baseline = stored(path)
-    duplicate = _retain(path, _sdk(payload(["TSE:1000"])))
+    duplicate = retain_result(path, _sdk(payload(["TSE:1000"])))
     with pytest.raises(SourceDataError, match="overlap"):
         rebuild_from_receipts(path, DAY, (good, duplicate))
     for bad_ids in ((good, good),):
         with pytest.raises(SourceDataError, match="unique"):
             rebuild_from_receipts(path, DAY, bad_ids)
-    wrong_day = _retain(path, _sdk(payload(["TSE:1000"])), day=DAY + timedelta(days=1))
-    wrong_master = _retain(path, _sdk(payload(["TSE:1000"])), master=DAY - timedelta(days=1))
-    wrong_columns = _retain(path, _sdk(payload(["TSE:1000"])), columns=("close",))
-    outside = _retain(path, _sdk(payload(["TSE:9999"])), symbols=("TSE:9999",))
+    wrong_day = retain_result(path, _sdk(payload(["TSE:1000"])), day=DAY + timedelta(days=1))
+    wrong_master = retain_result(path, _sdk(payload(["TSE:1000"])), master=DAY - timedelta(days=1))
+    wrong_columns = retain_result(path, _sdk(payload(["TSE:1000"])), columns=("close",))
+    outside = retain_result(path, _sdk(payload(["TSE:9999"])), symbols=("TSE:9999",))
     for bad_id in (wrong_day, wrong_master, wrong_columns, outside):
         with pytest.raises(SourceDataError):
             rebuild_from_receipts(path, DAY, (good, bad_id))
@@ -205,7 +177,7 @@ def test_replay_refuses_overlap_and_wrong_context_without_changing_l2(tmp_path: 
 
 def test_rebuild_rolls_back_deletion_if_insert_fails(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
-    receipt_id = _retain(path, _sdk(payload(["TSE:1000"])))
+    receipt_id = retain_result(path, _sdk(payload(["TSE:1000"])))
     rebuild_from_receipts(path, DAY, (receipt_id,))
     baseline = stored(path)
     with closing(sqlite3.connect(path)) as conn, conn:
@@ -239,7 +211,7 @@ def test_rebuild_cli_is_offline_and_does_not_create_missing_store(
         )
     assert not missing.exists()
     path = store(tmp_path / "market.sqlite", 1)
-    receipt_id = _retain(path, _sdk(payload(["TSE:1000"])))
+    receipt_id = retain_result(path, _sdk(payload(["TSE:1000"])))
     with patch("socket.socket", side_effect=AssertionError("network")):
         assert (
             cli.main(

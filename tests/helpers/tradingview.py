@@ -79,6 +79,29 @@ def stored(path: Path) -> list:
         ).fetchall()
 
 
+def retain_result(
+    path: Path,
+    result: CallToolResult,
+    *,
+    day: date = DAY,
+    master: date = DAY,
+    columns: tuple[str, ...] = tuple(COLUMNS),
+    received=NOW,
+    symbols: tuple[str, ...] = ("TSE:1000",),
+) -> str:
+    with closing(open_connection(path)) as conn:
+        return retain_tool_result(
+            conn,
+            snapshot_date=day,
+            master_asof=master,
+            tool_name=BATCH_TOOL,
+            received_at_utc=received,
+            requested_symbols=symbols,
+            requested_columns=columns,
+            result=result,
+        )
+
+
 def seed_snapshot(
     path: Path,
     symbols: list[str],
@@ -89,17 +112,15 @@ def seed_snapshot(
     missing: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Seed finite provider-native fixtures and reparse explicitly retained receipts."""
+    retain_result(
+        path,
+        _sdk(payload(symbols, missing=list(missing))),
+        day=day,
+        master=master,
+        received=received,
+        symbols=tuple(symbols),
+    )
     with closing(open_connection(path)) as conn:
-        retain_tool_result(
-            conn,
-            snapshot_date=day,
-            master_asof=master,
-            tool_name=BATCH_TOOL,
-            received_at_utc=received,
-            requested_symbols=symbols,
-            requested_columns=COLUMNS,
-            result=_sdk(payload(symbols, missing=list(missing))),
-        )
         ids = [
             row[0]
             for row in conn.execute(
