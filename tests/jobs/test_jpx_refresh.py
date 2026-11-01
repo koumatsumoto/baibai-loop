@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, date, datetime
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-import pandas as pd
 import pytest
 from tests.helpers.http_doubles import FakeSession, html_response, response
+from tests.helpers.jpx_earnings import FILE_A, FILE_B, FIXTURES, SOURCE_FILES, _workbook
 
 from baibai_engine.data_collection.providers.jpx.models import JPXResponse
 from baibai_engine.data_collection.providers.jpx.receipts import (
@@ -42,15 +41,6 @@ from baibai_jobs.maintenance.market import cli as app
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 ASOF = date(2026, 10, 15)
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "jpx"
-SOURCE_FILES = {
-    "特別注意銘柄": "special_caution.html",
-    "整理銘柄": "reorganization.html",
-    "取引停止": "trading_halt_empty.html",
-    "上場廃止警告": "delisting_warning.html",
-}
-FILE_A = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan.xlsx"
-FILE_B = "https://www.jpx.co.jp/listing/event-schedules/financial-announcement/kessan09_1015.xlsx"
 
 
 @pytest.fixture
@@ -69,14 +59,6 @@ def _regulation_session(*, broken: str | None = None) -> FakeSession:
         for name, url in JPX_REGULATION_URLS.items()
     }
     return FakeSession(by_url=answers)
-
-
-def _workbook(stamp: str, rows: list[list[str]]) -> bytes:
-    buffer = BytesIO()
-    pd.DataFrame([[stamp, ""], ["決算発表予定日", "コード"], *rows]).to_excel(
-        buffer, index=False, header=False
-    )
-    return buffer.getvalue()
 
 
 def _calendar_session(*, bad_workbook: bool = False, bad_index: bool = False) -> FakeSession:
