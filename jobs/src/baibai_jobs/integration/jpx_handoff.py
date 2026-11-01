@@ -15,6 +15,9 @@ from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
+    ValuationCatalystError,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pdf
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
@@ -137,7 +140,13 @@ def import_handoff(
     for bundle_id in selected:
         try:
             rebuild_jpx_snapshot(target, bundle_id)
-        except (JPXProviderError, DelistingSourceError, JPXBundleError, ValueError):
+        except (
+            JPXProviderError,
+            DelistingSourceError,
+            ValuationCatalystError,
+            JPXBundleError,
+            ValueError,
+        ):
             failed.append(bundle_id)
         else:
             replayed.append(bundle_id)
