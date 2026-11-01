@@ -66,6 +66,7 @@ def extend(store: ObjectStore, key: str, deadline: datetime) -> None:
     with tempfile.TemporaryDirectory(prefix="baibai-source-cooldown-") as directory:
         path = Path(directory) / "deadline.json"
         path.write_bytes(payload)
+        path.chmod(0o600)
         try:
             store.put_file(
                 key,

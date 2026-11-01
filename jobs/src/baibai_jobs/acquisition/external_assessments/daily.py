@@ -278,7 +278,9 @@ def acquire_cohort(
     provider_requests = 0
     stop_reason = None
     # Quota waits survive run/cycle changes, unlike per-pair retry counters.
+    storage_started = time.monotonic()
     not_before = {source: read_deadline(store, quota_key(source))[0] for source in plan.sources}
+    timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     new_deadlines: dict[str, datetime] = {}
     rate_limiter = rate_limiter or ExternalAssessmentHostRateLimiter()
     with ExitStack() as resources:

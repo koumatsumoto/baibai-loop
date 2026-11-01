@@ -25,5 +25,5 @@ def test_quota_wait_is_shared_across_work_ids_but_not_other_providers():
 
 @pytest.mark.parametrize("quota", ["", "../minkabu", "Minkabu", "a/b", "x" * 65])
 def test_quota_identity_does_not_create_arbitrary_object_paths(quota):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid acquisition quota"):
         quota_key(quota)
