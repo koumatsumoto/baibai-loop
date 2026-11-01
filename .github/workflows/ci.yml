@@ -104,7 +104,26 @@ jobs:
         # `coverage run -m pytest` would only see the controller and report a near-empty run.
         env:
           TMPDIR: /dev/shm
-        run: uv run pytest -n 4 --maxfail=0 --cov --cov-report=term-missing --durations=25 --durations-min=0.1
+        run: uv run pytest -n 4 --maxfail=0 --cov --cov-report=term-missing --durations=25 --durations-min=0.1 --junitxml="$RUNNER_TEMP/baibai-results.xml"
+
+      - name: Temporary integrated failure locations
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'PYRESULT'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "baibai-results.xml"
+          if path.exists():
+              root = ET.parse(path).getroot()
+              for case in root.iter("testcase"):
+                  for result in (*case.findall("failure"), *case.findall("error")):
+                      label = case.get("classname", "") + "." + case.get("name", "")
+                      message = (label + ": " + result.get("message", ""))[:2500]
+                      message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                      print("::error title=Integrated test failure::" + message)
+          PYRESULT
 
       # The scanners share this job to avoid a second billed runner, so they are asked
       # even after an earlier gate has failed. A red test would otherwise hide a CVE
