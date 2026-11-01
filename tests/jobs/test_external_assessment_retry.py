@@ -108,6 +108,29 @@ def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(mo
     assert len(store.puts) == 2  # one stage, one bundle
 
 
+def test_expired_cycle_keeps_unattempted_pairs_without_http_or_writes(monkeypatch, clock):
+    p, store = plan(), FakeObjectStore()
+    client = wire_collector(monkeypatch, store, p, clock, [])
+    report = daily.acquire_cohort(store, p, 0, collect_before=BASE)
+    assert report["provider_requests"] == 0
+    assert report["stop_reason"] == "cycle_finished"
+    assert report["state_counts"]["unattempted"] == 1
+    assert client.calls == []
+    assert store.puts == []
+
+
+def test_retry_cannot_sleep_into_next_cycle(monkeypatch, clock):
+    p, store = plan(), FakeObjectStore()
+    client = wire_collector(monkeypatch, store, p, clock, [(429, "8", "denied")])
+    report = daily.acquire_cohort(store, p, 0, collect_before=BASE + timedelta(seconds=5))
+    assert report["provider_requests"] == 1
+    assert len(client.calls) == 1
+    assert clock.sleeps == []
+    saved = staging.read_stage(store, p, 0)[0]
+    assert saved.result.entries[0].state == "failure"
+    assert saved.result.entries[0].http_status == 429
+
+
 @pytest.mark.parametrize(("source", "limit"), [("monex", 6), ("rakuten", 12), ("kabumap", 6)])
 def test_initial_plus_five_retry_stops_and_saved_failure_is_not_retried(
     monkeypatch, clock, source, limit
