@@ -1,10 +1,7 @@
-"""Mask credentials in text that leaves the process.
+"""Mask known credential query parameters before source failures leave the process.
 
-Provider errors quote the fully composed request URL, so an API key travels in
-the exception text into saved run records and query results. Masking lives here
-because both the writer (the indicator service) and the
-reader (the query-only facade) need it, and the reader may not import provider
-modules.
+Acquisition reports and retained run-error records share this pure transformation.
+It does not sanitize arbitrary headers or bodies; callers still avoid logging them.
 """
 
 from __future__ import annotations

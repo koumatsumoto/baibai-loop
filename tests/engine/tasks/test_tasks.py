@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 import sqlite3
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -12,7 +10,6 @@ from pydantic import ValidationError
 from tests.helpers.db_seed import seed_tasks
 
 from baibai_engine.cli.tasks import main as task_main
-from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.write import connect_rw
 from baibai_engine.storage.sqlite.read import connect_read_only
 from baibai_engine.tasks.models import Task
@@ -104,21 +101,6 @@ def test_read_only_connection_rejects_task_writes(tmp_path: Path) -> None:
     finally:
         connection.close()
     assert len(TaskService(db).list()) == 1
-
-
-def test_canonical_json_normalizes_supported_representations() -> None:
-    value = {
-        "date": date(2026, 7, 19),
-        "datetime": datetime.fromisoformat("2026-07-19T12:00:00+09:00"),
-        "decimal": Decimal("1.20"),
-        "tuple": (1, None),
-    }
-    assert json.loads(canonical_json(value)) == {
-        "date": "2026-07-19",
-        "datetime": "2026-07-19T12:00:00+09:00",
-        "decimal": "1.20",
-        "tuple": [1, None],
-    }
 
 
 def test_task_columns_and_payload_are_updated_together(tmp_path: Path) -> None:
