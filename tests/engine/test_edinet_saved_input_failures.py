@@ -8,8 +8,8 @@ from unittest.mock import call, patch
 import pytest
 from tests.engine.test_edinet_metric_eligibility import BASE, TARGET, _seed
 from tests.engine.test_edinet_saved_integration import _next_listing
-from tests.engine.test_source_maintenance_cli import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_metrics import _edinet_csv_zip
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
