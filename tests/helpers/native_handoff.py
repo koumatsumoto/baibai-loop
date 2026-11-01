@@ -35,4 +35,3 @@ def stage(
         )
     )
     save_handoff(store, stage_id, directory)
-

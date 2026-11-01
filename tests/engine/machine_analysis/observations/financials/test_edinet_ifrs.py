@@ -53,7 +53,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv i
 def test_native_ifrs_facts_keep_scope_and_period(
     doc_id, ticker, kind, year, sales, ocf, cash, assets, capex
 ):
-    fixture = Path(__file__).parents[1] / "fixtures" / "edinet" / f"{doc_id}.tsv"
+    fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / f"{doc_id}.tsv"
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("XBRL_TO_CSV/facts.csv", fixture.read_text().encode("utf-16-le"))
@@ -94,7 +94,7 @@ def test_native_ifrs_facts_keep_scope_and_period(
 def test_native_mixed_standard_filing_uses_declared_ifrs_not_japanese_gaap(
     doc_id, ticker, ocf, assets, equity, operating_profit, depreciation
 ):
-    fixture = Path(__file__).parents[1] / "fixtures" / "edinet" / f"{doc_id}.tsv"
+    fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / f"{doc_id}.tsv"
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("facts.csv", fixture.read_text().encode("utf-16-le"))

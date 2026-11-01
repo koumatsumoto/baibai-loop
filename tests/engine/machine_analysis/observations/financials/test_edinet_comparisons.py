@@ -38,7 +38,7 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
-FIXTURES = Path(__file__).parents[1] / "fixtures" / "edinet" / "comparisons"
+FIXTURES = Path(__file__).parents[4] / "fixtures" / "edinet" / "comparisons"
 ASOF = date(2026, 10, 30)
 RELEASE = InputRelease(release_id="synthetic-comparisons", manifest_sha256="a" * 64)
 
