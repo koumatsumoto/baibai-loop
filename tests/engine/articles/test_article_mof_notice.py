@@ -86,9 +86,9 @@ def test_pri_body_excludes_site_heading_navigation_and_footer():
 
 def test_bureau_body_uses_its_native_region_without_broadening_other_hosts():
     body = (
-        '<header><h1>サイト名</h1></header><nav>共通ナビ</nav>'
+        "<header><h1>サイト名</h1></header><nav>共通ナビ</nav>"
         '<div id="mainArea"><h1>合成の財務局資料</h1><p>合成本文</p></div>'
-        '<footer>共通フッター</footer>'
+        "<footer>共通フッター</footer>"
     ).encode()
     target = "https://lfb.mof.go.jp/renkei/torikumi.html"
     item = parse_document("mof_news", body, url=target)
