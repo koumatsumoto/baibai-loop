@@ -393,7 +393,9 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 try:
                     write_text_new(args.out, content)
                 except FileExistsError as error:
-                    raise ResearchWorkspaceConflictError("proposal output already exists") from error
+                    raise ResearchWorkspaceConflictError(
+                        "proposal output already exists"
+                    ) from error
                 _emit({"proposal_draft": str(args.out), "proposal_id": args.proposal_id}, out)
             case "trade-proposal-check" | "trade-proposal-publish":
                 from baibai_engine.investment_judgment.trade_proposal.contracts import (
