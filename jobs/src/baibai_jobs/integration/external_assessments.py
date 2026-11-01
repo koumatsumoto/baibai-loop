@@ -62,13 +62,13 @@ from baibai_jobs.acquisition.external_assessments.identity import (
     PARTIAL_TERMINAL_FORMAT,
     PUBLISHED_FORMAT,
 )
+from baibai_jobs.acquisition.external_assessments.raw import read_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     prefix,
     put_private,
     read_terminal,
 )
-from baibai_jobs.integration.external_assessment_raw import read_raw_bundle
 from baibai_jobs.integration.external_assessment_ready import load_ready
 from baibai_jobs.publication.external_assessment_verification import (
     history_digests as external_assessment_history_digests,

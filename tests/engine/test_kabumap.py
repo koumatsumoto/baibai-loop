@@ -28,9 +28,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
     save_observations,
 )
 from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
+from baibai_jobs.acquisition.external_assessments.raw import RAW_PREFIX, read_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import read_stages
 from baibai_jobs.acquisition.external_assessments.universe import frozen_universe
-from baibai_jobs.integration.external_assessment_raw import RAW_PREFIX, read_raw_bundle
 from baibai_jobs.publication.external_assessment_verification import verify_observations
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
