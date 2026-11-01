@@ -25,7 +25,7 @@ from baibai_engine.portfolio.ledger.drafts import (
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.storage.sqlite.application.write import initialize_database
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).parents[4]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 ORDERED_AT = datetime.fromisoformat("2026-07-30T09:00:00+09:00")
 EXPIRES_AT = datetime.fromisoformat("2026-07-31T15:30:00+09:00")

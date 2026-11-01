@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-from tests.helpers.db_seed import seed_ledger
+from tests.helpers.manual_facts import NOW, _binding_count, _service
 
 from baibai_engine.portfolio.ledger.decision_references import (
     DecisionReferenceBinding,
@@ -21,35 +21,10 @@ from baibai_engine.portfolio.ledger.drafts import (
     load_draft,
     write_draft,
 )
-from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
 from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
-NOW = datetime.fromisoformat("2026-10-14T10:00:00+09:00")
 REFERENCE = "manual-fact-00000000-0000-4000-8000-000000000001"
-
-
-def _service(tmp_path: Path) -> tuple[LedgerStoreService, Path]:
-    path = tmp_path / "app.sqlite"
-    seed_ledger(
-        path,
-        PortfolioLedgerDocument.model_validate(
-            {
-                "schema_version": 3,
-                "portfolio_scope": "repository_only",
-                "as_of": NOW.isoformat(),
-                "events": [
-                    {
-                        "event_id": "synthetic-opening",
-                        "type": "opening_balance",
-                        "occurred_at": (NOW - timedelta(hours=1)).isoformat(),
-                        "amount_yen": 300000,
-                    }
-                ],
-            }
-        ),
-    )
-    return LedgerStoreService(path), path
 
 
 def _draft(service: LedgerStoreService) -> LedgerDraft:
@@ -78,11 +53,6 @@ def _draft(service: LedgerStoreService) -> LedgerDraft:
             },
         }
     )
-
-
-def _binding_count(path: Path) -> int:
-    with closing(sqlite3.connect(path)) as connection, connection:
-        return connection.execute("SELECT count(*) FROM position_decision_reference").fetchone()[0]
 
 
 def test_manual_binding_and_ledger_commit_together_after_confirmation(tmp_path: Path) -> None:

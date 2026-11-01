@@ -409,7 +409,7 @@ def test_outcome_cli_requires_an_imported_application_db_ledger(
     observation = tmp_path / "topix.yaml"
     observation.write_text(
         (
-            Path(__file__).parents[2] / "fixtures" / "benchmark-observation" / "topix-1y.yaml"
+            Path(__file__).parents[3] / "fixtures" / "benchmark-observation" / "topix-1y.yaml"
         ).read_text(encoding="utf-8"),
         encoding="utf-8",
     )
