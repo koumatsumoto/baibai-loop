@@ -5,14 +5,12 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_normalized_profit_signals,
     build_shareholder_return_change_signals,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_normalized_profit_signals,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,

@@ -30,6 +30,11 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_normalized_profit_signals,
+    build_profitability_level_signals,
+    build_shareholder_return_change_signals,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
     VALUATION_HISTORY_SESSIONS,
 )
@@ -61,15 +66,8 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.unive
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     build_shares_outstanding_index,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
-    build_shareholder_return_change_signals,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_normalized_profit_signals,
-    build_profitability_level_signals,
 )
 from baibai_engine.machine_analysis.models.market_context.margin import (
     MARKET_CONTEXT_CALCULATION_REVISION,

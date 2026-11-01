@@ -5,6 +5,10 @@ from datetime import date, timedelta
 
 import pytest
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
+    build_normalized_profit_signals,
+    build_profitability_level_signals,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
@@ -18,10 +22,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _prior_year_summary,
     _ttm_period,
     _ttm_value,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
-    build_normalized_profit_signals,
-    build_profitability_level_signals,
 )
 from baibai_engine.machine_analysis.models.company_growth.calculations import build_period_states
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
