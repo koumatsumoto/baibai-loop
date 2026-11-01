@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tests.helpers.screening_run import saved_candidate, seed_saved_run
-
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
     build_candidate_contexts,
 )
@@ -19,6 +17,7 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
     production_rules_contract_hash,
 )
+from tests.helpers.screening_run import saved_candidate, seed_saved_run
 
 SCREENING_RULES = load_screening_rules()
 RULES = SCREENING_RULES.candidate_discovery
