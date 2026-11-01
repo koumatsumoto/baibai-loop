@@ -11,27 +11,8 @@ from baibai_engine.data_collection.providers.tradingview.accounting import (
     account_batch,
 )
 
-# Raw field names below were observed with a 50-symbol Official MCP request.
-FIELDS = {
-    "analyst_rating": "AnalystRating",
-    "recommendation_total": "recommendation_total",
-    "price_target_average": "price_target_average",
-    "price_target_high": "price_target_high",
-    "price_target_low": "price_target_low",
-    "eps_forecast_next_fq": "earnings_per_share_forecast_next_fq",
-    "eps_forecast_next_fy": "earnings_per_share_forecast_next_fy",
-    "revenue_forecast_next_fq": "revenue_forecast_next_fq",
-    "revenue_forecast_next_fy": "revenue_forecast_next_fy",
-    "forward_pe": "price_earnings_fwd",
-    "forward_ps": "price_sales_fwd",
-    "forward_ev_ebitda": "enterprise_value_ebitda_fwd",
-    "ebitda_estimate_fy": "ebitda_estimate_fy",
-    "free_cash_flow_estimate_fy": "free_cash_flow_estimate_fy",
-    "capex_estimate_fy": "capital_expenditures_estimate_fy",
-    "total_debt_estimate_fy": "total_debt_estimate_fy",
-    "quote_close": "close",
-    "quote_currency": "currency",
-}
+from .contract import FIELDS
+
 COLUMNS = list(FIELDS.values())
 
 

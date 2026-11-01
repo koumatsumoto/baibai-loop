@@ -328,7 +328,7 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
     assert args[args.index("--interval") + 1] == "15"
 
 
-@pytest.mark.parametrize("status", ["saved", "partial", "already_saved", "skipped_historical_asof"])
+@pytest.mark.parametrize("status", ["saved", "partial", "already_saved", "originals_saved", "skipped_historical_asof"])
 def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"

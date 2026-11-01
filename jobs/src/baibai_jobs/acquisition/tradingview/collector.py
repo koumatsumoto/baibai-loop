@@ -416,6 +416,7 @@ async def collect(
             )
         current = replace(current, phase="complete")
         emit()
+        _, final_state = _snapshot_state(conn, day, master_asof=master_asof)
         return {
             **asdict(current),
             "last_failure": failure_line(last_error) if last_error is not None else None,
@@ -425,6 +426,8 @@ async def collect(
             "rows": total_rows,
             "rows_added": rows_added,
             "remaining": remaining,
+            "remaining_requests": final_state.get("remaining_requests", 0),
+            "projection_pending": final_state.get("projection_pending", 0),
             "stop_reason": stop_reason,
             "unresolved": int(totals[1] or 0),
             "normal_nulls": _stored_quality(conn, day)["normal_nulls"],

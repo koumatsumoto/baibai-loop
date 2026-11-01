@@ -50,7 +50,9 @@ def test_complete_original_with_invalid_number_is_not_refetched(tmp_path):
     assert result["status"] == "originals_saved"
     with closing(open_connection(path)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone()[0] == 0
+        )
 
 
 def test_partial_native_completion_fetches_only_missing_request(tmp_path):
@@ -69,6 +71,8 @@ def test_partial_native_completion_fetches_only_missing_request(tmp_path):
     assert result["expected_universe"] == 2
     assert result["rows"] == result["remaining"] == 1
     assert result["status"] == "partial"
+    assert result["remaining_requests"] == 0
+    assert result["projection_pending"] == 1
     state = preflight_snapshot(path, DAY, now=NOW)
     assert state["status"] == "originals_saved"
     assert state["remaining_requests"] == 0
