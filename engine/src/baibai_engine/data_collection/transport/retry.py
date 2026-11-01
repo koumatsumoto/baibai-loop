@@ -12,7 +12,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.connectionpool import ConnectionPool, HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.exceptions import DecodeError, HTTPError, MaxRetryError, ProtocolError
 from urllib3.response import BaseHTTPResponse, HTTPResponse
-from urllib3.util import Retry
 
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
@@ -24,8 +23,10 @@ from baibai_engine.data_collection.transport.http import (
     check_acquisition_deadline,
     retry_after_delay,
 )
+from baibai_engine.data_collection.transport.http import (
+    ReadRetry as JobReadRetry,
+)
 
-_RATE_LIMIT_BACKOFF_SECONDS = (30, 60, 120, 300, 600)
 _RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
@@ -50,8 +51,12 @@ class ReadDeadline:
         self.check()
 
 
-class ReadRetry(Retry):
-    """Retry one GET, retaining the same deadline through urllib3's clones."""
+class ReadRetry(JobReadRetry):
+    """Share the finite GET backoff, but retain this provider's deadline on clones.
+
+    The job-only receiver and this SDK/body adapter use the same retry spacing.
+    Provider deadline and exhausted-quota reporting remain local to this adapter.
+    """
 
     def __init__(self, *, deadline: ReadDeadline, **kwargs: Any) -> None:
         self.deadline = deadline
@@ -78,11 +83,6 @@ class ReadRetry(Retry):
                     f"{self.deadline.provider} rate-limited (HTTP 429): retries exhausted"
                 ) from None
             raise
-
-    def get_backoff_time(self) -> float:
-        if not self.history:
-            return 0.0
-        return float(_RATE_LIMIT_BACKOFF_SECONDS[min(len(self.history), 5) - 1])
 
     def sleep(self, response: BaseHTTPResponse | None = None) -> None:
         waiting = self.get_backoff_time()
