@@ -17,6 +17,9 @@ from baibai_engine.data_collection.catalog import load_sources as load_economic_
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
+    observations as observations_owner,
+)
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
@@ -68,7 +71,7 @@ def publish_inputs(
                 generations=generations,
                 group=group,
             )
-        except ValueError as error:
+        except (ValueError, observations_owner.FetchError) as error:
             failed.append({"group": group, "reason": type(error).__name__})
         else:
             updated.append(group)

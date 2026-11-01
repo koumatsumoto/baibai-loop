@@ -1,0 +1,489 @@
+name: cloud-tradingview-snapshot
+run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
+
+on:
+  schedule:
+    - cron: "37 6,8,10,12,14 * * 1-5"
+    - cron: "37 0,4,8 * * 0,6"
+  workflow_dispatch:
+    inputs:
+      interval:
+        description: "Seconds between requests (15 to 3600)"
+        type: number
+        default: 15
+      observation_master_asof:
+        description: "Optional calendar-required saved master date assertion YYYY-MM-DD; never bypasses observation hours"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tradingview-snapshot
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    if: ${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: tradingview-runtime
+    outputs:
+      cancellation-cancelled: ${{ steps.cancellation.outputs.cancelled }}
+      cooldown-check-allowed: ${{ steps.cooldown-check.outputs.allowed }}
+      cooldown-check-outcome: ${{ steps.cooldown-check.outcome }}
+      cooldown-save-outcome: ${{ steps.cooldown-save.outcome }}
+      duckdb-httpfs-outcome: ${{ steps.duckdb-httpfs.outcome }}
+      handoff: ${{ steps.stage.outputs.handoff }}
+      hydrate-outcome: ${{ steps.hydrate.outcome }}
+      master-outcome: ${{ steps.master.outcome }}
+      preflight-outcome: ${{ steps.preflight.outcome }}
+      preflight-status: ${{ steps.preflight.outputs.status }}
+      pull-outcome: ${{ steps.pull.outcome }}
+      setup-outcome: ${{ steps.setup.outcome }}
+      setup-uv-outcome: ${{ steps.setup-uv.outcome }}
+      smoke-outcome: ${{ steps.smoke.outcome }}
+      sync-outcome: ${{ steps.sync.outcome }}
+      target-eligible: ${{ steps.target.outputs.eligible }}
+      target-outcome: ${{ steps.target.outcome }}
+      target-target-date: ${{ steps.target.outputs.target_date }}
+      tradingview-expected-universe: ${{ steps.tradingview.outputs.expected_universe }}
+      tradingview-outcome: ${{ steps.tradingview.outcome }}
+      tradingview-remaining: ${{ steps.tradingview.outputs.remaining }}
+      tradingview-rows: ${{ steps.tradingview.outputs.rows }}
+      tradingview-rows-added: ${{ steps.tradingview.outputs.rows_added }}
+      tradingview-status: ${{ steps.tradingview.outputs.status }}
+      tradingview-stop-reason: ${{ steps.tradingview.outputs.stop_reason }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Smoke-check system Python imports
+        id: smoke
+        env:
+          PYTHONPATH: jobs/src
+        run: python3 -c "import baibai_jobs.schedule; import baibai_jobs.observability.source_discord"
+
+      - name: Resolve actual JST target
+        id: target
+        env:
+          PYTHONPATH: jobs/src
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          OBSERVATION_MASTER_ASOF: ${{ inputs.observation_master_asof }}
+          INTERVAL: ${{ inputs.interval }}
+        run: |
+          python3 - <<'PYTARGET'
+          import os
+          from datetime import UTC, date, datetime, timedelta, timezone
+          from baibai_jobs.schedule import resolve_tradingview_target
+
+          now = datetime.now(UTC)
+          master_asof = os.environ.get("OBSERVATION_MASTER_ASOF", "")
+          day, slot, eligible, reason = resolve_tradingview_target(
+              now, event_name=os.environ["EVENT_NAME"], schedule=os.environ.get("EVENT_SCHEDULE", ""),
+              manual_observation=bool(master_asof),
+          )
+          if master_asof:
+              master_asof = date.fromisoformat(master_asof).isoformat()
+              if date.fromisoformat(master_asof) > day:
+                  raise ValueError("observation master must not be in the future")
+          if not 15 <= float(os.environ.get("INTERVAL") or "15") <= 3600:
+              raise ValueError("observation interval must be between 15 and 3600 seconds")
+          jst = now.astimezone(timezone(timedelta(hours=9)))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for key, value in {
+                  "target_date": day.isoformat(), "slot": slot,
+                  "master_asof": master_asof,
+                  "eligible": str(eligible).lower(), "reason": reason,
+                  "actual_start_utc": now.isoformat(), "actual_start_jst": jst.isoformat(),
+              }.items():
+                  print(f"{key}={value}", file=output)
+          PYTARGET
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup
+        if: steps.target.outputs.eligible == 'true'
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        id: setup-uv
+        if: steps.target.outputs.eligible == 'true'
+        with:
+          enable-cache: true
+      - name: Sync Python environment
+        id: sync
+        if: steps.target.outputs.eligible == 'true'
+        run: uv sync --locked
+      - name: Provision DuckDB httpfs extension
+        id: duckdb-httpfs
+        if: steps.target.outputs.eligible == 'true'
+        run: uv run python -m tools.diagnostics.provision_duckdb_httpfs
+      - name: Read only TradingView scoped input
+        id: pull
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.integration.source_handoff input --source tradingview --directory "$RUNNER_TEMP/source-input"
+      - name: Resume own ready receipts without full market hydration
+        id: hydrate
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.integration.source_handoff resume --source tradingview --asof "${{ steps.target.outputs.target_date }}" --directory "$RUNNER_TEMP/source-input"
+      - name: Check exact-date snapshot
+        id: preflight
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          MASTER_ASOF: ${{ steps.target.outputs.master_asof }}
+        run: |
+          uv run python - <<'PYPREFLIGHT'
+          import os
+          import sys
+          import json
+          from pathlib import Path
+          from datetime import UTC, date, datetime
+          from baibai_engine.storage.paths import MARKET_DB_PATH
+          from baibai_jobs.observability.tradingview import failure_line
+          from baibai_jobs.acquisition.tradingview.collector import preflight_snapshot
+
+          try:
+              basis = os.environ.get("MASTER_ASOF", "")
+              result = preflight_snapshot(
+                  MARKET_DB_PATH, date.fromisoformat(os.environ["TARGET_DATE"]),
+                  master_asof=date.fromisoformat(basis) if basis else None,
+                  now=datetime.now(UTC),
+              )
+          except Exception as exc:
+              print(failure_line(exc), file=sys.stderr)
+              raise SystemExit(1) from None
+          status = str(result["status"])
+          rows = int(result.get("rows", 0))
+          needs_master = str(result.get("needs_master", False)).lower()
+          Path(os.environ["RUNNER_TEMP"], "tradingview-preflight.json").write_text(json.dumps(result), encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"status={status}\nrows={rows}\nneeds_master={needs_master}", file=output)
+              print(f"master_asof={result['master_asof']}", file=output)
+          PYPREFLIGHT
+      - name: Check provider cooldown
+        id: cooldown-check
+        if: steps.preflight.outputs.status == 'needs_fetch'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown check --directory "$RUNNER_TEMP"
+      - name: Record original receipt cutoff
+        id: receipt-cutoff
+        if: steps.target.outputs.eligible == 'true'
+        run: echo "since=$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)" >> "$GITHUB_OUTPUT"
+      - name: Fetch exact-date J-Quants master
+        id: master
+        if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'
+        env:
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+        run: uv run baibai-jobs maintain-market backfill-master --asof "$TARGET_DATE"
+      - name: Refresh TradingView expectations
+        id: tradingview
+        if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')
+        env:
+          TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
+          TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          MASTER_ASOF: ${{ steps.preflight.outputs.needs_master == 'false' && steps.preflight.outputs.master_asof || '' }}
+          INTERVAL: ${{ inputs.interval }}
+        run: |
+          set -o pipefail
+          progress="$RUNNER_TEMP/tradingview-progress.json"
+          result="$RUNNER_TEMP/tradingview-result.json"
+          stderr="$RUNNER_TEMP/tradingview-stderr.log"
+          interval="${INTERVAL:-15}"
+          observation_options=()
+          if [[ -n "${MASTER_ASOF:-}" ]]; then
+            observation_options+=(--master-asof "$MASTER_ASOF")
+          fi
+          counts_before="$(uv run python -m baibai_jobs.integration.tradingview_receipts --asof "$TARGET_DATE")"
+          read -r receipts_before rows_before <<< "$counts_before"
+          set +e
+          timeout --kill-after=30s 30m uv run baibai-jobs tradingview-source refresh \
+            --asof "$TARGET_DATE" --interval "$interval" \
+            "${observation_options[@]}" \
+            --progress-output "$progress" > "$result" 2> "$stderr"
+          status=$?
+          cat "$stderr" >&2
+          counts_after="$(uv run python -m baibai_jobs.integration.tradingview_receipts --asof "$TARGET_DATE")"
+          count_status=$?
+          if [[ "$count_status" != 0 ]]; then
+            counts_after='-1 -1'
+            if [[ "$status" == 0 ]]; then status=1; fi
+          fi
+          read -r receipts_after rows_after <<< "$counts_after"
+          set -e
+          if [[ "$status" == 124 || "$status" == 137 ]]; then
+            echo 'TradingView acquisition failed; category=timeout' | tee -a "$stderr" >&2
+          fi
+          set +e
+          python - "$progress" "$result" "$stderr" "$status" "$receipts_before" "$receipts_after" "$rows_before" "$rows_after" <<'PYRESULT'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          progress, result, stderr = map(Path, sys.argv[1:4])
+          status = int(sys.argv[4])
+          receipts_before, receipts_after = map(int, sys.argv[5:7])
+          rows_before, rows_after = map(int, sys.argv[7:9])
+          fields = (
+              "snapshot_date", "master_asof", "phase", "expected_universe", "chunks_total", "chunks_completed",
+              "requests_attempted", "symbols_requested",
+              "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
+              "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
+              "first_fetched_at_utc", "last_fetched_at_utc", "oauth_rotations",
+          )
+          try:
+              payload = json.loads(progress.read_text(encoding="utf-8"))
+              if not isinstance(payload, dict):
+                  raise ValueError("invalid progress")
+              safe = {key: payload[key] for key in fields if key in payload
+                      and (payload[key] is None or type(payload[key]) in (str, int, float, bool))}
+              print("TradingView progress: " + json.dumps(safe, sort_keys=True, allow_nan=False))
+          except (OSError, ValueError, UnicodeError):
+              if status != 0:
+                  print("TradingView progress: unavailable")
+          outputs = []
+          if status == 0:
+              try:
+                  lines = [line for line in result.read_text(encoding="utf-8").splitlines() if line.strip()]
+                  report = json.loads(lines[-1])
+                  value = report.get("status") if isinstance(report, dict) else None
+                  if type(value) is not str or value not in {
+                      "saved", "partial", "already_saved", "skipped_historical_asof"
+                  }:
+                      raise ValueError("invalid TradingView status")
+                  if value in {"saved", "partial"}:
+                      added = report.get("rows_added")
+                      if type(added) is not int or added <= 0:
+                          raise ValueError("invalid TradingView rows_added")
+                      for key in ("rows_added", "rows", "expected_universe", "remaining", "unresolved"):
+                          count = report.get(key)
+                          if type(count) is not int or count < 0:
+                              raise ValueError("invalid TradingView count")
+                          outputs.append(f"{key}={count}")
+                      if (report["rows_added"] > report["rows"]
+                              or report["rows"] + report["remaining"] != report["expected_universe"]
+                              or (value == "saved") != (report["remaining"] == 0)):
+                          raise ValueError("inconsistent TradingView counts")
+                      reason = report.get("stop_reason")
+                      if reason not in {None, "provider_rate_limit",
+                                        "provider_response", "provider_transport", "auth",
+                                        "secret_persistence", "time_guard", "soft_budget"}:
+                          raise ValueError("invalid TradingView stop_reason")
+                      outputs.append("stop_reason=" + (reason or "-"))
+                  outputs.append("status=" + value)
+              except (OSError, ValueError, UnicodeError, IndexError):
+                  print("TradingView acquisition failed; category=internal", file=sys.stderr)
+                  status = 1
+          if status != 0:
+              try:
+                  safe_stderr = stderr.read_text(encoding="utf-8")
+              except (OSError, UnicodeError):
+                  safe_stderr = ""
+              matches = re.findall(r"TradingView acquisition failed; category=([a-z_]+)", safe_stderr)
+              categories = {
+                  "secret_persistence", "auth", "time_guard", "storage",
+                  "provider_rate_limit", "provider_response", "provider_transport", "internal", "timeout",
+              }
+              category = (
+                  "timeout" if status in (124, 137) else
+                  matches[-1] if matches and matches[-1] in categories else "internal"
+              )
+              outputs.extend(("status=failure", "failure_category=" + category))
+              outputs.append(
+                  "publish_failed_receipts=" + str(
+                      category in {"provider_rate_limit", "provider_response", "provider_transport",
+                                   "auth", "secret_persistence", "time_guard", "timeout"}
+                      and receipts_before >= 0 and receipts_after > receipts_before
+                      and rows_before >= 0 and rows_after == rows_before
+                  ).lower()
+              )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print("\n".join(outputs), file=output)
+          if int(sys.argv[4]) == 0 and status != 0:
+              raise SystemExit(1)
+          PYRESULT
+          parser_status=$?
+          set -e
+          if [[ "$status" == 0 ]]; then
+            status=$parser_status
+          fi
+          exit "$status"
+      - name: Export originals to private R2 staging
+        id: stage
+        if: >-
+          ${{ always() && !cancelled() && steps.pull.outcome == 'success' && steps.hydrate.outcome == 'success'
+          && steps.tradingview.outcome != 'skipped'
+          && (((steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial')
+          && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0)
+          || (steps.tradingview.outcome == 'failure'
+          && steps.tradingview.outputs.publish_failed_receipts == 'true')) }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          RECEIPT_SINCE: ${{ steps.receipt-cutoff.outputs.since }}
+          STAGE_ID: tradingview-${{ steps.target.outputs.target_date }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          uv run python -m baibai_jobs.integration.source_handoff export --source tradingview --asof "$TARGET_DATE" --since "$RECEIPT_SINCE" --directory "$RUNNER_TEMP/source-handoff"
+          uv run python -m baibai_jobs.integration.source_handoff stage --source tradingview --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
+      - name: Persist provider cooldown
+        id: cooldown-save
+        if: ${{ always() && steps.tradingview.outcome != 'skipped' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown record --directory "$RUNNER_TEMP"
+      - name: Record cancellation
+        id: cancellation
+        if: ${{ cancelled() }}
+        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
+      - name: Summarize snapshot
+        id: summary
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+          MASTER_ASOF: ${{ steps.preflight.outputs.master_asof || steps.target.outputs.master_asof }}
+          SLOT: ${{ steps.target.outputs.slot }}
+          ACTUAL_START_JST: ${{ steps.target.outputs.actual_start_jst }}
+          ACTUAL_START_UTC: ${{ steps.target.outputs.actual_start_utc }}
+          ELIGIBLE: ${{ steps.target.outputs.eligible }}
+          REASON: ${{ steps.target.outputs.reason }}
+          PREFLIGHT: ${{ steps.preflight.outputs.status }}
+          PREFLIGHT_ROWS: ${{ steps.preflight.outputs.rows }}
+          COOLDOWN_ALLOWED: ${{ steps.cooldown-check.outputs.allowed }}
+          COOLDOWN_UNTIL: ${{ steps.cooldown-check.outputs.not_before_utc }}
+          MASTER: ${{ steps.master.outcome }}
+          TRADINGVIEW: ${{ steps.tradingview.outputs.status }}
+          ACQUISITION_OUTCOME: ${{ steps.tradingview.outcome }}
+          FAILURE_CATEGORY: ${{ steps.tradingview.outputs.failure_category }}
+          ROWS_ADDED: ${{ steps.tradingview.outputs.rows_added }}
+          ROWS: ${{ steps.tradingview.outputs.rows }}
+          EXPECTED_UNIVERSE: ${{ steps.tradingview.outputs.expected_universe }}
+          REMAINING: ${{ steps.tradingview.outputs.remaining }}
+          UNRESOLVED: ${{ steps.tradingview.outputs.unresolved }}
+          STOP_REASON: ${{ steps.tradingview.outputs.stop_reason }}
+          PRIVATE_HANDOFF: ${{ steps.stage.outcome }}
+        run: |
+          python3 - <<'PYSUMMARY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          def report(name):
+              try:
+                  lines = (temp / name).read_text(encoding="utf-8").splitlines()
+              except (OSError, UnicodeError):
+                  return {}
+              for line in reversed(lines):
+                  try:
+                      value = json.loads(line)
+                  except ValueError:
+                      continue
+                  if isinstance(value, dict):
+                      return value
+              return {}
+
+          progress = report("tradingview-progress.json")
+          preflight = report("tradingview-preflight.json")
+          acquisition = report("tradingview-result.json") or preflight
+          try:
+              safe_errors = (temp / "tradingview-stderr.log").read_text(encoding="utf-8")
+          except (OSError, UnicodeError):
+              safe_errors = ""
+          safe_errors += "\n" + str(acquisition.get("last_failure") or "")
+          def status_value(name):
+              found = re.findall(r"(?:^|; )" + name + r"=([1-5][0-9]{2})(?:;|$)", safe_errors, re.MULTILINE)
+              return int(found[-1]) if found else None
+
+          retry_times = re.findall(r"(?:^|; )retry_not_before_utc=([0-9T:+.Z-]+)(?:;|$)", safe_errors, re.MULTILINE)
+          no_fetch = os.environ.get("ACQUISITION_OUTCOME") == "skipped" or os.environ.get("TRADINGVIEW") in {
+              "already_saved", "skipped_historical_asof"
+          }
+          values = {
+              "target_date": os.environ.get("TARGET_DATE"), "slot": os.environ.get("SLOT"),
+              "master_asof": os.environ.get("MASTER_ASOF"),
+              "is_business_day": preflight.get("is_business_day"),
+              "actual_start_jst": os.environ.get("ACTUAL_START_JST"),
+              "actual_start_utc": os.environ.get("ACTUAL_START_UTC"),
+              "eligible": os.environ.get("ELIGIBLE"), "reason": os.environ.get("REASON"),
+              "preflight_status": os.environ.get("PREFLIGHT"), "master_outcome": os.environ.get("MASTER"),
+              "tradingview_status": os.environ.get("TRADINGVIEW"),
+              "failure_category": os.environ.get("FAILURE_CATEGORY"),
+              "rows_added": os.environ.get("ROWS_ADDED") or acquisition.get("rows_added", 0 if no_fetch else None),
+              "rows": os.environ.get("ROWS") or acquisition.get("rows"),
+              "expected_universe": os.environ.get("EXPECTED_UNIVERSE") or acquisition.get("expected_universe"),
+              "remaining": os.environ.get("REMAINING") or acquisition.get("remaining"),
+              "unresolved": os.environ.get("UNRESOLVED") or acquisition.get("unresolved"),
+              "stop_reason": os.environ.get("STOP_REASON"),
+              "requests_attempted": progress.get("requests_attempted", 0 if no_fetch else None),
+              "symbols_requested": progress.get("symbols_requested", 0 if no_fetch else None),
+              "mcp_http_status": status_value("mcp_http_status"),
+              "provider_http_status": status_value("provider_http_status"),
+              "normal_nulls": acquisition.get("normal_nulls"),
+              "first_fetched_at_utc": acquisition.get("first_fetched_at_utc"),
+              "last_fetched_at_utc": acquisition.get("last_fetched_at_utc"),
+              "retry_not_before_utc": retry_times[-1] if retry_times else None,
+              "preflight_saved_rows": os.environ.get("PREFLIGHT_ROWS"),
+              "cooldown_allowed": os.environ.get("COOLDOWN_ALLOWED"),
+              "cooldown_not_before_utc": os.environ.get("COOLDOWN_UNTIL"),
+              "elapsed_seconds": progress.get("elapsed_seconds"),
+              "chunks_completed": progress.get("chunks_completed"), "chunks_total": progress.get("chunks_total"),
+              "failed_chunk": progress.get("chunk_index"), "response_bytes": progress.get("response_bytes"),
+              "provider_elapsed_seconds": progress.get("provider_elapsed_seconds"),
+              "max_chunk_elapsed_seconds": progress.get("max_chunk_elapsed_seconds"),
+              "oauth_rotations": progress.get("oauth_rotations"),
+              "private_handoff": os.environ.get("PRIVATE_HANDOFF"),
+              "canonical_publication": "separate common integration",
+          }
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              print("| Field | Value |\n| --- | --- |", file=output)
+              for key, value in values.items():
+                  safe = str("unavailable" if value is None or value == "" else value)
+                  safe = safe.replace("|", "").replace("\n", " ")
+                  print(f"| {key} | {safe} |", file=output)
+          PYSUMMARY
+
+  notify:
+    needs: snapshot
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report source receipt state separately from integration
+        id: notify
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          PYTHONPATH: jobs/src
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SOURCE_GROUP: tradingview
+          ASOF: ${{ needs.snapshot.outputs.target-target-date }}
+          ACQUIRE_RESULT: ${{ needs.snapshot.result }}
+          STAGE_RESULT: ${{ needs.snapshot.outputs.handoff != '' && 'success' || 'skipped' }}
+        run: python3 -m baibai_jobs.observability.source_discord

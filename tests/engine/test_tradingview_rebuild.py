@@ -13,7 +13,7 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
 
-import baibai_jobs.maintenance.tradingview_cli as cli
+import baibai_jobs.acquisition.tradingview.cli as cli
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import (
     read_tool_results,
@@ -259,8 +259,8 @@ def test_rebuild_cli_is_offline_and_does_not_create_missing_store(
     assert (result["rows"], result["remaining"]) == (1, 0)
 
 
-@pytest.mark.parametrize("command", ["refresh", "smoke", "authorize", "accept-observations"])
-def test_live_or_normalized_acquisition_commands_are_not_operational(command) -> None:
+@pytest.mark.parametrize("command", ["smoke", "authorize", "accept-observations"])
+def test_bootstrap_smoke_and_normalized_import_are_not_operational(command) -> None:
     with (
         patch("socket.socket", side_effect=AssertionError("network")),
         pytest.raises(SystemExit) as error,

@@ -2,6 +2,7 @@ from contextlib import closing
 from datetime import date
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import master_coverage_key
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.inputs import export_source_input
@@ -47,3 +48,51 @@ def test_edinet_facts_acquisition_input_has_inventory_without_zip_payloads(tmp_p
     assert report["archive_keys"] == [("S100XBRL", 1)]
     with closing(open_connection(scoped)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM edinet_source_archives").fetchone()[0] == 0
+
+
+def test_tradingview_input_uses_calendar_basis_even_with_a_weekend_master(tmp_path):
+    from tests.helpers.tradingview import DAY, store
+
+    canonical = store(tmp_path / "canonical.sqlite", 2)
+    saturday = date(2026, 9, 19)
+    with closing(open_connection(canonical)) as conn, conn:
+        conn.execute(
+            "INSERT INTO jquants_market_calendar VALUES (?, ?)", (saturday.isoformat(), "0")
+        )
+        conn.execute(
+            "INSERT INTO jquants_master_snapshots SELECT ?, security_code, record_json FROM jquants_master_snapshots",
+            (saturday.isoformat(),),
+        )
+        for day in (DAY, saturday):
+            record_source_coverage(
+                conn,
+                source="jquants_master_snapshots",
+                coverage_key=master_coverage_key(day),
+                coverage_start=day.isoformat(),
+                coverage_end=day.isoformat(),
+                record_count=2,
+            )
+    scoped = tmp_path / "scoped.sqlite"
+    export_source_input(canonical, scoped, group="tradingview", asof=saturday)
+    with closing(open_connection(scoped)) as conn:
+        assert conn.execute(
+            "SELECT DISTINCT snapshot_date FROM jquants_master_snapshots"
+        ).fetchall() == [(DAY.isoformat(),)]
+        assert conn.execute(
+            "SELECT coverage_key FROM source_coverage WHERE source = ?",
+            ("jquants_master_snapshots",),
+        ).fetchall() == [(master_coverage_key(DAY),)]
+        assert conn.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
+
+
+def test_business_day_input_does_not_substitute_an_older_master(tmp_path):
+    from tests.helpers.tradingview import store
+
+    canonical = store(tmp_path / "canonical.sqlite", 2)
+    monday = date(2026, 9, 21)
+    with closing(open_connection(canonical)) as conn, conn:
+        conn.execute("INSERT INTO jquants_market_calendar VALUES (?, ?)", (monday.isoformat(), "1"))
+    scoped = tmp_path / "scoped.sqlite"
+    export_source_input(canonical, scoped, group="tradingview", asof=monday)
+    with closing(open_connection(scoped)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
