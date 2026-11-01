@@ -65,7 +65,15 @@ def selected_sources(group: str, source_id: str = "") -> list[str]:
     return [source_id] if source_id else members
 
 
-def acquire(group: str, source_id: str, asof: date, directory: Path, database: Path) -> int:
+def acquire(
+    group: str,
+    source_id: str,
+    asof: date,
+    directory: Path,
+    database: Path,
+    *,
+    current_only_now: bool = False,
+) -> int:
     sources = selected_sources(group, source_id)
     # Missing canonical input is a provisioning failure, never an implicit empty seed.
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
@@ -73,7 +81,12 @@ def acquire(group: str, source_id: str, asof: date, directory: Path, database: P
     since = datetime.now(UTC)
     with retain_economic_rechecks():
         outcomes = refresh_economic_sources(
-            sources, db_path=database, start=None, end=asof, recent=True
+            sources,
+            db_path=database,
+            start=None,
+            end=asof,
+            recent=True,
+            current_only_now=current_only_now,
         )
     directory.mkdir(parents=True, exist_ok=True)
     export_economic_receipts(
@@ -153,6 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--run-created-at", type=datetime.fromisoformat)
     parser.add_argument("--scheduled", action="store_true")
+    parser.add_argument("--current-only-now", action="store_true")
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--stage-id")
     parser.add_argument("--db", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
@@ -205,7 +219,14 @@ def main(argv: list[str] | None = None) -> int:
             load_project_env()
             if args.asof is None:
                 raise ValueError("--asof is required")
-            return acquire(args.group, args.source_id, args.asof, args.directory, args.db)
+            return acquire(
+                args.group,
+                args.source_id,
+                args.asof,
+                args.directory,
+                args.db,
+                current_only_now=args.current_only_now,
+            )
         receive(
             args.directory, args.db, args.group, args.source_id, verify=args.command == "verify"
         )

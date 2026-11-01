@@ -73,6 +73,7 @@ jobs:
       group: ${{ matrix.group }}
       source_id: ${{ inputs.source_id || '' }}
       asof: ${{ needs.plan.outputs.asof }}
+      current_only_now: ${{ github.event_name == 'schedule' || inputs.asof == '' }}
     secrets: inherit
 
   notify-plan-failure:
