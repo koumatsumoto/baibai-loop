@@ -300,3 +300,17 @@ def test_unchanged_current_annual_does_not_reconfirm_its_comparative_column():
     assert selected["status"] == "available"
     assert selected["comparative_verified"] is False
     assert all("source_sha256" not in change for change in growth.payload["changes"])
+
+
+def test_annual_correction_can_use_native_annual_without_restated_pdf():
+    changed = replace(
+        document(True),
+        disclosure_number="annual-profit-correction",
+        disclosed_at=date(2026, 6, 19),
+        profit=2_500_000_000,
+    )
+    financial, _, _ = models(documents=[document(True), changed], pdfs=[statement(True)])
+    selected = financial.payload["financial"]["pdf_selection"]
+    assert selected["status"] == "unavailable"
+    assert selected["blocks_legacy_ttm"] is False
+    assert financial.payload["earnings_price"]["profit_ttm_yen"] == 2_500_000_000
