@@ -74,7 +74,7 @@ jobs:
 
       - name: Ruff lint
         if: ${{ !cancelled() }}
-        run: uv run ruff check .
+        run: uv run ruff check --output-format github .
 
       - name: Type check
         if: ${{ !cancelled() }}

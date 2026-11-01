@@ -6,11 +6,11 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.external_assessment_html import kabumap_html as html
+from tests.helpers.external_assessment_http import RawSession as Session
+from tests.helpers.external_assessment_http import connect as connect
 from tests.helpers.external_assessment_stages import FakeObjectStore, plan, stage
 from tests.helpers.external_assessment_universe import ASOF, seed_database
 from tests.helpers.master import insert_master_rows
-from tests.jobs.test_external_assessment_raw import Session
-from tests.jobs.test_external_assessment_raw import connect as connect
 
 import baibai_jobs.acquisition.external_assessments.collection as collection
 import baibai_jobs.acquisition.external_assessments.daily as external_assessment_daily

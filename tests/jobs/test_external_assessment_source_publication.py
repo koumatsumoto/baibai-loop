@@ -12,6 +12,11 @@ from tests.helpers.external_assessment_html import (
     monex_html,
     no_coverage_html,
 )
+from tests.helpers.external_assessment_http import RawSession as Session
+from tests.helpers.external_assessment_http import connect as connect
+from tests.jobs.external_assessment_publication_fixtures import _plan as _plan
+from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
+from tests.jobs.external_assessment_publication_fixtures import publication as publication
 from tests.jobs.external_assessment_publication_fixtures import (
     RECEIVED,
     integrate_ready_plans,
@@ -19,11 +24,6 @@ from tests.jobs.external_assessment_publication_fixtures import (
     ready_reference,
     upload_bundle,
 )
-from tests.jobs.external_assessment_publication_fixtures import _plan as _plan
-from tests.jobs.external_assessment_publication_fixtures import _stage as _stage
-from tests.jobs.external_assessment_publication_fixtures import publication as publication
-from tests.jobs.test_external_assessment_raw import Session
-from tests.jobs.test_external_assessment_raw import connect as connect
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.integration.external_assessments as integration

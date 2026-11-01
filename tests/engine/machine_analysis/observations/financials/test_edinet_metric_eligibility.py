@@ -135,7 +135,7 @@ def test_corrupt_retained_document_evidence_is_not_optional_missing_input(tmp_pa
 
 @pytest.mark.parametrize("state", ["saved", "missing", "incompatible"])
 def test_actual_coverage_and_reader_agree_on_optional_eligibility(state):
-    from tests.engine.test_sqlite_coverage import (
+    from tests.helpers.legacy_coverage import (
         _complete_coverage_database,
         _verify_screening_sqlite_coverage,
     )

@@ -5,7 +5,7 @@ from datetime import date
 from itertools import permutations
 
 import pytest
-from tests.engine.test_pdf_statements import ASOF, base, pages, statement
+from tests.helpers.pdf_statements import ASOF, base, pages, statement
 
 from baibai_engine.machine_analysis.generation.financial_models import (
     generate_financial_and_price_models,

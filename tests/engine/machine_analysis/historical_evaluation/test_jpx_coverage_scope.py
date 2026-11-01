@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import timedelta
 
 import pytest
-from tests.engine.test_sqlite_coverage import (
+from tests.helpers.legacy_coverage import (
     _COMMON_COVERAGE_ASOF,
     _complete_coverage_database,
     _verify_screening_sqlite_coverage,

@@ -230,30 +230,24 @@ jobs:
             echo 'TradingView acquisition failed; category=timeout' | tee -a "$stderr" >&2
           fi
           set +e
-          python - "$progress" "$result" "$stderr" "$status" "$receipts_before" "$receipts_after" "$rows_before" "$rows_after" <<'PYRESULT'
+          PYTHONPATH=jobs/src python - "$progress" "$result" "$stderr" "$status" "$receipts_before" "$receipts_after" "$rows_before" "$rows_after" <<'PYRESULT'
           import json
           import os
           import re
           import sys
           from pathlib import Path
 
+          from baibai_jobs.observability.tradingview_progress import safe_progress
+
           progress, result, stderr = map(Path, sys.argv[1:4])
           status = int(sys.argv[4])
           receipts_before, receipts_after = map(int, sys.argv[5:7])
           rows_before, rows_after = map(int, sys.argv[7:9])
-          fields = (
-              "snapshot_date", "master_asof", "phase", "expected_universe", "chunks_total", "chunks_completed",
-              "requests_attempted", "symbols_requested",
-              "chunk_index", "chunk_size", "columns_count", "interval_seconds", "response_bytes",
-              "provider_elapsed_seconds", "max_chunk_elapsed_seconds", "elapsed_seconds",
-              "first_fetched_at_utc", "last_fetched_at_utc", "oauth_rotations",
-          )
           try:
               payload = json.loads(progress.read_text(encoding="utf-8"))
               if not isinstance(payload, dict):
                   raise ValueError("invalid progress")
-              safe = {key: payload[key] for key in fields if key in payload
-                      and (payload[key] is None or type(payload[key]) in (str, int, float, bool))}
+              safe = safe_progress(payload)
               print("TradingView progress: " + json.dumps(safe, sort_keys=True, allow_nan=False))
           except (OSError, ValueError, UnicodeError):
               if status != 0:

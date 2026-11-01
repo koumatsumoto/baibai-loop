@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.engine.test_financial_documents import documents
+from tests.helpers.financial_documents import documents
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries

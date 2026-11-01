@@ -11,6 +11,7 @@ from tests.helpers.external_assessment_html import (
     rakuten_html,
     rakuten_no_estimates_html,
 )
+from tests.helpers.external_assessment_http import PairSession as Session
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
@@ -40,35 +41,6 @@ def clock(monkeypatch):
     monkeypatch.setattr(collection.time, "monotonic", value.monotonic)
     monkeypatch.setattr(collection.time, "sleep", value.sleep)
     return value
-
-
-class Session(requests.Session):
-    def __init__(self, replies, *, clock=None, events=None):
-        super().__init__()
-        self.replies = iter(replies)
-        self.calls = []
-        self.clock = clock
-        self.events = events
-        self.finished = []
-
-    def get(self, url, **kwargs):
-        self.calls.append((url, kwargs, self.clock.now if self.clock is not None else None))
-        if self.events is not None:
-            assert self.events[-1] == "before"
-            self.events.append("request")
-        reply = next(self.replies)
-        if isinstance(reply, BaseException):
-            raise reply
-        status, html = reply
-        if self.clock is not None:
-            self.clock.now += 0.25
-            self.finished.append(self.clock.now)
-        response = requests.Response()
-        response.status_code = status
-        response._content = html.encode()
-        response._content_consumed = True
-        response.headers["Content-Type"] = "text/html; charset=utf-8"
-        return response
 
 
 def pair(client, *, source="monex", ticker="7203", response=None, **kwargs):
