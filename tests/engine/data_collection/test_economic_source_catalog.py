@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from dataclasses import fields
 from importlib.resources import files
+from unittest import TestCase
 
 import pytest
 
 from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
+from baibai_engine.data_collection.provider_registry import provider_spec
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 
 
 def test_relocated_economic_resources_resolve_from_their_owner_packages():
@@ -181,3 +184,11 @@ def test_l2_registry_rejects_an_unknown_source_binding(tmp_path):
     path.write_text("series: [{source_id: unknown-source}]")
     with pytest.raises(ValueError, match="unknown economic collection source"):
         load_definitions(path)
+
+
+class ProviderRegistryTests(TestCase):
+    def test_provider_spec_rejects_unknown_provider(self) -> None:
+        with self.assertRaisesRegex(
+            IndicatorsProviderError, "unsupported indicator provider: nonexistent_provider"
+        ):
+            provider_spec("nonexistent_provider")

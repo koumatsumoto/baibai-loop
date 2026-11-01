@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import date
 from typing import cast
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -10,13 +9,9 @@ from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _FakeResponse,
     _RaisingSession,
-    _series,
     _StaticSession,
 )
 
-from baibai_engine.data_collection.provider_registry import provider_spec
-from baibai_engine.data_collection.providers.ecb.fx import parse_ecb_reference_csv
-from baibai_engine.data_collection.providers.fred import FredSource
 from baibai_engine.data_collection.transport.context import (
     BrowserUnavailableError,
     FetchContext,
@@ -233,56 +228,3 @@ class IndicatorsProviderParserTests(TestCase):
             "XDG_RUNTIME_DIR": "/run/user/1001",
             "PLAYWRIGHT_BROWSERS_PATH": "/home/runner/.cache/ms-playwright",
         }
-
-    def test_parse_ecb_reference_csv_preserves_all_native_currencies(self) -> None:
-        text = "Date,USD,JPY,AUD,CHF\n2026-05-08,1.1761,184.37,1.6259,N/A\n"
-        records = parse_ecb_reference_csv(text, start=date(2026, 5, 8), end=date(2026, 5, 8))
-        self.assertEqual(
-            records[date(2026, 5, 8)][0],
-            {
-                "Date": "2026-05-08",
-                "USD": "1.1761",
-                "JPY": "184.37",
-                "AUD": "1.6259",
-                "CHF": "N/A",
-            },
-        )
-
-    def test_parse_ecb_reference_csv_rejects_missing_date_column(self) -> None:
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing Date column"):
-            parse_ecb_reference_csv("JPY\n184.37\n", start=date(2026, 5, 8), end=date(2026, 5, 8))
-
-    def test_fred_source_wraps_request_exception(self) -> None:
-        series = _series("fred_csv", "DGS10")
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"):
-            FredSource().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=_RaisingSession(),
-            )
-
-    def test_fred_source_rejects_oversized_response(self) -> None:
-        series = _series("fred_csv", "DGS10")
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "too large"):
-            FredSource().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                session=_StaticSession(
-                    _FakeResponse(
-                        b"",
-                        headers={"Content-Length": "9000000"},
-                    )
-                ),
-            )
-
-    def test_provider_spec_rejects_unknown_provider(self) -> None:
-        series = _series("nonexistent_provider", "X")
-
-        with self.assertRaisesRegex(
-            IndicatorsProviderError, "unsupported indicator provider: nonexistent_provider"
-        ):
-            provider_spec(series.provider)

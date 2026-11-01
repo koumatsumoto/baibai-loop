@@ -63,9 +63,8 @@ class EStatSource:
         session: HttpSession,
         context: FetchContext | None = None,
     ) -> NativeRecords:
-        # Self-load .env so the provider works whether or not the caller already
-        # did (the jquants providers follow the same pattern); CI passes the key
-        # via the environment directly.
+        # The CLI owns environment loading; providers only read the supplied key.
+        # A direct caller must provision its environment before acquisition.
         app_id = os.environ.get("ESTAT_APP_ID")
         if not app_id:
             raise IndicatorsProviderError("e-Stat appId not set: export ESTAT_APP_ID")

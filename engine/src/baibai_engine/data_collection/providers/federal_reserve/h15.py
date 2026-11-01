@@ -118,9 +118,8 @@ def _fetch_h15_csv_via_browser(
 ) -> str:
     """The CSV read through a real browser, after the plain client was turned away.
 
-    What the plain client was answered with travels into every failure here: it
-    is the evidence for how the edge is blocking, only this message reaches the
-    batch log, and without it a recurrence reads as a browser problem.
+    Keep both transport outcomes in the error reported by the batch. A missing
+    CSV header alone does not identify the cause or prove an access policy.
     """
 
     navigation_url = _navigation_url(url, params)
@@ -143,12 +142,10 @@ def _fetch_h15_csv_via_browser(
         # A job cutoff says nothing about the source or whether a browser ran.
         raise
     except (IndicatorsProviderError, UnicodeDecodeError) as exc:
-        # An edge that turned this navigation away turns the next one away too,
-        # and each attempt costs a navigation timeout, so what the edge answered
-        # is recorded and the remaining series report it without paying again. A
-        # browser that never started says nothing about the edge, so it is not
-        # recorded and the next series still tries. A non-UTF-8 answer is a
-        # failed response, not a transient transport failure to retry.
+        # Reuse this navigation failure only within the current pass, rather than
+        # spending another timeout for each reading of the same resource. It is
+        # not a permanent source rejection. A browser that never started provides
+        # no source evidence, and a non-UTF-8 body is not a transport retry.
         if not isinstance(exc, BrowserUnavailableError):
             context.blocked_browser_urls[navigation_url] = str(exc)
         raise IndicatorsProviderError(

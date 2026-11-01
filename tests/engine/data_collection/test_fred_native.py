@@ -1,14 +1,20 @@
 """A successful FRED missing-cell revision cannot revive an earlier value."""
 
+from __future__ import annotations
+
 from contextlib import closing
 from datetime import date
+from unittest import TestCase
 
 from tests.helpers.network import _no_real_network as _no_real_network
+from tests.helpers.provider_fixtures import _FakeResponse, _RaisingSession, _source, _StaticSession
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.providers import fred
+from baibai_engine.data_collection.providers.fred import FredSource, parse_fred_csv
 from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
@@ -60,3 +66,61 @@ def test_missing_cell_and_empty_replacement_do_not_restore_prior_values(tmp_path
     )[0]
     assert isinstance(outcome, acquisition.SourceRefreshSuccess)
     assert service.get_range("vix", start=first, end=second).observations == ()
+
+
+class NativeParserTests(TestCase):
+    def test_parse_fred_csv_filters_range_without_discarding_missing_cells(self) -> None:
+        series = _source("fred_csv", "DGS10")
+        text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"
+
+        observations = parse_fred_csv(
+            series,
+            text,
+            start=date(2026, 5, 2),
+            end=date(2026, 5, 5),
+        )
+
+        self.assertEqual(
+            observations,
+            {
+                date(2026, 5, 2): [{"observation_date": "2026-05-02", "DGS10": "."}],
+                date(2026, 5, 4): [{"observation_date": "2026-05-04", "DGS10": "4.45"}],
+            },
+        )
+
+    def test_parse_fred_csv_rejects_missing_date_header_instead_of_empty_history(self) -> None:
+        series = _source("fred_csv", "DGS10")
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing column observation_date"):
+            parse_fred_csv(
+                series,
+                "date,DGS10\n2026-05-01,4.39\n",
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 2),
+            )
+
+    def test_fred_source_wraps_request_exception(self) -> None:
+        series = _source("fred_csv", "DGS10")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "failed to fetch"):
+            FredSource().fetch_records(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=_RaisingSession(),
+            )
+
+    def test_fred_source_rejects_oversized_response(self) -> None:
+        series = _source("fred_csv", "DGS10")
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "too large"):
+            FredSource().fetch_records(
+                series,
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=_StaticSession(
+                    _FakeResponse(
+                        b"",
+                        headers={"Content-Length": "9000000"},
+                    )
+                ),
+            )

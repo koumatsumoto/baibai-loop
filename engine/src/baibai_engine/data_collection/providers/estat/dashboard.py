@@ -53,8 +53,8 @@ class EStatDashboardSource:
 
     An index the publisher rebases keeps its selectors, so a windowed refresh would
     write recent months on the new base while older months stay on the old one. A
-    rebase is therefore refreshed with ``--all-history``, which rewrites the whole
-    series on one base.
+    rebase therefore needs an explicit ``--all-history`` receipt for the affected
+    series. New vintages supersede selected values; retained originals are not rewritten.
     """
 
     spec = ProviderSpec(name="estat_dashboard", all_history_start=_HISTORY_FLOOR)
