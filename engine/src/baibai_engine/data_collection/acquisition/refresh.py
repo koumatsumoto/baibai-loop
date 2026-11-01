@@ -139,7 +139,9 @@ def refresh_sources(
                     isinstance(error, ProviderFetchStoppedError)
                     and catalog[source_id].provider in {"spglobal_pmi", "tradingeconomics_pmi"}
                 ):
-                    stopped_groups[source_policy(catalog[source_id]).acquisition_group] = http_status
+                    stopped_groups[source_policy(catalog[source_id]).acquisition_group] = (
+                        http_status
+                    )
                 outcomes.append(
                     SourceRefreshFailure(source_id, redact_credentials(str(error)), http_status)
                 )

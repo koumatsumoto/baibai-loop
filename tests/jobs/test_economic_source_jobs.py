@@ -173,9 +173,7 @@ def test_pmi_notice_retains_failure_and_only_identifies_actual_http_403(
     def fetch(url, **kwargs):
         calls.append(url)
         if failure in {"empty", "message_only"}:
-            raise SourceWithheldError(
-                "HTTP 403" if failure == "message_only" else "empty response"
-            )
+            raise SourceWithheldError("HTTP 403" if failure == "message_only" else "empty response")
         if failure == "parse":
             raise ValueError("bad PDF")
         response = requests.Response()
@@ -196,7 +194,10 @@ def test_pmi_notice_retains_failure_and_only_identifies_actual_http_403(
         assert all(row["http_status"] == 403 for row in report["sources"])
     with closing(initialize_database(directory / "receipts.sqlite")) as conn:
         assert conn.execute("SELECT COUNT(*) FROM economic_source_documents").fetchone()[0] == 0
-        assert conn.execute("SELECT status FROM economic_source_runs LIMIT 1").fetchone()[0] == "failed"
+        assert (
+            conn.execute("SELECT status FROM economic_source_runs LIMIT 1").fetchone()[0]
+            == "failed"
+        )
 
 
 def test_economic_workflow_passes_notice_classification_without_hiding_job_failure():
@@ -209,8 +210,7 @@ def test_economic_workflow_passes_notice_classification_without_hiding_job_failu
     assert "continue-on-error" not in next(step for step in steps if step.get("id") == "acquire")
     notice = source["jobs"]["notify"]["steps"][-1]
     assert (
-        notice["env"]["EXPECTED_UNAVAILABLE"]
-        == "${{ needs.acquire.outputs.expected_unavailable }}"
+        notice["env"]["EXPECTED_UNAVAILABLE"] == "${{ needs.acquire.outputs.expected_unavailable }}"
     )
 
 
