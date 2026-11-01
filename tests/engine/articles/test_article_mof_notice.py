@@ -25,7 +25,7 @@ def test_notice_retains_explicit_target_without_claiming_body_or_publication_dat
     assert item.published_raw is None
     assert item.metadata == {"redirect_target_url": TARGET}
     assert item.missing_parts == ("redirect_target_body_is_a_separate_receipt",)
-    assert parser_revision_for("mof_news") == "article-native-mof-v3"
+    assert parser_revision_for("mof_news") == "article-native-mof-v4"
 
 
 @pytest.mark.parametrize(
@@ -112,3 +112,100 @@ def test_other_csv_routes_do_not_gain_mof_table_interpretation():
     body = "基準日,1年\nR8.1.5,0.5\n".encode("cp932")
     with pytest.raises(NativeArticleUnsupported):
         parse_document("mof_news", body, url=TARGET, encoding="cp932")
+
+
+def protected_pdf(password="", pages=1):
+    from io import BytesIO
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    for _ in range(pages):
+        page = writer.add_blank_page(width=400, height=400)
+        font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})}
+        )
+        content = DecodedStreamObject()
+        content.set_data(b"BT /F1 12 Tf 20 300 Td (Synthetic procurement answer) Tj ET")
+        page[NameObject("/Contents")] = content
+    writer.encrypt(user_password=password, owner_password="synthetic-owner")
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def test_mof_public_pdf_with_encryption_dictionary_is_read_without_password():
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    body = protected_pdf()
+    assert PdfReader(BytesIO(body)).is_encrypted
+    item = parse_document("mof_news", body, url="https://www.mof.go.jp/synthetic.pdf")
+    assert "Synthetic procurement answer" in item.text
+    assert item.content_scope == "partial_text"
+    assert item.missing_parts == ("non_text_figures_and_layout",)
+    assert item.metadata["page_spans"] == [{"page": 1, "start": 0, "end": len(item.text)}]
+    with pytest.raises(ValueError, match="encrypted"):
+        parse_document("boj_news", body, url="https://www.boj.or.jp/synthetic.pdf")
+
+
+def test_mof_pdf_requiring_password_or_over_page_limit_is_still_rejected():
+    from pypdf.errors import PdfReadError
+
+    with pytest.raises(PdfReadError):
+        parse_document("mof_news", protected_pdf("required"), url=TARGET)
+    with pytest.raises(ValueError, match="oversized"):
+        parse_document("mof_news", protected_pdf(pages=101), url=TARGET)
+
+
+def test_mof_pdf_reprojection_preserves_original_and_prior_failure(tmp_path):
+    import hashlib
+    from contextlib import closing
+    from datetime import UTC, datetime
+
+    from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
+    from baibai_engine.data_collection.receipts.articles.store import read_body, retain_receipt
+    from baibai_engine.machine_analysis.observations.articles.contracts import ArticleProjectionRun
+    from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
+    from baibai_engine.machine_analysis.observations.articles.store import save_projection
+    from baibai_engine.storage.sqlite import schema
+
+    body = protected_pdf()
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    receipt = ArticleReceipt(
+        receipt_id="mof-protected-pdf",
+        source="mof_news",
+        requested_url="https://www.mof.go.jp/synthetic.pdf",
+        received_at=now,
+        status="ok",
+        http_status=200,
+        body_ref=BodyRef(receipt_id="mof-protected-pdf", sha256=hashlib.sha256(body).hexdigest()),
+    )
+    with closing(schema.open_connection(tmp_path / "market.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt, body=body)
+        old = ArticleProjectionRun(
+            receipt_id=receipt.receipt_id,
+            receipt_sha256=receipt.sha256,
+            parser_revision="article-native-mof-v3",
+            generated_at=now,
+            status="parse_failed",
+            error_code="ValueError",
+        )
+        save_projection(conn, old, ())
+        new, (item,) = project_receipt(conn, receipt.receipt_id, kind="document")
+        assert new.status == "parsed"
+        assert new.parser_revision == "article-native-mof-v4"
+        assert "Synthetic procurement answer" in item.text
+        assert read_body(conn, receipt.body_ref) == body
+        repeated, _ = project_receipt(conn, receipt.receipt_id, kind="document")
+        assert repeated == new
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 2

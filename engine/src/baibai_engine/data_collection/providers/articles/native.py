@@ -20,7 +20,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 PARSER_REVISION = "article-native-v1"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
 BOJ_PARSER_REVISION = "article-native-boj-v2"
-MOF_PARSER_REVISION = "article-native-mof-v3"
+MOF_PARSER_REVISION = "article-native-mof-v4"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -433,7 +433,10 @@ def parse_document(
         return parse_workbook(body, source=source, url=url, title=title)
     if body.startswith(b"%PDF-"):
         reader = PdfReader(io.BytesIO(body))
-        if reader.is_encrypted or len(reader.pages) > 100:
+        # MOF public PDFs can carry an encryption dictionary yet open normally
+        # without a password. Let PdfReader reject genuinely unreadable pages;
+        # do not equate the dictionary's presence with inaccessible content.
+        if (reader.is_encrypted and source != "mof_news") or len(reader.pages) > 100:
             raise ValueError("encrypted or oversized article PDF is unsupported")
         parts = [page.extract_text() or "" for page in reader.pages]
         if not any(part.strip() for part in parts):
