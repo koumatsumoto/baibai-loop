@@ -1,16 +1,22 @@
 """Yahoo null close revisions retain OHLCV and do not revive earlier values."""
 
+from __future__ import annotations
+
 import json
 from contextlib import closing
 from datetime import UTC, date, datetime
+from unittest import TestCase
 
 import pytest
 from tests.helpers.network import _no_real_network as _no_real_network
+from tests.helpers.provider_fixtures import _source
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.providers import yahoo
+from baibai_engine.data_collection.providers.yahoo import parse_yahoo_chart
 from baibai_engine.data_collection.receipts.native_sources import store as db
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+from baibai_engine.data_collection.transport.context import IndicatorsProviderError
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
 )
@@ -125,3 +131,89 @@ def test_wrong_symbol_cannot_be_read_as_the_requested_series(tmp_path, monkeypat
     assert isinstance(outcome, acquisition.SourceRefreshSuccess)
     with pytest.raises(ValueError, match="symbol does not match"):
         IndicatorsService(path).get_range(series.series_id, start=day, end=day)
+
+
+class NativeParserTests(TestCase):
+    def test_parse_yahoo_chart_filters_range_without_discarding_null_close(self) -> None:
+        series = _source(
+            "yahoo",
+            "GC=F",
+        )
+
+        def ts(year: int, month: int, day: int) -> int:
+            return int(datetime(year, month, day, 14, 30, tzinfo=UTC).timestamp())
+
+        text = json.dumps(
+            {
+                "chart": {
+                    "error": None,
+                    "result": [
+                        {
+                            "timestamp": [ts(2026, 5, 1), ts(2026, 5, 4), ts(2026, 5, 5)],
+                            "indicators": {"quote": [{"close": [4000.0, None, 4050.5]}]},
+                        }
+                    ],
+                }
+            }
+        )
+
+        observations = parse_yahoo_chart(series, text, start=date(2026, 5, 4), end=date(2026, 5, 5))
+
+        self.assertEqual(list(observations), [date(2026, 5, 4), date(2026, 5, 5)])
+        self.assertEqual(
+            observations[date(2026, 5, 4)][0]["indicators"]["quote"], [{"close": None}]
+        )
+        self.assertEqual(
+            observations[date(2026, 5, 5)][0]["indicators"]["quote"], [{"close": 4050.5}]
+        )
+
+    def test_parse_yahoo_chart_rejects_unpaired_dates_or_values(self) -> None:
+        series = _source(
+            "yahoo",
+            "GC=F",
+        )
+        stamp = int(datetime(2026, 5, 1, tzinfo=UTC).timestamp())
+        for timestamps, closes in (
+            ([stamp, stamp + 86400], [4000.0]),
+            ([stamp], [4000.0, 4010.0]),
+        ):
+            with self.subTest(timestamps=timestamps, closes=closes):
+                text = json.dumps(
+                    {
+                        "chart": {
+                            "error": None,
+                            "result": [
+                                {
+                                    "timestamp": timestamps,
+                                    "indicators": {"quote": [{"close": closes}]},
+                                }
+                            ],
+                        }
+                    }
+                )
+                with self.assertRaisesRegex(IndicatorsProviderError, "lengths differ"):
+                    parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
+
+    def test_parse_yahoo_chart_rejects_error_payload(self) -> None:
+        series = _source(
+            "yahoo",
+            "BADSYM",
+        )
+        text = json.dumps(
+            {"chart": {"result": None, "error": {"code": "Not Found", "description": "no data"}}}
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "Yahoo chart error"):
+            parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+
+    def test_parse_yahoo_chart_rejects_missing_quote(self) -> None:
+        series = _source(
+            "yahoo",
+            "GC=F",
+        )
+        text = json.dumps(
+            {"chart": {"error": None, "result": [{"timestamp": [1], "indicators": {}}]}}
+        )
+
+        with self.assertRaisesRegex(IndicatorsProviderError, "missing quote"):
+            parse_yahoo_chart(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))

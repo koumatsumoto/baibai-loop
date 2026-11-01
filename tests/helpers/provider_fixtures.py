@@ -267,7 +267,7 @@ def _parse_dashboard(
 
 
 class _ForbiddenResponse:
-    """A 403 as an edge bot-mitigation serves it: a challenge page, not an error."""
+    """Synthetic HTTP 403 with HTML; it does not establish a real refusal cause."""
 
     status_code = 403
     headers: dict[str, str] = {"Content-Type": "text/html"}

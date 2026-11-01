@@ -1,3 +1,5 @@
+"""Native source contracts for h15_native."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -12,16 +14,11 @@ from tests.helpers.provider_fixtures import (
     _FakeBrowserFetcher,
     _FakeResponse,
     _ForbiddenResponse,
-    _source,
     _StaticSession,
 )
 
 from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.data_collection.providers.federal_reserve.h15 import FrbH15Source, parse_h15_csv
-from baibai_engine.data_collection.providers.fred import parse_fred_csv
-from baibai_engine.data_collection.providers.university_of_michigan.sentiment import (
-    parse_umich_table,
-)
 from baibai_engine.data_collection.transport.context import (
     MAX_CSV_RESPONSE_BYTES,
     BrowserUnavailableError,
@@ -34,7 +31,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.definitions
 )
 
 
-class IndicatorsProviderParserTests(TestCase):
+class NativeParserTests(TestCase):
     def test_h15_missing_date_is_not_a_successful_empty_response(self) -> None:
         series = require_source("fed-h15")
         with self.assertRaisesRegex(IndicatorsProviderError, "no Time Period"):
@@ -44,79 +41,6 @@ class IndicatorsProviderParserTests(TestCase):
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
             )
-
-    def test_parse_fred_csv_filters_range_without_discarding_missing_cells(self) -> None:
-        series = _source("fred_csv", "DGS10")
-        text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"
-
-        observations = parse_fred_csv(
-            series,
-            text,
-            start=date(2026, 5, 2),
-            end=date(2026, 5, 5),
-        )
-
-        self.assertEqual(
-            observations,
-            {
-                date(2026, 5, 2): [{"observation_date": "2026-05-02", "DGS10": "."}],
-                date(2026, 5, 4): [{"observation_date": "2026-05-04", "DGS10": "4.45"}],
-            },
-        )
-
-    def test_parse_fred_csv_rejects_missing_date_header_instead_of_empty_history(self) -> None:
-        series = _source("fred_csv", "DGS10")
-        with self.assertRaisesRegex(IndicatorsProviderError, "missing column observation_date"):
-            parse_fred_csv(
-                series,
-                "date,DGS10\n2026-05-01,4.39\n",
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 2),
-            )
-
-    def test_parse_umich_table_reads_the_column_for_each_published_month(self) -> None:
-        series = require_source("umich-sca-ics")
-        # The early history is quarterly, so consecutive rows can skip months.
-        text = "Month,YYYY,ICS_ALL\nNovember,1952,86.2\nFebruary,1953,90.7\nJune,2026,49.5\n"
-
-        observations = parse_umich_table(series, text, start=date(1952, 1, 1), end=date(2026, 7, 1))
-
-        self.assertEqual(
-            observations,
-            {
-                date(1952, 11, 1): [{"Month": "November", "YYYY": "1952", "ICS_ALL": "86.2"}],
-                date(1953, 2, 1): [{"Month": "February", "YYYY": "1953", "ICS_ALL": "90.7"}],
-                date(2026, 6, 1): [{"Month": "June", "YYYY": "2026", "ICS_ALL": "49.5"}],
-            },
-        )
-
-    def test_parse_umich_table_filters_to_the_requested_window(self) -> None:
-        series = require_source("umich-sca-ics")
-        text = "Month,YYYY,ICS_ALL\nApril,2026,49.8\nMay,2026,44.8\nJune,2026,49.5\n"
-
-        observations = parse_umich_table(
-            series, text, start=date(2026, 5, 1), end=date(2026, 5, 31)
-        )
-
-        self.assertEqual(list(observations), [date(2026, 5, 1)])
-
-    def test_parse_umich_table_retains_a_month_published_without_a_value(self) -> None:
-        series = require_source("umich-sca-ics")
-        text = "Month,YYYY,ICS_ALL\nMay,2026,44.8\nJune,2026,\n"
-
-        observations = parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
-
-        self.assertEqual(
-            observations[date(2026, 6, 1)],
-            [{"Month": "June", "YYYY": "2026", "ICS_ALL": ""}],
-        )
-
-    def test_parse_umich_table_rejects_a_row_that_is_not_a_month_of_a_year(self) -> None:
-        series = require_source("umich-sca-ics")
-        text = "Month,YYYY,ICS_ALL\nQ2,2026,49.5\n"
-
-        with self.assertRaisesRegex(IndicatorsProviderError, "not a month of a year"):
-            parse_umich_table(series, text, start=date(2026, 1, 1), end=date(2026, 7, 1))
 
     def test_parse_h15_csv_retains_rows_without_the_requested_yield_column(self) -> None:
         series = require_source("fed-h15")
@@ -324,7 +248,7 @@ class IndicatorsProviderParserTests(TestCase):
         )
         headers = cast("dict[str, str]", captured["headers"])
         self.assertIn("Mozilla/5.0", headers["User-Agent"])
-        # Companion browser headers reduce the datacenter-IP block-page rate.
+        # Preserve the configured request headers; this fixture proves no live access cause.
         self.assertIn("Accept", headers)
         self.assertIn("Accept-Language", headers)
 
@@ -366,8 +290,8 @@ class IndicatorsProviderParserTests(TestCase):
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
-                # A Cloudflare bot-mitigation challenge arrives as a 403 as
-                # readily as it arrives as an empty body.
+                # A synthetic 403 exercises the existing route selection without
+                # making a live request or inferring a permission from its status.
                 session=cast(HttpSession, _StaticSession(_ForbiddenResponse())),
                 context=context,
             )
@@ -671,8 +595,8 @@ class IndicatorsProviderParserTests(TestCase):
                     context=context,
                 )
 
-            # The size cap did its job; re-fetching the same resource through a
-            # browser would have it written to disk with no cap in front of it.
+            # A known size-limit failure is not a reason to fetch the same
+            # resource again through another transport.
             self.assertEqual(browser.urls, [])
 
     def test_h15_browser_navigation_preserves_a_query_already_in_the_source_url(self) -> None:
