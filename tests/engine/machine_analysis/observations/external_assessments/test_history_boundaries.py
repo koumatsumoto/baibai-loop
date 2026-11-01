@@ -4,7 +4,7 @@ import sqlite3
 from datetime import timedelta
 
 import pytest
-from tests.engine.test_external_assessment_core import RECEIVED, rating, valuation
+from tests.helpers.external_assessment_observations import RECEIVED, rating, valuation
 
 import baibai_engine.machine_analysis.observations.external_assessments.reader as reader
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
