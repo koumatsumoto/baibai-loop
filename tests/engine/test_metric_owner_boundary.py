@@ -50,7 +50,7 @@ def test_financial_snapshot_json_preserves_values_and_missingness() -> None:
     "module",
     [
         "machine_analysis.models.market_context.history",
-        "machine_analysis.models.market_context.margin",
+        "machine_analysis.historical_evaluation.legacy_screening.market",
         "machine_analysis.models.technical_analysis.calculations",
     ],
 )

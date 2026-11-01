@@ -4,9 +4,9 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.models.market_context.history import avg_daily_volume
-from baibai_engine.machine_analysis.models.market_context.margin import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
     MarginBalance,
+    avg_daily_volume,
     margin_supply_demand,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -78,19 +78,19 @@ def test_volume_mean_uses_the_same_asof_share_unit(kind, factor):
 
 def test_market_context_calculation_revision_changes_run_and_panel_identity(monkeypatch):
     from baibai_engine.machine_analysis.historical_evaluation import panel, store
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening import market
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
         load_screening_rules,
     )
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
         production_rules_contract_hash,
     )
-    from baibai_engine.machine_analysis.models.market_context import margin
 
     rules = load_screening_rules()
     run_before = production_rules_contract_hash(rules.model_dump_json())
     panel_before = panel.rules_content_hash(rules)
     cache_before = store._derive_cache_schema_version()
-    monkeypatch.setattr(margin, "MARKET_CONTEXT_CALCULATION_REVISION", "different-units")
+    monkeypatch.setattr(market, "MARKET_CONTEXT_CALCULATION_REVISION", "different-units")
     monkeypatch.setattr(panel, "MARKET_CONTEXT_CALCULATION_REVISION", "different-units")
     monkeypatch.setattr(store, "MARKET_CONTEXT_CALCULATION_REVISION", "different-units")
     assert production_rules_contract_hash(rules.model_dump_json()) != run_before

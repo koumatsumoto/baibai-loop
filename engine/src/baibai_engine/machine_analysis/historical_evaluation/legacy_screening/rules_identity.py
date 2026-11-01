@@ -19,7 +19,7 @@ def production_rules_contract_hash(
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
         VALUATION_HISTORY_SESSIONS,
     )
-    from baibai_engine.machine_analysis.models.market_context.margin import (
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.market import (
         MARKET_CONTEXT_CALCULATION_REVISION,
     )
 
