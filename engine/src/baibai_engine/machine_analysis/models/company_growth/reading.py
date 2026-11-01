@@ -15,9 +15,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     Observation,
     PeriodState,
 )
-
-
-from baibai_engine.machine_analysis.models.company_growth.pdf_selection import pdf_comparison_prior
+from baibai_engine.machine_analysis.models.company_growth.pdf_selection import (
+    pdf_comparison_prior,
+)
 
 
 class CompanyGrowthReader:

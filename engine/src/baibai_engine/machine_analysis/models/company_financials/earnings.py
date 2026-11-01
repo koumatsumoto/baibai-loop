@@ -29,7 +29,9 @@ from baibai_engine.machine_analysis.observations.financials.financial_documents 
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.financials.pdf_selection import PdfFinancialSelection
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    PdfFinancialSelection,
+)
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,
     JQuantsDailyBar,
@@ -136,16 +138,22 @@ def earnings_price(
             for document, comparative, coefficient in documents:
                 pair = next(pair for pair in document.pairs if pair.metric == "parent_profit")
                 assert document.published_on is not None
-                parts.append(ProfitComponent(
-                    coefficient=coefficient,
-                    amount_yen=(pair.comparative if comparative else pair.current) * 1_000_000,
-                    period_start=document.comparative_start if comparative else document.current_start,
-                    period_end=document.comparative_end if comparative else document.current_end,
-                    disclosed_at=document.published_on,
-                    disclosed_time=None,
-                    disclosure_number=document.disclosure_number,
-                    document_type="PDFDisplayFinancialStatements_Consolidated_IFRS",
-                ))
+                parts.append(
+                    ProfitComponent(
+                        coefficient=coefficient,
+                        amount_yen=(pair.comparative if comparative else pair.current) * 1_000_000,
+                        period_start=document.comparative_start
+                        if comparative
+                        else document.current_start,
+                        period_end=document.comparative_end
+                        if comparative
+                        else document.current_end,
+                        disclosed_at=document.published_on,
+                        disclosed_time=None,
+                        disclosure_number=document.disclosure_number,
+                        document_type="PDFDisplayFinancialStatements_Consolidated_IFRS",
+                    )
+                )
         components = tuple(parts)
         profit = pdf_selection.amounts_yen.get("parent_profit")
         basis, standard = current.statement_basis, current.accounting_standard

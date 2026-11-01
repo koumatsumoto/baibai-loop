@@ -16,6 +16,10 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     Coverage,
     InputRelease,
 )
+from baibai_engine.machine_analysis.models.company_growth.pdf_selection import (
+    apply_pdf_changes,
+    apply_pdf_periods,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
@@ -23,8 +27,9 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.financials.pdf_selection import select_pdf_financials
-from baibai_engine.machine_analysis.models.company_growth.pdf_selection import apply_pdf_periods, apply_pdf_changes
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    select_pdf_financials,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import (
     PdfStatement,
     build_pdf_supplement,
@@ -55,7 +60,9 @@ def generate_company_growth(
         ticker=ticker, status="unavailable", requested_start=start, requested_end=end
     )
     selected_pdf = select_pdf_financials(documents, pdf_statements, as_of=as_of)
-    states = apply_pdf_periods(build_period_states(documents, sector=sector), selected_pdf, sector=sector)
+    states = apply_pdf_periods(
+        build_period_states(documents, sector=sector), selected_pdf, sector=sector
+    )
     changes = apply_pdf_changes(build_changes(states), selected_pdf, sector=sector)
     observed = tuple(sorted({state.period_end for state in states}))
     displayed = tuple(

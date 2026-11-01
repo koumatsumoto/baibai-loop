@@ -35,7 +35,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.financials.pdf_selection import select_pdf_financials
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    select_pdf_financials,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
 from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsAdjustmentFactorEvent,

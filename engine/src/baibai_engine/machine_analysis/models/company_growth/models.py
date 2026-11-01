@@ -10,8 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    PdfFinancialSelection,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfSupplement
-from baibai_engine.machine_analysis.observations.financials.pdf_selection import PdfFinancialSelection
 
 type Metric = Literal[
     "sales",
@@ -46,7 +48,9 @@ class SourceDocument(Contract):
 
 
 class Value(Contract):
-    precision: Literal["published_display_amounts"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    precision: Literal["published_display_amounts"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     value: FiniteFloat | None = None
     reason: str | None = None
     documents: tuple[SourceDocument, ...] = ()
@@ -75,7 +79,9 @@ class PeriodState(Contract):
 
 
 class Change(Contract):
-    precision: Literal["published_display_amounts"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    precision: Literal["published_display_amounts"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     source_sha256: str | None = Field(default=None, exclude_if=lambda value: value is None)
     metric: Metric
     measurement: Measurement
@@ -161,7 +167,9 @@ class CompanyGrowth(Contract):
     comparison_input_reason: str | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
-    pdf_selection: PdfFinancialSelection | None = Field(default=None, exclude_if=lambda value: value is None)
+    pdf_selection: PdfFinancialSelection | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     pdf_supplement: PdfSupplement | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
