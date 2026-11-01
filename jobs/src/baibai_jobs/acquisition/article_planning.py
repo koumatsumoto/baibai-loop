@@ -158,12 +158,16 @@ def index_poll_due(source: str, *, now: datetime, received_at: datetime | None) 
     return received_at is None or _clock(received_at.isoformat()) < boundary
 
 
-def is_due(state: ArticlePlanning, *, slot: datetime, now: datetime) -> bool:
+def is_due(
+    state: ArticlePlanning, *, slot: datetime, now: datetime, resume_pending: bool = False
+) -> bool:
     slot, now = _clock(slot.isoformat()), _clock(now.isoformat())
     if slot != slot_at(slot) or slot > now:
         raise ValueError("invalid article acquisition slot")
-    if state.source not in TSR_SOURCES and state.last_slot and _clock(state.last_slot) >= slot:
-        return False
+    if state.source not in TSR_SOURCES and state.last_slot:
+        previous = _clock(state.last_slot)
+        if previous > slot or (previous == slot and not resume_pending):
+            return False
     if state.not_before and _clock(state.not_before) > now:
         return False
     if len(state.pending) >= MAX_PENDING_STAGES:

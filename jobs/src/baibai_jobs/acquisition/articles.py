@@ -112,8 +112,19 @@ def acquire_source(
     shared_deadline, _ = read_deadline(store, key)
     if shared_deadline is not None and started < shared_deadline:
         return {"source": source, "status": "not_due", "reason": "retry_not_before"}
-    if not is_due(state, slot=slot, now=started):
+    cursor = load_discovery_cursor(store, state) if source in DISCOVERY_SOURCES else state.cursor
+    discovery = DiscoveryWork(cursor) if source in DISCOVERY_SOURCES else None
+    resume_pending = discovery is not None and (
+        bool(cursor.get("pending_urls"))
+        or any(
+            item["attempted_revision"] != discovery_revision_for(source)
+            for item in discovery.pending.values()
+        )
+    )
+    if not is_due(state, slot=slot, now=started, resume_pending=resume_pending):
         return {"source": source, "status": "not_due"}
+    if source in FRONTIER_SOURCES:
+        cursor = load_frontier_cursor(store, state)
     policy = SOURCES[source]
     if group_budget is not None and group_budget.remaining_bytes <= 0:
         return {"source": source, "status": "deferred_budget"}
@@ -128,12 +139,6 @@ def acquire_source(
         min_interval_seconds=policy.min_interval_seconds or 5.0,
     )
     planning = dict(state.requests)
-    cursor = (
-        load_frontier_cursor(store, state)
-        if source in FRONTIER_SOURCES
-        else load_discovery_cursor(store, state)
-    )
-    discovery = DiscoveryWork(cursor) if source in DISCOVERY_SOURCES else None
     discovery_replays = 0
     discovery_edges: dict[str, list[dict[str, Any]]] = {}
     pending_urls = list(cursor.get("pending_urls", []))
@@ -444,6 +449,14 @@ def acquire_source(
             default=None,
         )
         poll_due = index_poll_due(source, now=started, received_at=received_index)
+        if (
+            discovery is not None
+            and state.last_slot is not None
+            and datetime.fromisoformat(state.last_slot) == slot
+        ):
+            # A saved polling slot is not a completed discovery workset. Resume
+            # retained parents/children without repeating that slot's index GET.
+            poll_due = False
         if not poll_due and frontier is not None and not frontier.pending:
             return {"source": source, "status": "not_due", "reason": "index_and_queue_complete"}
         queue: list[str] = []

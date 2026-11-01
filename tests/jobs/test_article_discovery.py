@@ -11,8 +11,10 @@ from tests.jobs.test_article_acquisition import SLOT, Response, Session
 import baibai_jobs.acquisition.article_discovery as worksets
 from baibai_engine.data_collection.providers.articles.contracts import NativeLink
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
+from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_discovery import DiscoveryWork
 from baibai_jobs.acquisition.article_planning import (
@@ -22,7 +24,9 @@ from baibai_jobs.acquisition.article_planning import (
     publish_planning_input,
     source_key,
 )
+from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.external_assessments.staging import put_private
+from baibai_jobs.maintenance.article_recovery import register_discovery
 
 
 def receipt(identity="original", body=b"synthetic"):
@@ -248,3 +252,115 @@ def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(tmp_pa
     edge = next(iter(private["discovery_edges"].values()))[0]
     assert edge["parent"]["receipt_id"] == original["receipt_id"]
     assert "discovery_edges" not in replayed
+
+
+def test_registered_legacy_original_resumes_same_slot_without_index_get(tmp_path, monkeypatch):
+    from tests.jobs.test_article_planning import _packet
+
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "mof_news", {})
+    state, etag = load_planning(remote, "mof_news")
+    state = replace(state, last_slot=SLOT.isoformat())
+    put_private(remote, source_key("mof_news"), state.encoded(), previous_etag=etag)
+    packet = _packet(tmp_path, "mof_news")
+    target = "https://www.mof.go.jp/target.htm"
+    body = b"synthetic old redirect"
+    original = receipt(body=body)
+    with closing(open_connection(packet / "receipts.sqlite")) as conn, conn:
+        retain_receipt(conn, original, body=body)
+    (packet / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "mof_news",
+                "started_at": SLOT.isoformat(),
+                "asof": SLOT.date().isoformat(),
+                "receipt_ids": [original.receipt_id],
+                "projection_kinds": {original.receipt_id: "document"},
+            }
+        )
+    )
+    save_handoff(remote, "legacy", packet, namespace="article-sources")
+    manifest = remote.values["coordination/article-sources/legacy/handoff.json"].body
+    register_discovery(
+        remote,
+        tmp_path / "registration",
+        source="mof_news",
+        stage_id="legacy",
+        manifest_sha256=hashlib.sha256(manifest).hexdigest(),
+        receipt_ids=[original.receipt_id],
+    )
+    native = articles.discover_links
+
+    def discover(source, data, **kwargs):
+        if data == body:
+            return (NativeLink("/meta-refresh", target),)
+        return native(source, data, **kwargs)
+
+    monkeypatch.setattr(articles, "discover_links", discover)
+    session = Session([Response(200, b"<main>Target body</main>")])
+    result = articles.acquire_source(
+        remote,
+        source="mof_news",
+        slot=SLOT,
+        identity="same-slot",
+        directory=tmp_path / "resumed",
+        session=session,
+    )
+    assert result["discovery_replays"] == 1
+    assert result["discovery_pending_count"] == 0
+    assert result["pages"] == 0
+    assert result["bodies"] == 1
+    assert session.urls == [target]
+    with closing(connect_read_only(tmp_path / "resumed/receipts.sqlite")) as conn:
+        kept = conn.execute(
+            "SELECT receipt_json FROM article_source_receipts WHERE receipt_id=?",
+            (original.receipt_id,),
+        ).fetchone()[0]
+    assert ArticleReceipt.model_validate_json(kept).sha256 == original.sha256
+    repeat = Session([])
+    skipped = articles.acquire_source(
+        remote,
+        source="mof_news",
+        slot=SLOT,
+        identity="complete",
+        directory=tmp_path / "complete",
+        session=repeat,
+    )
+    assert skipped["status"] == "not_due"
+    assert repeat.urls == []
+
+
+def test_same_slot_pending_documents_continue_without_repoll(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+    monkeypatch.setitem(
+        articles.SOURCES, "mof_news", replace(articles.SOURCES["mof_news"], max_bodies=1)
+    )
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "mof_news", {})
+    feed = b"<rss><channel><item><link>https://www.mof.go.jp/a.htm</link></item><item><link>https://www.mof.go.jp/b.htm</link></item></channel></rss>"
+    first = Session([Response(200, feed), Response(200, b"<main>A</main>")])
+    articles.acquire_source(
+        remote,
+        source="mof_news",
+        slot=SLOT,
+        identity="first",
+        directory=tmp_path / "first",
+        session=first,
+    )
+    second = Session([Response(200, b"<main>B</main>")])
+    result = articles.acquire_source(
+        remote,
+        source="mof_news",
+        slot=SLOT,
+        identity="second",
+        directory=tmp_path / "second",
+        session=second,
+    )
+    assert second.urls == ["https://www.mof.go.jp/b.htm"]
+    assert result["pages"] == 0
+    assert result["pending_url_count"] == 0
