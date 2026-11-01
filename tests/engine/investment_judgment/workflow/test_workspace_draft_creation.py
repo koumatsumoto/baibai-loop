@@ -38,6 +38,7 @@ def _case(tmp_path, target):
 
         def create(*, force=False):
             return scaffold_review(workspace=workspace, ticker="1234", db_path=app, force=force)
+
     else:
         output = tmp_path / "export.yaml" if target == "export" else assessment
 
@@ -52,6 +53,7 @@ def _case(tmp_path, target):
                 force=force,
                 out=output if target == "export" else None,
             )
+
     return create, output, identity
 
 
