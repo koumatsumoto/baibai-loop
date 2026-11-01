@@ -40,7 +40,7 @@ from baibai_engine.investment_judgment.workflow.workspace.validation import (
 )
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.storage.filesystem import write_text_atomic, write_text_new
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
@@ -94,9 +94,14 @@ def scaffold_assessment(
         raise ResearchWorkspaceConflictError(
             "assessment export conflicts with publication identity"
         )
-    if path.exists() and not force:
+    if (path.exists() or path.is_symlink()) and not force:
         raise ResearchWorkspaceConflictError("assessment draft exists; use --force")
-    if out is not None and out.exists() and out.resolve() != path and not force:
+    if (
+        out is not None
+        and (out.exists() or out.is_symlink())
+        and out.resolve() != path
+        and not force
+    ):
         raise ResearchWorkspaceConflictError("assessment export exists; use --force")
     if retrieved_at.utcoffset() is None or as_of > retrieved_at.astimezone(JST).date():
         raise ResearchWorkspaceDataError(
@@ -237,6 +242,7 @@ def scaffold_assessment(
         if identity_path.exists()
         else {}
     )
+    previous_identity = identity
     same_material = True
     if path.exists():
         previous = _load_mapping(path, label="assessment draft")
@@ -254,7 +260,6 @@ def scaffold_assessment(
             "assessment_id": f"stock-assessment-{uuid4()}",
             "supersedes_id": supersedes_id,
         }
-    write_text_atomic(identity_path, _dump_yaml(identity))
     seed_header = (
         ""
         if research is None
@@ -265,9 +270,17 @@ def scaffold_assessment(
         )
     )
     content = _ASSESSMENT_DRAFT_HEADER + seed_header + _dump_yaml(payload)
-    write_text_atomic(path, content)
+    # Keep the publication ID across a failed draft write, but never replace a
+    # concurrently created identity without explicit force.
+    if force:
+        write_text_atomic(identity_path, _dump_yaml(identity))
+    elif not previous_identity:
+        _write_draft(identity_path, _dump_yaml(identity), force=False)
+    elif identity != previous_identity:
+        raise ResearchWorkspaceConflictError("publication identity changed; use --force")
+    _write_draft(path, content, force=force)
     if out is not None and out.resolve() != path:
-        write_text_atomic(out, content)
+        _write_draft(out, content, force=force)
     return {
         "assessment_draft": str(path),
         "price_as_of": None if quote is None else quote.price_as_of.isoformat(),
@@ -304,7 +317,7 @@ def scaffold_review(
     assessment = load_assessment(assessment_path)
     core_hash = assessment_core_hash(assessment)
     review_path = _review_draft_path(workspace, ticker)
-    if review_path.exists() and not force:
+    if (review_path.exists() or review_path.is_symlink()) and not force:
         raise ResearchWorkspaceConflictError(
             f"review draft already exists (use --force to regenerate): {review_path}"
         )
@@ -332,8 +345,18 @@ def scaffold_review(
         "review_scope": None,
     }
     header = _REVIEW_DRAFT_HEADER + _enum_field_header(AssessmentReview)
-    write_text_atomic(review_path, header + _dump_yaml(review_draft))
+    _write_draft(review_path, header + _dump_yaml(review_draft), force=force)
     return {"review_draft": str(review_path), "reviewed_assessment_sha256": core_hash}
+
+
+def _write_draft(path: Path, content: str, *, force: bool) -> None:
+    if force:
+        write_text_atomic(path, content)
+        return
+    try:
+        write_text_new(path, content)
+    except FileExistsError as error:
+        raise ResearchWorkspaceConflictError(f"draft exists; use --force: {path}") from error
 
 
 def _enum_field_header(model: type[BaseModel]) -> str:
