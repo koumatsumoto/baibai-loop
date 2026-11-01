@@ -1,5 +1,7 @@
 /** 保有・運用成績・タスク・保存提案の読取専用配信。認証方式は既存のまま。 */
 
+import routeContract from '../../contracts/routes.json'
+
 const API_HEADERS = {
   'Cache-Control': 'no-store',
   'Content-Type': 'application/json; charset=utf-8',
@@ -58,12 +60,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   }
 
   if (url.pathname === '/api/health') return jsonResponse({ status: 'ok' }, 200)
-  const keys: Record<string, string> = {
-    '/api/dashboard': 'views/portfolio-dashboard.json',
-    '/api/tasks': 'views/tasks.json',
-    '/api/outcomes': 'views/outcomes.json',
-    '/api/proposal/latest': 'views/latest-proposal.json',
-  }
+  const keys: Record<string, string> = routeContract.routes
   const key = keys[url.pathname]
   if (!key) return jsonResponse({ detail: 'unknown API endpoint' }, 404)
   const object = await env.BAIBAI_SERVING.get(key)
