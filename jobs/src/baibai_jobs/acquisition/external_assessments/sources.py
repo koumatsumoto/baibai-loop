@@ -34,7 +34,7 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     terminal_result,
 )
 from baibai_jobs.integration.external_assessment_ready import PreparedPlan, prepare_plan
-from baibai_jobs.schedule import external_assessment_target_date
+from baibai_jobs.schedule import external_assessment_cycle_end, external_assessment_target_date
 
 SOURCES: tuple[ExternalAssessmentSource, ...] = ("monex", "rakuten", "kabumap", "minkabu")
 
@@ -55,7 +55,7 @@ def selection(
     eligible = True
     if created_at is not None:
         if batch_id:
-            raise ValueError("scheduled identity cannot override the original run clock")
+            raise ValueError("scheduled identity cannot override the acquisition cycle")
         observation_date, eligible = external_assessment_target_date(created_at, datetime.now(UTC))
     elif not batch_id:
         raise ValueError("manual source acquisition requires a stable batch label")
@@ -106,8 +106,33 @@ def read_selection(payload: str) -> list[dict[str, str]]:
     return result
 
 
+def resolve_queued_selection(
+    *, source: str, run_id: str, observation_date: date | None, now: datetime
+) -> tuple[str, date | None]:
+    """Recheck a scheduled work identity after the shared-host queue.
+
+    Manual exact-plan operations retain their identity. Scheduled wake-ups name
+    the currently collectible cycle, and the handoff must receive that same ID.
+    No old plan or receipt is rewritten when a queue crosses the next daily due.
+    """
+    read_selection(json.dumps([{"source": source, "run_id": run_id}]))
+    if observation_date is None:
+        return run_id, None
+    if run_id != f"{SCHEDULED_BATCH_PREFIX}{source}-{observation_date.isoformat()}":
+        raise ValueError("scheduled source identity differs from its cycle")
+    day, _ = external_assessment_target_date(now, now)
+    if day < observation_date:
+        raise ValueError("scheduled source cycle is in the future")
+    return f"{SCHEDULED_BATCH_PREFIX}{source}-{day.isoformat()}", day
+
+
 def acquire_source(
-    store: ObjectStore, plan: RunPlan, *, source: str, budget: float = daily.SOFT_BUDGET_SECONDS
+    store: ObjectStore,
+    plan: RunPlan,
+    *,
+    source: str,
+    budget: float = daily.SOFT_BUDGET_SECONDS,
+    collect_before: datetime | None = None,
 ) -> dict[str, object]:
     require_source(plan, source)
     if not 0 < budget <= daily.SOFT_BUDGET_SECONDS:
@@ -137,6 +162,7 @@ def acquire_source(
                 soft_budget_seconds=remaining,
                 session=session,
                 rate_limiter=limiter,
+                collect_before=collect_before,
             )
             requests_made += cast("int", report["provider_requests"])
             if report.get("stop_reason") or report.get("cohort_complete") is not True:
@@ -211,7 +237,7 @@ def inspect_ready(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare", "acquire", "inspect", "ready"))
+    parser.add_argument("command", choices=("prepare", "resolve", "acquire", "inspect", "ready"))
     parser.add_argument("--source", choices=(*SOURCES, "all"), default="all")
     parser.add_argument("--batch-id")
     parser.add_argument("--run-created-at", type=datetime.fromisoformat)
@@ -233,7 +259,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.run_created_at is None and args.master_asof is None:
                 raise ValueError("manual acquisition requires a saved master date")
             if args.run_created_at is not None and args.master_asof is not None:
-                raise ValueError("scheduled plan uses the original observation date")
+                raise ValueError("scheduled plan resolves its master from the acquisition cycle")
             if args.confirmed_partial and (len(selected) != 1 or args.run_created_at is not None):
                 raise ValueError("partial publication is an explicit single-source operation")
             report = {
@@ -242,6 +268,18 @@ def main(argv: list[str] | None = None) -> int:
                 "observation_date": day.isoformat() if day else "",
                 "master_asof": args.master_asof.isoformat() if args.master_asof else "",
             }
+            if output := os.environ.get("GITHUB_OUTPUT"):
+                with Path(output).open("a", encoding="utf-8") as stream:
+                    for key, value in report.items():
+                        print(f"{key}={value}", file=stream)
+        elif args.command == "resolve":
+            run_id, day = resolve_queued_selection(
+                source=args.source,
+                run_id=args.run_id,
+                observation_date=args.observation_date,
+                now=datetime.now(UTC),
+            )
+            report = {"run_id": run_id, "observation_date": day.isoformat() if day else ""}
             if output := os.environ.get("GITHUB_OUTPUT"):
                 with Path(output).open("a", encoding="utf-8") as stream:
                     for key, value in report.items():
@@ -297,7 +335,14 @@ def main(argv: list[str] | None = None) -> int:
                         and selected[0]["run_id"].startswith(SCHEDULED_BATCH_PREFIX)
                     ),
                 )
-                report = acquire_source(store, plan, source=source)
+                report = acquire_source(
+                    store,
+                    plan,
+                    source=source,
+                    collect_before=external_assessment_cycle_end(args.observation_date)
+                    if args.observation_date is not None
+                    else None,
+                )
                 success = report["status"] in {
                     "acquired",
                     "already_published",

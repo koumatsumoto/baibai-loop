@@ -41,6 +41,7 @@ from baibai_jobs.acquisition.external_assessments.cohorts import (
     record_outcome,
     summarize,
 )
+from baibai_jobs.acquisition.external_assessments.collection import DEFAULT_PAIR_TIME_LIMIT_SECONDS
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionResult as ExternalAssessmentCollectionResult,
 )
@@ -207,8 +208,12 @@ def initialize(
     return plan
 
 
-def _wait_for_retry(deadline: datetime, *, started: float, budget: float) -> bool:
+def _wait_for_retry(
+    deadline: datetime, *, started: float, budget: float, collect_before: datetime | None = None
+) -> bool:
     while True:
+        if collect_before is not None and max(deadline, datetime.now(UTC)) >= collect_before:
+            return False
         waiting = max(0.0, (deadline - datetime.now(UTC)).total_seconds())
         if time.monotonic() - started + waiting + PAIR_AND_STAGE_RESERVE_SECONDS >= budget:
             return False
@@ -248,6 +253,7 @@ def acquire_cohort(
     soft_budget_seconds: float = SOFT_BUDGET_SECONDS,
     session: requests.Session | None = None,
     rate_limiter: ExternalAssessmentHostRateLimiter | None = None,
+    collect_before: datetime | None = None,
 ) -> dict[str, object]:
     """Collect missing pairs, upload captured originals, then commit confirmed outcomes.
 
@@ -279,11 +285,25 @@ def acquire_cohort(
         for entry in sorted(original.result.entries, key=lambda entry: entry.ticker):
             if entry.state != "unattempted":
                 continue
+            if collect_before is not None and datetime.now(UTC) >= collect_before:
+                stop_reason = "cycle_finished"
+                break
             if time.monotonic() - started + PAIR_AND_STAGE_RESERVE_SECONDS >= soft_budget_seconds:
                 stop_reason = "soft_budget"
                 break
             final_result: ExternalAssessmentCollectionResult | None = None
             for retry in range(MAX_PAIR_RETRIES + 1):
+                pair_seconds = (
+                    min(
+                        DEFAULT_PAIR_TIME_LIMIT_SECONDS,
+                        (collect_before - datetime.now(UTC)).total_seconds(),
+                    )
+                    if collect_before is not None
+                    else DEFAULT_PAIR_TIME_LIMIT_SECONDS
+                )
+                if pair_seconds <= 0:
+                    stop_reason = "cycle_finished"
+                    break
                 received_html: list[EquityWebSourceResponse] = []
                 session.cookies.clear()
                 collection_started = time.monotonic()
@@ -293,6 +313,7 @@ def acquire_cohort(
                     source=entry.source,
                     on_received_html=received_html.append,
                     rate_limiter=rate_limiter,
+                    time_limit_seconds=pair_seconds,
                 )
                 timings["collection_elapsed_seconds"] += time.monotonic() - collection_started
                 if len(result.outcomes) != 1 or len(result.observations) > 1:
@@ -332,8 +353,17 @@ def acquire_cohort(
                         seconds=RETRY_BACKOFF_SECONDS[retry] + secrets.randbelow(1001) / 1000
                     )
                 )
-                if not _wait_for_retry(deadline, started=started, budget=soft_budget_seconds):
-                    stop_reason = "retry_soft_budget"
+                if not _wait_for_retry(
+                    deadline,
+                    started=started,
+                    budget=soft_budget_seconds,
+                    collect_before=collect_before,
+                ):
+                    stop_reason = (
+                        "cycle_finished"
+                        if collect_before is not None and deadline >= collect_before
+                        else "retry_soft_budget"
+                    )
                     break
             if final_result is not None:
                 stage = replace(

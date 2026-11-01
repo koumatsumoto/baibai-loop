@@ -38,6 +38,9 @@ jobs:
     if: ${{ inputs.operation == 'collect' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    outputs:
+      run_id: ${{ steps.cycle.outputs.run_id }}
+      observation_date: ${{ steps.cycle.outputs.observation_date }}
     env:
       SOURCE: ${{ inputs.source }}
       SOURCE_RUN_ID: ${{ inputs.run_id }}
@@ -52,11 +55,19 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - name: Resolve the collectible cycle after the shared host queue
+        id: cycle
+        run: |
+          args=(--source "$SOURCE" --run-id "$SOURCE_RUN_ID")
+          if [ -n "$OBSERVATION_DATE" ]; then args+=(--observation-date "$OBSERVATION_DATE"); fi
+          uv run python -m baibai_jobs.acquisition.external_assessments.sources resolve "${args[@]}"
       - name: Freeze and acquire one source with bounded cohort checkpoints
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          SOURCE_RUN_ID: ${{ steps.cycle.outputs.run_id }}
+          OBSERVATION_DATE: ${{ steps.cycle.outputs.observation_date }}
         run: |
           args=(--source "$SOURCE" --run-id "$SOURCE_RUN_ID" --directory "$RUNNER_TEMP/source-plan")
           if [ -n "$OBSERVATION_DATE" ]; then args+=(--observation-date "$OBSERVATION_DATE");
@@ -83,7 +94,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          SOURCE_RUNS: ${{ format('[{{"source":"{0}","run_id":"{1}"}}]', inputs.source, inputs.run_id) }}
+          SOURCE_RUNS: ${{ format('[{{"source":"{0}","run_id":"{1}"}}]', inputs.source, needs.acquire.outputs.run_id || inputs.run_id) }}
           MASTER_ASOF: ${{ inputs.master_asof }}
           OPERATION: ${{ inputs.operation }}
         run: |
@@ -105,7 +116,7 @@ jobs:
           PYTHONPATH: jobs/src
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SOURCE_GROUP: external-${{ inputs.source }}
-          ASOF: ${{ inputs.observation_date || inputs.master_asof }}
+          ASOF: ${{ needs.acquire.outputs.observation_date || inputs.observation_date || inputs.master_asof }}
           ACQUIRE_RESULT: ${{ needs.acquire.result }}
           STAGE_RESULT: ${{ needs.handoff.result }}
         run: python3 -m baibai_jobs.observability.source_discord

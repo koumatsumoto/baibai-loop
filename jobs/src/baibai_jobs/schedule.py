@@ -38,6 +38,8 @@ def acquisition_target_date(
     instant: datetime, fire_time: time = ECONOMIC_SCHEDULED_FIRE_TIME
 ) -> date:
     """Acquisition has its own clock, independent of the late common integration."""
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError("timezone-aware acquisition clock required")
     fired = datetime.combine(instant.astimezone(UTC).date(), fire_time)
     if fired > instant:
         fired -= timedelta(days=1)
@@ -59,17 +61,22 @@ def market_source_target_date(created_at: datetime, *, schedule: str, asof: str 
 
 
 def external_assessment_target_date(created_at: datetime, now: datetime) -> tuple[date, bool]:
-    """Pin a daily run to its original GitHub creation clock, including reruns."""
+    """Resolve the current daily work cycle, not an exact wall-clock launch window.
+
+    A delayed wake-up can finish yesterday's cycle after midnight. Once the next
+    cycle starts, current-only pages belong to that new cycle; old missing pairs
+    must not be backfilled with today's response and an invented past timestamp.
+    """
     if any(clock.tzinfo is None or clock.utcoffset() is None for clock in (created_at, now)):
         raise ValueError("timezone-aware external assessment run clocks required")
     if created_at > now:
         raise ValueError("external assessment run creation clock is in the future")
-    fired = datetime.combine(
-        created_at.astimezone(UTC).date(), EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME
-    )
-    if fired > created_at:
-        fired -= timedelta(days=1)
-    return fired.astimezone(_JST).date(), now.astimezone(_JST).time() >= time(15, 30)
+    return acquisition_target_date(now, EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME), True
+
+
+def external_assessment_cycle_end(day: date) -> datetime:
+    """19:13 JST starts the next current-only external-assessment cycle."""
+    return datetime.combine(day + timedelta(days=1), EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME)
 
 
 def resolve_tradingview_target(
