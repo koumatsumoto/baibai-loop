@@ -16,7 +16,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures/research/strategy-shadow"
+FIXTURES = Path(__file__).resolve().parents[3] / "fixtures/research/strategy-shadow"
 
 
 @pytest.mark.parametrize("ticker", ["4783", "4559"])
