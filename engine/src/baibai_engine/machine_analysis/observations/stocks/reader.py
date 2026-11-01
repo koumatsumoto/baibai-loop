@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -103,15 +104,21 @@ def read_eq_master_exact(sqlite_path: Path, asof: date) -> list[SecurityMaster] 
     return masters
 
 
-def read_master_snapshot(path: Path, *, as_of: date) -> MasterSnapshot | None:
-    rows = read_rows(
-        path,
+def read_master_snapshot(
+    path: Path, *, as_of: date, connection: sqlite3.Connection | None = None
+) -> MasterSnapshot | None:
+    """Read classification on the caller's market snapshot when one is supplied."""
+    statement = (
         "SELECT snapshot_date, record_json "
         "FROM jquants_master_snapshots WHERE snapshot_date = ("
         "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-        "WHERE snapshot_date <= ?) ORDER BY security_code",
-        (as_of.isoformat(),),
-        connector=connect_read_only,
+        "WHERE snapshot_date <= ?) ORDER BY security_code"
+    )
+    parameters = (as_of.isoformat(),)
+    rows = (
+        read_rows(path, statement, parameters, connector=connect_read_only)
+        if connection is None
+        else connection.execute(statement, parameters).fetchall()
     )
     if not rows:
         return None

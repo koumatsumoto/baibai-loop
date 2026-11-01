@@ -21,7 +21,6 @@ relationship over the required period, separately from reading the price.
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from math import isfinite
@@ -201,17 +200,26 @@ def market_basis_is_confirmed(
     return True
 
 
-def next_order_session(*, sqlite_path: Path, now: datetime) -> date | None:
-    """Resolve the first unexpired session from the existing calendar, including holidays."""
+def next_order_session(
+    *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | None = None
+) -> date | None:
+    """Resolve the next session, sharing the caller's quote snapshot when supplied."""
     start = latest_eligible_close_date(now) + timedelta(days=1)
-    if not sqlite_path.exists():
-        return None
-    with closing(connect_read_only(sqlite_path)) as connection:
-        rows = connection.execute(
+    conn = connection
+    owns_connection = conn is None
+    if conn is None:
+        if not sqlite_path.exists():
+            return None
+        conn = connect_read_only(sqlite_path)
+    try:
+        rows = conn.execute(
             "SELECT day,holiday_division IN ('1', '2') FROM jquants_market_calendar "
             "WHERE day>=? ORDER BY day LIMIT 14",
             (start.isoformat(),),
         ).fetchall()
+    finally:
+        if owns_connection:
+            conn.close()
     for i, (day, is_business_day) in enumerate(rows):
         expected = start + timedelta(days=i)
         if day != expected.isoformat():
