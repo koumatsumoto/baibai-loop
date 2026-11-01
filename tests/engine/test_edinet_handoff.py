@@ -11,10 +11,8 @@ from baibai_engine.data_collection.providers.edinet.archives import (
 )
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
-    read_observed_documents,
-)
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
+    read_observed_documents,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
