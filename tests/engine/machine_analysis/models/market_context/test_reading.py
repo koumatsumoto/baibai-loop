@@ -1059,11 +1059,13 @@ def test_zero_publication_lag_and_margin_override_nonzero_defaults() -> None:
     ],
 )
 def test_publication_month_shift_preserves_day_number_not_month_end(observed, next_print):
-    rule = load_reading_rules(DEFAULT_RULES_PATH).model_copy(
-        update={
-            "overrides": {"test.month_shift": SeriesOverride(publication_lag_days=0)}
-        }
-    ).resolve(series_id="test.month_shift", frequency="monthly")
+    rule = (
+        load_reading_rules(DEFAULT_RULES_PATH)
+        .model_copy(
+            update={"overrides": {"test.month_shift": SeriesOverride(publication_lag_days=0)}}
+        )
+        .resolve(series_id="test.month_shift", frequency="monthly")
+    )
     assert rule.next_print_estimate(observed) == next_print
 
 
