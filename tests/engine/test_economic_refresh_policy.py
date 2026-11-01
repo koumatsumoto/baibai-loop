@@ -109,9 +109,7 @@ def test_current_page_cannot_claim_a_historical_recovery(tmp_path, monkeypatch, 
     assert "current-only" in outcomes[0].message
 
 
-def test_delayed_live_refresh_moves_only_current_pages_to_the_actual_jst_day(
-    tmp_path, monkeypatch
-):
+def test_delayed_live_refresh_moves_only_current_pages_to_the_actual_jst_day(tmp_path, monkeypatch):
     import baibai_engine.data_collection.acquisition.refresh as acquisition
 
     now = datetime(2026, 11, 1, 15, 1, tzinfo=UTC)
