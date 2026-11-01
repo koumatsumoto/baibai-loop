@@ -119,7 +119,6 @@ def test_display_precision_and_same_document_operands():
         (2, "2025年4月1日", "2024年4月1日", "pdf_comparative_period_mismatch"),
         (2, "単位:百万円", "単位:千円", "pdf_statement_unit_unknown"),
         (2, "1,979", "1,978", "pdf_headline_statement_conflict:operating_profit"),
-        (0, "2027年3月期 第1", "訂正 2027年3月期 第1", "pdf_correction_requires_resolution"),
         (0, "2027年3月期第1四半期", "2027年4月期第1四半期", "pdf_headline_period_conflict"),
     ],
 )

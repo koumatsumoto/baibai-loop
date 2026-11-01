@@ -17,6 +17,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 )
 
 
+from baibai_engine.machine_analysis.models.company_growth.pdf_selection import pdf_comparison_prior
+
+
 class CompanyGrowthReader:
     def __init__(self, payload: dict[str, JsonValue] | None) -> None:
         self.model = CompanyGrowth.model_validate(payload) if payload is not None else None
@@ -76,6 +79,9 @@ class CompanyGrowthReader:
     def comparison_prior(self, observation: Observation, change: Change) -> tuple[Observation, ...]:
         if self.model is None:
             return ()
+        if change.source_sha256 is not None:
+            prior = pdf_comparison_prior(self.model.pdf_selection, observation, change)
+            return (prior,) if prior is not None else ()
         return tuple(
             item
             for state in self.model.periods

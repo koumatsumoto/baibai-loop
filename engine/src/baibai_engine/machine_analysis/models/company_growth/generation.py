@@ -23,6 +23,8 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import select_pdf_financials
+from baibai_engine.machine_analysis.models.company_growth.pdf_selection import apply_pdf_periods, apply_pdf_changes
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import (
     PdfStatement,
     build_pdf_supplement,
@@ -52,8 +54,9 @@ def generate_company_growth(
     result = CompanyGrowth(
         ticker=ticker, status="unavailable", requested_start=start, requested_end=end
     )
-    states = build_period_states(documents, sector=sector)
-    changes = build_changes(states)
+    selected_pdf = select_pdf_financials(documents, pdf_statements, as_of=as_of)
+    states = apply_pdf_periods(build_period_states(documents, sector=sector), selected_pdf, sector=sector)
+    changes = apply_pdf_changes(build_changes(states), selected_pdf, sector=sector)
     observed = tuple(sorted({state.period_end for state in states}))
     displayed = tuple(
         s for s in states if (start is None or start <= s.period_end) and s.period_end <= end
@@ -83,8 +86,9 @@ def generate_company_growth(
             "reported_comparisons": reported,
             "comparison_input_reason": comparison_input_reason,
             "pdf_supplement": pdf,
+            "pdf_selection": selected_pdf,
             "pdf_input_reason": pdf_input_reason,
-            "calculation_method": "company_growth_retrospective_v9-pdf-display"
+            "calculation_method": "company_growth_retrospective_v10-pdf-selection"
             if pdf is not None
             else "company_growth_retrospective_v8-edinet-comparisons"
             if reported

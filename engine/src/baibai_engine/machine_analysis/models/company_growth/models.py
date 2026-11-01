@@ -11,6 +11,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparisons i
     FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfSupplement
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import PdfFinancialSelection
 
 type Metric = Literal[
     "sales",
@@ -40,9 +41,12 @@ class SourceDocument(Contract):
     disclosed_at: date
     disclosed_time: str | None
     document_type: str | None
+    source_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    source_sha256: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class Value(Contract):
+    precision: Literal["published_display_amounts"] | None = Field(default=None, exclude_if=lambda value: value is None)
     value: FiniteFloat | None = None
     reason: str | None = None
     documents: tuple[SourceDocument, ...] = ()
@@ -71,6 +75,8 @@ class PeriodState(Contract):
 
 
 class Change(Contract):
+    precision: Literal["published_display_amounts"] | None = Field(default=None, exclude_if=lambda value: value is None)
+    source_sha256: str | None = Field(default=None, exclude_if=lambda value: value is None)
     metric: Metric
     measurement: Measurement
     comparison: Literal["year_over_year"] = "year_over_year"
@@ -155,6 +161,7 @@ class CompanyGrowth(Contract):
     comparison_input_reason: str | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    pdf_selection: PdfFinancialSelection | None = Field(default=None, exclude_if=lambda value: value is None)
     pdf_supplement: PdfSupplement | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
