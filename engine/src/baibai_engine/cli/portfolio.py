@@ -536,12 +536,18 @@ def _run_outcome(
             print(f"error: failed to publish portfolio outcome: {error}", file=sys.stderr)
             return 2
         payload["outcome_id"] = outcome_id
-    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     if out_path is not None:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8"
-        )
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            # The earlier existence check cannot reserve a path against another writer.
+            # Export is a copy; a failed export must not roll back an immutable publication.
+            with out_path.open("x", encoding="utf-8") as stream:
+                yaml.safe_dump(payload, stream, sort_keys=False, allow_unicode=True)
+        except OSError as error:
+            saved = " (application DB publication retained)" if "outcome_id" in payload else ""
+            print(f"error: failed to export portfolio outcome{saved}: {error}", file=sys.stderr)
+            return 2
+    yaml.safe_dump(payload, sys.stdout, sort_keys=False, allow_unicode=True)
     return 0
 
 
