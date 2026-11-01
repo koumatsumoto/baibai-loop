@@ -1,88 +1,25 @@
+"""TradingView acquisition, resume, and stored-state integration contracts."""
+
 from __future__ import annotations
 
 import asyncio
-import copy
 import sqlite3
 from contextlib import closing
-from datetime import UTC, date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from mcp.types import CallToolResult
 from tests.helpers.master import insert_master_rows
+from tests.helpers.tradingview import DAY, NOW, PROVIDER_ROW, Timer, _sdk, payload, store, stored
 
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FetchError,
-    normalize_batch,
 )
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.tradingview.collector import (
     SourceDataError,
     collect,
     preflight_snapshot,
-    universe,
 )
-
-DAY = date(2026, 9, 18)
-NOW = datetime(2026, 9, 18, 7, tzinfo=UTC)
-
-# Provider-native keys are fixed independently of the production field mapping.
-PROVIDER_ROW = {
-    "AnalystRating": None,
-    "recommendation_total": None,
-    "price_target_average": None,
-    "price_target_high": None,
-    "price_target_low": None,
-    "earnings_per_share_forecast_next_fq": None,
-    "earnings_per_share_forecast_next_fy": -5,
-    "revenue_forecast_next_fq": None,
-    "revenue_forecast_next_fy": None,
-    "price_earnings_fwd": None,
-    "price_sales_fwd": None,
-    "enterprise_value_ebitda_fwd": None,
-    "ebitda_estimate_fy": None,
-    "free_cash_flow_estimate_fy": None,
-    "capital_expenditures_estimate_fy": None,
-    "total_debt_estimate_fy": None,
-    "close": 100,
-    "currency": "JPY",
-}
-
-
-def _sdk(body: dict) -> CallToolResult:
-    return CallToolResult(isError=False, structuredContent=body, content=[])
-
-
-def store(path: Path, count: int = 51) -> Path:
-    with closing(open_connection(path)) as conn, conn:
-        conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (DAY.isoformat(),))
-        insert_master_rows(
-            conn,
-            [
-                (DAY.isoformat(), str(1000 + i), "IPO", "プライム", "機械", "011")
-                for i in range(count)
-            ],
-        )
-    return path
-
-
-def payload(symbols: list[str], *, missing: list[str] | None = None) -> dict:
-    missing = missing or []
-    return {
-        "success": True,
-        "data": {s: dict(PROVIDER_ROW) for s in symbols if s not in missing},
-        "count": len(symbols) - len(missing),
-        "missing": [{"symbol": s, "reason": "Quote data not found"} for s in missing],
-        "missing_count": len(missing),
-    }
-
-
-def stored(path: Path) -> list:
-    with closing(sqlite3.connect(path)) as conn, conn:
-        return conn.execute(
-            "SELECT * FROM tradingview_forecast_snapshots ORDER BY ticker"
-        ).fetchall()
 
 
 def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None:
@@ -497,28 +434,6 @@ def test_midnight_crossing_aborts_the_run(tmp_path: Path) -> None:
     assert not stored(path)
 
 
-def test_universe_excludes_secondary_instruments_without_bar_history(tmp_path: Path) -> None:
-    path = store(tmp_path / "market.sqlite", 1)
-    conn = open_connection(path)
-    with conn:
-        insert_master_rows(
-            conn,
-            [
-                (DAY.isoformat(), "2000", "fund", "プライム", "その他", "014"),
-                (DAY.isoformat(), "2001", "pro", "TOKYO PRO MARKET", "機械", "011"),
-                (DAY.isoformat(), "2002", "Nagoya", "名証", "機械", "011"),
-            ],
-        )
-    assert universe(conn, DAY) == ["TSE:1000"]
-    with conn:
-        conn.execute(
-            "UPDATE jquants_master_snapshots SET record_json=json_set(record_json,'$.ProdCat',NULL) WHERE security_code='10000'"
-        )
-    with pytest.raises(JQuantsProviderError, match="product category"):
-        universe(conn, DAY)
-    conn.close()
-
-
 def test_exact_date_master_and_calendar_are_required(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
     with closing(sqlite3.connect(path)) as conn, conn:
@@ -529,55 +444,6 @@ def test_exact_date_master_and_calendar_are_required(tmp_path: Path) -> None:
 
     with pytest.raises(FetchError, match="Exact-date"):
         asyncio.run(collect(path, DAY, forbidden, clock=lambda: NOW))
-
-
-@pytest.mark.parametrize("forecast", [None, 0, -5])
-def test_normal_null_zero_and_negative_forecast_are_not_unresolved(forecast) -> None:
-    data = payload(["TSE:1000"])
-    data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"] = forecast
-    result = normalize_batch(data, ["TSE:1000"], NOW)
-    assert result[0]["fetch_status"] == "ok"
-    assert result[0]["recommendation_total"] is None
-    assert result[0]["eps_forecast_next_fy"] == forecast
-
-
-@pytest.mark.parametrize(
-    "case", ["unknown", "overlap", "duplicate_missing", "count", "missing_field", "nan"]
-)
-def test_response_accounting_refuses_invalid_payload(case: str) -> None:
-    symbols = ["TSE:1000", "TSE:1001"]
-    p = copy.deepcopy(payload(symbols, missing=[symbols[1]]))
-    if case == "unknown":
-        p["data"]["NAG:1000"] = p["data"].pop(symbols[0])
-    elif case == "overlap":
-        p["missing"][0]["symbol"] = symbols[0]
-    elif case == "duplicate_missing":
-        p["missing"].append(p["missing"][0])
-    elif case == "count":
-        p["count"] = 99
-    elif case == "missing_field":
-        p["data"][symbols[0]].pop("close")
-    else:
-        p["data"][symbols[0]]["close"] = float("nan")
-    with pytest.raises(FetchError):
-        normalize_batch(p, symbols, NOW)
-
-
-def test_native_product_category_does_not_depend_on_sector_spelling(tmp_path):
-    path = store(tmp_path / "market.sqlite", 1)
-    with closing(open_connection(path)) as conn, conn:
-        conn.execute(
-            "UPDATE jquants_master_snapshots "
-            "SET record_json=json_set(record_json,'$.S33Nm','新業種')"
-        )
-        assert universe(conn, DAY) == ["TSE:1000"]
-
-
-class Timer:
-    value = 0.0
-
-    def __call__(self):
-        return self.value
 
 
 @pytest.mark.parametrize("failure", [None, "429", "malformed", "store", "time_guard"])
@@ -659,56 +525,6 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     assert "TSE:" not in repr([asdict(e) for e in events])
 
 
-@pytest.mark.parametrize(
-    ("provider_field", "field", "value", "reason"),
-    [
-        ("close", "quote_close", float("nan"), "invalid_numeric"),
-        ("recommendation_total", "recommendation_total", -1, "invalid_analyst_count"),
-        ("currency", "quote_currency", 42, "invalid_text_type"),
-    ],
-)
-def test_payload_diagnostics_use_canonical_field(provider_field, field, value, reason):
-    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-        ProviderPayloadError,
-    )
-
-    data = payload(["TSE:1000"])
-    data["data"]["TSE:1000"][provider_field] = value
-    with pytest.raises(ProviderPayloadError) as caught:
-        normalize_batch(data, ["TSE:1000"], NOW)
-    assert (caught.value.reason, caught.value.field) == (reason, field)
-
-
-def test_missing_fields_uses_first_requested_canonical_field():
-    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-        ProviderPayloadError,
-    )
-
-    data = payload(["TSE:1000"])
-    del data["data"]["TSE:1000"]["earnings_per_share_forecast_next_fy"]
-    del data["data"]["TSE:1000"]["close"]
-    with pytest.raises(ProviderPayloadError) as caught:
-        normalize_batch(data, ["TSE:1000"], NOW)
-    assert caught.value.field == "eps_forecast_next_fy"
-
-
-@pytest.mark.parametrize("raw", [None, [], "private-body", 42])
-def test_non_dict_row_does_not_blame_a_field(raw):
-    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
-        ProviderPayloadError,
-    )
-    from baibai_jobs.acquisition.tradingview.cli import failure_line
-
-    data = payload(["TSE:1000"])
-    data["data"]["TSE:1000"] = raw
-    with pytest.raises(ProviderPayloadError) as caught:
-        normalize_batch(data, ["TSE:1000"], NOW)
-    assert caught.value.reason == "row_missing_requested_fields"
-    assert caught.value.field is None
-    assert "validation_field=-" in failure_line(caught.value)
-    assert "private-body" not in failure_line(caught.value)
-
-
 def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     import httpx2
 
@@ -734,41 +550,6 @@ def test_partial_http_failure_keeps_status_and_wait_instruction(tmp_path):
     assert "mcp_http_status=429" in result["last_failure"]
     assert "retry_not_before_utc=2026-10-11T18:00:00+00:00" in result["last_failure"]
     assert "private" not in str(result)
-
-
-@pytest.mark.parametrize("batch_size", [1, 2])
-def test_explicit_missing_receipt_does_not_depend_on_batch_composition(batch_size):
-    symbols = ["TSE:1000", "TSE:1001"]
-    rows = []
-    for offset in range(0, len(symbols), batch_size):
-        chunk = symbols[offset : offset + batch_size]
-        response = payload(chunk, missing=[s for s in chunk if s == symbols[1]])
-        rows.extend(normalize_batch(response, chunk, NOW))
-    assert rows == normalize_batch(payload(symbols, missing=[symbols[1]]), symbols, NOW)
-    assert rows[1] == {
-        "ticker": "1001",
-        "provider_symbol": "TSE:1001",
-        "fetched_at_utc": NOW.isoformat(),
-        "fetch_status": "unresolved",
-        "analyst_rating": None,
-        "recommendation_total": None,
-        "price_target_average": None,
-        "price_target_high": None,
-        "price_target_low": None,
-        "eps_forecast_next_fq": None,
-        "eps_forecast_next_fy": None,
-        "revenue_forecast_next_fq": None,
-        "revenue_forecast_next_fy": None,
-        "forward_pe": None,
-        "forward_ps": None,
-        "forward_ev_ebitda": None,
-        "ebitda_estimate_fy": None,
-        "free_cash_flow_estimate_fy": None,
-        "capex_estimate_fy": None,
-        "total_debt_estimate_fy": None,
-        "quote_close": None,
-        "quote_currency": None,
-    }
 
 
 def test_final_unavailable_symbol_is_recorded_without_false_forecast_coverage(tmp_path):

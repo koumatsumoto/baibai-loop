@@ -119,8 +119,8 @@ def test_only_snapshot_route_remains_with_main_only_master_assertion(basis, ref,
 
 
 def test_private_partial_receipts_survive_failed_cooldown_until_common_integration(tmp_path):
-    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
     from tests.helpers.r2_store import MemoryR2Store
+    from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
 
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         FetchError,

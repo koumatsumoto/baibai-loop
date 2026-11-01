@@ -301,7 +301,7 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
 
     from mcp.shared.auth import OAuthToken
     from tests.engine.test_tradingview_auth import state
-    from tests.engine.test_tradingview_collector import DAY, NOW, _sdk, payload, store, stored
+    from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
 
     path = store(tmp_path / "market.sqlite")
     progress_path = tmp_path / "progress.json"
@@ -363,7 +363,7 @@ def test_session_cleanup_error_preserves_committed_result(
     from contextlib import asynccontextmanager
 
     from tests.engine.test_tradingview_auth import state
-    from tests.engine.test_tradingview_collector import DAY
+    from tests.helpers.tradingview import DAY
 
     @asynccontextmanager
     async def connect(_storage):

@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx2
 import pytest
-from tests.engine.test_tradingview_collector import Timer, _sdk, payload, store, stored
+from tests.helpers.tradingview import Timer, _sdk, payload, store, stored
 
 import baibai_jobs.acquisition.tradingview.cli as cli
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
