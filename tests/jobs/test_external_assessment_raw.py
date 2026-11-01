@@ -7,16 +7,16 @@ import uuid
 from datetime import date, datetime
 
 import pytest
-import requests
 from tests.helpers.external_assessment_html import (
     monex_html,
     official_html,
     rakuten_html,
 )
+from tests.helpers.external_assessment_http import RawSession as Session
+from tests.helpers.external_assessment_http import connect as connect
 from tests.helpers.external_assessment_responses import response
 from tests.helpers.external_assessment_stages import FakeObjectStore, plan, stage
 
-import baibai_jobs.acquisition.external_assessments.collection as collection
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as staging
@@ -33,51 +33,6 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
 )
-
-
-class Session(requests.Session):
-    def __init__(self, replies):
-        super().__init__()
-        self.replies = iter(replies)
-        self.calls = []
-
-    def get(self, url, **kwargs):
-        self.calls.append(url)
-        assert kwargs["allow_redirects"] is False
-        status, body, encoding = next(self.replies)
-        result = requests.Response()
-        result.status_code = status
-        result._content = body
-        result._content_consumed = True
-        result.request = requests.Request("GET", url).prepare()
-        result.headers.update(
-            {
-                "Content-Type": f"text/html; charset={encoding}",
-                "Set-Cookie": "private-cookie-header",
-                "Authorization": "private-authorization-header",
-            }
-        )
-        return result
-
-
-@pytest.fixture
-def connect(monkeypatch):
-    timer = [0.0]
-    monkeypatch.setattr(collection.time, "monotonic", lambda: timer[0])
-    monkeypatch.setattr(
-        collection.time, "sleep", lambda seconds: timer.__setitem__(0, timer[0] + seconds)
-    )
-
-    def use(session):
-        monkeypatch.setattr(
-            daily,
-            "external_assessment_collect_pair",
-            lambda ticker, **kwargs: collection.collect_pair(
-                ticker, **{**kwargs, "session": session}
-            ),
-        )
-
-    return use
 
 
 def bundles(store):

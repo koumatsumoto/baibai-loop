@@ -9,11 +9,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.engine.test_external_assessment_host_rate import Clock, Session
 from tests.helpers.external_assessment_html import (
     official_html,
     rakuten_html,
 )
+from tests.helpers.external_assessment_http import HostRateClock as Clock
+from tests.helpers.external_assessment_http import HostRateSession as Session
 from tests.helpers.external_assessment_stages import FakeObjectStore, completed_pair, plan
 from tests.jobs.external_assessment_publication_fixtures import (
     independent_plans as independent_plans,

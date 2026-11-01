@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-import requests
 from tests.helpers.external_assessment_html import (
     monex_html,
     official_html,
     rakuten_html,
 )
+from tests.helpers.external_assessment_http import HostRateClock as Clock
+from tests.helpers.external_assessment_http import HostRateSession as Session
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
@@ -18,45 +19,12 @@ OFFICIAL = "https://www.rakuten-sec.co.jp/web/market/search/forecast.html?ric=72
 IFRAME = "https://rakuten-sec.ifis.co.jp/index.php?action=tp4&sa=report_est&bcode=7203.T"
 
 
-class Clock:
-    def __init__(self):
-        self.seconds = 100.0
-
-    def monotonic(self):
-        return self.seconds
-
-    def sleep(self, seconds):
-        self.seconds += seconds
-
-
 @pytest.fixture
 def clock(monkeypatch):
     value = Clock()
     monkeypatch.setattr(collection.time, "monotonic", value.monotonic)
     monkeypatch.setattr(collection.time, "sleep", value.sleep)
     return value
-
-
-class Session(requests.Session):
-    def __init__(self, clock, replies=None):
-        super().__init__()
-        self.clock = clock
-        self.replies = iter(replies) if replies is not None else None
-        self.calls = []
-
-    def get(self, url, **kwargs):
-        self.calls.append((self.clock.seconds, url, kwargs))
-        status, html, headers = (
-            next(self.replies)
-            if self.replies is not None
-            else (200, monex_html(url.rsplit("/", 1)[-1]), {})
-        )
-        response = requests.Response()
-        response.status_code = status
-        response._content = html.encode()
-        response._content_consumed = True
-        response.headers.update(headers)
-        return response
 
 
 def pair(client, limiter, *, ticker="7203", source="monex", **kwargs):

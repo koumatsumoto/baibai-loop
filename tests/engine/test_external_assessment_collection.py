@@ -5,7 +5,6 @@ import signal
 import sqlite3
 import stat
 import time
-import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +16,8 @@ from tests.helpers.external_assessment_html import (
     official_html,
     rakuten_html,
 )
+from tests.helpers.external_assessment_http import BytesSession, _original
+from tests.helpers.external_assessment_http import CaptureSession as Session
 
 import baibai_jobs.acquisition.external_assessments.cli as cli
 import baibai_jobs.acquisition.external_assessments.collection as collection
@@ -25,7 +26,6 @@ from baibai_engine.data_collection.receipts.public_pages.capture import (
     load_capture,
     save_capture,
 )
-from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation,
 )
@@ -34,49 +34,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     monex,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-
-
-class Session:
-    def __init__(self, replies):
-        self.replies = iter(replies)
-        self.calls = []
-
-    def get(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        status, html = next(self.replies)
-        response = requests.Response()
-        response.status_code = status
-        response._content = html.encode()
-        response._content_consumed = True
-        response.headers["Content-Type"] = "text/html; charset=utf-8"
-        return response
-
-
-class BytesSession(Session):
-    def get(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        status, body, headers = next(self.replies)
-        response = requests.Response()
-        response.status_code = status
-        response._content = body
-        response._content_consumed = True
-        response.headers.update(headers)
-        return response
-
-
-def _original(*, attempt_id=None, body=None):
-    return EquityWebSourceResponse(
-        receipt_id=str(uuid.uuid4()),
-        attempt_id=attempt_id or str(uuid.uuid4()),
-        source="monex",
-        requested_ticker="7203",
-        role="page",
-        parent_receipt_id=None,
-        requested_url=monex.public_url("7203"),
-        received_at_utc=datetime(2024, 1, 1, tzinfo=UTC),
-        selected_encoding="utf-8",
-        body=body if body is not None else monex_html().encode(),
-    )
 
 
 @pytest.mark.parametrize("status", [302, 500])
