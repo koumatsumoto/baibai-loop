@@ -13,12 +13,13 @@ from urllib.parse import parse_qs, urlsplit
 
 import jquantsapi
 import pytest
-from tests.engine.machine_analysis.observations.economic_indicators.test_option_iv import (
+from tests.helpers.http_doubles import BodyTimeout
+from tests.helpers.network import _no_real_network as _no_real_network
+from tests.helpers.option_chain import (
     ASOF,
     _chain_records,
     _registered,
 )
-from tests.helpers.network import _no_real_network as _no_real_network
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
@@ -48,11 +49,6 @@ from baibai_engine.machine_analysis.observations.economic_indicators.options imp
 
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
 READINGS = ("jp.n225_iv_30d", "jp.n225_iv_skew", "jp.n225_iv_term")
-
-
-class BodyTimeout(io.BytesIO):
-    def read(self, *args, **kwargs):
-        raise ReadTimeoutError(None, None, "synthetic body timeout")
 
 
 @pytest.fixture

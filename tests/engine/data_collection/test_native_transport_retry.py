@@ -9,10 +9,11 @@ from email.utils import format_datetime
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from tests.helpers.http_doubles import BodyTimeout
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _FakeBrowserFetcher
 from urllib3.connectionpool import HTTPConnectionPool
-from urllib3.exceptions import ProtocolError, ReadTimeoutError
+from urllib3.exceptions import ProtocolError
 from urllib3.response import HTTPResponse
 
 from baibai_engine.data_collection.acquisition.refresh import (
@@ -32,11 +33,6 @@ from baibai_engine.data_collection.transport.context import (
 START = date(2026, 1, 31)
 END = date(2026, 2, 1)
 BASE = datetime(2026, 10, 13, tzinfo=UTC).timestamp()
-
-
-class BodyTimeout(io.BytesIO):
-    def read(self, *args, **kwargs):
-        raise ReadTimeoutError(None, None, "synthetic body timeout")
 
 
 def month_body(month):
