@@ -8,9 +8,13 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
-from tests.engine.test_kabumap import html as kabumap_html
-from tests.engine.test_minkabu import html as minkabu_html
+from tests.helpers.external_assessment_html import (
+    kabumap_html,
+    minkabu_html,
+    monex_html,
+    official_html,
+    rakuten_html,
+)
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows

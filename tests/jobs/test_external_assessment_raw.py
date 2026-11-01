@@ -8,7 +8,11 @@ from datetime import date, datetime
 
 import pytest
 import requests
-from tests.engine.test_external_assessment_sources import monex_html, official_html, rakuten_html
+from tests.helpers.external_assessment_html import (
+    monex_html,
+    official_html,
+    rakuten_html,
+)
 from tests.jobs.external_assessment_response_fixtures import response
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, stage
 
@@ -230,7 +234,7 @@ def test_raw_upload_precedes_typed_checkpoint_and_never_downloads_per_body(conne
 
 
 def test_three_media_normal_and_rakuten_retry_fixture_bundle_sizing_and_restoration():
-    from tests.engine.test_kabumap import html as kabumap_html
+    from tests.helpers.external_assessment_html import kabumap_html
 
     pages = [
         monex_html().encode(),

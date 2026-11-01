@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from tests.engine.test_external_assessment_sources import (
+from tests.helpers.external_assessment_html import (
     monex_html,
     rakuten_html,
     rakuten_no_estimates_html,

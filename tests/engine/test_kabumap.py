@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.engine.test_external_assessment_daily_verification import ASOF, seed_database
+from tests.helpers.external_assessment_html import kabumap_html as html
 from tests.helpers.master import insert_master_rows
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, stage
 from tests.jobs.test_external_assessment_raw import Session
@@ -34,30 +35,6 @@ from baibai_jobs.acquisition.external_assessments.universe import frozen_univers
 from baibai_jobs.publication.external_assessment_verification import verify_observations
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
-
-
-def html(ticker="130A", *, cheap="1/10"):
-    rows = "".join(
-        f'<li class="scoreBase"><span class="scoreName">{label}</span>'
-        f'<span class="scoreFigure">{score}</span></li>'
-        for label, score in (
-            ("市場トレンド", "6/10"),
-            ("割安性", cheap),
-            ("企業規模", "3/10"),
-            ("成長性", "2/10"),
-            ("財務健全性", "5/10"),
-            ("テクニカル", "4/10"),
-        )
-    )
-    return (
-        '<meta charset="SHIFT_JIS">'
-        f'<span id="stockCode">(東証グロース : {ticker})</span>'
-        "<h2>クォンツスコア情報 (2026-10-09更新)</h2>"
-        f'<div id="scoreTable"><ul>{rows}</ul>'
-        '<ul><li id="totalRow"><strong>42</strong>/100</li>'
-        '<li id="sectorRow"><strong>52</strong>/100</li></ul></div>'
-        "<h2>ファクター情報</h2><table><tr><td>PER</td><td>NA</td></tr></table>"
-    )
 
 
 def observation(ticker="130A", *, text=None, received=RECEIVED):

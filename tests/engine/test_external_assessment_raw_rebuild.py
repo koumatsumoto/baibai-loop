@@ -9,12 +9,12 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.engine.test_external_assessment_sources import (
+from tests.helpers.external_assessment_html import (
+    kabumap_html,
     monex_html,
     official_html,
     rakuten_html,
 )
-from tests.engine.test_kabumap import html as kabumap_html
 
 from baibai_engine.cli.external_assessment import main as assessment_main
 from baibai_engine.data_collection.receipts.public_pages.receipts import (

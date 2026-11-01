@@ -5,13 +5,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.engine.test_external_assessment_sources import (
+from tests.helpers.external_assessment_html import (
+    kabumap_html,
     monex_html,
     official_html,
     rakuten_html,
     rakuten_no_estimates_html,
 )
-from tests.engine.test_kabumap import html as kabumap_html
 from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan
 
 import baibai_engine.data_collection.transport.public_pages as source_http

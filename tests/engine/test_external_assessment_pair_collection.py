@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
-from tests.engine.test_external_assessment_sources import (
+from tests.helpers.external_assessment_html import (
     monex_html,
     official_html,
     rakuten_html,
