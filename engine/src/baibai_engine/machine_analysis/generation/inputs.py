@@ -34,11 +34,11 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_re
     read_comparison_population,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_engine.machine_analysis.observations.financials.pdf_statement_reader import (
-    read_pdf_statements,
-)
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
+)
+from baibai_engine.machine_analysis.observations.financials.pdf_statement_reader import (
+    read_pdf_statements,
 )
 from baibai_engine.machine_analysis.observations.financials.reader import (
     read_financial_documents,

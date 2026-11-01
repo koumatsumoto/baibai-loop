@@ -6,6 +6,7 @@ import hashlib
 import io
 import re
 import unicodedata
+from calendar import monthrange
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Literal
@@ -19,6 +20,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
     is_annual_period,
     prior_year_dates_match,
 )
+from baibai_engine.primitives.dates import add_months_clamped
 
 REVISION = "pdf-ifrs-display-statements-v1"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
@@ -171,8 +173,12 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
         )
         _require(
             prior_year_dates_match(
-                prior_start, prior_end, current_start, current_end,
-                length_tolerance_ratio=0.03, end_tolerance_days=7,
+                prior_start,
+                prior_end,
+                current_start,
+                current_end,
+                length_tolerance_ratio=0.03,
+                end_tolerance_days=7,
             ),
             "pdf_comparative_period_mismatch",
         )
@@ -185,11 +191,14 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
         basis = [
             (index, match[0])
             for index, page in enumerate(normalized, 1)
-            if (match := re.search(
-                r"前(?:第1四半期連結累計期間|連結会計年度)の数値についても、"
-                r"IFRS(?:会計基準)?ベースに組み替えて比較分析",
-                _compact(page),
-            )) is not None
+            if (
+                match := re.search(
+                    r"前(?:第1四半期連結累計期間|連結会計年度)の数値についても、"
+                    r"IFRS(?:会計基準)?ベースに組み替えて比較分析",
+                    _compact(page),
+                )
+            )
+            is not None
         ]
         _require(bool(basis), "pdf_comparative_basis_not_explicit")
         heading = first.split("基本的1株当たり", 1)[0]
@@ -200,47 +209,86 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
                 headline.append(tokens)
         _require(len(headline) == 2, "pdf_headline_columns_unknown")
         _require(headline[0][0] > headline[1][0], "pdf_headline_order_unknown")
+        for row, start, end in (
+            (headline[0], current_start, current_end),
+            (headline[1], prior_start, prior_end),
+        ):
+            label = re.fullmatch(r"(\d{4})年(\d+)月期(第1四半期)?", row[0])
+            assert label is not None
+            year, month = int(label[1]), int(label[2])
+            fiscal_end = date(year, month, monthrange(year, month)[1])
+            fiscal_start = add_months_clamped(fiscal_end, -12) + timedelta(days=1)
+            expected_end = (
+                add_months_clamped(fiscal_start, 3) - timedelta(days=1)
+                if label[3]
+                else fiscal_end
+            )
+            _require(start == fiscal_start and end == expected_end, "pdf_headline_period_conflict")
         pairs = []
         for metric, label in _ROWS.items():
             matched = re.findall(
                 r"^\s*" + re.escape(label) + r"\s+([△-]?[\d,]+)\s+([△-]?[\d,]+)\s*$",
-                table, re.MULTILINE,
+                table,
+                re.MULTILINE,
             )
             _require(len(matched) == 1, "pdf_metric_missing_or_ambiguous:" + metric)
             prior_text, current_text = matched[0]
-            prior, current = (
-                int(value.replace(",", "").replace("△", "-")) for value in matched[0]
-            )
+            prior, current = (int(value.replace(",", "").replace("△", "-")) for value in matched[0])
             column = {"sales": 1, "operating_profit": 3, "parent_profit": 9}[metric]
             _require(
                 [int(row[column].replace(",", "").replace("△", "-")) for row in headline]
                 == [current, prior],
                 "pdf_headline_statement_conflict:" + metric,
             )
-            pairs.append(DisplayPair(
-                metric=metric, current=current, comparative=prior,
-                current_text=current_text, comparative_text=prior_text,
-                pdf_page=number, table="consolidated_statement_of_profit_or_loss", row=label,
-            ))
-        return base.model_copy(update={
-            "published_on": published, "current_start": current_start, "current_end": current_end,
-            "comparative_start": prior_start, "comparative_end": prior_end, "pairs": tuple(pairs),
-            "comparative_basis_page": basis[0][0], "comparative_basis_text": basis[0][1],
-            "accounting_standard": "IFRS", "statement_basis": "consolidated",
-            "unit": "JPY_million", "rounding": "truncate_below_unit",
-        })
+            pairs.append(
+                DisplayPair(
+                    metric=metric,
+                    current=current,
+                    comparative=prior,
+                    current_text=current_text,
+                    comparative_text=prior_text,
+                    pdf_page=number,
+                    table="consolidated_statement_of_profit_or_loss",
+                    row=label,
+                )
+            )
+        return base.model_copy(
+            update={
+                "published_on": published,
+                "current_start": current_start,
+                "current_end": current_end,
+                "comparative_start": prior_start,
+                "comparative_end": prior_end,
+                "pairs": tuple(pairs),
+                "comparative_basis_page": basis[0][0],
+                "comparative_basis_text": basis[0][1],
+                "accounting_standard": "IFRS",
+                "statement_basis": "consolidated",
+                "unit": "JPY_million",
+                "rounding": "truncate_below_unit",
+            }
+        )
     except (ValueError, IndexError) as error:
         return base.model_copy(update={"reason": str(error), "pairs": ()})
 
 
 def extract_pdf(
-    *, content: bytes, source_url: str, received_at: datetime, bundle_id: str, resource_name: str,
+    *,
+    content: bytes,
+    source_url: str,
+    received_at: datetime,
+    bundle_id: str,
+    resource_name: str,
 ) -> PdfStatement:
     ticker, disclosure = disclosure_identity(source_url)
     base = PdfStatement(
-        ticker=ticker, disclosure_number=disclosure, source_url=source_url,
-        source_sha256=hashlib.sha256(content).hexdigest(), received_at=received_at,
-        bundle_id=bundle_id, resource_name=resource_name,
+        ticker=ticker,
+        disclosure_number=disclosure,
+        source_url=source_url,
+        source_sha256=hashlib.sha256(content).hexdigest(),
+        received_at=received_at,
+        bundle_id=bundle_id,
+        resource_name=resource_name,
     )
     if len(content) > 16 * 1024 * 1024 or not content.startswith(b"%PDF-"):
         return base.model_copy(update={"reason": "pdf_format_or_size_unsupported"})
@@ -254,7 +302,9 @@ def extract_pdf(
 
 
 def build_pdf_supplement(
-    statements: Sequence[PdfStatement], *, as_of: date,
+    statements: Sequence[PdfStatement],
+    *,
+    as_of: date,
 ) -> PdfSupplement | None:
     # Repeated identical receipts are retained in L1; arithmetic uses one byte vintage.
     selected = {
@@ -264,7 +314,9 @@ def build_pdf_supplement(
     }
     if not selected:
         return None
-    records = tuple(sorted(selected.values(), key=lambda x: (x.published_on or date.min, x.source_sha256)))
+    records = tuple(
+        sorted(selected.values(), key=lambda x: (x.published_on or date.min, x.source_sha256))
+    )
     _require(len({item.ticker for item in records}) == 1, "pdf_supplement_mixed_issuer")
     comparisons, ttm, unresolved = [], [], []
     for item in records:
@@ -272,21 +324,29 @@ def build_pdf_supplement(
             unresolved.append(item.disclosure_number + ":" + (item.reason or "period_missing"))
             continue
         for pair in item.pairs:
-            comparisons.append(DisplayArithmetic(
-                metric=pair.metric, amount=pair.current - pair.comparative,
-                formula="current - comparative", current_sha256=item.source_sha256,
-                period_start=item.current_start, period_end=item.current_end,
-            ))
+            comparisons.append(
+                DisplayArithmetic(
+                    metric=pair.metric,
+                    amount=pair.current - pair.comparative,
+                    formula="current - comparative",
+                    current_sha256=item.source_sha256,
+                    period_start=item.current_start,
+                    period_end=item.current_end,
+                )
+            )
         if is_annual_period(item.current_start, item.current_end):
             continue
         annuals = [
-            annual for annual in records
-            if annual.reason is None and annual.current_start == item.comparative_start
+            annual
+            for annual in records
+            if annual.reason is None
+            and annual.current_start == item.comparative_start
             and annual.current_end is not None
             and annual.current_end + timedelta(days=1) == item.current_start
             and annual.current_start is not None
             and is_annual_period(annual.current_start, annual.current_end)
-            and annual.published_on is not None and item.published_on is not None
+            and annual.published_on is not None
+            and item.published_on is not None
             and annual.published_on <= item.published_on
             and annual.accounting_standard == item.accounting_standard == "IFRS"
             and annual.statement_basis == item.statement_basis == "consolidated"
@@ -304,10 +364,20 @@ def build_pdf_supplement(
         amounts = {pair.metric: pair.current for pair in annual.pairs}
         for pair in item.pairs:
             if pair.metric in amounts:
-                ttm.append(DisplayArithmetic(
-                    metric=pair.metric, amount=amounts[pair.metric] + pair.current - pair.comparative,
-                    formula="annual + current - comparative", current_sha256=item.source_sha256,
-                    annual_sha256=annual.source_sha256, period_start=start, period_end=item.current_end,
-                ))
-    return PdfSupplement(statements=records, comparisons=tuple(comparisons), ttm=tuple(ttm),
-                         unresolved=tuple(unresolved))
+                ttm.append(
+                    DisplayArithmetic(
+                        metric=pair.metric,
+                        amount=amounts[pair.metric] + pair.current - pair.comparative,
+                        formula="annual + current - comparative",
+                        current_sha256=item.source_sha256,
+                        annual_sha256=annual.source_sha256,
+                        period_start=start,
+                        period_end=item.current_end,
+                    )
+                )
+    return PdfSupplement(
+        statements=records,
+        comparisons=tuple(comparisons),
+        ttm=tuple(ttm),
+        unresolved=tuple(unresolved),
+    )

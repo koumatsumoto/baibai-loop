@@ -55,7 +55,8 @@ SOURCES = (
 _EDINET_SOURCES = {"edinet-list", "edinet-metrics", "edinet-facts"}
 _JQUANTS_SOURCES = {"jquants-market", "jquants-financial"}
 _JPX_COLLECTION = {
-    "jpx-earnings": "earnings_calendar", "jpx-regulations": "regulations",
+    "jpx-earnings": "earnings_calendar",
+    "jpx-regulations": "regulations",
     "jpx-financial-pdfs": "financial_statements",
 }
 

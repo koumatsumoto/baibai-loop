@@ -185,7 +185,8 @@ def _read_fixed_financial_population(
                 materialized.append(bool(item_paths))
             if all(materialized):
                 pdf_statements = read_pdf_statements(
-                    session.connection, as_of=as_of,
+                    session.connection,
+                    as_of=as_of,
                     tickers=(ticker,) if ticker is not None else None,
                 )
         return {
@@ -197,5 +198,7 @@ def _read_fixed_financial_population(
                 pdf_statements.get(code, ()),
                 pdf_input_reason,
             )
-            for code in sorted(grouped.keys() | sectors.keys() | comparisons.keys() | pdf_statements.keys())
+            for code in sorted(
+                grouped.keys() | sectors.keys() | comparisons.keys() | pdf_statements.keys()
+            )
         }

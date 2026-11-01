@@ -51,10 +51,13 @@ def receive(manifest: Path, directory: Path) -> dict[str, object]:
         body = file.read_bytes()
         if not body.startswith(b"%PDF-") or hashlib.sha256(body).hexdigest() != record["sha256"]:
             raise ValueError("financial PDF bytes differ from the recorded receipt")
-        prepared.append((
-            "pdf:" + match[1], started.astimezone(UTC),
-            JPXResponse(url, captured.astimezone(UTC), record["content_type"], body),
-        ))
+        prepared.append(
+            (
+                "pdf:" + match[1],
+                started.astimezone(UTC),
+                JPXResponse(url, captured.astimezone(UTC), record["content_type"], body),
+            )
+        )
     if len({row[0] for row in prepared}) != len(prepared):
         raise ValueError("financial PDF bundle has duplicate disclosure numbers")
     directory.mkdir(parents=True, exist_ok=True)
@@ -65,15 +68,20 @@ def receive(manifest: Path, directory: Path) -> dict[str, object]:
     asof = max(row[2].received_at.date() for row in prepared)
     with closing(open_connection(database)) as connection:
         bundle = create_bundle(
-            connection, "financial_statements", asof, started,
+            connection,
+            "financial_statements",
+            asof,
+            started,
             tuple((name, response.requested_url) for name, _, response in prepared),
         )
         for name, _, response in prepared:
             retain_bundle_response(connection, bundle, name, response)
         complete_bundle(connection, bundle)
     report: dict[str, object] = {
-        "source": "jpx-financial-pdfs", "asof": asof.isoformat(),
-        "started_at": started.isoformat(), "bundle_ids": [bundle],
+        "source": "jpx-financial-pdfs",
+        "asof": asof.isoformat(),
+        "started_at": started.isoformat(),
+        "bundle_ids": [bundle],
         "receipt_clock": "recorded_body_capture_completion_not_first_byte",
     }
     write_json_atomic(directory / "result.json", report)

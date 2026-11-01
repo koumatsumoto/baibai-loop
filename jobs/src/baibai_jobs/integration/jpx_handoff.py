@@ -91,9 +91,16 @@ def import_handoff(
                     bundle = read_complete_bundle(conn, bundle_id)
                     for receipt in bundle.responses:
                         response = receipt.response
+                        if (
+                            response.content_type.split(";", 1)[0].strip().lower()
+                            != "application/pdf"
+                        ):
+                            raise ValueError("financial PDF media type differs from its collection")
                         value = extract_pdf(
-                            content=response.body, source_url=response.requested_url,
-                            received_at=response.received_at, bundle_id=bundle_id,
+                            content=response.body,
+                            source_url=response.requested_url,
+                            received_at=response.received_at,
+                            bundle_id=bundle_id,
                             resource_name=receipt.resource_name,
                         )
                         if receipt.resource_name != "pdf:" + value.disclosure_number:
@@ -103,8 +110,11 @@ def import_handoff(
                 except (JPXBundleError, ValueError) as error:
                     failures.append({"bundle_id": bundle_id, "reason": str(error)})
             return ReplayResult(
-                report={"raw_rows_added": added, "retained_bundles": list(bundle_ids),
-                        "projection_failures": failures},
+                report={
+                    "raw_rows_added": added,
+                    "retained_bundles": list(bundle_ids),
+                    "projection_failures": failures,
+                },
                 complete=not failures,
             )
         selected = []

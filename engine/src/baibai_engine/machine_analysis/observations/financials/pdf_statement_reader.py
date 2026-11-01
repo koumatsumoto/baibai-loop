@@ -21,7 +21,10 @@ if TYPE_CHECKING:
 
 def read_pdf_statements(
     connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
-    *, as_of: date, tickers: Sequence[str] | None = None, known_at: datetime | None = None,
+    *,
+    as_of: date,
+    tickers: Sequence[str] | None = None,
+    known_at: datetime | None = None,
 ) -> dict[str, tuple[PdfStatement, ...]]:
     if known_at is not None and known_at.tzinfo is None:
         raise ValueError("PDF receipt cutoff requires timezone")
@@ -50,8 +53,11 @@ def read_pdf_statements(
             if str(media_type).split(";", 1)[0].strip().lower() != "application/pdf":
                 raise ValueError("financial PDF has an incompatible media type")
             observation = extract_pdf(
-                content=gzip.decompress(bytes(compressed)), source_url=str(url),
-                received_at=stamp, bundle_id=str(bundle_id), resource_name=str(resource),
+                content=gzip.decompress(bytes(compressed)),
+                source_url=str(url),
+                received_at=stamp,
+                bundle_id=str(bundle_id),
+                resource_name=str(resource),
             )
             if observation.published_on is None or observation.published_on <= as_of:
                 population.setdefault(ticker, []).append(observation)
