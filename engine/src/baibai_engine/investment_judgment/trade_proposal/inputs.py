@@ -529,9 +529,7 @@ def build_proposal_context(
         context_id = saved_context.get("context_id") if isinstance(saved_context, dict) else None
         if context_id is not None and not isinstance(context_id, str):
             raise ProposalError("saved Market Context Assessment identity must be text")
-        session = next_order_session(
-            sqlite_path=sqlite_path, now=now, connection=market_connection
-        )
+        session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
         return ProposalAuthoringContext(
             operation_id,
             proposal_id,

@@ -204,9 +204,7 @@ def _preview_buy(
         classification = next(
             (row for row in inputs.security_classification if row.ticker == item.ticker), None
         )
-        session = next_order_session(
-            sqlite_path=sqlite_path, now=now, connection=market_connection
-        )
+        session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
         grid = (
             None
             if classification is None or session is None
