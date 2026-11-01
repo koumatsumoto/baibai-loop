@@ -1,4 +1,4 @@
-"""Selected L1 observations and transient L2 values from the same input snapshot.
+"""Transient L2 observations and derived values from the same retained L1 snapshot.
 
 Only providers whose spec declares publication-date vintages are clamped to
 the requested cutoff. This does not establish exact historical API availability.
