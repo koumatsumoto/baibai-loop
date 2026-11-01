@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
 import tempfile
 import unittest
 from datetime import date
@@ -14,9 +13,6 @@ from tests.helpers.provider_fixtures import (
     _series,
 )
 
-from baibai_engine.cli.economic_indicators import (
-    main,
-)
 from baibai_engine.data_collection.catalog import require_source
 from baibai_engine.data_collection.provider_registry import provider_spec, registered_specs
 from baibai_engine.data_collection.providers.estat.api import parse_estat_json
@@ -371,20 +367,6 @@ class IndicatorsRegistryTests(unittest.TestCase):
                 series = registry[series_id]
                 self.assertEqual(formula.unit, series.unit)
                 self.assertTrue(set(formula.inputs) <= registry.keys())
-
-
-def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):
-    def unexpected(*args, **kwargs):
-        raise AssertionError("catalog opened a store")
-
-    monkeypatch.setattr(sqlite3, "connect", unexpected)
-    before = set(tmp_path.rglob("*"))
-    monkeypatch.chdir(tmp_path)
-    for command in (["list", "--format", "json"], ["search", "CPI"]):
-        assert main(command) == 0
-    assert set(tmp_path.rglob("*")) == before
-    with pytest.raises(SystemExit):
-        main(["list", "--db", str(tmp_path / "missing.sqlite")])
 
 
 @pytest.mark.parametrize(("priority", "expected"), [("0", 0), ("10", 10), ("null", 100)])

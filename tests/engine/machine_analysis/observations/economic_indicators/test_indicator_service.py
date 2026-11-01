@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from tests.helpers.indicator_store import (
+    _store_multpl_earnings_yield,
     observation,
     store_h15_observations,
     store_mof_observations,
@@ -17,9 +18,6 @@ from tests.helpers.indicator_store import (
 from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
-from baibai_engine.cli.economic_indicators import (
-    main,
-)
 from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
     store_snapshot,
@@ -35,7 +33,6 @@ from baibai_engine.machine_analysis.observations.economic_indicators.definitions
 from baibai_engine.machine_analysis.observations.economic_indicators.service import (
     IndicatorsService,
 )
-from baibai_jobs.acquisition.economic_cli import main as economic_main
 
 
 class IndicatorsServiceTests(unittest.TestCase):
@@ -157,31 +154,6 @@ class IndicatorsServiceTests(unittest.TestCase):
                 [(date(1998, 1, 5), 0.49)],
             )
 
-    def test_refresh_cli_requires_one_range_mode(self) -> None:
-        with self.assertRaises(SystemExit):
-            economic_main(
-                [
-                    "refresh",
-                    "fed-h15",
-                    "--start",
-                    "2026-01-01",
-                    "--all-history",
-                    "--end",
-                    "2026-07-20",
-                ]
-            )
-        with self.assertRaises(SystemExit):
-            economic_main(["refresh", "fed-h15", "--end", "2026-07-20"])
-
-    def test_cli_handles_bad_db_path_without_traceback(self) -> None:
-        self.assertEqual(main(["get", "us.10y", "--latest", "--db", "/tmp"]), 1)
-
-    def test_cli_unknown_series_returns_controlled_error(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "indicators.sqlite"
-
-            self.assertEqual(main(["get", "jp.cpi.stale", "--latest", "--db", str(db)]), 1)
-
 
 def test_derived_read_uses_native_inputs_without_fetch_or_store_mutation(tmp_path):
     database = tmp_path / "indicators.sqlite"
@@ -224,60 +196,6 @@ def test_empty_source_store_does_not_fill_missing_derived_inputs(tmp_path):
         "us.erp", start=date(2020, 1, 1), end=date(2026, 6, 30)
     )
     assert result.observations == ()
-
-
-def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
-    database = tmp_path / "indicators.sqlite"
-    _store_multpl_earnings_yield(database, date(2026, 1, 1), "5.0")
-    with closing(open_connection(database)) as connection:
-        store_h15_observations(
-            connection,
-            [observation("us.10y", date(2026, 1, 30), 4.0, datetime(2026, 2, 1, tzinfo=UTC))],
-        )
-        connection.commit()
-    with (
-        patch(
-            "baibai_engine.data_collection.acquisition.refresh.fetch_native_records",
-            side_effect=AssertionError("derived CLI must not acquire native data"),
-        ),
-    ):
-        code = main(
-            [
-                "get",
-                "us.erp",
-                "--start",
-                "2026-01-01",
-                "--end",
-                "2026-01-31",
-                "--db",
-                str(database),
-            ]
-        )
-    assert code == 0
-    assert capsys.readouterr().out.splitlines() == [
-        "series_id\tobserved_at\tvalue\tunit\tprovider",
-        "us.erp\t2026-01-30\t1\tpercent\tderived",
-    ]
-
-
-def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: str) -> None:
-    """Seed the native table row read by the derived ERP tests, not an obsolete scalar."""
-    series = load_definitions().by_id()["us.sp500_earnings_yield"]
-    with closing(open_connection(database)) as conn:
-        store_snapshot(
-            conn,
-            source_id=series.source_id,
-            observed_at=observed_at,
-            fetched_at=datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC),
-            records=[
-                {
-                    "date_text": f"{observed_at:%b} {observed_at.day}, {observed_at.year}",
-                    "value_text": value_text,
-                    "table_row": 1,
-                }
-            ],
-        )
-        conn.commit()
 
 
 def _mof_rows(day, value):
@@ -404,35 +322,6 @@ def test_unknown_refresh_does_not_open_or_modify_the_store(tmp_path):
     )
     assert isinstance(outcomes[0], acquisition.SourceRefreshFailure)
     assert database.read_bytes() == b"untouched"
-
-
-def test_native_refresh_cli_reports_each_source_failure(tmp_path, monkeypatch, capsys):
-    from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
-
-    def fail(source, **kwargs):
-        raise ProviderFetchStoppedError(f"{source.source_id} unavailable")
-
-    monkeypatch.setattr(acquisition, "fetch_native_records", fail)
-    status = economic_main(
-        [
-            "refresh",
-            "mof-jgbcm-all",
-            "fed-h15",
-            "--start",
-            "2026-07-20",
-            "--end",
-            "2026-07-20",
-            "--db",
-            str(tmp_path / "indicators.sqlite"),
-        ]
-    )
-    assert status == 1
-    report = capsys.readouterr().err
-    assert "- mof-jgbcm-all: mof-jgbcm-all unavailable" in report
-    assert "- fed-h15: fed-h15 unavailable" in report
-    assert report.strip().splitlines()[-1] == (
-        "error: refresh failed for 2 of 2 sources: mof-jgbcm-all, fed-h15"
-    )
 
 
 def test_tsr_all_history_collects_original_json_from_provider_floor(tmp_path, monkeypatch):

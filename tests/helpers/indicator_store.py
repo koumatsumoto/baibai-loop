@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.store import open_connection
 from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
     SeriesDefinition,
 )
@@ -212,3 +215,23 @@ __all__ = [
     "store_mof_observations",
     "store_reader",
 ]
+
+
+def _store_multpl_earnings_yield(database: Path, observed_at: date, value_text: str) -> None:
+    """Seed the native table row read by the derived ERP tests, not an obsolete scalar."""
+    series = load_definitions().by_id()["us.sp500_earnings_yield"]
+    with closing(open_connection(database)) as conn:
+        store_snapshot(
+            conn,
+            source_id=series.source_id,
+            observed_at=observed_at,
+            fetched_at=datetime(observed_at.year, observed_at.month, observed_at.day, tzinfo=UTC),
+            records=[
+                {
+                    "date_text": f"{observed_at:%b} {observed_at.day}, {observed_at.year}",
+                    "value_text": value_text,
+                    "table_row": 1,
+                }
+            ],
+        )
+        conn.commit()
