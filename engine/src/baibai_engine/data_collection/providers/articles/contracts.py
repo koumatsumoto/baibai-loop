@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, JsonValue
 
@@ -25,6 +26,12 @@ class NativeArticle(ArticleValue):
 
 
 @dataclass(frozen=True)
+class NativeLink:
+    locator: str
+    url: str
+
+
+@dataclass(frozen=True)
 class ArticleSource:
     source_id: str
     entry_url: str
@@ -40,6 +47,25 @@ class ArticleSource:
     min_interval_seconds: float = 0.0
     max_revalidate_bodies: int = 2
     revalidate_hours: int = 48
+    exact_routes: tuple[tuple[str, str], ...] = ()
+
+    def allows_url(self, url: str) -> bool:
+        try:
+            parsed = urlsplit(url)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname not in self.allowed_hosts
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.port not in {None, 443}
+            ):
+                return False
+            routes = [path for host, path in self.exact_routes if host == parsed.hostname]
+            return not routes or (
+                parsed.path in routes and not parsed.query and not parsed.fragment
+            )
+        except ValueError:
+            return False
 
     @property
     def entry_urls(self) -> tuple[str, ...]:
@@ -109,6 +135,7 @@ SOURCES = {
         "https://www.mof.go.jp/news.rss",
         # 本省RSSのinsideLinkが案内する財務局も同じsourceの明示された取得範囲。
         # 任意subdomainへ広げず、案内と転送先を別受領として保持する。
-        frozenset({"www.mof.go.jp", "lfb.mof.go.jp"}),
+        frozenset({"www.mof.go.jp", "lfb.mof.go.jp", "www.customs.go.jp"}),
+        exact_routes=(("www.customs.go.jp", "/toukei/latest/index.htm"),),
     ),
 }

@@ -11,6 +11,7 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_planning import (
+    load_discovery_cursor,
     load_frontier_cursor,
     load_planning,
     publish_planning_input,
@@ -243,7 +244,7 @@ def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path,
     assert report["bodies"] == 1
     assert len(session.urls) == 2
     state, _ = load_planning(store, "mof_news")
-    assert state.cursor["pending_urls"] == [target_url]
+    assert load_discovery_cursor(store, state)["pending_urls"] == [target_url]
 
 
 def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch):

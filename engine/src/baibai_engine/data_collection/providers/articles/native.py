@@ -12,7 +12,7 @@ from xml.etree import ElementTree as ET  # nosec B405 -- bounded _feed_root reje
 from pydantic import JsonValue
 from pypdf import PdfReader
 
-from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle, NativeLink
 from baibai_engine.data_collection.providers.articles.html import Node, parse_html, plain_text
 from baibai_engine.data_collection.providers.articles.workbook import parse_workbook
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
@@ -20,7 +20,7 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 PARSER_REVISION = "article-native-v1"
 MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
 BOJ_PARSER_REVISION = "article-native-boj-v2"
-MOF_PARSER_REVISION = "article-native-mof-v5"
+MOF_PARSER_REVISION = "article-native-mof-v6"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
@@ -360,10 +360,10 @@ def _nhk_public_description(
     )
 
 
-def _mof_inside_link(nodes: list[Node], *, url: str, title: str) -> NativeArticle | None:
+def _mof_redirect_notice(nodes: list[Node], *, url: str, title: str) -> NativeArticle | None:
     """本省の明示案内をsourceの許可host内で一段だけ読む。案内は本文とは別受領。"""
     origin = urlsplit(url)
-    if origin.hostname != "www.mof.go.jp" or not origin.path.startswith("/insideLink/"):
+    if origin.hostname != "www.mof.go.jp" or not origin.path.startswith(("/insideLink/", "/outside_link/")):
         return None
     refresh = [
         node.attrs.get("content", "")
@@ -378,12 +378,8 @@ def _mof_inside_link(nodes: list[Node], *, url: str, title: str) -> NativeArticl
     target = urljoin(url, match.group(1).strip("\"'"))
     parsed = urlsplit(target)
     if (
-        parsed.scheme != "https"
-        or parsed.hostname not in SOURCES["mof_news"].allowed_hosts
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.port not in {None, 443}
-        or parsed.path.startswith("/insideLink/")
+        not SOURCES["mof_news"].allows_url(target)
+        or parsed.path.startswith(("/insideLink/", "/outside_link/"))
         or target == url
     ):
         raise NativeArticleUnsupported("MOF redirect target is outside its document boundary")
@@ -421,57 +417,9 @@ def _mof_yield_csv(body: bytes, *, url: str, title: str) -> NativeArticle:
     )
 
 
-def parse_document(
-    source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
-) -> NativeArticle:
-    if source == "mof_news" and url in {
-        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
-        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
-    }:
-        return _mof_yield_csv(body, url=url, title=title)
-    if source == "boj_news" and body.startswith(b"PK\x03\x04"):
-        return parse_workbook(body, source=source, url=url, title=title)
-    if body.startswith(b"%PDF-"):
-        reader = PdfReader(io.BytesIO(body))
-        # MOF public PDFs can carry an encryption dictionary yet open normally
-        # without a password. Let PdfReader reject genuinely unreadable pages;
-        # do not equate the dictionary's presence with inaccessible content.
-        if (reader.is_encrypted and source != "mof_news") or len(reader.pages) > 100:
-            raise ValueError("encrypted or oversized article PDF is unsupported")
-        parts = [page.extract_text() or "" for page in reader.pages]
-        if not any(part.strip() for part in parts):
-            raise ValueError("article PDF has no extractable text")
-        offsets: list[JsonValue] = []
-        offset = 0
-        for page, part in enumerate(parts):
-            offsets.append({"page": page + 1, "start": offset, "end": offset + len(part)})
-            offset += len(part) + 1
-        return NativeArticle(
-            article_id=f"{source}:{url}",
-            locator="/pdf",
-            url=url,
-            title=title,
-            text="\n".join(parts),
-            content_scope="partial_text",
-            missing_parts=("non_text_figures_and_layout",),
-            metadata={"page_spans": offsets},
-        )
-    tree = parse_html(body.decode(encoding))
-    nodes = tree.walk()
-    if source == "mof_news":
-        notice = _mof_inside_link(nodes, url=url, title=title)
-        if notice is not None:
-            return notice
-    canonical = next(
-        (
-            urljoin(url, node.attrs["href"])
-            for node in nodes
-            if node.tag == "link" and node.attrs.get("rel") == "canonical" and "href" in node.attrs
-        ),
-        None,
-    )
-    if source == "nhk_news":
-        return _nhk_public_description(nodes, url=url, title=title, canonical=canonical)
+def _document_region(
+    source: str, nodes: list[Node], *, url: str, title: str
+) -> tuple[Node, str]:
     heading = next(
         (text for node in nodes if node.tag == "h1" if (text := node.text().strip())), title
     )
@@ -521,6 +469,109 @@ def parse_document(
         raise NativeArticleUnsupported("article body region is unsupported")
     if source == "minkabu_news" and not region.text().strip():
         raise NativeArticleUnsupported("Minkabu article body region has no text")
+    return region, heading
+
+
+def _attachment_links(region: Node, url: str) -> tuple[NativeLink, ...]:
+    return tuple(
+        NativeLink(f"/html/body-region/a/{index}", urljoin(url, node.attrs["href"]))
+        for index, node in enumerate(region.walk())
+        if node.tag == "a" and ".pdf" in node.attrs.get("href", "").lower()
+    )
+
+
+def _rolling_reference(source: str, url: str) -> bool:
+    # A rolling listing keeps references without requesting an unbounded archive.
+    parsed = urlsplit(url)
+    return source == "mof_news" and (parsed.hostname, parsed.path) in {
+        ("www.mof.go.jp", "/pri/research/seminar/lmeeting.htm"),
+        ("www.customs.go.jp", "/toukei/latest/index.htm"),
+    }
+
+
+def discovery_revision_for(source: str) -> str:
+    if source not in {"boj_news", "mof_news"}:
+        raise ValueError("source does not discover nested article documents")
+    return f"article-links-{source}-v1"
+
+
+def discover_links(
+    source: str, body: bytes, *, url: str, encoding: str = "utf-8"
+) -> tuple[NativeLink, ...]:
+    """Discover explicit native links without requiring a successful body projection.
+
+    No GET, timestamps or progress live here. The caller retains the exact input
+    and atomically admits children before considering their parent processed.
+    """
+    discovery_revision_for(source)
+    if body.startswith((b"%PDF-", b"PK\x03\x04")) or url in {
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
+    }:
+        return ()
+    nodes = parse_html(body.decode(encoding)).walk()
+    if source == "mof_news":
+        notice = _mof_redirect_notice(nodes, url=url, title="")
+        if notice is not None:
+            target = notice.metadata["redirect_target_url"]
+            assert isinstance(target, str)
+            return (NativeLink(notice.locator, target),)
+    region, _ = _document_region(source, nodes, url=url, title="")
+    return () if _rolling_reference(source, url) else _attachment_links(region, url)
+
+
+def parse_document(
+    source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
+) -> NativeArticle:
+    if source == "mof_news" and url in {
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
+    }:
+        return _mof_yield_csv(body, url=url, title=title)
+    if source == "boj_news" and body.startswith(b"PK\x03\x04"):
+        return parse_workbook(body, source=source, url=url, title=title)
+    if body.startswith(b"%PDF-"):
+        reader = PdfReader(io.BytesIO(body))
+        # MOF public PDFs can carry an encryption dictionary yet open normally
+        # without a password. Let PdfReader reject genuinely unreadable pages;
+        # do not equate the dictionary's presence with inaccessible content.
+        if (reader.is_encrypted and source != "mof_news") or len(reader.pages) > 100:
+            raise ValueError("encrypted or oversized article PDF is unsupported")
+        parts = [page.extract_text() or "" for page in reader.pages]
+        if not any(part.strip() for part in parts):
+            raise ValueError("article PDF has no extractable text")
+        offsets: list[JsonValue] = []
+        offset = 0
+        for page, part in enumerate(parts):
+            offsets.append({"page": page + 1, "start": offset, "end": offset + len(part)})
+            offset += len(part) + 1
+        return NativeArticle(
+            article_id=f"{source}:{url}",
+            locator="/pdf",
+            url=url,
+            title=title,
+            text="\n".join(parts),
+            content_scope="partial_text",
+            missing_parts=("non_text_figures_and_layout",),
+            metadata={"page_spans": offsets},
+        )
+    tree = parse_html(body.decode(encoding))
+    nodes = tree.walk()
+    if source == "mof_news":
+        notice = _mof_redirect_notice(nodes, url=url, title=title)
+        if notice is not None:
+            return notice
+    canonical = next(
+        (
+            urljoin(url, node.attrs["href"])
+            for node in nodes
+            if node.tag == "link" and node.attrs.get("rel") == "canonical" and "href" in node.attrs
+        ),
+        None,
+    )
+    if source == "nhk_news":
+        return _nhk_public_description(nodes, url=url, title=title, canonical=canonical)
+    region, heading = _document_region(source, nodes, url=url, title=title)
     date_fields: dict[str, str] = {}
     for node in nodes:
         if node.tag == "meta" and node.attrs.get("property") in {
@@ -546,16 +597,9 @@ def parse_document(
         )
         if published and "article:published_time" not in date_fields:
             date_fields["article:published_time"] = published
-    attachments = [
-        urljoin(url, node.attrs["href"])
-        for node in region.walk()
-        if node.tag == "a" and ".pdf" in node.attrs.get("href", "").lower()
-    ]
     metadata: dict[str, JsonValue] = dict(date_fields)
-    metadata["attachments"] = list(attachments)
-    if source == "mof_news" and urlsplit(url).path == "/pri/research/seminar/lmeeting.htm":
-        # This is a rolling year's index, not one newly published paper. Keep
-        # its references without turning one feed update into historical crawling.
+    metadata["attachments"] = [link.url for link in _attachment_links(region, url)]
+    if _rolling_reference(source, url):
         metadata["attachment_scope"] = "rolling_listing_reference_only"
     # Deliberately conservative: image tables, pagination and linked papers were not read.
     return NativeArticle(
