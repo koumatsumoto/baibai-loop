@@ -12,12 +12,12 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     read_complete_bundle,
 )
 from baibai_engine.data_collection.receipts.merge import copy_originals
+from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
+    CapitalPolicyError,
+)
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
-    ValuationCatalystError,
-)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pdf
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
@@ -143,7 +143,7 @@ def import_handoff(
         except (
             JPXProviderError,
             DelistingSourceError,
-            ValuationCatalystError,
+            CapitalPolicyError,
             JPXBundleError,
             ValueError,
         ):

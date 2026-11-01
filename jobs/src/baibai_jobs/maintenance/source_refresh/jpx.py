@@ -17,6 +17,10 @@ from baibai_engine.data_collection.providers.jpx.receipts import (
     declare_bundle_resources,
     retain_bundle_response,
 )
+from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
+    TSE_CAPITAL_POLICY_URL,
+    TSECapitalPolicyRefreshSummary,
+)
 from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     JPX_DELISTING_INDEX_URL,
     DelistingRecord,
@@ -34,10 +38,6 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
     JPX_EARNINGS_CALENDAR_INDEX_URL,
     JPX_REGULATION_URLS,
-)
-from baibai_engine.machine_analysis.observations.disclosures.valuation_catalysts import (
-    TSE_CAPITAL_POLICY_URL,
-    TSECapitalPolicyRefreshSummary,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
