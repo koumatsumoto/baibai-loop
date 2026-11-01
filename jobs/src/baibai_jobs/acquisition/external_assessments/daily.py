@@ -52,6 +52,7 @@ from baibai_jobs.acquisition.external_assessments.collection import (
 from baibai_jobs.acquisition.external_assessments.collection import (
     collector_binding as external_assessment_collector_binding,
 )
+from baibai_jobs.acquisition.external_assessments.raw import RawBundle
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     commit_stage,
@@ -74,7 +75,6 @@ from baibai_jobs.acquisition.external_assessments.universe import (
 from baibai_jobs.acquisition.external_assessments.universe import (
     received_master_universe as external_assessment_received_master_universe,
 )
-from baibai_jobs.integration.external_assessment_raw import RawBundle
 from baibai_jobs.publication.snapshot_publication import _resolve_serving_release, _serving_pointer
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60

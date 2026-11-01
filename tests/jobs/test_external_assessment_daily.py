@@ -14,8 +14,8 @@ from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.external_assessment_response_fixtures import response
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as staging
-import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     ModelValuationObservation as ExternalAssessmentModelValuationObservation,
 )

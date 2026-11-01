@@ -185,7 +185,7 @@ def test_rakuten_retry_restarts_outer_page_and_archives_every_received_200(monke
     assert client.calls[0][0] == client.calls[2][0]
     saved = staging.read_stage(store, p, 0)[0]
     assert saved.result.entries[0].state == "success"
-    from baibai_jobs.integration.external_assessment_raw import read_raw_bundle
+    from baibai_jobs.acquisition.external_assessments.raw import read_raw_bundle
 
     manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
     assert len(manifest["receipts"]) == len(bodies) == 3

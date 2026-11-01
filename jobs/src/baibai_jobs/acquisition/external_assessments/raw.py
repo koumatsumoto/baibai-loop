@@ -321,7 +321,7 @@ def _decode_raw_bundle(
 
 
 def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> dict[str, Any]:
-    """Report date groups for review only; unclassified keys are not deletion candidates."""
+    """Report age groups only; age does not prove a bundle is unreferenced or safe to delete."""
     keep_from = as_of - timedelta(days=RETENTION_DAYS - 1)
     groups: dict[str, dict[str, Any]] = {}
     unclassified = {"objects": 0, "bytes": 0}
@@ -358,7 +358,7 @@ def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> d
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only inventory of diagnostic external assessment raw"
+        description="Read-only inventory of retained external assessment originals"
     )
     parser.add_argument("--as-of", type=date.fromisoformat, default=datetime.now(UTC).date())
     return parser

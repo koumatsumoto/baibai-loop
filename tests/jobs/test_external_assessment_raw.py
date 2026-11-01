@@ -14,8 +14,8 @@ from tests.jobs.test_external_assessment_daily import FakeObjectStore, plan, sta
 
 import baibai_jobs.acquisition.external_assessments.collection as collection
 import baibai_jobs.acquisition.external_assessments.daily as daily
+import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as staging
-import baibai_jobs.integration.external_assessment_raw as external_assessment_raw
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import (
     ParseError,
     monex,
