@@ -8,7 +8,6 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     normalize_metric_record,
