@@ -10,8 +10,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
+from tests.helpers.jquants_receipts import Session
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
+from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.data_collection.providers.jquants.acquisition import (
     acquire_request,
@@ -43,24 +45,6 @@ from baibai_jobs.publication.policy import release_policy_for_profile
 
 FIRST_AT = datetime(2026, 10, 17, 12, 34, 56, 123456, tzinfo=UTC)
 SECOND_AT = FIRST_AT + timedelta(seconds=9)
-
-
-class Session(requests.Session):
-    def __init__(self, *replies):
-        super().__init__()
-        self.replies = iter(replies)
-        self.calls = []
-
-    def get(self, url, **kwargs):
-        self.calls.append((url, kwargs))
-        reply = next(self.replies)
-        if isinstance(reply, Exception):
-            raise reply
-        response = requests.Response()
-        response.status_code = 200
-        response._content = reply
-        response._content_consumed = True
-        return response
 
 
 @pytest.fixture
