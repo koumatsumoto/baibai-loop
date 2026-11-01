@@ -42,7 +42,6 @@ def payload(series_id, *, day=DAY, value=None):
     return {"data": [row]}
 
 
-
 @pytest.fixture
 def wire(monkeypatch):
     class Wire:
@@ -111,4 +110,3 @@ def wire(monkeypatch):
     monkeypatch.setattr("socket.socket.connect", no_socket)
     yield wire
     wire.context.close()
-

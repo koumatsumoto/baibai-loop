@@ -25,4 +25,3 @@ def test_collection_list_and_help_do_not_load_env_or_create_a_store(tmp_path, mo
     assert help_exit.value.code == 0
     assert "refresh" in capsys.readouterr().out
     assert set(tmp_path.rglob("*")) == before
-

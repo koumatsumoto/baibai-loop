@@ -85,4 +85,3 @@ def test_service_writes_and_reads_real_temporary_stores_without_losing_prior_row
     assert validate_stores(["--db", str(database)]) == 0
     assert "ok:" in capsys.readouterr().out
     assert len(wire.calls) == 6
-
