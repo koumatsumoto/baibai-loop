@@ -137,7 +137,7 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 
 ### 記事sourceのslot・差分統合（schema 49）
 
-`cloud-article-sources`は01:13/05:13/09:13/13:13/17:13/21:13 UTCの最大6 slot/日。TSR data/flashは定期実行では13:13の日次slotで取得する。手動dispatchはこの時刻制限だけを外す。同slotの重複取得抑止・not-before・未統合stage上限・取得予算は維持し、run作成時計を変更しない。13:43の日次統合は到着済みstageを固定し、記事取得の完了を待たない。slotは元run作成時計から固定し、実受領日時・公表日時・公開世代を別に保つ。遅延/rerunを過去時刻の取得とは扱わない。
+`cloud-article-sources`は01:13/05:13/09:13/13:13/17:13/21:13 UTCの最大6 slot/日。TSR data/flashのindexは13:13 UTCを境界とする日次cycleで、保存済みの正常なnative index受領から充足を判定する。遅延で13時台を逃しても未受領なら取得し、充足済みならindex GETを繰り返さず本文FIFOだけを既存の8本文/起動で続ける。indexと本文workがともに充足すればGET 0となる。TSRはhost queueを抜けた後の実clockからslotを選び、失敗したlast_slotを取得完了と扱わない。手動・定時は同じ規則で、quota待ち・未統合stage上限・取得予算を維持する。13:43の日次統合は到着済みstageを固定し、記事取得の完了を待たない。TSR以外のslotは元run作成時計から固定し、実受領日時・公表日時・公開世代を別に保つ。遅延/rerunを過去時刻の取得とは扱わない。
 
 source別summaryは`coordination/article-planning/<source>.json`。validator・具体的200 receiptのstage/hash・有限cursor・not-before・未統合stageだけを含み、各128 request/128 KiB、未統合42 stageまでとする。128 KiBは日本語をASCII escapeで膨張させないcompact UTF-8 JSONの実bytesへ適用し、項目・cursor・原本参照を削って収めない。上限到達時は保持中の範囲を消して進めず統合/限定回復へ進む。初回summaryは`integration.sources inputs`で**取得有効化前**に発行する。summary不存在を空DBや全market pullで代替しない。通常resumeはsource数分のsummary GETと、必要な304 baseline・未処理workset・index原本だけを読み、全stage LIST・本文全履歴の再取得をしない。private原本保存後だけcursorをCAS更新する。CAS競合で孤立した原本stageは正確なID/hashで回復できるためproviderを再取得しない。
 

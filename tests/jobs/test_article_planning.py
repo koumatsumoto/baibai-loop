@@ -10,6 +10,7 @@ from baibai_jobs.acquisition.article_planning import (
     ArticlePlanning,
     acknowledge_stage,
     commit_stage,
+    index_poll_due,
     is_due,
     load_planning,
     pending_handoffs,
@@ -22,12 +23,12 @@ from baibai_jobs.maintenance.article_recovery import exact_entry
 SLOT = datetime(2026, 10, 29, 13, 13, tzinfo=UTC)
 
 
-def test_six_slots_and_daily_tsr_do_not_duplicate_before_daily():
+def test_six_wakeups_do_not_assume_a_fixed_tsr_launch_hour():
     news = ArticlePlanning("boj_news", {})
     tsr = ArticlePlanning("tsr_data", {})
     slots = [SLOT.replace(hour=hour) for hour in (1, 5, 9, 13, 17, 21)]
     assert all(is_due(news, slot=slot, now=slot) for slot in slots)
-    assert [slot.hour for slot in slots if is_due(tsr, slot=slot, now=slot)] == [13]
+    assert all(is_due(tsr, slot=slot, now=slot) for slot in slots)
     assert slot_at(SLOT - timedelta(seconds=1)) == SLOT - timedelta(hours=4)
     assert slot_at(SLOT + timedelta(hours=2)) == SLOT
     assert not is_due(
@@ -290,21 +291,33 @@ def test_legacy_omission_requires_exact_successful_window_even_after_ack(
 
 
 @pytest.mark.parametrize("source", ["tsr_data", "tsr_flash"])
-def test_manual_tsr_only_bypasses_scheduled_hour(source):
+def test_tsr_eligibility_uses_receipts_later_but_preserves_quota_and_pending_bounds(source):
     slot = SLOT.replace(hour=1)
-    assert not is_due(ArticlePlanning(source, {}), slot=slot, now=slot)
-    assert is_due(ArticlePlanning(source, {}), slot=slot, now=slot, manual=True)
-    for state in (
-        ArticlePlanning(source, {}, last_slot=slot.isoformat()),
-        ArticlePlanning(source, {}, not_before=(slot + timedelta(hours=1)).isoformat()),
-    ):
-        assert not is_due(state, slot=slot, now=slot, manual=True)
+    assert is_due(ArticlePlanning(source, {}), slot=slot, now=slot)
+    assert is_due(ArticlePlanning(source, {}, last_slot=slot.isoformat()), slot=slot, now=slot)
+    state = ArticlePlanning(source, {}, not_before=(slot + timedelta(hours=1)).isoformat())
+    assert not is_due(state, slot=slot, now=slot)
     with pytest.raises(ValueError, match="pending stage limit"):
         is_due(
             ArticlePlanning(source, {}, pending=tuple({} for _ in range(42))),
             slot=slot,
             now=slot,
-            manual=True,
         )
     with pytest.raises(ValueError, match="invalid article acquisition slot"):
-        is_due(ArticlePlanning(source, {}), slot=slot, now=slot - timedelta(seconds=1), manual=True)
+        is_due(ArticlePlanning(source, {}), slot=slot, now=slot - timedelta(seconds=1))
+
+
+@pytest.mark.parametrize(
+    ("now", "received", "expected"),
+    [
+        (SLOT + timedelta(hours=4), None, True),
+        (SLOT + timedelta(hours=4), SLOT + timedelta(minutes=1), False),
+        (SLOT + timedelta(days=1, seconds=-1), SLOT + timedelta(minutes=1), False),
+        (SLOT + timedelta(days=1), SLOT + timedelta(minutes=1), True),
+        (SLOT, SLOT - timedelta(seconds=1), True),
+    ],
+)
+def test_tsr_daily_poll_boundary_uses_actual_native_index_receipt(now, received, expected):
+    assert index_poll_due("tsr_data", now=now, received_at=received) is expected
+    assert index_poll_due("tsr_flash", now=now, received_at=received) is expected
+    assert index_poll_due("nhk_news", now=now, received_at=received) is True

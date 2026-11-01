@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       group:
-        description: '取得group（TSRの定期時刻外も取得。同slot重複・cooldownは維持）'
+        description: '取得group（保存済みindexと未処理本文を確認。同slot重複・cooldownは維持）'
         type: choice
         default: all
         options: [all, public, minkabu, rakuten]
@@ -74,6 +74,5 @@ jobs:
           IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           args=(--group "$GROUP" --created-at "$CREATED_AT" --identity "$IDENTITY")
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then args+=(--manual); fi
           uv run python -m baibai_jobs.acquisition.articles "${args[@]}" \
             --directory "$RUNNER_TEMP/article-handoffs"
