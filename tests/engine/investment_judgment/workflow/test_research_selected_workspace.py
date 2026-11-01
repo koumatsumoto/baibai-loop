@@ -13,8 +13,8 @@ import yaml
 from tests.helpers.assessment_v1 import assessment_id, pair_payload
 from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
-from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import historical_operation, selected_target, selection
+from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.company_research.document import ResearchDraft

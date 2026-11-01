@@ -4,7 +4,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.model_generation_fixtures import empty_selection, generation
+from tests.helpers.model_generation import empty_selection, generation
 
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,

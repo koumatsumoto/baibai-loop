@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from tests.trend_fixtures import NOW, PHARMA, document, fixed, generation_inputs
+from tests.helpers.trends import NOW, PHARMA, document, fixed, generation_inputs
 
 from baibai_engine.machine_analysis.models.industry_trends.calculations import (
     calculate_industry_trends,
@@ -200,7 +200,7 @@ def test_fixed_input_rejects_substitution_or_future_artifacts():
 
 
 def test_current_survey_prior_year_takes_precedence_over_unsupported_index_baseline():
-    from tests.trend_fixtures import generation_inputs
+    from tests.helpers.trends import generation_inputs
 
     current = survey()
     old_index = current.model_copy(update={"claims": (), "status": "unsupported"})

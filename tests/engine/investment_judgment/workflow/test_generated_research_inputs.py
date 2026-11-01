@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 import yaml
-from tests.helpers.model_generation import seed_generation
 from tests.helpers.research_selection import selected_target, selection
+from tests.helpers.retained_model_generation import seed_generation
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import GeneratedLiquidityContext
 from baibai_engine.investment_judgment.trade_proposal.inputs import proposal_liquidity_context
@@ -380,7 +380,7 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
     import sqlite3
     from contextlib import closing
 
-    from tests.trend_fixtures import BOJ, document, fixed
+    from tests.helpers.trends import BOJ, document, fixed
 
     from baibai_engine.machine_analysis.generation.contracts import (
         GeneratedModel,

@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import timedelta
 
 import pytest
-from tests.trend_fixtures import NOW, PHARMA
+from tests.helpers.trends import NOW, PHARMA
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleEvidenceRef,
@@ -317,7 +317,7 @@ def test_changed_index_marks_unverified_body_and_new_failed_body_stays_current(t
 
 
 def test_unrelated_recent_boj_receipts_cannot_evict_decision_candidate(tmp_path):
-    from tests.trend_fixtures import BOJ
+    from tests.helpers.trends import BOJ
 
     from baibai_engine.machine_analysis.observations.articles.contracts import (
         ArticleObservation,
@@ -386,7 +386,7 @@ def test_unrelated_recent_boj_receipts_cannot_evict_decision_candidate(tmp_path)
 
 
 def test_industry_scope_limits_do_not_erase_other_survey(tmp_path):
-    from tests.trend_fixtures import INFORMATION
+    from tests.helpers.trends import INFORMATION
 
     from baibai_engine.machine_analysis.observations.articles.contracts import (
         ArticleObservation,
@@ -488,7 +488,7 @@ def test_prior_matching_index_keeps_family_when_new_document_title_changes(tmp_p
 def test_historical_as_of_excludes_later_publication_but_keeps_future_plan(tmp_path):
     from datetime import date
 
-    from tests.trend_fixtures import BOJ
+    from tests.helpers.trends import BOJ
 
     from baibai_engine.machine_analysis.observations.articles.contracts import (
         ArticleObservation,
@@ -567,7 +567,7 @@ def test_historical_as_of_uses_article_version_local_calendar_dates(
 ):
     from datetime import date
 
-    from tests.trend_fixtures import BOJ
+    from tests.helpers.trends import BOJ
 
     from baibai_engine.machine_analysis.observations.articles.contracts import (
         ArticleObservation,

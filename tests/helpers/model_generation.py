@@ -1,83 +1,53 @@
-"""旧Y/YM保存入力の再開用fixture。過去政策を再実行しない。"""
+"""モデル保存と現行候補政策の接続を調べる有限の合成入力。旧政策の再開fixtureとは分ける。"""
 
-import sqlite3
-from contextlib import closing
-from datetime import timedelta
+from datetime import UTC, date, datetime
 
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
-from baibai_engine.machine_analysis.screening.policies.two_views import (
-    CandidateView,
-    RankedCompany,
-    TwoViewPolicy,
-    ViewSelection,
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    EconomicPathPolicy,
+    EconomicPathSelection,
 )
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
-def seed_generation(path, *, now, as_of, with_price_path=False):
-    payloads = {
-        "company_financials": {"earnings_price": {"earnings_yield": 0.12}, "financial": None},
-        "technical_analysis": {"price_momentum": {"value": None, "reason": "missing_endpoint"}},
-        "company_growth": CompanyGrowth(
-            ticker="1234", status="unavailable", requested_start=None, requested_end=as_of
-        ).model_dump(mode="json"),
-        "external_assessment": {"forecast": None, "reason": "not_covered"},
-        "market_context": {"price": {"avg_turnover_20d_oku": 1.25}},
-    }
-    if with_price_path:
-        payloads["technical_analysis"]["price_path"] = {
-            "calculation_revision": "synthetic-price-path",
-            "annotation": {"status": "matched", "matched_refs": ["G60"]},
-        }
-        payloads["market_context"]["price_path_relative"] = {"comparisons": {}}
-    models = [
-        GeneratedModel(
-            model_id=name, subject="1234", calculation_revision="synthetic-v1", payload=payload
-        )
-        for name, payload in payloads.items()
-    ]
-    models.append(
-        GeneratedModel(
-            model_id="market_context",
-            subject="market",
-            calculation_revision="synthetic-v1",
-            payload={"reading": {"rates": 0.02}},
-        )
+def empty_selection(generation_id, *, tickers=("1234",), candidate_limit=20):
+    return ScreeningSelection(
+        generation_id,
+        tickers,
+        EconomicPathSelection(EconomicPathPolicy(candidate_limit=candidate_limit), 0, ()),
     )
-    generation = ModelGeneration(
-        generation_id="fixed-synthetic",
-        as_of=as_of,
-        evaluation_time=now - timedelta(minutes=1),
+
+
+def generation(*, value=0.100049):
+    return ModelGeneration(
+        generation_id="synthetic-generation",
+        as_of=date(2026, 10, 23),
+        evaluation_time=datetime(2026, 10, 25, tzinfo=UTC),
         inputs={
-            "market": InputSnapshot(kind="lake_release", reference="synthetic", sha256="a" * 64)
+            "market": InputSnapshot(kind="lake_release", reference="fixed-input", sha256="a" * 64)
         },
-        models=tuple(models),
-    )
-    ModelGenerationStore(path).publish(generation)
-    ScreeningSelectionStore(path).publish(
-        "policy-1",
-        ScreeningSelection(
-            generation.generation_id,
-            ("1234", "5678"),
-            ViewSelection(
-                policy=TwoViewPolicy(earnings_limit=20, combined_limit=20),
-                views=(
-                    CandidateView("earnings-price", 20, 1, (RankedCompany("1234", 1, 0.12),)),
-                    CandidateView("earnings-price-response", 20, 0, ()),
-                ),
+        models=(
+            GeneratedModel(
+                model_id="technical_analysis",
+                subject="1234",
+                calculation_revision="v1",
+                payload={"price_momentum": {"value": None, "reason": "missing_endpoint"}},
+            ),
+            GeneratedModel(
+                model_id="company_financials",
+                subject="1234",
+                calculation_revision="v1",
+                payload={"earnings_price": {"earnings_yield": value}},
+            ),
+            GeneratedModel(
+                model_id="market_context",
+                subject="market",
+                calculation_revision="v1",
+                payload={"series": [{"value": None, "unit": "percent"}]},
             ),
         ),
     )
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "UPDATE screening_selection SET published_at=?",
-            ((now - timedelta(seconds=30)).isoformat(),),
-        )
-    return generation
