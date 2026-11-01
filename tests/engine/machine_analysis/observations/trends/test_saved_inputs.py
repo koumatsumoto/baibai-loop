@@ -660,7 +660,8 @@ def test_old_index_date_does_not_backdate_later_document_revision(tmp_path):
     )
 
 
-def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path):
+def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path, monkeypatch):
+    import baibai_engine.machine_analysis.observations.trends.extraction as extraction
     from baibai_engine.data_collection.receipts.articles.store import read_body
     from baibai_engine.machine_analysis.observations.articles.store import read_artifacts
 
@@ -681,4 +682,9 @@ def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path):
         assert read_body(conn, receipt.body_ref) == original
         assert extract_observations(conn, (observation.observation_id,), generated_at=NOW) == (new,)
         assert conn.execute("SELECT count(*) FROM article_extraction_artifacts").fetchone()[0] == 2
+    # Pre-staging v3 does not hide v2 from a reader still selecting that revision.
+    # This checks selection only; historical parser equivalence is separate.
+    with monkeypatch.context() as old_reader:
+        old_reader.setattr(extraction, "TSR_REVISION", "tsr-performance-v2")
+        assert read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == old.artifact_id
     assert read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == new.artifact_id
