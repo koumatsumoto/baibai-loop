@@ -1,21 +1,26 @@
-"""Stand-ins for the `requests.Session` the providers are handed.
+"""Finite HTTP responses, sessions and body failures for offline provider tests.
 
-Twenty-five hand-written doubles were describing the same four or five shapes, and
-each one decided for itself whether a response carries headers, a status, or a JSON
-body. A provider that reads a field one of them omits then passes for a reason that
-has nothing to do with the provider. These answer with a whole response object, and
-record every URL asked for, so a test can assert what was requested as well as what
-came back.
+Response fields and recorded requests let callers assert both the received payload
+and the request that produced it. Specialized streaming doubles stay with their
+transport fixtures when their contracts differ.
 """
 
 from __future__ import annotations
 
+import io
 import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from urllib3.exceptions import ReadTimeoutError
+
 _UNSET = object()
+
+
+class BodyTimeout(io.BytesIO):
+    def read(self, *args, **kwargs):
+        raise ReadTimeoutError(None, None, "synthetic body timeout")
 
 
 @dataclass

@@ -55,10 +55,7 @@ def test_read_only_derived_values_follow_source_corrections(tmp_path):
 def test_option_reader_reuses_day_calculation_and_replaces_changed_native_vintage(
     tmp_path, monkeypatch
 ):
-    from tests.engine.machine_analysis.observations.economic_indicators.test_option_iv import (
-        ASOF,
-        _chain_records,
-    )
+    from tests.helpers.option_chain import ASOF, _chain_records
 
     import baibai_engine.machine_analysis.observations.economic_indicators.options as options
     from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot

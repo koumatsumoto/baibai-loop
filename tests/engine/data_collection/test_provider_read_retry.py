@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import io
 import json
 from collections import Counter
 from contextlib import closing
@@ -14,8 +13,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from tests.helpers.economic_wire import BASE, DAY, END, IDS, START, payload
 from tests.helpers.economic_wire import wire as wire
+from tests.helpers.http_doubles import BodyTimeout
 from tests.helpers.network import _no_real_network as _no_real_network
-from urllib3.exceptions import ReadTimeoutError
 
 from baibai_engine.data_collection.acquisition.refresh import (
     SourceRefreshFailure,
@@ -50,11 +49,6 @@ SHARED_QUOTA_CASES = (
         id="jquants-distinct-providers",
     ),
 )
-
-
-class BodyTimeout(io.BytesIO):
-    def read(self, *args, **kwargs):
-        raise ReadTimeoutError(None, None, "synthetic body timeout")
 
 
 @pytest.mark.parametrize("series_id", IDS)
