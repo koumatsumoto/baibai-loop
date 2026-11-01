@@ -264,7 +264,7 @@ def test_prepared_market_scope_rejects_a_different_request(context_store, mismat
         arguments["history_weeks"] = prepared.history_weeks + 1
     else:
         arguments["benchmark_ticker"] = "OTHER"
-    with pytest.raises(ValueError, match="prepared market context.*scope"):
+    with pytest.raises(ValueError, match=r"prepared market context.*scope"):
         build_market_snapshot(**arguments)
 
 
