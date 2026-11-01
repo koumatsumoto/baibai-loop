@@ -84,7 +84,7 @@ def test_unrelated_release_and_duplicate_subjects_are_rejected():
 
 
 def test_trends_are_shared_and_preserve_all_old_model_payloads(tmp_path):
-    from tests.trend_fixtures import generation_inputs
+    from tests.helpers.trends import generation_inputs
 
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
     from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
@@ -129,7 +129,7 @@ def test_trends_are_shared_and_preserve_all_old_model_payloads(tmp_path):
 
 
 def test_trend_manifest_identity_is_checked_before_lazy_generation():
-    from tests.trend_fixtures import fixed, generation_inputs
+    from tests.helpers.trends import fixed, generation_inputs
 
     trends = generation_inputs().model_copy(update={"social": fixed(release_id="another-release")})
     with pytest.raises(ValueError, match="trend input manifest"):

@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 import pytest
-from tests.trend_fixtures import BOJ, INFORMATION, NOW, PHARMA, document
+from tests.helpers.trends import BOJ, INFORMATION, NOW, PHARMA, document
 
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     DocumentText,

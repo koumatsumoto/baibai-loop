@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from tests.trend_fixtures import BOJ, NOW, document, fixed
+from tests.helpers.trends import BOJ, NOW, document, fixed
 
 from baibai_engine.machine_analysis.models.social_trends.calculations import calculate_social_trends
 from baibai_engine.machine_analysis.observations.trends.parsers import extract_boj_decision
