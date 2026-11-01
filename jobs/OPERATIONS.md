@@ -105,11 +105,11 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 ### source入力・市場原本の引渡し
 
-日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewの新規取得は下記の[提供元条件](#tradingview-expectations)に従い、batchへ組み込まない。
+日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewも独立sourceとして毎日取得し、[取得運用](#tradingview-expectations)に従う。
 
 inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・経済取得は共有quotaを守る。
 
-市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewの定期取得は設けず、保存済み受領の保持と履歴読取を新規取得から分離する。
+市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewは平日・土日とも毎日取得する。保存済み受領の保持と履歴読取は新規取得から分離する。
 
 手動`source=all`は一覧の取得・stage成功後にmetrics/factsを分岐する。他sourceや共通統合は待たせない。archive取得は未統合の一覧受領も作業copyへ投影して読むため、共通統合の先行実行は不要。一覧失敗時はall内のarchive取得を止め、古い一覧だけで当日分を取得できたように見せない。有効な一覧受領を確認できる場合は、必要なarchive sourceだけを同じasofで再実行する。
 
@@ -597,11 +597,13 @@ gh workflow run cloud-external-assessment.yml --ref main \
 固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映は共通統合が担当する。通知・CI緑・stage保存だけで正本反映成功を認定しない。
 
 <a id="tradingview-expectations"></a>
-## TradingViewの明示受領・保存・分析
+## TradingViewの毎日取得・明示受領・保存・分析
 
-本人の明示依頼で対象と取得項目を固定し、接続済みの公式MCP connectorを使う。保存と売買ループ分析は確認した利用範囲に従い、一般条件の記述だけで個別の利用範囲を否定したり、sourceを一律に停止・削除・入力除外したりしない。許可を未依頼の再配布・新credential・課金・定期実行へ広げない。接続方法は[公式MCP案内](https://www.tradingview.com/mcp/docs)を参照する。
+本人が確認した利用範囲と毎日取得の明示指示に従い、既存の公式MCP接続を使う。一般FAQのサポート範囲と個別の利用許可は分け、一般条件だけでsourceを停止・削除・入力除外しない。新しいcredential・権限・課金・再配布へ許可を広げない。接続方法は[公式MCP案内](https://www.tradingview.com/mcp/docs)を参照する。
 
-定期cron、全件自動runner、OAuth smokeや旧custom clientは持たない。公式connectorを使うため既存OAuth stateや秘密を別環境へ移さない。明示取得は要求symbol・columnと受領contextを固定し、batch toolは一回50symbol以内を使う。エラー後の無条件再取得や、import時刻への受領日時の置換をしない。
+`cloud-tradingview-snapshot`は平日15:37・17:37・19:37・21:37・23:37 JST、土日09:37・13:37・17:37 JSTに実行する。毎日一つの当日snapshotを完成させるための再開枠であり、当日の対象銘柄が保存済みなら後続枠は外部要求0件で省略する。部分取得は未取得銘柄だけを再開し、50symbol以下・15秒以上間隔、既存のprovider cooldownを守る。時刻とmasterは保存calendarの営業日/休日を使い、実受領日を過去へ付け替えない。
+
+取得は既存の`tradingview-runtime` environment内の認証だけを使い、非対話の新規client登録を行わない。認証失敗は成功や保存済み省略にせず記録する。認証の作成・権限変更が必要ならその操作を別途確認する。明示connector captureの`receive`も引き続き使える。原応答はL1へ保存してからL2へ投影し、private handoffと共通統合で公開する。新規取得成功、保存済み省略、部分取得、受領だけ保存、統合未達を区別する。
 
 ### 原応答をL1へ保持する
 
@@ -635,7 +637,7 @@ uv run baibai-engine external-assessment show --ticker <TICKER> \
   --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
 ```
 
-正常null、明示unresolved、未取得と技術障害を区別する。quote通貨をestimate通貨・単位へ流用せず、対象期が未確認なら推定しない。新しいモデル生成は保存済みTV履歴をcutoffで読み、`same-series-v6`で値と品質状態を渡す。旧`same-series-v5-no-tradingview`のpayloadと`excluded_by_source_terms`は履歴としてそのまま読めるよう保持し、新規生成へ一律除外を適用しない。今回の経路は新しい定期取得を実行しない。
+正常null、明示unresolved、未取得と技術障害を区別する。quote通貨をestimate通貨・単位へ流用せず、対象期が未確認なら推定しない。新しいモデル生成は保存済みTV履歴をcutoffで読み、`same-series-v6`で値と品質状態を渡す。旧`same-series-v5-no-tradingview`のpayloadと`excluded_by_source_terms`は履歴としてそのまま読めるよう保持し、新規生成へ一律除外を適用しない。定期取得と明示captureの双方を同じ保存・投影契約で扱う。
 
 ## Storeをseedする
 

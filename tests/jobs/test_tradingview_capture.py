@@ -20,7 +20,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
 from baibai_jobs.maintenance.tradingview_capture import retain_capture
-from baibai_jobs.maintenance.tradingview_cli import main
+from baibai_jobs.acquisition.tradingview.cli import main
 from baibai_jobs.maintenance.tradingview_rebuild import RebuildError, rebuild_from_receipts
 from baibai_jobs.observability.tradingview import SourceDataError
 

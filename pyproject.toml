@@ -502,7 +502,10 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.models.external_assessment.analysis", "baibai_engine.machine_analysis.observations.external_assessments.reader",
   "baibai_engine.machine_analysis.generation.runners.external_assessment", "baibai_engine.cli.external_assessment",
   "baibai_jobs.maintenance.tradingview_context",
-  "baibai_jobs.maintenance.tradingview_cli",
+  "baibai_jobs.acquisition.tradingview.cli",
+  "baibai_engine.data_collection.providers.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.auth",
+  "baibai_jobs.acquisition.tradingview.collector",
   "baibai_jobs", "tools",
 ]
 
@@ -514,7 +517,10 @@ forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv",
   "baibai_jobs.acquisition.external_assessments", "baibai_engine.machine_analysis.observations.external_assessments.store",
   "baibai_jobs.maintenance.tradingview_context",
-  "baibai_jobs.maintenance.tradingview_cli",
+  "baibai_jobs.acquisition.tradingview.cli",
+  "baibai_engine.data_collection.providers.tradingview.client",
+  "baibai_engine.data_collection.providers.tradingview.auth",
+  "baibai_jobs.acquisition.tradingview.collector",
   "baibai_jobs", "tools",
 ]
 
@@ -635,13 +641,14 @@ forbidden_modules = [
   ]
 
 [[tool.importlinter.contracts]]
-name = "source receipt compositions do not enter investment judgments or screening"
+name = "source acquisition and receipt compositions do not enter investment judgments or screening"
 type = "forbidden"
 source_modules = [
   "baibai_jobs.acquisition.external_assessments",
   "baibai_jobs.maintenance.tradingview_context",
   "baibai_jobs.observability.tradingview",
-  "baibai_jobs.maintenance.tradingview_cli",
+  "baibai_jobs.acquisition.tradingview.cli",
+  "baibai_jobs.acquisition.tradingview.collector",
   "baibai_jobs.integration.tradingview_handoff",
   "baibai_jobs.maintenance.tradingview_rebuild",
 ]

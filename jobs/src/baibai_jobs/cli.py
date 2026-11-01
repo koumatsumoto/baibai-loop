@@ -17,7 +17,7 @@ _COMMANDS = {
     "model-integration": "baibai_jobs.integration.models",
     "screening-selection": "baibai_jobs.integration.screening_selection",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
-    "tradingview-source": "baibai_jobs.maintenance.tradingview_cli",
+    "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
     "article-recovery": "baibai_jobs.maintenance.article_recovery",
     "article-cutover": "baibai_jobs.maintenance.article_cutover",

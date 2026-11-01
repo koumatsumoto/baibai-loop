@@ -13,7 +13,7 @@ import pytest
 from mcp.types import CallToolResult, TextContent
 from tests.helpers.tradingview import DAY, NOW, _sdk, payload, store, stored
 
-import baibai_jobs.maintenance.tradingview_cli as cli
+import baibai_jobs.acquisition.tradingview.cli as cli
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
 from baibai_engine.data_collection.providers.tradingview.receipts import (
     read_tool_results,
