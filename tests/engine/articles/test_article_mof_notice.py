@@ -177,7 +177,7 @@ def test_mof_pdf_reprojection_preserves_original_and_prior_failure(tmp_path):
     from baibai_engine.machine_analysis.observations.articles.contracts import ArticleProjectionRun
     from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
     from baibai_engine.machine_analysis.observations.articles.store import save_projection
-    from baibai_engine.storage.sqlite import schema
+    from baibai_engine.storage.sqlite.source_cache import schema
 
     body = protected_pdf()
     now = datetime(2026, 11, 1, tzinfo=UTC)
