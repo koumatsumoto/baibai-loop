@@ -89,9 +89,7 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
     notice = f'<meta http-equiv="refresh" content="0;url={target_url}">'.encode()
     target_body = (
         '<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">'
-        '<main>本文'
-        + ("" if bureau else '<a href="old.pdf">Old reference</a>')
-        + "</main>"
+        "<main>本文" + ("" if bureau else '<a href="old.pdf">Old reference</a>') + "</main>"
     ).encode("shift_jis")
     session = Session(
         [
