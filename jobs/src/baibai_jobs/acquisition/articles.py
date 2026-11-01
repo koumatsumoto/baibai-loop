@@ -271,9 +271,7 @@ def acquire_source(
                 with closing(connect_read_only(downloaded[key])) as old, conn:
                     read_receipt(old, identity, receipt_sha256=reference["receipt_sha256"])
                     copy_receipt_closure(old, conn, identity)
-            original = read_receipt(
-                conn, identity, receipt_sha256=reference["receipt_sha256"]
-            )
+            original = read_receipt(conn, identity, receipt_sha256=reference["receipt_sha256"])
             if (
                 original.source != source
                 or original.requested_url != reference["url"]
@@ -448,8 +446,8 @@ def acquire_source(
                         time.monotonic() - replay_started >= 30
                     ):
                         break
-                    original, body = restore_discovery(reference)
-                    pending_urls = discover(identity, original, body, pending_urls)
+                    original, retained_body = restore_discovery(reference)
+                    pending_urls = discover(identity, original, retained_body, pending_urls)
                     discovery_replays += 1
             # Always overlap the front page, then continue the previous bounded page
             # window. It is not a claim to recover everything lost from a rolling feed.
@@ -621,9 +619,7 @@ def acquire_source(
                 {
                     "pending_urls": pending_urls,
                     "pending_evidence": {
-                        url: link
-                        for url in pending_urls
-                        if (link := evidence_for(url)) is not None
+                        url: link for url in pending_urls if (link := evidence_for(url)) is not None
                     },
                     "next_page": next_page,
                     "omitted_url_count": omitted_urls,
@@ -696,7 +692,8 @@ def acquire_source(
         **{
             key: value
             for key, value in report.items()
-            if key not in {"projection_kinds", "receipt_ids", "document_evidence", "discovery_edges"}
+            if key
+            not in {"projection_kinds", "receipt_ids", "document_evidence", "discovery_edges"}
         },
         "stage_id": saved_stage["stage_id"],
         "manifest_sha256": saved_stage["manifest_sha256"],

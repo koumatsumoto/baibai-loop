@@ -22,9 +22,13 @@ class DiscoveryWork:
         self.children: dict[str, list[dict[str, Any]]] = deepcopy(
             cursor.get("discovery_children", {})
         )
+        self.recoveries: set[str] = set(cursor.get("discovery_recoveries", []))
 
     def register(
-        self, receipt: ArticleReceipt, stage: dict[str, Any], index_evidence: dict[str, Any] | None = None
+        self,
+        receipt: ArticleReceipt,
+        stage: dict[str, Any],
+        index_evidence: dict[str, Any] | None = None,
     ) -> str:
         if receipt.body_ref is None:
             raise ValueError("discovery requires a retained original")
@@ -88,6 +92,7 @@ class DiscoveryWork:
             "format": DISCOVERY_FORMAT,
             "discoveries": self.pending,
             "discovery_children": self.children,
+            "discovery_recoveries": sorted(self.recoveries),
         }
 
     def encoded_size(self, queue: list[str]) -> int:

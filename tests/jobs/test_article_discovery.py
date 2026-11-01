@@ -4,12 +4,14 @@ from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.test_article_acquisition import SLOT, Response, Session
 
 import baibai_jobs.acquisition.article_discovery as worksets
 from baibai_engine.data_collection.providers.articles.contracts import NativeLink
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
+from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_discovery import DiscoveryWork
@@ -72,9 +74,15 @@ def test_pending_discovery_and_children_survive_validator_eviction(tmp_path):
     work.unsupported(identity, "r1")
     urls = [f"https://www.mof.go.jp/pending-{index}.htm" for index in range(160)]
     entry = commit_stage(
-        remote, state=state, expected_etag=etag, slot=SLOT,
-        stage_id="discovery-stage", directory=_packet(tmp_path, "mof_news"),
-        requests={}, cursor=work.wire({"pending_urls": urls}), not_before=None,
+        remote,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="discovery-stage",
+        directory=_packet(tmp_path, "mof_news"),
+        requests={},
+        cursor=work.wire({"pending_urls": urls}),
+        not_before=None,
     )
     saved, etag = load_planning(remote, "mof_news")
     evicted = replace(saved, requests={})
@@ -85,14 +93,86 @@ def test_pending_discovery_and_children_survive_validator_eviction(tmp_path):
     assert loaded["discoveries"][identity]["receipt_id"] == "original"
 
 
-def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(
+def test_discovery_cas_failure_preserves_parent_to_child_workset_for_exact_recovery(
     tmp_path, monkeypatch
 ):
+    from tests.jobs.test_article_planning import _packet
+
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "mof_news", {})
+    state, etag = load_planning(remote, "mof_news")
+    key = source_key("mof_news")
+    before = remote.values[key].body
+    work = DiscoveryWork({})
+    identity = work.register(receipt(), {"stage_id": "cas-stage"})
+    target = "https://www.mof.go.jp/target.htm"
+    queue = work.admit(identity, (NativeLink("/meta", target),), [], revision="r1")
+    original_put = remote.put_file
+
+    def conflicting_put(key, path, **kwargs):
+        if key == source_key("mof_news"):
+            raise LakeCASConflict("synthetic concurrent planning update")
+        return original_put(key, path, **kwargs)
+
+    monkeypatch.setattr(remote, "put_file", conflicting_put)
+    with pytest.raises(LakeCASConflict, match="concurrent planning"):
+        commit_stage(
+            remote,
+            state=state,
+            expected_etag=etag,
+            slot=SLOT,
+            stage_id="cas-stage",
+            directory=_packet(tmp_path, "mof_news"),
+            requests={},
+            cursor=work.wire({"pending_urls": queue}),
+            not_before=None,
+        )
+    assert remote.values[key].body == before
+    saved = json.loads(remote.values["coordination/article-sources/cas-stage/handoff.json"].body)
+    cursor = saved["result"]["planning"]["cursor"]
+    assert cursor["discoveries"] == {}
+    assert cursor["pending_urls"] == [target]
+    assert cursor["discovery_children"][target][0]["parent"]["receipt_id"] == "original"
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_lost_discovery_workset_is_not_replaced_by_a_fresh_get(tmp_path, damage):
+    store = MemoryR2Store()
+    publish_planning_input(store, "boj_news", {})
+    session = Session([Response(200, b"<rss><channel /></rss>")])
+    articles.acquire_source(
+        store,
+        source="boj_news",
+        slot=SLOT,
+        identity="first",
+        directory=tmp_path / "first",
+        session=session,
+    )
+    state, _ = load_planning(store, "boj_news")
+    key = f"coordination/article-sources/{state.cursor['stage']['stage_id']}/handoff.json"
+    if damage == "missing":
+        store.values.pop(key)
+    else:
+        store.store_object(key, b"corrupt")
+    with pytest.raises(LakePublishError, match="manifest differs"):
+        articles.acquire_source(
+            store,
+            source="boj_news",
+            slot=SLOT + timedelta(hours=4),
+            identity="second",
+            directory=tmp_path / "second",
+            session=session,
+        )
+    assert len(session.urls) == 1
+
+
+def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
     monkeypatch.setitem(
-        articles.SOURCES, "mof_news",
+        articles.SOURCES,
+        "mof_news",
         replace(articles.SOURCES["mof_news"], max_revalidate_bodies=0),
     )
     bad_url = "https://www.mof.go.jp/unknown.htm"
@@ -109,8 +189,12 @@ def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(
         [Response(200, feed), Response(200, bad_body), Response(200, b"<main>Supported</main>")]
     )
     report = articles.acquire_source(
-        remote, source="mof_news", slot=SLOT, identity="first",
-        directory=tmp_path / "first", session=first,
+        remote,
+        source="mof_news",
+        slot=SLOT,
+        identity="first",
+        directory=tmp_path / "first",
+        session=first,
     )
     assert first.urls == [articles.SOURCES["mof_news"].entry_url, bad_url, good_url]
     assert report["failures"] == ["discovery_pending"]
@@ -121,8 +205,12 @@ def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(
     assert cursor["pending_urls"] == []
     second = Session([Response(200, feed)])
     same_revision = articles.acquire_source(
-        remote, source="mof_news", slot=SLOT + timedelta(hours=4), identity="same-revision",
-        directory=tmp_path / "same", session=second,
+        remote,
+        source="mof_news",
+        slot=SLOT + timedelta(hours=4),
+        identity="same-revision",
+        directory=tmp_path / "same",
+        session=second,
     )
     assert same_revision["discovery_replays"] == 0
     assert second.urls == [articles.SOURCES["mof_news"].entry_url]
@@ -138,17 +226,23 @@ def test_unsupported_discovery_keeps_raw_and_does_not_stop_later_document(
     monkeypatch.setattr(articles, "discovery_revision_for", lambda _: "synthetic-r2")
     third = Session([Response(200, feed), Response(200, b"<main>New target</main>")])
     replayed = articles.acquire_source(
-        remote, source="mof_news", slot=SLOT + timedelta(hours=8), identity="new-revision",
-        directory=tmp_path / "new", session=third,
+        remote,
+        source="mof_news",
+        slot=SLOT + timedelta(hours=8),
+        identity="new-revision",
+        directory=tmp_path / "new",
+        session=third,
     )
     assert replayed["discovery_replays"] == 1
     assert replayed["discovery_pending_count"] == 0
     assert third.urls == [articles.SOURCES["mof_news"].entry_url, target]
     with closing(connect_read_only(tmp_path / "new/receipts.sqlite")) as conn:
-        old = json.loads(conn.execute(
-            "SELECT receipt_json FROM article_source_receipts WHERE receipt_id = ?",
-            (original["receipt_id"],),
-        ).fetchone()[0])
+        old = json.loads(
+            conn.execute(
+                "SELECT receipt_json FROM article_source_receipts WHERE receipt_id = ?",
+                (original["receipt_id"],),
+            ).fetchone()[0]
+        )
     assert ArticleReceipt.model_validate(old).sha256 == original["receipt_sha256"]
     private = json.loads((tmp_path / "new/result.json").read_text())
     edge = next(iter(private["discovery_edges"].values()))[0]

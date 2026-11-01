@@ -173,6 +173,7 @@ def commit_stage(
     requests: dict[str, dict[str, Any]],
     cursor: dict[str, Any],
     not_before: str | None,
+    advance_slot: bool = True,
 ) -> dict[str, Any]:
     """Commit raw first; a CAS failure leaves an exact recoverable immutable stage."""
     report = json.loads((directory / "result.json").read_text())
@@ -233,7 +234,7 @@ def commit_stage(
     candidate = ArticlePlanning(
         state.source,
         state.generations,
-        slot.isoformat(),
+        slot.isoformat() if advance_slot else state.last_slot,
         not_before,
         bound_requests,
         bound_cursor,
@@ -292,13 +293,9 @@ def load_discovery_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[st
 
     return {
         **cursor,
-        "discoveries": {
-            key: bind_reference(value) for key, value in cursor["discoveries"].items()
-        },
+        "discoveries": {key: bind_reference(value) for key, value in cursor["discoveries"].items()},
         "discovery_children": {
-            url: [
-                {**edge, "parent": bind_reference(edge["parent"])} for edge in edges
-            ]
+            url: [{**edge, "parent": bind_reference(edge["parent"])} for edge in edges]
             for url, edges in cursor["discovery_children"].items()
         },
         "pending_evidence": {

@@ -12,7 +12,11 @@ from xml.etree import ElementTree as ET  # nosec B405 -- bounded _feed_root reje
 from pydantic import JsonValue
 from pypdf import PdfReader
 
-from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle, NativeLink
+from baibai_engine.data_collection.providers.articles.contracts import (
+    SOURCES,
+    NativeArticle,
+    NativeLink,
+)
 from baibai_engine.data_collection.providers.articles.html import Node, parse_html, plain_text
 from baibai_engine.data_collection.providers.articles.workbook import parse_workbook
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
@@ -24,6 +28,12 @@ MOF_PARSER_REVISION = "article-native-mof-v6"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024
+_MOF_YIELD_CSV_URLS = frozenset(
+    {
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
+        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
+    }
+)
 
 
 class NativeArticleUnsupported(ValueError):
@@ -363,7 +373,9 @@ def _nhk_public_description(
 def _mof_redirect_notice(nodes: list[Node], *, url: str, title: str) -> NativeArticle | None:
     """本省の明示案内をsourceの許可host内で一段だけ読む。案内は本文とは別受領。"""
     origin = urlsplit(url)
-    if origin.hostname != "www.mof.go.jp" or not origin.path.startswith(("/insideLink/", "/outside_link/")):
+    if origin.hostname != "www.mof.go.jp" or not origin.path.startswith(
+        ("/insideLink/", "/outside_link/")
+    ):
         return None
     refresh = [
         node.attrs.get("content", "")
@@ -417,9 +429,7 @@ def _mof_yield_csv(body: bytes, *, url: str, title: str) -> NativeArticle:
     )
 
 
-def _document_region(
-    source: str, nodes: list[Node], *, url: str, title: str
-) -> tuple[Node, str]:
+def _document_region(source: str, nodes: list[Node], *, url: str, title: str) -> tuple[Node, str]:
     heading = next(
         (text for node in nodes if node.tag == "h1" if (text := node.text().strip())), title
     )
@@ -504,10 +514,11 @@ def discover_links(
     and atomically admits children before considering their parent processed.
     """
     discovery_revision_for(source)
-    if body.startswith((b"%PDF-", b"PK\x03\x04")) or url in {
-        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
-        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
-    }:
+    if (
+        body.startswith(b"%PDF-")
+        or (source == "boj_news" and body.startswith(b"PK\x03\x04"))
+        or (source == "mof_news" and url in _MOF_YIELD_CSV_URLS)
+    ):
         return ()
     nodes = parse_html(body.decode(encoding)).walk()
     if source == "mof_news":
@@ -523,10 +534,7 @@ def discover_links(
 def parse_document(
     source: str, body: bytes, *, url: str, title: str = "", encoding: str = "utf-8"
 ) -> NativeArticle:
-    if source == "mof_news" and url in {
-        "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv",
-        "https://www.mof.go.jp/jgbs/reference/interest_rate/data/jgbcm_all.csv",
-    }:
+    if source == "mof_news" and url in _MOF_YIELD_CSV_URLS:
         return _mof_yield_csv(body, url=url, title=title)
     if source == "boj_news" and body.startswith(b"PK\x03\x04"):
         return parse_workbook(body, source=source, url=url, title=title)

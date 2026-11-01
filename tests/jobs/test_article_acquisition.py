@@ -574,6 +574,26 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     )
     planning, _ = load_planning(store, "boj_news")
     stage_id = planning.requests[articles.SOURCES["boj_news"].entry_url]["stage"]["stage_id"]
+    # Keep the workset independently intact: only the evictable HTTP validator's
+    # old baseline is damaged below. Losing pending work must fail before GET.
+    from tests.jobs.test_article_planning import _packet
+    from baibai_jobs.acquisition.article_planning import commit_stage
+
+    private = tmp_path / "independent-workset"
+    private.mkdir()
+    current, etag = load_planning(store, "boj_news")
+    commit_stage(
+        store,
+        state=current,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="intact-workset",
+        directory=_packet(private),
+        requests=current.requests,
+        cursor=load_discovery_cursor(store, current),
+        not_before=current.not_before,
+        advance_slot=False,
+    )
     key = f"coordination/article-sources/{stage_id}/handoff.json"
     if damaged == "missing":
         store.values.pop(key)
