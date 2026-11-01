@@ -1890,13 +1890,16 @@ def test_application_pull_preserves_a_local_target_even_after_preflight(tmp_path
     else:
         aws = bin_dir / "aws"
         marker = 'if [[ "$1 $2" == "s3 cp" && "$3" == s3://* ]]; then'
-        injection = marker + """
+        injection = (
+            marker
+            + """
   case "$LOCAL_APP_KIND" in
     file) printf 'unpublished-local-judgment' > "$LOCAL_APP" ;;
     symlink) ln -s "$LOCAL_APP_LINK" "$LOCAL_APP" ;;
     directory) mkdir "$LOCAL_APP" ;;
   esac
 """
+        )
         aws.write_text(aws.read_text().replace(marker, injection), encoding="utf-8")
     result = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "pull-app"],
