@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.machine_analysis.generation.runners.market_snapshot import PreparedMarketContext
 from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
 from baibai_engine.machine_analysis.models.market_context.security import (
     _PEER_RETURN_WINDOW_BARS,
@@ -14,7 +15,6 @@ from baibai_engine.machine_analysis.models.market_context.security import (
 )
 from baibai_engine.machine_analysis.models.market_context.snapshot import (
     SECURITY_LOOKBACK_CALENDAR_DAYS,
-    PreparedMarketContext,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 

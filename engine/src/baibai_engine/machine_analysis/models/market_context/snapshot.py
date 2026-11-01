@@ -16,20 +16,14 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-from pathlib import Path
 
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
-    _BENCHMARK_LOOKBACK_CALENDAR_DAYS,
     BREADTH_MA_WINDOW_BARS,
     LONG_TREND_WINDOW_BARS,
-    NIKKEI225_ETF_PROXY,
     TREND_WINDOW_BARS,
-    BenchmarkTrendSnapshot,
-    benchmark_trend_from_series,
     classify_benchmark_trend,
 )
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
-from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
     MasterSnapshot,
 )
@@ -61,77 +55,6 @@ class _Series:
     def price_on(self, day: date) -> float | None:
         index = bisect_left(self.dates, day)
         return self.prices[index] if index < len(self.dates) and self.dates[index] == day else None
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedMarketContext:
-    """単一exportの市場短期系列・master・同業候補・benchmarkを共有する。"""
-
-    sqlite_path: Path
-    asof_date: date
-    history_weeks: int
-    master: MasterSnapshot | None
-    common_stock_tickers_by_sector: dict[str, tuple[str, ...]]
-    series_by_ticker: Mapping[str, _Series]
-    benchmark_ticker: str
-    benchmark_prices: dict[date, float]
-    benchmark_trend: BenchmarkTrendSnapshot | None
-
-
-def prepare_market_context_from_bars(
-    *,
-    sqlite_path: Path,
-    asof_date: date,
-    master: MasterSnapshot | None,
-    bars_by_ticker: Mapping[str, Sequence[PriceBar]],
-    subjects: Sequence[str],
-    history_weeks: int = DEFAULT_HISTORY_WEEKS,
-    benchmark_ticker: str = NIKKEI225_ETF_PROXY,
-) -> PreparedMarketContext:
-    """生成の共通長期価格を再利用する。疎な個社の比較端点も同じ束から読む。"""
-    start = asof_date - timedelta(days=7 * (history_weeks - 1) + _POINT_LOOKBACK_CALENDAR_DAYS)
-    lookback_start = asof_date - timedelta(days=SECURITY_LOOKBACK_CALENDAR_DAYS)
-    for ticker in subjects:
-        rows = [
-            bar
-            for bar in bars_by_ticker.get(ticker, ())
-            if lookback_start <= bar.traded_at <= asof_date
-        ]
-        if rows:
-            start = min(start, rows[-min(len(rows), LONG_TREND_WINDOW_BARS + 1)].traded_at)
-    series = {}
-    for ticker, bars in bars_by_ticker.items():
-        selected = [bar for bar in bars if start <= bar.traded_at <= asof_date]
-        if selected:
-            series[ticker] = _Series(
-                dates=[bar.traded_at for bar in selected], prices=[bar.price for bar in selected]
-            )
-    sectors: dict[str, list[str]] = {}
-    if master is not None:
-        for ticker, security in master.securities.items():
-            if security.is_common_stock:
-                sectors.setdefault(security.sector_33, []).append(ticker)
-    benchmark_rows = [
-        (bar.traded_at, bar.price)
-        for bar in bars_by_ticker.get(benchmark_ticker, ())
-        if bar.traded_at <= asof_date
-    ]
-    trend_start = asof_date - timedelta(days=_BENCHMARK_LOOKBACK_CALENDAR_DAYS)
-    return PreparedMarketContext(
-        sqlite_path=sqlite_path,
-        asof_date=asof_date,
-        history_weeks=history_weeks,
-        master=master,
-        common_stock_tickers_by_sector={key: tuple(value) for key, value in sectors.items()},
-        series_by_ticker=series,
-        benchmark_ticker=benchmark_ticker,
-        benchmark_prices={day: price for day, price in benchmark_rows if day >= start},
-        benchmark_trend=benchmark_trend_from_series(
-            [(day, price) for day, price in benchmark_rows if day >= trend_start],
-            asof_date=asof_date,
-            benchmark_ticker=benchmark_ticker,
-        ),
-    )
 
 
 def _point(

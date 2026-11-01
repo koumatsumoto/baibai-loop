@@ -252,3 +252,34 @@ def test_common_market_window_does_not_expand_with_sparse_selected_subjects(cont
         )
     assert snapshots[0] == snapshots[1]
     assert all(point["benchmark_return_20d"] is None for point in snapshots[1]["points"])
+
+
+@pytest.mark.parametrize("mismatch", ["store", "history_weeks", "benchmark_ticker"])
+def test_prepared_market_scope_rejects_a_different_request(context_store, mismatch):
+    _, prepared = _shared_inputs(context_store, ("AAAA",))
+    arguments = {"sqlite_path": context_store, "asof_date": ASOF, "prepared": prepared}
+    if mismatch == "store":
+        arguments["sqlite_path"] = context_store.with_name("another.sqlite")
+    elif mismatch == "history_weeks":
+        arguments["history_weeks"] = prepared.history_weeks + 1
+    else:
+        arguments["benchmark_ticker"] = "OTHER"
+    with pytest.raises(ValueError, match=r"prepared market context.*scope"):
+        build_market_snapshot(**arguments)
+
+
+def test_preparation_resolves_store_scope_once(context_store, monkeypatch):
+    bars = read_price_bars(context_store, start=date.min, end=ASOF)
+    master = read_master_snapshot(context_store, as_of=ASOF)
+    monkeypatch.chdir(context_store.parent)
+    prepared = prepare_market_context_from_bars(
+        sqlite_path=Path(context_store.name),
+        asof_date=ASOF,
+        master=master,
+        bars_by_ticker=bars,
+        subjects=("AAAA",),
+    )
+    assert prepared.sqlite_path == context_store.resolve()
+    assert build_market_snapshot(
+        sqlite_path=context_store, asof_date=ASOF, prepared=prepared
+    ) == build_market_snapshot(sqlite_path=context_store, asof_date=ASOF)
