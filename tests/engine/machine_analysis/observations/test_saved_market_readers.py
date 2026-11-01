@@ -546,7 +546,9 @@ def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
 
 
 def test_unrechecked_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
-    from baibai_engine.machine_analysis.observations.financials.edinet_metrics import store
+    from baibai_engine.machine_analysis.observations.disclosures import (
+        edinet_document_store as store,
+    )
 
     db = tmp_path / "market.sqlite"
     db.touch()

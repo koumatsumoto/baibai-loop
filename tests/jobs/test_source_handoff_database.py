@@ -194,7 +194,7 @@ def test_resume_replays_integrated_intermediate_receipts_but_not_unintegrated_la
     from tests.jobs.test_source_receipts import Store
 
     import baibai_jobs.acquisition.receipts as receipts
-    from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
         read_edinet_documents,
     )
     from baibai_engine.storage.sqlite.source_cache.schema import open_connection

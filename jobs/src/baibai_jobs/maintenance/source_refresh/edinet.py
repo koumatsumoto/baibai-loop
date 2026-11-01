@@ -138,7 +138,7 @@ class EDINETRefresh:
                 today_documents if end == today else self.list_documents(end, force_refresh=True)
             ),
         }
-        from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
+        from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
             read_unrechecked_edinet_document_dates,
         )
 

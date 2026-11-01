@@ -8,12 +8,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from baibai_engine.data_collection.receipts.merge import copy_originals
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_unrechecked_edinet_document_dates,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     pending_edinet_document_dates,
     rebuild_edinet_document_day,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
-    read_unrechecked_edinet_document_dates,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import (
