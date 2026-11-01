@@ -46,8 +46,8 @@ from baibai_jobs.observability.tradingview import (
     TimeGuardError,
     failure_category,
     failure_line,
-    safe_progress,
 )
+from baibai_jobs.observability.tradingview_progress import safe_progress
 
 
 def _write_progress_file(path: Path, payload: dict[str, object]) -> None:

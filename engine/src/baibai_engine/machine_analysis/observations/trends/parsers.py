@@ -17,14 +17,20 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
 )
 
 SCOPE_REVISION = "industry-scopes-v1"
-TSR_REVISION = "tsr-performance-v2"
+TSR_REVISION = "tsr-performance-v3"
 BOJ_REVISION = "boj-policy-decision-v1"
 INDUSTRIES = {
     "医薬品・医療用品卸売業": "jp-pharmaceutical-wholesale",
     "情報サービス業": "jp-information-services",
 }
 _NUMBER = r"[0-9][0-9,]*(?:\.[0-9]+)?"
-_MONEY = rf"(?:{_NUMBER}兆)?(?:{_NUMBER}億)?(?:{_NUMBER}万)?(?:{_NUMBER})?円"
+# A currency suffix alone is not zero. Commas must be complete thousands groups;
+# keep this rule local to money so the BOJ percentage parser retains its revision.
+_MONEY_NUMBER = r"(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?"
+_MONEY = (
+    rf"(?=[0-9])(?:{_MONEY_NUMBER}兆)?(?:{_MONEY_NUMBER}億)?"
+    rf"(?:{_MONEY_NUMBER}万)?(?:{_MONEY_NUMBER})?円"
+)
 
 
 def _span(match: re.Match[str]) -> Span:
@@ -38,7 +44,7 @@ def _number(value: str) -> Decimal:
 def _money(value: str) -> Quantity:
     total = Decimal(0)
     resolution = Decimal(1)
-    for match in re.finditer(rf"({_NUMBER})(兆|億|万|円)", value):
+    for match in re.finditer(rf"({_MONEY_NUMBER})(兆|億|万|円)", value):
         number, suffix = match.groups()
         multiplier = {"兆": 10**12, "億": 10**8, "万": 10**4, "円": 1}[suffix]
         amount = _number(number)
@@ -159,7 +165,8 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
         # Only the same sentence's explicitly named net income; generic 利益金
         # has no known basis and must not silently become net income.
         stop = text.find("。", revenue.end())
-        profit = re.search(rf"当期利益は(?P<value>{_MONEY})", text[revenue.end() : stop])
+        sentence_end = len(text) if stop < 0 else stop
+        profit = re.search(rf"当期利益は(?P<value>{_MONEY})", text[revenue.end() : sentence_end])
         if profit:
             claims.append(
                 Claim(

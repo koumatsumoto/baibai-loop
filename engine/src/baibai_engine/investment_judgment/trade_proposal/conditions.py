@@ -123,7 +123,12 @@ def buy_evaluation_payload(result: BuyTermsEvaluation) -> dict[str, object]:
 
 
 def terms_unavailable_reasons(
-    item: BuyItem | SellItem, inputs: ProposalInputs, *, sqlite_path: Path, now: datetime
+    item: BuyItem | SellItem,
+    inputs: ProposalInputs,
+    *,
+    sqlite_path: Path,
+    now: datetime,
+    market_connection: sqlite3.Connection | None = None,
 ) -> tuple[GateReason, ...]:
     """経済判断と独立した、具体注文条件の不足を現在入力から列挙する。"""
     reasons: list[GateReason] = []
@@ -173,7 +178,7 @@ def terms_unavailable_reasons(
                 message="原本の商品区分・銘柄コード・市場から東証普通株と確認できません。",
             )
         )
-    session = next_order_session(sqlite_path=sqlite_path, now=now)
+    session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
     if session is None:
         reasons.append(
             GateReason(

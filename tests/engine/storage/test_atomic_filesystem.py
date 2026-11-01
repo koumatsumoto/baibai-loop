@@ -58,3 +58,30 @@ def test_directory_fsync_closes_its_descriptor_even_on_failure(tmp_path, monkeyp
     assert len(descriptors) == 1
     with pytest.raises(OSError, match="Bad file descriptor"):
         os.fstat(descriptors[0])
+
+
+def test_new_text_export_creates_parents_but_never_replaces(tmp_path):
+    from baibai_engine.storage.filesystem import write_text_new
+
+    target = tmp_path / "nested" / "export.txt"
+    write_text_new(target, "日本語\n")
+    assert target.read_text(encoding="utf-8") == "日本語\n"
+    with pytest.raises(FileExistsError):
+        write_text_new(target, "replacement")
+    assert target.read_text(encoding="utf-8") == "日本語\n"
+
+
+@pytest.mark.parametrize("existing_target", [False, True])
+def test_new_text_export_does_not_follow_symlinks(tmp_path, existing_target):
+    from baibai_engine.storage.filesystem import write_text_new
+
+    target, link = tmp_path / "target", tmp_path / "link"
+    if existing_target:
+        target.write_text("retained", encoding="utf-8")
+    link.symlink_to(target)
+    with pytest.raises(FileExistsError):
+        write_text_new(link, "replacement")
+    assert link.is_symlink()
+    assert target.exists() is existing_target
+    if existing_target:
+        assert target.read_text(encoding="utf-8") == "retained"

@@ -22,6 +22,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_jobs.observability.tradingview_progress import safe_progress
 
 
 @dataclass(frozen=True)
@@ -104,39 +105,6 @@ def failure_category(exc: BaseException) -> str:
     if isinstance(exc, (observations_owner.FetchError, json.JSONDecodeError)):
         return "provider_response"
     return "internal"
-
-
-# This explicit boundary is shared by the writer and the workflow log reader.
-PROGRESS_FIELDS = (
-    "snapshot_date",
-    "master_asof",
-    "phase",
-    "expected_universe",
-    "chunks_total",
-    "chunks_completed",
-    "requests_attempted",
-    "symbols_requested",
-    "chunk_index",
-    "chunk_size",
-    "columns_count",
-    "interval_seconds",
-    "response_bytes",
-    "provider_elapsed_seconds",
-    "max_chunk_elapsed_seconds",
-    "elapsed_seconds",
-    "first_fetched_at_utc",
-    "last_fetched_at_utc",
-    "oauth_rotations",
-)
-
-
-def safe_progress(payload: dict[str, object]) -> dict[str, object]:
-    return {
-        key: payload[key]
-        for key in PROGRESS_FIELDS
-        if key in payload
-        and (payload[key] is None or type(payload[key]) in (str, int, float, bool))
-    }
 
 
 def _diagnostic_error(exc: BaseException, category: str) -> BaseException:

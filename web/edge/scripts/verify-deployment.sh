@@ -74,7 +74,17 @@ request() {
   fi
 }
 
-paths=(/api/health /api/dashboard /api/tasks /api/outcomes)
+# Verify the same route inventory that the Worker and generated view tests use.
+contract="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../contracts" && pwd)/routes.json"
+route_lines="$(python3 - "${contract}" <<'PYTHON'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    contract = json.load(source)
+print("\n".join([*contract["computed"], *contract["routes"]]))
+PYTHON
+)"
+mapfile -t paths <<< "${route_lines}"
 absent_key_paths=(/api/screening/latest /api/market-context /api/operations /api/lake/current /api/investment-proposals)
 
 for path in "${paths[@]}"; do

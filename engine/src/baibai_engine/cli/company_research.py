@@ -32,7 +32,7 @@ from baibai_engine.investment_judgment.stock_assessment.store import load_review
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
-from baibai_engine.storage.filesystem import write_text_atomic
+from baibai_engine.storage.filesystem import write_text_new
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     args = build_parser().parse_args(argv)
     instant = now or datetime.now(JST)
     try:
-        if args.out is not None and args.out.exists():
+        if args.out is not None and (args.out.exists() or args.out.is_symlink()):
             raise ResearchConflictError(f"output already exists: {args.out}")
         if args.command in {"latest", "catalog", "scaffold"} and args.known_at is not None:
             _datetime(args.known_at)
@@ -156,7 +156,10 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 raise AssertionError(f"unreachable command: {args.command}")
         content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         if args.out is not None:
-            write_text_atomic(args.out, content)
+            try:
+                write_text_new(args.out, content)
+            except FileExistsError as error:
+                raise ResearchConflictError(f"output already exists: {args.out}") from error
         sys.stdout.write(content)
         return 0
     except ResearchConflictError as error:

@@ -143,7 +143,7 @@ def _original_assessment(
 def proposal_market_snapshot(
     sqlite_path: Path, *, connection: sqlite3.Connection | None = None
 ) -> Iterator[sqlite3.Connection | None]:
-    """Keep quote, share units and assessment price basis on the same read snapshot."""
+    """Keep quotes, classification, calendar and share/assessment basis on one snapshot."""
     if connection is not None:
         yield connection
     elif sqlite_path.exists():
@@ -209,6 +209,14 @@ def collect_proposal_inputs(
                             source_ref="jquants_daily_bars",
                         )
                     )
+        # Classification must not observe a later correction than the saved quotes.
+        master = (
+            None
+            if market_connection is None
+            else read_master_snapshot(
+                sqlite_path, as_of=now.astimezone(JST).date(), connection=market_connection
+            )
+        )
     portfolio = summarize_portfolio(ledger, state, prices)
     positions: list[PositionInput] = []
     for holding in portfolio.holdings:
@@ -239,7 +247,6 @@ def collect_proposal_inputs(
         )
         for item in portfolio.active_reservations
     )
-    master = read_master_snapshot(sqlite_path, as_of=now.astimezone(JST).date())
     classifications: list[SecurityClassification] = []
     if master is not None:
         for ticker in sorted(set(tickers) | held_tickers):
@@ -522,7 +529,7 @@ def build_proposal_context(
         context_id = saved_context.get("context_id") if isinstance(saved_context, dict) else None
         if context_id is not None and not isinstance(context_id, str):
             raise ProposalError("saved Market Context Assessment identity must be text")
-        session = next_order_session(sqlite_path=sqlite_path, now=now)
+        session = next_order_session(sqlite_path=sqlite_path, now=now, connection=market_connection)
         return ProposalAuthoringContext(
             operation_id,
             proposal_id,

@@ -10,6 +10,17 @@ def write_text_atomic(path: Path, content: str) -> None:
     write_bytes_atomic(path, content.encode("utf-8"))
 
 
+def write_text_new(path: Path, content: str) -> None:
+    """Create a UTF-8 export without replacing another file or following a symlink.
+
+    Exclusive creation, not atomic replacement: a failed write may leave a partial
+    new export. The caller's authoritative publication is independent of this copy.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(content)
+
+
 def write_bytes_atomic(path: Path, payload: bytes) -> None:
     """Replace ``path`` with ``payload`` in one visible step.
 

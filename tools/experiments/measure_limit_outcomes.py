@@ -31,9 +31,8 @@ from baibai_engine.portfolio.ledger.events import (
 )
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 
-DEFAULT_APP_DB = Path("stores/application/baibai.sqlite")
-DEFAULT_MARKET_DB = Path("stores/market/market.sqlite")
 # 失効後にどこまで見て「逃した幅」と呼ぶか。決算 1 本を挟む程度の窓にする。
 POST_EXPIRY_SESSIONS = 20
 
@@ -328,8 +327,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Read-only: never infers a fill and never writes canonical records."
         ),
     )
-    parser.add_argument("--db", type=Path, default=DEFAULT_APP_DB)
-    parser.add_argument("--sqlite-path", type=Path, default=DEFAULT_MARKET_DB)
+    parser.add_argument("--db", type=Path, default=APPLICATION_DB_PATH)
+    parser.add_argument("--sqlite-path", type=Path, default=MARKET_DB_PATH)
     parser.add_argument(
         "--asof",
         type=_parse_date,
