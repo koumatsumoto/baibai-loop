@@ -6,6 +6,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
+    VALUATION_HISTORY_SESSIONS,
+    build_valuation_history,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative import (
+    VALUATION_METRICS,
+    relative_valuation,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     ScreeningRules,
     load_screening_rules,
@@ -16,16 +24,8 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schem
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
-    build_valuation_history,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     FinancialSnapshot,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.relative import (
-    VALUATION_METRICS,
-    relative_valuation,
 )
 from baibai_engine.machine_analysis.models.market_context.history import (
     PRICE_HISTORY_WINDOW_DAYS,

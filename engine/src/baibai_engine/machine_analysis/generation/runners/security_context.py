@@ -18,6 +18,9 @@ from baibai_engine.machine_analysis.models.market_context.snapshot import (
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 
+# 現行個別市場観測の窓。旧較正の倍率履歴とは別の入力政策として保持する。
+SELF_RANGE_WINDOW_BARS = 750
+
 
 def build_security_market_contexts(
     *,

@@ -43,6 +43,9 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
     candidate_discovery_method_hash,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     load_screening_rules,
 )
@@ -69,9 +72,6 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_profitability_level_signals,

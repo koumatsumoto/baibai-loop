@@ -30,6 +30,9 @@ from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     SHAREHOLDER_RETURN_HISTORY_WINDOW_DAYS,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.history import (
+    VALUATION_HISTORY_SESSIONS,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs import (
     read_margin_supply_demand_inputs,
 )
@@ -38,6 +41,10 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metri
     group_adjustment_events_by_ticker,
     group_bars_by_ticker,
     group_summaries_by_ticker,
+)
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative import (
+    SECTOR_MEDIAN_BASIS_MARKET,
+    VALUATION_METRICS,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     ScreeningRules,
@@ -60,16 +67,9 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.dividends 
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
 )
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_normalized_profit_signals,
     build_profitability_level_signals,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.relative import (
-    SECTOR_MEDIAN_BASIS_MARKET,
-    VALUATION_METRICS,
 )
 from baibai_engine.machine_analysis.models.market_context.margin import (
     MARKET_CONTEXT_CALCULATION_REVISION,
@@ -251,7 +251,7 @@ class PanelRow:
     # `smg_*` のうち、業種の母数が足りず市場中央値から作られた軸を `|` で並べる。
     # 薄い業種は市場より低倍率へ寄るので、この素性が無いと gap の符号を業種の割安と
     # 読むか業種構成と読むかを分けられない。metric 名は
-    # `valuation.metrics.relative.VALUATION_METRICS` と同じ語彙。
+    # `legacy_screening.relative.VALUATION_METRICS` と同じ語彙。
     # 空文字は「自業種から答えた」と「そもそも軸を評価していない」の両方を取る。
     # 素性は対応する `smg_*` が非 null の行でだけ意味を持つ。
     smg_market_fallback: str = ""
