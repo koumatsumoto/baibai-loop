@@ -1,5 +1,5 @@
 {
-  "fixture_notice": "全て架空。#1533付録由来の完全field合成例。履歴読取用のResearchSelection schema 2とhashを保持し、現行五モデルSelectionの作成見本にはしない。機械run無しのInputGapとADV不足を保存。実Operation行・ledger/providerのseedや発行検証の成功は主張しない。source URLは実資料ではない。",
+  "fixture_notice": "全て架空。#1533付録由来の完全field合成例。履歴読取用のResearchSelection schema 2とhashを保持し、現行生成モデルSelectionの作成見本にはしない。機械run無しのInputGapとADV不足を保存。実Operation行・ledger/providerのseedや発行検証の成功は主張しない。source URLは実資料ではない。",
   "assessment_publication": {
     "assessment_id": "stock-assessment-00000000-0000-4000-8000-000000000001",
     "published_at": "2026-10-14T16:06:00+09:00",
