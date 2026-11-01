@@ -29,6 +29,7 @@ def _case(tmp_path, target):
         now=NOW,
     )
     directory = workspace / "1234"
+    directory.mkdir()
     assessment = directory / "assessment-draft.yaml"
     identity = directory / "assessment-publication.yaml"
     if target == "review":
