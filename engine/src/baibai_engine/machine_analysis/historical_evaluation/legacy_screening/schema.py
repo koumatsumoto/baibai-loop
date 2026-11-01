@@ -72,7 +72,7 @@ class DerivedMetrics:
     price_history_sessions_750d: int | None = None
     price_history_coverage_750d: float | None = None
     # Supply/demand read from the exchange's published margin balances. Definitions
-    # and the reason each one is shaped this way live in `market_context.margin`. The field
+    # and the reason each one is shaped this way live in the adjacent `market` module. The field
     # names the balance date behind the numbers, which is what makes their age
     # readable. The retained field name also holds daily balance dates after the
     # weekly-to-daily transition. Publication delays, holidays and missing releases
