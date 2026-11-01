@@ -381,7 +381,16 @@ pull_keys() {
   for key in "$@"; do
     target="$(store_path "${key}")"
     mkdir -p "$(dirname "${target}")"
-    mv -f "${transfer_staging}/${key}" "${target}"
+    if [[ "${key}" == "baibai.sqlite" ]]; then
+      # Download can outlast a concurrent local author. Link the complete copy
+      # create-only; -T also refuses a directory that appeared at the target.
+      if ! ln -T -- "${transfer_staging}/${key}" "${target}"; then
+        printf 'refusing application store download overwrite: %s\n' "${target}" >&2
+        return 2
+      fi
+    else
+      mv -f "${transfer_staging}/${key}" "${target}"
+    fi
   done
   index=0
   for key in "$@"; do
@@ -620,7 +629,7 @@ pull_app() {
   # 復元手段が無い。CI は checkout 直後で stores/application/ が空なので素通りする。
   local target
   target="$(store_path baibai.sqlite)"
-  if [[ -e "${target}" ]]; then
+  if [[ -e "${target}" || -L "${target}" ]]; then
     printf 'refusing application store download overwrite: %s\n' "${target}" >&2
     return 2
   fi
