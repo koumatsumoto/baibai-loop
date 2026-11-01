@@ -1,4 +1,4 @@
-"""値で渡された比較母集団に対する倍率・自己レンジ評価。"""
+"""旧較正の比較母集団に対する倍率・自己レンジ評価。現行候補政策ではない。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import median
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
     self_range_position,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 
 VALUATION_METRICS = ("per_forward", "per_trailing", "pbr", "ev_ebitda", "p_s")
 # 少数の同業標本へ依存しすぎない計算上の慣例。経済的最適値ではない (#12, #1153)。
-# docs/reference/company-financials.md
+# docs/reference/estimate-calibration.md
 MIN_SECTOR_MEDIAN_POPULATION = 10
 SECTOR_MEDIAN_BASIS_SECTOR = "sector"
 SECTOR_MEDIAN_BASIS_MARKET = "market"

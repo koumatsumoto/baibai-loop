@@ -16,12 +16,10 @@ from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     prepare_market_context_from_bars,
 )
 from baibai_engine.machine_analysis.generation.runners.security_context import (
+    SELF_RANGE_WINDOW_BARS,
     build_security_market_contexts,
 )
 from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.machine_analysis.models.market_context.benchmark import NIKKEI225_ETF_PROXY
@@ -156,7 +154,7 @@ def read_and_generate_models(
         sqlite_path=path,
         tickers=subjects,
         asof_date=as_of,
-        self_range_window_bars=VALUATION_HISTORY_SESSIONS,
+        self_range_window_bars=SELF_RANGE_WINDOW_BARS,
         prepared=prepared,
         price_bars_by_ticker=prices,
     )

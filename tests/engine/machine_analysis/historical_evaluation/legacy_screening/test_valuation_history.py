@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
     build_valuation_history,
     self_range_position,
 )

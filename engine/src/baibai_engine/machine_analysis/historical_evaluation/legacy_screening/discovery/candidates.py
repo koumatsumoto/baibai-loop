@@ -10,15 +10,15 @@ from statistics import median
 from types import MappingProxyType
 from typing import NamedTuple
 
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.relative_valuation import (
+    MIN_SECTOR_MEDIAN_POPULATION,
+    normalized_earnings_sector_gaps,
+)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
     CandidateDiscoveryRules,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     UNIVERSE_SCOPE_REVISION,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.relative import (
-    MIN_SECTOR_MEDIAN_POPULATION,
-    normalized_earnings_sector_gaps,
 )
 from baibai_engine.primitives.coerce import metric_map, optional_float, string_or_none
 from baibai_engine.primitives.json import canonical_json

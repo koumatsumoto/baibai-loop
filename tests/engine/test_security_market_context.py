@@ -12,10 +12,8 @@ from tests.helpers.market_context import security_context_from_store
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
 
+from baibai_engine.machine_analysis.generation.runners.security_context import SELF_RANGE_WINDOW_BARS
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
-)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_jpx_regulations,
     read_next_earnings_dates,
@@ -78,7 +76,7 @@ class SecurityMarketContextTests(unittest.TestCase):
             root / "market.sqlite",
             ticker=ticker,
             as_of=_ASOF,
-            self_range_window_bars=VALUATION_HISTORY_SESSIONS,
+            self_range_window_bars=SELF_RANGE_WINDOW_BARS,
         )
 
     def test_legacy_jquants_earnings_rows_are_not_reported_as_jpx_fact(self) -> None:
@@ -276,7 +274,7 @@ def _security_context(root, asof):
         root / "market.sqlite",
         ticker="AAAA",
         as_of=asof,
-        self_range_window_bars=VALUATION_HISTORY_SESSIONS,
+        self_range_window_bars=SELF_RANGE_WINDOW_BARS,
     )
 
 

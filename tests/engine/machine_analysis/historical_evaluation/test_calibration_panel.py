@@ -52,6 +52,9 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.universe import (
     UNIVERSE_SCOPE_REVISION,
 )
+from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.valuation_history import (
+    VALUATION_HISTORY_SESSIONS,
+)
 from baibai_engine.machine_analysis.historical_evaluation.panel import (
     PRE2019_SELF_RANGE_POLICY,
     build_panel,
@@ -69,9 +72,6 @@ from baibai_engine.machine_analysis.historical_evaluation.store import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     VALUATION_CALCULATION_REVISION,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.history import (
-    VALUATION_HISTORY_SESSIONS,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     build_profitability_level_signals,
