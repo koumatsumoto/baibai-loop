@@ -601,7 +601,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 本人が確認した利用範囲と毎日取得の明示指示に従い、既存の公式MCP接続を使う。一般FAQのサポート範囲と個別の利用許可は分け、一般条件だけでsourceを停止・削除・入力除外しない。新しいcredential・権限・課金・再配布へ許可を広げない。接続方法は[公式MCP案内](https://www.tradingview.com/mcp/docs)を参照する。
 
-`cloud-tradingview-snapshot`は平日15:37・17:37・19:37・21:37・23:37 JST、土日09:37・13:37・17:37 JSTに実行する。毎日一つの当日snapshotを完成させるための再開枠であり、当日の対象銘柄が保存済みなら後続枠は外部要求0件で省略する。部分取得は未取得銘柄だけを再開し、50symbol以下・15秒以上間隔、既存のprovider cooldownを守る。時刻とmasterは保存calendarの営業日/休日を使い、実受領日を過去へ付け替えない。
+`cloud-tradingview-snapshot`は平日15:37・17:37・19:37・21:37・23:37 JST、土日09:37・13:37・17:37 JSTに実行する。毎日一つの当日snapshotを完成させるための再開枠であり、当日の対象銘柄が保存済みなら後続枠は外部要求0件で省略する。正常なnative応答が要求を満たしていてL2投影だけ不足する場合は`originals_saved`と投影残数を表示し、再GETせず下記の明示receipt rebuildで修復する。HTTP/tool失敗や応答の銘柄・要求列不足は原本充足に含めない。部分取得は未取得銘柄だけを再開し、50symbol以下・15秒以上間隔、既存のprovider cooldownを守る。時刻とmasterは保存calendarの営業日/休日を使い、実受領日を過去へ付け替えない。
 
 取得は既存の`tradingview-runtime` environment内の認証だけを使い、非対話の新規client登録を行わない。認証失敗は成功や保存済み省略にせず記録する。認証の作成・権限変更が必要ならその操作を別途確認する。明示connector captureの`receive`も引き続き使える。原応答はL1へ保存してからL2へ投影し、private handoffと共通統合で公開する。新規取得成功、保存済み省略、部分取得、受領だけ保存、統合未達を区別する。
 

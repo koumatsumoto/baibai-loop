@@ -10,10 +10,8 @@ from datetime import time as daytime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
-    observations as observations_owner,
-)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.contract import (
+    FIELDS,
     TABLE,
 )
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
@@ -58,9 +56,7 @@ def validate_time(day: date, now: datetime, *, is_business_day: bool = True) -> 
 
 def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
     # Identifiers are fixed by the physical snapshot contract.
-    null_counts = ",".join(
-        f"SUM(fetch_status='ok' AND {name} IS NULL)" for name in observations_owner.FIELDS
-    )
+    null_counts = ",".join(f"SUM(fetch_status='ok' AND {name} IS NULL)" for name in FIELDS)
     row = conn.execute(
         f"SELECT SUM(fetch_status='unresolved'),MIN(fetched_at_utc),MAX(fetched_at_utc),"  # nosec B608
         f"{null_counts} FROM {TABLE} WHERE snapshot_date=?",
@@ -71,8 +67,7 @@ def _stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:
         "first_fetched_at_utc": row[1],
         "last_fetched_at_utc": row[2],
         "normal_nulls": {
-            name: int(count or 0)
-            for name, count in zip(observations_owner.FIELDS, row[3:], strict=True)
+            name: int(count or 0) for name, count in zip(FIELDS, row[3:], strict=True)
         },
     }
 

@@ -199,7 +199,7 @@ def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None
         assert dict(missing) == {"fetch_status": "unresolved", "recommendation_total": None}
 
 
-def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None:
+def test_preflight_is_read_only_and_repairs_projection_from_original(tmp_path: Path) -> None:
     missing = tmp_path / "missing.sqlite"
     with pytest.raises(SourceDataError):
         preflight_snapshot(missing, DAY)
@@ -231,8 +231,17 @@ def test_preflight_is_read_only_and_resumes_partial_rows(tmp_path: Path) -> None
         calls.append(symbols)
         return _sdk(payload(symbols))
 
-    assert asyncio.run(collect(path, DAY, resume, clock=lambda: NOW))["rows_added"] == 1
-    assert calls == [["TSE:1001"]]
+    result = asyncio.run(collect(path, DAY, resume, clock=lambda: NOW))
+    assert result["rows_added"] == 0
+    assert result["status"] == "originals_saved"
+    assert result["projection_pending"] == 1
+    assert calls == []
+    from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
+
+    with closing(sqlite3.connect(path)) as conn:
+        ids = [row[0] for row in conn.execute("SELECT receipt_id FROM tradingview_source_receipts")]
+    assert rebuild_from_receipts(path, DAY, ids)["rows"] == 2
+    assert preflight_snapshot(path, DAY)["status"] == "already_saved"
 
 
 @pytest.mark.parametrize("failure", ["429", "malformed", "crash"])
