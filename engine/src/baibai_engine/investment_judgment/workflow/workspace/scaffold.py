@@ -242,6 +242,7 @@ def scaffold_assessment(
         if identity_path.exists()
         else {}
     )
+    previous_identity = identity
     same_material = True
     if path.exists():
         previous = _load_mapping(path, label="assessment draft")
@@ -269,9 +270,15 @@ def scaffold_assessment(
         )
     )
     content = _ASSESSMENT_DRAFT_HEADER + seed_header + _dump_yaml(payload)
-    # A losing creator must not replace the winner's draft or publication identity.
+    # Keep the publication ID across a failed draft write, but never replace a
+    # concurrently created identity without explicit force.
+    if force:
+        write_text_atomic(identity_path, _dump_yaml(identity))
+    elif not previous_identity:
+        _write_draft(identity_path, _dump_yaml(identity), force=False)
+    elif identity != previous_identity:
+        raise ResearchWorkspaceConflictError("publication identity changed; use --force")
     _write_draft(path, content, force=force)
-    write_text_atomic(identity_path, _dump_yaml(identity))
     if out is not None and out.resolve() != path:
         _write_draft(out, content, force=force)
     return {
