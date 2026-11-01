@@ -16,10 +16,10 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     FetchError,
 )
 from baibai_jobs.acquisition.tradingview.collector import (
-    SourceDataError,
     collect,
     preflight_snapshot,
 )
+from baibai_jobs.observability.tradingview import SourceDataError
 
 
 def test_full_universe_batches_and_same_day_immutability(tmp_path: Path) -> None:
@@ -263,7 +263,7 @@ def test_bad_middle_batch_skips_then_same_day_resumes_only_gap(tmp_path: Path) -
 
 
 def test_three_bad_batches_stop_and_zero_new_rows_fail(tmp_path: Path) -> None:
-    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
+    from baibai_jobs.observability.tradingview import CollectionFailure
 
     path = store(tmp_path / "market.sqlite", 5)
     calls = []
@@ -282,7 +282,7 @@ def test_prior_partial_does_not_make_zero_new_rows_successful(tmp_path: Path) ->
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
-    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
+    from baibai_jobs.observability.tradingview import CollectionFailure
 
     path = store(tmp_path / "market.sqlite", 2)
 
@@ -453,8 +453,7 @@ def test_progress_and_durations_with_batch_commits(tmp_path, failure):
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
-    from baibai_jobs.acquisition.tradingview.cli import failure_category
-    from baibai_jobs.acquisition.tradingview.collector import CollectionFailure
+    from baibai_jobs.observability.tradingview import CollectionFailure, failure_category
 
     path = store(tmp_path / "market.sqlite")
     if failure == "store":

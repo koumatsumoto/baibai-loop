@@ -95,7 +95,7 @@ def test_unsuccessful_envelope_reports_safe_status_without_retry(structured, err
     from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
         ProviderHTTPError,
     )
-    from baibai_jobs.acquisition.tradingview.cli import failure_line
+    from baibai_jobs.observability.tradingview import failure_line
 
     payload = {"success": False, "error": error, "token": "private-token"}
     session = SimpleNamespace(

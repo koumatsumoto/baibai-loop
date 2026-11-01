@@ -32,18 +32,18 @@ from baibai_engine.data_collection.providers.tradingview.client import (
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_jobs.acquisition.tradingview.collector import (
-    JST,
-    TimeGuardError,
     collect,
     preflight_snapshot,
 )
 from baibai_jobs.maintenance.tradingview_capture import retain_capture
+from baibai_jobs.maintenance.tradingview_context import JST
 from baibai_jobs.maintenance.tradingview_rebuild import (
     RebuildError,
     rebuild_from_receipts,
 )
 from baibai_jobs.observability.tradingview import (
     CollectionProgress,
+    TimeGuardError,
     failure_category,
     failure_line,
     safe_progress,
