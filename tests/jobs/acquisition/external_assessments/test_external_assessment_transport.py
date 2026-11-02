@@ -153,13 +153,13 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         runs.append((elapsed, operations, durable, report))
     slow, fast = runs
     # Both modes read the cross-run source quota before any provider request.
-    assert slow[1] == {"HEAD": 5, "PUT": 2}
-    assert fast[1] == {"HEAD": 3, "PUT": 2}
+    assert slow[1] == {"HEAD": 7, "PUT": 3}
+    assert fast[1] == {"HEAD": 4, "PUT": 3}
     assert fast[2].result.observations == slow[2].result.observations
-    assert slow[0] == pytest.approx(3.2)
-    assert fast[0] == pytest.approx(3.0)
-    assert fast[3]["storage_elapsed_seconds"] == pytest.approx(0.5)
-    assert slow[3]["storage_elapsed_seconds"] == pytest.approx(0.7)
+    assert slow[0] == pytest.approx(3.5)
+    assert fast[0] == pytest.approx(3.2)
+    assert fast[3]["storage_elapsed_seconds"] == pytest.approx(0.7)
+    assert slow[3]["storage_elapsed_seconds"] == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize("fault", ["conflict", "lost_response", "missing_generation"])
@@ -168,7 +168,7 @@ def test_ambiguous_stage_acknowledgement_reads_actual_result(monkeypatch, fault)
     monkeypatch.setattr(daily.time, "monotonic", lambda: clock[0])
     collector(monkeypatch, clock, calls)
     store, client = store_and_client(monkeypatch, clock, verify_put_with_head=False)
-    client.put_fault = 2, fault
+    client.put_fault = 3, fault
     if fault == "conflict":
         with pytest.raises(RuntimeError, match="conditional"):
             daily.acquire_cohort(store, plan(tickers=("7203", "9432")), 0)

@@ -302,7 +302,7 @@ def read_stages(store: ObjectStore, plan: RunPlan) -> dict[int, tuple[CohortStag
     }
 
 
-def _require_extension(previous: CohortStage, candidate: CohortStage) -> None:
+def require_extension(previous: CohortStage, candidate: CohortStage) -> None:
     if (
         previous.result.plan_sha256 != candidate.result.plan_sha256
         or previous.result.cohort_index != candidate.result.cohort_index
@@ -327,7 +327,7 @@ def commit_stage(
 ) -> CohortStage:
     """Commit once; on an ambiguous PUT adopt the actual saved outcome, never overwrite it."""
     if previous is not None:
-        _require_extension(previous[0], stage)
+        require_extension(previous[0], stage)
     try:
         put_private(
             store,
@@ -341,7 +341,7 @@ def commit_stage(
         if saved is None:
             raise
         if previous is not None:
-            _require_extension(previous[0], saved[0])
+            require_extension(previous[0], saved[0])
         # A competing writer's receipt is authoritative, including its timestamps.
         # The caller reports any still-unrecorded pairs and does not retry a PUT.
         return saved[0]

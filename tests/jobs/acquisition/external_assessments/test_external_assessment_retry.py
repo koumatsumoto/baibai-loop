@@ -106,7 +106,15 @@ def test_retry_is_process_local_and_one_stage_commit_preserves_actual_receipt(mo
     assert saved.result.entries[0].state == "success"
     assert saved.result.observations[0].fetched_at_utc == clock.now()
     assert not hasattr(saved, "retry_states")
-    assert len(store.puts) == 2  # one stage, one bundle
+    from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
+
+    journal = read_attempts(store, p)
+    assert len(journal) == 1
+    attempts = journal[0]["attempts"]
+    assert [item["outcomes"][0]["status"] for item in attempts] == ["rate_limited", "observed"]
+    assert attempts[0]["outcomes"][0]["attempt_id"] != attempts[1]["outcomes"][0]["attempt_id"]
+    assert attempts[1]["outcomes"][0]["attempt_id"] == saved.result.entries[0].attempt_id
+    assert len(store.puts) == 3  # bundle, immutable attempts, mutable stage
 
 
 def test_expired_cycle_keeps_unattempted_pairs_without_http_or_writes(monkeypatch, clock):

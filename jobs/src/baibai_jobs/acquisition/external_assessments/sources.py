@@ -191,6 +191,7 @@ def inspect_ready(
     selected: list[dict[str, str]],
     *,
     confirmed_partial: bool = False,
+    cumulative: bool = False,
     master_asof: date | None = None,
 ) -> tuple[list[PreparedPlan], dict[str, dict[str, object]]]:
     """Read only exact handoffs; all-sealed resume needs no lease or hydrate."""
@@ -222,15 +223,24 @@ def inspect_ready(
         blocked = any(
             item.http_status in {403, 429} for result in results for item in result.entries
         )
-        if not confirmed_partial and (blocked or not accounting["attempted_completeness"]):
+        if not (confirmed_partial or cumulative) and (
+            blocked or not accounting["attempted_completeness"]
+        ):
             reports[source] = {
                 **accounting,
                 "source": source,
                 "status": "blocked" if blocked else "incomplete",
             }
             continue
+        if cumulative and not any(
+            entry.state != "unattempted" for result in results for entry in result.entries
+        ):
+            reports[source] = {**accounting, "source": source, "status": "not_started"}
+            continue
         # Validate the exact stages before freezing a handoff; do not integrate here.
-        prepared.append(prepare_plan(store, plan, confirmed_partial=confirmed_partial))
+        prepared.append(
+            prepare_plan(store, plan, confirmed_partial=confirmed_partial, cumulative=cumulative)
+        )
         reports[source] = {**accounting, "source": source, "status": "publication_unconfirmed"}
     return prepared, reports
 
@@ -246,7 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--master-asof", type=date.fromisoformat)
     parser.add_argument("--observation-date", type=date.fromisoformat)
     parser.add_argument("--directory", type=Path)
-    parser.add_argument("--confirmed-partial", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--confirmed-partial", action="store_true")
+    mode.add_argument("--cumulative", action="store_true")
     parser.add_argument("--report-output", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -301,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
                     store,
                     selected,
                     confirmed_partial=args.confirmed_partial,
+                    cumulative=args.cumulative,
                     master_asof=args.master_asof,
                 )
                 references = []

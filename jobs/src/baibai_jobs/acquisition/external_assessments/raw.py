@@ -17,6 +17,7 @@ import uuid
 import zlib
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
+from itertools import chain
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -30,8 +31,12 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
-from baibai_jobs.acquisition.external_assessments.identity import RAW_BUNDLE_FORMAT, RAW_PREFIX
-from baibai_jobs.acquisition.external_assessments.staging import prefix
+from baibai_jobs.acquisition.external_assessments.identity import (
+    RAW_BUNDLE_FORMAT,
+    RAW_PREFIX,
+    RETAINED_RAW_PREFIX,
+)
+from baibai_jobs.acquisition.external_assessments.staging import prefix, read_plan, read_stages
 
 RETENTION_DAYS = 3
 
@@ -110,7 +115,7 @@ class RawBundle:
         self.path: Path | None = None
         self.created_at_utc = datetime.now(UTC)
         self.key = (
-            f"{_date_prefix(self.created_at_utc.date())}/bundles/{self.run_id}"
+            f"{RETAINED_RAW_PREFIX}utc-date/{self.created_at_utc.date().isoformat()}/bundles/{self.run_id}"
             f"/cohort-{self.cohort_index:04d}-{uuid.uuid4().hex}.tar.gz"
         )
 
@@ -222,11 +227,78 @@ def read_raw_bundle(
     store: ObjectStore, key: str
 ) -> tuple[dict[str, Any], tuple[EquityWebSourceResponse, ...]]:
     """Validate canonical v2 receipts and bytes without extracting paths to disk."""
-    payload = store.get_bytes(key)
+    retained = retained_key(key)
+    # 旧stageの参照文字列は保持し、同じbytesの保全copyを優先して読む。
+    retained_object = store.head(retained)
+    actual = retained if retained_object is not None else key
+    if retained_object is None and (actual == retained or store.head(actual) is None):
+        raise ValueError("external original is missing; keep this source incomplete")
+    payload = store.get_bytes(actual)
     try:
         return _decode_raw_bundle(payload, key)
     except (tarfile.TarError, gzip.BadGzipFile, EOFError, zlib.error) as error:
         raise ValueError("invalid external assessment raw container") from error
+
+
+def retained_key(key: str) -> str:
+    if key.startswith(RETAINED_RAW_PREFIX):
+        return key
+    if key.startswith(RAW_PREFIX):
+        return RETAINED_RAW_PREFIX + key.removeprefix(RAW_PREFIX)
+    raise ValueError("external original is outside retained raw scope")
+
+
+def preserve_raw_bundle(store: ObjectStore, key: str) -> str:
+    """旧3日prefixの原本を同一bytesで保全する。元key・stage・原IDは変更しない。"""
+    target = retained_key(key)
+    existing = store.head(target)
+    if existing is not None:
+        payload = store.get_bytes(target)
+        if hashlib.sha256(payload).hexdigest() != existing.metadata.get("sha256"):
+            raise ValueError("retained external original failed integrity")
+        _decode_raw_bundle(payload, key)
+        if (
+            target != key
+            and (original := store.head(key)) is not None
+            and (
+                original.size != len(payload)
+                or original.metadata.get("sha256") != hashlib.sha256(payload).hexdigest()
+            )
+        ):
+            raise ValueError("retained external original conflicts with legacy bytes")
+        return target
+    if target == key:
+        raise ValueError("retained external original is missing")
+    original = store.head(key)
+    if original is None:
+        raise ValueError("legacy external original is missing; do not recreate its reception")
+    payload = store.get_bytes(key)
+    digest = hashlib.sha256(payload).hexdigest()
+    if len(payload) != original.size or original.metadata.get("sha256") != digest:
+        raise ValueError("legacy external original failed integrity")
+    _decode_raw_bundle(payload, key)
+    with tempfile.TemporaryDirectory(prefix="baibai-retain-original-") as directory:
+        path = Path(directory) / "original.tar.gz"
+        path.write_bytes(payload)
+        path.chmod(0o600)
+        try:
+            store.put_file(
+                target,
+                path,
+                sha256=digest,
+                content_md5=base64.b64encode(
+                    hashlib.md5(payload, usedforsecurity=False).digest()
+                ).decode(),
+                content_type="application/gzip",
+                if_none_match=True,
+            )
+        except Exception:
+            # PUT結果不明なら同じ保存先を照合するだけ。上書きや新しい原本生成はしない。
+            if store.head(target) is None or store.get_bytes(target) != payload:
+                raise
+    if store.get_bytes(target) != payload:
+        raise ValueError("retained external original readback mismatch")
+    return target
 
 
 def _decode_raw_bundle(
@@ -254,7 +326,8 @@ def _decode_raw_bundle(
         except ValueError:
             raise ValueError("invalid external assessment raw bundle time") from None
         if created.utcoffset() != timedelta(0) or not re.fullmatch(
-            rf"{re.escape(_date_prefix(created.date()))}/bundles/"
+            rf"(?:{re.escape(RAW_PREFIX)}|{re.escape(RETAINED_RAW_PREFIX)})"
+            rf"utc-date/{created.date().isoformat()}/bundles/"
             rf"{re.escape(manifest['batch_id'])}/cohort-{manifest['cohort_index']:04d}-[0-9a-f]{{32}}\.tar\.gz",
             key,
         ):
@@ -325,7 +398,12 @@ def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> d
     keep_from = as_of - timedelta(days=RETENTION_DAYS - 1)
     groups: dict[str, dict[str, Any]] = {}
     unclassified = {"objects": 0, "bytes": 0}
+    retained = {"objects": 0, "bytes": 0}
     for key, size in objects:
+        if key.startswith(RETAINED_RAW_PREFIX):
+            retained["objects"] += 1
+            retained["bytes"] += size
+            continue
         matched = re.fullmatch(
             rf"{re.escape(RAW_PREFIX)}utc-date/(\d{{4}}-\d{{2}}-\d{{2}})/(html/sha256|receipts|bundles)/.+",
             key,
@@ -353,13 +431,15 @@ def retention_inventory(objects: Iterable[tuple[str, int]], *, as_of: date) -> d
         "retention_utc_dates": RETENTION_DAYS,
         "dates": dict(sorted(groups.items())),
         "unclassified": unclassified,
+        "retained": retained,
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Read-only inventory of retained external assessment originals"
+        description="Inventory or explicitly preserve exact external assessment originals"
     )
+    parser.add_argument("--preserve-run-id", help="Copy one exact plan originals; never delete")
     parser.add_argument("--as-of", type=date.fromisoformat, default=datetime.now(UTC).date())
     return parser
 
@@ -368,8 +448,39 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-        objects = store.iter_objects(RAW_PREFIX)
-        print(json.dumps(retention_inventory(objects, as_of=args.as_of), sort_keys=True))
+        if args.preserve_run_id:
+            plan = read_plan(store, args.preserve_run_id)
+            if plan is None:
+                raise ValueError("exact external plan is missing")
+            preserved = []
+            for index, (stage, _) in sorted(read_stages(store, plan).items()):
+                for key in stage.raw_bundle_keys:
+                    manifest, _ = read_raw_bundle(store, key)
+                    if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
+                        raise ValueError("external preservation plan binding changed")
+                    target = preserve_raw_bundle(store, key)
+                    remote = store.head(target)
+                    assert remote is not None
+                    preserved.append(
+                        {
+                            "original_key": key,
+                            "retained_key": target,
+                            "bytes": remote.size,
+                            "sha256": remote.metadata["sha256"],
+                        }
+                    )
+            report = {
+                "mode": "preserve_exact_plan",
+                "run_id": plan.run_id,
+                "plan_sha256": plan.plan_sha256,
+                "preserved": preserved,
+            }
+        else:
+            report = retention_inventory(
+                chain(store.iter_objects(RAW_PREFIX), store.iter_objects(RETAINED_RAW_PREFIX)),
+                as_of=args.as_of,
+            )
+        print(json.dumps(report, sort_keys=True))
         return 0
     except Exception as error:
         print(

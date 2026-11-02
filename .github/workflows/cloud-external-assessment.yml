@@ -3,7 +3,7 @@ run-name: "external assessment ${{ inputs.source || 'all' }}"
 
 on:
   schedule:
-    - cron: "13 10 * * *" # 19:13 JST, including rest days
+    - cron: "13 10,14,22 * * *" # 19:13 / 23:13 / next 07:13 JST; same fixed cycle
   workflow_dispatch:
     inputs:
       source:

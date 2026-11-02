@@ -51,6 +51,11 @@ class FakeObjectStore:
             RemoteObject(str(self.serial), len(payload), metadata, content_type),
         )
 
+    def iter_objects(self, prefix):
+        for key, (_, metadata) in sorted(self.objects.items()):
+            if key.startswith(prefix):
+                yield key, metadata.size
+
     def head(self, key):
         self.events.append(("HEAD", key))
         item = self.objects.get(key)
