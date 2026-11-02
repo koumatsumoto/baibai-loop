@@ -226,10 +226,12 @@ def main(argv: list[str] | None = None) -> int:
             source_gaps = [
                 {
                     "source": item["entry"]["source"],
-                    "failures": item["result"]["acquisition_failures"],
+                    "failures": item["result"].get("acquisition_failures", []),
+                    "issues": item["result"].get("acquisition_issues", []),
                 }
                 for item in report["handoffs"]
                 if item.get("result", {}).get("acquisition_failures")
+                or item.get("result", {}).get("acquisition_issues")
             ]
             deferred = {
                 source: item

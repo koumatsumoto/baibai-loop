@@ -652,3 +652,21 @@ def test_successful_integration_with_retained_http_failures_is_degraded_not_clea
     assert "[DEGRADED]" in message
     assert "受領1・投影0・意味抽出0件" in message
     assert "[OK]" not in message
+
+
+def test_non_http_acquisition_issue_is_not_lost_after_successful_raw_integration():
+    report = {
+        "handoffs": [
+            {
+                "failed": False,
+                "entry": {"source": "synthetic"},
+                "result": {
+                    "acquisition_issues": ["document_redirect_cycle"],
+                    "acquisition_failures": [],
+                },
+            }
+        ]
+    }
+    assert discord.render_source_failures(report) == [
+        "source不備: synthetic / 受領0・投影0・意味抽出0件 / document_redirect_cycle"
+    ]

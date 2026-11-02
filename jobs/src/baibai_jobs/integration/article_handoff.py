@@ -139,6 +139,7 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
             "artifact_ids": sorted(set(artifacts)),
             "extraction_failures": extraction_failures,
             "acquisition_status": report.get("status"),
+            "acquisition_issues": report.get("failures", []),
         },
         complete=not (failed or extraction_failures),
     )

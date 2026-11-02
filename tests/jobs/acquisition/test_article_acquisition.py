@@ -1043,7 +1043,10 @@ def test_toushiru_redirect_target_waits_in_existing_document_budget(tmp_path, mo
 
 
 def test_toushiru_redirect_cycle_is_finite_and_keeps_pending_work(tmp_path, monkeypatch):
-    report, session, _, old, new = _toushiru_redirect_source(tmp_path, monkeypatch, cycle=True)
+    report, session, packet, old, new = _toushiru_redirect_source(tmp_path, monkeypatch, cycle=True)
     assert session.urls[1:] == [old, new]
     assert "document_redirect_cycle" in report["failures"]
     assert report["pending_url_count"] == 1
+    replay = import_handoff("toushiru", tmp_path / "market", packet)
+    assert replay.complete
+    assert "document_redirect_cycle" in replay.report["acquisition_issues"]

@@ -258,6 +258,7 @@ def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
 def render_source_failures(report: Mapping[str, object]) -> list[str]:
     """受領・native投影・意味抽出の故障箇所を分け、原文やURLは通知へ出さない。"""
     grouped: dict[str, list[int]] = {}
+    issues: dict[str, set[str]] = {}
     handoffs = report.get("handoffs")
     for item in handoffs if isinstance(handoffs, list) else []:
         if not isinstance(item, dict):
@@ -265,7 +266,11 @@ def render_source_failures(report: Mapping[str, object]) -> list[str]:
         entry, result = item.get("entry"), item.get("result")
         if not isinstance(entry, dict) or not isinstance(result, dict):
             continue
-        counts = grouped.setdefault(sanitize_one_line(entry.get("source", "不明")), [0, 0, 0])
+        source = sanitize_one_line(entry.get("source", "不明"))
+        counts = grouped.setdefault(source, [0, 0, 0])
+        codes = result.get("acquisition_issues")
+        if isinstance(codes, list):
+            issues.setdefault(source, set()).update(sanitize_one_line(code) for code in codes)
         for index, field in enumerate(
             ("acquisition_failures", "projection_failures", "extraction_failures")
         ):
@@ -274,8 +279,9 @@ def render_source_failures(report: Mapping[str, object]) -> list[str]:
                 counts[index] += len(failures)
     return [
         f"source不備: {source} / 受領{counts[0]}・投影{counts[1]}・意味抽出{counts[2]}件"
+        + (" / " + ",".join(sorted(issues[source])) if issues.get(source) else "")
         for source, counts in sorted(grouped.items())
-        if any(counts)
+        if any(counts) or issues.get(source)
     ][:4]
 
 
