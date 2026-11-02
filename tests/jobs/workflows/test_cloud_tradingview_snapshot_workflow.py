@@ -43,10 +43,11 @@ def test_metadata_order_and_exclusive_writer():
     assert job["timeout-minutes"] == "60"
     assert "env" not in job
     steps = job["steps"]
-    assert [step["uses"] for step in steps if "uses" in step] == [
-        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-        "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
-        "astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e",
+    # 固定SHAは共通workflow trust検査が所有し、ここでは実行順序だけを検証する。
+    assert [step["uses"].split("@", 1)[0] for step in steps if "uses" in step] == [
+        "actions/checkout",
+        "actions/setup-python",
+        "astral-sh/setup-uv",
     ]
     assert [step["id"] for step in steps if "id" in step] == [
         "smoke",
