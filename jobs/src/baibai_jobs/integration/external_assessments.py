@@ -69,7 +69,11 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     put_private,
     read_terminal,
 )
-from baibai_jobs.integration.external_assessment_ready import load_ready
+from baibai_jobs.integration.external_assessment_ready import (
+    acknowledgement_key,
+    load_ready,
+    read_acknowledgement,
+)
 from baibai_jobs.publication.external_assessment_verification import (
     history_digests as external_assessment_history_digests,
 )
@@ -227,7 +231,9 @@ def merge_ready(
         retained_digests: dict[str, str] = {}
         try:
             item = load_ready(store, reference)
-            if read_terminal(store, item.plan) is not None:
+            if read_terminal(store, item.plan) is not None or (
+                item.cumulative and read_acknowledgement(store, item, reference) is not None
+            ):
                 continue
             added, _, digests, own = _import_confirmed_originals(
                 store,
@@ -382,11 +388,20 @@ def verify_and_seal(
         if item.confirmed_partial:
             terminal["state_counts"] = item.accounting["state_counts"]
             terminal["receipt_date_coverage"] = receipt_date_coverage(plan, own)
-        existing = read_terminal(store, plan)
+        if item.cumulative:
+            terminal["format"] = "external-assessment-integration-ack-v1"
+            terminal["reference"] = result["reference"]
+            terminal["state_counts"] = item.accounting["state_counts"]
+            terminal["receipt_date_coverage"] = receipt_date_coverage(plan, own)
+            key = acknowledgement_key(plan, result["reference"])
+            existing = read_acknowledgement(store, item, result["reference"])
+        else:
+            key = prefix(plan.run_id) + "/published.json"
+            existing = read_terminal(store, plan)
         if existing is None:
             put_private(
                 store,
-                prefix(plan.run_id) + "/published.json",
+                key,
                 json.dumps(terminal, sort_keys=True).encode(),
                 previous_etag=None,
             )
