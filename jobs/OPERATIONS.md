@@ -115,7 +115,7 @@ inputは正本generationと原本hashへ結び付く再生成物で、第二の�
 
 定時market sourceの対象日と曜日分岐は、元run作成時計以前の直近の該当cron slotで固定し、JST日跨ぎ・作成後のqueue待機・rerunで翌日へ進めない。手動は明示asofを優先し、空欄だけ元run作成時のJST日を使う。本来の予定日時はAPIから得られないため、run作成自体が次の同slotを越える24時間以上の遅延は復元できず、対象日を確認して明示asofで扱う。
 
-市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同日最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
+市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同一取得cycle内の最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
 
 初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。独立取得の受領、共通統合のrelease/readback、モデル生成・候補公開時刻、watchdogを確認する。取得workflowと共通統合の責務を分け、削除済みの複合dailyを復活させない。
 
@@ -624,7 +624,7 @@ gh workflow run cloud-external-assessment.yml --ref main \
 
 本人が確認した利用範囲と毎日取得の明示指示に従い、既存の公式MCP接続を使う。一般FAQのサポート範囲と個別の利用許可は分け、一般条件だけでsourceを停止・削除・入力除外しない。新しいcredential・権限・課金・再配布へ許可を広げない。接続方法は[公式MCP案内](https://www.tradingview.com/mcp/docs)を参照する。
 
-`cloud-tradingview-snapshot`は平日15:37・17:37・19:37・21:37・23:37 JST、土日09:37・13:37・17:37 JSTに実行する。毎日一つの当日snapshotを完成させるための再開枠であり、当日の対象銘柄が保存済みなら後続枠は外部要求0件で省略する。正常なnative応答が要求を満たしていてL2投影だけ不足する場合は`originals_saved`と投影残数を表示し、再GETせず下記の明示receipt rebuildで修復する。HTTP/tool失敗や応答の銘柄・要求列不足は原本充足に含めない。部分取得は未取得銘柄だけを再開し、50symbol以下・15秒以上間隔、既存のprovider cooldownを守る。時刻とmasterは保存calendarの営業日/休日を使い、実受領日を過去へ付け替えない。
+`cloud-tradingview-snapshot`は平日15:37・17:37・19:37・21:37・23:37 JST、土日09:37・13:37・17:37 JSTに実行する。毎日一つのsnapshotを完成させるための再開枠であり、同一取得cycleの対象銘柄が保存済みなら後続枠は外部要求0件で省略する。正常なnative応答が要求を満たしていてL2投影だけ不足する場合は`originals_saved`と投影残数を表示し、再GETせず下記の明示receipt rebuildで修復する。HTTP/tool失敗や応答の銘柄・要求列不足は原本充足に含めない。部分取得は未取得銘柄だけを再開し、50symbol以下・15秒以上間隔、既存のprovider cooldownを守る。時刻とmasterは保存calendarの営業日/休日を使う。`snapshot_date`は09:00 JSTに切り替わる取得cycle日であり、営業日は15:30、休日は09:00から翌09:00未満まで取得できる。遅延して日付を跨いだrunも未充足の同cycleを続け、実受領UTCは過去へ付け替えない。翌09:00以降は新cycleへ進み、古い不足を現在の応答で埋めない。既存の同日受領は同じkey・bytesのまま有効で、移行・履歴の書換えは不要。
 
 取得は既存の`tradingview-runtime` environment内の認証だけを使い、非対話の新規client登録を行わない。認証失敗は成功や保存済み省略にせず記録する。認証の作成・権限変更が必要ならその操作を別途確認する。明示connector captureの`receive`も引き続き使える。原応答はL1へ保存してからL2へ投影し、private handoffと共通統合で公開する。新規取得成功、保存済み省略、部分取得、受領だけ保存、統合未達を区別する。
 
@@ -641,9 +641,9 @@ L1保存はL2の成功判定ではない。失敗応答や業務payloadの不整
 
 ### L2検証と正本への反映
 
-L2 replayはownerが宣言するnative wire名と公式connectorの公開識別名のbatch契約、および18列を実際に要求した受領を検証する。receiptには呼び出したtool識別名を保持し、別toolの結果をbatch名へ付け替えない。保存calendarから当日の営業日とmaster基準日を決め、休日は直前営業日のexact masterと連続calendarを使う。時刻検証は受領JST日と、営業日15:30以降／休日09:00以降を照合する。休日を理由に取得不可とはしない。
+L2 replayはownerが宣言するnative wire名と公式connectorの公開識別名のbatch契約、および18列を実際に要求した受領を検証する。receiptには呼び出したtool識別名を保持し、別toolの結果をbatch名へ付け替えない。保存calendarから当日の営業日とmaster基準日を決め、休日は直前営業日のexact masterと連続calendarを使う。時刻検証はcycle日からの取得windowと実受領UTCを照合する。L2の時点読取は実受領UTCのcutoffを別に守り、翌朝受領を前日の既知情報にしない。休日を理由に取得不可とはしない。
 
-新しい受領の公開は既存の[handoffと共通統合](#actions-write-boundary)を使う。`integration.source_handoff export --source tradingview`で明示受領を切り出し、fresh canonicalへのreplayは同日最初の正常行と原receiptを保つ。元master/calendarが違うhandoffを黙って採用しない。取得用copyを丸ごと古い正本へpushしない。公開lease・CAS・固定release・読戻しは通常の正本反映手順に従う。
+新しい受領の公開は既存の[handoffと共通統合](#actions-write-boundary)を使う。`integration.source_handoff export --source tradingview`で明示受領を切り出し、fresh canonicalへのreplayは同cycle最初の正常行と原receiptを保つ。元master/calendarが違うhandoffを黙って採用しない。取得用copyを丸ごと古い正本へpushしない。公開lease・CAS・固定release・読戻しは通常の正本反映手順に従う。
 
 ```bash
 uv run python -m baibai_jobs.integration.source_handoff export --source tradingview \

@@ -12,7 +12,6 @@ from datetime import (
     date,
     datetime,
 )
-from datetime import time as daytime
 from pathlib import Path
 
 from mcp.types import CallToolResult
@@ -45,7 +44,6 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema,
 )
 from baibai_jobs.maintenance.tradingview_context import (
-    JST,
     calendar_context,
     stored_quality,
     universe,
@@ -59,6 +57,7 @@ from baibai_jobs.observability.tradingview import (
     failure_category,
     failure_line,
 )
+from baibai_jobs.schedule import tradingview_cycle_date, tradingview_observation_window
 
 SOFT_BUDGET_SECONDS = 25 * 60
 BatchFetch = Callable[[list[str], list[str]], Awaitable[CallToolResult]]
@@ -124,14 +123,20 @@ def _snapshot_state(
         "is_business_day": business,
     }
     if now is not None:
-        if now.tzinfo is None or now.astimezone(JST).date() != day:
-            raise TimeGuardError("Snapshots require today's observation; backfill is forbidden")
-        if now.astimezone(JST).time() < (daytime(15, 30) if business else daytime(9)):
+        opening, _ = tradingview_observation_window(day, is_business_day=business)
+        if now.tzinfo is None:
+            raise TimeGuardError("Timezone-aware observation clock required")
+        if now < opening and now.astimezone(opening.tzinfo).date() == day:
             return None, {
                 **context,
                 "snapshot_date": day.isoformat(),
                 "status": "before_close" if business else "before_observation",
             }
+        if tradingview_cycle_date(now) != day:
+            raise TimeGuardError(
+                "Snapshots require the current acquisition cycle; backfill is forbidden"
+            )
+        validate_time(day, now, is_business_day=business)
     stored = {
         row[0]
         for row in conn.execute(

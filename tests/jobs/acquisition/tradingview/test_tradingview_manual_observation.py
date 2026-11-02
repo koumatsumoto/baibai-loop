@@ -197,15 +197,17 @@ def test_manual_cli_rejects_invalid_mode_before_oauth(tmp_path, monkeypatch, cap
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize("observed", [NOW, NOW + timedelta(hours=15)])
+@pytest.mark.parametrize("explicit_master", [False, True])
 def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oauth(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, observed, explicit_master
 ):
     path = manual_store(tmp_path, 101)
 
     class Clock:
         @staticmethod
         def now(tz):
-            return NOW.astimezone(tz)
+            return observed.astimezone(tz)
 
     monkeypatch.setattr(cli, "datetime", Clock)
     monkeypatch.setattr(cli, "credential_storage", lambda *_: object())
@@ -213,16 +215,18 @@ def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oaut
     async def snapshot(_storage, actual_path, observation_date, interval, _progress, **options):
         assert actual_path == path
         assert observation_date == DAY
-        assert options["master_asof"] == MASTER
+        assert options["master_asof"] == (MASTER if explicit_master else None)
         assert interval == 15
 
         async def fetch(symbols, _columns):
             return _sdk(payload(symbols))
 
-        return await collect(path, DAY, fetch, master_asof=MASTER, clock=lambda: NOW)
+        return await collect(path, DAY, fetch, master_asof=MASTER, clock=lambda: observed)
 
     monkeypatch.setattr(cli, "snapshot", snapshot)
-    args = ["refresh", "--sqlite", str(path), "--master-asof", MASTER.isoformat()]
+    args = ["refresh", "--sqlite", str(path), "--asof", DAY.isoformat()]
+    if explicit_master:
+        args += ["--master-asof", MASTER.isoformat()]
     assert cli.main(args) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["rows_added"] == 1
@@ -236,7 +240,7 @@ def test_manual_cli_passes_today_and_saved_master_and_completed_noop_avoids_oaut
     assert json.loads(capsys.readouterr().out)["status"] == "already_saved"
 
 
-def test_weekend_response_after_midnight_is_rejected(tmp_path):
+def test_weekend_response_after_next_cycle_is_rejected(tmp_path):
     path = manual_store(tmp_path, 101)
 
     before = stored(path)
