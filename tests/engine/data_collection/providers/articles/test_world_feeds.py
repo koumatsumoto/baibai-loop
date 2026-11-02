@@ -44,6 +44,13 @@ def test_bbc_overlap_preserves_two_feed_provenances_without_two_article_identiti
 @pytest.mark.parametrize("source", sorted(WORLD_NEWS_SOURCES))
 def test_empty_feed_is_distinct_from_invalid_feed(source):
     assert parse_index(source, b"<rss><channel/></rss>", url=SOURCES[source].entry_url) == ()
-    for body in (b"<rss/>", b"<html/>", b"broken", b"<!DOCTYPE rss><rss><channel/></rss>"):
+    for body in (
+        b"<rss/>",
+        b"<html/>",
+        b"<urlset/>",
+        b"<RDF/>",
+        b"broken",
+        b"<!DOCTYPE rss><rss><channel/></rss>",
+    ):
         with pytest.raises(ValueError, match=r"feed|RSS"):
             parse_index(source, body, url=SOURCES[source].entry_url)
