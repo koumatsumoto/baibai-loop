@@ -12,10 +12,11 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     compact,
     document,
     number,
+    numeric_text,
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
-PARSER_VERSION = "monex-theory-3"
+PARSER_VERSION = "monex-theory-4"
 
 
 def public_url(ticker: str) -> str:
@@ -58,7 +59,7 @@ def parse_html(
         name = expected[label]
         if len(cells) != 1 or name in values or cells[0].find("img"):
             raise ParseError("changed_theory_cell")
-        values[name] = number(cells[0].text, unit="yen")
+        values[name] = number(numeric_text(cells[0]), unit="yen")
     if set(values) != set(expected.values()):
         raise ParseError("incomplete_theory_table")
     return ModelValuationObservation.model_validate(

@@ -134,3 +134,31 @@ def test_artifact_identity_and_span_validation_fail_closed():
     )
     with pytest.raises(ValueError, match="outside"):
         bad.verify_text(projected)
+
+
+@pytest.mark.parametrize("amount", ["円", "1,,2円", "12,34円", "1,234,円"])
+def test_tsr_missing_or_malformed_money_is_not_a_zero_or_joined_number(amount):
+    text = PHARMA.replace("2兆3,400億円", amount)
+    result = extract_tsr_performance(document(text), created_at=NOW)
+    assert all(claim.predicate != "revenue" for claim in result.claims)
+    assert result.method_revision == "tsr-performance-v3"
+
+
+@pytest.mark.parametrize(
+    ("amount", "expected"),
+    [("0円", "0"), ("1,234円", "1234"), ("1.25億円", "125000000")],
+)
+def test_tsr_explicit_zero_grouped_and_decimal_money_are_preserved(amount, expected):
+    result = extract_tsr_performance(
+        document(PHARMA.replace("2兆3,400億円", amount)), created_at=NOW
+    )
+    revenue = next(claim for claim in result.claims if claim.predicate == "revenue")
+    assert revenue.quantity.value == Decimal(expected)
+
+
+def test_tsr_final_profit_without_sentence_stop_keeps_last_currency_character():
+    method = INFORMATION[INFORMATION.index("日本産業分類") : INFORMATION.index("売上高も")]
+    final = "2,222社の2025年度の売上高は10億円、当期利益は2億円"
+    result = extract_tsr_performance(document(method + final), created_at=NOW)
+    profit = next(claim for claim in result.claims if claim.predicate == "net_income")
+    assert profit.quantity.value == Decimal("200000000")

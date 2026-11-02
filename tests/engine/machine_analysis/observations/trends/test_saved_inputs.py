@@ -99,11 +99,7 @@ def test_normal_projection_extracts_and_reuses_unchanged_representation_without_
     path.unlink()  # calculation consumes only fixed values, after the reader is closed
     result = calculate_industry_trends(inputs.industries[0])
     descriptor = result["observations"][0]["exact_evidence"]
-    # The month fields belong to the core article contract branch until integration.
-    # Validate every field recognized by the contract in the current checkout.
-    reference = ArticleEvidenceRef.model_validate(
-        {key: value for key, value in descriptor.items() if key in ArticleEvidenceRef.model_fields}
-    )
+    reference = ArticleEvidenceRef.model_validate(descriptor)
     assert reference.receipt_id == "first"
     assert reference.artifact_id == first.artifact_id
     assert reference.lineage_release_id == "synthetic"
@@ -662,3 +658,35 @@ def test_old_index_date_does_not_backdate_later_document_revision(tmp_path):
     assert any(
         "document_version_after_as_of_unverified" in reason for reason in inputs.coverage.reasons
     )
+
+
+def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path, monkeypatch):
+    import baibai_engine.machine_analysis.observations.trends.extraction as extraction
+    from baibai_engine.data_collection.receipts.articles.store import read_body
+    from baibai_engine.machine_analysis.observations.articles.store import read_artifacts
+
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as conn, conn:
+        receipt, observation = retain(conn, received_at=NOW - timedelta(days=1))
+        original = read_body(conn, receipt.body_ref)
+        old = extract_observation(observation, receipt, generated_at=NOW - timedelta(days=1))
+        old = old.model_copy(update={"extractor_revision": "tsr-performance-v2"})
+        save_artifact(conn, old)
+    # No implicit rewriting of an old artifact when only code changes.
+    assert read(path).industries[0].inputs.coverage.state == "extraction_pending"
+    with closing(open_connection(path)) as conn, conn:
+        (new,) = extract_observations(conn, (observation.observation_id,), generated_at=NOW)
+        assert new.extractor_revision == "tsr-performance-v3"
+        assert new.artifact_id != old.artifact_id
+        assert read_artifacts(conn, (old.artifact_id,)) == (old,)
+        assert read_body(conn, receipt.body_ref) == original
+        assert extract_observations(conn, (observation.observation_id,), generated_at=NOW) == (new,)
+        assert conn.execute("SELECT count(*) FROM article_extraction_artifacts").fetchone()[0] == 2
+    # Pre-staging v3 does not hide v2 from a reader still selecting that revision.
+    # This checks selection only; historical parser equivalence is separate.
+    with monkeypatch.context() as old_reader:
+        old_reader.setattr(extraction, "TSR_REVISION", "tsr-performance-v2")
+        assert (
+            read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == old.artifact_id
+        )
+    assert read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == new.artifact_id

@@ -107,3 +107,21 @@ def test_partial_missing_zero_and_negative_models_keep_distinct_values():
 def test_currency_suffix_does_not_turn_unknown_numeric_into_normal_missing(source):
     with pytest.raises(ParseError, match=r"^unexpected_numeric_cell$"):
         observed_value(source, "－円")
+
+
+@pytest.mark.parametrize("source", ["monex", "rakuten"])
+@pytest.mark.parametrize("numeric", ["1<br>2", "1<br/>2", "-<br>2", "1,<br>234"])
+def test_numeric_line_breaks_do_not_join_separate_displayed_tokens(source, numeric):
+    value = numeric + "円" if source == "monex" else numeric
+    with pytest.raises(ParseError, match=r"^unexpected_numeric_cell$"):
+        observed_value(source, value)
+
+
+@pytest.mark.parametrize("source", ["monex", "rakuten"])
+@pytest.mark.parametrize(
+    ("numeric", "expected"),
+    [("<br> 12 <br>", 12), ("<span>1</span><span>2</span>", 12), ("<br>0<br>", 0)],
+)
+def test_numeric_outer_breaks_and_adjacent_inline_markup_keep_values(source, numeric, expected):
+    value = numeric + "円" if source == "monex" else numeric
+    assert observed_value(source, value) == expected

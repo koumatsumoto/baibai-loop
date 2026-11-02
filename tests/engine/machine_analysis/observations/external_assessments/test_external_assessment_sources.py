@@ -204,7 +204,7 @@ def test_rakuten_peer_only_table_with_bound_chart_proves_normal_null(ticker):
     assert observation.rating_count is None
     assert observation.source_url == url
     assert observation.fetched_at_utc == RECEIVED
-    assert observation.parser_version == "rakuten-rating-3"
+    assert observation.parser_version == "rakuten-rating-4"
 
 
 @pytest.mark.parametrize(
