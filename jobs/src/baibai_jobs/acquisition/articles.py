@@ -15,7 +15,11 @@ from typing import Any, Literal
 
 import requests
 
-from baibai_engine.data_collection.providers.articles.contracts import SOURCES, NativeArticle
+from baibai_engine.data_collection.providers.articles.contracts import (
+    SOURCES,
+    WORLD_NEWS_SOURCES,
+    NativeArticle,
+)
 from baibai_engine.data_collection.providers.articles.native import (
     discover_links,
     discovery_revision_for,
@@ -68,15 +72,23 @@ from baibai_jobs.acquisition.receipts import download_fixed
 # external-assessment collector. Public providers do not wait behind that work.
 GROUPS = {
     "public": tuple(
-        source for source in SOURCES if source not in {"minkabu_news", "rakuten_news", "toushiru"}
+        source
+        for source in SOURCES
+        if source not in WORLD_NEWS_SOURCES | {"minkabu_news", "rakuten_news", "toushiru"}
     ),
+    "world": tuple(source for source in SOURCES if source in WORLD_NEWS_SOURCES),
     "minkabu": ("minkabu_news",),
     "rakuten": ("rakuten_news", "toushiru"),
 }
 
 
-# Independently allocated group caps total 128 MiB/slot; no shared mutable quota.
-GROUP_BYTES = {"public": 80 * 1024 * 1024, "minkabu": 24 * 1024 * 1024, "rakuten": 24 * 1024 * 1024}
+# New world indexes get their own budget; they cannot consume existing sources' allowance.
+GROUP_BYTES = {
+    "public": 80 * 1024 * 1024,
+    "world": 4 * 1024 * 1024,
+    "minkabu": 24 * 1024 * 1024,
+    "rakuten": 24 * 1024 * 1024,
+}
 
 
 def cooldown_key(source: str) -> str:
@@ -501,10 +513,10 @@ def acquire_source(
                         source, body, url=page_url, encoding=receipt.encoding or "utf-8"
                     )
                 except ValueError:
-                    if source != "nhk_news":
+                    if source != "nhk_news" and source not in WORLD_NEWS_SOURCES:
                         raise
                     # This feed's original is saved, but another independent
-                    # NHK entry may still provide valid items in the same slot.
+                    # feed entry may still provide valid items in the same slot.
                     failed.append("index_parse_failed")
                     partial = True
                     page_url = entry_urls.pop(0) if entry_urls else None
