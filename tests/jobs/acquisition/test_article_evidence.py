@@ -3,6 +3,7 @@
 import hashlib
 import json
 from contextlib import closing
+from datetime import timedelta
 
 import pytest
 from tests.helpers.article_acquisition import SLOT, _packet, receipt
@@ -20,12 +21,23 @@ from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.integration.article_handoff import import_handoff
 
 
-def test_private_exact_export_keeps_original_after_integration(tmp_path):
+@pytest.mark.parametrize("conditional", [False, True])
+def test_private_exact_export_keeps_original_after_integration(tmp_path, conditional):
     store = MemoryR2Store()
     packet = _packet(tmp_path)
     original = receipt(body=b"<rss><channel/></rss>")
     with closing(open_connection(packet / "receipts.sqlite")) as conn, conn:
         retain_receipt(conn, original, body=b"<rss><channel/></rss>")
+        if conditional:
+            original = original.model_copy(
+                update={
+                    "receipt_id": "conditional",
+                    "status": "not_modified",
+                    "http_status": 304,
+                    "received_at": original.received_at + timedelta(minutes=1),
+                }
+            )
+            retain_receipt(conn, original)
     report = {
         "source": original.source,
         "started_at": SLOT.isoformat(),

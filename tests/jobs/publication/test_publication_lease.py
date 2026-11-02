@@ -296,7 +296,9 @@ def test_local_env_loads_from_module_location_without_overriding_process_env(
     module.parent.mkdir(parents=True)
     (tmp_path / ".env").write_text("R2_STORES_BUCKET=from-file\nR2_ACCOUNT_ID=from-file\n")
     monkeypatch.setenv("R2_ACCOUNT_ID", "from-process")
-    monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
+    # Register an absent key too: dotenv writes outside monkeypatch tracking.
+    monkeypatch.setenv("R2_STORES_BUCKET", "")
+    monkeypatch.delenv("R2_STORES_BUCKET")
     monkeypatch.chdir(module.parent)
     lease._load_project_env(module)
     assert lease.os.environ["R2_ACCOUNT_ID"] == "from-process"
