@@ -101,14 +101,20 @@ def export_evidence(
     return {"stage_id": stage_id, "receipts": len(outputs), "output_dir": str(directory)}
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", choices=ARTICLE_SOURCES, required=True)
     parser.add_argument("--stage-id", required=True)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--directory", type=Path, required=True)
-    parser.add_argument("--receipt", nargs=2, action="append", required=True, metavar=("ID", "SHA256"))
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--receipt", nargs=2, action="append", required=True, metavar=("ID", "SHA256")
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         if len(dict(args.receipt)) != len(args.receipt):
             raise ValueError("duplicate receipt request")
