@@ -19,7 +19,7 @@ from baibai_jobs.acquisition.article_planning import (
     slot_at,
     source_key,
 )
-from baibai_jobs.maintenance.article_recovery import exact_entry
+from baibai_jobs.maintenance.article_recovery import prepare
 
 
 def test_six_wakeups_do_not_assume_a_fixed_tsr_launch_hour():
@@ -134,12 +134,14 @@ def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_pa
     assert saved.pending == ()
     assert "coordination/article-sources/boj_news-orphan/handoff.json" in remote.values
     stage = json.loads((tmp_path / "boj_news" / "stage.json").read_text())
-    recovery = exact_entry(
+    prepare(
         remote,
+        tmp_path / "recovery",
         source="boj_news",
         stage_id=stage["stage_id"],
         manifest_sha256=stage["manifest_sha256"],
     )
+    recovery = json.loads((tmp_path / "recovery/plan.json").read_text())["handoffs"][0]
     assert recovery["explicit_article_recovery"] is True
 
 
