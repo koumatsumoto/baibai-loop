@@ -15,10 +15,11 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     compact,
     document,
     number,
+    numeric_text,
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
-PARSER_VERSION = "rakuten-rating-3"
+PARSER_VERSION = "rakuten-rating-4"
 IFRAME_BASE = "https://rakuten-sec.ifis.co.jp/index.php"
 IFRAME_PARAMETER = "?action=tp4&sa=report_est&bcode="
 _SCRIPT_ITEMS = re.compile(
@@ -155,7 +156,7 @@ def parse_html(
     cells = rows[0].find("td") if len(rows) == 1 else []
     if len(cells) != 4 or cells[0].find("img"):
         raise ParseError("changed_rating_cell")
-    rating = number(cells[0].text, unit="rating")
+    rating = number(numeric_text(cells[0]), unit="rating")
     # Neither a rating scale nor a rating-specific count is present in the
     # verified public HTML. The forecast-section count is a different metric.
     return AnalystRatingObservation.model_validate(

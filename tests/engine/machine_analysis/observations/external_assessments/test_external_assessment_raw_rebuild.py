@@ -117,9 +117,9 @@ def _pair(conn, *, ticker="7203", at=RECEIVED):
 @pytest.mark.parametrize(
     ("source", "expected_version", "time_shift"),
     [
-        ("monex", "monex-theory-3", 0),
+        ("monex", "monex-theory-4", 0),
         ("kabumap", "kabumap-quants-3", 0),
-        ("rakuten", "rakuten-rating-3", 2),
+        ("rakuten", "rakuten-rating-4", 2),
     ],
 )
 def test_each_captured_source_decodes_its_original_bytes_encoding_and_time(
