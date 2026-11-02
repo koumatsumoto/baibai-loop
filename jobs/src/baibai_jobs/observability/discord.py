@@ -230,7 +230,15 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
     if any(type(value) is not int or value < 0 for value in counts):
         return ["モデル生成: 完了 / 件数未確認"]
     companies, models, candidates = counts
-    return [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
+    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
+    coverage = notice.get("screening_price_inputs")
+    if isinstance(coverage, dict):
+        valid, universe = coverage.get("valid_count"), coverage.get("universe_count")
+        if type(valid) is int and type(universe) is int and 0 <= valid <= universe:
+            lines.append(f"候補抽出の価格入力: 適格{valid}/{universe}社")
+            if candidates == 0 and universe > 0 and valid == 0:
+                lines.append("候補0の要因: 適格な価格入力なし（投資機会なしの判定ではない）")
+    return lines
 
 
 def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:

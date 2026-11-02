@@ -24,7 +24,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
     economic_selection_id,
-    select_saved_economic_generation,
+    evaluate_saved_economic_generation,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
@@ -86,9 +86,10 @@ def integrate_models(
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)
         subjects = generation.subjects
-        selection = select_saved_economic_generation(
+        evaluation = evaluate_saved_economic_generation(
             generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
         )
+        selection = evaluation.selection
         selection_id = economic_selection_id(generation.metadata.generation_id, policy=policy)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
         publication = publish_prepared_market_lake(
@@ -105,6 +106,7 @@ def integrate_models(
         "company_count": len(subjects),
         "model_count": saved.model_count,
         "candidate_count": len(selection.result.tickers),
+        "screening_price_inputs": evaluation.price_inputs,
         "growth_start": None if growth_start is None else growth_start.isoformat(),
         "economic_snapshot_sha256": digest,
         "lake": publication.as_dict(),

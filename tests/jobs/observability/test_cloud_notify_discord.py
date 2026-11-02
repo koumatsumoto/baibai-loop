@@ -571,3 +571,30 @@ def test_deferred_input_text_is_single_line_and_keeps_the_run_link():
     assert "edinet extra" in message
     assert "2026-10-23 date" in message
     assert message.endswith(f"Run: <{RUN_URL}>")
+
+
+@pytest.mark.parametrize("valid", [0, 1])
+def test_zero_candidates_distinguishes_price_input_absence(valid):
+    notice = {
+        "models_ready": True,
+        "company_count": 2,
+        "model_count": 10,
+        "candidate_count": 0,
+        "screening_price_inputs": {"valid_count": valid, "universe_count": 2},
+    }
+    lines = discord.render_generation(notice)
+    assert lines[0] == "モデル生成: 2社 / 10件 / 候補0社"
+    assert lines[1] == f"候補抽出の価格入力: 適格{valid}/2社"
+    assert any("投資機会なしの判定ではない" in line for line in lines) is (valid == 0)
+
+
+@pytest.mark.parametrize(("valid", "universe"), [(True, 2), (3, 2), (-1, 2), (0, "2")])
+def test_invalid_price_diagnostics_are_not_reported_as_verified(valid, universe):
+    notice = {
+        "models_ready": True,
+        "company_count": 2,
+        "model_count": 10,
+        "candidate_count": 0,
+        "screening_price_inputs": {"valid_count": valid, "universe_count": universe},
+    }
+    assert discord.render_generation(notice) == ["モデル生成: 2社 / 10件 / 候補0社"]
