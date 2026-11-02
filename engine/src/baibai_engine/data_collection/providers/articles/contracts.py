@@ -76,7 +76,37 @@ class ArticleSource:
         return limit if limit is not None else self.max_response_bytes
 
 
+# Same publisher across its two feeds; repeated articles retain both receipt links.
+WORLD_NEWS_SOURCES = frozenset({"bbc_news", "fed_news", "ecb_news"})
+RSS_SOURCES = WORLD_NEWS_SOURCES | {"boj_news", "mof_news", "nhk_news", "toushiru"}
+
 SOURCES = {
+    "bbc_news": ArticleSource(
+        "bbc_news",
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        frozenset({"feeds.bbci.co.uk"}),
+        additional_entry_urls=("https://feeds.bbci.co.uk/news/business/rss.xml",),
+        max_pages=2,
+        max_bodies=0,
+        max_feed_bytes=1024 * 1024,
+        max_bytes=2 * 1024 * 1024,
+    ),
+    "fed_news": ArticleSource(
+        "fed_news",
+        "https://www.federalreserve.gov/feeds/press_all.xml",
+        frozenset({"www.federalreserve.gov"}),
+        max_bodies=0,
+        max_feed_bytes=1024 * 1024,
+        max_bytes=1024 * 1024,
+    ),
+    "ecb_news": ArticleSource(
+        "ecb_news",
+        "https://www.ecb.europa.eu/rss/press.html",
+        frozenset({"www.ecb.europa.eu"}),
+        max_bodies=0,
+        max_feed_bytes=1024 * 1024,
+        max_bytes=1024 * 1024,
+    ),
     "nhk_news": ArticleSource(
         "nhk_news",
         "https://news.web.nhk/n-data/conf/na/rss/cat4.xml",

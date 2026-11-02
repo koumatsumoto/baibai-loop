@@ -11,6 +11,7 @@ from tests.helpers.r2_store import MemoryR2Store
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.article_evidence import exact_entry
 from baibai_jobs.acquisition.article_planning import (
     load_discovery_cursor,
     load_planning,
@@ -20,7 +21,7 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.external_assessments.staging import put_private
 from baibai_jobs.acquisition.receipts import download_fixed, seal_integrated
-from baibai_jobs.maintenance.article_recovery import exact_entry, prepare, register_discovery
+from baibai_jobs.maintenance.article_recovery import prepare, register_discovery
 
 
 def test_exact_recovery_keeps_original_marker_manifest_and_clock(tmp_path):
@@ -37,6 +38,8 @@ def test_exact_recovery_keeps_original_marker_manifest_and_clock(tmp_path):
     )
     plan = json.loads((tmp_path / "recovery/plan.json").read_text())
     assert plan["handoffs"][0]["started_at"] == SLOT.isoformat()
+    assert plan["handoffs"][0]["explicit_article_recovery"] is True
+    entry = plan["handoffs"][0]
     download_fixed(store, entry, tmp_path / "raw")
     assert (tmp_path / "raw/receipts.sqlite").read_bytes() == (
         packet / "receipts.sqlite"

@@ -12,7 +12,7 @@ def test_article_slots_use_bounded_host_groups_without_model_generation():
     workflow = yaml.load(raw, Loader=yaml.BaseLoader)
     assert workflow["on"]["schedule"] == [{"cron": ARTICLE_CRON}]
     job = workflow["jobs"]["acquire"]
-    assert job["strategy"]["matrix"]["group"] == ["public", "minkabu", "rakuten"]
+    assert job["strategy"]["matrix"]["group"] == ["public", "world", "minkabu", "rakuten"]
     assert job["strategy"]["fail-fast"] == "false"
     assert "source-host-" in job["concurrency"]["group"]
     assert "model-integration" not in raw
