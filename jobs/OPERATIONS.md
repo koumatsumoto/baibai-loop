@@ -161,7 +161,7 @@ planning CAS失敗で残った原本の統合と、最新cursorの復元は別�
 固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。
 
 ```bash
-uv run python -m baibai_jobs.acquisition.article_evidence \
+uv run baibai-jobs article-evidence \
   --source <SOURCE> --stage-id <STAGE_ID> --manifest-sha256 <HASH> \
   --receipt <RECEIPT_ID> <RECEIPT_SHA256> --directory <PRIVATE_OUTPUT>
 ```
