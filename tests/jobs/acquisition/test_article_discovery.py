@@ -446,3 +446,34 @@ def test_exact_v1_and_v2_children_load_and_bind_local_stage(tmp_path, legacy):
     # A new write migrates representation only; exact old immutable stage is intact.
     upgraded = DiscoveryWork(expanded).wire(expanded)
     assert worksets.expand_cursor(upgraded) == expanded
+
+
+def test_repeated_parent_discovery_does_not_starve_unfinished_children():
+    work = DiscoveryWork({})
+    links = tuple(NativeLink(f"/a/{i}", f"https://www.mof.go.jp/item-{i}.pdf") for i in range(10))
+    # Earlier successful reads consumed the first two links. A repeatedly
+    # revalidated parent still exposes them, but the remaining FIFO must lead.
+    pending = [link.url for link in links[2:]]
+    read = []
+    for _ in range(4):
+        identity = work.register(receipt(), {"stage_id": "original"})
+        pending = work.admit(identity, links, pending, revision="r1")
+        assert pending is not None
+        read.extend(pending[:2])
+        pending = pending[2:]
+        work = DiscoveryWork(work.wire({"pending_urls": pending}))
+    assert read == [link.url for link in links[2:]]
+    # Revalidation remains eligible, but cannot preempt the unfinished FIFO.
+    assert pending == [link.url for link in links[:8]]
+    assert set(work.children) == {link.url for link in links}
+    assert all(edges[0]["parent"]["receipt_id"] == "original" for edges in work.children.values())
+
+
+def test_replayed_parent_preserves_queue_order_and_admits_every_new_link():
+    work = DiscoveryWork({})
+    identity = work.register(receipt(), {"stage_id": "original"})
+    old = ["https://www.mof.go.jp/older.pdf", "https://www.mof.go.jp/existing.pdf"]
+    links = (NativeLink("/new", "https://www.mof.go.jp/new.pdf"), NativeLink("/existing", old[1]))
+    queue = work.admit(identity, links, old, revision="r1")
+    assert queue == [*old, links[0].url]
+    assert work.children[old[1]][0]["locator"] == "/existing"

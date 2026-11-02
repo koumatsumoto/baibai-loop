@@ -118,7 +118,10 @@ class DiscoveryWork:
         """
         parent = self.pending[identity]
         children = deepcopy(self.children)
-        proposed = list(dict.fromkeys([*(link.url for link in links), *queue]))
+        # Revalidating an unchanged parent must not push its already-read first
+        # children ahead of unfinished work on every run. Preserve the FIFO;
+        # newly discovered links still retain their exact evidence at the tail.
+        proposed = list(dict.fromkeys([*queue, *(link.url for link in links)]))
         for link in links:
             edge = {
                 "parent": parent,
