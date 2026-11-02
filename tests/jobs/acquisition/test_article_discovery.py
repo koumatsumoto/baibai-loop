@@ -429,6 +429,14 @@ def test_exact_v1_and_v2_children_load_and_bind_local_stage(tmp_path, legacy):
         not_before=None,
     )
     loaded, _ = load_planning(store, "mof_news")
+    if not legacy:
+        # Previous binaries recognize the stable ref envelope, then reject the
+        # v2 document before HTTP. They must never resume an empty workset.
+        from baibai_jobs.acquisition.article_planning import _load_workset
+
+        assert loaded.cursor["format"] == "article-discovery-ref-v1"
+        with pytest.raises(ValueError, match="source/format mismatch"):
+            _load_workset(store, loaded, "article-discovery-v1")
     expanded = load_discovery_cursor(store, loaded)
     parent = expanded["discovery_children"][target][0]["parent"]
     assert parent["stage"] == entry

@@ -14,8 +14,9 @@ DISCOVERY_SOURCES = frozenset({"boj_news", "mof_news"})
 # written, rollbacks must retain this reader; old binaries cannot resume v2.
 LEGACY_DISCOVERY_FORMAT = "article-discovery-v1"
 DISCOVERY_FORMAT = "article-discovery-v2"
-LEGACY_DISCOVERY_REF_FORMAT = "article-discovery-ref-v1"
-DISCOVERY_REF_FORMAT = "article-discovery-ref-v2"
+# Keep the exact-stage pointer envelope stable: an old reader follows it and
+# rejects the unknown v2 body, rather than treating it as an empty legacy cursor.
+DISCOVERY_REF_FORMAT = "article-discovery-ref-v1"
 MAX_DISCOVERY_BYTES = 1_000_000
 MAX_DISCOVERY_REPLAYS = 8
 

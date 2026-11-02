@@ -16,7 +16,6 @@ from baibai_jobs.acquisition.article_discovery import (
     DISCOVERY_FORMAT,
     DISCOVERY_REF_FORMAT,
     LEGACY_DISCOVERY_FORMAT,
-    LEGACY_DISCOVERY_REF_FORMAT,
     expand_cursor,
 )
 from baibai_jobs.acquisition.article_frontier import (
@@ -239,12 +238,7 @@ def commit_stage(
     if cursor.get("format") == FRONTIER_FORMAT:
         bound_cursor = {"format": FRONTIER_REF_FORMAT, "stage": entry}
     elif cursor.get("format") in (DISCOVERY_FORMAT, LEGACY_DISCOVERY_FORMAT):
-        bound_cursor = {
-            "format": DISCOVERY_REF_FORMAT
-            if cursor["format"] == DISCOVERY_FORMAT
-            else LEGACY_DISCOVERY_REF_FORMAT,
-            "stage": entry,
-        }
+        bound_cursor = {"format": DISCOVERY_REF_FORMAT, "stage": entry}
     elif cursor.get("pending_evidence"):
         bound_cursor = {
             **cursor,
@@ -269,7 +263,7 @@ def commit_stage(
 
 
 def _load_workset(
-    store: ObjectStore, state: ArticlePlanning, expected_format: str
+    store: ObjectStore, state: ArticlePlanning, expected_format: str | tuple[str, ...]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     entry = state.cursor["stage"]
     if (
@@ -285,7 +279,8 @@ def _load_workset(
         raise LakePublishError("article frontier manifest differs or is missing")
     report = json.loads(saved.payload)["result"]
     frontier = report["planning"]["cursor"]
-    if report["source"] != state.source or frontier.get("format") != expected_format:
+    formats = (expected_format,) if isinstance(expected_format, str) else expected_format
+    if report["source"] != state.source or frontier.get("format") not in formats:
         raise ValueError("article frontier source/format mismatch")
     return frontier, entry
 
@@ -305,14 +300,9 @@ def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str
 
 
 def load_discovery_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
-    if state.cursor.get("format") not in (DISCOVERY_REF_FORMAT, LEGACY_DISCOVERY_REF_FORMAT):
+    if state.cursor.get("format") != DISCOVERY_REF_FORMAT:
         return expand_cursor(state.cursor)
-    expected = (
-        DISCOVERY_FORMAT
-        if state.cursor["format"] == DISCOVERY_REF_FORMAT
-        else LEGACY_DISCOVERY_FORMAT
-    )
-    cursor, entry = _load_workset(store, state, expected)
+    cursor, entry = _load_workset(store, state, (DISCOVERY_FORMAT, LEGACY_DISCOVERY_FORMAT))
     cursor = expand_cursor(cursor)
 
     def bind_reference(value: dict[str, Any]) -> dict[str, Any]:
