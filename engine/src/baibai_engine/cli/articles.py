@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
@@ -94,6 +95,24 @@ def build_parser() -> argparse.ArgumentParser:
             reader.add_argument("--limit", type=int, default=20)
             reader.add_argument("--after")
             reader.add_argument("--month", help="UTC receipt month YYYY-MM; defaults to latest")
+            reader.add_argument(
+                "--source", action="append", default=[], help="repeat to select sources"
+            )
+            reader.add_argument(
+                "--published-since",
+                type=datetime.fromisoformat,
+                help="inclusive ISO timestamp with timezone",
+            )
+            reader.add_argument(
+                "--published-before",
+                type=datetime.fromisoformat,
+                help="exclusive ISO timestamp with timezone",
+            )
+            reader.add_argument(
+                "--output-dir",
+                type=Path,
+                help="new private directory; includes titles, never prints them",
+            )
         else:
             reader.add_argument("--reference-file", type=Path, required=True)
             reader.add_argument(
@@ -149,7 +168,25 @@ def _run(argv: list[str] | None = None) -> int:
         release = resolve_release(source, args.release, manifest_sha256=args.manifest_sha256)
         reader = FixedArticleReader(release, LakeObjectCache(args.cache, source))
         if args.command == "list":
-            result = reader.list(after=args.after, limit=args.limit, month=args.month)
+            listing = reader.list(
+                after=args.after,
+                limit=args.limit,
+                month=args.month,
+                sources=tuple(args.source),
+                published_since=args.published_since,
+                published_before=args.published_before,
+                include_titles=args.output_dir is not None,
+            )
+            result = listing
+            if args.output_dir is not None:
+                args.output_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+                with (args.output_dir / "index.json").open("x") as output:
+                    json.dump(listing, output, ensure_ascii=False)
+                result = {
+                    **{key: value for key, value in result.items() if key != "items"},
+                    "item_count": len(listing["items"]),
+                    "output_dir": str(args.output_dir),
+                }
         else:
             reference = ArticleEvidenceRef.model_validate_json(args.reference_file.read_bytes())
             evidence = (
