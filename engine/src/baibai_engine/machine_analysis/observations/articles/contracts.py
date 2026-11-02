@@ -61,7 +61,8 @@ class ArticleObservation(ArticleValue):
         """Native content version separate from GET identity and HTML decoration.
 
         A reorder of an index or same-value 200/304 is a new receipt, not a new
-        article content version. Parser/text revisions remain explicit; semantic
+        article content version. A second feed carrying the same native item is
+        another provenance path, not a revision. Parser/text revisions remain explicit; semantic
         extraction revision belongs to its separate artifact.
         """
         return "article-version-" + digest_json(
@@ -72,7 +73,7 @@ class ArticleObservation(ArticleValue):
                     "receipt_sha256": True,
                     "body_ref": True,
                     "native_locator": True,
-                    "native_metadata": {"index_observation_id"},
+                    "native_metadata": {"index_observation_id", "feed_url"},
                 },
             )
         )
