@@ -59,10 +59,16 @@ def test_derived_cli_reports_computation_without_source_fetch(tmp_path, capsys):
             ]
         )
     assert code == 0
-    assert capsys.readouterr().out.splitlines() == [
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[:2] == [
         "series_id\tobserved_at\tvalue\tunit\tprovider",
         "us.erp\t2026-01-30\t1\tpercent\tderived",
     ]
+    assert len(lines) == 6
+    assert "quality_flags=mixed_input_dates" in lines[2]
+    assert "derived_alignment=monthly; output_date_rule=latest_input" in lines[3]
+    assert "input[us.sp500_earnings_yield]: observed_at=2026-01-01" in lines[4]
+    assert "input[us.10y]: observed_at=2026-01-30" in lines[5]
 
 
 def test_catalog_never_opens_a_store(tmp_path, monkeypatch, capsys):

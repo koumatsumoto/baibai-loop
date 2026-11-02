@@ -162,8 +162,8 @@ def test_minkabu_headed_card_selects_only_article_body_near_related_and_ads():
     assert "Related story" not in article.text
     assert "Advertisement" not in article.text
     assert article.content_scope == "partial_text"
-    assert parser_revision_for("minkabu_news") == "article-native-minkabu-v2"
-    assert parser_revision_for("tsr_data") == "article-native-v1"
+    assert parser_revision_for("minkabu_news") == "article-native-minkabu-v3"
+    assert parser_revision_for("tsr_data") == "article-native-v2"
 
 
 @pytest.mark.parametrize(
@@ -579,3 +579,12 @@ def test_optional_location_preserves_old_receipt_json_and_digest():
     assert restored.sha256 == receipt.sha256
     with_location = receipt.model_copy(update={"location": "/articles/-/2"})
     assert with_location.sha256 != receipt.sha256
+
+
+@pytest.mark.parametrize("source", ["bbc_news", "fed_news", "ecb_news"])
+def test_xml_decoded_ampersand_at_end_of_headline_is_flushed(source):
+    feed = b"<rss><channel><item><link>https://example.test/policy</link><title>Synthetic policy (Q&amp;A)</title></item></channel></rss>"
+    (article,) = parse_index(source, feed, url="https://example.test/rss")
+    assert article.title == "Synthetic policy (Q&A)"
+    assert article.content_scope == "headline"
+    assert article.text == ""

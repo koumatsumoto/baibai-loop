@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import date
 from typing import assert_never
 
@@ -48,14 +49,29 @@ def derive_series(
             continue
         vintages = [row.vintage_at for row in aligned.values()]
         vintage = max(v for v in vintages if v is not None) if all(vintages) else None
-        results.append(
-            reading_observation(
-                series,
-                observed_at=observed_at,
-                value=value,
-                vintage_at=vintage,
-            )
+        observation = reading_observation(
+            series, observed_at=observed_at, value=value, vintage_at=vintage
         )
+        # A monthly bundle can contain different observation dates. Its output
+        # date and max vintage alone must not imply synchronous, equally fresh inputs.
+        date_rule = formula.monthly_observation_date if formula.alignment == "monthly" else "exact"
+        notes = [f"derived_alignment={formula.alignment}; output_date_rule={date_rule}"]
+        for key in formula.inputs:
+            row = aligned[key]
+            notes.append(
+                f"input[{key}]: observed_at={row.observed_at.isoformat()}; "
+                f"value={row.value!r}; unit={row.unit}; "
+                f"vintage_at={row.vintage_at.isoformat() if row.vintage_at else 'unknown'}; "
+                f"source_url={row.source_url}"
+            )
+            # Input flags remain attributed: a negative component is not a claim
+            # that the derived output is negative. Keep source limitations as well.
+            notes.extend(f"input[{key}] flag: {flag}" for flag in row.quality_flags)
+            notes.extend(f"input[{key}] note: {note}" for note in row.notes)
+        flags = (
+            ("mixed_input_dates",) if len({row.observed_at for row in aligned.values()}) > 1 else ()
+        )
+        results.append(replace(observation, notes=tuple(notes), quality_flags=flags))
     return tuple(results)
 
 
