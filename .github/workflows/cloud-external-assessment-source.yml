@@ -100,7 +100,8 @@ jobs:
         run: |
           args=(--selection-json "$SOURCE_RUNS" --report-output "$RUNNER_TEMP/source-ready.json")
           if [ -n "$MASTER_ASOF" ]; then args+=(--master-asof "$MASTER_ASOF"); fi
-          if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial); fi
+          if [ "$OPERATION" = stage_confirmed_partial ]; then args+=(--confirmed-partial);
+          else args+=(--cumulative); fi
           uv run python -m baibai_jobs.acquisition.external_assessments.sources ready "${args[@]}"
 
   notify:

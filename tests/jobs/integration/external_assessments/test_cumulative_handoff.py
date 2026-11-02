@@ -208,3 +208,15 @@ def test_invalid_ack_cannot_silently_remove_ready(publication):
     reference = save_ready(store, prepare_plan(store, plan, cumulative=True))
     store.store_object(acknowledgement_key(plan, reference), b"[]")
     assert available_ready(store) == ([], [{"run_id": plan.run_id, "reason": "ValueError"}])
+
+
+def test_missing_unacknowledged_original_never_seals_or_invents_zero(publication):
+    store, plan = make_partial(publication)
+    reference = save_ready(store, prepare_plan(store, plan, cumulative=True))
+    for key in load_ready(store, reference).stages[0][0].raw_bundle_keys:
+        del store.values[key]
+    database = publication[3]
+    state = merge_ready(store, [reference], database=database)
+    assert state["plans"] == []
+    assert state["failed"] == [{"reference": reference, "reason": "ValueError"}]
+    assert read_acknowledgement(store, load_ready(store, reference), reference) is None

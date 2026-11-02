@@ -34,7 +34,7 @@ def test_journal_failure_keeps_original_and_does_not_commit_checkpoint(monkeypat
         daily.acquire_cohort(store, p, 0)
     assert staging.read_stage(store, p, 0) is None
     assert read_attempts(store, p) == []
-    assert any(key.startswith("external-assessment/raw/") for key in store.objects)
+    assert any(key.startswith("external-assessment/retained/") for key in store.objects)
 
 
 def test_journal_is_read_only_and_rejects_content_key_mismatch(monkeypatch):

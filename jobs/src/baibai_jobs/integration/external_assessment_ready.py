@@ -16,6 +16,7 @@ from baibai_engine.storage.objects.r2 import (
     R2Error,
 )
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
+from baibai_jobs.acquisition.external_assessments.raw import preserve_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     load_stage,
@@ -81,10 +82,15 @@ def prepare_saved_stages(
     return PreparedPlan(plan, stages, accounting, confirmed_partial, cumulative)
 
 
-def save_ready(store: ObjectStore, item: PreparedPlan) -> dict[str, str]:
+def save_ready(store: ReceiptStore, item: PreparedPlan) -> dict[str, str]:
     plan = item.plan
     stages = []
+    acknowledged = acknowledged_bundles(store, plan) if item.cumulative else {}
     for index, (stage, _) in sorted(item.stages.items()):
+        if item.cumulative:
+            for key in stage.raw_bundle_keys:
+                if key not in acknowledged:
+                    preserve_raw_bundle(store, key)
         payload = stage_bytes(plan, stage)
         digest = hashlib.sha256(payload).hexdigest()
         key = prefix(plan.run_id) + f"/confirmed-stages/{digest}.json"

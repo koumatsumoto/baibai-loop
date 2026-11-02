@@ -39,7 +39,7 @@ def bundles(store):
     return [
         key
         for key in store.objects
-        if key.startswith(external_assessment_raw.RAW_PREFIX) and "/bundles/" in key
+        if key.startswith(external_assessment_raw.RETAINED_RAW_PREFIX) and "/bundles/" in key
     ]
 
 
@@ -175,7 +175,7 @@ def test_raw_upload_precedes_typed_checkpoint_and_never_downloads_per_body(conne
     original = store.put_file
 
     def put(key, path, **kwargs):
-        if key.startswith(external_assessment_raw.RAW_PREFIX):
+        if key.startswith(external_assessment_raw.RETAINED_RAW_PREFIX):
             assert stage_or_none(store, p) is None
         else:
             assert bundles(store)
@@ -184,7 +184,7 @@ def test_raw_upload_precedes_typed_checkpoint_and_never_downloads_per_body(conne
     monkeypatch.setattr(store, "put_file", put)
     daily.acquire_cohort(store, p, 0)
     assert not any(
-        method == "GET" and key.startswith(external_assessment_raw.RAW_PREFIX)
+        method == "GET" and key.startswith(external_assessment_raw.RETAINED_RAW_PREFIX)
         for method, key in store.events
     )
 
@@ -275,7 +275,7 @@ def test_inventory_three_utc_dates_unclassified_and_exact_date_prefixes():
     assert all(days[day]["status"] == "keep" for day in ("2026-10-10", "2026-10-11", "2026-10-12"))
 
 
-def test_inventory_cli_lists_only_raw_root_without_mutations(monkeypatch, capsys):
+def test_inventory_cli_lists_both_raw_roots_without_mutations(monkeypatch, capsys):
     class InventoryStore:
         def __init__(self, *, bucket):
             assert bucket == "baibai-stores"
@@ -289,7 +289,10 @@ def test_inventory_cli_lists_only_raw_root_without_mutations(monkeypatch, capsys
     monkeypatch.delenv("R2_STORES_BUCKET", raising=False)
     monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", lambda **kwargs: store)
     assert external_assessment_raw.main(["--as-of", "2026-10-12"]) == 0
-    assert store.prefixes == [external_assessment_raw.RAW_PREFIX]
+    assert store.prefixes == [
+        external_assessment_raw.RAW_PREFIX,
+        external_assessment_raw.RETAINED_RAW_PREFIX,
+    ]
     report = json.loads(capsys.readouterr().out)
     assert report["mode"] == "read_only_inventory"
     assert report["dates"] == {}
@@ -424,3 +427,98 @@ def test_outer_page_only_is_valid_original_but_incomplete_for_l2():
     assert restored == (outer,)
     with pytest.raises(ParseError, match="incomplete_attempt"):
         decode_attempt(restored)
+
+
+def legacy_bundle(store, p, *, body=b"legacy original"):
+    with external_assessment_raw.RawBundle(p.run_id, 0) as bundle:
+        bundle.append(response("monex", "7203", body))
+        bundle.finish()
+        bundle.upload(store)
+        retained = bundle.key
+    legacy = retained.replace(
+        external_assessment_raw.RETAINED_RAW_PREFIX, external_assessment_raw.RAW_PREFIX, 1
+    )
+    payload = store.objects[retained][0]
+    store.seed(legacy, payload, "application/gzip")
+    del store.objects[retained]
+    store.puts.clear()
+    return legacy, retained, payload
+
+
+def test_preserve_legacy_bundle_without_rewriting_identity_or_original():
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, payload = legacy_bundle(store, p)
+    original = store.objects[legacy]
+    expected = external_assessment_raw.read_raw_bundle(store, legacy)
+    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
+    assert store.objects[legacy] == original
+    assert store.objects[retained][0] == payload
+    assert len(store.puts) == 1
+    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
+    assert len(store.puts) == 1
+    del store.objects[legacy]  # Simulate only the old prefix's lifecycle.
+    assert external_assessment_raw.read_raw_bundle(store, legacy) == expected
+    assert external_assessment_raw.read_raw_bundle(store, retained) == expected
+
+
+@pytest.mark.parametrize("fault", ["after", "bad_receipt"])
+def test_preservation_put_uncertainty_is_verified_without_overwrite(fault):
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, payload = legacy_bundle(store, p)
+    store.put_fault = (1, fault)
+    assert external_assessment_raw.preserve_raw_bundle(store, legacy) == retained
+    assert store.objects[legacy][0] == store.objects[retained][0] == payload
+    assert len(store.puts) == 1
+
+
+def test_conflicting_retained_copy_is_not_accepted_or_overwritten():
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, _ = legacy_bundle(store, p)
+    _, _, other = legacy_bundle(store, p, body=b"different original")
+    store.seed(retained, other, "application/gzip")
+    before = dict(store.objects)
+    with pytest.raises(ValueError, match="conflicts with legacy"):
+        external_assessment_raw.preserve_raw_bundle(store, legacy)
+    assert store.objects == before
+    assert store.puts == []
+
+
+def test_missing_legacy_original_is_not_recreated():
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, _ = legacy_bundle(store, p)
+    del store.objects[legacy]
+    with pytest.raises(ValueError, match="legacy external original is missing"):
+        external_assessment_raw.preserve_raw_bundle(store, legacy)
+    assert retained not in store.objects
+    assert store.puts == []
+
+
+def test_explicit_plan_preservation_cli_keeps_plan_stage_and_legacy_bytes(monkeypatch, capsys):
+    from baibai_jobs.acquisition.external_assessments.cohorts import new_result
+
+    store, p = FakeObjectStore(), plan()
+    legacy, retained, payload = legacy_bundle(store, p)
+    staging.save_new_plan(store, p)
+    checkpoint = staging.CohortStage(new_result(p, 0), raw_bundle_keys=(legacy,))
+    staging.commit_stage(store, p, checkpoint, previous=None)
+    before = dict(store.objects)
+    store.puts.clear()
+    monkeypatch.setattr(external_assessment_raw, "Boto3R2Store", lambda **kwargs: store)
+    for _ in range(2):
+        assert external_assessment_raw.main(["--preserve-run-id", p.run_id]) == 0
+        report = json.loads(capsys.readouterr().out)
+        assert report["mode"] == "preserve_exact_plan"
+        assert report["plan_sha256"] == p.plan_sha256
+        assert report["preserved"][0]["retained_key"] == retained
+    assert len(store.puts) == 1
+    assert all(store.objects[key] == value for key, value in before.items())
+    assert store.objects[retained][0] == payload
+
+
+def test_retained_prefix_inventory_never_becomes_age_delete_candidate():
+    report = external_assessment_raw.retention_inventory(
+        [(external_assessment_raw.RETAINED_RAW_PREFIX + "utc-date/2020-01-01/bundles/old", 42)],
+        as_of=date(2026, 11, 2),
+    )
+    assert report["retained"] == {"objects": 1, "bytes": 42}
+    assert report["dates"] == {}

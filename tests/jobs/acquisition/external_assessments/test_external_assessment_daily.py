@@ -387,7 +387,7 @@ def test_unsaved_stage_failure_is_visible_after_durable_raw_upload(monkeypatch, 
     with pytest.raises(LakePublishError):
         daily.acquire_cohort(store, p, 0)
     assert len(store.puts) == 3
-    assert store.puts[0][0].startswith("external-assessment/raw/")
+    assert store.puts[0][0].startswith("external-assessment/retained/")
     assert staging.read_stage(store, p, 0) is None
 
 
