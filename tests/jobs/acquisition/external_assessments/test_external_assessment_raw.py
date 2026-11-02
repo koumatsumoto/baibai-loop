@@ -73,9 +73,10 @@ def test_exact_bytes_encoding_reparse_and_typed_idempotency(tmp_path, connect):
     manifest_bytes = json.dumps(metadata).encode()
     assert b"private-cookie-header" not in manifest_bytes
     assert b"private-authorization-header" not in manifest_bytes
-    assert len(store.puts) == 2
+    assert len(store.puts) == 3
     assert store.puts[0][0] == saved.raw_bundle_keys[0]
-    assert store.puts[1][0].endswith("cohort-0000.json")
+    assert "/attempts/" in store.puts[1][0]
+    assert store.puts[2][0].endswith("cohort-0000.json")
 
 
 def test_rakuten_outer_and_iframe_bytes_are_in_one_archive(connect):
@@ -97,7 +98,7 @@ def test_rakuten_outer_and_iframe_bytes_are_in_one_archive(connect):
         fetched_at_utc=datetime.fromisoformat(receipt["received_at_utc"]),
     )
     assert saved.result.observations == (parsed,)
-    assert len(store.puts) == 2
+    assert len(store.puts) == 3
 
 
 @pytest.mark.parametrize("status", [403, 404, 500])

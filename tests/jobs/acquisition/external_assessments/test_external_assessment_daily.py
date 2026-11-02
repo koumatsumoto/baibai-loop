@@ -229,8 +229,8 @@ def test_normal_fifty_pair_cohort_uploads_one_raw_bundle_then_stage(monkeypatch)
     report = daily.acquire_cohort(store, p, 0)
     assert len(calls) == report["provider_requests"] == 50
     assert report["cohort_complete"] is True
-    assert len(store.puts) == 2
-    assert store.puts[1][0] == staging.stage_key(p, 0)
+    assert len(store.puts) == 3
+    assert store.puts[2][0] == staging.stage_key(p, 0)
     assert all(event[0] != "GET" for event in store.events)
     saved = stage(store, p)
     assert saved.http_requests == 50
@@ -311,7 +311,7 @@ def test_controlled_partial_commit_preserves_receipt_and_failure_then_resumes_mi
         "unattempted",
     ]
     assert len(partial.raw_bundle_keys) == 1
-    assert len(store.puts) == 2
+    assert len(store.puts) == 3
     timer[0] = 0
     daily.acquire_cohort(store, p, 0)
     complete = stage(store, p)
@@ -320,7 +320,7 @@ def test_controlled_partial_commit_preserves_receipt_and_failure_then_resumes_mi
     assert complete.raw_bundle_keys[:1] == partial.raw_bundle_keys
     assert len(complete.raw_bundle_keys) == 2
     assert complete.result.observations[0].fetched_at_utc == RECEIVED
-    assert len(store.puts) == 4
+    assert len(store.puts) == 6
 
 
 def test_empty_soft_stop_does_not_write_a_stage(monkeypatch):
@@ -372,10 +372,10 @@ def test_hard_kill_before_commit_allows_reget_without_durable_reservation(monkey
 def test_ambiguous_stage_put_adopts_actual_saved_result(monkeypatch, fault):
     p, store = plan(), FakeObjectStore()
     wire_success(monkeypatch, store, p)
-    store.put_fault = (2, fault)
+    store.put_fault = (3, fault)
     report = daily.acquire_cohort(store, p, 0)
     assert report["cohort_complete"] is True
-    assert len(store.puts) == 2
+    assert len(store.puts) == 3
     assert stage(store, p).result.observations == (observation(),)
 
 
@@ -383,10 +383,10 @@ def test_ambiguous_stage_put_adopts_actual_saved_result(monkeypatch, fault):
 def test_unsaved_stage_failure_is_visible_after_durable_raw_upload(monkeypatch, fault):
     p, store = plan(), FakeObjectStore()
     wire_success(monkeypatch, store, p, raw=True)
-    store.put_fault = (2, fault)
+    store.put_fault = (3, fault)
     with pytest.raises(LakePublishError):
         daily.acquire_cohort(store, p, 0)
-    assert len(store.puts) == 2
+    assert len(store.puts) == 3
     assert store.puts[0][0].startswith("external-assessment/raw/")
     assert staging.read_stage(store, p, 0) is None
 
@@ -444,25 +444,31 @@ def test_competing_saved_timestamp_wins_without_overwrite_or_wrong_raw(monkeypat
     assert saved.result.observations == (winner_obs,)
     assert saved.raw_bundle_keys == (winner_key,)
     assert losing_key not in saved.raw_bundle_keys
+    from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
+
+    journal = read_attempts(store, p)
+    assert len(journal) == 1
+    assert journal[0]["candidate_stage"]["raw_bundle_keys"] == [losing_key]
+    assert journal[0]["attempts"][0]["outcomes"][0]["attempt_id"] != winner_response.attempt_id
     _, retained = external_assessment_raw.read_raw_bundle(store, winner_key)
     _, losing = external_assessment_raw.read_raw_bundle(store, losing_key)
     assert retained == (winner_response,)
     assert losing[0].attempt_id != winner_response.attempt_id
-    assert store.puts[2][0] == staging.stage_key(p, 0)
-    assert len(store.puts) == 3
+    assert store.puts[3][0] == staging.stage_key(p, 0)
+    assert len(store.puts) == 4
 
 
 def test_partial_stage_conflict_keeps_saved_failure_and_reports_missing(monkeypatch):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
     previous = completed_pair(p, new_result(p, 0), "6758", "parse_failure")
     seed_stage(store, p, previous)
-    store.put_fault = (2, "cas")
+    store.put_fault = (3, "cas")
     calls = wire_success(monkeypatch, store, p)
     report = daily.acquire_cohort(store, p, 0)
     assert calls == ["7203"]
     assert report["cohort_complete"] is False
     assert stage(store, p).result == previous
-    assert len(store.puts) == 2
+    assert len(store.puts) == 3
 
 
 def test_stage_commit_cannot_change_saved_outcomes_or_timestamps():

@@ -69,7 +69,9 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     put_private,
     read_terminal,
 )
+from baibai_jobs.acquisition.receipts import ReceiptStore
 from baibai_jobs.integration.external_assessment_ready import (
+    acknowledged_bundles,
     acknowledgement_key,
     load_ready,
     read_acknowledgement,
@@ -147,6 +149,8 @@ def _import_confirmed_originals(
     sqlite_path: Path,
     *,
     retained: tuple[set[tuple[int, int]], dict[str, str]] | None = None,
+    acknowledged: dict[str, dict[str, str]] | None = None,
+    bundle_receipts: dict[str, dict[str, str]] | None = None,
 ) -> tuple[int, set[tuple[int, int]], dict[str, str], tuple[ExternalAssessmentObservation, ...]]:
     """Import one bounded bundle at a time; defer L2 until every bundle is valid."""
     source_inserted = 0
@@ -157,9 +161,23 @@ def _import_confirmed_originals(
     for index, (stage, _) in sorted(stages.items()):
         pairs = set(plan.cohorts[index].pairs)
         for key in stage.raw_bundle_keys:
-            manifest, responses = read_raw_bundle(store, key)
-            if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
-                raise ValueError("external assessment raw bundle stage binding mismatch")
+            if acknowledged and key in acknowledged:
+                # 旧bundleを再GETせず、公開・読戻し済みのexact L1を現在のhydrateから読む。
+                uri = sqlite_path.resolve().as_uri() + "?mode=ro"
+                with closing(sqlite3.connect(uri, uri=True)) as conn:
+                    responses = equity_web_read_responses(conn, tuple(acknowledged[key]))
+                if {
+                    item.receipt_id: equity_web_response_digest(item) for item in responses
+                } != acknowledged[key]:
+                    raise ValueError("acknowledged external original changed")
+            else:
+                manifest, responses = read_raw_bundle(store, key)
+                if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
+                    raise ValueError("external assessment raw bundle stage binding mismatch")
+            if bundle_receipts is not None:
+                bundle_receipts[key] = {
+                    item.receipt_id: equity_web_response_digest(item) for item in responses
+                }
             for response in responses:
                 if (response.source, response.requested_ticker) not in pairs or (
                     response.receipt_id in selected_digests
@@ -212,7 +230,7 @@ def _import_confirmed_originals(
 
 
 def merge_ready(
-    store: ObjectStore,
+    store: ReceiptStore,
     references: list[dict[str, str]],
     *,
     database: Path,
@@ -229,6 +247,7 @@ def merge_ready(
     for reference in references:
         retained_months: set[tuple[int, int]] = set()
         retained_digests: dict[str, str] = {}
+        bundle_receipts: dict[str, dict[str, str]] = {}
         try:
             item = load_ready(store, reference)
             if read_terminal(store, item.plan) is not None or (
@@ -241,6 +260,8 @@ def merge_ready(
                 item.stages,
                 database,
                 retained=(retained_months, retained_digests),
+                acknowledged=acknowledged_bundles(store, item.plan) if item.cumulative else None,
+                bundle_receipts=bundle_receipts,
             )
             if selected_digests.keys() & digests.keys():
                 raise ValueError("receipt identity shared by independent exact plans")
@@ -252,7 +273,12 @@ def merge_ready(
         else:
             observations.extend(own)
             succeeded.append(
-                {"reference": reference, "rows_added": rows, "source_responses_added": added}
+                {
+                    "reference": reference,
+                    "rows_added": rows,
+                    "source_responses_added": added,
+                    "bundle_receipts": bundle_receipts,
+                }
             )
         finally:
             # Native originals committed before a decode failure are still published/read back.
@@ -391,6 +417,7 @@ def verify_and_seal(
         if item.cumulative:
             terminal["format"] = "external-assessment-integration-ack-v1"
             terminal["reference"] = result["reference"]
+            terminal["bundle_receipts"] = result["bundle_receipts"]
             terminal["state_counts"] = item.accounting["state_counts"]
             terminal["receipt_date_coverage"] = receipt_date_coverage(plan, own)
             key = acknowledgement_key(plan, result["reference"])

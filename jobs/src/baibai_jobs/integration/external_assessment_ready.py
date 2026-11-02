@@ -18,7 +18,6 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, summarize
 from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
-    _require_extension,
     load_stage,
     prefix,
     put_private,
@@ -26,6 +25,7 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     read_private,
     read_stages,
     read_terminal,
+    require_extension,
     stage_bytes,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore
@@ -188,7 +188,7 @@ def _contains(new: PreparedPlan, old: PreparedPlan) -> bool:
         return False
     try:
         for index, (stage, _) in old.stages.items():
-            _require_extension(stage, new.stages[index][0])
+            require_extension(stage, new.stages[index][0])
     except ValueError:
         return False
     return True
@@ -252,3 +252,30 @@ def available_ready(store: ReceiptStore) -> tuple[list[dict[str, str]], list[dic
         except (LakePublishError, ValueError, KeyError, TypeError) as error:
             failed.append({"run_id": run_id, "reason": type(error).__name__})
     return ready, failed
+
+
+def acknowledged_bundles(store: ReceiptStore, plan: RunPlan) -> dict[str, dict[str, str]]:
+    """既にcanonical L1へ読戻した原本を、短期bundleの期限と切り離して参照する。"""
+    bundles: dict[str, dict[str, str]] = {}
+    for key, _ in store.iter_objects(prefix(plan.run_id) + "/ack-"):
+        saved = read_private(store, key)
+        if saved is None:
+            raise ValueError("external acknowledgement disappeared")
+        value = json.loads(saved.payload)
+        reference = value["reference"]
+        item = load_ready(store, reference)
+        if item.plan != plan or key != acknowledgement_key(plan, reference):
+            raise ValueError("external acknowledged plan changed")
+        ack = read_acknowledgement(store, item, reference)
+        assert ack is not None
+        allowed = {bundle for stage, _ in item.stages.values() for bundle in stage.raw_bundle_keys}
+        receipts = ack.get("bundle_receipts", {})
+        if not isinstance(receipts, dict) or not receipts.keys() <= allowed:
+            raise ValueError("external acknowledgement raw scope changed")
+        for bundle, identities in receipts.items():
+            if not isinstance(identities, dict) or not identities:
+                raise ValueError("external acknowledgement requires exact raw receipt identities")
+            if bundle in bundles and bundles[bundle] != identities:
+                raise ValueError("acknowledged raw receipt identities conflict")
+            bundles[bundle] = identities
+    return bundles

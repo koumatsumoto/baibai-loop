@@ -35,6 +35,11 @@ from baibai_jobs.acquisition.dependencies import (
     latest_dependency,
     load_dependency,
 )
+from baibai_jobs.acquisition.external_assessments.attempts import (
+    attempt_value,
+    read_attempts,
+    save_attempts,
+)
 from baibai_jobs.acquisition.external_assessments.cohorts import (
     RunPlan,
     make_plan,
@@ -276,6 +281,7 @@ def acquire_cohort(
     require_binding(plan)
     original = stage
     provider_requests = 0
+    attempts: list[dict[str, object]] = []
     stop_reason = None
     # Quota waits survive run/cycle changes, unlike per-pair retry counters.
     storage_started = time.monotonic()
@@ -343,6 +349,7 @@ def acquire_cohort(
                 if result.outcomes[0].status == "not_attempted":
                     stop_reason = result.stop_reason or "soft_budget"
                     break
+                attempts.append(attempt_value(plan, index, result, completed_at=datetime.now(UTC)))
                 final_result = result
                 if result.retry_after_not_before_utc is not None:
                     deadline = result.retry_after_not_before_utc
@@ -421,6 +428,8 @@ def acquire_cohort(
             for source, deadline in new_deadlines.items():
                 if deadline > datetime.now(UTC):
                     extend(store, quota_key(source), deadline)
+            # 原本upload後・mutable CAS前に候補も固定。競合で採用されなかった受領も残る。
+            save_attempts(store, plan, stage, attempts)
             stage = commit_stage(store, plan, stage, previous=previous)
         timings["storage_elapsed_seconds"] += time.monotonic() - storage_started
     return _cohort_report(plan, stage, stop_reason, started, timings, provider_requests)
@@ -442,6 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             report = summarize(
                 plan, [stage.result for stage, _ in read_stages(store, plan).values()]
             )
+            report["attempt_journals"] = read_attempts(store, plan)
         else:
             terminal = read_terminal(store, plan)
             if terminal is None:

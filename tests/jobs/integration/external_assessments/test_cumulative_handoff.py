@@ -69,6 +69,9 @@ def test_partial_ack_keeps_plan_open_and_later_superset_integrates(publication):
     assert available_ready(store) == ([], [])
     assert merge_ready(store, [first], database=database)["plans"] == []
 
+    # 短期handoffが失効しても、先に公開済みの原受領はcanonical hydrateから再読する。
+    for key in load_ready(store, first).stages[0][0].raw_bundle_keys:
+        del store.values[key]
     add_cohort(store, plan, 1)
     second = save_ready(store, prepare_plan(store, plan, cumulative=True))
     assert available_ready(store) == ([second], [])

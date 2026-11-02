@@ -592,7 +592,11 @@ scheduled再開は既存external-assessment-daily-<source>-YYYY-MM-DDをその�
 
 ### 原本handoffと公開
 
-raw bundleをstageより先にuploadする。未確定GETはhard kill後に繰り返され得る。external-assessment/raw/は3日期限の短期handoffであり、厳密72時間でも長期L1でもない。実lifecycleを確認し、期限切れ原本の復元を保証しない。publisherがmarketへ取り込み固定lakeを読戻して初めて長期L1となる。
+raw bundleをstageより先にuploadし、各retryの結果・実完了時計・原本参照を追記型attempt journalへ固定してからmutable stageをCASする。CAS競合では勝者の進捗を採用するが、敗者の候補stageと原受領参照もjournalに残す。audit入口はこの履歴を読取り、最終成功で以前の429等を消さない。hard kill前の未保存試行まで保存できる保証ではない。
+
+累積handoffの実装入口はsource `ready --cumulative`。exact集合のreadback ackを保存し、planを閉じる旧terminalとは区別する。後着した小さい集合で後退せず、ack済みの原本はcanonical hydrateのID/hashを照合して再利用する。従来の明示partial terminalは元の意味を維持する。本番workflowはまだ累積modeへ切り替えていない。未統合原本の期限前保全と実lifecycle確認は #1723 の切替条件として残し、頻度増加や保存保証を先行させない。
+
+未確定GETはhard kill後に繰り返され得る。external-assessment/raw/は3日期限の短期handoffであり、厳密72時間でも長期L1でもない。実lifecycleを確認し、期限切れ原本の復元を保証しない。publisherがmarketへ取り込み固定lakeを読戻して初めて長期L1となる。
 
 取得はlease外でsourceごとにacquire→inspect→immutable readyを完了する。共通統合scheduleはその時点のready exact planだけを固定し、raw/typed/historyを照合して一回の共通releaseへ公開する。mutable checkpointの更新を同じrun途中で読み直さない。history_digestsは保存後baselineで、更新前の全履歴保全まで証明したとは説明しない。原本・stage破損はsource別の失敗として報告し、正常sourceの統合を進める。失敗sourceのterminalは閉じない。
 
