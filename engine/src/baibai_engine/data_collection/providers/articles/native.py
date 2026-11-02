@@ -191,9 +191,12 @@ def parse_index(
             return tuple(result)
         if root.tag.rsplit("}", 1)[-1] not in {"rss", "RDF"}:
             raise ValueError("unsupported article feed root")
-        if source in WORLD_NEWS_SOURCES and root.tag.rsplit("}", 1)[-1] == "rss":
-            if not any(node.tag.rsplit("}", 1)[-1] == "channel" for node in root):
-                raise ValueError("RSS channel missing; not a confirmed empty feed")
+        if (
+            source in WORLD_NEWS_SOURCES
+            and root.tag.rsplit("}", 1)[-1] == "rss"
+            and not any(node.tag.rsplit("}", 1)[-1] == "channel" for node in root)
+        ):
+            raise ValueError("RSS channel missing; not a confirmed empty feed")
         for index, entry in enumerate(
             node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "item"
         ):

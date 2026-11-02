@@ -6,11 +6,11 @@ from baibai_engine.data_collection.providers.articles.contracts import SOURCES, 
 from baibai_engine.data_collection.providers.articles.native import is_index_locator, parse_index
 from baibai_engine.machine_analysis.observations.articles.projection import native_time
 
-FEED = b'''<rss><channel><item><guid>same-native-id</guid>
+FEED = b"""<rss><channel><item><guid>same-native-id</guid>
 <link>https://example.invalid/speech</link><title>Speech</title>
 <description>&lt;p&gt;Quoted summary&lt;/p&gt;</description>
 <pubDate>Mon, 02 Nov 2026 00:30:00 GMT</pubDate>
-<category>Speech</category><category>Policy</category></item></channel></rss>'''
+<category>Speech</category><category>Policy</category></item></channel></rss>"""
 
 
 @pytest.mark.parametrize("source", sorted(WORLD_NEWS_SOURCES))

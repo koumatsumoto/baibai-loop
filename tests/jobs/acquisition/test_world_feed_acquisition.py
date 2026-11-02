@@ -14,8 +14,8 @@ from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_planning import publish_planning_input
 from baibai_jobs.integration.article_handoff import import_handoff
 
-FEED = b'''<rss><channel><item><guid>one</guid><link>https://example.invalid/one</link>
-<title>Example</title><description>Summary</description></item></channel></rss>'''
+FEED = b"""<rss><channel><item><guid>one</guid><link>https://example.invalid/one</link>
+<title>Example</title><description>Summary</description></item></channel></rss>"""
 
 
 def test_world_group_does_not_reduce_existing_group_budgets():
