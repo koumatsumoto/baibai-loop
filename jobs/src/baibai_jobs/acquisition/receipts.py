@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
+from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
@@ -104,7 +105,9 @@ def available_handoffs(
         entry["late_before_integrated"] = bool(
             str(entry["source"]) in blocked_sources
             or (
-                entry["integration"] is None
+                # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
+                str(entry["source"]) != "economic-" + MARKET_GROUP
+                and entry["integration"] is None
                 and watermark
                 and datetime.fromisoformat(str(entry["started_at"])) < watermark
             )
