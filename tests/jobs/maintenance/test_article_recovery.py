@@ -38,6 +38,8 @@ def test_exact_recovery_keeps_original_marker_manifest_and_clock(tmp_path):
     )
     plan = json.loads((tmp_path / "recovery/plan.json").read_text())
     assert plan["handoffs"][0]["started_at"] == SLOT.isoformat()
+    assert plan["handoffs"][0]["explicit_article_recovery"] is True
+    entry = plan["handoffs"][0]
     download_fixed(store, entry, tmp_path / "raw")
     assert (tmp_path / "raw/receipts.sqlite").read_bytes() == (
         packet / "receipts.sqlite"
