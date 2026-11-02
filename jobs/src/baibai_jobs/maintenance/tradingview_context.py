@@ -6,7 +6,6 @@ import re
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime
-from datetime import time as daytime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -21,6 +20,7 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import m
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 from baibai_jobs.observability.tradingview import SourceDataError, TimeGuardError
+from baibai_jobs.schedule import tradingview_observation_window
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -48,10 +48,9 @@ def universe(conn: sqlite3.Connection, day: date) -> list[str]:
 def validate_time(day: date, now: datetime, *, is_business_day: bool = True) -> None:
     if now.tzinfo is None:
         raise ValueError("Timezone-aware observation clock required")
-    local = now.astimezone(JST)
-    opening = daytime(15, 30) if is_business_day else daytime(9)
-    if local.date() != day or local.time() < opening:
-        raise TimeGuardError("Receipt time must match its recorded day and observation window")
+    opening, closing = tradingview_observation_window(day, is_business_day=is_business_day)
+    if not opening <= now < closing:
+        raise TimeGuardError("Receipt time must match its recorded cycle and observation window")
 
 
 def stored_quality(conn: sqlite3.Connection, day: date) -> dict[str, object]:

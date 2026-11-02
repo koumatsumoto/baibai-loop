@@ -48,6 +48,7 @@ from baibai_jobs.observability.tradingview import (
     failure_line,
 )
 from baibai_jobs.observability.tradingview_progress import safe_progress
+from baibai_jobs.schedule import tradingview_cycle_date
 
 
 def _write_progress_file(path: Path, payload: dict[str, object]) -> None:
@@ -197,16 +198,19 @@ def main(argv: list[str] | None = None, /) -> int:
             return 0
         if args.command == "refresh":
             now = datetime.now(JST)
-            day = args.asof or now.date()
-            if args.master_asof is None and day < now.date():
+            cycle = tradingview_cycle_date(now)
+            day = args.asof or cycle
+            if args.master_asof is None and day < cycle:
                 print(
                     json.dumps(
                         {"status": "skipped_historical_asof", "snapshot_date": day.isoformat()}
                     )
                 )
                 return 0
-            if day != now.astimezone(JST).date():
-                raise TimeGuardError("Snapshots require today's observation; backfill is forbidden")
+            if day != cycle:
+                raise TimeGuardError(
+                    "Snapshots require the current acquisition cycle; backfill is forbidden"
+                )
             if not 15 <= args.interval <= 3600:
                 raise TimeGuardError("Observation interval must be between 15 and 3600 seconds")
             if args.master_asof is not None:

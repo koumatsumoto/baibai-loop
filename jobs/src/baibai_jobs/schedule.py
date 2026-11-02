@@ -79,10 +79,28 @@ def external_assessment_cycle_end(day: date) -> datetime:
     return datetime.combine(day + timedelta(days=1), EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME)
 
 
+def tradingview_cycle_date(now: datetime) -> date:
+    """09:00 JST starts a new acquisition cycle, not a provider observation date."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("timezone-aware observation clock required")
+    return (now.astimezone(_JST) - timedelta(hours=9)).date()
+
+
+def tradingview_observation_window(
+    day: date, *, is_business_day: bool
+) -> tuple[datetime, datetime]:
+    """Allow delayed post-close collection until the next cycle, retaining actual UTC."""
+    opening = time(15, 30) if is_business_day else time(9)
+    return (
+        datetime.combine(day, opening, _JST),
+        datetime.combine(day + timedelta(days=1), time(9), _JST),
+    )
+
+
 def resolve_tradingview_target(
     now: datetime, *, event_name: str, schedule: str, manual_observation: bool = False
 ) -> tuple[date, str, bool, str]:
-    """Resolve the actual JST run day and its scheduled acquisition slot."""
+    """Resolve the current acquisition cycle, including an overnight delayed slot."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone-aware observation clock required")
     if manual_observation and event_name != "workflow_dispatch":
@@ -95,7 +113,5 @@ def resolve_tradingview_target(
         slot = "manual-observation" if manual_observation else "manual"
     else:
         raise ValueError("unknown TradingView event")
-    local = now.astimezone(_JST)
-    # The hydrated JPX calendar decides business/rest-day hours in preflight.
-    eligible = local.time() >= time(9)
-    return local.date(), slot, eligible, "" if eligible else "before_observation"
+    # The saved calendar still enforces post-close / rest-day opening in preflight.
+    return tradingview_cycle_date(now), slot, True, ""

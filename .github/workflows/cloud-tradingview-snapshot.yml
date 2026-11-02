@@ -67,7 +67,7 @@ jobs:
           PYTHONPATH: jobs/src
         run: python3 -c "import baibai_jobs.schedule; import baibai_jobs.observability.source_discord"
 
-      - name: Resolve actual JST target
+      - name: Resolve current acquisition cycle
         id: target
         env:
           PYTHONPATH: jobs/src

@@ -69,10 +69,32 @@ def test_weekend_candidate_slots_use_actual_day(hour):
     ) == (date(2026, 10, 11), "rest-day-4h", True, "")
 
 
-def test_before_nine_stops_before_hydrate():
+def test_before_nine_resumes_previous_cycle_without_backdating_receipt():
     assert resolve_tradingview_target(
         datetime(2026, 10, 10, 23, 59, tzinfo=UTC),
         event_name="workflow_dispatch",
         schedule="",
         manual_observation=True,
-    ) == (date(2026, 10, 11), "manual-observation", False, "before_observation")
+    ) == (date(2026, 10, 10), "manual-observation", True, "")
+
+
+@pytest.mark.parametrize(
+    "instant",
+    [
+        datetime(2026, 11, 2, 15, 0, tzinfo=UTC),
+        datetime(2026, 11, 2, 16, 31, tzinfo=UTC),
+        datetime(2026, 11, 2, 23, 59, 59, tzinfo=UTC),
+    ],
+)
+def test_late_weekday_slot_retains_unfinished_cycle(instant):
+    assert resolve_tradingview_target(
+        instant, event_name="schedule", schedule="37 6,8,10,12,14 * * 1-5"
+    ) == (date(2026, 11, 2), "post-close-2h", True, "")
+
+
+def test_next_nine_starts_next_cycle_even_if_old_job_wakes_late():
+    assert resolve_tradingview_target(
+        datetime(2026, 11, 3, 0, 0, tzinfo=UTC),
+        event_name="schedule",
+        schedule="37 6,8,10,12,14 * * 1-5",
+    ) == (date(2026, 11, 3), "post-close-2h", True, "")
