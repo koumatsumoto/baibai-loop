@@ -82,6 +82,9 @@ class _Tree(HTMLParser):
 def parse_html(text: str) -> Node:
     parser = _Tree()
     parser.feed(text)
+    # Flush trailing text buffered around an unterminated character reference
+    # (e.g. an XML-decoded RSS headline ending in "Q&A)").
+    parser.close()
     return parser.root
 
 

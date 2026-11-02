@@ -80,6 +80,9 @@ class FixedArticleReader:
         month: str | None = None,
         after: str | None = None,
         limit: int = 1,
+        sources: tuple[str, ...] = (),
+        published_since: datetime | None = None,
+        published_before: datetime | None = None,
     ) -> list[tuple[Any, ...]]:
         if dataset.name not in self.release.dataset_manifests:
             return []
@@ -107,6 +110,30 @@ class FixedArticleReader:
         elif after is not None:
             predicate = f'"{key}" > $after'
             parameters["after"] = after
+        # Filters precede pagination; receipt partitions and publication instants
+        # are distinct. Unknown publication times never satisfy a dated query.
+        if sources:
+            predicate += (
+                " AND json_extract_string(observation_json, '$.source')"
+                " IN (SELECT unnest($sources))"
+            )
+            parameters["sources"] = list(sources)
+        if published_since is not None or published_before is not None:
+            # A date-only value has no instant or timezone. Do not invent midnight.
+            predicate += (
+                " AND json_extract_string(observation_json, '$.published.precision')"
+                " IN ('minute', 'second')"
+            )
+        for name, bound, operator in (
+            ("published_since", published_since, ">="),
+            ("published_before", published_before, "<"),
+        ):
+            if bound is not None:
+                predicate += (
+                    " AND TRY_CAST(json_extract_string(observation_json, '$.published.value')"
+                    f" AS TIMESTAMPTZ) {operator} ${name}"
+                )
+                parameters[name] = bound
         projection = ",".join(f'"{name}"' for name in columns)
         with lake_session() as session:
             return session.connection.execute(
@@ -136,8 +163,25 @@ class FixedArticleReader:
         return receipt
 
     def list(
-        self, *, month: str | None = None, after: str | None = None, limit: int = 20
+        self,
+        *,
+        month: str | None = None,
+        after: str | None = None,
+        limit: int = 20,
+        sources: tuple[str, ...] = (),
+        published_since: datetime | None = None,
+        published_before: datetime | None = None,
+        include_titles: bool = False,
     ) -> dict[str, Any]:
+        for bound in (published_since, published_before):
+            if bound is not None and bound.utcoffset() is None:
+                raise ValueError("publication bounds require an explicit timezone")
+        if (
+            published_since is not None
+            and published_before is not None
+            and published_since >= published_before
+        ):
+            raise ValueError("publication window must be nonempty")
         if not 1 <= limit <= 200:
             raise ValueError("article list limit must be between 1 and 200")
         if ARTICLE_OBSERVATIONS.name not in self.release.dataset_manifests:
@@ -155,6 +199,9 @@ class FixedArticleReader:
             after=after,
             month=selected_month,
             limit=limit + 1,
+            sources=sources,
+            published_since=published_since,
+            published_before=published_before,
         )
         items = []
         for identity, digest, raw, received_on in rows[:limit]:
@@ -188,10 +235,17 @@ class FixedArticleReader:
                     "published": observation.published.model_dump(mode="json"),
                 }
             )
+            if include_titles:
+                # Headlines are retained source text, suitable for private output only.
+                items[-1]["title"] = observation.title
+                items[-1]["article_version_id"] = observation.article_version_id
         return {
             "release_id": self.release.release_id,
             "manifest_sha256": self.release.manifest_sha256,
             "month": selected_month,
+            "sources": list(sources),
+            "published_since": published_since.isoformat() if published_since else None,
+            "published_before": published_before.isoformat() if published_before else None,
             "items": items,
             "has_more": len(rows) > limit,
             "next_after": rows[limit - 1][0] if len(rows) > limit else None,

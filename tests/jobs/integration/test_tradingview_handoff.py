@@ -131,3 +131,19 @@ def test_new_exact_date_master_is_replayed_from_its_original_pages(tmp_path):
     result = import_handoff(stage, canonical, selected)
     assert result.report["rows_added"] == 1
     assert result.report["expected_universe"] == 2500
+
+
+def test_overnight_receipt_handoff_keeps_actual_time_and_is_idempotent(tmp_path):
+    source = store(tmp_path / "source.sqlite", 1)
+    canonical = store(tmp_path / "canonical.sqlite", 1)
+    received = NOW.replace(hour=16, minute=31)
+    retain_result(source, _sdk(payload(["TSE:1000"])), received=received)
+    stage = tmp_path / "stage.sqlite"
+    handoff = export_handoff(source, stage, day=DAY, since=NOW)
+    first = import_handoff(stage, canonical, handoff)
+    assert first.report["rows_added"] == 1
+    assert first.complete
+    (row,) = stored(canonical)
+    assert row[0] == DAY.isoformat()
+    assert row[3] == received.isoformat()
+    assert import_handoff(stage, canonical, handoff).report["rows_added"] == 0

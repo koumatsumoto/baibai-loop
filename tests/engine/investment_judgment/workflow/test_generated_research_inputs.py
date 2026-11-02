@@ -471,3 +471,195 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
     )
     assert resumed.selection_sha256 == selection_sha256(saved)
     assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == before
+
+
+def test_market_display_semantics_compaction_is_lossless_and_detached():
+    from copy import deepcopy
+
+    from baibai_engine.investment_judgment.workflow.generated_inputs import _project_market_context
+    from baibai_engine.primitives.json import canonical_json
+
+    common = {"mode": "saved", "known_at_applied": False, "limitation": "Synthetic common caveat"}
+    original = {
+        "reading": {
+            "read_semantics": common,
+            "series": [
+                {
+                    "series_id": "a",
+                    "latest_value": 0,
+                    "flags": [],
+                    "notes": ["keep"],
+                    "read_semantics": {
+                        **common,
+                        "vintage_selection": "latest",
+                        "vintage_cutoff": None,
+                    },
+                },
+                {
+                    "series_id": "b",
+                    "latest_value": None,
+                    "flags": ["missing"],
+                    "read_semantics": {
+                        **common,
+                        "known_at_applied": True,
+                        "vintage_cutoff": "2026-11-02",
+                    },
+                },
+                {
+                    "series_id": "c",
+                    "latest_value": -1.13,
+                    "read_semantics": {**common, "known_at_applied": 0},
+                },
+            ],
+        }
+    }
+    before = deepcopy(original)
+    projected = _project_market_context(
+        original, full_result_ref="/inputs/generation/models/0/payload"
+    )
+    assert original == before
+    assert projected["full_result_ref"] == "/inputs/generation/models/0/payload"
+    assert "inherits" in projected["reading"]["read_semantics_inheritance"]
+    for old, new in zip(original["reading"]["series"], projected["reading"]["series"], strict=True):
+        reconstructed = {
+            **new,
+            "read_semantics": {**projected["reading"]["read_semantics"], **new["read_semantics"]},
+        }
+        assert canonical_json(reconstructed) == canonical_json(old)
+    projected["reading"]["series"][0]["notes"].append("changed")
+    assert original == before
+
+
+@pytest.mark.parametrize("row", [{"series_id": "a"}, {"read_semantics": {}}, None])
+def test_market_display_does_not_invent_metadata_for_partial_rows(row):
+    from baibai_engine.investment_judgment.workflow.generated_inputs import _project_market_context
+
+    original = {"reading": {"read_semantics": {"known_at_applied": False}, "series": [row]}}
+    assert _project_market_context(original, full_result_ref="unused") == original
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_saved_generation_market_view_uses_exact_full_payload_reference(tmp_path, schema_version):
+    from baibai_engine.machine_analysis.generation.contracts import (
+        GenerationSubject,
+        ModelInputSlice,
+    )
+
+    runs = tmp_path / "runs"
+    seed_generation(runs, now=NOW, as_of=AS_OF)
+    saved = ModelGenerationStore(runs).read_subjects("fixed-synthetic", subjects=("1234", "market"))
+    common = {"known_at_applied": False, "point_in_time_guaranteed": False}
+    market = {
+        "reading": {
+            "read_semantics": common,
+            "series": [
+                {
+                    "series_id": "synthetic",
+                    "latest_value": 0,
+                    "read_semantics": {**common, "vintage_cutoff": None},
+                }
+            ],
+        }
+    }
+    models = tuple(
+        model.model_copy(update={"payload": market})
+        if model.subject == "market" and model.model_id == "market_context"
+        else model
+        for model in saved.models
+    )
+    plan = {
+        subject: GenerationSubject(
+            scope="market" if subject == "market" else "stock",
+            model_ids=tuple(model.model_id for model in models if model.subject == subject),
+        )
+        for subject in saved.subjects
+    }
+    saved = ModelInputSlice.model_validate(
+        {
+            **saved.model_dump(),
+            "models": models,
+            "schema_version": schema_version,
+            "subject_plan": plan if schema_version == 2 else None,
+        }
+    )
+    before = saved.model_dump_json()
+    view = project_generated_inputs(saved)
+    projected = (
+        view["market_context"]
+        if schema_version == 1
+        else view["shared_subjects"]["market"]["models"]["market_context"]
+    )
+    index = next(i for i, m in enumerate(saved.models) if m.subject == "market")
+    assert projected["full_result_ref"] == f"/inputs/generation/models/{index}/payload"
+    assert projected["reading"]["series"][0]["read_semantics"] == {"vintage_cutoff": None}
+    assert saved.models[index].payload == market
+    assert saved.model_dump_json() == before
+
+
+def test_old_full_market_workspace_requires_explicit_display_repair_and_keeps_authored_work(
+    tmp_path,
+):
+    from baibai_engine.investment_judgment.workflow.workspace.files import (
+        ResearchWorkspaceConflictError,
+    )
+
+    runs = tmp_path / "runs"
+    original = seed_generation(runs, now=NOW, as_of=AS_OF)
+    common = {"known_at_applied": False, "point_in_time_guaranteed": False}
+    market = {
+        "reading": {
+            "read_semantics": common,
+            "series": [
+                {
+                    "series_id": "synthetic",
+                    "latest_value": 0,
+                    "read_semantics": {**common, "vintage_cutoff": None},
+                }
+            ],
+        }
+    }
+    generation = original.model_copy(
+        update={
+            "generation_id": "display-repair-synthetic",
+            "models": tuple(
+                model.model_copy(update={"payload": market}) if model.subject == "market" else model
+                for model in original.models
+            ),
+        }
+    )
+    ModelGenerationStore(runs).publish(generation)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(text="調査", scope="specified_stocks", requested_tickers=("1234",)),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=generation.generation_id,
+        selection_summary="固定モデルの表示だけを更新",
+        targets=(selected_target(),),
+    )
+    workspace = tmp_path / "workspace"
+    db = tmp_path / "app.sqlite"
+    prepared = prepare_selected_workspace(
+        draft=draft, db_path=db, workspace=workspace, runs_path=runs, now=NOW
+    )
+    before = OperationService(db).get(prepared.operation_id).payload.model_dump_json()
+    inputs = workspace / "domain-inputs.yaml"
+    old_view = yaml.safe_load(inputs.read_text())
+    old_view["market_context"] = market
+    inputs.write_text(yaml.safe_dump(old_view, allow_unicode=True))
+    authored = workspace / "authored-review.yaml"
+    authored.write_text("author: keep this analysis\n")
+    with pytest.raises(ResearchWorkspaceConflictError, match="generated input drift"):
+        resume_selected_workspace(
+            operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW
+        )
+    repaired = resume_selected_workspace(
+        operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW, force=True
+    )
+    assert repaired.selection_sha256 == prepared.selection_sha256
+    assert OperationService(db).get(prepared.operation_id).payload.model_dump_json() == before
+    assert authored.read_text() == "author: keep this analysis\n"
+    assert (
+        "read_semantics_inheritance"
+        in yaml.safe_load(inputs.read_text())["market_context"]["reading"]
+    )

@@ -14,6 +14,7 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.primitives.json import canonical_json
 
 _LEGACY_COMPANY_MODELS = (
     "company_financials",
@@ -22,6 +23,40 @@ _LEGACY_COMPANY_MODELS = (
     "external_assessment",
     "market_context",
 )
+
+
+def _project_market_context(
+    source: dict[str, JsonValue], *, full_result_ref: str
+) -> dict[str, JsonValue]:
+    """Share repeated reading semantics only in the L3 display; saved input stays exact."""
+    payload = deepcopy(source)
+    reading = payload.get("reading")
+    if not isinstance(reading, dict):
+        return payload
+    common, rows = reading.get("read_semantics"), reading.get("series")
+    if not isinstance(common, dict) or not common or not isinstance(rows, list) or not rows:
+        return payload
+    # Do not invent inherited keys for an older or partial model. Every row must
+    # already carry every common key, including explicit false/null values.
+    semantics = []
+    for row in rows:
+        if not isinstance(row, dict):
+            return payload
+        own = row.get("read_semantics")
+        if not isinstance(own, dict) or not common.keys() <= own.keys():
+            return payload
+        semantics.append((row, own))
+    for row, own in semantics:
+        row["read_semantics"] = {
+            key: value
+            for key, value in own.items()
+            if key not in common or canonical_json(value) != canonical_json(common[key])
+        }
+    reading["read_semantics_inheritance"] = (
+        "Each series inherits reading.read_semantics; its read_semantics keys override."
+    )
+    payload["full_result_ref"] = full_result_ref
+    return payload
 
 
 def verify_generated_inputs(
@@ -51,7 +86,13 @@ def project_generated_inputs(
         for index, model in enumerate(saved.models):
             if model.subject != ticker:
                 continue
-            payload = deepcopy(model.payload)
+            payload = (
+                _project_market_context(
+                    model.payload, full_result_ref=f"/inputs/generation/models/{index}/payload"
+                )
+                if model.model_id == "market_context"
+                else deepcopy(model.payload)
+            )
             if scope == "stock" and model.model_id == "company_growth":
                 payload = project_company_growth(
                     payload, ticker=ticker, periods=company_growth_periods
@@ -96,7 +137,12 @@ def project_generated_inputs(
         dict[str, JsonValue],
         {
             "analysis_source": saved.model_dump(mode="json", exclude={"models"}),
-            "market_context": None if common is None else deepcopy(common.payload),
+            "market_context": None
+            if common is None
+            else _project_market_context(
+                common.payload,
+                full_result_ref=f"/inputs/generation/models/{saved.models.index(common)}/payload",
+            ),
             "market_context_calculation_revision": None
             if common is None
             else common.calculation_revision,

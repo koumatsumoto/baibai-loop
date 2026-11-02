@@ -417,12 +417,12 @@ def test_no_backfill_or_preclose_collection(tmp_path: Path, observed: datetime) 
     async def forbidden(symbols, _columns):
         pytest.fail("provider must not be called")
 
-    with pytest.raises(FetchError, match="recorded day and observation window"):
+    with pytest.raises(FetchError, match="recorded cycle and observation window"):
         asyncio.run(collect(path, DAY, forbidden, clock=lambda: observed))
     assert not stored(path)
 
 
-def test_midnight_crossing_aborts_the_run(tmp_path: Path) -> None:
+def test_next_cycle_crossing_aborts_the_run(tmp_path: Path) -> None:
     path = store(tmp_path / "market.sqlite", 1)
     times = iter([NOW, NOW, NOW + timedelta(days=1)])
 
@@ -591,3 +591,71 @@ def test_successful_all_missing_day_is_accounted_but_not_normal_null_data(tmp_pa
     assert all(count == 0 for count in result["normal_nulls"].values())
     state = preflight_snapshot(path, DAY)
     assert (state["status"], state["unresolved"]) == ("already_saved", 2)
+
+
+def test_delayed_overnight_collection_keeps_actual_clock_and_same_cycle_noop(tmp_path):
+    from baibai_engine.machine_analysis.observations.external_assessments.reader import (
+        tradingview_rows_at_cutoff,
+    )
+
+    path = store(tmp_path / "market.sqlite", 1)
+    overnight = NOW.replace(hour=16, minute=31)  # Next JST day, 01:31.
+    calls = []
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        return _sdk(payload(symbols))
+
+    preflight = preflight_snapshot(path, DAY, now=overnight)
+    assert preflight["status"] == "needs_fetch"
+    result = asyncio.run(collect(path, DAY, fetch, clock=lambda: overnight))
+    assert result["rows_added"] == 1
+    repeat = asyncio.run(collect(path, DAY, fetch, clock=lambda: overnight + timedelta(hours=1)))
+    assert repeat["status"] == "already_saved"
+    assert len(calls) == 1
+    with closing(sqlite3.connect(path)) as conn:
+        conn.row_factory = sqlite3.Row
+        assert tradingview_rows_at_cutoff(conn, overnight - timedelta(seconds=1)) == []
+        (row,) = tradingview_rows_at_cutoff(conn, overnight)
+        assert row["snapshot_date"] == DAY.isoformat()
+        assert row["fetched_at_utc"] == overnight.isoformat()
+
+
+@pytest.mark.parametrize(
+    ("offset", "allowed"),
+    [
+        (timedelta(hours=16, minutes=59, seconds=59), True),
+        (timedelta(hours=17), False),
+    ],
+)
+def test_cycle_close_is_exclusive_and_rebuild_uses_the_same_window(tmp_path, offset, allowed):
+    from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL
+    from baibai_engine.data_collection.providers.tradingview.receipts import retain_tool_result
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+        COLUMNS,
+    )
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+    from baibai_jobs.maintenance.tradingview_rebuild import RebuildError, rebuild_from_receipts
+
+    path = store(tmp_path / "market.sqlite", 1)
+    received = NOW + offset  # NOW is 16:00 JST; next 09:00 ends this cycle.
+    with closing(open_connection(path)) as conn, conn:
+        identity = retain_tool_result(
+            conn,
+            snapshot_date=DAY,
+            master_asof=DAY,
+            tool_name=BATCH_TOOL,
+            received_at_utc=received,
+            requested_symbols=["TSE:1000"],
+            requested_columns=list(COLUMNS),
+            result=_sdk(payload(["TSE:1000"])),
+        )
+    if allowed:
+        result = rebuild_from_receipts(path, DAY, [identity])
+        assert result["rows"] == 1
+    else:
+        with pytest.raises(RebuildError):
+            rebuild_from_receipts(path, DAY, [identity])
+        assert stored(path) == []
+    with closing(sqlite3.connect(path)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone()[0] == 1

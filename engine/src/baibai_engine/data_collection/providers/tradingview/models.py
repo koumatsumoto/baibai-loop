@@ -9,6 +9,7 @@ from datetime import date, datetime
 @dataclass(frozen=True, slots=True)
 class TradingViewSourceReceipt:
     receipt_id: str
+    # Acquisition cycle key; the actual receipt instant remains received_at_utc.
     snapshot_date: date
     master_asof: date
     tool_name: str
