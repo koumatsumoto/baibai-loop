@@ -140,7 +140,7 @@ def test_minkabu_reprojection_keeps_old_run_and_uses_new_parser_identity(tmp_pat
         new_run, (article,) = project_receipt(
             conn, retained.receipt_id, kind="document", generated_at=AT + timedelta(hours=1)
         )
-        assert new_run.parser_revision == "article-native-minkabu-v2"
+        assert new_run.parser_revision == "article-native-minkabu-v3"
         assert article.parser_revision == new_run.parser_revision
         assert article.text_revision == "article-text-v1"
         assert article.text == "Synthetic body."
@@ -657,3 +657,76 @@ def test_assistant_extraction_requires_fixed_model_prompt_and_config(tmp_path):
         )
         save_artifact(conn, candidate)
         assert read_artifacts(conn, [candidate.artifact_id]) == (candidate,)
+
+
+def test_private_discovery_filters_before_pagination_and_preserves_exact_refs(tmp_path, capsys):
+    from baibai_engine.cli.articles import main
+
+    path = tmp_path / "market.sqlite"
+    with closing(schema.open_connection(path)) as conn, conn:
+        for i, published in enumerate(
+            ("2026-09-30 15:00:00", "2026-10-01 09:00:00", None, "2026-09-30")
+        ):
+            rows = json.loads(payload(title=f"Synthetic private title {i}"))
+            rows[0]["viewing_start_ymd"] = published
+            body = json.dumps(rows).encode()
+            retain_receipt(conn, receipt(f"discovery-{i}", body), body=body)
+            project_receipt(conn, f"discovery-{i}", generated_at=AT)
+    reader = publish(path, tmp_path / "mirror", "discovery-release", AT)
+    since = datetime(2026, 9, 30, 6, tzinfo=UTC)
+    before = datetime(2026, 10, 1, 0, tzinfo=UTC)
+    result = reader.list(
+        sources=("tsr_data",),
+        published_since=since,
+        published_before=before,
+        limit=1,
+        include_titles=True,
+    )
+    assert len(result["items"]) == 1
+    assert not result["has_more"]
+    first = reader.list(sources=("tsr_data",), published_since=since, limit=1)
+    second = reader.list(
+        sources=("tsr_data",), published_since=since, limit=1, after=first["next_after"]
+    )
+    assert first["has_more"]
+    assert not second["has_more"]
+    assert first["items"] != second["items"]
+    assert len(reader.list()["items"]) == 4  # Unknown date retained, not fabricated.
+    item = result["items"][0]
+    assert item["title"] == "Synthetic private title 0"
+    evidence = reader.get(ArticleEvidenceRef.model_validate(item["reference"]))
+    assert evidence.observation.title == item["title"]
+    assert reader.list(sources=("unknown' OR TRUE --",))["items"] == []
+    assert all("title" not in row for row in reader.list()["items"])
+    with pytest.raises(ValueError, match="timezone"):
+        reader.list(published_since=datetime(2026, 10, 1))  # noqa: DTZ001 -- rejects naive bound
+    with pytest.raises(ValueError, match="nonempty"):
+        reader.list(published_since=before, published_before=since)
+    output = tmp_path / "private-index"
+    args = [
+        "list",
+        "--release",
+        reader.release.release_id,
+        "--manifest-sha256",
+        reader.release.manifest_sha256,
+        "--mirror",
+        str(tmp_path / "mirror"),
+        "--cache",
+        str(tmp_path / "cli-cache"),
+        "--source",
+        "tsr_data",
+        "--published-since",
+        since.isoformat(),
+        "--published-before",
+        before.isoformat(),
+        "--output-dir",
+        str(output),
+    ]
+    assert main(args) == 0
+    stdout = capsys.readouterr().out
+    assert "Synthetic private title" not in stdout
+    assert json.loads(stdout)["item_count"] == 1
+    assert json.loads((output / "index.json").read_text())["items"] == result["items"]
+    original = (output / "index.json").read_bytes()
+    assert main(args) == 1
+    assert (output / "index.json").read_bytes() == original

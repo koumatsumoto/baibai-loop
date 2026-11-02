@@ -78,6 +78,8 @@ uv run baibai-engine articles exact-evidence \
   --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
 ```
 
+世界ニュース等の探索には、同じ固定releaseの `articles list --source bbc_news --source fed_news --source ecb_news --month <UTC_RECEIPT_MONTH> --published-since <ISO_TIMESTAMP_WITH_OFFSET> --published-before <ISO_TIMESTAMP_WITH_OFFSET> --output-dir <NEW_PRIVATE_DIR>` を使う（release・manifest・cacheも上記同様に指定）。privateな `index.json` に見出しとexact参照が残り、stdoutへ見出しは出さない。受領月と公表期間は別であり、期間不明は日時指定の結果に入らない。複数受領月にまたがる調査は月ごとに読み、同じ条件の `next_after` で有限に続ける。同じ `article_version_id` の再受領を独立根拠として数えず、headline/summaryを全文確認と扱わない。初回feedに含まれる古い記事を本日発生した変化にしない。重要な問いだけexact参照と原典へ戻り、企業利益・資本政策への接続はL3の仮説として反証する。
+
 lookupを明示し、元lineage release全体を再読できたとは扱わない。Researchのsourceは原典URLを `ref` に、exact descriptorを `used_for` に含めて保存する。予定のfactは決定・発表時点の主張として日付と限定を残し、未来の予定日を発生済みのfact日付へ転記しない。現行Researchの保存検証はこのdescriptorの自動exact照合を保証しない。Assessmentへの転記・Review・再開でもsource/factの参照と限定を保持する。
 
 ## Company Research・Stock Assessment・Independent Review

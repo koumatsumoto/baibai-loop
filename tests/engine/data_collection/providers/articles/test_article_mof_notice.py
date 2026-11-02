@@ -27,7 +27,7 @@ def test_notice_retains_explicit_target_without_claiming_body_or_publication_dat
     assert item.published_raw is None
     assert item.metadata == {"redirect_target_url": target}
     assert item.missing_parts == ("redirect_target_body_is_a_separate_receipt",)
-    assert parser_revision_for("mof_news") == "article-native-mof-v6"
+    assert parser_revision_for("mof_news") == "article-native-mof-v7"
 
 
 @pytest.mark.parametrize(
@@ -250,7 +250,7 @@ def test_mof_pdf_reprojection_preserves_original_and_prior_failure(tmp_path):
         save_projection(conn, old, ())
         new, (item,) = project_receipt(conn, receipt.receipt_id, kind="document")
         assert new.status == "parsed"
-        assert new.parser_revision == "article-native-mof-v6"
+        assert new.parser_revision == "article-native-mof-v7"
         assert "Synthetic procurement answer" in item.text
         assert read_body(conn, receipt.body_ref) == body
         repeated, _ = project_receipt(conn, receipt.receipt_id, kind="document")

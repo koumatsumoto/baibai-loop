@@ -23,10 +23,10 @@ from baibai_engine.data_collection.providers.articles.html import Node, parse_ht
 from baibai_engine.data_collection.providers.articles.workbook import parse_workbook
 from baibai_engine.data_collection.receipts.articles.contracts import digest_json
 
-PARSER_REVISION = "article-native-v1"
-MINKABU_PARSER_REVISION = "article-native-minkabu-v2"
-BOJ_PARSER_REVISION = "article-native-boj-v2"
-MOF_PARSER_REVISION = "article-native-mof-v6"
+PARSER_REVISION = "article-native-v2"
+MINKABU_PARSER_REVISION = "article-native-minkabu-v3"
+BOJ_PARSER_REVISION = "article-native-boj-v3"
+MOF_PARSER_REVISION = "article-native-mof-v7"
 TEXT_REVISION = "article-text-v1"
 MAX_FEED_XML_BYTES = 4 * 1024 * 1024
 MAX_NHK_JSON_LD_BYTES = 256 * 1024

@@ -65,8 +65,8 @@ def test_boj_workbook_cells_keep_coordinates_zero_dates_and_uncomputed_formulas(
             f"{span['sheet']}!{span['cell']}\t"
         )
     assert article.missing_parts == ("formatting_charts_images_and_formula_evaluation",)
-    assert parser_revision_for("boj_news") == "article-native-boj-v2"
-    assert parser_revision_for("tsr_data") == "article-native-v1"
+    assert parser_revision_for("boj_news") == "article-native-boj-v3"
+    assert parser_revision_for("tsr_data") == "article-native-v2"
 
 
 def test_incorrect_dimension_does_not_silently_drop_cells():
@@ -136,7 +136,7 @@ def test_reprojection_preserves_failed_history_and_reuses_new_result(tmp_path):
             conn, receipt.receipt_id, kind="document", generated_at=stamp + timedelta(minutes=1)
         )
         assert new.status == "parsed"
-        assert new.parser_revision == "article-native-boj-v2"
+        assert new.parser_revision == "article-native-boj-v3"
         assert len(observations) == 1
         replay, repeated = project_receipt(
             conn, receipt.receipt_id, kind="document", generated_at=stamp + timedelta(hours=1)
