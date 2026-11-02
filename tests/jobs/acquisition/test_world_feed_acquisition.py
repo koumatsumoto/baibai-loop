@@ -3,6 +3,7 @@
 from contextlib import closing
 from datetime import timedelta
 
+import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -36,20 +37,23 @@ def test_world_group_does_not_reduce_existing_group_budgets():
     assert sum(len(SOURCES[source].entry_urls) for source in WORLD_NEWS_SOURCES) == 4
 
 
-def test_bbc_index_replay_and_later_correction_keep_original_receipts(tmp_path, monkeypatch):
+@pytest.mark.parametrize("source", sorted(WORLD_NEWS_SOURCES))
+def test_world_index_replay_and_later_correction_keep_original_receipts(
+    tmp_path, monkeypatch, source
+):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
     store = MemoryR2Store()
-    publish_planning_input(store, "bbc_news", {})
+    publish_planning_input(store, source, {})
     database = tmp_path / "market.sqlite"
     references = []
     for index, body in enumerate((FEED, FEED.replace(b"Summary", b"Corrected"))):
         packet = tmp_path / f"packet-{index}"
-        session = Session([Response(200, body), Response(200, body)])
+        session = Session([Response(200, body) for _ in SOURCES[source].entry_urls])
         report = articles.acquire_source(
             store,
-            source="bbc_news",
+            source=source,
             slot=SLOT + timedelta(hours=4 * index),
             identity=f"test-{index}",
             directory=packet,
@@ -57,17 +61,20 @@ def test_bbc_index_replay_and_later_correction_keep_original_receipts(tmp_path, 
         )
         assert report["status"] == "completed"
         assert report["bodies"] == 0
-        assert session.urls == list(SOURCES["bbc_news"].entry_urls)
-        imported = import_handoff("bbc_news", database, packet)
+        assert session.urls == list(SOURCES[source].entry_urls)
+        imported = import_handoff(source, database, packet)
         assert imported.complete
-        replayed = import_handoff("bbc_news", database, packet)
+        replayed = import_handoff(source, database, packet)
         assert replayed.report["observation_ids"] == imported.report["observation_ids"]
         references.extend(imported.report["observation_ids"])
     with closing(connect_read_only(database)) as conn:
         saved = read_observations(conn, references)
-        assert [item.text for item in saved] == ["Summary", "Summary", "Corrected", "Corrected"]
+        feed_count = len(SOURCES[source].entry_urls)
+        assert [item.text for item in saved] == ["Summary"] * feed_count + [
+            "Corrected"
+        ] * feed_count
         assert len({item.article_id for item in saved}) == 1
-        assert len({item.receipt_id for item in saved}) == 4
+        assert len({item.receipt_id for item in saved}) == 2 * feed_count
         for item in saved:
             receipt = read_receipt(conn, item.receipt_id, receipt_sha256=item.receipt_sha256)
             assert receipt.body_ref is not None
@@ -77,7 +84,7 @@ def test_bbc_index_replay_and_later_correction_keep_original_receipts(tmp_path, 
             }
     skipped = articles.acquire_source(
         store,
-        source="bbc_news",
+        source=source,
         slot=SLOT + timedelta(hours=4),
         identity="repeat",
         directory=tmp_path / "skipped",
