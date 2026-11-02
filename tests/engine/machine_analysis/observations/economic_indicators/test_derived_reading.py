@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import replace
+from datetime import UTC, date, datetime
 from unittest import TestCase
 
 from tests.helpers.indicator_store import (
@@ -221,3 +222,80 @@ class DerivedReadingTests(TestCase):
         )
 
         self.assertEqual([obs.observed_at for obs in observations], [date(2026, 5, 1)])
+
+
+def test_monthly_derived_reading_retains_distinct_input_dates_and_attributed_quality():
+    series = _series("derived", "us.erp", unit="percent", frequency="monthly")
+    equity = replace(
+        observation("us.sp500_earnings_yield", date(2026, 10, 30), 3.87),
+        vintage_at=datetime(2026, 10, 31, tzinfo=UTC),
+        quality_flags=("synthetic_input_flag",),
+        notes=("synthetic source limitation",),
+    )
+    bond = replace(observation("us.10y", date(2026, 10, 26), 5.0), vintage_at=None)
+    (result,) = derive_series(
+        series,
+        {equity.series_id: (equity,), bond.series_id: (bond,)},
+        start=date(2026, 10, 1),
+        end=date(2026, 10, 31),
+    )
+    assert round(result.value, 2) == -1.13
+    assert result.observed_at == date(2026, 10, 30)
+    assert result.vintage_at is None
+    assert result.quality_flags == ("mixed_input_dates",)
+    assert "synthetic_input_flag" not in result.quality_flags
+    assert any("input[us.10y]: observed_at=2026-10-26" in note for note in result.notes)
+    assert any(
+        "input[us.sp500_earnings_yield]: observed_at=2026-10-30" in note for note in result.notes
+    )
+    assert "input[us.sp500_earnings_yield] flag: synthetic_input_flag" in result.notes
+    assert "input[us.sp500_earnings_yield] note: synthetic source limitation" in result.notes
+    assert "derived_alignment=monthly; output_date_rule=latest_input" in result.notes
+
+
+def test_exact_derived_input_notes_keep_original_units_without_false_mismatch():
+    definition = load_definitions().by_id()["us.net_liquidity"]
+    day = date(2026, 10, 28)
+    inputs = {
+        key: (replace(observation(key, day, value), unit=unit),)
+        for key, value, unit in (
+            ("us.fed_assets", 6747560.0, "usd-million"),
+            ("us.tga", 880253.0, "usd-million"),
+            ("us.reverse_repo", 2.338, "usd-billion"),
+        )
+    }
+    (row,) = derive_series(definition, inputs, start=day, end=day)
+    assert row.quality_flags == ()
+    assert round(row.value, 3) == 5864.969
+    assert any(
+        "input[us.reverse_repo]:" in note and "unit=usd-billion" in note for note in row.notes
+    )
+    assert any("input[us.tga]:" in note and "unit=usd-million" in note for note in row.notes)
+
+
+def test_derived_input_lineage_survives_the_market_reading_boundary():
+    from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+        DEFAULT_RULES_PATH,
+        load_reading_rules,
+    )
+    from baibai_engine.machine_analysis.models.market_context.reading.compute import compute_reading
+
+    definition = load_definitions().by_id()["us.erp"]
+    inputs = {
+        "us.sp500_earnings_yield": (
+            observation("us.sp500_earnings_yield", date(2026, 10, 30), 3.87),
+        ),
+        "us.10y": (observation("us.10y", date(2026, 10, 26), 5.0),),
+    }
+    values = derive_series(definition, inputs, start=date(2026, 10, 1), end=date(2026, 11, 2))
+    reading = compute_reading(
+        series=[definition],
+        reader=lambda *_: values,
+        rules=load_reading_rules(DEFAULT_RULES_PATH),
+        rules_revision="fixture",
+        asof=date(2026, 11, 2),
+    ).series[0]
+    assert round(reading.latest_value, 2) == -1.13
+    assert "mixed_input_dates" in reading.flags
+    assert any("input[us.10y]: observed_at=2026-10-26" in note for note in reading.notes)
+    assert reading.percentile is None  # One point is not a distribution.
