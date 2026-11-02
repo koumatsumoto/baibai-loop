@@ -14,6 +14,8 @@ _ACTION = re.compile(
     r"(?:\s+#\s*(?P<release>\S+))?\s*$"
 )
 _KNOWN_ACTIONS = {
+    # Diagnostic branch only: official v7.0.2 tag and action.yml verified. Not merged.
+    "actions/upload-artifact": ("cf430e030ddbb5b0abf93d22962f4752f3646cd9", "v7.0.2"),
     "actions/cache": ("55cc8345863c7cc4c66a329aec7e433d2d1c52a9", "v6.1.0"),
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
     "actions/setup-node": ("949feb2413d6458794dcd2491c4babbbce0c15c1", "v7.1.0"),
