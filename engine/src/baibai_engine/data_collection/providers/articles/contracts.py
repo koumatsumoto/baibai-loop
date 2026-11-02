@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from pydantic import Field, JsonValue
 
@@ -66,6 +67,21 @@ class ArticleSource:
             )
         except ValueError:
             return False
+
+    def document_redirect(
+        self, url: str, http_status: int | None, location: str | None
+    ) -> str | None:
+        """トウシルの確認済み記事移転だけ。認証・外部host・任意巡回へ広げない。"""
+        if self.source_id != "toushiru" or http_status not in {301, 308} or not location:
+            return None
+        target = urljoin(url, location)
+        for candidate in (url, target):
+            if not self.allows_url(candidate):
+                return None
+            parts = urlsplit(candidate)
+            if not re.fullmatch(r"/articles/-/[0-9]+", parts.path) or parts.query or parts.fragment:
+                return None
+        return target if target != url else None
 
     @property
     def entry_urls(self) -> tuple[str, ...]:

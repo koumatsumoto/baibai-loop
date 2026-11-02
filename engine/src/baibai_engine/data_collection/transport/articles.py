@@ -152,6 +152,7 @@ def fetch_article(
                     "etag": response.headers.get("ETag"),
                     "last_modified": response.headers.get("Last-Modified"),
                     "retry_after": response.headers.get("Retry-After"),
+                    "location": response.headers.get("Location"),
                 }
                 if response.status_code in (429, 503):
                     delay = retry_after_delay(response.headers.get("Retry-After"), fallback=60.0)

@@ -230,7 +230,15 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
     if any(type(value) is not int or value < 0 for value in counts):
         return ["モデル生成: 完了 / 件数未確認"]
     companies, models, candidates = counts
-    return [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
+    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
+    coverage = notice.get("screening_price_inputs")
+    if isinstance(coverage, dict):
+        valid, universe = coverage.get("valid_count"), coverage.get("universe_count")
+        if type(valid) is int and type(universe) is int and 0 <= valid <= universe:
+            lines.append(f"候補抽出の価格入力: 適格{valid}/{universe}社")
+            if candidates == 0 and universe > 0 and valid == 0:
+                lines.append("候補0の要因: 適格な価格入力なし（投資機会なしの判定ではない）")
+    return lines
 
 
 def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
@@ -245,6 +253,36 @@ def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
         input_date = sanitize_one_line(result.get("input_asof") or "未取得")
         lines.append(f"入力延期: {sanitize_one_line(source)} / {reasons} / 保存一覧日={input_date}")
     return lines[:4]
+
+
+def render_source_failures(report: Mapping[str, object]) -> list[str]:
+    """受領・native投影・意味抽出の故障箇所を分け、原文やURLは通知へ出さない。"""
+    grouped: dict[str, list[int]] = {}
+    issues: dict[str, set[str]] = {}
+    handoffs = report.get("handoffs")
+    for item in handoffs if isinstance(handoffs, list) else []:
+        if not isinstance(item, dict):
+            continue
+        entry, result = item.get("entry"), item.get("result")
+        if not isinstance(entry, dict) or not isinstance(result, dict):
+            continue
+        source = sanitize_one_line(entry.get("source", "不明"))
+        counts = grouped.setdefault(source, [0, 0, 0])
+        codes = result.get("acquisition_issues")
+        if isinstance(codes, list):
+            issues.setdefault(source, set()).update(sanitize_one_line(code) for code in codes)
+        for index, field in enumerate(
+            ("acquisition_failures", "projection_failures", "extraction_failures")
+        ):
+            failures = result.get(field)
+            if isinstance(failures, list):
+                counts[index] += len(failures)
+    return [
+        f"source不備: {source} / 受領{counts[0]}・投影{counts[1]}・意味抽出{counts[2]}件"
+        + (" / " + ",".join(sorted(issues[source])) if issues.get(source) else "")
+        for source, counts in sorted(grouped.items())
+        if any(counts) or issues.get(source)
+    ][:4]
 
 
 def render_run_notice(
@@ -313,6 +351,10 @@ def render_message(
         if step_outcomes and step_outcomes.get("publish-lake") in {"failure", "cancelled"}:
             generation_notice = {"models_ready": False}
         details.extend(render_generation(generation_notice))
+    source_failures = render_source_failures(integration_report or {})
+    if outcome == OUTCOME_OK and source_failures:
+        outcome = OUTCOME_DEGRADED
+    details.extend(source_failures)
     details.extend(render_deferred_inputs(integration_report or {}))
     return render_run_notice(
         label=OUTCOME_LABELS[outcome],

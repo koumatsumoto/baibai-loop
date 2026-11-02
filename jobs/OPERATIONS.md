@@ -148,7 +148,7 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 
 planning CAS失敗で残った原本の統合と、最新cursorの復元は別である。exact stage/hashから原本を回復できても、全sourceのcursorを自動修復できる保証ではない。後続取得が進めた計画を古いcursorで巻き戻さない。参照worksetの不足と、validatorの200 body不足も別である。後者では通常予算内の新しい無条件GETを行う場合があるが、過去原本を復元したとは扱わない。
 
-原本の表現・添付・リンク範囲は[記事sourceの意味](../docs/reference/data-sources.md#public-articles)を参照する。HTTP redirect、認証付きURL、未許可hostへ巡回を広げない。財務省の許可された案内は親子の別受領を保ち、rolling一覧から過去全PDFへ巡回しない。応答の種類別上限は契約に従い、本文が大きいからfeed・source・groupの総予算まで増やさない。
+原本の表現・添付・リンク範囲は[記事sourceの意味](../docs/reference/data-sources.md#public-articles)を参照する。トウシルの同一host内の公開記事移転（301/308）はLocationを保持し、既存予算内で転送先を別受領として取得する。一般のHTTP redirect、認証付きURL、未許可hostへ巡回を広げない。旧受領に未保存のLocationは推測して補わない。HTTP失敗を含むL1の保存成功と、取得成功・本文投影成功を区別する。受領失敗はsource不備としてDEGRADED通知に残し、本文を受領した後のparser失敗だけを投影失敗として扱う。財務省の許可された案内は親子の別受領を保ち、rolling一覧から過去全PDFへ巡回しない。応答の種類別上限は契約に従い、本文が大きいからfeed・source・groupの総予算まで増やさない。
 
 結果の`partial`には未処理本文の継続も含む。原本・cursor保存が完了した`continuation_only=true`だけは正常な継続終了であり、全取得完了ではない。HTTP・parse・deadline・cursor省略・保存/CAS失敗を成功扱いせず、保存済み原本と失敗理由を分ける。source Aの失敗でも正常なBは進め、共通統合は開始時に到着済みのstageを固定する。
 

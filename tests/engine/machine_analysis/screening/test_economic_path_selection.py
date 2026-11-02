@@ -133,3 +133,46 @@ def test_saved_generation_projects_candidates_and_missing_companies(
             ("0000", ()),
         ]
         assert tuple(card.ticker for card in actual.result.cards) == ("5678", "1234")
+
+
+def test_price_diagnostics_distinguish_unavailable_inputs_without_changing_selection(monkeypatch):
+    fixed = generation()
+    contexts = {
+        "1234": {
+            "price_date": "2026-10-30",
+            "expected_price_date": "2026-11-02",
+            "pricing_valid": False,
+        },
+        "5678": {
+            "price_date": "2026-11-02",
+            "expected_price_date": "2026-11-02",
+            "pricing_valid": True,
+        },
+        "9999": {"price_date": None, "expected_price_date": "2026-11-02", "pricing_valid": False},
+    }
+    visits = []
+
+    @contextmanager
+    def stream(*args, **kwargs):
+        visits.append("read")
+        yield fixed, iter(())
+
+    def project(ticker, **kwargs):
+        visits.append(ticker)
+        return CompanyCoordinates(ticker, None, None, (), contexts[ticker], {}, ())
+
+    monkeypatch.setattr(economic_path_selection, "stream_generation_subjects", stream)
+    monkeypatch.setattr(economic_path_selection, "project_company", project)
+    result = economic_path_selection.evaluate_saved_economic_generation(
+        fixed.generation_id, tickers=tuple(contexts), policy=EconomicPathPolicy()
+    )
+    assert result.selection.result.cards == ()
+    assert result.price_inputs == {
+        "universe_count": 3,
+        "valid_count": 1,
+        "date_mismatch_count": 1,
+        "invalid_count": 2,
+        "price_dates": {"2026-10-30": 1, "2026-11-02": 1, "missing": 1},
+        "expected_price_dates": {"2026-11-02": 3},
+    }
+    assert visits == ["read", "1234", "5678", "9999"]

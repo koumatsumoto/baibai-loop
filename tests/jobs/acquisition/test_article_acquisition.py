@@ -130,7 +130,10 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
         assert report["status"] == "partial"
         assert report["continuation_only"] is False
         assert report["failures"] == ["http_error"]
-        assert result.complete is False
+        assert result.complete is True  # 失敗した受領の保存は成功。取得成功とは区別する。
+        assert result.report["projection_failures"] == []
+        assert len(result.report["acquisition_failures"]) == 1
+        assert result.report["acquisition_failures"][0]["http_status"] == 403
         assert all(item.original_url != target_url for item in observations)
 
 
@@ -984,3 +987,66 @@ def test_article_cli_resolves_current_tsr_slot_after_a_long_host_queue(tmp_path,
     for call in calls:
         expected = articles.slot_at(actual) if call["source"] in articles.TSR_SOURCES else SLOT
         assert call["slot"] == expected
+
+
+def _toushiru_redirect_source(tmp_path, monkeypatch, *, body_limit=8, cycle=False):
+    policy = articles.SOURCES["toushiru"]
+    monkeypatch.setitem(articles.SOURCES, "toushiru", replace(policy, max_bodies=body_limit))
+    old = "https://media.rakuten-sec.net/articles/-/1"
+    new = "https://media.rakuten-sec.net/articles/-/2"
+    index = Response(
+        200, f"<urlset><url><loc>{old}</loc><title>Synthetic</title></url></urlset>".encode()
+    )
+    moved = Response(301, b"")
+    moved.headers["Location"] = new
+    target = Response(
+        301 if cycle else 200,
+        b'<html><h1>Synthetic</h1><div class="article-body">Synthetic body</div></html>',
+    )
+    if cycle:
+        target.headers["Location"] = old
+    session = Session([index, moved, target])
+    store = MemoryR2Store()
+    publish_planning_input(store, "toushiru", {"lake_release_id": "before"})
+    packet = tmp_path / "toushiru"
+    report = articles.acquire_source(
+        store, source="toushiru", slot=SLOT, identity="redirect", directory=packet, session=session
+    )
+    return report, session, packet, old, new
+
+
+def test_toushiru_same_host_move_keeps_separate_receipts_and_projects_target(tmp_path, monkeypatch):
+    report, session, packet, old, new = _toushiru_redirect_source(tmp_path, monkeypatch)
+    assert session.urls[1:] == [old, new]
+    assert report["requests_used"] == 3
+    assert report["bodies"] == 2
+    assert report["failures"] == []
+    assert report["status"] == "completed"
+    replay = import_handoff("toushiru", tmp_path / "market", packet)
+    assert replay.complete
+    assert replay.report["acquisition_failures"] == []
+    assert len(replay.report["document_redirects"]) == 1
+    with closing(connect_read_only(tmp_path / "market")) as conn:
+        observed = read_observations(conn, replay.report["observation_ids"])
+    body = [x for x in observed if x.content_scope == "partial_text"]
+    assert len(body) == 1
+    assert body[0].original_url == new
+    assert body[0].article_id.endswith(new)
+
+
+def test_toushiru_redirect_target_waits_in_existing_document_budget(tmp_path, monkeypatch):
+    report, session, _, old, _ = _toushiru_redirect_source(tmp_path, monkeypatch, body_limit=1)
+    assert session.urls[1:] == [old]
+    assert report["pending_url_count"] == 1
+    assert report["continuation_only"] is True
+    assert report["status"] == "partial"
+
+
+def test_toushiru_redirect_cycle_is_finite_and_keeps_pending_work(tmp_path, monkeypatch):
+    report, session, packet, old, new = _toushiru_redirect_source(tmp_path, monkeypatch, cycle=True)
+    assert session.urls[1:] == [old, new]
+    assert "document_redirect_cycle" in report["failures"]
+    assert report["pending_url_count"] == 1
+    replay = import_handoff("toushiru", tmp_path / "market", packet)
+    assert replay.complete
+    assert "document_redirect_cycle" in replay.report["acquisition_issues"]

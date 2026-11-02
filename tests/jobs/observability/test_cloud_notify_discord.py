@@ -571,3 +571,102 @@ def test_deferred_input_text_is_single_line_and_keeps_the_run_link():
     assert "edinet extra" in message
     assert "2026-10-23 date" in message
     assert message.endswith(f"Run: <{RUN_URL}>")
+
+
+@pytest.mark.parametrize("valid", [0, 1])
+def test_zero_candidates_distinguishes_price_input_absence(valid):
+    notice = {
+        "models_ready": True,
+        "company_count": 2,
+        "model_count": 10,
+        "candidate_count": 0,
+        "screening_price_inputs": {"valid_count": valid, "universe_count": 2},
+    }
+    lines = discord.render_generation(notice)
+    assert lines[0] == "モデル生成: 2社 / 10件 / 候補0社"
+    assert lines[1] == f"候補抽出の価格入力: 適格{valid}/2社"
+    assert any("投資機会なしの判定ではない" in line for line in lines) is (valid == 0)
+
+
+@pytest.mark.parametrize(("valid", "universe"), [(True, 2), (3, 2), (-1, 2), (0, "2")])
+def test_invalid_price_diagnostics_are_not_reported_as_verified(valid, universe):
+    notice = {
+        "models_ready": True,
+        "company_count": 2,
+        "model_count": 10,
+        "candidate_count": 0,
+        "screening_price_inputs": {"valid_count": valid, "universe_count": universe},
+    }
+    assert discord.render_generation(notice) == ["モデル生成: 2社 / 10件 / 候補0社"]
+
+
+def test_source_failure_notice_separates_acquisition_projection_and_extraction():
+    report = {
+        "handoffs": [
+            {
+                "failed": True,
+                "entry": {"source": "synthetic"},
+                "result": {
+                    "acquisition_failures": [{"receipt_id": "one", "http_status": 403}],
+                    "projection_failures": ["two"],
+                    "extraction_failures": [],
+                },
+            },
+            {
+                "failed": True,
+                "entry": {"source": "synthetic"},
+                "result": {
+                    "acquisition_failures": [{"receipt_id": "three", "http_status": 301}],
+                    "projection_failures": [],
+                    "extraction_failures": ["four"],
+                },
+            },
+        ]
+    }
+    assert discord.render_source_failures(report) == [
+        "source不備: synthetic / 受領2・投影1・意味抽出1件"
+    ]
+
+
+def test_successful_integration_with_retained_http_failures_is_degraded_not_clean():
+    message = discord.render_message(
+        outcome=discord.OUTCOME_OK,
+        asof="2026-11-02",
+        failed_steps=[],
+        notice={"models_ready": True, "company_count": 2, "model_count": 10, "candidate_count": 0},
+        url="https://github.com/example/repo/actions/runs/1",
+        integration_report={
+            "handoffs": [
+                {
+                    "failed": False,
+                    "entry": {"source": "synthetic"},
+                    "result": {
+                        "acquisition_failures": [{"receipt_id": "one", "http_status": 403}],
+                        "projection_failures": [],
+                        "extraction_failures": [],
+                    },
+                }
+            ]
+        },
+    )
+    assert "[DEGRADED]" in message
+    assert "受領1・投影0・意味抽出0件" in message
+    assert "[OK]" not in message
+
+
+def test_non_http_acquisition_issue_is_not_lost_after_successful_raw_integration():
+    report = {
+        "handoffs": [
+            {
+                "failed": False,
+                "entry": {"source": "synthetic"},
+                "result": {
+                    "acquisition_issues": ["document_redirect_cycle"],
+                    "acquisition_failures": [],
+                },
+            }
+        ]
+    }
+    assert discord.render_source_failures(report) == [
+        "source不備: synthetic / 受領0・投影0・意味抽出0件 / document_redirect_cycle"
+    ]

@@ -223,6 +223,16 @@ def main(argv: list[str] | None = None) -> int:
                 or bool(report.get("external_failed"))
                 or bool((report.get("external") or {}).get("failed"))
             )
+            source_gaps = [
+                {
+                    "source": item["entry"]["source"],
+                    "failures": item["result"].get("acquisition_failures", []),
+                    "issues": item["result"].get("acquisition_issues", []),
+                }
+                for item in report["handoffs"]
+                if item.get("result", {}).get("acquisition_failures")
+                or item.get("result", {}).get("acquisition_issues")
+            ]
             deferred = {
                 source: item
                 for source, item in report["extractions"].items()
@@ -233,10 +243,13 @@ def main(argv: list[str] | None = None) -> int:
                     {
                         "integration_status": "failed"
                         if integration_failed
+                        else "completed_with_source_gaps"
+                        if source_gaps
                         else "completed_with_deferred_inputs"
                         if deferred
                         else "completed",
                         "deferred_inputs": deferred,
+                        "source_gaps": source_gaps,
                         "failed_handoffs": [
                             {
                                 "source": item["entry"]["source"],

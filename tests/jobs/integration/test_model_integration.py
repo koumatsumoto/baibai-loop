@@ -156,7 +156,12 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     assert result["candidate_count"] == 1
     assert result["company_count"] == 2
     assert result["model_count"] == 2
-    assert render_generation(result) == ["モデル生成: 2社 / 2件 / 候補1社"]
+    assert render_generation(result) == [
+        "モデル生成: 2社 / 2件 / 候補1社",
+        "候補抽出の価格入力: 適格1/2社",
+    ]
+    assert result["screening_price_inputs"]["valid_count"] == 1
+    assert result["screening_price_inputs"]["universe_count"] == 2
     assert result["growth_start"] == (None if growth_start is None else growth_start.isoformat())
     assert events == ["lease", "prepare", "generate", "lease", "publish", "release-snapshot"]
     stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
@@ -234,7 +239,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
         raise AssertionError("must not continue after failed generation")
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
-    monkeypatch.setattr(job, "select_saved_economic_generation", forbidden)
+    monkeypatch.setattr(job, "evaluate_saved_economic_generation", forbidden)
     monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)

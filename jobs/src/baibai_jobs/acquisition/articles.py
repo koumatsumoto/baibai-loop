@@ -413,7 +413,10 @@ def acquire_source(
                         "receipt": receipt.model_dump(mode="json"),
                         "stage": {"stage_id": stage_id},
                     }
-                elif receipt.status != "not_modified":
+                elif receipt.status != "not_modified" and not (
+                    kind == "document"
+                    and policy.document_redirect(url, receipt.http_status, receipt.location)
+                ):
                     failed.append(receipt.status)
                 if receipt.cooldown_until is not None:
                     proposed = receipt.cooldown_until.isoformat()
@@ -572,6 +575,7 @@ def acquire_source(
                 frontier_queued = True
             pending_urls = []
             seen_bodies: set[str] = set()
+            redirect_ancestors: dict[str, set[str]] = {}
             while queue and bodies < policy.max_bodies:
                 if discovery is not None and discovery.encoded_size(queue) > MAX_DISCOVERY_BYTES:
                     failed.append("discovery_capacity_exceeded")
@@ -598,6 +602,19 @@ def acquire_source(
                 link = evidence_for(url) if frontier is not None else None
                 receipt, body = receive(url, "document")
                 bodies += 1
+                target = policy.document_redirect(url, receipt.http_status, receipt.location)
+                if target is not None:
+                    # 移転元と先は別の原受領。全hopを既存の文書数/通信予算へ数える。
+                    ancestors = redirect_ancestors.get(url, set())
+                    if target in ancestors:
+                        failed.append("document_redirect_cycle")
+                        pending_urls.append(url)
+                    else:
+                        redirect_ancestors.setdefault(target, set()).update(ancestors | {url})
+                        if target not in seen_bodies:
+                            queue = list(dict.fromkeys([target, *queue]))
+                    active_url = None
+                    continue
                 if parent_links:
                     discovery_edges[receipt.receipt_id] = parent_links
                 if frontier is None:
