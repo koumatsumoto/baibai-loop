@@ -12,7 +12,13 @@ from typing import Any
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
-from baibai_jobs.acquisition.article_discovery import DISCOVERY_FORMAT, DISCOVERY_REF_FORMAT
+from baibai_jobs.acquisition.article_discovery import (
+    DISCOVERY_FORMAT,
+    DISCOVERY_REF_FORMAT,
+    LEGACY_DISCOVERY_FORMAT,
+    LEGACY_DISCOVERY_REF_FORMAT,
+    expand_cursor,
+)
 from baibai_jobs.acquisition.article_frontier import (
     FRONTIER_FORMAT,
     FRONTIER_REF_FORMAT,
@@ -232,8 +238,13 @@ def commit_stage(
     bound_cursor = cursor
     if cursor.get("format") == FRONTIER_FORMAT:
         bound_cursor = {"format": FRONTIER_REF_FORMAT, "stage": entry}
-    elif cursor.get("format") == DISCOVERY_FORMAT:
-        bound_cursor = {"format": DISCOVERY_REF_FORMAT, "stage": entry}
+    elif cursor.get("format") in (DISCOVERY_FORMAT, LEGACY_DISCOVERY_FORMAT):
+        bound_cursor = {
+            "format": DISCOVERY_REF_FORMAT
+            if cursor["format"] == DISCOVERY_FORMAT
+            else LEGACY_DISCOVERY_REF_FORMAT,
+            "stage": entry,
+        }
     elif cursor.get("pending_evidence"):
         bound_cursor = {
             **cursor,
@@ -294,9 +305,15 @@ def load_frontier_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str
 
 
 def load_discovery_cursor(store: ObjectStore, state: ArticlePlanning) -> dict[str, Any]:
-    if state.cursor.get("format") != DISCOVERY_REF_FORMAT:
-        return state.cursor
-    cursor, entry = _load_workset(store, state, DISCOVERY_FORMAT)
+    if state.cursor.get("format") not in (DISCOVERY_REF_FORMAT, LEGACY_DISCOVERY_REF_FORMAT):
+        return expand_cursor(state.cursor)
+    expected = (
+        DISCOVERY_FORMAT
+        if state.cursor["format"] == DISCOVERY_REF_FORMAT
+        else LEGACY_DISCOVERY_FORMAT
+    )
+    cursor, entry = _load_workset(store, state, expected)
+    cursor = expand_cursor(cursor)
 
     def bind_reference(value: dict[str, Any]) -> dict[str, Any]:
         value = bind_local_stage(value, entry)

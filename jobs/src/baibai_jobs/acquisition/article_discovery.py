@@ -10,14 +10,63 @@ from baibai_engine.data_collection.providers.articles.contracts import NativeLin
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, digest_json
 
 DISCOVERY_SOURCES = frozenset({"boj_news", "mof_news"})
-DISCOVERY_FORMAT = "article-discovery-v1"
-DISCOVERY_REF_FORMAT = "article-discovery-ref-v1"
+# v2 is a reader-first storage migration: retain v1 reads permanently. Once
+# written, rollbacks must retain this reader; old binaries cannot resume v2.
+LEGACY_DISCOVERY_FORMAT = "article-discovery-v1"
+DISCOVERY_FORMAT = "article-discovery-v2"
+LEGACY_DISCOVERY_REF_FORMAT = "article-discovery-ref-v1"
+DISCOVERY_REF_FORMAT = "article-discovery-ref-v2"
 MAX_DISCOVERY_BYTES = 1_000_000
 MAX_DISCOVERY_REPLAYS = 8
 
 
+def expand_cursor(cursor: dict[str, Any]) -> dict[str, Any]:
+    """Read v1 inline parents or lossless v2 references before stage binding."""
+    if cursor.get("format") != DISCOVERY_FORMAT:
+        return deepcopy(cursor)
+    parents = cursor["discovery_parents"]
+    if any(digest_json(parent) != key for key, parent in parents.items()):
+        raise ValueError("article discovery parent hash differs")
+    expanded = deepcopy(cursor)
+    expanded.pop("discovery_parents")
+    expanded["format"] = LEGACY_DISCOVERY_FORMAT
+    try:
+        expanded["discovery_children"] = {
+            url: [{**edge, "parent": deepcopy(parents[edge["parent"]])} for edge in edges]
+            for url, edges in cursor["discovery_children"].items()
+        }
+    except (KeyError, TypeError) as error:
+        raise ValueError("article discovery parent reference is missing or invalid") from error
+    return expanded
+
+
+def _compact_children(
+    children: dict[str, list[dict[str, Any]]],
+) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
+    # A parent includes the exact receipt, stage and index evidence. Hundreds
+    # of links repeat that same object. Intern only byte-equivalent metadata;
+    # different receipts/versions remain distinct, even when URLs are equal.
+    parents: dict[str, Any] = {}
+    compact: dict[str, list[dict[str, Any]]] = {}
+    for url, edges in children.items():
+        compact[url] = []
+        for edge in edges:
+            key = digest_json(edge["parent"])
+            parents[key] = edge["parent"]
+            compact[url].append({**edge, "parent": key})
+    return parents, compact
+
+
+def _encoded_size(
+    pending: dict[str, Any], children: dict[str, list[dict[str, Any]]], queue: list[str]
+) -> int:
+    parents, compact = _compact_children(children)
+    return len(json.dumps([pending, parents, compact, queue], ensure_ascii=False).encode())
+
+
 class DiscoveryWork:
     def __init__(self, cursor: dict[str, Any]) -> None:
+        cursor = expand_cursor(cursor)
         self.pending: dict[str, dict[str, Any]] = deepcopy(cursor.get("discoveries", {}))
         self.children: dict[str, list[dict[str, Any]]] = deepcopy(
             cursor.get("discovery_children", {})
@@ -79,7 +128,7 @@ class DiscoveryWork:
             if edge not in edges:
                 edges.append(edge)
         remaining = {key: value for key, value in self.pending.items() if key != identity}
-        size = len(json.dumps([remaining, children, proposed], ensure_ascii=False).encode())
+        size = _encoded_size(remaining, children, proposed)
         if size > MAX_DISCOVERY_BYTES:
             return None
         self.pending = remaining
@@ -87,13 +136,15 @@ class DiscoveryWork:
         return proposed
 
     def wire(self, cursor: dict[str, Any]) -> dict[str, Any]:
+        parents, children = _compact_children(self.children)
         return {
             **cursor,
             "format": DISCOVERY_FORMAT,
             "discoveries": self.pending,
-            "discovery_children": self.children,
+            "discovery_children": children,
+            "discovery_parents": parents,
             "discovery_recoveries": sorted(self.recoveries),
         }
 
     def encoded_size(self, queue: list[str]) -> int:
-        return len(json.dumps([self.pending, self.children, queue], ensure_ascii=False).encode())
+        return _encoded_size(self.pending, self.children, queue)

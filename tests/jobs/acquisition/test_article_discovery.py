@@ -123,7 +123,10 @@ def test_discovery_cas_failure_preserves_parent_to_child_workset_for_exact_recov
     cursor = saved["result"]["planning"]["cursor"]
     assert cursor["discoveries"] == {}
     assert cursor["pending_urls"] == [target]
-    assert cursor["discovery_children"][target][0]["parent"]["receipt_id"] == "original"
+    assert (
+        worksets.expand_cursor(cursor)["discovery_children"][target][0]["parent"]["receipt_id"]
+        == "original"
+    )
 
 
 @pytest.mark.parametrize("damage", ["missing", "corrupt"])
@@ -351,3 +354,87 @@ def test_same_slot_pending_documents_continue_without_repoll(tmp_path, monkeypat
     assert second.urls == ["https://www.mof.go.jp/b.htm"]
     assert result["pages"] == 0
     assert result["pending_url_count"] == 0
+
+
+def test_v2_interns_parents_without_losing_receipts_edges_or_queue():
+    work = DiscoveryWork({})
+    queue = []
+    links = tuple(NativeLink(f"/a/{i}", f"https://www.mof.go.jp/item-{i}.pdf") for i in range(500))
+    for version in ("one", "two"):
+        identity = work.register(receipt(version, version.encode()), {"stage_id": version})
+        queue = work.admit(identity, links, queue, revision="r1")
+        assert queue is not None
+    legacy = {
+        "format": worksets.LEGACY_DISCOVERY_FORMAT,
+        "discoveries": work.pending,
+        "discovery_children": work.children,
+        "discovery_recoveries": [],
+        "pending_urls": queue,
+        "pending_evidence": {"untouched": {"title": "kept"}},
+    }
+    before = json.loads(json.dumps(legacy))
+    wire = DiscoveryWork(legacy).wire(legacy)
+    assert wire["format"] == worksets.DISCOVERY_FORMAT
+    assert len(wire["discovery_parents"]) == 2
+    assert len(wire["discovery_children"]) == 500
+    assert sum(map(len, wire["discovery_children"].values())) == 1000
+    assert worksets.expand_cursor(wire) == before
+    assert legacy == before
+    assert len(json.dumps(wire)) < len(json.dumps(legacy)) // 2
+    reloaded = DiscoveryWork(wire)
+    assert reloaded.children == work.children
+    assert reloaded.encoded_size(queue) == work.encoded_size(queue)
+
+
+@pytest.mark.parametrize("damage", ["missing", "changed"])
+def test_v2_invalid_parent_reference_fails_closed(damage):
+    work = DiscoveryWork({})
+    identity = work.register(receipt(), {"stage_id": "original"})
+    queue = work.admit(
+        identity, (NativeLink("/a", "https://www.mof.go.jp/x.pdf"),), [], revision="r1"
+    )
+    wire = work.wire({"pending_urls": queue})
+    key = next(iter(wire["discovery_parents"]))
+    if damage == "missing":
+        del wire["discovery_parents"][key]
+    else:
+        wire["discovery_parents"][key] = {**wire["discovery_parents"][key], "url": "changed"}
+    with pytest.raises(ValueError, match="parent"):
+        DiscoveryWork(wire)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_exact_v1_and_v2_children_load_and_bind_local_stage(tmp_path, legacy):
+    from tests.helpers.article_acquisition import _packet
+
+    store = MemoryR2Store()
+    publish_planning_input(store, "mof_news", {})
+    state, etag = load_planning(store, "mof_news")
+    work = DiscoveryWork({})
+    identity = work.register(receipt(), {"stage_id": "stage"}, {"stage": {"stage_id": "stage"}})
+    target = "https://www.mof.go.jp/child.pdf"
+    queue = work.admit(identity, (NativeLink("/a", target),), [], revision="r1")
+    cursor = work.wire({"pending_urls": queue})
+    if legacy:
+        cursor = worksets.expand_cursor(cursor)
+    entry = commit_stage(
+        store,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="stage",
+        directory=_packet(tmp_path, "mof_news"),
+        requests={},
+        cursor=cursor,
+        not_before=None,
+    )
+    loaded, _ = load_planning(store, "mof_news")
+    expanded = load_discovery_cursor(store, loaded)
+    parent = expanded["discovery_children"][target][0]["parent"]
+    assert parent["stage"] == entry
+    assert parent["index_evidence"]["stage"] == entry
+    assert parent["receipt_id"] == "original"
+    assert expanded["pending_urls"] == [target]
+    # A new write migrates representation only; exact old immutable stage is intact.
+    upgraded = DiscoveryWork(expanded).wire(expanded)
+    assert worksets.expand_cursor(upgraded) == expanded
