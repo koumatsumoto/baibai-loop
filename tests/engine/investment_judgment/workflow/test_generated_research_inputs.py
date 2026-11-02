@@ -594,3 +594,72 @@ def test_saved_generation_market_view_uses_exact_full_payload_reference(tmp_path
     assert projected["reading"]["series"][0]["read_semantics"] == {"vintage_cutoff": None}
     assert saved.models[index].payload == market
     assert saved.model_dump_json() == before
+
+
+def test_old_full_market_workspace_requires_explicit_display_repair_and_keeps_authored_work(
+    tmp_path,
+):
+    from baibai_engine.investment_judgment.workflow.workspace.files import (
+        ResearchWorkspaceConflictError,
+    )
+
+    runs = tmp_path / "runs"
+    original = seed_generation(runs, now=NOW, as_of=AS_OF)
+    common = {"known_at_applied": False, "point_in_time_guaranteed": False}
+    market = {
+        "reading": {
+            "read_semantics": common,
+            "series": [
+                {
+                    "series_id": "synthetic",
+                    "latest_value": 0,
+                    "read_semantics": {**common, "vintage_cutoff": None},
+                }
+            ],
+        }
+    }
+    generation = original.model_copy(
+        update={
+            "generation_id": "display-repair-synthetic",
+            "models": tuple(
+                model.model_copy(update={"payload": market}) if model.subject == "market" else model
+                for model in original.models
+            ),
+        }
+    )
+    ModelGenerationStore(runs).publish(generation)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(text="調査", scope="specified_stocks", requested_tickers=("1234",)),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=generation.generation_id,
+        selection_summary="固定モデルの表示だけを更新",
+        targets=(selected_target(),),
+    )
+    workspace = tmp_path / "workspace"
+    db = tmp_path / "app.sqlite"
+    prepared = prepare_selected_workspace(
+        draft=draft, db_path=db, workspace=workspace, runs_path=runs, now=NOW
+    )
+    before = OperationService(db).get(prepared.operation_id).payload.model_dump_json()
+    inputs = workspace / "domain-inputs.yaml"
+    old_view = yaml.safe_load(inputs.read_text())
+    old_view["market_context"] = market
+    inputs.write_text(yaml.safe_dump(old_view, allow_unicode=True))
+    authored = workspace / "authored-review.yaml"
+    authored.write_text("author: keep this analysis\n")
+    with pytest.raises(ResearchWorkspaceConflictError, match="generated input drift"):
+        resume_selected_workspace(
+            operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW
+        )
+    repaired = resume_selected_workspace(
+        operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW, force=True
+    )
+    assert repaired.selection_sha256 == prepared.selection_sha256
+    assert OperationService(db).get(prepared.operation_id).payload.model_dump_json() == before
+    assert authored.read_text() == "author: keep this analysis\n"
+    assert (
+        "read_semantics_inheritance"
+        in yaml.safe_load(inputs.read_text())["market_context"]["reading"]
+    )
