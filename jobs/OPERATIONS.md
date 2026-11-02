@@ -156,6 +156,18 @@ planning CAS失敗で残った原本の統合と、最新cursorの復元は別�
 
 設定上限は実測値や無料枠の保証ではない。runではsource別requests/bytes/seconds、metadata操作、input/raw転送と保存、runner時間、readbackを確認する。setupを含むActions時間とR2全体の費用を部分logだけでゼロと報告しない。旧formatを読めないcodeへ戻して同じplanningを書かせず、切替・回復では稼働中writerを確認する。
 
+### 日次統合前の記事原本を読む
+
+固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。
+
+```bash
+uv run python -m baibai_jobs.acquisition.article_evidence \
+  --source <SOURCE> --stage-id <STAGE_ID> --manifest-sha256 <HASH> \
+  --receipt <RECEIPT_ID> <RECEIPT_SHA256> --directory <PRIVATE_OUTPUT>
+```
+
+出力は原受領・原本と stage 出典で、通常 release 所属や本文抽出成功を意味しない。引用時は出力packetも保持する。日次統合後は同じ receipt/body の ID・hash を固定 release で照合し、保存先の変更を新しい受領時刻へ読み替えない。stage URL だけで長期保持を保証しない。全文を公開logやIssueへ転記しない。
+
 ### 記事のexact遅着回復
 
 記事ownerに限定した回復planを作り、通常と同じfresh canonical/leaseでapply→モデル生成/公開→machine反映→sealを行う。最新feed再取得、元受領時刻変更、`integrated.json`削除は行わない。旧stageの原受領はappend-onlyで追記し、現在版選択はownerに任せる。回復成功は別の`recovered-<manifest hash>.json`へ記録する。
