@@ -74,6 +74,10 @@ def test_world_index_replay_and_later_correction_keep_original_receipts(
             "Corrected"
         ] * feed_count
         assert len({item.article_id for item in saved}) == 1
+        assert len({item.article_version_id for item in saved}) == 2
+        assert len({item.article_version_id for item in saved[:feed_count]}) == 1
+        assert len({item.article_version_id for item in saved[feed_count:]}) == 1
+        assert len({item.native_metadata["feed_url"] for item in saved}) == feed_count
         assert len({item.receipt_id for item in saved}) == 2 * feed_count
         for item in saved:
             receipt = read_receipt(conn, item.receipt_id, receipt_sha256=item.receipt_sha256)
@@ -93,7 +97,8 @@ def test_world_index_replay_and_later_correction_keep_original_receipts(
     assert skipped["status"] == "not_due"
 
 
-def test_bbc_one_invalid_feed_does_not_discard_second_original(tmp_path, monkeypatch):
+@pytest.mark.parametrize("first_status", [200, 403, 302])
+def test_bbc_one_failed_feed_does_not_discard_second_original(tmp_path, monkeypatch, first_status):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
@@ -106,12 +111,15 @@ def test_bbc_one_invalid_feed_does_not_discard_second_original(tmp_path, monkeyp
         slot=SLOT,
         identity="partial",
         directory=packet,
-        session=Session([Response(200, b"<html/>"), Response(200, FEED)]),
+        session=Session([Response(first_status, b"<html/>"), Response(200, FEED)]),
     )
     assert report["pages"] == 2
     assert report["status"] == "partial"
-    assert "index_parse_failed" in report["failures"]
+    expected_failure = "index_parse_failed" if first_status == 200 else "http_error"
+    assert expected_failure in report["failures"]
     imported = import_handoff("bbc_news", tmp_path / "market.sqlite", packet)
-    assert not imported.complete
+    # Importing an HTTP error receipt succeeds without claiming acquisition succeeded.
+    assert imported.complete is (first_status != 200)
+    assert imported.report["acquisition_status"] == "partial"
     assert len(imported.report["receipt_ids"]) == 2
     assert len(imported.report["observation_ids"]) == 1
