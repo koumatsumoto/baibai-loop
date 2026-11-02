@@ -52,7 +52,7 @@ jobs:
       # One bounded diagnostic run only. This branch will be closed without merging.
       - name: Capture bounded Minkabu parity report
         if: ${{ github.head_ref == 'diagnostic/minkabu-parity-artifact' && github.run_attempt == 1 }}
-        timeout-minutes: 3
+        timeout-minutes: 5
         run: |
           cat > "$RUNNER_TEMP/minkabu_parity.py" <<'MINKABU_SCRIPT'
           """One-off PR experiment. Remove this file and the CI step before merging."""
@@ -94,6 +94,7 @@ jobs:
                       {
                           "runtime": {
                               "python": platform.python_version(),
+                              "python_build": platform.python_build(),
                               "requests": requests.__version__,
                               "urllib3": urllib3.__version__,
                               "openssl": ssl.OPENSSL_VERSION,
@@ -117,11 +118,7 @@ jobs:
               )
               with ObservedSession() as warm:
                   cases = [
-                      ("news_index", "https://minkabu.jp/news", ARTICLE_ACCEPT, warm),
-                      ("news_after_index", "https://minkabu.jp/news/4645703", ARTICLE_ACCEPT, warm),
-                      ("news_fresh", "https://minkabu.jp/news/4645703", ARTICLE_ACCEPT, None),
-                      ("news_html_accept", "https://minkabu.jp/news/4645703", "text/html", None),
-                      ("stock_html_control", "https://minkabu.jp/stock/7203", "text/html", None),
+                      ("news_fresh_managed", "https://minkabu.jp/news/4645703", ARTICLE_ACCEPT, None),
                   ]
                   for index, (name, url, accept, reused) in enumerate(cases):
                       if index:
@@ -173,6 +170,7 @@ jobs:
                                       "Content-Encoding",
                                       "X-Cache",
                                       "X-Amz-Cf-Pop",
+                                      "Date", "Age", "Cache-Control", "X-Webcache-Source", "Oaiwebcache-Hit",
                                   )
                               }
                               row["redirect_present"] = bool(response.headers.get("Location"))
@@ -201,13 +199,15 @@ jobs:
           if __name__ == "__main__":
               main()
           MINKABU_SCRIPT
-          timeout 150 uv run python "$RUNNER_TEMP/minkabu_parity.py" > "$RUNNER_TEMP/minkabu-parity.jsonl"
+          export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/managed-parity-env"
+          uv sync --locked --all-groups --managed-python --python 3.14.4
+          timeout 150 uv run --managed-python --python 3.14.4 python "$RUNNER_TEMP/minkabu_parity.py" > "$RUNNER_TEMP/minkabu-parity.jsonl"
 
       - name: Retain sanitized parity report for authenticated readback
         if: ${{ !cancelled() && github.head_ref == 'diagnostic/minkabu-parity-artifact' && github.run_attempt == 1 }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: minkabu-parity-${{ github.run_id }}
+          name: minkabu-managed-parity-${{ github.run_id }}
           path: ${{ runner.temp }}/minkabu-parity.jsonl
           retention-days: 1
           if-no-files-found: error
