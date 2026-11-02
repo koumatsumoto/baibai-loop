@@ -708,3 +708,15 @@ uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 
 <a id="web-authentication"></a>
 Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有用Bearerまたは`?share=`で、どちらも同じ4 viewを読める独立credentialである。新しい表示もこの既存認証で保護し、追加のpasswordや権限区分を設けない。R2転送credentialとは別で、owner passwordの変更やUI再配備だけでは共有tokenを失効できない。共有の失効は配備先Workerの`READ_ACCESS_TOKEN`自体を更新、または削除／空値で無効化し、旧tokenが拒否され、必要な新tokenとownerの読取が維持されることを確認する。owner側も`VIEW_PASSWORD`自体を更新して旧値の拒否を確認する。実環境の変更は別の明示依頼に従い、秘密値や共有URLを本文・shell引数・logへ残さない。
+
+
+## 判断直前の多市場補助観測
+
+`market-evidence`は明示取得したTradingView MCPのquote／5分足を、既存native-document storeとimmutable handoffで保持する。日次外部評価の充足・価格master・正式な提案終値とは別であり、新しい定期pollやDB schemaは追加しない。要求parameters・SDK応答・要求/受領時計は[provider owner](../engine/src/baibai_engine/data_collection/providers/tradingview/market_models.py)、読取の時計・遅延・欠測は[観測owner](../engine/src/baibai_engine/machine_analysis/observations/prices/tradingview_market.py)が所有する。
+
+1. 判断開始時に有限のquoteと5分足を取得し、実際のtool名・明示引数・要求/受領時計・SDK resultをcaptureへ保存する。最初の対象は合意した実限月2商品、各最大500bar。後から時計を推測して付けない。
+2. `baibai-jobs market-evidence prepare --capture <CAPTURE> ... --directory <NEW_PRIVATE_DIR>`で最大3応答を固定する。`stage --directory <DIR> --stage-id tradingview_market-<ID>`はprivate handoffを冪等保存する。source一覧の定期取得とは別の明示操作である。
+3. 別sessionは返却stage ID/manifest SHAを指定し、`download --directory <NEW_DIR> --stage-id <ID> --manifest-sha256 <SHA>`で再GETなしに復元する。`read --directory <DIR> --receipt-id <RECEIPT> --sha256 <CAPTURE_SHA>`は観測と、同じ原本を指すAssessment入力を返す。未保存のlocal captureはL3用の耐久参照を返さない。
+4. 通常のnative統合後も同じreceipt/hashを読む。共通更新より遅く着いた独立captureをsource全体のwatermarkだけで捨てず、packetの限定scopeと原受領identityを検証してappendする。
+
+価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。

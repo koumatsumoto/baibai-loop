@@ -19,6 +19,7 @@ _COMMANDS = {
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
+    "market-evidence": "baibai_jobs.acquisition.market_context",
     "article-evidence": "baibai_jobs.acquisition.article_evidence",
     "article-recovery": "baibai_jobs.maintenance.article_recovery",
     "article-cutover": "baibai_jobs.maintenance.article_cutover",

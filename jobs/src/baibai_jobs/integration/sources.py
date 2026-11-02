@@ -12,6 +12,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
+from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     accept_rechecks as accept_economic_rechecks,
 )
@@ -50,6 +51,7 @@ from baibai_jobs.acquisition.article_planning import (
     pending_handoffs,
     publish_planning_input,
 )
+from baibai_jobs.acquisition.market_context import validate_packet as validate_market_packet
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.integration.external_assessment_ready import available_ready
@@ -110,6 +112,8 @@ def apply(
                     result = replay.report
                     failed = recovery = not replay.complete
                 else:
+                    if entry["source"] == "economic-" + MARKET_GROUP:
+                        validate_market_packet(packet, canonical=economic)
                     accepted = packet / "accepted.sqlite"
                     result = accept_economic_rechecks(
                         packet / "receipts.sqlite", economic, accepted
