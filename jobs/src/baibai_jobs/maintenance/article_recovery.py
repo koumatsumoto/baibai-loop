@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import re
 import sys
 import uuid
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,49 +20,19 @@ from baibai_engine.data_collection.receipts.articles.store import (
     read_receipt,
 )
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_discovery import DISCOVERY_SOURCES, DiscoveryWork
+from baibai_jobs.acquisition.article_evidence import exact_entry
 from baibai_jobs.acquisition.article_planning import (
-    ARTICLE_NAMESPACE,
     ARTICLE_SOURCES,
     commit_stage,
     load_discovery_cursor,
     load_planning,
     slot_at,
 )
-from baibai_jobs.acquisition.economic_staging import stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import read_private
 from baibai_jobs.acquisition.receipts import download_fixed
-
-
-def exact_entry(
-    store: ObjectStore, *, source: str, stage_id: str, manifest_sha256: str
-) -> dict[str, Any]:
-    if source not in ARTICLE_SOURCES or re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is None:
-        raise ValueError("article recovery requires an article source and exact manifest digest")
-    key = stage_prefix(stage_id, namespace=ARTICLE_NAMESPACE) + "/handoff.json"
-    saved = read_private(store, key)
-    if saved is None or hashlib.sha256(saved.payload).hexdigest() != manifest_sha256:
-        raise LakePublishError("exact article recovery manifest differs or is missing")
-    value = json.loads(saved.payload)["result"]
-    if value["source"] != source:
-        raise ValueError("article recovery source differs from immutable stage")
-    clock = datetime.fromisoformat(value["started_at"])
-    if clock.tzinfo is None or clock.utcoffset() is None:
-        raise ValueError("article recovery requires the original timezone-aware clock")
-    date.fromisoformat(value["asof"])
-    return {
-        "source": source,
-        "market": True,
-        "namespace": ARTICLE_NAMESPACE,
-        "stage_id": stage_id,
-        "manifest_sha256": manifest_sha256,
-        "started_at": value["started_at"],
-        "asof": value["asof"],
-        "explicit_article_recovery": True,
-    }
 
 
 def prepare(
@@ -73,6 +41,7 @@ def prepare(
     if (directory / "plan.json").exists():
         raise FileExistsError("recovery plan is already fixed")
     entry = exact_entry(store, source=source, stage_id=stage_id, manifest_sha256=manifest_sha256)
+    entry["explicit_article_recovery"] = True
     directory.mkdir(parents=True, exist_ok=True)
     write_json_atomic(
         directory / "plan.json", {"handoffs": [entry], "external": [], "external_failed": []}
