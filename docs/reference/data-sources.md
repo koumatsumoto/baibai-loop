@@ -80,6 +80,8 @@ TE経路は同じS&P測定の別配信であり、独立した経済測定では
 
 索引の受領、本文の受領、リンクの発見、文章の投影、主張の抽出は別の進捗である。RSSや一覧だけを取得して全記事を本文実読済みと扱わず、見出し・概要・全文・部分テキストの範囲を保持する。記事公表日・更新日・実受領日を混同せず、未知の日付を取得日で埋めない。
 
+BBC World/Business・Fed・ECB は独立した world group で索引を取得する。BBC の二つの feed は同一発行元であり、重複掲載を独立した裏付けに数えない。Fed/ECB の category は原文の分類で、発言を政策決定へ自動変換しない。定期取得は RSS の見出し・概要までで、選んだ案件の本文取得とは別である。個人利用の保存範囲と公開再配布を混同しない。導入・運用診断・判断接続の受入は [#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705) で追跡する。
+
 [ニュース・機関公表のsource契約](../../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)がURL範囲と取得予算を持つ。[native parser](../../engine/src/baibai_engine/data_collection/providers/articles/native.py)が提供形式を読み、[Observations](../../engine/src/baibai_engine/machine_analysis/observations/articles/)が日付・範囲・出典を保つ投影と抽出artifactを所有する。HTML本文が取れても全ての主張が機械抽出済みとは限らない。
 
 案内ページと転送先、本文と添付資料は別の原受領で、親子の出典を残す。財務省の金利CSVの文字表現は経済系列と独立した測定ではない。日銀XLSXのセル投影は書式・図表や式の計算結果の復元ではない。欠けた本文・未対応形式・抽出失敗を「出来事なし」へ変換しない。[取得・再開とexact回復](../../jobs/OPERATIONS.md#article-acquisition)は保存済み原本を基準に行う。
@@ -147,5 +149,3 @@ SRCの独自予想と会社計画を凡例・対象期から区別する。フ�
 ## Portfolioの価格とbenchmark
 
 保有quoteはmarket storeのJ-Quantsを使い、欠測を公開quoteの台帳転記で補わない。補助quoteは時点とprice basisを示す。年次・3年・5年Outcomeのprimary benchmarkはJPX TOPIX gross total returnで、同期間・公表時点・gross区分を確認する。ETF価格を代用せず、[Outcome](portfolio-ledger.md#historical-outcome)の税費用basisと区別する。
-
-BBC World/Business・Fed・ECB は独立した world group で索引を取得する。BBC の二つの feed は同一発行元であり、重複掲載を独立した裏付けに数えない。Fed/ECB の category は原文の分類で、発言を政策決定へ自動変換しない。定期取得は RSS の見出し・概要までで、選んだ案件の本文取得とは別である。個人利用の保存範囲と公開再配布を混同しない。導入・運用診断・判断接続の受入は [#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705) で追跡する。
