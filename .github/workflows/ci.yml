@@ -49,6 +49,13 @@ jobs:
       - name: Sync
         run: uv sync --locked --all-groups
 
+      # Temporary, finite public-request experiment; removed before merge.
+      - name: Observe bounded Minkabu request parity once
+        if: ${{ github.head_ref == 'fix/screening-input-diagnostics' && github.run_attempt == 1 }}
+        timeout-minutes: 3
+        continue-on-error: true
+        run: timeout 150 uv run python tools/diagnostics/minkabu_parity.py
+
       - name: Check packaged calibration context
         run: |
           uv build --out-dir "$RUNNER_TEMP/baibai-dist"

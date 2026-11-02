@@ -140,3 +140,35 @@ def test_invalid_retained_list_failure_is_not_hidden_by_another_input_delay(tmp_
     (tmp_path / "applied.json").write_text(json.dumps(report))
     assert source_integration.main(["check", "--directory", str(tmp_path)]) == 1
     assert json.loads(capsys.readouterr().out)["integration_status"] == "failed"
+
+
+@pytest.mark.parametrize("projection_failed", [False, True])
+def test_retained_http_error_is_a_visible_source_gap_not_a_projection_error(
+    tmp_path, capsys, projection_failed
+):
+    report = {
+        "handoffs": [
+            {
+                "entry": {"source": "minkabu_news", "stage_id": "synthetic"},
+                "failed": projection_failed,
+                "result": {
+                    "acquisition_failures": [
+                        {"receipt_id": "one", "status": "http_error", "http_status": 403}
+                    ],
+                    "projection_failures": ["two"] if projection_failed else [],
+                },
+            }
+        ],
+        "extractions": {},
+        "external": None,
+        "external_failed": [],
+    }
+    (tmp_path / "applied.json").write_text(json.dumps(report))
+    assert source_integration.main(["check", "--directory", str(tmp_path)]) == int(
+        projection_failed
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["integration_status"] == (
+        "failed" if projection_failed else "completed_with_source_gaps"
+    )
+    assert result["source_gaps"][0]["failures"][0]["http_status"] == 403

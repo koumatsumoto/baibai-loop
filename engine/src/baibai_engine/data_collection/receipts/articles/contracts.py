@@ -46,6 +46,8 @@ class ArticleReceipt(ArticleValue):
     encoding: str | None = None
     etag: str | None = None
     last_modified: str | None = None
+    # 未記録の旧受領はfieldを出力せず、保存済みdigestを変えない。
+    location: str | None = Field(default=None, exclude_if=lambda value: value is None)
     retry_after: str | None = None
     cooldown_until: AwareDatetime | None = None
     body_ref: BodyRef | None = None

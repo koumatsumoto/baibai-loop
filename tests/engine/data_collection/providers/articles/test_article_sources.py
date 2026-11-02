@@ -535,3 +535,47 @@ def test_feed_xml_has_an_offline_size_bound_and_accepts_utf8_bom():
         )
         == ()
     )
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://foreign.invalid/articles/-/2",
+        "http://media.rakuten-sec.net/articles/-/2",
+        "https://user@media.rakuten-sec.net/articles/-/2",
+        "/login",
+        "/articles/-/2?login=1",
+        "/articles/-/2#section",
+        "/articles/-/1",
+    ],
+)
+def test_article_move_does_not_expand_document_scope(location):
+    policy = SOURCES["toushiru"]
+    old = "https://media.rakuten-sec.net/articles/-/1"
+    assert policy.document_redirect(old, 301, location) is None
+    assert policy.document_redirect(old, 403, "/articles/-/2") is None
+    assert (
+        SOURCES["minkabu_news"].document_redirect("https://minkabu.jp/news/1", 301, "/news/2")
+        is None
+    )
+
+
+def test_optional_location_preserves_old_receipt_json_and_digest():
+    from baibai_engine.data_collection.receipts.articles.contracts import digest_json
+
+    old = {
+        "receipt_id": "old",
+        "source": "toushiru",
+        "requested_url": "https://media.rakuten-sec.net/articles/-/1",
+        "received_at": "2026-11-02T00:00:00Z",
+        "status": "http_error",
+        "http_status": 301,
+    }
+    receipt = ArticleReceipt.model_validate(old)
+    saved = receipt.model_dump(mode="json")
+    assert "location" not in saved
+    assert receipt.sha256 == digest_json(saved)
+    restored = ArticleReceipt.model_validate_json(json.dumps(saved))
+    assert restored.sha256 == receipt.sha256
+    with_location = receipt.model_copy(update={"location": "/articles/-/2"})
+    assert with_location.sha256 != receipt.sha256

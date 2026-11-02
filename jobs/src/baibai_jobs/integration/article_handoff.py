@@ -32,6 +32,8 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
         raise ValueError("invalid article document evidence")
     observations = []
     failed = []
+    acquisition_failures: list[dict[str, object]] = []
+    redirects: list[dict[str, str]] = []
     artifacts: list[str] = []
     extraction_failures: list[str] = []
     with (
@@ -55,6 +57,29 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
             item for item in identities if kinds[item] != "index"
         ]
         for identity in ordered:
+            receipt = read_receipt(conn, identity)
+            target = (
+                SOURCES[source].document_redirect(
+                    receipt.requested_url, receipt.http_status, receipt.location
+                )
+                if kinds[identity] == "document"
+                else None
+            )
+            if target is not None:
+                # 移転応答に本文の投影を要求しない。転送先の成否は別受領で扱う。
+                redirects.append({"receipt_id": identity, "target_url": target})
+                continue
+            if receipt.status not in {"ok", "not_modified"}:
+                # 原本未受領をHTML parserの失敗へ変換しない。L1履歴は既に保持済み。
+                acquisition_failures.append(
+                    {
+                        "receipt_id": identity,
+                        "status": receipt.status,
+                        "http_status": receipt.http_status,
+                        "error_code": receipt.error_code,
+                    }
+                )
+                continue
             kind = kinds[identity]
             link = evidence.get(identity) if kind == "document" else None
             if source == "nhk_news" and kind == "document" and link is None:
@@ -108,6 +133,8 @@ def import_handoff(source: str, database: Path, directory: Path) -> ReplayResult
         report={
             "receipt_ids": sorted(closure),
             "observation_ids": observations,
+            "acquisition_failures": acquisition_failures,
+            "document_redirects": redirects,
             "projection_failures": failed,
             "artifact_ids": sorted(set(artifacts)),
             "extraction_failures": extraction_failures,

@@ -255,6 +255,30 @@ def render_deferred_inputs(report: Mapping[str, object]) -> list[str]:
     return lines[:4]
 
 
+def render_source_failures(report: Mapping[str, object]) -> list[str]:
+    """受領・native投影・意味抽出の故障箇所を分け、原文やURLは通知へ出さない。"""
+    grouped: dict[str, list[int]] = {}
+    handoffs = report.get("handoffs")
+    for item in handoffs if isinstance(handoffs, list) else []:
+        if not isinstance(item, dict):
+            continue
+        entry, result = item.get("entry"), item.get("result")
+        if not isinstance(entry, dict) or not isinstance(result, dict):
+            continue
+        counts = grouped.setdefault(sanitize_one_line(entry.get("source", "不明")), [0, 0, 0])
+        for index, field in enumerate(
+            ("acquisition_failures", "projection_failures", "extraction_failures")
+        ):
+            failures = result.get(field)
+            if isinstance(failures, list):
+                counts[index] += len(failures)
+    return [
+        f"source不備: {source} / 受領{counts[0]}・投影{counts[1]}・意味抽出{counts[2]}件"
+        for source, counts in sorted(grouped.items())
+        if any(counts)
+    ][:4]
+
+
 def render_run_notice(
     *,
     label: str,
@@ -321,6 +345,10 @@ def render_message(
         if step_outcomes and step_outcomes.get("publish-lake") in {"failure", "cancelled"}:
             generation_notice = {"models_ready": False}
         details.extend(render_generation(generation_notice))
+    source_failures = render_source_failures(integration_report or {})
+    if outcome == OUTCOME_OK and source_failures:
+        outcome = OUTCOME_DEGRADED
+    details.extend(source_failures)
     details.extend(render_deferred_inputs(integration_report or {}))
     return render_run_notice(
         label=OUTCOME_LABELS[outcome],

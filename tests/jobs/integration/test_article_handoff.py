@@ -3,6 +3,8 @@ import json
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -81,3 +83,78 @@ def test_semantic_failure_retains_l1_and_projection_without_success_claim(tmp_pa
     assert delta["articles.source_receipts"]
     assert delta["articles.observations"]
     assert delta["articles.extraction_artifacts"] == {}
+
+
+@pytest.mark.parametrize("kind", ["index", "document"])
+def test_http_receipt_failure_is_not_misreported_as_parser_failure(tmp_path, kind):
+    directory = tmp_path / "packet"
+    directory.mkdir()
+    receipt = ArticleReceipt(
+        receipt_id="failed",
+        source="minkabu_news",
+        requested_url="https://minkabu.jp/news/1",
+        received_at=datetime(2026, 11, 2, tzinfo=UTC),
+        status="http_error",
+        http_status=403,
+        error_code="http_403",
+    )
+    with closing(open_connection(directory / "receipts.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt)
+    (directory / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "minkabu_news",
+                "receipt_ids": ["failed"],
+                "projection_kinds": {"failed": kind},
+                "status": "partial",
+            }
+        )
+    )
+    result = import_handoff("minkabu_news", tmp_path / "market", directory)
+    assert result.complete  # 原受領の保存は成功、取得そのものの失敗は別に残す。
+    assert result.report["projection_failures"] == []
+    assert result.report["observation_ids"] == []
+    assert result.report["acquisition_failures"] == [
+        {
+            "receipt_id": "failed",
+            "status": "http_error",
+            "http_status": 403,
+            "error_code": "http_403",
+        }
+    ]
+    with closing(open_connection(tmp_path / "market")) as conn:
+        from baibai_engine.data_collection.receipts.articles.store import read_receipt
+
+        assert read_receipt(conn, receipt.receipt_id) == receipt
+        assert conn.execute("SELECT COUNT(*) FROM article_projection_runs").fetchone()[0] == 0
+
+
+def test_received_200_without_body_region_remains_a_projection_failure(tmp_path):
+    directory = tmp_path / "packet"
+    directory.mkdir()
+    body = b"<html><body>No supported article region</body></html>"
+    receipt = ArticleReceipt(
+        receipt_id="unsupported",
+        source="minkabu_news",
+        requested_url="https://minkabu.jp/news/1",
+        received_at=datetime(2026, 11, 2, tzinfo=UTC),
+        status="ok",
+        http_status=200,
+        body_ref=BodyRef(receipt_id="unsupported", sha256=hashlib.sha256(body).hexdigest()),
+    )
+    with closing(open_connection(directory / "receipts.sqlite")) as conn, conn:
+        retain_receipt(conn, receipt, body=body)
+    (directory / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "minkabu_news",
+                "receipt_ids": [receipt.receipt_id],
+                "projection_kinds": {receipt.receipt_id: "document"},
+                "status": "completed",
+            }
+        )
+    )
+    result = import_handoff("minkabu_news", tmp_path / "market", directory)
+    assert not result.complete
+    assert result.report["acquisition_failures"] == []
+    assert result.report["projection_failures"] == [receipt.receipt_id]

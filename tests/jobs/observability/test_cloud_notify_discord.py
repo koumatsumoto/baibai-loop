@@ -598,3 +598,57 @@ def test_invalid_price_diagnostics_are_not_reported_as_verified(valid, universe)
         "screening_price_inputs": {"valid_count": valid, "universe_count": universe},
     }
     assert discord.render_generation(notice) == ["モデル生成: 2社 / 10件 / 候補0社"]
+
+
+def test_source_failure_notice_separates_acquisition_projection_and_extraction():
+    report = {
+        "handoffs": [
+            {
+                "failed": True,
+                "entry": {"source": "synthetic"},
+                "result": {
+                    "acquisition_failures": [{"receipt_id": "one", "http_status": 403}],
+                    "projection_failures": ["two"],
+                    "extraction_failures": [],
+                },
+            },
+            {
+                "failed": True,
+                "entry": {"source": "synthetic"},
+                "result": {
+                    "acquisition_failures": [{"receipt_id": "three", "http_status": 301}],
+                    "projection_failures": [],
+                    "extraction_failures": ["four"],
+                },
+            },
+        ]
+    }
+    assert discord.render_source_failures(report) == [
+        "source不備: synthetic / 受領2・投影1・意味抽出1件"
+    ]
+
+
+def test_successful_integration_with_retained_http_failures_is_degraded_not_clean():
+    message = discord.render_message(
+        outcome=discord.OUTCOME_OK,
+        asof="2026-11-02",
+        failed_steps=[],
+        notice={"models_ready": True, "company_count": 2, "model_count": 10, "candidate_count": 0},
+        url="https://github.com/example/repo/actions/runs/1",
+        integration_report={
+            "handoffs": [
+                {
+                    "failed": False,
+                    "entry": {"source": "synthetic"},
+                    "result": {
+                        "acquisition_failures": [{"receipt_id": "one", "http_status": 403}],
+                        "projection_failures": [],
+                        "extraction_failures": [],
+                    },
+                }
+            ]
+        },
+    )
+    assert "[DEGRADED]" in message
+    assert "受領1・投影0・意味抽出0件" in message
+    assert "[OK]" not in message
