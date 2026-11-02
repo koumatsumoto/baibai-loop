@@ -13,7 +13,9 @@ from pydantic import JsonValue
 from pypdf import PdfReader
 
 from baibai_engine.data_collection.providers.articles.contracts import (
+    RSS_SOURCES,
     SOURCES,
+    WORLD_NEWS_SOURCES,
     NativeArticle,
     NativeLink,
 )
@@ -83,7 +85,7 @@ def is_index_locator(source: str, locator: str) -> bool:
     """Accept only native index item positions emitted by this provider parser."""
     if source in {"tsr_data", "tsr_flash"}:
         pattern = r"/(?:0|[1-9][0-9]*)"
-    elif source in {"boj_news", "mof_news", "nhk_news", "toushiru"}:
+    elif source in RSS_SOURCES:
         pattern = r"/(?:item|url)/(?:0|[1-9][0-9]*)"
     elif source in {"minkabu_news", "rakuten_news"}:
         pattern = r"/a/(?:0|[1-9][0-9]*)"
@@ -160,7 +162,7 @@ def parse_index(
                 )
             )
         return tuple(result)
-    if source in {"boj_news", "mof_news", "toushiru", "nhk_news"}:
+    if source in RSS_SOURCES:
         root = _feed_root(body)
         result = []
         if root.tag.rsplit("}", 1)[-1] == "urlset":
@@ -189,6 +191,9 @@ def parse_index(
             return tuple(result)
         if root.tag.rsplit("}", 1)[-1] not in {"rss", "RDF"}:
             raise ValueError("unsupported article feed root")
+        if source in WORLD_NEWS_SOURCES and root.tag.rsplit("}", 1)[-1] == "rss":
+            if not any(node.tag.rsplit("}", 1)[-1] == "channel" for node in root):
+                raise ValueError("RSS channel missing; not a confirmed empty feed")
         for index, entry in enumerate(
             node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "item"
         ):
@@ -197,10 +202,29 @@ def parse_index(
             if not link:
                 raise ValueError("feed item has no link")
             summary = plain_text(fields.get("description", ""))
+            # Feed labels are publisher claims, not a classification of policy decisions.
+            # Preserve repeated categories (a dict alone would silently keep only the last).
+            world_metadata: dict[str, JsonValue] = {}
+            if source in WORLD_NEWS_SOURCES:
+                world_metadata = {
+                    "publisher": {
+                        "bbc_news": "BBC",
+                        "fed_news": "Federal Reserve",
+                        "ecb_news": "ECB",
+                    }[source],
+                    "feed_url": url,
+                    # ECB's native URL section is retained without interpreting it as a decision.
+                    "publication_path": urlsplit(link).path,
+                    "categories": [
+                        node.text or ""
+                        for node in entry
+                        if node.tag.rsplit("}", 1)[-1] == "category"
+                    ],
+                }
             result.append(
                 NativeArticle(
                     article_id=f"{source}:{fields.get('guid') or _https(link)}"
-                    if source == "nhk_news"
+                    if source == "nhk_news" or source in WORLD_NEWS_SOURCES
                     else f"{source}:{_https(link)}",
                     locator=f"/item/{index}",
                     url=link,
@@ -212,13 +236,16 @@ def parse_index(
                         "format": "rss",
                         "fetch_url": _https(link),
                         "source_item_sha256": digest_json(
-                            {
+                            {"fields": fields, "categories": world_metadata["categories"]}
+                            if source in WORLD_NEWS_SOURCES
+                            else {
                                 key: value
                                 for key, value in fields.items()
                                 if source != "nhk_news" or key not in {"new", "category"}
                             }
                         ),
                         "guid": fields.get("guid"),
+                        **world_metadata,
                     },
                 )
             )
