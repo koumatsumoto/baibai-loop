@@ -478,7 +478,9 @@ def _resolve_capital_basis(
     later_actions = [
         action
         for action in capital_actions
-        if basis_end is None or action.effective_date > basis_end
+        if basis_end is None
+        or action.effective_date > basis_end
+        or (action.effective_date == basis_end and issued != action.issued_shares)
     ]
     if later_actions:
         latest_day = max(action.effective_date for action in later_actions)
