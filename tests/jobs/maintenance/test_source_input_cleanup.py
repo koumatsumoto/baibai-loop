@@ -475,3 +475,28 @@ def test_github_paginated_json_detects_batch_on_second_page(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="batch workflow is active"):
         _github_idle()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"total_count":0}',
+        '{"total_count":0,"workflow_runs":{}}',
+        '{"total_count":0,"workflow_runs":[]}\n{"total_count":1,"workflow_runs":[]}',
+        '{"total_count":0,"workflow_runs":[]}\n{"message":"error"}',
+    ],
+)
+def test_github_rejects_malformed_or_inconsistent_pages(monkeypatch, payload):
+    from types import SimpleNamespace
+
+    from baibai_jobs.maintenance.source_input_cleanup import _github_idle
+
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.shutil.which", lambda _: "/usr/bin/gh"
+    )
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
+        lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=payload),
+    )
+    with pytest.raises(RuntimeError, match="invalid workflow run page"):
+        _github_idle()

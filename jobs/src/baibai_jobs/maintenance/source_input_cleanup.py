@@ -206,8 +206,15 @@ def _github_idle() -> None:
         if not pages:
             raise RuntimeError("cannot enumerate workflow runs")
         total = pages[0].get("total_count")
+        if type(total) is not int or any(
+            type(page.get("total_count")) is not int
+            or page["total_count"] != total
+            or not isinstance(page.get("workflow_runs"), list)
+            for page in pages
+        ):
+            raise RuntimeError("invalid workflow run page")
         runs = [item for page in pages for item in page.get("workflow_runs", [])]
-        if type(total) is not int or len(runs) != total:
+        if len(runs) != total:
             raise RuntimeError("workflow run listing is incomplete")
         for item in runs:
             path = item.get("path")
