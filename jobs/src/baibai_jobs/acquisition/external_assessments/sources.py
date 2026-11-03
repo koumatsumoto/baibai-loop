@@ -172,11 +172,16 @@ def acquire_source(
     results = [stage.result for stage, _ in saved.values()]
     accounting = summarize(plan, results)
     blocked = any(entry.http_status in {403, 429} for result in results for entry in result.entries)
+    # Completion of all attempts includes parse/HTTP failures. Keep their raw
+    # receipts available to handoff, but do not report that as successful data.
+    failed = any(entry.state == "failure" for result in results for entry in result.entries)
     return {
         **accounting,
         "source": source,
         "status": "blocked"
         if blocked
+        else "acquired_with_failures"
+        if failed and accounting["attempted_completeness"]
         else "acquired"
         if accounting["attempted_completeness"]
         else "incomplete",
