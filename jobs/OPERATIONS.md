@@ -3,6 +3,8 @@
 machine処理、store反映、lakeの公開と復旧を扱う。repository rootのBashから、依頼された対象だけを操作する。全optionと内部判定は各CLIのhelp・実装が正本。責務とデータ正本は[architecture](../docs/architecture.md#store-authority)、開発準備は[development](../docs/development.md)にある。
 
 <a id="actions-write-boundary"></a>
+EDINETの大量保有・訂正報告書原本は既存の `edinet-facts` 取得に含める。保存済みIDを再取得せず、未保存分を新しい順に1回100件まで、10秒間隔で取得する。未選択数は次回の対象として残し、既存の年次原本や一覧を削除しない。認証拒否・403・レート制限では打切り、保存済みの部分結果を維持する。
+
 ## 実行環境と接続
 
 通常の取得・公開は既存Actionsを優先する。個別に依頼されたapplication更新は、認可された運用環境で取得済み作業コピーを正規CLIで更新し、条件付き反映する。物理的なPCだけに限定せず、対応OS・依存・接続を確認する。開発変更を本番操作・新課金・権限拡大の許可へ読み替えない。
