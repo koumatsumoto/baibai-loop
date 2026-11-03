@@ -615,3 +615,44 @@ def test_current_receipt_may_be_kept_but_never_deleted(monkeypatch, tmp_path):
     assert result["deleted"] == [s.old]
     assert s.keep in s.objects
     assert s.old not in s.objects
+
+
+def test_current_target_at_end_is_rejected_before_any_delete(monkeypatch, tmp_path):
+    import baibai_jobs.maintenance.source_input_cleanup as cleanup
+
+    s, plan = _retired_fixture(monkeypatch)
+    current_key = f"coordination/source-inputs/group-old3/receipts-{s.sha}.sqlite"
+    s.objects[current_key] = s.payload
+    s.stage = "group-old3"
+    plan["pointers"][s.pointer][1] = s.stage
+    plan["groups"][0]["delete"].append(
+        {"key": current_key, "sha256": s.sha, "size": len(s.payload), "etag": '"object"'}
+    )
+    plan["retired_handoffs"][current_key] = [
+        current_key.rsplit("/", 1)[0] + "/handoff.json",
+        "a" * 64,
+    ]
+    monkeypatch.setattr(
+        cleanup,
+        "_handoff_receipts",
+        lambda *_: {key: tuple(value) for key, value in plan["retired_handoffs"].items()},
+    )
+    with (
+        (tmp_path / "journal").open("x") as journal,
+        pytest.raises(ValueError, match="current or invalid"),
+    ):
+        run(s, plan, apply=True, guard=lambda: None, journal=journal, plan_sha256="a" * 64)
+    assert not s.deletes
+
+
+def test_current_keep_cannot_also_be_a_delete_target(monkeypatch, tmp_path):
+    s, plan = _retired_fixture(monkeypatch)
+    s.stage = "group-old1"
+    plan["pointers"][s.pointer][1] = s.stage
+    plan["groups"][0]["delete"].append(dict(plan["groups"][0]["keep"]))
+    with (
+        (tmp_path / "journal").open("x") as journal,
+        pytest.raises(ValueError, match="invalid or repeated"),
+    ):
+        run(s, plan, apply=True, guard=lambda: None, journal=journal, plan_sha256="a" * 64)
+    assert not s.deletes
