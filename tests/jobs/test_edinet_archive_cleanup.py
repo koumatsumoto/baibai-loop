@@ -26,7 +26,9 @@ def fixture_plan(tmp_path: Path) -> dict[str, Any]:
             "old_HEAD_after": {"ETag": item["etag"], "bytes": size},
             "current_HEAD_after": {"ETag": keep["etag"], "bytes": keep["size"]},
             "old_is_exact_row_subset_of_current": True,
-            "all_fields_and_raw_bytes_equal": True,
+            "all_fields_and_raw_bytes_equal": 7,
+            "old_rows": 7,
+            "current_rows": 8,
             "schema_and_metadata_equal": True,
             "missing_in_current": 0,
             "changed_rows": 0,
@@ -42,6 +44,7 @@ def fixture_plan(tmp_path: Path) -> dict[str, Any]:
         "targets": targets,
         "pointer": {},
         "active_pointers": {},
+        "dataset_index": {},
         "release_index": {"release": "etag"},
     }
 
@@ -58,10 +61,17 @@ class Client:
 def setup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cleanup, "_current", lambda *args: None)
     monkeypatch.setattr(cleanup, "_active_pointers", lambda *args: None)
+    monkeypatch.setattr(cleanup, "_historical_evidence", lambda *args: None)
+    monkeypatch.setattr(cleanup, "_dataset_index", lambda *args: None)
     monkeypatch.setattr(cleanup, "_object", lambda *args: None)
     monkeypatch.setattr(cleanup, "_release_index", lambda *args: {"release": "etag"})
     monkeypatch.setattr(cleanup, "_verify_survivor_bytes", lambda *args: None)
     monkeypatch.setattr(cleanup, "_require_absent", lambda *args: None)
+    monkeypatch.setattr(
+        cleanup,
+        "_delete_once",
+        lambda client, key: client.delete_object(Bucket=cleanup.BUCKET, Key=key),
+    )
 
 
 def test_dry_run_and_exact_deletion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -137,3 +147,90 @@ def test_reject_current_target_and_running_batch(
             client, plan, tmp_path, apply=True, guard=active, journal=journal, plan_sha256="sha"
         )
     assert client.deleted == []
+
+
+@pytest.mark.parametrize("status", [301, 307])
+def test_redirect_is_blocked_before_second_wire_request(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    import boto3
+    from botocore.awsrequest import AWSResponse
+    from botocore.config import Config
+
+    class EmptyBody:
+        def stream(self, *_args: Any, **_kwargs: Any):
+            yield b""
+
+    client = boto3.client(
+        "s3",
+        endpoint_url="https://example.test",
+        region_name="auto",
+        aws_access_key_id="fake",
+        aws_secret_access_key="fake",
+        config=Config(retries={"total_max_attempts": 1}),
+    )
+    requests = []
+
+    def redirect(request: Any) -> AWSResponse:
+        requests.append(request)
+        return AWSResponse(request.url, status, {"x-amz-bucket-region": "us-west-2"}, EmptyBody())
+
+    monkeypatch.setattr(client._endpoint.http_session, "send", redirect)
+    with pytest.raises(RuntimeError, match="second DELETE request was blocked"):
+        cleanup._delete_once(client, "test-key")
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("count", [True, "7", 6])
+def test_proof_rejects_noninteger_or_incomplete_row_count(tmp_path: Path, count: object) -> None:
+    plan = fixture_plan(tmp_path)
+    item = plan["targets"][0]
+    path = tmp_path / item["proof"]
+    proof = json.loads(path.read_text())
+    proof["all_fields_and_raw_bytes_equal"] = count
+    raw = json.dumps(proof).encode()
+    path.write_bytes(raw)
+    item["proof_sha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(ValueError, match="proof does not establish"):
+        cleanup._proof(path, item, plan["keep"])
+
+
+def test_historical_evidence_rejects_extra_affected_release(tmp_path: Path) -> None:
+    plan = fixture_plan(tmp_path)
+    items = [
+        {"key": x["key"], "release_keys": [], "current_pointer_references": []}
+        for x in plan["targets"]
+    ]
+    items[0]["release_keys"] = [f"release-{i}" for i in range(40)]
+    proof = {
+        "old_files": items,
+        "old_referencing_noncurrent_distinct_release_count": 40,
+        "release_listing_stable": True,
+        "dataset_listing_stable": True,
+        "pointers_stable": True,
+        "failure": None,
+        "manifest_proofs": [
+            {"key": "lake/manifests/releases/old", "etag": "old"},
+            {"key": "lake/manifests/datasets/old", "etag": "data"},
+        ],
+    }
+    plan.update(
+        current_release_key="current",
+        release_index={"current": "x", "lake/manifests/releases/old": "old"},
+        dataset_index={"lake/manifests/datasets/old": "data"},
+        reference_evidence="reference.json",
+    )
+    path = tmp_path / "reference.json"
+
+    def write() -> None:
+        raw = json.dumps(proof).encode()
+        path.write_bytes(raw)
+        plan["reference_evidence_sha256"] = hashlib.sha256(raw).hexdigest()
+
+    write()
+    keys = {item["key"] for item in plan["targets"]}
+    cleanup._historical_evidence(plan, tmp_path, keys)
+    items[0]["release_keys"].append("unexpected-41")
+    write()
+    with pytest.raises(ValueError, match="historical release impact differs"):
+        cleanup._historical_evidence(plan, tmp_path, keys)

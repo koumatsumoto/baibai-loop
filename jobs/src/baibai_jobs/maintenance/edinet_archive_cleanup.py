@@ -116,6 +116,53 @@ def _active_pointers(client: Any, expected: dict[str, str], forbidden: set[str])
         raise ValueError("active pointer inventory changed")
 
 
+def _dataset_index(client: Any, expected: dict[str, str]) -> None:
+    actual: dict[str, str] = {}
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(
+        Bucket=BUCKET, Prefix="lake/manifests/datasets/edinet.source_archives/"
+    ):
+        for obj in page.get("Contents", []):
+            if obj["Key"] in actual:
+                raise ValueError("duplicate dataset listing")
+            actual[obj["Key"]] = obj["ETag"]
+    if not expected or any(actual.get(key) != etag for key, etag in expected.items()):
+        raise ValueError("referenced dataset inventory changed")
+
+
+def _historical_evidence(plan: dict[str, Any], proof_dir: Path, keys: set[str]) -> None:
+    name = plan["reference_evidence"]
+    if Path(name).name != name:
+        raise ValueError("invalid reference evidence path")
+    raw = (proof_dir / name).read_bytes()
+    if hashlib.sha256(raw).hexdigest() != plan["reference_evidence_sha256"]:
+        raise ValueError("reference evidence changed")
+    evidence = json.loads(raw, object_pairs_hook=_unique_members)
+    old = evidence["old_files"]
+    if {item["key"] for item in old} != keys or len(old) != len(keys):
+        raise ValueError("historical target scope differs")
+    affected = {release for item in old for release in item["release_keys"]}
+    if (
+        len(affected) != 40
+        or evidence["old_referencing_noncurrent_distinct_release_count"] != 40
+        or any(item["current_pointer_references"] for item in old)
+        or evidence["release_listing_stable"] is not True
+        or evidence["dataset_listing_stable"] is not True
+        or evidence["pointers_stable"] is not True
+        or evidence["failure"] is not None
+    ):
+        raise ValueError("historical release impact differs")
+    proofs = evidence["manifest_proofs"]
+    release_index = {p["key"]: p["etag"] for p in proofs if "/releases/" in p["key"]}
+    dataset_index = {p["key"]: p["etag"] for p in proofs if "/datasets/" in p["key"]}
+    # The current release is freshly read and hash-checked by _current rather than
+    # repeated in the cached historical proof list.
+    historical_releases = dict(plan["release_index"])
+    historical_releases.pop(plan["current_release_key"])
+    if release_index != historical_releases or dataset_index != plan["dataset_index"]:
+        raise ValueError("historical manifest evidence differs")
+
+
 def _proof(path: Path, target: dict[str, Any], keep: dict[str, Any]) -> None:
     raw = path.read_bytes()
     if hashlib.sha256(raw).hexdigest() != target["proof_sha256"]:
@@ -131,13 +178,36 @@ def _proof(path: Path, target: dict[str, Any], keep: dict[str, Any]) -> None:
         or proof["current_HEAD_after"]["ETag"] != keep["etag"]
         or proof["current_HEAD_after"]["bytes"] != keep["size"]
         or proof["old_is_exact_row_subset_of_current"] is not True
-        or proof["all_fields_and_raw_bytes_equal"] is not True
+        or type(proof["old_rows"]) is not int
+        or proof["old_rows"] <= 0
+        or type(proof["current_rows"]) is not int
+        or proof["old_rows"] > proof["current_rows"]
+        or type(proof["all_fields_and_raw_bytes_equal"]) is not int
+        or proof["all_fields_and_raw_bytes_equal"] != proof["old_rows"]
         or proof["schema_and_metadata_equal"] is not True
         or proof["missing_in_current"] != 0
         or proof["changed_rows"] != 0
         or set(proof["comparison_fields"]) != {"doc_id", "source_type", "stored_on", "zip_content"}
     ):
         raise ValueError("proof does not establish exact row inclusion")
+
+
+def _delete_once(client: Any, key: str) -> None:
+    """Block redirects as well as configured retries before a second wire request."""
+    attempts = 0
+
+    def before_send(**_kwargs: Any) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts > 1:
+            raise RuntimeError("a second DELETE request was blocked")
+
+    event = "before-send.s3.DeleteObject"
+    client.meta.events.register_first(event, before_send)
+    try:
+        client.delete_object(Bucket=BUCKET, Key=key)
+    finally:
+        client.meta.events.unregister(event, before_send)
 
 
 def run(
@@ -162,10 +232,12 @@ def run(
     keys = [t["key"] for t in targets]
     if len(set(keys)) != 12 or keep["key"] in keys:
         raise ValueError("duplicate or current object selected")
+    _historical_evidence(plan, proof_dir, set(keys))
     _current(client, plan["pointer"], keep)
     _active_pointers(client, plan["active_pointers"], set(keys))
     if _release_index(client) != plan["release_index"]:
         raise ValueError("release inventory changed")
+    _dataset_index(client, plan["dataset_index"])
     _object(client, keep)
     for item in targets:
         if Path(item["proof"]).name != item["proof"]:
@@ -183,12 +255,13 @@ def run(
             _active_pointers(client, plan["active_pointers"], set(keys))
             if _release_index(client) != plan["release_index"]:
                 raise ValueError("release inventory changed during cleanup")
+            _dataset_index(client, plan["dataset_index"])
             _object(client, keep)
             _object(client, item)
             _journal(journal, {"event": "intent", "plan_sha256": plan_sha256, "key": item["key"]})
             try:
                 # Tested R2 ignores conditional DELETE; user accepted non-atomic risk.
-                client.delete_object(Bucket=BUCKET, Key=item["key"])
+                _delete_once(client, item["key"])
                 _require_absent(client, BUCKET, item["key"])
             except BaseException:
                 _journal(journal, {"event": "outcome_unknown", "key": item["key"]})
