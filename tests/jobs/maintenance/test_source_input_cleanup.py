@@ -145,3 +145,13 @@ def test_completed_handoff_pins_old_receipt(monkeypatch):
     with pytest.raises(ValueError, match="surviving handoff"):
         run(s, p)
     assert not s.deletes
+
+
+@pytest.mark.parametrize("bad", [None, {}, {"key": []}])
+def test_invalid_receipt_entries_fail_cleanly(bad):
+    s = Fake()
+    p = s.plan()
+    p["groups"][0]["delete"][0] = bad
+    with pytest.raises(ValueError, match="invalid or repeated"):
+        run(s, p)
+    assert not s.deletes

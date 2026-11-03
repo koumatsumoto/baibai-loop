@@ -128,8 +128,6 @@ def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, 
         if set(group) != {"keep", "delete"} or not group["delete"]:
             raise ValueError("invalid duplicate group")
         keep = group["keep"]
-        if any(item["key"] in referenced for item in group["delete"]):
-            raise ValueError("receipt is referenced by a surviving handoff")
         for item in [keep, *group["delete"]]:
             if (
                 not isinstance(item, dict)
@@ -154,6 +152,8 @@ def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, 
             ):
                 raise ValueError("duplicate identity differs")
             _check_receipt(client, bucket, item)
+        if any(item["key"] in referenced for item in group["delete"]):
+            raise ValueError("receipt is referenced by a surviving handoff")
         deletions.extend(group["delete"])
     if not deletions:
         raise ValueError("empty deletion plan")
