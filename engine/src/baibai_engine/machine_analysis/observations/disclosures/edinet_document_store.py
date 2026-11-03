@@ -108,6 +108,7 @@ def read_observed_documents(
     *,
     through: date,
     start: date | None = None,
+    holder_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Read retained evidence, without claiming completeness of acquisition days.
 
@@ -116,8 +117,21 @@ def read_observed_documents(
     read transaction. Extraction requiring complete lists uses read_stored_documents.
     """
     start_iso = start.isoformat() if start else None
+    # When filtering filings, retain operation rows for the same document or
+    # its correction children; filtering directly on a nullable type loses edits.
+    scope = ""
+    parameters: tuple[object, ...] = (through.isoformat(), start_iso, start_iso)
+    if holder_only:
+        scope = (
+            " AND (d.doc_type_code IN ('350','360') OR d.doc_id IN ("
+            "SELECT doc_id FROM edinet_documents WHERE doc_date<=? "
+            "AND doc_type_code IN ('350','360'))"
+            " OR d.parent_doc_id IN (SELECT doc_id FROM edinet_documents "
+            "WHERE doc_date<=? AND doc_type_code IN ('350','360')))"
+        )
+        parameters += (through.isoformat(), through.isoformat())
     cursor = connection.execute(
-        "SELECT d.doc_date, d.sequence_number AS seqNumber, d.doc_id AS docID, "
+        "SELECT d.doc_date, d.sequence_number AS seqNumber, d.doc_id AS docID, "  # nosec B608
         "d.sec_code AS secCode, d.doc_type_code AS docTypeCode, d.csv_flag AS csvFlag, "
         "d.xbrl_flag AS xbrlFlag, d.legal_status AS legalStatus, "
         "d.disclosure_status AS disclosureStatus, d.withdrawal_status AS withdrawalStatus, "
@@ -128,8 +142,9 @@ def read_observed_documents(
         "d.issuer_edinet_code AS issuerEdinetCode, d.subject_edinet_code AS subjectEdinetCode "
         "FROM edinet_documents d "
         "WHERE d.doc_date <= ? AND (? IS NULL OR d.doc_date >= ?) "
-        "ORDER BY d.doc_date, d.sequence_number",
-        (through.isoformat(), start_iso, start_iso),
+        + scope
+        + " ORDER BY d.doc_date, d.sequence_number",
+        parameters,
     )
     assert cursor.description is not None
     columns = tuple(column[0] for column in cursor.description)
