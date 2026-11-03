@@ -559,3 +559,47 @@ def test_delete_redirect_is_blocked_before_second_wire_send(monkeypatch, status)
     with pytest.raises(RuntimeError, match="second DELETE request was blocked"):
         _delete_once(client, "fixture-bucket", "fixture-key")
     assert len(sent) == 1
+
+
+def test_redirect_after_first_delete_stops_remaining(monkeypatch, tmp_path):
+    import baibai_jobs.maintenance.source_input_cleanup as cleanup
+
+    s = Fake()
+    p = s.plan()
+    olds = [s.old] + [
+        f"coordination/source-inputs/group-old{i}/receipts-{s.sha}.sqlite" for i in (3, 4)
+    ]
+    for key in olds:
+        s.objects[key] = s.payload
+    p["groups"][0]["delete"] = [
+        {"key": key, "sha256": s.sha, "size": len(s.payload), "etag": '"object"'} for key in olds
+    ]
+    p["retired_handoffs"] = {
+        key: [key.rsplit("/", 1)[0] + "/handoff.json", "a" * 64] for key in olds
+    }
+    monkeypatch.setattr(
+        cleanup,
+        "_handoff_receipts",
+        lambda *_: {key: tuple(value) for key, value in p["retired_handoffs"].items()},
+    )
+    monkeypatch.setattr(cleanup, "_check_retired_handoff", lambda *_: None)
+    original = cleanup._delete_once
+
+    def delete(client, bucket, key):
+        if key == olds[1]:
+            raise RuntimeError("second DELETE request was blocked")
+        original(client, bucket, key)
+
+    monkeypatch.setattr(cleanup, "_delete_once", delete)
+    path = tmp_path / "journal"
+    with path.open("x") as journal, pytest.raises(RuntimeError, match="second DELETE"):
+        run(s, p, apply=True, guard=lambda: None, journal=journal, plan_sha256="a" * 64)
+    assert s.deletes == [olds[0]]
+    assert olds[1] in s.objects
+    assert olds[2] in s.objects
+    assert [json.loads(x)["event"] for x in path.read_text().splitlines()] == [
+        "intent",
+        "confirmed_absent",
+        "intent",
+        "outcome_unknown",
+    ]
