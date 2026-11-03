@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 import sqlite3
 from collections.abc import Mapping, Sequence
-from datetime import date
+from dataclasses import replace
+from datetime import UTC, date, datetime
 from math import isfinite
 from urllib.parse import urljoin
 
@@ -42,15 +43,61 @@ def read_native_series(
     for snapshot in read_snapshots(connection, start, end, source_id=series.source_id):
         value = _one_value(series, snapshot.records)
         if value is not None:
-            observations.append(
-                reading_observation(
-                    series,
-                    observed_at=snapshot.observed_at,
-                    value=value,
-                    vintage_at=snapshot.fetched_at,
-                )
+            observation = reading_observation(
+                series,
+                observed_at=snapshot.observed_at,
+                value=value,
+                vintage_at=snapshot.fetched_at,
             )
+            if series.provider == "yahoo":
+                flags, notes = _yahoo_bar_context(snapshot.records, snapshot.fetched_at)
+                observation = replace(observation, quality_flags=flags, notes=notes)
+            observations.append(observation)
     return tuple(observations)
+
+
+def _source_instant(value: object) -> datetime | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(value):
+        return None
+    try:
+        return datetime.fromtimestamp(value, UTC)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _yahoo_bar_context(
+    records: Sequence[Mapping[str, object]], fetched_at: datetime
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    # The response's currentTradingPeriod describes its current session, not every
+    # historical bar. Use source clocks and the retained receipt, never today's clock
+    # or a hard-coded US closing hour. L1 and the numeric reading remain unchanged.
+    notes = [
+        (
+            "Yahoo interval=1d close is a provider bar value; it is not a certification "
+            "of a completed closing price or futures settlement."
+        )
+    ]
+    intraday = False
+    for row in records:
+        metadata = row.get("metadata")
+        meta = metadata.get("meta") if isinstance(metadata, Mapping) else None
+        periods = meta.get("currentTradingPeriod") if isinstance(meta, Mapping) else None
+        regular = periods.get("regular") if isinstance(periods, Mapping) else None
+        bar = _source_instant(row.get("timestamp"))
+        start = _source_instant(regular.get("start")) if isinstance(regular, Mapping) else None
+        end = _source_instant(regular.get("end")) if isinstance(regular, Mapping) else None
+        if bar is None or start is None or end is None or not start < end:
+            notes.append("Provider session clocks are unavailable; bar finality is unverified.")
+            continue
+        if start <= bar < end and start <= fetched_at < end:
+            intraday = True
+            notes.append(
+                f"Bar was received during its provider-reported session: bar_at={bar.isoformat()}; "
+                f"session_end={end.isoformat()}; received_at={fetched_at.isoformat()}. "
+                "This is an intraday observation, not a confirmed full-session close; "
+                "its value and statistics remain usable with that timing limitation."
+            )
+    return (("intraday_bar_at_receipt",) if intraday else (), tuple(dict.fromkeys(notes)))
 
 
 def _one_value(series: SeriesDefinition, records: Sequence[Mapping[str, object]]) -> float | None:
