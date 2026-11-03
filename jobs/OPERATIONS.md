@@ -713,10 +713,12 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 
 ## 判断直前の多市場補助観測
 
-`market-evidence`は明示取得したTradingView MCPのquote／5分足を、既存native-document storeとimmutable handoffで保持する。日次外部評価の充足・価格master・正式な提案終値とは別であり、新しい定期pollやDB schemaは追加しない。要求parameters・SDK応答・要求/受領時計は[provider owner](../engine/src/baibai_engine/data_collection/providers/tradingview/market_models.py)、読取の時計・遅延・欠測は[観測owner](../engine/src/baibai_engine/machine_analysis/observations/prices/tradingview_market.py)が所有する。
+`market-evidence`はTradingView MCPのquote／5分足を、既存native-document storeとimmutable handoffで保持する。日次外部評価の充足・価格master・正式な提案終値とは別であり、DB schemaは追加しない。要求parameters・SDK応答・要求/受領時計は[provider owner](../engine/src/baibai_engine/data_collection/providers/tradingview/market_models.py)、読取の時計・遅延・欠測は[観測owner](../engine/src/baibai_engine/machine_analysis/observations/prices/tradingview_market.py)が所有する。
 
-1. 判断開始時に有限のquoteと5分足を取得し、実際のtool名・明示引数・要求/受領時計・SDK resultをcaptureへ保存する。最初の対象は合意した実限月2商品、各最大500bar。後から時計を推測して付けない。
-2. `baibai-jobs market-evidence prepare --capture <CAPTURE> ... --directory <NEW_PRIVATE_DIR>`で最大3応答を固定する。`stage --directory <DIR> --stage-id tradingview_market-<ID>`はprivate handoffを冪等保存する。source一覧の定期取得とは別の明示操作である。
+`cloud-tradingview-market-daily`は毎日06:30 JSTに、日経225先物の連続限月、S&P 500、NASDAQ 100のquoteと、日経225先物・S&P 500の5分足を取得し、private handoffへ保存する。夜間取引終了後と米国通常取引終了後を狙うが、休場・提供遅延・schedule遅延・限月切替は別途確認する。受領時刻は取引時刻ではなく、連続先物は現物指数ではない。途中失敗でも受領済み原本は残し、全件成功とは報告しない。共通統合は別scheduleのため朝の取得直後には正本へ未統合の場合がある。判断直前は保存参照または新たな明示取得を使い、古い値を新しいものとして扱わない。
+
+1. 判断開始時に必要なquoteと5分足を有限に取得し、実際のtool名・明示引数・要求/受領時計・SDK resultをcaptureへ保存する。5分足は各最大500bar。後から時計を推測して付けない。
+2. `baibai-jobs market-evidence prepare --capture <CAPTURE> ... --directory <NEW_PRIVATE_DIR>`で最大3応答を固定する。`stage --directory <DIR> --stage-id tradingview_market-<ID>`はprivate handoffを冪等保存する。明示取得でも日次取得でも同じ保存契約を使う。
 3. 別sessionは返却stage ID/manifest SHAを指定し、`download --directory <NEW_DIR> --stage-id <ID> --manifest-sha256 <SHA>`で再GETなしに復元する。`read --directory <DIR> --receipt-id <RECEIPT> --sha256 <CAPTURE_SHA>`は観測と、同じ原本を指すAssessment入力を返す。未保存のlocal captureはL3用の耐久参照を返さない。
 4. 通常のnative統合後も同じreceipt/hashを読む。共通更新より遅く着いた独立captureをsource全体のwatermarkだけで捨てず、packetの限定scopeと原受領identityを検証してappendする。
 

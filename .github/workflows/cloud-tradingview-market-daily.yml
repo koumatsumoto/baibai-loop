@@ -1,0 +1,85 @@
+name: cloud-tradingview-market-daily
+
+on:
+  schedule:
+    # 06:30 JST: after the OSE night session and the US regular close,
+    # including the currently observed 15-minute OSE quote delay.
+    - cron: "30 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: tradingview-runtime
+    # Share the lock with the existing snapshot to serialize OAuth rotation.
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Check shared TradingView cooldown
+        id: cooldown-check
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown check --directory "$RUNNER_TEMP"
+      - name: Capture native market responses
+        id: capture
+        if: ${{ steps.cooldown-check.outputs.allowed == 'true' }}
+        env:
+          TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
+          TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
+        run: |
+          set +e
+          uv run python -m baibai_jobs.acquisition.tradingview.market_daily "$RUNNER_TEMP/captures" 2> "$RUNNER_TEMP/tradingview-stderr.log"
+          status=$?
+          cat "$RUNNER_TEMP/tradingview-stderr.log" >&2
+          exit "$status"
+      - name: Prepare received evidence, including a partial failure
+        id: prepare
+        if: ${{ always() && !cancelled() && steps.capture.outcome != 'skipped' }}
+        run: |
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/captures/*.json)
+          if (( ${#files[@]} == 0 )); then
+            echo 'No native market response was received.'
+            exit 0
+          fi
+          args=()
+          for file in "${files[@]}"; do args+=(--capture "$file"); done
+          uv run baibai-jobs market-evidence prepare "${args[@]}" --expected-captures 3 --directory "$RUNNER_TEMP/market-handoff"
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+      - name: Save evidence in private source handoff
+        if: ${{ always() && !cancelled() && steps.prepare.outputs.ready == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGE_ID: tradingview_market-${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run baibai-jobs market-evidence stage --directory "$RUNNER_TEMP/market-handoff" --stage-id "$STAGE_ID"
+      - name: Persist shared TradingView cooldown
+        if: ${{ always() && !cancelled() && steps.capture.outcome != 'skipped' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown record --directory "$RUNNER_TEMP"
+      - name: Report deferred acquisition
+        if: ${{ steps.cooldown-check.outputs.allowed == 'false' }}
+        run: |
+          echo 'TradingView cooldown is active; no market request was made.' >&2
+          exit 1
