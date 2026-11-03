@@ -19,7 +19,14 @@ from baibai_engine.data_collection.providers.jpx.models import (
 )
 
 COLLECTION_NAMES = frozenset(
-    {"earnings_calendar", "regulations", "delistings", "capital_policy", "financial_statements"}
+    {
+        "earnings_calendar",
+        "regulations",
+        "delistings",
+        "capital_policy",
+        "financial_statements",
+        "capital_actions",
+    }
 )
 INDEX_RESOURCE_NAME = "index"
 Resource = tuple[str, str]

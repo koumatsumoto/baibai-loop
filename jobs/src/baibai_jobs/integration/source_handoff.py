@@ -51,6 +51,7 @@ SOURCES = (
     "edinet-metrics",
     "edinet-facts",
     "jpx-financial-pdfs",
+    "jpx-capital-actions",
 )
 _EDINET_SOURCES = {"edinet-list", "edinet-metrics", "edinet-facts"}
 _JQUANTS_SOURCES = {"jquants-market", "jquants-financial"}
@@ -58,6 +59,7 @@ _JPX_COLLECTION = {
     "jpx-earnings": "earnings_calendar",
     "jpx-regulations": "regulations",
     "jpx-financial-pdfs": "financial_statements",
+    "jpx-capital-actions": "capital_actions",
 }
 
 
@@ -250,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             status = 0
             acquisition_report: dict[str, object] = {}
             if args.command == "acquire":
-                if args.source in {"tradingview", "jpx-financial-pdfs"}:
+                if args.source in {"tradingview", "jpx-financial-pdfs", "jpx-capital-actions"}:
                     raise ValueError(
                         "Use the source's explicit original receipt import; no live client here"
                     )

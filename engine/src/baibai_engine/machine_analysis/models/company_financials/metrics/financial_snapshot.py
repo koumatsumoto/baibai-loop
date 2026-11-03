@@ -43,6 +43,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.ratios imp
     _safe_ratio,
     _yoy_ratio,
 )
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     comparable_reporting_basis,
@@ -65,7 +66,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v47"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v48-capital-action"
 
 
 def build_financial_snapshot(
@@ -77,7 +78,10 @@ def build_financial_snapshot(
     adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
     asof_date: date,
     pdf_selection: PdfFinancialSelection | None = None,
+    capital_actions: Sequence[CapitalAction] = (),
 ) -> FinancialSnapshot:
+    if any(action.effective_date > asof_date for action in capital_actions):
+        raise ValueError("capital action is after the model as-of date")
     normalization = _normalize_summaries_with_status(
         project_financial_documents(summaries, asof_date),
         adjustment_events,
@@ -184,7 +188,17 @@ def build_financial_snapshot(
     capital_basis = _resolve_capital_basis(
         summaries,
         capital_basis_barrier=capital_basis_barrier,
+        capital_actions=capital_actions,
     )
+    if (
+        capital_basis.failure_reason == "indeterminate_treasury_after_capital_action"
+        and forecast is not None
+        and any(action.effective_date > forecast.disclosed_at for action in capital_actions)
+    ):
+        # A pre-action per-share forecast is not automatically valid after a
+        # new share issuance; retain the original document, not a synthetic EPS.
+        forecast_eps = None
+        per_forward = None
     shares_outstanding = capital_basis.issued
     # 時価総額の分母は自己株式を除いた株数である。自己株式は議決権も配当請求権も持たない
     # ので、含めると時価総額が過大になり現金比率・利回りが薄く、倍率が割高に見える。歪みが

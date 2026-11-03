@@ -28,6 +28,7 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
 from baibai_engine.machine_analysis.models.technical_analysis.generation import (
     generate_technical_analysis,
 )
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
@@ -68,6 +69,7 @@ def generate_financial_and_price_models(
     price_path: dict[str, object] | None = None,
     comparisons: Sequence[FilingComparisons] = (),
     pdf_statements: Sequence[PdfStatement] = (),
+    capital_actions: Sequence[CapitalAction] = (),
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
 
@@ -76,8 +78,12 @@ def generate_financial_and_price_models(
     市場環境・外部評価はそれぞれの共有読取から別途同じgenerationへ組み込む。
     """
     ticker = normalize_ticker(ticker)
-    if any(row.ticker != ticker for row in documents) or any(
-        event.ticker != ticker for event in adjustment_events
+    if (
+        any(row.ticker != ticker for row in documents)
+        or any(event.ticker != ticker for event in adjustment_events)
+        or any(
+            action.ticker != ticker or action.effective_date > as_of for action in capital_actions
+        )
     ):
         raise ValueError("company model inputs contain a different ticker")
     if edinet is not None and edinet.ticker != ticker:
@@ -94,6 +100,7 @@ def generate_financial_and_price_models(
         as_of=as_of,
         ttm_rules=ttm_rules,
         pdf_selection=pdf_selection,
+        capital_actions=capital_actions,
     )
     if earnings.earnings_yield is not None and earnings.price_date != expected_price_date:
         earnings = replace(
@@ -113,6 +120,7 @@ def generate_financial_and_price_models(
             adjustment_events=adjustment_events,
             asof_date=as_of,
             pdf_selection=pdf_selection,
+            capital_actions=capital_actions,
         ),
         edinet,
     )
@@ -161,6 +169,7 @@ def generate_financial_and_price_models(
                         "as_of": as_of,
                         "read_semantics": "retained_disclosures_through_as_of_not_receipt_vintage",
                         "earnings_price": asdict(earnings),
+                        "capital_action_evidence": [asdict(action) for action in capital_actions],
                         "earnings_basis": "reported_profit_before_common_share_allocations",
                         "earnings_composition_basis": (
                             "selected_retained_pdf_restated_display_amounts"

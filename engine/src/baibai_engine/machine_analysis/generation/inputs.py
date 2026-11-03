@@ -28,6 +28,9 @@ from baibai_engine.machine_analysis.models.technical_analysis.price_path import 
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observation_population,
 )
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import (
+    read_capital_actions,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
 )
@@ -122,6 +125,9 @@ def read_and_generate_models(
         pdf_statements = read_pdf_statements(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
         )
+        capital_actions = read_capital_actions(
+            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+        )
         calendar = read_price_calendar(connection, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
@@ -202,6 +208,7 @@ def read_and_generate_models(
             edinet=edinet.get(ticker),
             comparisons=comparisons.get(ticker, ()),
             pdf_statements=pdf_statements.get(ticker, ()),
+            capital_actions=capital_actions.get(ticker, ()),
             price_path=price_paths[ticker],
         )
         for ticker in subjects

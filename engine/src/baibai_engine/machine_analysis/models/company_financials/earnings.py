@@ -20,6 +20,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _actual_rows,
     _ttm_components,
 )
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     accounting_period_identity,
     accounting_standard,
@@ -67,6 +68,7 @@ class EarningsPrice:
     unavailable_reason: str | None
     accounting_standard: str | None = None
     accounting_disclosures: tuple[dict[str, JsonValue], ...] = ()
+    share_basis_adjustments: tuple[dict[str, JsonValue], ...] = ()
 
     @property
     def profit_period(self) -> tuple[date | None, date | None]:
@@ -126,19 +128,24 @@ def earnings_price(
     as_of: date,
     ttm_rules: TTMRules,
     pdf_selection: PdfFinancialSelection | None = None,
+    capital_actions: Sequence[CapitalAction] = (),
 ) -> EarningsPrice:
     """同一基準へ揃えた株数と価格で時価総額を作り、年間利益を一度だけ割る。
 
     adjusted_priceはas_of基準へ調整済みの価格。開示EPSの足し算やPERの逆数は使わない。
     連結/単体が不明なら原額は保持するが選定用利回りを確定しない。
     """
+    if any(action.effective_date > as_of for action in capital_actions):
+        raise ValueError("capital action is after the model as-of date")
     projected = sorted(
         project_financial_documents(summaries, as_of),
         key=lambda row: (row.disclosed_at, row.disclosed_time or "", row.disclosure_number or ""),
     )
     normalized = _normalize_summaries_with_status(projected, adjustment_events, as_of)
     capital = _resolve_capital_basis(
-        normalized.summaries, capital_basis_barrier=normalized.capital_basis_barrier
+        normalized.summaries,
+        capital_basis_barrier=normalized.capital_basis_barrier,
+        capital_actions=capital_actions,
     )
     rows = _ttm_components(normalized.summaries, "profit", ttm_rules)
     components = tuple(
@@ -271,6 +278,7 @@ def earnings_price(
         profit_components=components,
         earnings_yield=value,
         unavailable_reason=reason,
+        share_basis_adjustments=normalized.basis_adjustments,
         accounting_standard=None if standard_conflict else standard,
         accounting_disclosures=_accounting_disclosures([*rows, *anchor_candidates]),
     )
