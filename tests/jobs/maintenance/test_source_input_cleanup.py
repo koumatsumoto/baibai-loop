@@ -331,11 +331,11 @@ def test_github_guard_fails_closed_on_active_or_incomplete(monkeypatch):
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
         lambda *_a, **_k: SimpleNamespace(
-            returncode=0, stdout='[{"total_count": 0, "workflow_runs": []}]'
+            returncode=0, stdout='{"total_count": 0, "workflow_runs": []}'
         ),
     )
     _github_idle()
-    active = '[{"total_count": 1, "workflow_runs": [{"path": ".github/workflows/cloud-market-sources.yml@refs/heads/main"}]}]'
+    active = '{"total_count": 1, "workflow_runs": [{"path": ".github/workflows/cloud-market-sources.yml@refs/heads/main"}]}'
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
         lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=active),
@@ -345,7 +345,7 @@ def test_github_guard_fails_closed_on_active_or_incomplete(monkeypatch):
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
         lambda *_a, **_k: SimpleNamespace(
-            returncode=0, stdout='[{"total_count": 1, "workflow_runs": []}]'
+            returncode=0, stdout='{"total_count": 1, "workflow_runs": []}'
         ),
     )
     with pytest.raises(RuntimeError, match="incomplete"):
@@ -456,3 +456,22 @@ def test_mixed_retired_and_orphan_plan_stops_before_any_delete(monkeypatch, tmp_
     ):
         run(s, p, apply=True, guard=lambda: None, journal=audit, plan_sha256="a" * 64)
     assert not s.deletes
+
+
+def test_github_paginated_json_detects_batch_on_second_page(monkeypatch):
+    from types import SimpleNamespace
+
+    from baibai_jobs.maintenance.source_input_cleanup import _github_idle
+
+    one = {"total_count": 2, "workflow_runs": [{"path": ".github/workflows/ci.yml"}]}
+    two = {"total_count": 2, "workflow_runs": [{"path": ".github/workflows/cloud-daily-batch.yml"}]}
+    stdout = json.dumps(one) + "\n" + json.dumps(two)
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.shutil.which", lambda _: "/usr/bin/gh"
+    )
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
+        lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=stdout),
+    )
+    with pytest.raises(RuntimeError, match="batch workflow is active"):
+        _github_idle()

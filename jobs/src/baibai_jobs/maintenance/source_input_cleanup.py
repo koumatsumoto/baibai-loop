@@ -186,7 +186,7 @@ def _github_idle() -> None:
         endpoint = f"repos/koumatsumoto/baibai-loop/actions/runs?status={status}&per_page=100"
         # No shell, and the endpoint is built from fixed literals only.
         result = subprocess.run(  # nosec B603
-            [gh, "api", endpoint, "--paginate", "--slurp"],
+            [gh, "api", endpoint, "--paginate"],
             capture_output=True,
             text=True,
             check=False,
@@ -194,8 +194,16 @@ def _github_idle() -> None:
         )
         if result.returncode != 0:
             raise RuntimeError("cannot verify GitHub Actions activity")
-        pages = json.loads(result.stdout, object_pairs_hook=_unique_members)
-        if not isinstance(pages, list) or not pages:
+        decoder = json.JSONDecoder(object_pairs_hook=_unique_members)
+        pages: list[dict[str, Any]] = []
+        remaining = result.stdout.strip()
+        while remaining:
+            page, end = decoder.raw_decode(remaining)
+            if not isinstance(page, dict):
+                raise RuntimeError("invalid workflow run page")
+            pages.append(page)
+            remaining = remaining[end:].lstrip()
+        if not pages:
             raise RuntimeError("cannot enumerate workflow runs")
         total = pages[0].get("total_count")
         runs = [item for page in pages for item in page.get("workflow_runs", [])]
