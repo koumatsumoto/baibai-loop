@@ -75,7 +75,7 @@ def test_display_precision_and_same_document_operands():
 @pytest.mark.parametrize(
     ("index", "old", "new", "reason"),
     [
-        (0, "IFRS", "日本基準", "pdf_accounting_basis_unsupported"),
+        (0, "IFRS", "日本基準", "pdf_headline_columns_unknown"),
         (0, "9268", "1605", "pdf_issuer_mismatch"),
         (0, "百万円未満切捨て", "千円", "pdf_precision_unknown"),
         (1, "組み替えて", "そのまま", "pdf_comparative_basis_not_explicit"),

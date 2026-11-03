@@ -29,9 +29,11 @@ from baibai_engine.machine_analysis.observations.financials.pdf_statements impor
     PdfStatement,
 )
 
-type AnnualRevisionBasis = Literal["same_disclosure", "latest_reconfirmed_unchanged_amounts"]
+type AnnualRevisionBasis = Literal[
+    "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
+]
 
-REVISION = "retained-pdf-restatement-selection-v1"
+REVISION = "retained-pdf-restatement-selection-v2"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -49,9 +51,10 @@ class PdfFinancialSelection(BaseModel):
     read_semantics: Literal["latest_within_retained_disclosures"] = (
         "latest_within_retained_disclosures"
     )
-    precision: Literal["derived_from_truncated_display_amounts"] = (
-        "derived_from_truncated_display_amounts"
-    )
+    precision: Literal[
+        "derived_from_truncated_display_amounts",
+        "derived_from_display_amounts_rounding_unspecified",
+    ] = "derived_from_truncated_display_amounts"
     period_start: date | None = None
     period_end: date | None = None
     current: PdfStatement | None = None
@@ -228,6 +231,53 @@ def select_pdf_financials(
     if annual_row is None:
         return PdfFinancialSelection(
             status="unavailable", current=current, reason="annual_disclosure_missing_or_ambiguous"
+        )
+    if current.accounting_standard == "JP":
+        # The same-day reference explicitly restates the previous full-year actual.
+        # An old annual filing, even the latest native annual record, is not on the
+        # new quarter's accounting basis and must not be silently substituted.
+        references = {
+            item.source_sha256: item
+            for item in retained
+            if item.reason is None
+            and item.annual_reference is not None
+            and item.annual_reference.fiscal_year_end == annual_row.period_end
+            and item.published_on == current.published_on
+            and item.statement_basis == "consolidated"
+            and item.unit == "JPY_million"
+        }
+        if len(references) != 1:
+            return PdfFinancialSelection(
+                status="unavailable",
+                current=current,
+                reason="restated_annual_reference_missing_or_ambiguous",
+            )
+        reference = next(iter(references.values()))
+        assert reference.annual_reference is not None
+        assert current.comparative_end is not None
+        start = current.comparative_end + timedelta(days=1)
+        if not is_annual_period(start, current.current_end):
+            return PdfFinancialSelection(
+                status="unavailable", current=current, reason="ttm_period_not_annual"
+            )
+        return PdfFinancialSelection(
+            status="available",
+            current=current,
+            annual=reference,
+            annual_latest_disclosure_number=annual_row.disclosure_number,
+            annual_revision_basis="same_day_restated_reference_actual",
+            precision="derived_from_display_amounts_rounding_unspecified",
+            period_start=start,
+            period_end=current.current_end,
+            amounts_yen={
+                pair.metric: (
+                    reference.annual_reference.amounts[pair.metric]
+                    + pair.current
+                    - pair.comparative
+                )
+                * 1_000_000
+                for pair in current.pairs
+            },
         )
     annual, reason = _matching_pdf(annual_row, retained)
     annual_revision_basis: AnnualRevisionBasis = "same_disclosure"
