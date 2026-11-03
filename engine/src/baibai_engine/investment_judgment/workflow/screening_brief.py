@@ -95,6 +95,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 **_pick(
                     financial,
                     "forecast_profit_yen",
+                    "forecast_eps_yen",
                     "forecast_ordinary_profit_yen",
                     "forecast_special_gain_flag",
                     "forecast_full_year_loss_flag",

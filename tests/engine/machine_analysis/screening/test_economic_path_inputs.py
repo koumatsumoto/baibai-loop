@@ -222,6 +222,26 @@ def test_dividend_basis_survives_projection_and_brief_without_changing_rank(basi
     assert {key: projected.context["financial"][key] for key in details} == details
 
 
+@pytest.mark.parametrize("forecast_eps", [26.7, 0.0, None])
+def test_issuer_forecast_eps_survives_without_parent_profit_recalculation(forecast_eps):
+    data = payloads()
+    baseline = project(data)
+    financial = data["company_financials"]["financial"]
+    # Parent profit/current ordinary shares can differ from issuer EPS because
+    # preferred claims and the forecast share denominator are separate inputs.
+    financial.update({"forecast_profit_yen": 12000.0, "forecast_eps_yen": forecast_eps})
+    before = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
+    assert brief["forecast_eps_yen"] == forecast_eps
+    assert projected.context["financial"]["forecast_eps_yen"] == forecast_eps
+    assert brief["forecast_profit_yen"] == 12000.0
+    assert data == before
+
+
 def test_price_change_moves_price_axes_not_business_axes():
     before, after = project(payloads()), project(payloads(price=200.0))
     for name in {path.path_id for path in before.paths}:
