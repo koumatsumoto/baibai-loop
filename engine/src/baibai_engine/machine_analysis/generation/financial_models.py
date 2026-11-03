@@ -32,6 +32,9 @@ from baibai_engine.machine_analysis.observations.financials.capital_action_pdf i
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+    HolderReportedCapital,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -46,6 +49,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.primitives.time import JST
 
 _GROWTH_FIELDS = frozenset(
     {"eps_yoy", "sales_yoy", "operating_profit_yoy", "cfo_yoy", "operating_profit_loss_narrowing"}
@@ -70,6 +74,8 @@ def generate_financial_and_price_models(
     comparisons: Sequence[FilingComparisons] = (),
     pdf_statements: Sequence[PdfStatement] = (),
     capital_actions: Sequence[CapitalAction] = (),
+    holder_capital: Sequence[HolderReportedCapital] = (),
+    holder_coverage: str = "not_observed",
     provider_capital: dict[str, object] | None = None,
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
@@ -84,6 +90,13 @@ def generate_financial_and_price_models(
         or any(event.ticker != ticker for event in adjustment_events)
         or any(
             action.ticker != ticker or action.effective_date > as_of for action in capital_actions
+        )
+        or any(
+            item.ticker != ticker
+            or item.reference_date > as_of
+            or item.submitted_at.utcoffset() is None
+            or item.submitted_at.astimezone(JST).date() > as_of
+            for item in holder_capital
         )
     ):
         raise ValueError("company model inputs contain a different ticker")
@@ -163,7 +176,7 @@ def generate_financial_and_price_models(
                 if reported
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             )
-            + "-accounting-flags-v1-provider-capital-v1",
+            + "-accounting-flags-v1-provider-capital-v1-holder-evidence-v1",
             payload=json.loads(
                 canonical_json(
                     {
@@ -171,6 +184,12 @@ def generate_financial_and_price_models(
                         "read_semantics": "retained_disclosures_through_as_of_not_receipt_vintage",
                         "earnings_price": asdict(earnings),
                         "capital_action_evidence": [asdict(action) for action in capital_actions],
+                        "holder_capital_evidence": {
+                            "coverage": holder_coverage,
+                            "scope": "retained_metadata_and_originals_only",
+                            "receipt_precision": "day_not_intraday",
+                            "observations": [asdict(item) for item in holder_capital],
+                        },
                         "provider_capital_observation": provider_capital,
                         "earnings_basis": "reported_profit_before_common_share_allocations",
                         "earnings_composition_basis": (
