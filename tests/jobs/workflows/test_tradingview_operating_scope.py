@@ -47,3 +47,6 @@ def test_market_daily_is_a_separate_private_receipt_without_reducing_snapshots()
         step for step in steps if step.get("name") == "Save evidence in private source handoff"
     )
     assert "market-evidence stage" in stage["run"]
+    capture = next(step for step in steps if step.get("id") == "capture")
+    assert "cooldown-check.outputs.allowed == 'true'" in capture["if"]
+    assert any("tradingview.cooldown record" in step.get("run", "") for step in steps)
