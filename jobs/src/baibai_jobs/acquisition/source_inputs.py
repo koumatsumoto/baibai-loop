@@ -25,7 +25,7 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
-from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
@@ -110,9 +110,32 @@ def _publish_one(
         report["created_at"] = datetime.now(UTC).isoformat()
         stage_id = f"{group}-{identity}"
         write_json_atomic(directory / "result.json", report)
-        save_handoff(store, stage_id, directory, namespace="source-inputs")
         key = input_key(group)
         prior = read_private(store, key)
+        reusable = None
+        if prior is not None:
+            try:
+                old_pointer = json.loads(prior.payload)
+                old_stage = old_pointer.get("stage_id") if isinstance(old_pointer, dict) else None
+                if isinstance(old_stage, str) and old_stage.startswith(group + "-"):
+                    old_prefix = stage_prefix(old_stage, namespace="source-inputs")
+                    old_handoff = read_private(store, old_prefix + "/handoff.json")
+                    if old_handoff is not None:
+                        candidate = json.loads(old_handoff.payload)
+                        result = candidate.get("result") if isinstance(candidate, dict) else None
+                        if isinstance(result, dict) and result.get("group") == group:
+                            reusable = candidate
+            except (ValueError, TypeError):
+                # Unusable old metadata must not prevent publishing a fresh input.
+                reusable = None
+        save_handoff(
+            store,
+            stage_id,
+            directory,
+            namespace="source-inputs",
+            reusable_receipt=reusable,
+            input_group=group,
+        )
         pointer = json.dumps(
             {"stage_id": stage_id, "canonical_generations": generations}, sort_keys=True
         ).encode()
