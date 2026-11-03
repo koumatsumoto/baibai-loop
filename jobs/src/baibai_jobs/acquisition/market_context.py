@@ -35,7 +35,9 @@ from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff,
 from baibai_jobs.acquisition.external_assessments.staging import read_private
 
 
-def prepare(capture_paths: list[Path], directory: Path) -> dict[str, object]:
+def prepare(
+    capture_paths: list[Path], directory: Path, *, expected_captures: int | None = None
+) -> dict[str, object]:
     if not 1 <= len(capture_paths) <= 3:
         raise ValueError("market capture pack requires one to three explicit responses")
     captures = [MarketToolCapture.model_validate_json(path.read_bytes()) for path in capture_paths]
@@ -50,6 +52,18 @@ def prepare(capture_paths: list[Path], directory: Path) -> dict[str, object]:
     references = [
         {"receipt_id": capture.receipt_id, "sha256": capture.digest()} for capture in captures
     ]
+
+    def complete(capture: MarketToolCapture) -> bool:
+        try:
+            observation = read_market_observation(capture)
+            if observation["status"] != "received":
+                return False
+            if "observations" in observation:
+                return all(item["status"] == "received" for item in observation["observations"])
+            return bool(observation["bars"])
+        except (KeyError, TypeError, ValueError):
+            return False
+
     report: dict[str, object] = {
         "group": MARKET_GROUP,
         "started_at": min(capture.requested_at_utc for capture in captures).isoformat(),
@@ -60,7 +74,10 @@ def prepare(capture_paths: list[Path], directory: Path) -> dict[str, object]:
         "sources": [
             {
                 "source_id": MARKET_SOURCE_ID,
-                "status": "failed" if any(c.result.is_error for c in captures) else "ok",
+                "status": "ok"
+                if (expected_captures is None or len(captures) == expected_captures)
+                and all(complete(c) for c in captures)
+                else "failed",
             }
         ],
         "market_receipts": references,
@@ -144,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("prepare", "stage", "download", "read"))
     parser.add_argument("--capture", type=Path, action="append", default=[])
+    parser.add_argument("--expected-captures", type=int)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--stage-id")
     parser.add_argument("--receipt-id")
@@ -151,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest-sha256")
     args = parser.parse_args(argv)
     if args.command == "prepare":
-        report = prepare(args.capture, args.directory)
+        report = prepare(args.capture, args.directory, expected_captures=args.expected_captures)
     elif args.command == "read":
         if not args.receipt_id or not args.sha256:
             parser.error("read requires --receipt-id and --sha256")
