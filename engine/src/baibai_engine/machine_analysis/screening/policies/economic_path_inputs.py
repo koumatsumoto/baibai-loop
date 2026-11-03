@@ -327,6 +327,10 @@ def project_company(
                 (metadata.as_of - full_fy.period_end).days if full_fy is not None else None
             ),
             "latest_ttm_period_status": saved_annual.get("period_status"),
+            "latest_ttm_basis": {
+                key: saved_annual.get(key)
+                for key in ("period_start", "period_end", "statement_basis", "accounting_standard")
+            },
             "latest_ttm_metrics": saved_annual.get("metrics"),
             "latest_reported_observation": (
                 growth_read.saved_observation(reported) if reported is not None else None
