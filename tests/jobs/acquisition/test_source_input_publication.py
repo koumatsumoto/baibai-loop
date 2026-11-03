@@ -121,7 +121,7 @@ def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monke
         lambda _source, target, **_kwargs: target.write_bytes(b"identical database"),
     )
     args = dict(market=tmp_path / "market", economic=tmp_path / "economic", asof=DAY)
-    for identity in ("first", "second"):
+    for identity in ("first", "second", "third"):
         result = publish_inputs(
             remote, **args, identity=identity, generations={"version": identity}
         )
@@ -129,9 +129,9 @@ def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monke
     receipts = [key for key in remote.values if key.endswith(".sqlite")]
     assert len(receipts) == 1
     pointer = json.loads(remote.values[input_key("economic-fred_csv")].body)
-    assert pointer["stage_id"] == "economic-fred_csv-second"
+    assert pointer["stage_id"] == "economic-fred_csv-third"
     result = load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
-    assert result["canonical_generations"] == {"version": "second"}
+    assert result["canonical_generations"] == {"version": "third"}
     assert (tmp_path / "db").read_bytes() == b"identical database"
 
 
