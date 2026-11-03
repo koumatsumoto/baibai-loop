@@ -753,6 +753,10 @@ def test_saved_growth_evidence_keeps_missing_fields_and_original_number_represen
     assert canonical_json(expansion.evidence["sales_change"]) == canonical_json(sales_change)
     assert result.context["annual_observation"]["latest_ttm_metrics"] == annual["metrics"]
     assert result.context["annual_observation"]["latest_ttm_period_status"] is None
+    assert result.context["annual_observation"]["latest_ttm_basis"] == {
+        key: annual.get(key)
+        for key in ("period_start", "period_end", "statement_basis", "accounting_standard")
+    }
     assert canonical_json(data) == before
 
 
