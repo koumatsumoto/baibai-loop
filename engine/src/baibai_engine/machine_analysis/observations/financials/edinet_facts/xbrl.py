@@ -80,6 +80,7 @@ class Instance:
     contexts: dict[str, Context]
     units: dict[str, str]
     labels: dict[str, str]
+    namespaces: dict[str, str]
 
 
 def read_instance(content: bytes, *, include_labels: bool = True) -> Instance:
@@ -143,7 +144,7 @@ def read_instance(content: bytes, *, include_labels: bool = True) -> Instance:
             measure = expand_qname(measures[0].text or "", namespaces)
             if measure.startswith("{http://www.xbrl.org/2003/iso4217}"):
                 units[unit.get("id", "")] = local_name(measure)
-    return Instance(filename, root, contexts, units, _labels(documents))
+    return Instance(filename, root, contexts, units, _labels(documents), namespaces)
 
 
 def _labels(documents: dict[str, tuple[ET.Element, dict[str, str]]]) -> dict[str, str]:
