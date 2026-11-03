@@ -166,6 +166,22 @@ def earnings_price(
             if pdf_selection.annual is not None:
                 documents += [(pdf_selection.annual, False, 1), (current, True, -1)]
             for document, comparative, coefficient in documents:
+                if document.annual_reference is not None:
+                    assert document.published_on is not None
+                    parts.append(
+                        ProfitComponent(
+                            coefficient=coefficient,
+                            amount_yen=document.annual_reference.amounts["parent_profit"]
+                            * 1_000_000,
+                            period_start=current.comparative_start,
+                            period_end=document.annual_reference.fiscal_year_end,
+                            disclosed_at=document.published_on,
+                            disclosed_time=None,
+                            disclosure_number=document.disclosure_number,
+                            document_type="PDFDisplayAnnualReference_Consolidated_JP",
+                        )
+                    )
+                    continue
                 pair = next(pair for pair in document.pairs if pair.metric == "parent_profit")
                 assert document.published_on is not None
                 parts.append(
@@ -181,7 +197,7 @@ def earnings_price(
                         disclosed_at=document.published_on,
                         disclosed_time=None,
                         disclosure_number=document.disclosure_number,
-                        document_type="PDFDisplayFinancialStatements_Consolidated_IFRS",
+                        document_type=f"PDFDisplayFinancialStatements_Consolidated_{document.accounting_standard}",
                     )
                 )
         components = tuple(parts)

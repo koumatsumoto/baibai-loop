@@ -95,7 +95,7 @@ def generate_company_growth(
             "pdf_supplement": pdf,
             "pdf_selection": selected_pdf,
             "pdf_input_reason": pdf_input_reason,
-            "calculation_method": "company_growth_retrospective_v10-pdf-selection"
+            "calculation_method": "company_growth_retrospective_v11-pdf-restated-jp"
             if pdf is not None
             else "company_growth_retrospective_v8-edinet-comparisons"
             if reported

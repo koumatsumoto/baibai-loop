@@ -31,7 +31,9 @@ def _source(item: PdfStatement) -> SourceDocument:
         disclosure_number=item.disclosure_number,
         disclosed_at=item.published_on,
         disclosed_time=None,
-        document_type="PDFDisplayFinancialStatements_Consolidated_IFRS",
+        document_type="PDFDisplayAnnualReference_Consolidated_JP"
+        if item.annual_reference
+        else f"PDFDisplayFinancialStatements_Consolidated_{item.accounting_standard}",
         source_url=item.source_url,
         source_sha256=item.source_sha256,
     )
@@ -43,9 +45,11 @@ def _metrics(
     reason: str | None = None,
     *,
     sector: str | None = None,
-    precision: Literal["published_display_amounts", "derived_from_truncated_display_amounts"] = (
-        "published_display_amounts"
-    ),
+    precision: Literal[
+        "published_display_amounts",
+        "derived_from_truncated_display_amounts",
+        "derived_from_display_amounts_rounding_unspecified",
+    ] = ("published_display_amounts"),
 ) -> dict[Metric, Value]:
     result: dict[Metric, Value] = {
         metric: Value(
@@ -59,7 +63,11 @@ def _metrics(
     _margin(result, sector)
     if result["operating_margin"].value is not None:
         result["operating_margin"] = result["operating_margin"].model_copy(
-            update={"precision": "derived_from_truncated_display_amounts"}
+            update={
+                "precision": precision
+                if precision != "published_display_amounts"
+                else "derived_from_truncated_display_amounts"
+            }
         )
     return result
 
@@ -112,7 +120,7 @@ def apply_pdf_periods(
         sources,
         selected.reason,
         sector=sector,
-        precision="derived_from_truncated_display_amounts",
+        precision=selected.precision,
     )
     reported_metrics = _metrics(
         {pair.metric: pair.current * 1_000_000 for pair in current.pairs},

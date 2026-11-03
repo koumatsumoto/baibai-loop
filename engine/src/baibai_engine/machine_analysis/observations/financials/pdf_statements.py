@@ -1,4 +1,4 @@
-"""JPX保存PDFのIFRS損益表。表示額の精度を残し、XBRL値を偽造しない。"""
+"""JPX保存PDFの明示された組替・遡及比較。表示額の精度を残し、XBRL値を偽造しない。"""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 from baibai_engine.primitives.dates import add_months_clamped
 from baibai_engine.primitives.time import JST
 
-REVISION = "pdf-ifrs-display-statements-v2"
+REVISION = "pdf-restated-display-statements-v3"
 type Metric = Literal["sales", "operating_profit", "parent_profit"]
 _ROWS: dict[Metric, str] = {
     "sales": "売上高",
@@ -46,9 +46,21 @@ class DisplayPair(Contract):
     pdf_page: int
     table: str
     row: str
-    current_column: Literal[2] = 2
-    comparative_column: Literal[1] = 1
-    headline_crosscheck_page: Literal[1] = 1
+    current_column: Literal[2] | None = 2
+    comparative_column: Literal[1] | None = 1
+    headline_crosscheck_page: Literal[1] | None = 1
+    current_row: str | None = None
+    comparative_row: str | None = None
+
+
+class RestatedAnnualReference(Contract):
+    """予想表の参考実績。予想値でも、過去の決算短信の訂正原本でもない。"""
+
+    fiscal_year_end: date
+    amounts: dict[Metric, int]
+    pdf_page: int
+    basis_text: str
+    row: str
 
 
 class PdfStatement(Contract):
@@ -62,10 +74,10 @@ class PdfStatement(Contract):
     published_on: date | None = None
     publication_precision: Literal["date_only"] = "date_only"
     extractor_revision: str = REVISION
-    accounting_standard: Literal["IFRS"] | None = None
+    accounting_standard: Literal["IFRS", "JP"] | None = None
     statement_basis: Literal["consolidated"] | None = None
     unit: Literal["JPY_million"] | None = None
-    rounding: Literal["truncate_below_unit"] | None = None
+    rounding: Literal["truncate_below_unit", "unspecified"] | None = None
     precision_kind: Literal["published_display_not_unrounded"] = "published_display_not_unrounded"
     current_start: date | None = None
     current_end: date | None = None
@@ -74,6 +86,7 @@ class PdfStatement(Contract):
     comparative_basis_page: int | None = None
     comparative_basis_text: str | None = None
     pairs: tuple[DisplayPair, ...] = ()
+    annual_reference: RestatedAnnualReference | None = None
     reason: str | None = None
 
 
@@ -134,7 +147,7 @@ def _date(parts: tuple[str, str, str]) -> date:
 
 
 def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
-    """Supported two-column IFRS PL with a matching six-metric headline table.
+    """Supported IFRS PL or explicitly restated JP headline/reference actual.
 
     No OCR, expected-value substitution, filename publication date, or generic
     table guessing. Unsupported layouts return an explicit missing observation.
@@ -144,6 +157,10 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
         normalized = [unicodedata.normalize("NFKC", page) for page in pages]
         first = normalized[0]
         compact = _compact(first)
+        if "決算短信〔日本基準〕(連結)" in compact:
+            return _extract_jp_quarter(base, normalized)
+        if "通期連結業績予想値の修正" in compact:
+            return _extract_annual_reference(base, normalized)
         _require("決算短信〔IFRS〕(連結)" in compact, "pdf_accounting_basis_unsupported")
         _require(f"コード番号{base.ticker}" in compact, "pdf_issuer_mismatch")
         _require("百万円未満切捨て" in compact, "pdf_precision_unknown")
@@ -272,6 +289,170 @@ def extract_pages(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
         return base.model_copy(update={"reason": str(error), "pairs": ()})
 
 
+def _number(text: str) -> int:
+    return int(text.replace(",", "").replace("△", "-"))
+
+
+def _extract_jp_quarter(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
+    # Use the explicitly labelled headline comparison in its published million-yen
+    # precision. Do not manufacture unrounded values from sector-specific PL sums.
+    first = pages[0]
+    compact = _compact(first)
+    _require(f"コード番号{base.ticker}" in compact, "pdf_issuer_mismatch")
+    _require("百万円未満切捨て" in compact, "pdf_precision_unknown")
+    dates = re.findall(_DATE, compact.split("上場会社名", 1)[0])
+    _require(len(dates) == 1, "pdf_publication_date_unknown")
+    published = _date(dates[0])
+    _require(published <= base.received_at.astimezone(JST).date(), "pdf_publication_after_receipt")
+    heading = first.split("(注)", 1)[0]
+    rows = []
+    for line in heading.splitlines():
+        tokens = line.split()
+        if len(tokens) == 9 and re.fullmatch(r"\d{4}年\d+月期第1四半期", tokens[0]):
+            rows.append(tokens)
+    _require(len(rows) == 2, "pdf_headline_columns_unknown")
+    ends = []
+    for row in rows:
+        header = re.fullmatch(r"(\d{4})年(\d+)月期第1四半期", row[0])
+        assert header is not None
+        year, month = int(header[1]), int(header[2])
+        ends.append(date(year, month, monthrange(year, month)[1]))
+    current_start = add_months_clamped(ends[0], -12) + timedelta(days=1)
+    prior_start = add_months_clamped(ends[1], -12) + timedelta(days=1)
+    current_end = add_months_clamped(current_start, 3) - timedelta(days=1)
+    prior_end = add_months_clamped(prior_start, 3) - timedelta(days=1)
+    _require(
+        prior_year_dates_match(
+            prior_start,
+            prior_end,
+            current_start,
+            current_end,
+            length_tolerance_ratio=0.03,
+            end_tolerance_days=7,
+        ),
+        "pdf_comparative_period_mismatch",
+    )
+    _require(current_end <= published, "pdf_period_headers_invalid")
+    period = re.search(r"連結業績[（(]" + _DATE + r"[~〜～]" + _DATE, compact)
+    _require(
+        period is not None
+        and _date((period[1], period[2], period[3])) == current_start
+        and _date((period[4], period[5], period[6])) == current_end,
+        "pdf_headline_period_conflict",
+    )
+    basis = re.search(
+        r"(?:\(注\))?"
+        + re.escape(rows[1][0])
+        + r"の数値は、会計方針の変更に伴い遡及修正が行われたため、遡及後の数値に変更",
+        compact,
+    )
+    _require(basis is not None, "pdf_comparative_basis_not_explicit")
+    _require(
+        "売上高営業利益経常利益親会社株主に帰属する四半期純利益" in compact,
+        "pdf_metric_headers_unsupported",
+    )
+    assert basis is not None
+    pairs = tuple(
+        DisplayPair(
+            metric=metric,
+            current=_number(rows[0][column]),
+            comparative=_number(rows[1][column]),
+            current_text=rows[0][column],
+            comparative_text=rows[1][column],
+            pdf_page=1,
+            table="consolidated_headline_results",
+            row=label,
+        )
+        for metric, column, label in (
+            ("sales", 1, "売上高"),
+            ("operating_profit", 3, "営業利益"),
+            ("parent_profit", 7, "親会社株主に帰属する四半期純利益"),
+        )
+    )
+    # The headline's first row is current, unlike the IFRS detailed PL.
+    pairs = tuple(
+        pair.model_copy(
+            update={
+                "current_column": None,
+                "comparative_column": None,
+                "headline_crosscheck_page": None,
+                "current_row": rows[0][0],
+                "comparative_row": rows[1][0],
+            }
+        )
+        for pair in pairs
+    )
+    return base.model_copy(
+        update={
+            "published_on": published,
+            "accounting_standard": "JP",
+            "statement_basis": "consolidated",
+            "unit": "JPY_million",
+            "rounding": "truncate_below_unit",
+            "current_start": current_start,
+            "current_end": current_end,
+            "comparative_start": prior_start,
+            "comparative_end": prior_end,
+            "pairs": pairs,
+            "comparative_basis_page": 1,
+            "comparative_basis_text": basis[0],
+        }
+    )
+
+
+def _extract_annual_reference(base: PdfStatement, pages: Sequence[str]) -> PdfStatement:
+    first = _compact(pages[0])
+    _require(f"コード{base.ticker})" in first, "pdf_issuer_mismatch")
+    dates = re.findall(_DATE, first.split("各位", 1)[0])
+    _require(len(dates) == 1, "pdf_publication_date_unknown")
+    published = _date(dates[0])
+    _require(published <= base.received_at.astimezone(JST).date(), "pdf_publication_after_receipt")
+    section = first.split("通期連結業績予想値の修正", 1)[1]
+    _require("(単位:百万円)" in section, "pdf_statement_unit_unknown")
+    _require(
+        "売上高営業利益経常利益親会社株主に帰属する当期純利益" in section,
+        "pdf_metric_headers_unsupported",
+    )
+    # Compact text loses numeric column boundaries: read the row from native lines.
+    match = re.findall(
+        r"\(ご参考\)前期連結実績\s*\((\d{4})\s*年\s*(\d+)\s*月期\)"
+        r"\s+([△-]?[\d,]+)\s+([△-]?[\d,]+)\s+([△-]?[\d,]+)"
+        r"\s+([△-]?[\d,]+)\s+",
+        pages[0],
+    )
+    _require(len(match) == 1, "pdf_annual_reference_missing_or_ambiguous")
+    year, month, sales, operating, _, profit = match[0]
+    end = date(int(year), int(month), monthrange(int(year), int(month))[1])
+    _require(end < published, "pdf_reference_period_invalid")
+    basis = re.search(
+        r"前期連結実績は、会計方針の変更に伴い遡及修正が行われたため、"
+        r"遡及修正後の前期連結数値として記載しております。",
+        section,
+    )
+    _require(basis is not None, "pdf_comparative_basis_not_explicit")
+    assert basis is not None
+    ref = RestatedAnnualReference(
+        fiscal_year_end=end,
+        amounts={
+            "sales": _number(sales),
+            "operating_profit": _number(operating),
+            "parent_profit": _number(profit),
+        },
+        pdf_page=1,
+        basis_text=basis[0],
+        row="(ご参考)前期連結実績",
+    )
+    return base.model_copy(
+        update={
+            "published_on": published,
+            "statement_basis": "consolidated",
+            "unit": "JPY_million",
+            "rounding": "unspecified",
+            "annual_reference": ref,
+        }
+    )
+
+
 def extract_pdf(
     *,
     content: bytes,
@@ -320,6 +501,10 @@ def build_pdf_supplement(
     _require(len({item.ticker for item in records}) == 1, "pdf_supplement_mixed_issuer")
     comparisons, ttm, unresolved = [], [], []
     for item in records:
+        if item.annual_reference is not None:
+            # The reference is paired with the latest quarter by pdf_selection,
+            # never treated as a standalone current/comparative income statement.
+            continue
         if item.reason or item.current_end is None or item.current_start is None:
             unresolved.append(item.disclosure_number + ":" + (item.reason or "period_missing"))
             continue
@@ -335,6 +520,10 @@ def build_pdf_supplement(
                 )
             )
         if is_annual_period(item.current_start, item.current_end):
+            continue
+        if item.accounting_standard == "JP":
+            # Reference-actual pairing belongs to the latest-disclosure selector.
+            # Do not emit a conflicting old-annual TTM or a spurious missing gap here.
             continue
         annuals = [
             annual
