@@ -74,6 +74,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 "pricing_valid",
                 "accounting_change_context",
                 "capital_action_context",
+                "provider_capital_crosscheck",
                 "latest_growth_period",
                 "growth_status",
                 "growth_reason",
