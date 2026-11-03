@@ -154,6 +154,14 @@ def read_holder_capital(
     documents = [doc for doc in documents if str(doc.get("doc_date")) in valid_days]
     origins, quarantined = _canonicalize_document_events(documents, origin_start=None)
     observations: dict[str, list[HolderReportedCapital]] = {}
+    # Read the small identity inventory once. Query original bytes only for a
+    # retained eligible filing, not once for every missing historical filing.
+    archive_days = {
+        str(doc_id): stored_on
+        for doc_id, stored_on in connection.execute(
+            "SELECT doc_id,stored_on FROM edinet_source_archives WHERE source_type=1"
+        ).fetchall()
+    }
     considered = missing = unsupported = 0
     for document in origins:
         if str(document.get("docTypeCode")) not in {"350", "360"}:
@@ -184,16 +192,12 @@ def read_holder_capital(
             continue
         if submitted > known_at:
             continue
-        row = connection.execute(
-            "SELECT stored_on,zip_content FROM edinet_source_archives "
-            "WHERE doc_id=? AND source_type=1",
-            (doc_id,),
-        ).fetchone()
-        if row is None:
+        stored_value = archive_days.get(doc_id)
+        if stored_value is None:
             missing += 1
             continue
         try:
-            stored_on = date.fromisoformat(str(row[0]))
+            stored_on = date.fromisoformat(str(stored_value))
         except ValueError:
             unsupported += 1
             continue
@@ -209,9 +213,16 @@ def read_holder_capital(
         if not proven_by_snapshot and stored_on >= min(as_of, known_at.astimezone(UTC).date()):
             missing += 1
             continue
+        row = connection.execute(
+            "SELECT zip_content FROM edinet_source_archives WHERE doc_id=? AND source_type=1",
+            (doc_id,),
+        ).fetchone()
+        if row is None:
+            unsupported += 1
+            continue
         try:
             fact = extract_holder_capital(
-                bytes(row[1]), document_id=doc_id, submitted_at=submitted, known_at=known_at
+                bytes(row[0]), document_id=doc_id, submitted_at=submitted, known_at=known_at
             )
         except SourceFormatError:
             unsupported += 1
