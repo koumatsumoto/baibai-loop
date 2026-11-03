@@ -20,6 +20,7 @@ from baibai_engine.machine_analysis.observations.prices.tradingview_market impor
     read_market_observation,
 )
 from baibai_jobs.acquisition.tradingview.cli import credential_storage
+from baibai_jobs.observability.tradingview import failure_line
 
 # Capture the provider's native bars as well as quote delay metadata. The
 # continuous OSE contract is not the cash index or an executable fill.
@@ -83,7 +84,7 @@ def main() -> int:
         count = asyncio.run(run(Path(sys.argv[1])))
     except Exception as exc:
         # SDK errors can contain tokens or URLs. Do not copy exception text to logs.
-        print(json.dumps({"status": "failed", "type": type(exc).__name__}), file=sys.stderr)
+        print(failure_line(exc), file=sys.stderr)
         return 1
     print(json.dumps({"status": "received", "receipts": count}))
     return 0
