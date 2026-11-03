@@ -237,3 +237,34 @@ def test_same_document_edit_after_archive_receipt_is_not_presented_as_current(tm
         )
         assert result == {}
         assert coverage == "partial"
+
+
+def test_reader_supports_read_only_duckdb_release_without_loading_missing_blobs():
+    import duckdb
+
+    from baibai_engine.data_collection.providers.edinet.storage_contracts import (
+        EDINET_SOURCE_ARCHIVES_DDL,
+    )
+    from baibai_engine.machine_analysis.observations.disclosures.storage_contracts import (
+        EDINET_DOCUMENT_LISTS_DDL,
+        EDINET_DOCUMENTS_DDL,
+    )
+    from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+        read_holder_capital,
+    )
+
+    connection = duckdb.connect(":memory:")
+    try:
+        connection.execute(EDINET_DOCUMENTS_DDL)
+        connection.execute(EDINET_DOCUMENT_LISTS_DDL)
+        connection.execute(EDINET_SOURCE_ARCHIVES_DDL)
+        result, coverage = read_holder_capital(
+            connection,
+            as_of=datetime(2026, 11, 3, tzinfo=UTC).date(),
+            known_at=datetime(2026, 11, 3, 12, tzinfo=UTC),
+            tickers=("1234",),
+        )
+        assert result == {}
+        assert coverage == "not_observed"
+    finally:
+        connection.close()
