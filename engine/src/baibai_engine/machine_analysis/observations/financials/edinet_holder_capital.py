@@ -11,6 +11,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element  # nosec B405 -- type annotation only
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
@@ -22,6 +23,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl im
 )
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 from baibai_engine.primitives.time import JST
+
+if TYPE_CHECKING:
+    import duckdb
 
 _NAMESPACE = re.compile(
     r"^\{http://disclosure\.edinet-fsa\.go\.jp/taxonomy/jplvh/\d{4}-\d{2}-\d{2}/jplvh_cor\}"
@@ -95,7 +99,7 @@ def extract_holder_capital(
 
 
 def read_holder_capital(
-    connection: sqlite3.Connection,
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
     *,
     as_of: date,
     known_at: datetime,
@@ -134,7 +138,7 @@ def read_holder_capital(
         "SELECT doc_date,selected_received_at_utc FROM edinet_document_lists "
         "WHERE doc_date<=? AND selected_received_at_utc IS NOT NULL",
         (as_of.isoformat(),),
-    ):
+    ).fetchall():
         try:
             receipt = datetime.fromisoformat(str(received))
         except ValueError:
