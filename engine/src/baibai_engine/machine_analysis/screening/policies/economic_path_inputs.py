@@ -313,6 +313,7 @@ def project_company(
             _object(valuation.get("provider_capital_observation")),
             financial,
             expected_price_date=_text(valuation.get("expected_price_date")),
+            model_as_of=_text(valuation.get("as_of")),
         ),
         "capital_action_context": {
             "observations": valuation.get("capital_action_evidence", []),
@@ -494,6 +495,7 @@ def _provider_capital_crosscheck(
     financial: dict[str, JsonValue],
     *,
     expected_price_date: str | None,
+    model_as_of: str | None = None,
 ) -> dict[str, JsonValue]:
     """Compare gross values as an observation, not a correction or ranking rule.
 
@@ -512,6 +514,7 @@ def _provider_capital_crosscheck(
     return {
         "source": "jquants_daily_bar_market_cap_million_yen",
         "source_price_date": source_date,
+        "shares_basis_model_as_of": model_as_of,
         "provider_gross_market_cap_yen": provider_gross,
         "reported_issued_shares": issued,
         "gross_market_cap_from_issued_yen": estimated_gross,
