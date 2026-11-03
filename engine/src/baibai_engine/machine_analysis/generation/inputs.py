@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import closing
@@ -35,6 +37,10 @@ from baibai_engine.machine_analysis.observations.financials.capital_action_pdf i
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+    read_holder_capital,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -129,6 +135,16 @@ def read_and_generate_models(
         capital_actions = read_capital_actions(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
         )
+        try:
+            holder_capital, holder_coverage = read_holder_capital(
+                connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+            )
+        except (sqlite3.Error, EDINETProviderError, ValueError, OSError) as error:
+            # A failed supplemental read must not erase independent market/financial data.
+            logging.getLogger(__name__).warning(
+                "holder-capital unavailable: %s", type(error).__name__
+            )
+            holder_capital, holder_coverage = {}, "unavailable"
         calendar = read_price_calendar(connection, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
@@ -229,6 +245,8 @@ def read_and_generate_models(
             comparisons=comparisons.get(ticker, ()),
             pdf_statements=pdf_statements.get(ticker, ()),
             capital_actions=capital_actions.get(ticker, ()),
+            holder_capital=holder_capital.get(ticker, ()),
+            holder_coverage=holder_coverage,
             provider_capital=provider_capital.get(ticker),
             price_path=price_paths[ticker],
         )
