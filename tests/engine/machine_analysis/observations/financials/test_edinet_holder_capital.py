@@ -268,3 +268,46 @@ def test_reader_supports_read_only_duckdb_release_without_loading_missing_blobs(
         assert coverage == "not_observed"
     finally:
         connection.close()
+
+
+def test_reader_extracts_nonempty_duckdb_release():
+    import duckdb
+
+    from baibai_engine.data_collection.providers.edinet.storage_contracts import (
+        EDINET_SOURCE_ARCHIVES_DDL,
+    )
+    from baibai_engine.machine_analysis.observations.disclosures.storage_contracts import (
+        EDINET_DOCUMENT_LISTS_DDL,
+        EDINET_DOCUMENTS_DDL,
+    )
+    from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+        read_holder_capital,
+    )
+
+    c = duckdb.connect(":memory:")
+    try:
+        c.execute(EDINET_DOCUMENTS_DDL)
+        c.execute(EDINET_DOCUMENT_LISTS_DDL)
+        c.execute(EDINET_SOURCE_ARCHIVES_DDL)
+        c.execute(
+            "INSERT INTO edinet_documents (doc_date,sequence_number,doc_id,doc_type_code,xbrl_flag,legal_status,disclosure_status,withdrawal_status,doc_info_edit_status,submit_datetime) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("2026-10-30", 1, "S100TEST", "350", "1", "1", "0", "0", "0", "2026-10-30 10:00"),
+        )
+        c.execute(
+            "INSERT INTO edinet_document_lists (doc_date,result_count,selected_received_at_utc,latest_received_at_utc) VALUES (?,?,?,?)",
+            ("2026-10-30", 1, "2026-10-30T06:00:00+00:00", "2026-10-30T06:00:00+00:00"),
+        )
+        c.execute(
+            "INSERT INTO edinet_source_archives VALUES (?,?,?,?)",
+            ("S100TEST", 1, "2026-11-02", original()),
+        )
+        result, coverage = read_holder_capital(
+            c,
+            as_of=datetime(2026, 11, 3, tzinfo=UTC).date(),
+            known_at=datetime(2026, 11, 3, 12, tzinfo=UTC),
+            tickers=("1234",),
+        )
+        assert result["1234"][0].total_stocks == 2500000
+        assert coverage == "all_retained_considered"
+    finally:
+        c.close()
