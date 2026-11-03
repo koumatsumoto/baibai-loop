@@ -125,7 +125,8 @@ def test_reader_respects_retention_day_and_reports_partial_coverage(tmp_path):
         assert result["1234"][0].total_stocks == 2500000
         assert coverage == "partial"
         blob_reads = [query for query in queries if "SELECT zip_content" in query]
-        assert len(blob_reads) == 1 and "S100TEST" in blob_reads[0]
+        assert len(blob_reads) == 1
+        assert "S100TEST" in blob_reads[0]
         historical, _ = read_holder_capital(
             connection,
             as_of=date(2026, 11, 2),
@@ -179,3 +180,60 @@ def test_reader_respects_retention_day_and_reports_partial_coverage(tmp_path):
             tickers=("1234",),
         )
         assert earlier_asof == {}
+
+
+def test_same_document_edit_after_archive_receipt_is_not_presented_as_current(tmp_path):
+    import json
+    from contextlib import closing
+    from datetime import date
+
+    from tests.helpers.edinet_documents import store_edinet_documents
+
+    from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+    from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+        read_holder_capital,
+    )
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+    path = tmp_path / "m.sqlite"
+    doc = {
+        "seqNumber": 1,
+        "docID": "S100TEST",
+        "docTypeCode": "350",
+        "xbrlFlag": "1",
+        "legalStatus": "1",
+        "disclosureStatus": "0",
+        "withdrawalStatus": "0",
+        "docInfoEditStatus": "0",
+        "submitDateTime": "2026-10-30 10:00",
+    }
+    edit = {
+        "seqNumber": 1,
+        "docID": "S100TEST",
+        "docInfoEditStatus": "1",
+        "docDescription": "updated",
+    }
+    for day, rows in ((date(2026, 10, 30), [doc]), (date(2026, 11, 3), [edit])):
+        store_edinet_documents(
+            path,
+            day,
+            rows,
+            response_json=json.dumps(
+                {"metadata": {"resultset": {"count": len(rows)}}, "results": rows}
+            ),
+        )
+    with closing(open_connection(path)) as c:
+        c.execute(
+            "UPDATE edinet_document_lists SET selected_received_at_utc=?",
+            ("2026-11-03T06:00:00+00:00",),
+        )
+        c.commit()
+        retain_source_archive(c, "S100TEST", 1, original(), stored_on=date(2026, 11, 2))
+        result, coverage = read_holder_capital(
+            c,
+            as_of=date(2026, 11, 3),
+            known_at=datetime(2026, 11, 3, 9, tzinfo=UTC),
+            tickers=("1234",),
+        )
+        assert result == {}
+        assert coverage == "partial"
