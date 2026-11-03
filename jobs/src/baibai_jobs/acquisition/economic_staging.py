@@ -80,6 +80,7 @@ def load_handoff(
     *,
     market: bool = False,
     namespace: str | None = None,
+    input_group: str | None = None,
 ) -> None:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     saved = read_private(store, prefix + "/handoff.json")
@@ -95,8 +96,17 @@ def load_handoff(
     ):
         raise ValueError("invalid source handoff manifest")
     digest, size = manifest["receipt_sha256"], manifest["receipt_bytes"]
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise LakePublishError("source handoff receipt identity differs")
     key = f"{prefix}/receipts-{digest}.sqlite"
-    if manifest["receipt_key"] != key or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+    if namespace == "source-inputs" and input_group is not None:
+        pattern = (
+            rf"coordination/source-inputs/{re.escape(input_group)}-"
+            rf"[A-Za-z0-9_-]+/receipts-{digest}\.sqlite"
+        )
+        if re.fullmatch(pattern, manifest["receipt_key"]) is not None:
+            key = manifest["receipt_key"]
+    if manifest["receipt_key"] != key:
         raise LakePublishError("source handoff receipt identity differs")
     remote = store.head(key)
     if remote is None or remote.size != size or remote.metadata.get("sha256") != digest:

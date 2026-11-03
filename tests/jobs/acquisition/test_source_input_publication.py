@@ -62,3 +62,47 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
     assert result["canonical_generations"] == generations
     with closing(initialize_database(target)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 0
+
+
+def test_read_scoped_input_from_same_group_previous_stage(tmp_path, monkeypatch):
+    import json
+
+    import pytest
+
+    from baibai_engine.storage.objects.r2 import LakePublishError
+
+    remote = MemoryR2Store()
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+    )
+    monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.export_economic_receipts",
+        lambda _source, target, **_kwargs: target.write_bytes(b"fixed content"),
+    )
+    publish_inputs(
+        remote,
+        market=tmp_path / "market",
+        economic=tmp_path / "economic",
+        asof=DAY,
+        identity="first",
+        generations={"version": "one"},
+    )
+    first = "coordination/source-inputs/economic-fred_csv-first/handoff.json"
+    value = json.loads(remote.values[first].body)
+    value["result"]["canonical_generations"] = {"version": "two"}
+    second = "coordination/source-inputs/economic-fred_csv-second/handoff.json"
+    remote.store_object(second, json.dumps(value).encode())
+    remote.store_object(
+        input_key("economic-fred_csv"),
+        json.dumps(
+            {"stage_id": "economic-fred_csv-second", "canonical_generations": {"version": "two"}}
+        ).encode(),
+    )
+    result = load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "read")
+    assert result["canonical_generations"] == {"version": "two"}
+    assert (tmp_path / "db").read_bytes() == b"fixed content"
+    value["receipt_key"] = value["receipt_key"].replace("economic-fred_csv-", "other-")
+    remote.store_object(second, json.dumps(value).encode())
+    with pytest.raises(LakePublishError, match="identity differs"):
+        load_input(remote, "economic-fred_csv", tmp_path / "db2", tmp_path / "read2")

@@ -130,7 +130,9 @@ def load_input(
             "scoped source input is missing; initialize through common integration"
         )
     pointer = json.loads(saved.payload)
-    load_handoff(store, pointer["stage_id"], directory, namespace="source-inputs")
+    load_handoff(
+        store, pointer["stage_id"], directory, namespace="source-inputs", input_group=group
+    )
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     if (
         report["group"] != group
