@@ -291,7 +291,7 @@ series:
     plausible_max: 20000
     reading_key: 2516.T
     source_id: yahoo-2516t
-    notes: NEXT FUNDS東証グロース市場250指数連動型ETF(2516)の日次終値(円)。国内新興・グロースのリスク選好を読むproxy。指数レベルではなくETF価格で、方向・変化率が指数に連動する。J-Quants Lightがグロース指数を配信しないためETFで代替
+    notes: NEXT FUNDS東証グロース市場250指数連動型ETF(2516)の日次バーclose(円、取引途中は暫定)。国内新興・グロースのリスク選好を読むproxy。指数レベルではなくETF価格で、方向・変化率が指数に連動する。J-Quants Lightがグロース指数を配信しないためETFで代替
     aliases: [グロース250, 東証グロース250, growth250, マザーズ後継, 2516]
   - series_id: jp.topix
     name: TOPIX(東証株価指数)

@@ -58,7 +58,7 @@ series:
     reading_key: GC=F
     source_id: yahoo-gc-f
     tradingview_symbol: COMEX:GC1!
-    notes: COMEX金先物フロント限月(日次終値)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
+    notes: COMEX金先物フロント限月(日次バーclose、取引途中は暫定)。実質金利・ドル・債務貨幣化のstore-of-value温度計。BTCと並べてデジタルゴールド命題を読む。FRED LBMA系列廃止のためYahooで取得
     aliases: [金, ゴールド, gold, XAU, 金価格, gold_futures]
   - series_id: copper
     name: 銅先物(COMEX, USD/lb)
@@ -71,7 +71,7 @@ series:
     reading_key: HG=F
     source_id: yahoo-hg-f
     tradingview_symbol: COMEX:HG1!
-    notes: COMEX銅先物フロント限月(日次終値)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
+    notes: COMEX銅先物フロント限月(日次バーclose、取引途中は暫定)。世界景気の先行ゲージ(Dr.Copper)。銅/金レシオでリスク選好・成長期待を読む
     aliases: [銅, copper, HG, Dr Copper, 銅価格]
   - series_id: ecb.policy_rate
     name: ECB預金ファシリティ金利
@@ -96,7 +96,7 @@ series:
     reading_key: SI=F
     source_id: yahoo-si-f
     tradingview_symbol: COMEX:SI1!
-    notes: COMEX銀先物フロント限月(日次終値)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
+    notes: COMEX銀先物フロント限月(日次バーclose、取引途中は暫定)。金銀レシオ(gold/silver)で実物資産内のリスク選好・産業需要を読む。金より産業比率が高くベータが大きい
     aliases: [銀, シルバー, silver, XAG, 銀価格, silver_futures]
   - series_id: positioning.jpy_noncomm_net
     name: 円投機筋ネット玉
@@ -194,7 +194,7 @@ series:
     plausible_max: 1000
     reading_key: ACWX
     source_id: yahoo-acwx
-    notes: iShares MSCI ACWI ex U.S. ETFの日次終値(USD)。米国を除く世界株の水準proxy。米株一極集中/分散のローテーションを読む
+    notes: iShares MSCI ACWI ex U.S. ETFの日次バーclose、取引途中は暫定(USD)。米国を除く世界株の水準proxy。米株一極集中/分散のローテーションを読む
     aliases: [世界株ex-US, ACWX, ACWI ex US, 米国除く世界株]
   - series_id: europe.stoxx
     name: STOXX欧州600
@@ -207,7 +207,7 @@ series:
     reading_key: ^STOXX
     source_id: yahoo-stoxx600
     tradingview_symbol: INDEX:SXXP
-    notes: STOXX Europe 600指数の日次終値(EURポイント)。欧州株全体の水準。ユーロ圏景気・ECBスタンスと接続して読む
+    notes: STOXX Europe 600指数の日次バーclose、取引途中は暫定(EURポイント)。欧州株全体の水準。ユーロ圏景気・ECBスタンスと接続して読む
     aliases: [欧州株, STOXX600, STOXX Europe 600, SXXP, 欧州600]
   - series_id: em.equity
     name: 新興国株(EEM ETF)
@@ -219,5 +219,5 @@ series:
     plausible_max: 1000
     reading_key: EEM
     source_id: yahoo-eem
-    notes: iShares MSCI Emerging Markets ETFの日次終値(USD)。新興国株の水準proxy。ドル・中国・世界リスク選好の総合温度計
+    notes: iShares MSCI Emerging Markets ETFの日次バーclose、取引途中は暫定(USD)。新興国株の水準proxy。ドル・中国・世界リスク選好の総合温度計
     aliases: [新興国株, EEM, emerging markets equity, EM株, エマージング株]
