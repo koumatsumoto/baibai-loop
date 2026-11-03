@@ -236,7 +236,7 @@ def read_and_generate_models(
             else reading_snapshot(economic_path, asof=as_of),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-input-lineage-v3",
+        market_context_revision="shared-market-context-acquisition-health-v4",
         growth_start=growth_start,
         trends=trends,
     )

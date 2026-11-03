@@ -37,6 +37,45 @@ from baibai_engine.machine_analysis.observations.economic_indicators.read_contra
 )
 
 
+def latest_acquisition_failure_notes(
+    connection: sqlite3.Connection, *, series: Sequence[SeriesDefinition]
+) -> dict[str, tuple[str, ...]]:
+    """Describe current retained-store acquisition health, not historic value quality.
+
+    A later successful run clears the notice. Missing run metadata is not success.
+    Do not copy error messages (which can contain URLs/secrets) into model inputs,
+    or attach these later attempts to the original observation's vintage/flags.
+    """
+    failures = {
+        source: (
+            f"Latest recorded acquisition in this retained store failed: source={source}, "
+            f"run_id={run_id}, finished_at={finished}. This is acquisition status, not "
+            "the observation date or a point-in-time assertion; retained values are unchanged."
+        )
+        for source, run_id, finished in connection.execute(
+            "WITH ranked AS (SELECT source_id, run_id, finished_at, status, "
+            "ROW_NUMBER() OVER (PARTITION BY source_id "
+            "ORDER BY julianday(finished_at) DESC, finished_at DESC, run_id DESC) AS rank "
+            "FROM economic_source_runs) "
+            "SELECT source_id, run_id, finished_at FROM ranked WHERE rank=1 AND status='failed'"
+        )
+    }
+    definitions = {item.series_id: item for item in series}
+
+    def sources_for(series_id: str) -> set[str]:
+        definition = definitions[series_id]
+        if definition.provider != "derived":
+            return {definition.source_id}
+        return set().union(*(sources_for(key) for key in FORMULAS[definition.reading_key].inputs))
+
+    return {
+        item.series_id: tuple(
+            failures[key] for key in sorted(sources_for(item.series_id)) if key in failures
+        )
+        for item in series
+    }
+
+
 def build_store_observation_reader(
     connection: sqlite3.Connection,
     *,

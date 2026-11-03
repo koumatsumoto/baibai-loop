@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime
@@ -23,6 +24,69 @@ from baibai_engine.machine_analysis.observations.economic_indicators.observation
 from baibai_engine.machine_analysis.observations.economic_indicators.service import (
     IndicatorsService,
 )
+
+
+def test_latest_acquisition_failure_is_context_not_value_or_vintage(tmp_path):
+    path = tmp_path / "source-health.sqlite"
+    day = date(2026, 7, 1)
+    with closing(initialize_database(path)) as conn, conn:
+        store_h15_observations(
+            conn,
+            [
+                ObservationRecord(
+                    series_id="us.10y",
+                    observed_at=day,
+                    value=4.0,
+                    unit="percent",
+                    source_url="https://example.com/h15",
+                    vintage_at=datetime(2026, 7, 2, tzinfo=UTC),
+                )
+            ],
+        )
+    before = reading_snapshot(path, asof=day)
+
+    def run(run_id, source, finished, status):
+        with closing(sqlite3.connect(path)) as conn, conn:
+            conn.execute(
+                "INSERT INTO economic_source_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    source,
+                    day.isoformat(),
+                    day.isoformat(),
+                    finished,
+                    finished,
+                    status,
+                    0,
+                    "synthetic-secret-must-not-escape",
+                ),
+            )
+
+    run("failed-h15", "fed-h15", "2026-07-03T00:00:00+00:00", "failed")
+    run("failed-pmi", "spglobal-jp-pmi-mfg", "2026-07-03T00:00:00+00:00", "failed")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    after = reading_snapshot(path, asof=day)
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    prior = {r["series_id"]: r for r in before["series"]}
+    current = {r["series_id"]: r for r in after["series"]}
+    for key, row in current.items():
+        assert {k: v for k, v in row.items() if k != "notes"} == {
+            k: v for k, v in prior[key].items() if k != "notes"
+        }
+    assert current["us.10y"]["latest_value"] == 4.0
+    assert current["jp.pmi_manufacturing"]["latest_value"] is None
+    for key in ("us.10y", "us.erp", "rate_diff.us_jp_10y", "jp.pmi_manufacturing"):
+        note = current[key]["notes"][-1]
+        assert "Latest recorded acquisition" in note
+        assert "not the observation date or a point-in-time assertion" in note
+    assert current["jp.pmi_services"]["notes"] == prior["jp.pmi_services"]["notes"]
+    assert "synthetic-secret-must-not-escape" not in str(after)
+    # 09:30 JST is later than 00:00 UTC. Compare instants, not timestamp strings.
+    run("recovered-h15", "fed-h15", "2026-07-03T09:30:00+09:00", "ok")
+    recovered = reading_snapshot(path, asof=day)
+    rows = {r["series_id"]: r for r in recovered["series"]}
+    assert rows["us.10y"] == prior["us.10y"]
+    assert rows["us.erp"] == prior["us.erp"]
 
 
 def test_indicator_owner_filters_range_and_keeps_latest_vintage(

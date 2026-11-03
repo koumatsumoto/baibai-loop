@@ -193,6 +193,35 @@ def test_projected_observation_standard_reaches_the_bounded_brief():
     )
 
 
+@pytest.mark.parametrize("basis", ["actual_reported", "forecast_annual", None])
+def test_dividend_basis_survives_projection_and_brief_without_changing_rank(basis):
+    data = payloads()
+    financial = data["company_financials"]["financial"]
+    details = {
+        "dividend_yield": 0.0,
+        "dividend_basis": basis,
+        "dps_actual_annual": 0.0,
+        "dps_forecast_annual": 0.0 if basis == "forecast_annual" else None,
+        "dividend_forecast_source": {
+            "status": "confirmed" if basis == "forecast_annual" else "missing",
+            "period_start": "2026-04-01",
+            "period_end": "2027-03-31",
+        },
+        "dividend_split_factor": None,
+    }
+    baseline = project(data)
+    financial.update(details)
+    source = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    assert data == source
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
+    assert {key: brief[key] for key in details} == details
+    assert {key: projected.context["financial"][key] for key in details} == details
+
+
 def test_price_change_moves_price_axes_not_business_axes():
     before, after = project(payloads()), project(payloads(price=200.0))
     for name in {path.path_id for path in before.paths}:
