@@ -167,11 +167,7 @@ def _owner() -> str:
 
 
 def acquire(
-    store: ObjectStore,
-    purpose: str,
-    *,
-    now: datetime | None = None,
-    refuse_expired_held: bool = False,
+    store: ObjectStore, purpose: str, *, now: datetime | None = None
 ) -> tuple[PublicationLeaseHandle, bool]:
     if purpose not in _PURPOSES:
         raise LeaseError("invalid publication lease purpose")
@@ -181,7 +177,7 @@ def acquire(
     expired_previous = False
     if current is not None:
         previous, _, etag = current
-        if previous.state == "held" and (previous.expires_at_utc > moment or refuse_expired_held):
+        if previous.state == "held" and previous.expires_at_utc > moment:
             raise LeaseBusy(previous)
         expired_previous = previous.state == "held"
     else:

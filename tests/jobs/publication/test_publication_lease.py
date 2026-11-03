@@ -316,15 +316,3 @@ def test_owner_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     handle, _ = lease.acquire(MemoryStore(), "daily", now=NOW)
     assert handle.owner == "github:123:2"
-
-
-def test_strict_acquire_never_replaces_expired_held_lease() -> None:
-    store = MemoryStore()
-    lease.acquire(store, "daily", now=NOW)
-    before, etag, writes = store.body, store.etag, len(store.writes)
-    for _ in range(2):
-        with pytest.raises(lease.LeaseBusy):
-            lease.acquire(store, "operator", now=NOW + lease.LEASE_TTL, refuse_expired_held=True)
-        assert store.body == before
-        assert store.etag == etag
-        assert len(store.writes) == writes

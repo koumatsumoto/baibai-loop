@@ -45,7 +45,7 @@ class Fake:
         return {"ETag": '"object"', "ContentLength": len(data), "Metadata": {"sha256": self.sha}}
 
     def delete_object(self, **kwargs):
-        assert kwargs["IfMatch"] == '"object"'
+        assert "IfMatch" not in kwargs
         self.deletes.append(kwargs["Key"])
         del self.objects[kwargs["Key"]]
 
@@ -67,7 +67,7 @@ def test_dry_run_has_no_deletes_and_apply_is_disabled():
     plan = s.plan()
     assert run(s, plan)["objects"] == 1
     assert not s.deletes
-    with pytest.raises(RuntimeError, match="conditional DELETE"):
+    with pytest.raises(RuntimeError, match="apply requires"):
         run(s, plan, apply=True)
     assert s.keep in s.objects
     assert s.old in s.objects
@@ -194,9 +194,6 @@ def test_only_the_exact_preapproved_retired_handoff_may_be_marked(monkeypatch):
 
 
 def test_apply_records_intent_and_confirmed_absence(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup.R2_CONDITIONAL_DELETE_VERIFIED", True
-    )
     s = Fake()
     p = s.plan()
     # Fixture has no surviving handoff, so make the retired-handoff check explicit.
@@ -225,9 +222,6 @@ def test_apply_records_intent_and_confirmed_absence(tmp_path, monkeypatch):
 
 
 def _retired_fixture(monkeypatch):
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup.R2_CONDITIONAL_DELETE_VERIFIED", True
-    )
     s = Fake()
     p = s.plan()
     key = s.old.rsplit("/", 1)[0] + "/handoff.json"
@@ -304,7 +298,7 @@ def test_pointer_change_after_planning_blocks_apply(monkeypatch, tmp_path):
     assert not s.deletes
 
 
-def test_unsupported_conditional_delete_does_not_fall_back(monkeypatch, tmp_path):
+def test_failed_delete_is_not_retried(monkeypatch, tmp_path):
     s, p = _retired_fixture(monkeypatch)
     calls = []
 
@@ -320,7 +314,7 @@ def test_unsupported_conditional_delete_does_not_fall_back(monkeypatch, tmp_path
     with path.open("x") as journal, pytest.raises(ClientError):
         run(s, p, apply=True, guard=lambda: None, journal=journal, plan_sha256="a" * 64)
     assert len(calls) == 1
-    assert calls[0]["IfMatch"] == '"object"'
+    assert "IfMatch" not in calls[0]
     assert s.old in s.objects
     assert [json.loads(x)["event"] for x in path.read_text().splitlines()] == [
         "intent",
@@ -329,68 +323,57 @@ def test_unsupported_conditional_delete_does_not_fall_back(monkeypatch, tmp_path
 
 
 def test_github_guard_fails_closed_on_active_or_incomplete(monkeypatch):
+    from types import SimpleNamespace
+
     from baibai_jobs.maintenance.source_input_cleanup import _github_idle
 
     monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._workflow_state",
-        lambda _workflow: "disabled_manually",
+        "baibai_jobs.maintenance.source_input_cleanup.shutil.which", lambda _name: "/usr/bin/gh"
     )
     monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._gh_api",
-        lambda *_a, **_k: '[{"total_count": 0, "workflow_runs": []}]',
+        "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
+        lambda *_a, **_k: SimpleNamespace(
+            returncode=0, stdout='[{"total_count": 0, "workflow_runs": []}]'
+        ),
     )
     _github_idle()
+    active = '[{"total_count": 1, "workflow_runs": [{"path": ".github/workflows/cloud-market-sources.yml@refs/heads/main"}]}]'
     monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._gh_api",
-        lambda *_a, **_k: '[{"total_count": 1, "workflow_runs": [{"status": "in_progress"}]}]',
+        "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
+        lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=active),
     )
     with pytest.raises(RuntimeError, match="active"):
         _github_idle()
     monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._gh_api",
-        lambda *_a, **_k: '[{"total_count": 1, "workflow_runs": []}]',
+        "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
+        lambda *_a, **_k: SimpleNamespace(
+            returncode=0, stdout='[{"total_count": 1, "workflow_runs": []}]'
+        ),
     )
     with pytest.raises(RuntimeError, match="incomplete"):
         _github_idle()
 
 
-def test_workflows_are_restored_after_failure(monkeypatch, tmp_path):
-    from baibai_jobs.maintenance.source_input_cleanup import WORKFLOWS, _pause_workflows
+def test_botocore_one_attempt_does_not_retry_timeout(monkeypatch):
+    import boto3
+    from botocore.config import Config
+    from botocore.exceptions import ReadTimeoutError
 
-    states = dict.fromkeys(WORKFLOWS, "active")
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._workflow_state", lambda name: states[name]
+    client = boto3.client(
+        "s3",
+        endpoint_url="https://example.invalid",
+        region_name="auto",
+        aws_access_key_id="fixture",
+        aws_secret_access_key="fixture",
+        config=Config(retries={"mode": "standard", "total_max_attempts": 1}),
     )
+    sent = []
 
-    def set_state(name, action):
-        states[name] = "active" if action == "enable" else "disabled_manually"
+    def timeout(request):
+        sent.append(request.method)
+        raise ReadTimeoutError(endpoint_url="https://example.invalid", error="fixture")
 
-    monkeypatch.setattr("baibai_jobs.maintenance.source_input_cleanup._set_workflow", set_state)
-
-    def fail_in_pause(audit):
-        with _pause_workflows(audit):
-            assert all(x == "disabled_manually" for x in states.values())
-            raise RuntimeError("test error")
-
-    with (tmp_path / "audit").open("x") as audit, pytest.raises(RuntimeError, match="test error"):
-        fail_in_pause(audit)
-    assert all(x == "active" for x in states.values())
-
-
-def test_initially_disabled_workflow_remains_disabled(monkeypatch, tmp_path):
-    from baibai_jobs.maintenance.source_input_cleanup import WORKFLOWS, _pause_workflows
-
-    states = {WORKFLOWS[0]: "disabled_manually", WORKFLOWS[1]: "active"}
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._workflow_state", lambda name: states[name]
-    )
-    monkeypatch.setattr(
-        "baibai_jobs.maintenance.source_input_cleanup._set_workflow",
-        lambda name, action: states.update(
-            {name: "active" if action == "enable" else "disabled_manually"}
-        ),
-    )
-    with (tmp_path / "audit").open("x") as audit, _pause_workflows(audit):
-        pass
-    assert states[WORKFLOWS[0]] == "disabled_manually"
-    assert states[WORKFLOWS[1]] == "active"
+    monkeypatch.setattr(client._endpoint.http_session, "send", timeout)
+    with pytest.raises(ReadTimeoutError):
+        client.delete_object(Bucket="fixture-bucket", Key="fixture-key")
+    assert sent == ["DELETE"]

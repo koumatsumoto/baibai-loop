@@ -17,18 +17,13 @@ import shutil
 
 # Only a fixed gh argv is used, without shell or user-supplied commands.
 import subprocess  # nosec B404
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TextIO, cast
 
 from botocore.exceptions import ClientError
 
 PREFIX = "coordination/source-inputs/"
-# A live synthetic probe showed this R2 connection ignored a mismatched If-Match
-# on DELETE. Keep apply unavailable until a safe design is independently verified.
-R2_CONDITIONAL_DELETE_VERIFIED: bool = False
 KEY = re.compile(
     r"coordination/source-inputs/([A-Za-z0-9][A-Za-z0-9_-]{0,119})/receipts-([0-9a-f]{64})\.sqlite\Z"
 )
@@ -164,127 +159,50 @@ def _journal(stream: TextIO, event: dict[str, Any]) -> None:
     os.fsync(stream.fileno())
 
 
-WORKFLOWS = ("cloud-market-sources.yml", "cloud-daily-batch.yml")
-
-
-def _gh_api(endpoint: str, *, method: str = "GET", paginate: bool = False) -> str:
-    gh = shutil.which("gh")
-    if gh is None:
-        raise RuntimeError("GitHub CLI unavailable")
-    # Endpoint and method are built only from the fixed workflow/status lists.
-    arguments = [gh, "api", "--method", method, endpoint]
-    if paginate:
-        arguments.extend(["--paginate", "--slurp"])
-    result = subprocess.run(  # nosec B603
-        arguments,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        raise RuntimeError("GitHub Actions operation failed or was denied")
-    return result.stdout
-
-
-def _workflow_state(workflow: str) -> str:
-    endpoint = f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}"
-    response = json.loads(_gh_api(endpoint), object_pairs_hook=_unique_members)
-    if response.get("path") != f".github/workflows/{workflow}":
-        raise RuntimeError("unexpected GitHub workflow")
-    state = response.get("state")
-    if state not in {"active", "disabled_manually", "disabled_inactivity"}:
-        raise RuntimeError("unknown GitHub workflow state")
-    return cast("str", state)
-
-
-def _set_workflow(workflow: str, operation: str) -> None:
-    if workflow not in WORKFLOWS or operation not in {"disable", "enable"}:
-        raise ValueError("unexpected workflow operation")
-    _gh_api(
-        f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}/{operation}", method="PUT"
-    )
-
-
-@contextmanager
-def _pause_workflows(journal: TextIO) -> Iterator[None]:
-    """Temporarily disable only originally active reader/publisher workflows."""
-    changed: list[str] = []
-    try:
-        for workflow in WORKFLOWS:
-            state = _workflow_state(workflow)
-            _journal(journal, {"event": "workflow_original", "workflow": workflow, "state": state})
-            if state != "active":
-                continue
-            _journal(journal, {"event": "workflow_disable_intent", "workflow": workflow})
-            try:
-                _set_workflow(workflow, "disable")
-            except BaseException:
-                # The request may have succeeded even if its response was lost.
-                try:
-                    observed = _workflow_state(workflow)
-                except BaseException:
-                    _journal(
-                        journal, {"event": "workflow_disable_state_unknown", "workflow": workflow}
-                    )
-                    raise RuntimeError(
-                        "workflow state unknown; immediate inspection required"
-                    ) from None
-                if observed == "disabled_manually":
-                    changed.append(workflow)
-                _journal(
-                    journal,
-                    {
-                        "event": "workflow_disable_uncertain",
-                        "workflow": workflow,
-                        "observed": observed,
-                    },
-                )
-                raise
-            # An acknowledged disable must be restored even if the next read fails.
-            changed.append(workflow)
-            if _workflow_state(workflow) != "disabled_manually":
-                raise RuntimeError("workflow did not enter disabled state")
-            _journal(journal, {"event": "workflow_disabled", "workflow": workflow})
-        yield
-    finally:
-        failures: list[str] = []
-        for workflow in reversed(changed):
-            try:
-                state = _workflow_state(workflow)
-                if state != "active":
-                    _journal(journal, {"event": "workflow_enable_intent", "workflow": workflow})
-                    try:
-                        _set_workflow(workflow, "enable")
-                    except BaseException:
-                        # Do not resend after an uncertain outcome; inspect state.
-                        if _workflow_state(workflow) != "active":
-                            raise
-                if _workflow_state(workflow) != "active":
-                    raise RuntimeError("workflow restoration not confirmed")
-                _journal(journal, {"event": "workflow_restored", "workflow": workflow})
-            except BaseException:
-                failures.append(workflow)
-        if failures:
-            _journal(journal, {"event": "workflow_restore_failed", "workflows": failures})
-            raise RuntimeError("one or more workflows could not be restored")
+BATCH_WORKFLOWS = frozenset(
+    {
+        "cloud-article-sources.yml",
+        "cloud-daily-batch.yml",
+        "cloud-economic-sources.yml",
+        "cloud-external-assessment.yml",
+        "cloud-market-sources.yml",
+        "cloud-materialize.yml",
+        "cloud-tradingview-market-daily.yml",
+        "cloud-tradingview-snapshot.yml",
+    }
+)
 
 
 def _github_idle() -> None:
-    """Refuse cleanup if a source reader or publisher is active or cannot be checked."""
-    for workflow in WORKFLOWS:
-        if _workflow_state(workflow) == "active":
-            raise RuntimeError("source reader or publisher workflow is enabled")
-        endpoint = f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}/runs?per_page=100"
-        pages = json.loads(_gh_api(endpoint, paginate=True), object_pairs_hook=_unique_members)
+    """Check all active batch runs immediately before deletion; do not change Actions."""
+    gh = shutil.which("gh")
+    if gh is None:
+        raise RuntimeError("GitHub CLI unavailable")
+    for status in ("requested", "waiting", "pending", "queued", "in_progress"):
+        endpoint = f"repos/koumatsumoto/baibai-loop/actions/runs?status={status}&per_page=100"
+        # No shell, and the endpoint is built from fixed literals only.
+        result = subprocess.run(  # nosec B603
+            [gh, "api", endpoint, "--paginate", "--slurp"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("cannot verify GitHub Actions activity")
+        pages = json.loads(result.stdout, object_pairs_hook=_unique_members)
         if not isinstance(pages, list) or not pages:
             raise RuntimeError("cannot enumerate workflow runs")
         total = pages[0].get("total_count")
-        runs = [run for page in pages for run in page.get("workflow_runs", [])]
+        runs = [item for page in pages for item in page.get("workflow_runs", [])]
         if type(total) is not int or len(runs) != total:
             raise RuntimeError("workflow run listing is incomplete")
-        if any(run.get("status") != "completed" for run in runs):
-            raise RuntimeError("source reader or publisher is active")
+        for item in runs:
+            path = item.get("path")
+            if not isinstance(path, str):
+                raise RuntimeError("workflow run path missing")
+            if path.split("@", 1)[0].rsplit("/", 1)[-1] in BATCH_WORKFLOWS:
+                raise RuntimeError("batch workflow is active")
 
 
 def run(
@@ -297,10 +215,8 @@ def run(
     plan_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Validate every precondition before deletion; abort on the first error."""
-    if apply and not R2_CONDITIONAL_DELETE_VERIFIED:
-        raise RuntimeError("apply disabled: R2 did not enforce conditional DELETE")
     if apply and (guard is None or journal is None or plan_sha256 is None):
-        raise RuntimeError("apply requires verified lease, run guard and durable journal")
+        raise RuntimeError("apply requires batch check and durable journal")
     if (
         set(plan) != {"bucket", "account_endpoint_sha256", "pointers", "groups", "retired_handoffs"}
         or plan["bucket"] != "baibai-stores"
@@ -366,9 +282,9 @@ def run(
     assert guard is not None
     assert journal is not None
     assert plan_sha256 is not None
+    guard()
     for group in plan["groups"]:
         for item in group["delete"]:
-            guard()
             if _pointers(client, bucket) != expected:
                 raise ValueError("current pointers changed during cleanup")
             _check_retired_handoff(client, bucket, item["key"], retired.get(item["key"]))
@@ -376,17 +292,14 @@ def run(
             _check_receipt(client, bucket, item)
             _journal(journal, {"event": "intent", "plan_sha256": plan_sha256, **item})
             try:
-                # The read-only checks above can take time; revalidate the
-                # publication lease and workflow state immediately before DELETE.
-                guard()
-                client.delete_object(Bucket=bucket, Key=item["key"], IfMatch=item["etag"])
+                # R2 ignored If-Match in the approved live probe; this is non-atomic.
+                client.delete_object(Bucket=bucket, Key=item["key"])
                 _require_absent(client, bucket, item["key"])
             except BaseException:
                 _journal(journal, {"event": "outcome_unknown", "key": item["key"]})
                 raise
             _journal(journal, {"event": "confirmed_absent", "key": item["key"]})
             report["deleted"].append(item["key"])
-    guard()
     if _pointers(client, bucket) != expected:
         raise ValueError("current pointers changed at final check")
     for group in plan["groups"]:
@@ -403,8 +316,6 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--journal", type=Path)
     args = parser.parse_args()
-    if args.apply and not R2_CONDITIONAL_DELETE_VERIFIED:
-        raise RuntimeError("apply disabled: R2 did not enforce conditional DELETE")
     payload = args.plan.read_bytes()
     if hashlib.sha256(payload).hexdigest() != args.plan_sha256:
         raise SystemExit("plan digest mismatch")
@@ -413,7 +324,6 @@ def main() -> None:
     from botocore.config import Config
 
     from baibai_engine.storage.objects.r2 import Boto3R2Store
-    from baibai_jobs.publication.lease import acquire, release, verify_held
 
     store = Boto3R2Store(bucket="baibai-stores")
     try:
@@ -449,46 +359,14 @@ def main() -> None:
             os.close(directory_fd)
         with os.fdopen(fd, "w", encoding="utf-8") as journal:
             _journal(journal, {"event": "start", "plan_sha256": args.plan_sha256})
-            with _pause_workflows(journal):
-                _github_idle()
-                handle, expired_previous = acquire(store, "operator", refuse_expired_held=True)
-                try:
-                    if expired_previous:
-                        raise RuntimeError("previous publication lease expired; investigate first")
-
-                    def guard() -> None:
-                        verify_held(store, handle)
-                        _github_idle()
-                        verify_held(store, handle)
-                        # The DELETE client's request timeout is at most 900 seconds.
-                        if handle.expires_at_utc - datetime.now(UTC) <= timedelta(minutes=16):
-                            raise RuntimeError("publication lease has insufficient remaining time")
-
-                    guard()
-                    report = run(
-                        client,
-                        plan,
-                        apply=True,
-                        guard=guard,
-                        journal=journal,
-                        plan_sha256=args.plan_sha256,
-                    )
-                except BaseException as error:
-                    _journal(
-                        journal, {"event": "operation_failed", "error_class": type(error).__name__}
-                    )
-                    raise
-                finally:
-                    try:
-                        release(store, handle)
-                    except BaseException as error:
-                        _journal(
-                            journal,
-                            {"event": "lease_release_failed", "error_class": type(error).__name__},
-                        )
-                        raise
-                    else:
-                        _journal(journal, {"event": "lease_released"})
+            report = run(
+                client,
+                plan,
+                apply=True,
+                guard=_github_idle,
+                journal=journal,
+                plan_sha256=args.plan_sha256,
+            )
             _journal(journal, {"event": "completed", "objects": len(report["deleted"])})
             print(json.dumps(report, ensure_ascii=False))
     finally:
