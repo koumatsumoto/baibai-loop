@@ -294,7 +294,7 @@ def run(
                 raise ValueError("invalid or repeated object")
             all_keys.add(item["key"])
             match = KEY.fullmatch(item["key"])
-            if not match or match.group(1) in current_stages:
+            if not match or (item["key"] != keep["key"] and match.group(1) in current_stages):
                 raise ValueError("current or invalid source input")
             if (
                 item["sha256"] != keep["sha256"]

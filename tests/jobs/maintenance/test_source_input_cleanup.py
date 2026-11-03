@@ -603,3 +603,15 @@ def test_redirect_after_first_delete_stops_remaining(monkeypatch, tmp_path):
         "intent",
         "outcome_unknown",
     ]
+
+
+def test_current_receipt_may_be_kept_but_never_deleted(monkeypatch, tmp_path):
+    s, plan = _retired_fixture(monkeypatch)
+    s.stage = "group-old1"
+    plan["pointers"][s.pointer][1] = s.stage
+    assert run(s, plan)["objects"] == 1
+    with (tmp_path / "journal").open("x") as journal:
+        result = run(s, plan, apply=True, guard=lambda: None, journal=journal, plan_sha256="a" * 64)
+    assert result["deleted"] == [s.old]
+    assert s.keep in s.objects
+    assert s.old not in s.objects
