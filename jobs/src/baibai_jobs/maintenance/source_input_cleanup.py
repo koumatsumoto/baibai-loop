@@ -159,6 +159,24 @@ def _journal(stream: TextIO, event: dict[str, Any]) -> None:
     os.fsync(stream.fileno())
 
 
+def _delete_once(client: Any, bucket: str, key: str) -> None:
+    """Block SDK redirects before a second DELETE reaches the transport."""
+    attempts = 0
+
+    def before_send(**_kwargs: Any) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts > 1:
+            raise RuntimeError("a second DELETE request was blocked")
+
+    event = "before-send.s3.DeleteObject"
+    client.meta.events.register_first(event, before_send)
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    finally:
+        client.meta.events.unregister(event, before_send)
+
+
 BATCH_WORKFLOWS = frozenset(
     {
         "cloud-article-sources.yml",
@@ -319,7 +337,7 @@ def run(
             _journal(journal, {"event": "intent", "plan_sha256": plan_sha256, **item})
             try:
                 # R2 ignored If-Match in the approved live probe; this is non-atomic.
-                client.delete_object(Bucket=bucket, Key=item["key"])
+                _delete_once(client, bucket, item["key"])
                 _require_absent(client, bucket, item["key"])
             except BaseException:
                 _journal(journal, {"event": "outcome_unknown", "key": item["key"]})

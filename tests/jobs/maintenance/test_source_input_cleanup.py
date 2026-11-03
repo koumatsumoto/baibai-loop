@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 from botocore.exceptions import ClientError
@@ -11,6 +12,10 @@ from baibai_jobs.maintenance.source_input_cleanup import run
 
 class Fake:
     def __init__(self):
+        events = SimpleNamespace(handler=None)
+        events.register_first = lambda _event, handler: setattr(events, "handler", handler)
+        events.unregister = lambda _event, _handler: setattr(events, "handler", None)
+        self.meta = SimpleNamespace(events=events)
         self.payload = b"original"
         self.sha = hashlib.sha256(self.payload).hexdigest()
         self.pointer = "coordination/source-inputs/group.json"
@@ -46,6 +51,7 @@ class Fake:
 
     def delete_object(self, **kwargs):
         assert "IfMatch" not in kwargs
+        self.meta.events.handler()
         self.deletes.append(kwargs["Key"])
         del self.objects[kwargs["Key"]]
 
@@ -521,3 +527,35 @@ def test_github_rejects_duplicate_run_ids_across_pages(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="duplicate IDs"):
         _github_idle()
+
+
+@pytest.mark.parametrize("status", [301, 307])
+def test_delete_redirect_is_blocked_before_second_wire_send(monkeypatch, status):
+    import boto3
+    from botocore.awsrequest import AWSResponse
+    from botocore.config import Config
+
+    from baibai_jobs.maintenance.source_input_cleanup import _delete_once
+
+    class EmptyBody:
+        def stream(self, *_args, **_kwargs):
+            yield b""
+
+    client = boto3.client(
+        "s3",
+        endpoint_url="https://example.test",
+        region_name="auto",
+        aws_access_key_id="fake",
+        aws_secret_access_key="fake",
+        config=Config(retries={"total_max_attempts": 1}),
+    )
+    sent = []
+
+    def redirect(request):
+        sent.append(request)
+        return AWSResponse(request.url, status, {"x-amz-bucket-region": "us-west-2"}, EmptyBody())
+
+    monkeypatch.setattr(client._endpoint.http_session, "send", redirect)
+    with pytest.raises(RuntimeError, match="second DELETE request was blocked"):
+        _delete_once(client, "fixture-bucket", "fixture-key")
+    assert len(sent) == 1
