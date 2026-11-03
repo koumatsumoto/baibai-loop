@@ -152,6 +152,14 @@ def read_holder_capital(
     }
     missing_list_days = len(holder_days - valid_days)
     documents = [doc for doc in documents if str(doc.get("doc_date")) in valid_days]
+    # A cached archive is immutable by identity. If the same EDINET document
+    # was edited on or after its coarse receipt day, we cannot prove that the
+    # retained bytes reflect the edit; keep them but do not present them as current.
+    edited_on: dict[str, str] = {}
+    for document in documents:
+        if str(document.get("docInfoEditStatus")) == "1" and document.get("docID"):
+            key = str(document["docID"])
+            edited_on[key] = max(edited_on.get(key, ""), str(document.get("doc_date") or ""))
     origins, quarantined = _canonicalize_document_events(documents, origin_start=None)
     observations: dict[str, list[HolderReportedCapital]] = {}
     # Read the small identity inventory once. Query original bytes only for a
@@ -199,6 +207,9 @@ def read_holder_capital(
         try:
             stored_on = date.fromisoformat(str(stored_value))
         except ValueError:
+            unsupported += 1
+            continue
+        if edited_on.get(doc_id, "") >= stored_on.isoformat():
             unsupported += 1
             continue
         # The UTC receipt day alone cannot locate a same-day receipt before a
