@@ -139,3 +139,29 @@ def test_future_split_does_not_retroactively_change_an_earlier_asof():
     split = JQuantsAdjustmentFactorEvent("7988", date(2026, 9, 29), 0.5, "1")
     result = _normalize_summaries_with_status([before, latest], [split], date(2026, 8, 31))
     assert result.summaries[-1].shares_outstanding == 100
+
+
+def test_two_separate_splits_do_not_double_adjust_per_share_values():
+    before = row(
+        disclosed_at=date(2026, 1, 31), period_end=date(2025, 12, 31), shares_outstanding=100.0
+    )
+    latest = row(
+        disclosed_at=date(2026, 5, 1),
+        period_end=date(2026, 3, 31),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        average_shares=90.0,
+        bps=5.0,
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        profit=900.0,
+        cumulative_eps=5.0,
+    )
+    first = JQuantsAdjustmentFactorEvent("7988", date(2026, 3, 30), 0.5, "1")
+    second = JQuantsAdjustmentFactorEvent("7988", date(2026, 6, 1), 0.5, "1")
+    result = _normalize_summaries_with_status([before, latest], [first, second], date(2026, 7, 1))
+    current = result.summaries[-1]
+    assert current.shares_outstanding == 400
+    assert current.treasury_shares == 40
+    assert current.bps == 2.5
+    assert current.cumulative_eps == 2.5
