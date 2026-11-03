@@ -4,6 +4,7 @@
 取得・L2算術の網羅検証や、価格指標の予測力の検証は既存owner/別受入へ残す。
 """
 
+import importlib
 import socket
 import sqlite3
 from contextlib import closing
@@ -113,6 +114,9 @@ def _external_observations(at, *, missing=False, target=1500):
 
 
 def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
+    # urllib3 probes local IPv6 support at import (socket + bind, no remote IO).
+    # Initialize it before the strict workflow guard, independent of test order.
+    importlib.import_module("urllib3.util.connection")
     monkeypatch.setattr(socket, "socket", lambda *_a, **_kw: pytest.fail("Research used network"))
     app, market, runs = (tmp_path / name for name in ("app.sqlite", "market.sqlite", "runs.sqlite"))
     ledger = PortfolioLedgerDocument.model_validate(

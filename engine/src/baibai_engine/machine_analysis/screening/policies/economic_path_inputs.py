@@ -353,6 +353,9 @@ def project_company(
             key: financial.get(key)
             for key in (
                 "forecast_profit_yen",
+                # Issuer EPS may subtract preferred claims or use another share
+                # denominator; parent profit/current shares is not a substitute.
+                "forecast_eps_yen",
                 "forecast_ordinary_profit_yen",
                 "earnings_forecast_source",
                 "forecast_special_gain_flag",
