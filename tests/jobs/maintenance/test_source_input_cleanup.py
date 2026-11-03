@@ -377,3 +377,71 @@ def test_botocore_one_attempt_does_not_retry_timeout(monkeypatch):
     with pytest.raises(ReadTimeoutError):
         client.delete_object(Bucket="fixture-bucket", Key="fixture-key")
     assert sent == ["DELETE"]
+
+
+def test_later_target_mismatch_stops_before_any_delete(monkeypatch, tmp_path):
+    s, p = _retired_fixture(monkeypatch)
+    other = s.old.replace("group-old2", "group-old3")
+    s.objects[other] = s.payload
+    item = dict(p["groups"][0]["delete"][0], key=other)
+    p["groups"][0]["delete"].append(item)
+    original = s.head_object
+
+    def head(**kwargs):
+        value = original(**kwargs)
+        if kwargs["Key"] == other:
+            value["ETag"] = '"changed"'
+        return value
+
+    monkeypatch.setattr(s, "head_object", head)
+    with (
+        (tmp_path / "audit").open("x") as audit,
+        pytest.raises(ValueError, match="metadata changed"),
+    ):
+        run(s, p, apply=True, guard=lambda: None, journal=audit, plan_sha256="a" * 64)
+    assert not s.deletes
+
+
+def test_head_denied_after_delete_stops_and_marks_unknown(monkeypatch, tmp_path):
+    s, p = _retired_fixture(monkeypatch)
+    original = s.head_object
+
+    def head(**kwargs):
+        if kwargs["Key"] == s.old and s.old in s.deletes:
+            raise ClientError(
+                {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": 403}},
+                "HeadObject",
+            )
+        return original(**kwargs)
+
+    monkeypatch.setattr(s, "head_object", head)
+    path = tmp_path / "audit"
+    with path.open("x") as audit, pytest.raises(ClientError):
+        run(s, p, apply=True, guard=lambda: None, journal=audit, plan_sha256="a" * 64)
+    assert [json.loads(x)["event"] for x in path.read_text().splitlines()] == [
+        "intent",
+        "outcome_unknown",
+    ]
+    assert s.deletes == [s.old]
+
+
+def test_failure_to_sync_confirmation_stops_with_intent(monkeypatch, tmp_path):
+    import os
+
+    s, p = _retired_fixture(monkeypatch)
+    real_fsync = os.fsync
+    count = 0
+
+    def fsync(fd):
+        nonlocal count
+        count += 1
+        if count == 2:
+            raise OSError("confirmation sync failed")
+        real_fsync(fd)
+
+    monkeypatch.setattr("baibai_jobs.maintenance.source_input_cleanup.os.fsync", fsync)
+    path = tmp_path / "audit"
+    with path.open("x") as audit, pytest.raises(OSError, match="confirmation sync"):
+        run(s, p, apply=True, guard=lambda: None, journal=audit, plan_sha256="a" * 64)
+    assert json.loads(path.read_text().splitlines()[0])["event"] == "intent"
+    assert s.deletes == [s.old]
