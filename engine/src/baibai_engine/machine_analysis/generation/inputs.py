@@ -137,7 +137,11 @@ def read_and_generate_models(
         )
         try:
             holder_capital, holder_coverage = read_holder_capital(
-                connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+                connection,
+                as_of=as_of,
+                tickers=subjects,
+                known_at=evaluation_time,
+                snapshot_sealed_at=market_snapshot.sealed_at,
             )
         except (sqlite3.Error, EDINETProviderError, ValueError, OSError) as error:
             # A failed supplemental read must not erase independent market/financial data.
@@ -247,6 +251,7 @@ def read_and_generate_models(
             capital_actions=capital_actions.get(ticker, ()),
             holder_capital=holder_capital.get(ticker, ()),
             holder_coverage=holder_coverage,
+            holder_snapshot_sealed_at=market_snapshot.sealed_at,
             provider_capital=provider_capital.get(ticker),
             price_path=price_paths[ticker],
         )
