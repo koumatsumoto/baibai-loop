@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import closing
 from datetime import date, datetime
+from math import isfinite
 from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -134,6 +135,25 @@ def read_and_generate_models(
             (window[0] for window in path_calendar.windows.values() if window is not None),
             default=path_calendar.expected_price_date or as_of,
         )
+        # Keep the provider's own gross market cap as a separate observation.
+        # It can lag or use another basis and is never a replacement denominator.
+        provider_capital = {}
+        if path_calendar.expected_price_date is not None:
+            for ticker, close, market_cap in connection.execute(
+                "SELECT ticker,close,market_cap_million_yen FROM jquants_daily_bars "
+                "WHERE traded_at=? AND close IS NOT NULL AND market_cap_million_yen IS NOT NULL",
+                (path_calendar.expected_price_date.isoformat(),),
+            ):
+                if not all(
+                    isinstance(value, (int, float)) and isfinite(value) and value > 0
+                    for value in (close, market_cap)
+                ):
+                    continue
+                provider_capital[str(ticker)] = {
+                    "price_date": path_calendar.expected_price_date.isoformat(),
+                    "close_yen": close,
+                    "market_cap_million_yen": market_cap,
+                }
         day_states = read_price_day_states(
             connection,
             start=state_start,
@@ -209,6 +229,7 @@ def read_and_generate_models(
             comparisons=comparisons.get(ticker, ()),
             pdf_statements=pdf_statements.get(ticker, ()),
             capital_actions=capital_actions.get(ticker, ()),
+            provider_capital=provider_capital.get(ticker),
             price_path=price_paths[ticker],
         )
         for ticker in subjects

@@ -309,6 +309,12 @@ def project_company(
         "expected_price_date": valuation.get("expected_price_date"),
         "market_cap_yen": cap,
         "pricing_valid": pricing_valid,
+        "provider_capital_crosscheck": _provider_capital_crosscheck(
+            _object(valuation.get("provider_capital_observation")),
+            financial,
+            expected_price_date=_text(valuation.get("expected_price_date")),
+            model_as_of=_text(valuation.get("as_of")),
+        ),
         "capital_action_context": {
             "observations": valuation.get("capital_action_evidence", []),
             "capital_basis_reason": earnings.get("unavailable_reason"),
@@ -482,6 +488,40 @@ def _full_fy_change(
             "reason": "comparison_sources_not_observed_by_as_of",
         }
     return saved
+
+
+def _provider_capital_crosscheck(
+    provider: dict[str, JsonValue],
+    financial: dict[str, JsonValue],
+    *,
+    expected_price_date: str | None,
+    model_as_of: str | None = None,
+) -> dict[str, JsonValue]:
+    """Compare gross values as an observation, not a correction or ranking rule.
+
+    The vendor field can be delayed, revised, or use another share basis. A gap
+    does not identify which source is wrong; even agreement cannot prove freshness.
+    """
+    source_date = _text(provider.get("price_date"))
+    close = _positive(provider.get("close_yen"))
+    cap_million = _positive(provider.get("market_cap_million_yen"))
+    issued = _positive(financial.get("shares_outstanding"))
+    same_day = source_date is not None and source_date == expected_price_date
+    estimated_gross = (
+        close * issued if close is not None and issued is not None and same_day else None
+    )
+    provider_gross = cap_million * 1_000_000 if cap_million is not None else None
+    return {
+        "source": "jquants_daily_bar_market_cap_million_yen",
+        "source_price_date": source_date,
+        "shares_basis_model_as_of": model_as_of,
+        "provider_gross_market_cap_yen": provider_gross,
+        "reported_issued_shares": issued,
+        "gross_market_cap_from_issued_yen": estimated_gross,
+        "provider_to_reported_gross_ratio": _ratio(provider_gross, estimated_gross),
+        "same_expected_price_date": same_day,
+        "interpretation": "comparison_only_provider_may_be_stale_or_on_another_basis",
+    }
 
 
 def _positive(value: JsonValue | None) -> float | None:

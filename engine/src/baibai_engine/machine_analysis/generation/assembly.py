@@ -65,6 +65,7 @@ class CompanyModelInputs:
     comparisons: Sequence[FilingComparisons] = ()
     pdf_statements: Sequence[PdfStatement] = ()
     capital_actions: Sequence[CapitalAction] = ()
+    provider_capital: dict[str, object] | None = None
 
 
 def generate_models(
@@ -174,6 +175,7 @@ def generate_models(
                 comparisons=company.comparisons,
                 pdf_statements=company.pdf_statements,
                 capital_actions=company.capital_actions,
+                provider_capital=company.provider_capital,
             )
             history = external_observations.get(ticker)
             if history is not None:

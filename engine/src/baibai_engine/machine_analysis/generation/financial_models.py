@@ -70,6 +70,7 @@ def generate_financial_and_price_models(
     comparisons: Sequence[FilingComparisons] = (),
     pdf_statements: Sequence[PdfStatement] = (),
     capital_actions: Sequence[CapitalAction] = (),
+    provider_capital: dict[str, object] | None = None,
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
 
@@ -162,7 +163,7 @@ def generate_financial_and_price_models(
                 if reported
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             )
-            + "-accounting-flags-v1",
+            + "-accounting-flags-v1-provider-capital-v1",
             payload=json.loads(
                 canonical_json(
                     {
@@ -170,6 +171,7 @@ def generate_financial_and_price_models(
                         "read_semantics": "retained_disclosures_through_as_of_not_receipt_vintage",
                         "earnings_price": asdict(earnings),
                         "capital_action_evidence": [asdict(action) for action in capital_actions],
+                        "provider_capital_observation": provider_capital,
                         "earnings_basis": "reported_profit_before_common_share_allocations",
                         "earnings_composition_basis": (
                             "selected_retained_pdf_restated_display_amounts"

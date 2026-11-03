@@ -250,3 +250,41 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
         assert financial["edinet_snapshot_asof"] == BASE.isoformat()
         assert financial["edinet_snapshot_recorded_at_utc"] == RECORDED
         assert financial["edinet_source_doc_id"] in ("S100SAVED", "S100OTHER")
+
+
+def test_generation_retains_provider_capital_from_the_same_expected_price_day(tmp_path):
+    path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET market_cap_million_yen=200 WHERE ticker='1234' AND traded_at='2026-01-05'"
+        )
+        connection.executemany(
+            "INSERT OR REPLACE INTO jquants_market_calendar(day,holiday_division) VALUES (?,?)",
+            [
+                (
+                    (date(2026, 1, 5) - timedelta(days=n)).isoformat(),
+                    "1" if (date(2026, 1, 5) - timedelta(days=n)).weekday() < 5 else "0",
+                )
+                for n in range(500)
+            ],
+        )
+    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
+        generated = generation_reader.read_and_generate_models(
+            generation_id="provider-capital",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+            economic_path=None,
+            economic_identity=None,
+            as_of=date(2026, 1, 5),
+            evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1234",),
+        ).materialize()
+    observation = generated.result("company_financials", "1234").payload[
+        "provider_capital_observation"
+    ]
+    assert observation == {
+        "price_date": "2026-01-05",
+        "close_yen": 10.0,
+        "market_cap_million_yen": 200.0,
+    }
