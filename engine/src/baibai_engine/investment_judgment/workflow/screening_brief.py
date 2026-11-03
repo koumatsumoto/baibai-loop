@@ -181,6 +181,7 @@ def _annual_observation(annual: dict[str, Any]) -> dict[str, Any]:
         "full_fy_period_end",
         "full_fy_age_days",
         "latest_ttm_period_status",
+        "latest_ttm_basis",
         "capital_fallback",
     )
     ttm_metrics = _object(annual.get("latest_ttm_metrics"))
@@ -189,6 +190,20 @@ def _annual_observation(annual: dict[str, Any]) -> dict[str, Any]:
         for name, raw in ttm_metrics.items()
         if (value := _object(raw)).get("reason") is not None
     }
+    # Show paired amounts without inferring recurring profit or penalizing asset sales.
+    brief["latest_ttm_income"] = {}
+    for name in ("operating_profit", "parent_profit"):
+        metric = _object(ttm_metrics.get(name))
+        item = _pick(metric, "value", "reason")
+        if isinstance(metric.get("documents"), list):
+            item["documents"] = [
+                _pick(
+                    document, "disclosure_number", "disclosed_at", "disclosed_time", "document_type"
+                )
+                for document in metric["documents"]
+                if isinstance(document, dict)
+            ]
+        brief["latest_ttm_income"][name] = item
     if annual.get("selected_variant") == "full_fy":
         for name in ("latest_reported_observation", "latest_quarter_observation"):
             observation = _object(annual.get(name))
