@@ -253,6 +253,15 @@ def _normalize_summaries_with_status(
                     "normalized_issued": summary.shares_outstanding,
                     "reported_treasury": original.treasury_shares,
                     "normalized_treasury": summary.treasury_shares,
+                    "share_unit_factor": original.shares_outstanding / summary.shares_outstanding
+                    if original.shares_outstanding and summary.shares_outstanding
+                    else None,
+                    "reported_bps": original.bps,
+                    "reported_eps": original.cumulative_eps,
+                    "reported_profit": original.profit,
+                    "reported_average_shares": original.average_shares,
+                    "reported_total_assets": original.total_assets,
+                    "reported_equity_ratio": original.equity_to_asset_ratio,
                 }
             )
         factor = cumulative_share_unit_factor_after(
