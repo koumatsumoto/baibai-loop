@@ -43,6 +43,7 @@ def fixture_plan(tmp_path: Path) -> dict[str, Any]:
         "keep": keep,
         "targets": targets,
         "pointer": {},
+        "current_release_key": "current",
         "active_pointers": {},
         "dataset_index": {},
         "release_index": {"release": "etag"},
@@ -201,7 +202,7 @@ def test_historical_evidence_rejects_extra_affected_release(tmp_path: Path) -> N
         {"key": x["key"], "release_keys": [], "current_pointer_references": []}
         for x in plan["targets"]
     ]
-    items[0]["release_keys"] = [f"release-{i}" for i in range(40)]
+    items[0]["release_keys"] = [f"lake/manifests/releases/{i}" for i in range(40)]
     proof = {
         "old_files": items,
         "old_referencing_noncurrent_distinct_release_count": 40,
@@ -210,13 +211,16 @@ def test_historical_evidence_rejects_extra_affected_release(tmp_path: Path) -> N
         "pointers_stable": True,
         "failure": None,
         "manifest_proofs": [
-            {"key": "lake/manifests/releases/old", "etag": "old"},
+            *[{"key": f"lake/manifests/releases/{i}", "etag": "old"} for i in range(40)],
             {"key": "lake/manifests/datasets/old", "etag": "data"},
         ],
     }
     plan.update(
         current_release_key="current",
-        release_index={"current": "x", "lake/manifests/releases/old": "old"},
+        release_index={
+            "current": "x",
+            **{f"lake/manifests/releases/{i}": "old" for i in range(40)},
+        },
         dataset_index={"lake/manifests/datasets/old": "data"},
         reference_evidence="reference.json",
     )
@@ -230,7 +234,20 @@ def test_historical_evidence_rejects_extra_affected_release(tmp_path: Path) -> N
     write()
     keys = {item["key"] for item in plan["targets"]}
     cleanup._historical_evidence(plan, tmp_path, keys)
+    items[0]["release_keys"][0] = "unexpected"
+    write()
+    with pytest.raises(ValueError, match="historical manifest evidence differs"):
+        cleanup._historical_evidence(plan, tmp_path, keys)
     items[0]["release_keys"].append("unexpected-41")
     write()
     with pytest.raises(ValueError, match="historical release impact differs"):
         cleanup._historical_evidence(plan, tmp_path, keys)
+
+
+def test_current_rejects_changed_release_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    raw = json.dumps({"manifest_key": "unexpected"}).encode()
+    monkeypatch.setattr(cleanup, "_read", lambda *_args: (raw, "etag"))
+    with pytest.raises(ValueError, match="current release identity differs"):
+        cleanup._current(
+            None, {"etag": "etag", "sha256": hashlib.sha256(raw).hexdigest()}, {}, "current"
+        )

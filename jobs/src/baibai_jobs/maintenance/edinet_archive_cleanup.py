@@ -50,11 +50,15 @@ def _object(client: Any, item: dict[str, Any]) -> None:
         raise ValueError("object metadata changed")
 
 
-def _current(client: Any, expected: dict[str, Any], keep: dict[str, Any]) -> None:
+def _current(
+    client: Any, expected: dict[str, Any], keep: dict[str, Any], current_release_key: str
+) -> None:
     payload, etag = _read(client, "lake/pointers/market/current.json")
     if etag != expected["etag"] or hashlib.sha256(payload).hexdigest() != expected["sha256"]:
         raise ValueError("market pointer changed")
     pointer = json.loads(payload, object_pairs_hook=_unique_members)
+    if pointer["manifest_key"] != current_release_key:
+        raise ValueError("current release identity differs")
     release_payload, _ = _read(client, pointer["manifest_key"])
     if hashlib.sha256(release_payload).hexdigest() != pointer["manifest_sha256"]:
         raise ValueError("release manifest checksum mismatch")
@@ -159,7 +163,11 @@ def _historical_evidence(plan: dict[str, Any], proof_dir: Path, keys: set[str]) 
     # repeated in the cached historical proof list.
     historical_releases = dict(plan["release_index"])
     historical_releases.pop(plan["current_release_key"])
-    if release_index != historical_releases or dataset_index != plan["dataset_index"]:
+    if (
+        not affected.issubset(historical_releases)
+        or release_index != historical_releases
+        or dataset_index != plan["dataset_index"]
+    ):
         raise ValueError("historical manifest evidence differs")
 
 
@@ -233,7 +241,7 @@ def run(
     if len(set(keys)) != 12 or keep["key"] in keys:
         raise ValueError("duplicate or current object selected")
     _historical_evidence(plan, proof_dir, set(keys))
-    _current(client, plan["pointer"], keep)
+    _current(client, plan["pointer"], keep, plan["current_release_key"])
     _active_pointers(client, plan["active_pointers"], set(keys))
     if _release_index(client) != plan["release_index"]:
         raise ValueError("release inventory changed")
@@ -251,7 +259,7 @@ def run(
         assert journal is not None
         guard()
         for item in targets:
-            _current(client, plan["pointer"], keep)
+            _current(client, plan["pointer"], keep, plan["current_release_key"])
             _active_pointers(client, plan["active_pointers"], set(keys))
             if _release_index(client) != plan["release_index"]:
                 raise ValueError("release inventory changed during cleanup")
@@ -268,7 +276,7 @@ def run(
                 raise
             _journal(journal, {"event": "confirmed_absent", "key": item["key"]})
             deleted.append(item["key"])
-        _current(client, plan["pointer"], keep)
+        _current(client, plan["pointer"], keep, plan["current_release_key"])
         _object(client, keep)
         for item in targets:
             _require_absent(client, BUCKET, item["key"])
