@@ -100,6 +100,7 @@ def read_holder_capital(
     as_of: date,
     known_at: datetime,
     tickers: tuple[str, ...],
+    snapshot_sealed_at: datetime | None = None,
 ) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
     """Use only already-retained originals; absence is not proof of no change.
 
@@ -120,8 +121,10 @@ def read_holder_capital(
         SourceFormatError,
     )
 
-    if known_at.utcoffset() is None:
-        raise ValueError("knowledge cutoff requires timezone")
+    if known_at.utcoffset() is None or (
+        snapshot_sealed_at is not None and snapshot_sealed_at.utcoffset() is None
+    ):
+        raise ValueError("knowledge cutoff and snapshot clock require timezones")
     selected = set(tickers)
     documents = read_observed_documents(connection, through=as_of, holder_only=True)
     # A retained list may have been acquired after the requested cutoff. Keep
@@ -194,9 +197,16 @@ def read_holder_capital(
         except ValueError:
             unsupported += 1
             continue
-        # stored_on is the UTC receipt date, without a time. The current UTC
-        # day cannot prove receipt before an arbitrary cutoff, so defer it.
-        if stored_on >= min(as_of, known_at.astimezone(UTC).date()):
+        # The UTC receipt day alone cannot locate a same-day receipt before a
+        # cutoff. A snapshot sealed by that cutoff is an independent upper bound
+        # on when the retained bytes were already present.
+        proven_by_snapshot = (
+            snapshot_sealed_at is not None
+            and snapshot_sealed_at <= known_at
+            and snapshot_sealed_at.astimezone(JST).date() <= as_of
+            and stored_on <= snapshot_sealed_at.astimezone(UTC).date()
+        )
+        if not proven_by_snapshot and stored_on >= min(as_of, known_at.astimezone(UTC).date()):
             missing += 1
             continue
         try:
