@@ -114,6 +114,8 @@ def test_reader_respects_retention_day_and_reports_partial_coverage(tmp_path):
         )
         connection.commit()
         retain_source_archive(connection, "S100TEST", 1, original(), stored_on=date(2026, 11, 2))
+        queries: list[str] = []
+        connection.set_trace_callback(queries.append)
         result, coverage = read_holder_capital(
             connection,
             as_of=date(2026, 11, 3),
@@ -122,6 +124,8 @@ def test_reader_respects_retention_day_and_reports_partial_coverage(tmp_path):
         )
         assert result["1234"][0].total_stocks == 2500000
         assert coverage == "partial"
+        blob_reads = [query for query in queries if "SELECT zip_content" in query]
+        assert len(blob_reads) == 1 and "S100TEST" in blob_reads[0]
         historical, _ = read_holder_capital(
             connection,
             as_of=date(2026, 11, 2),
