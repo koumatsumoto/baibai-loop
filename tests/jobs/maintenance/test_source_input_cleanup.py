@@ -67,7 +67,7 @@ def test_dry_run_has_no_deletes_and_apply_is_disabled():
     plan = s.plan()
     assert run(s, plan)["objects"] == 1
     assert not s.deletes
-    with pytest.raises(RuntimeError, match="apply requires"):
+    with pytest.raises(RuntimeError, match="conditional DELETE"):
         run(s, plan, apply=True)
     assert s.keep in s.objects
     assert s.old in s.objects
@@ -193,7 +193,10 @@ def test_only_the_exact_preapproved_retired_handoff_may_be_marked(monkeypatch):
     assert not s.deletes
 
 
-def test_apply_records_intent_and_confirmed_absence(tmp_path):
+def test_apply_records_intent_and_confirmed_absence(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.R2_CONDITIONAL_DELETE_VERIFIED", True
+    )
     s = Fake()
     p = s.plan()
     # Fixture has no surviving handoff, so make the retired-handoff check explicit.
@@ -222,6 +225,9 @@ def test_apply_records_intent_and_confirmed_absence(tmp_path):
 
 
 def _retired_fixture(monkeypatch):
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.R2_CONDITIONAL_DELETE_VERIFIED", True
+    )
     s = Fake()
     p = s.plan()
     key = s.old.rsplit("/", 1)[0] + "/handoff.json"
@@ -320,3 +326,71 @@ def test_unsupported_conditional_delete_does_not_fall_back(monkeypatch, tmp_path
         "intent",
         "outcome_unknown",
     ]
+
+
+def test_github_guard_fails_closed_on_active_or_incomplete(monkeypatch):
+    from baibai_jobs.maintenance.source_input_cleanup import _github_idle
+
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._workflow_state",
+        lambda _workflow: "disabled_manually",
+    )
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._gh_api",
+        lambda *_a, **_k: '[{"total_count": 0, "workflow_runs": []}]',
+    )
+    _github_idle()
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._gh_api",
+        lambda *_a, **_k: '[{"total_count": 1, "workflow_runs": [{"status": "in_progress"}]}]',
+    )
+    with pytest.raises(RuntimeError, match="active"):
+        _github_idle()
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._gh_api",
+        lambda *_a, **_k: '[{"total_count": 1, "workflow_runs": []}]',
+    )
+    with pytest.raises(RuntimeError, match="incomplete"):
+        _github_idle()
+
+
+def test_workflows_are_restored_after_failure(monkeypatch, tmp_path):
+    from baibai_jobs.maintenance.source_input_cleanup import WORKFLOWS, _pause_workflows
+
+    states = dict.fromkeys(WORKFLOWS, "active")
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._workflow_state", lambda name: states[name]
+    )
+
+    def set_state(name, action):
+        states[name] = "active" if action == "enable" else "disabled_manually"
+
+    monkeypatch.setattr("baibai_jobs.maintenance.source_input_cleanup._set_workflow", set_state)
+
+    def fail_in_pause(audit):
+        with _pause_workflows(audit):
+            assert all(x == "disabled_manually" for x in states.values())
+            raise RuntimeError("test error")
+
+    with (tmp_path / "audit").open("x") as audit, pytest.raises(RuntimeError, match="test error"):
+        fail_in_pause(audit)
+    assert all(x == "active" for x in states.values())
+
+
+def test_initially_disabled_workflow_remains_disabled(monkeypatch, tmp_path):
+    from baibai_jobs.maintenance.source_input_cleanup import WORKFLOWS, _pause_workflows
+
+    states = {WORKFLOWS[0]: "disabled_manually", WORKFLOWS[1]: "active"}
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._workflow_state", lambda name: states[name]
+    )
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup._set_workflow",
+        lambda name, action: states.update(
+            {name: "active" if action == "enable" else "disabled_manually"}
+        ),
+    )
+    with (tmp_path / "audit").open("x") as audit, _pause_workflows(audit):
+        pass
+    assert states[WORKFLOWS[0]] == "disabled_manually"
+    assert states[WORKFLOWS[1]] == "active"

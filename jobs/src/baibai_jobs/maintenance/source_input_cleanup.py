@@ -13,14 +13,22 @@ import hashlib
 import json
 import os
 import re
-import subprocess
-from collections.abc import Callable
+import shutil
+
+# Only a fixed gh argv is used, without shell or user-supplied commands.
+import subprocess  # nosec B404
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TextIO, cast
 
 from botocore.exceptions import ClientError
 
 PREFIX = "coordination/source-inputs/"
+# A live synthetic probe showed this R2 connection ignored a mismatched If-Match
+# on DELETE. Keep apply unavailable until a safe design is independently verified.
+R2_CONDITIONAL_DELETE_VERIFIED: bool = False
 KEY = re.compile(
     r"coordination/source-inputs/([A-Za-z0-9][A-Za-z0-9_-]{0,119})/receipts-([0-9a-f]{64})\.sqlite\Z"
 )
@@ -50,6 +58,17 @@ def _check_receipt(client: Any, bucket: str, item: dict[str, Any]) -> None:
         or h.get("Metadata", {}).get("sha256") != item["sha256"]
     ):
         raise ValueError("receipt metadata changed")
+
+
+def _require_absent(client: Any, bucket: str, key: str) -> None:
+    try:
+        _head(client, bucket, key)
+    except ClientError as error:
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if status != 404:
+            raise
+    else:
+        raise RuntimeError("deleted key still exists")
 
 
 def _verify_survivor_bytes(client: Any, bucket: str, item: dict[str, Any]) -> None:
@@ -145,22 +164,127 @@ def _journal(stream: TextIO, event: dict[str, Any]) -> None:
     os.fsync(stream.fileno())
 
 
+WORKFLOWS = ("cloud-market-sources.yml", "cloud-daily-batch.yml")
+
+
+def _gh_api(endpoint: str, *, method: str = "GET", paginate: bool = False) -> str:
+    gh = shutil.which("gh")
+    if gh is None:
+        raise RuntimeError("GitHub CLI unavailable")
+    # Endpoint and method are built only from the fixed workflow/status lists.
+    arguments = [gh, "api", "--method", method, endpoint]
+    if paginate:
+        arguments.extend(["--paginate", "--slurp"])
+    result = subprocess.run(  # nosec B603
+        arguments,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("GitHub Actions operation failed or was denied")
+    return result.stdout
+
+
+def _workflow_state(workflow: str) -> str:
+    endpoint = f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}"
+    response = json.loads(_gh_api(endpoint), object_pairs_hook=_unique_members)
+    if response.get("path") != f".github/workflows/{workflow}":
+        raise RuntimeError("unexpected GitHub workflow")
+    state = response.get("state")
+    if state not in {"active", "disabled_manually", "disabled_inactivity"}:
+        raise RuntimeError("unknown GitHub workflow state")
+    return cast("str", state)
+
+
+def _set_workflow(workflow: str, operation: str) -> None:
+    if workflow not in WORKFLOWS or operation not in {"disable", "enable"}:
+        raise ValueError("unexpected workflow operation")
+    _gh_api(
+        f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}/{operation}", method="PUT"
+    )
+
+
+@contextmanager
+def _pause_workflows(journal: TextIO) -> Iterator[None]:
+    """Temporarily disable only originally active reader/publisher workflows."""
+    changed: list[str] = []
+    try:
+        for workflow in WORKFLOWS:
+            state = _workflow_state(workflow)
+            _journal(journal, {"event": "workflow_original", "workflow": workflow, "state": state})
+            if state != "active":
+                continue
+            _journal(journal, {"event": "workflow_disable_intent", "workflow": workflow})
+            try:
+                _set_workflow(workflow, "disable")
+            except BaseException:
+                # The request may have succeeded even if its response was lost.
+                try:
+                    observed = _workflow_state(workflow)
+                except BaseException:
+                    _journal(
+                        journal, {"event": "workflow_disable_state_unknown", "workflow": workflow}
+                    )
+                    raise RuntimeError(
+                        "workflow state unknown; immediate inspection required"
+                    ) from None
+                if observed == "disabled_manually":
+                    changed.append(workflow)
+                _journal(
+                    journal,
+                    {
+                        "event": "workflow_disable_uncertain",
+                        "workflow": workflow,
+                        "observed": observed,
+                    },
+                )
+                raise
+            # An acknowledged disable must be restored even if the next read fails.
+            changed.append(workflow)
+            if _workflow_state(workflow) != "disabled_manually":
+                raise RuntimeError("workflow did not enter disabled state")
+            _journal(journal, {"event": "workflow_disabled", "workflow": workflow})
+        yield
+    finally:
+        failures: list[str] = []
+        for workflow in reversed(changed):
+            try:
+                state = _workflow_state(workflow)
+                if state != "active":
+                    _journal(journal, {"event": "workflow_enable_intent", "workflow": workflow})
+                    try:
+                        _set_workflow(workflow, "enable")
+                    except BaseException:
+                        # Do not resend after an uncertain outcome; inspect state.
+                        if _workflow_state(workflow) != "active":
+                            raise
+                if _workflow_state(workflow) != "active":
+                    raise RuntimeError("workflow restoration not confirmed")
+                _journal(journal, {"event": "workflow_restored", "workflow": workflow})
+            except BaseException:
+                failures.append(workflow)
+        if failures:
+            _journal(journal, {"event": "workflow_restore_failed", "workflows": failures})
+            raise RuntimeError("one or more workflows could not be restored")
+
+
 def _github_idle() -> None:
     """Refuse cleanup if a source reader or publisher is active or cannot be checked."""
-    for workflow in ("cloud-market-sources.yml", "cloud-daily-batch.yml"):
-        for status in ("queued", "in_progress", "waiting", "requested", "pending"):
-            endpoint = (
-                f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}/runs"
-                f"?status={status}&per_page=1"
-            )
-            result = subprocess.run(
-                ["gh", "api", endpoint], capture_output=True, text=True, check=False, timeout=30
-            )
-            if result.returncode != 0:
-                raise RuntimeError("cannot verify GitHub Actions activity")
-            response = json.loads(result.stdout, object_pairs_hook=_unique_members)
-            if type(response.get("total_count")) is not int or response["total_count"] != 0:
-                raise RuntimeError("source reader or publisher is active")
+    for workflow in WORKFLOWS:
+        if _workflow_state(workflow) == "active":
+            raise RuntimeError("source reader or publisher workflow is enabled")
+        endpoint = f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}/runs?per_page=100"
+        pages = json.loads(_gh_api(endpoint, paginate=True), object_pairs_hook=_unique_members)
+        if not isinstance(pages, list) or not pages:
+            raise RuntimeError("cannot enumerate workflow runs")
+        total = pages[0].get("total_count")
+        runs = [run for page in pages for run in page.get("workflow_runs", [])]
+        if type(total) is not int or len(runs) != total:
+            raise RuntimeError("workflow run listing is incomplete")
+        if any(run.get("status") != "completed" for run in runs):
+            raise RuntimeError("source reader or publisher is active")
 
 
 def run(
@@ -173,6 +297,8 @@ def run(
     plan_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Validate every precondition before deletion; abort on the first error."""
+    if apply and not R2_CONDITIONAL_DELETE_VERIFIED:
+        raise RuntimeError("apply disabled: R2 did not enforce conditional DELETE")
     if apply and (guard is None or journal is None or plan_sha256 is None):
         raise RuntimeError("apply requires verified lease, run guard and durable journal")
     if (
@@ -250,15 +376,11 @@ def run(
             _check_receipt(client, bucket, item)
             _journal(journal, {"event": "intent", "plan_sha256": plan_sha256, **item})
             try:
+                # The read-only checks above can take time; revalidate the
+                # publication lease and workflow state immediately before DELETE.
+                guard()
                 client.delete_object(Bucket=bucket, Key=item["key"], IfMatch=item["etag"])
-                try:
-                    _head(client, bucket, item["key"])
-                except ClientError as error:
-                    status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-                    if status != 404:
-                        raise
-                else:
-                    raise RuntimeError("deleted key still exists")
+                _require_absent(client, bucket, item["key"])
             except BaseException:
                 _journal(journal, {"event": "outcome_unknown", "key": item["key"]})
                 raise
@@ -269,6 +391,8 @@ def run(
         raise ValueError("current pointers changed at final check")
     for group in plan["groups"]:
         _check_receipt(client, bucket, group["keep"])
+        for item in group["delete"]:
+            _require_absent(client, bucket, item["key"])
     return report
 
 
@@ -279,10 +403,15 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--journal", type=Path)
     args = parser.parse_args()
+    if args.apply and not R2_CONDITIONAL_DELETE_VERIFIED:
+        raise RuntimeError("apply disabled: R2 did not enforce conditional DELETE")
     payload = args.plan.read_bytes()
     if hashlib.sha256(payload).hexdigest() != args.plan_sha256:
         raise SystemExit("plan digest mismatch")
     plan = json.loads(payload, object_pairs_hook=_unique_members)
+    import boto3
+    from botocore.config import Config
+
     from baibai_engine.storage.objects.r2 import Boto3R2Store
     from baibai_jobs.publication.lease import acquire, release, verify_held
 
@@ -296,6 +425,21 @@ def main() -> None:
         actual_account = hashlib.sha256(store.endpoint.encode()).hexdigest()
         if actual_account != plan.get("account_endpoint_sha256"):
             raise ValueError("R2 account endpoint differs from the approved destination")
+        # An uncertain DELETE must stop, not be retried by the SDK behind our journal.
+        client = boto3.session.Session().client(
+            "s3",
+            endpoint_url=store.endpoint,
+            region_name="auto",
+            aws_access_key_id=store.access_key_id,
+            aws_secret_access_key=store.secret_access_key,
+            config=Config(
+                connect_timeout=120,
+                read_timeout=900,
+                retries={"mode": "standard", "total_max_attempts": 1},
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+            ),
+        )
         # The journal stores metadata and outcomes, not a copy of the data.
         fd = os.open(args.journal, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         directory_fd = os.open(args.journal.parent, os.O_RDONLY | os.O_DIRECTORY)
@@ -305,30 +449,51 @@ def main() -> None:
             os.close(directory_fd)
         with os.fdopen(fd, "w", encoding="utf-8") as journal:
             _journal(journal, {"event": "start", "plan_sha256": args.plan_sha256})
-            handle, expired_previous = acquire(store, "operator")
-            try:
-                if expired_previous:
-                    raise RuntimeError("previous publication lease expired; investigate first")
+            with _pause_workflows(journal):
+                _github_idle()
+                handle, expired_previous = acquire(store, "operator", refuse_expired_held=True)
+                try:
+                    if expired_previous:
+                        raise RuntimeError("previous publication lease expired; investigate first")
 
-                def guard() -> None:
-                    verify_held(store, handle)
-                    _github_idle()
-                    verify_held(store, handle)
+                    def guard() -> None:
+                        verify_held(store, handle)
+                        _github_idle()
+                        verify_held(store, handle)
+                        # The DELETE client's request timeout is at most 900 seconds.
+                        if handle.expires_at_utc - datetime.now(UTC) <= timedelta(minutes=16):
+                            raise RuntimeError("publication lease has insufficient remaining time")
 
-                guard()
-                report = run(
-                    store._client(),
-                    plan,
-                    apply=True,
-                    guard=guard,
-                    journal=journal,
-                    plan_sha256=args.plan_sha256,
-                )
-                _journal(journal, {"event": "completed", "objects": len(report["deleted"])})
-                print(json.dumps(report, ensure_ascii=False))
-            finally:
-                release(store, handle)
+                    guard()
+                    report = run(
+                        client,
+                        plan,
+                        apply=True,
+                        guard=guard,
+                        journal=journal,
+                        plan_sha256=args.plan_sha256,
+                    )
+                except BaseException as error:
+                    _journal(
+                        journal, {"event": "operation_failed", "error_class": type(error).__name__}
+                    )
+                    raise
+                finally:
+                    try:
+                        release(store, handle)
+                    except BaseException as error:
+                        _journal(
+                            journal,
+                            {"event": "lease_release_failed", "error_class": type(error).__name__},
+                        )
+                        raise
+                    else:
+                        _journal(journal, {"event": "lease_released"})
+            _journal(journal, {"event": "completed", "objects": len(report["deleted"])})
+            print(json.dumps(report, ensure_ascii=False))
     finally:
+        if args.apply and "client" in locals():
+            client.close()
         store.close()
 
 
