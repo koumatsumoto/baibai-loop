@@ -62,9 +62,8 @@ class Fake:
         }
 
 
-def test_dry_run_has_no_deletes_and_apply_is_disabled():
-    s = Fake()
-    plan = s.plan()
+def test_dry_run_has_no_deletes_and_apply_requires_guard(monkeypatch):
+    s, plan = _retired_fixture(monkeypatch)
     assert run(s, plan)["objects"] == 1
     assert not s.deletes
     with pytest.raises(RuntimeError, match="apply requires"):
@@ -92,9 +91,8 @@ def test_target_current_stage_is_never_deleted():
     assert not s.deletes
 
 
-def test_missing_or_corrupt_survivor_fails_before_any_delete():
-    s = Fake()
-    p = s.plan()
+def test_missing_or_corrupt_survivor_fails_before_any_delete(monkeypatch):
+    s, p = _retired_fixture(monkeypatch)
     s.objects[s.keep] = b"changed!"
     with pytest.raises(ValueError, match="survivor bytes"):
         run(s, p)
@@ -445,3 +443,16 @@ def test_failure_to_sync_confirmation_stops_with_intent(monkeypatch, tmp_path):
         run(s, p, apply=True, guard=lambda: None, journal=audit, plan_sha256="a" * 64)
     assert json.loads(path.read_text().splitlines()[0])["event"] == "intent"
     assert s.deletes == [s.old]
+
+
+def test_mixed_retired_and_orphan_plan_stops_before_any_delete(monkeypatch, tmp_path):
+    s, p = _retired_fixture(monkeypatch)
+    other = s.old.replace("group-old2", "group-old3")
+    s.objects[other] = s.payload
+    p["groups"][0]["delete"].append(dict(p["groups"][0]["delete"][0], key=other))
+    with (
+        (tmp_path / "audit").open("x") as audit,
+        pytest.raises(ValueError, match="handoff reference"),
+    ):
+        run(s, p, apply=True, guard=lambda: None, journal=audit, plan_sha256="a" * 64)
+    assert not s.deletes

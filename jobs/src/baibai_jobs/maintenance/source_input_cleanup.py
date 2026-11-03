@@ -266,7 +266,7 @@ def run(
         for item in group["delete"]:
             actual = referenced.get(item["key"])
             allowed = retired.get(item["key"])
-            if actual != allowed:
+            if actual is None or allowed is None or actual != allowed:
                 raise ValueError("handoff reference differs from approved plan")
         deletions.extend(group["delete"])
     if not deletions:
