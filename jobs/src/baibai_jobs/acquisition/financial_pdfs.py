@@ -21,12 +21,16 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
-def receive(manifest: Path, directory: Path) -> dict[str, object]:
+def receive(
+    manifest: Path, directory: Path, *, collection: str = "financial_statements"
+) -> dict[str, object]:
     """Manifest contains actual capture metadata, never file mtime or inferred clocks.
 
     captured_at is the recorded completion of body capture, which may include
     file/hash processing. It is not the first HTTP byte or publication time.
     """
+    if collection not in {"financial_statements", "capital_actions"}:
+        raise ValueError("unsupported PDF collection")
     records = json.loads(manifest.read_text(encoding="utf-8"))
     if not isinstance(records, list) or not 1 <= len(records) <= 8:
         raise ValueError("financial PDF import requires one to eight receipt records")
@@ -69,7 +73,7 @@ def receive(manifest: Path, directory: Path) -> dict[str, object]:
     with closing(open_connection(database)) as connection:
         bundle = create_bundle(
             connection,
-            "financial_statements",
+            collection,
             asof,
             started,
             tuple((name, response.requested_url) for name, _, response in prepared),
@@ -78,7 +82,9 @@ def receive(manifest: Path, directory: Path) -> dict[str, object]:
             retain_bundle_response(connection, bundle, name, response)
         complete_bundle(connection, bundle)
     report: dict[str, object] = {
-        "source": "jpx-financial-pdfs",
+        "source": "jpx-financial-pdfs"
+        if collection == "financial_statements"
+        else "jpx-capital-actions",
         "asof": asof.isoformat(),
         "started_at": started.isoformat(),
         "bundle_ids": [bundle],
@@ -92,8 +98,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipts", required=True, type=Path)
     parser.add_argument("--directory", required=True, type=Path)
+    parser.add_argument(
+        "--collection",
+        choices=("financial_statements", "capital_actions"),
+        default="financial_statements",
+    )
     args = parser.parse_args(argv)
-    print(json.dumps(receive(args.receipts, args.directory), sort_keys=True))
+    print(
+        json.dumps(
+            receive(args.receipts, args.directory, collection=args.collection), sort_keys=True
+        )
+    )
     return 0
 
 

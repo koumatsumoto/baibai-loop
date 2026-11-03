@@ -309,6 +309,13 @@ def project_company(
         "expected_price_date": valuation.get("expected_price_date"),
         "market_cap_yen": cap,
         "pricing_valid": pricing_valid,
+        "capital_action_context": {
+            "observations": valuation.get("capital_action_evidence", []),
+            "capital_basis_reason": earnings.get("unavailable_reason"),
+            "share_basis_adjustments": list(earnings_read.share_basis_adjustments)
+            if earnings_read is not None
+            else [],
+        },
         "accounting_change_context": {
             "read_semantics": "positive_native_flags_not_comparability_clearance",
             "disclosures": [

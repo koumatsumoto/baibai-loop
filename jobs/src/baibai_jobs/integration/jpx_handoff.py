@@ -18,6 +18,9 @@ from baibai_engine.machine_analysis.observations.disclosures.capital_policy impo
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import (
+    extract_completed_conversion,
+)
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pdf
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
@@ -28,7 +31,7 @@ from baibai_jobs.integration.replay_result import ReplayResult
 # These three owners replace their entire current view. Regulations replace only
 # one as-of day. Keep these contracts explicit rather than using a provider LWW.
 _GLOBAL_COLLECTIONS = {"earnings_calendar", "capital_policy", "delistings"}
-_COLLECTIONS = _GLOBAL_COLLECTIONS | {"regulations", "financial_statements"}
+_COLLECTIONS = _GLOBAL_COLLECTIONS | {"regulations", "financial_statements", "capital_actions"}
 
 
 def export_handoff(
@@ -85,7 +88,7 @@ def import_handoff(
                 )
                 for table in ("jpx_source_bundles", "jpx_source_responses")
             )
-        if collection == "financial_statements":
+        if collection in {"financial_statements", "capital_actions"}:
             # Additive originals, never provider-wide latest-wins or replacement.
             # L2 is deterministic on fixed read; report unsupported inputs here too.
             failures = []
@@ -99,17 +102,30 @@ def import_handoff(
                             != "application/pdf"
                         ):
                             raise ValueError("financial PDF media type differs from its collection")
-                        value = extract_pdf(
-                            content=response.body,
-                            source_url=response.requested_url,
-                            received_at=response.received_at,
-                            bundle_id=bundle_id,
-                            resource_name=receipt.resource_name,
-                        )
-                        if receipt.resource_name != "pdf:" + value.disclosure_number:
+                        if collection == "capital_actions":
+                            action = extract_completed_conversion(
+                                response.body,
+                                source_url=response.requested_url,
+                                received_at=response.received_at,
+                            )
+                            if action is None:
+                                raise ValueError("unsupported capital action PDF")
+                            disclosure_number = action.disclosure_number
+                        else:
+                            statement = extract_pdf(
+                                content=response.body,
+                                source_url=response.requested_url,
+                                received_at=response.received_at,
+                                bundle_id=bundle_id,
+                                resource_name=receipt.resource_name,
+                            )
+                            if statement.reason:
+                                failures.append(
+                                    {"bundle_id": bundle_id, "reason": statement.reason}
+                                )
+                            disclosure_number = statement.disclosure_number
+                        if receipt.resource_name != "pdf:" + disclosure_number:
                             raise ValueError("financial PDF resource differs from disclosure")
-                        if value.reason:
-                            failures.append({"bundle_id": bundle_id, "reason": value.reason})
                 except (JPXBundleError, ValueError) as error:
                     failures.append({"bundle_id": bundle_id, "reason": str(error)})
             return ReplayResult(

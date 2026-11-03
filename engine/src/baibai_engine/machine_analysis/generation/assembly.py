@@ -36,6 +36,7 @@ from baibai_engine.machine_analysis.models.social_trends.calculations import cal
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     ObservationHistory,
 )
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
 )
@@ -63,6 +64,7 @@ class CompanyModelInputs:
     price_path: dict[str, object] | None = None
     comparisons: Sequence[FilingComparisons] = ()
     pdf_statements: Sequence[PdfStatement] = ()
+    capital_actions: Sequence[CapitalAction] = ()
 
 
 def generate_models(
@@ -171,6 +173,7 @@ def generate_models(
                 price_path=company.price_path,
                 comparisons=company.comparisons,
                 pdf_statements=company.pdf_statements,
+                capital_actions=company.capital_actions,
             )
             history = external_observations.get(ticker)
             if history is not None:

@@ -15,6 +15,7 @@ from baibai_engine.machine_analysis.generation.financial_models import (
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
     parse_csv_zip_metric_record,
 )
@@ -69,6 +70,40 @@ def generate(
         growth_start=growth_start,
         edinet=edinet,
     )
+
+
+def test_capital_action_reaches_saved_financial_model_without_claiming_current_treasury():
+    event = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 7, 1),
+        received_at=datetime(2026, 7, 2, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed",
+    )
+    models = generate_financial_and_price_models(
+        ticker="1001",
+        documents=(document(),),
+        adjusted_bars=[PriceBar(ASOF, 10.0, None)],
+        adjustment_events=(),
+        trading_dates=CALENDAR,
+        expected_price_date=ASOF,
+        sector=None,
+        as_of=ASOF,
+        input_release=RELEASE,
+        ttm_rules=RULES,
+        capital_actions=[event],
+    )
+    payload = next(model.payload for model in models if model.model_id == "company_financials")
+    assert payload["capital_action_evidence"][0]["issued_shares"] == 130
+    assert payload["earnings_price"]["market_cap_yen"] is None
+    assert (
+        payload["earnings_price"]["unavailable_reason"]
+        == "indeterminate_treasury_after_capital_action"
+    )
+    assert payload["financial"]["market_cap"] is None
 
 
 @pytest.mark.parametrize("profit", [-100.0, 0.0, 100.0])

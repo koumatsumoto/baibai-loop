@@ -73,6 +73,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                 "market_cap_yen",
                 "pricing_valid",
                 "accounting_change_context",
+                "capital_action_context",
                 "latest_growth_period",
                 "growth_status",
                 "growth_reason",

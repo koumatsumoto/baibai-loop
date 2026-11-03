@@ -6,7 +6,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
-from math import exp, log
+from math import exp, isclose, log
+
+from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _accounting_observation_key,
@@ -14,6 +16,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
     _actual_rows,
     _latest_non_null_row,
 )
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     accounting_period_identity,
@@ -50,6 +53,7 @@ class _NormalizedSummaryResult:
 
     summaries: Sequence[JQuantsFinancialSummary]
     capital_basis_barrier: _AccountingObservationKey | None
+    basis_adjustments: tuple[dict[str, JsonValue], ...] = ()
 
 
 class _ShareBasis(Enum):
@@ -233,8 +237,24 @@ def _normalize_summaries_with_status(
     if not has_adjustment:
         return _NormalizedSummaryResult(summaries=summaries, capital_basis_barrier=None)
     normalized: list[JQuantsFinancialSummary] = []
+    basis_adjustments: list[dict[str, JsonValue]] = []
     capital_basis_barrier: _AccountingObservationKey | None = None
     for index, summary in enumerate(summaries):
+        original = summary
+        summary = _correct_period_end_share_basis(summary, summaries, ticker_bars, asof_date)
+        if summary.shares_outstanding != original.shares_outstanding:
+            basis_adjustments.append(
+                {
+                    "disclosure_number": original.disclosure_number,
+                    "disclosed_at": original.disclosed_at.isoformat(),
+                    "period_end": original.period_end.isoformat() if original.period_end else None,
+                    "method": "share_count_and_per_share_basis_crosschecked",
+                    "reported_issued": original.shares_outstanding,
+                    "normalized_issued": summary.shares_outstanding,
+                    "reported_treasury": original.treasury_shares,
+                    "normalized_treasury": summary.treasury_shares,
+                }
+            )
         factor = cumulative_share_unit_factor_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
@@ -253,16 +273,51 @@ def _normalize_summaries_with_status(
         if factor <= 0 or factor == 1.0:
             normalized.append(summary)
             continue
+        # Issuers may retrospectively adjust per-share amounts for an announced
+        # split while still reporting the actual period-end share counts. Check
+        # each per-share field against its own independent amount before using
+        # the normal factor; never infer an EPS basis from BPS alone.
+        issued = summary.shares_outstanding
+        treasury = summary.treasury_shares
+        raw_shares = issued - treasury if issued is not None and treasury is not None else None
+        equity = (
+            summary.total_assets * summary.equity_to_asset_ratio
+            if summary.total_assets is not None and summary.equity_to_asset_ratio is not None
+            else None
+        )
+        bps_already_adjusted = _post_split_field_is_consistent(
+            summary.bps, raw_shares, equity, factor
+        )
+        eps_already_adjusted = _post_split_field_is_consistent(
+            summary.cumulative_eps, summary.average_shares, summary.profit, factor
+        )
+        forecast_already_adjusted = _post_split_field_is_consistent(
+            summary.forecast_eps, raw_shares, summary.forecast_profit, factor
+        )
+        if bps_already_adjusted or eps_already_adjusted or forecast_already_adjusted:
+            basis_adjustments.append(
+                {
+                    "disclosure_number": summary.disclosure_number,
+                    "disclosed_at": summary.disclosed_at.isoformat(),
+                    "period_end": summary.period_end.isoformat() if summary.period_end else None,
+                    "method": "already_adjusted_per_share_crosschecked",
+                    "bps_already_adjusted": bps_already_adjusted,
+                    "eps_already_adjusted": eps_already_adjusted,
+                    "forecast_eps_already_adjusted": forecast_already_adjusted,
+                }
+            )
         normalized.append(
             replace(
                 summary,
-                cumulative_eps=summary.cumulative_eps * factor
+                cumulative_eps=summary.cumulative_eps * (1.0 if eps_already_adjusted else factor)
                 if summary.cumulative_eps is not None
                 else None,
-                forecast_eps=None,
+                forecast_eps=summary.forecast_eps if forecast_already_adjusted else None,
                 # 実績 DPS は原本のまま配当 resolver へ渡す。予想の明示 0 は残す。
                 dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
-                bps=summary.bps * factor if summary.bps is not None else None,
+                bps=summary.bps * (1.0 if bps_already_adjusted else factor)
+                if summary.bps is not None
+                else None,
                 shares_outstanding=(
                     summary.shares_outstanding / factor
                     if summary.shares_outstanding is not None
@@ -285,6 +340,106 @@ def _normalize_summaries_with_status(
     return _NormalizedSummaryResult(
         summaries=normalized,
         capital_basis_barrier=capital_basis_barrier,
+        basis_adjustments=tuple(basis_adjustments),
+    )
+
+
+def _post_split_field_is_consistent(
+    per_share: float | None, shares: float | None, amount: float | None, factor: float
+) -> bool:
+    if per_share is None or shares is None or amount is None or shares <= 0 or factor <= 0:
+        return False
+    return not isclose(per_share * shares, amount, rel_tol=0.10, abs_tol=1.0) and isclose(
+        per_share * shares / factor, amount, rel_tol=0.02, abs_tol=1.0
+    )
+
+
+def _correct_period_end_share_basis(
+    row: JQuantsFinancialSummary,
+    summaries: Sequence[JQuantsFinancialSummary],
+    bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    asof_date: date,
+) -> JQuantsFinancialSummary:
+    """Recognize a narrowly evidenced split between last filing and period end.
+
+    A filing can report period-end shares before the legal effective date while
+    reporting BPS on the split-adjusted basis. Require both an independent prior
+    share count and an accounting-equity cross-check; no inference from a split
+    date or rounded market capitalization alone.
+    """
+    if (
+        row.period_end is None
+        or row.shares_outstanding is None
+        or row.treasury_shares is None
+        or row.bps is None
+        or row.total_assets is None
+        or row.equity_to_asset_ratio is None
+    ):
+        return row
+    earlier = [
+        item
+        for item in _actual_rows(summaries)
+        if item.period_end is not None
+        and item.period_end < row.period_end
+        and item.disclosed_at < row.disclosed_at
+        and item.shares_outstanding is not None
+        and item.shares_outstanding > 0
+    ]
+    if not earlier:
+        return row
+    prior = max(earlier, key=_accounting_observation_key)
+    actions = [
+        share_unit_factor(bar)
+        for bar in bars
+        if prior.disclosed_at < bar.traded_at <= min(row.period_end, asof_date)
+    ]
+    if None in actions:
+        return row
+    actions = [action for action in actions if action != 1.0]
+    if len(actions) != 1 or actions[0] is None:
+        return row
+    factor = actions[0]
+    assert prior.shares_outstanding is not None
+    if not isclose(row.shares_outstanding / prior.shares_outstanding, 1.0, rel_tol=0.10):
+        return row
+    shares = row.shares_outstanding - row.treasury_shares
+    equity = row.total_assets * row.equity_to_asset_ratio
+    if shares <= 0 or equity <= 0:
+        return row
+    raw_equity = row.bps * shares
+    corrected_equity = row.bps * shares / factor
+    if isclose(raw_equity, equity, rel_tol=0.10) or not isclose(
+        corrected_equity, equity, rel_tol=0.02
+    ):
+        return row
+    # The same independent split basis must also be supported by the issuer's
+    # period profit, average share count, and reported EPS. Equity/BPS alone can
+    # disagree for other reasons, including non-common capital claims.
+    if not _post_split_field_is_consistent(
+        row.cumulative_eps, row.average_shares, row.profit, factor
+    ):
+        return row
+    average = row.average_shares / factor if row.average_shares is not None else None
+    eps = row.cumulative_eps
+    if eps is not None and not (
+        average is not None
+        and row.profit is not None
+        and isclose(eps * average, row.profit, rel_tol=0.02, abs_tol=1.0)
+    ):
+        eps = None
+    forecast_eps = row.forecast_eps
+    if forecast_eps is not None and not (
+        row.forecast_profit is not None
+        and isclose(forecast_eps * shares / factor, row.forecast_profit, rel_tol=0.02, abs_tol=1.0)
+    ):
+        forecast_eps = None
+    return replace(
+        row,
+        shares_outstanding=row.shares_outstanding / factor,
+        treasury_shares=row.treasury_shares / factor,
+        average_shares=average,
+        cumulative_eps=eps,
+        forecast_eps=forecast_eps,
     )
 
 
@@ -292,6 +447,7 @@ def _resolve_capital_basis(
     summaries: Sequence[JQuantsFinancialSummary],
     *,
     capital_basis_barrier: _AccountingObservationKey | None = None,
+    capital_actions: Sequence[CapitalAction] = (),
 ) -> _CapitalBasisResolution:
     """発行済と自己株式を、両方が成立する資本状態でだけ組み合わせる。
 
@@ -315,6 +471,23 @@ def _resolve_capital_basis(
     treasury_row = _latest_non_null_row(capital_rows, "treasury_shares")
     issued = issued_row.shares_outstanding if issued_row is not None else None
     treasury = treasury_row.treasury_shares if treasury_row is not None else None
+    # A completed later conversion reports a new gross common-share total, but
+    # does not establish the treasury balance on that date. Never combine the
+    # new issued total with a stale treasury count as though both were current.
+    basis_end = issued_row.period_end if issued_row is not None else None
+    later_actions = [
+        action
+        for action in capital_actions
+        if basis_end is None or action.effective_date > basis_end
+    ]
+    if later_actions:
+        latest_day = max(action.effective_date for action in later_actions)
+        totals = {a.issued_shares for a in later_actions if a.effective_date == latest_day}
+        if len(totals) != 1:
+            return _CapitalBasisResolution(None, treasury, None, "conflicting_capital_actions")
+        return _CapitalBasisResolution(
+            None, treasury, None, "indeterminate_treasury_after_capital_action"
+        )
     if issued is None or treasury is None:
         return _CapitalBasisResolution(
             issued=issued,

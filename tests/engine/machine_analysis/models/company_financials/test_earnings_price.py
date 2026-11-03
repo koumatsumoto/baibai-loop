@@ -1,6 +1,6 @@
 import json
 from dataclasses import asdict, replace
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -8,7 +8,11 @@ from baibai_engine.machine_analysis.models.company_financials.earnings import (
     earnings_price,
     read_earnings_price,
 )
+from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
+    build_financial_snapshot,
+)
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import TTMRules
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -50,6 +54,72 @@ def observation(rows):
         as_of=ASOF,
         ttm_rules=RULES,
     )
+
+
+def test_completed_post_period_share_conversion_does_not_reuse_old_treasury():
+    action = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 7, 1),
+        received_at=datetime(2026, 7, 2, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed",
+    )
+    result = earnings_price(
+        [annual()],
+        adjusted_price=PriceBar(ASOF, 10.0, None),
+        adjustment_events=(),
+        as_of=ASOF,
+        ttm_rules=RULES,
+        capital_actions=[action],
+    )
+    assert result.profit_ttm_yen == 100.0
+    assert result.market_cap_yen is None
+    assert result.earnings_yield is None
+    assert result.unavailable_reason == "indeterminate_treasury_after_capital_action"
+    snapshot = build_financial_snapshot(
+        10.0,
+        [annual()],
+        None,
+        RULES,
+        adjustment_events=(),
+        asof_date=ASOF,
+        capital_actions=[action],
+    )
+    assert snapshot.shares_outstanding is None
+    assert snapshot.shares_ex_treasury is None
+    assert snapshot.market_cap is None
+
+
+def test_later_financial_period_with_complete_capital_resolves_event():
+    action = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 7, 1),
+        received_at=datetime(2026, 7, 2, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed",
+    )
+    later = replace(
+        annual(),
+        period_end=date(2026, 7, 31),
+        disclosed_at=date(2026, 8, 15),
+        shares_outstanding=130,
+        treasury_shares=22,
+    )
+    result = earnings_price(
+        [later],
+        adjusted_price=PriceBar(ASOF, 10.0, None),
+        adjustment_events=(),
+        as_of=ASOF,
+        ttm_rules=RULES,
+        capital_actions=[action],
+    )
+    assert result.market_cap_yen == 1080
 
 
 @pytest.mark.parametrize("profit", [-100.0, 0.0, 100.0])
