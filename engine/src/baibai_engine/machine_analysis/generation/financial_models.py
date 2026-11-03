@@ -153,7 +153,8 @@ def generate_financial_and_price_models(
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
                 if reported
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
-            ),
+            )
+            + "-accounting-flags-v1",
             payload=json.loads(
                 canonical_json(
                     {

@@ -285,3 +285,46 @@ def test_unknown_disclosure_time_is_preserved():
     result = observation([replace(annual(), disclosed_time=None)])
     assert result.profit_components[0].disclosed_time is None
     assert result.earnings_yield == 0.125
+
+
+def test_native_accounting_flags_preserve_false_blank_missing_and_known_change():
+    from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+        normalize_financial_summary,
+    )
+
+    raw = {
+        "Code": "10010",
+        "DiscDate": "2026-05-15",
+        "DiscTime": "15:30:00",
+        "DiscNo": "20260515000001",
+        "DocType": "FYFinancialStatements_Consolidated_JP",
+        "CurPerType": "FY",
+        "CurPerSt": "2025-04-01",
+        "CurPerEn": "2026-03-31",
+        "CurFYSt": "2025-04-01",
+        "CurFYEn": "2026-03-31",
+        "NP": "100",
+        "Sales": "1000",
+        "ShOutFY": "100",
+        "TrShFY": "20",
+        "ChgNoASRev": "true",
+        "ChgByASRev": "",
+        "RetroRst": "false",
+    }
+    row = normalize_financial_summary(raw)
+    assert row is not None
+    result = observation([row])
+    assert result.profit_ttm_yen == 100
+    assert result.earnings_yield == 0.125
+    (disclosure,) = result.accounting_disclosures
+    assert disclosure["flags"] == {
+        "ChgByASRev": "",
+        "ChgNoASRev": "true",
+        "ChgAcEst": None,
+        "RetroRst": "false",
+    }
+    assert disclosure["disclosure_number"] == raw["DiscNo"]
+    assert len(disclosure["document_payload_sha256"]) == 64
+    assert read_earnings_price(json.loads(canonical_json(asdict(result)))) == result
+    future = replace(row, disclosed_at=date(2026, 9, 1))
+    assert observation([future]).accounting_disclosures == ()

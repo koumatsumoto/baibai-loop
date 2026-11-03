@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -64,6 +66,7 @@ class EarningsPrice:
     earnings_yield: float | None
     unavailable_reason: str | None
     accounting_standard: str | None = None
+    accounting_disclosures: tuple[dict[str, JsonValue], ...] = ()
 
     @property
     def profit_period(self) -> tuple[date | None, date | None]:
@@ -86,6 +89,33 @@ _EARNINGS_PRICE = TypeAdapter(EarningsPrice)
 
 def read_earnings_price(payload: dict[str, JsonValue]) -> EarningsPrice:
     return _EARNINGS_PRICE.validate_python(payload)
+
+
+def _accounting_disclosures(
+    rows: Sequence[JQuantsFinancialSummary],
+) -> tuple[dict[str, JsonValue], ...]:
+    # These are provider-native string flags, not a clearance that periods are
+    # comparable. In particular RetroRst="false" does not negate a retrospective
+    # accounting-policy change declared by ChgNoASRev="true". Keep blank/missing.
+    disclosures: dict[str, dict[str, JsonValue]] = {}
+    for row in rows:
+        if row.document_payload is None:
+            continue
+        payload = json.loads(row.document_payload)
+        digest = hashlib.sha256(row.document_payload.encode()).hexdigest()
+        disclosures[digest] = {
+            "disclosure_number": row.disclosure_number,
+            "disclosed_at": row.disclosed_at.isoformat(),
+            "disclosed_time": row.disclosed_time,
+            "period_start": row.period_start.isoformat() if row.period_start else None,
+            "period_end": row.period_end.isoformat() if row.period_end else None,
+            "document_payload_sha256": digest,
+            "flags": {
+                key: payload.get(key)
+                for key in ("ChgByASRev", "ChgNoASRev", "ChgAcEst", "RetroRst")
+            },
+        }
+    return tuple(disclosures[key] for key in sorted(disclosures))
 
 
 def earnings_price(
@@ -226,4 +256,5 @@ def earnings_price(
         earnings_yield=value,
         unavailable_reason=reason,
         accounting_standard=None if standard_conflict else standard,
+        accounting_disclosures=_accounting_disclosures([*rows, *anchor_candidates]),
     )

@@ -309,6 +309,14 @@ def project_company(
         "expected_price_date": valuation.get("expected_price_date"),
         "market_cap_yen": cap,
         "pricing_valid": pricing_valid,
+        "accounting_change_context": {
+            "read_semantics": "positive_native_flags_not_comparability_clearance",
+            "disclosures": [
+                item
+                for item in (earnings_read.accounting_disclosures if earnings_read else ())
+                if any(value == "true" for value in _object(item.get("flags")).values())
+            ],
+        },
         "latest_growth_period": _date_text(anchor.period_end) if anchor is not None else None,
         "annual_observation": {
             "selected_variant": annual_variant,
