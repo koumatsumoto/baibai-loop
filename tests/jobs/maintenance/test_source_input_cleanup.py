@@ -61,7 +61,8 @@ def test_dry_run_has_no_deletes_and_apply_is_disabled():
     assert not s.deletes
     with pytest.raises(RuntimeError, match="apply disabled"):
         run(s, plan, apply=True)
-    assert s.keep in s.objects and s.old in s.objects
+    assert s.keep in s.objects
+    assert s.old in s.objects
 
 
 def test_stale_pointer_prevents_any_deletion():
@@ -101,5 +102,46 @@ def test_scope_and_duplicate_mismatch_fail_closed():
     p = deepcopy(s.plan())
     p["bucket"] = "different"
     with pytest.raises(ValueError, match="scope"):
+        run(s, p)
+    assert not s.deletes
+
+
+def test_duplicate_json_members_are_rejected():
+    from baibai_jobs.maintenance.source_input_cleanup import _unique_members
+
+    with pytest.raises(ValueError, match="duplicate JSON"):
+        json.loads('{"groups": [], "groups": []}', object_pairs_hook=_unique_members)
+
+
+@pytest.mark.parametrize("size", [True, 1.0, None, 0, -1])
+def test_invalid_sizes_are_rejected(size):
+    s = Fake()
+    p = s.plan()
+    p["groups"][0]["delete"][0]["size"] = size
+    with pytest.raises(ValueError, match="invalid or repeated"):
+        run(s, p)
+    assert not s.deletes
+
+
+def test_completed_handoff_pins_old_receipt(monkeypatch):
+    s = Fake()
+    p = s.plan()
+    handoff_key = s.old.rsplit("/", 1)[0] + "/handoff.json"
+    paginate = s.paginate
+    get_object = s.get_object
+
+    def pages(**kwargs):
+        result = paginate(**kwargs)
+        result[0]["Contents"].append({"Key": handoff_key})
+        return result
+
+    def read(**kwargs):
+        if kwargs["Key"] == handoff_key:
+            return {"Body": io.BytesIO(json.dumps({"receipt_key": s.old}).encode())}
+        return get_object(**kwargs)
+
+    monkeypatch.setattr(s, "paginate", pages)
+    monkeypatch.setattr(s, "get_object", read)
+    with pytest.raises(ValueError, match="surviving handoff"):
         run(s, p)
     assert not s.deletes

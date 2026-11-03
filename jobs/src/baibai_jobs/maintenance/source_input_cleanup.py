@@ -21,6 +21,15 @@ KEY = re.compile(
 )
 
 
+def _unique_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON member")
+        result[key] = value
+    return result
+
+
 def _head(client: Any, bucket: str, key: str) -> dict[str, Any]:
     return cast("dict[str, Any]", client.head_object(Bucket=bucket, Key=key))
 
@@ -73,6 +82,34 @@ def _pointers(client: Any, bucket: str) -> dict[str, tuple[str, str]]:
     return result
 
 
+def _handoff_receipts(client: Any, bucket: str) -> set[str]:
+    """A surviving handoff pins its exact receipt, even for an old generation."""
+    referenced: set[str] = set()
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=PREFIX):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if not key.startswith(PREFIX) or not key.endswith("/handoff.json"):
+                continue
+            relative = key[len(PREFIX) :]
+            if relative.count("/") != 1:
+                raise ValueError("unexpected handoff path")
+            response = client.get_object(Bucket=bucket, Key=key)
+            body = response["Body"]
+            try:
+                handoff = json.loads(body.read(), object_pairs_hook=_unique_members)
+            finally:
+                body.close()
+            if not isinstance(handoff, dict) or not isinstance(handoff.get("receipt_key"), str):
+                raise ValueError("invalid handoff")
+            receipt = handoff["receipt_key"]
+            if not KEY.fullmatch(receipt) or not receipt.startswith(
+                key.removesuffix("handoff.json")
+            ):
+                raise ValueError("handoff references an unexpected receipt")
+            referenced.add(receipt)
+    return referenced
+
+
 def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, Any]:
     """Validate every precondition before deletion; abort on the first error."""
     if apply:
@@ -84,14 +121,27 @@ def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, 
     if _pointers(client, bucket) != expected:
         raise ValueError("current pointers changed or enumeration incomplete")
     current_stages = {stage for _, stage in expected.values()}
+    referenced = _handoff_receipts(client, bucket)
     all_keys: set[str] = set()
     deletions: list[dict[str, Any]] = []
     for group in plan["groups"]:
         if set(group) != {"keep", "delete"} or not group["delete"]:
             raise ValueError("invalid duplicate group")
         keep = group["keep"]
+        if any(item["key"] in referenced for item in group["delete"]):
+            raise ValueError("receipt is referenced by a surviving handoff")
         for item in [keep, *group["delete"]]:
-            if set(item) != {"key", "sha256", "size", "etag"} or item["key"] in all_keys:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"key", "sha256", "size", "etag"}
+                or not isinstance(item["key"], str)
+                or not isinstance(item["sha256"], str)
+                or type(item["size"]) is not int
+                or item["size"] <= 0
+                or not isinstance(item["etag"], str)
+                or not item["etag"]
+                or item["key"] in all_keys
+            ):
                 raise ValueError("invalid or repeated object")
             all_keys.add(item["key"])
             match = KEY.fullmatch(item["key"])
@@ -109,26 +159,12 @@ def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, 
         raise ValueError("empty deletion plan")
     for group in plan["groups"]:
         _verify_survivor_bytes(client, bucket, group["keep"])
-    report: dict[str, Any] = {
-        "mode": "apply" if apply else "dry-run",
+    return {
+        "mode": "dry-run",
         "objects": len(deletions),
         "bytes": sum(x["size"] for x in deletions),
         "deleted": [],
     }
-    if not apply:
-        return report
-    # Recheck pointer and survivor before every object. If a failure occurs,
-    # stop and retain the successful keys in the operator's local audit log.
-    for group in plan["groups"]:
-        for item in group["delete"]:
-            if _pointers(client, bucket) != expected:
-                raise ValueError("current pointers changed during apply")
-            _check_receipt(client, bucket, group["keep"])
-            _check_receipt(client, bucket, item)
-            client.delete_object(Bucket=bucket, Key=item["key"], IfMatch=item["etag"])
-            report["deleted"].append(item["key"])
-            print(json.dumps({"deleted": item["key"], "etag": item["etag"]}), flush=True)
-    return report
 
 
 def main() -> None:
@@ -140,15 +176,12 @@ def main() -> None:
     payload = args.plan.read_bytes()
     if hashlib.sha256(payload).hexdigest() != args.plan_sha256:
         raise SystemExit("plan digest mismatch")
+    plan = json.loads(payload, object_pairs_hook=_unique_members)
     from baibai_engine.storage.objects.r2 import Boto3R2Store
 
     store = Boto3R2Store(bucket="baibai-stores")
     try:
-        print(
-            json.dumps(
-                run(store._client(), json.loads(payload), apply=args.apply), ensure_ascii=False
-            )
-        )
+        print(json.dumps(run(store._client(), plan, apply=args.apply), ensure_ascii=False))
     finally:
         store.close()
 
