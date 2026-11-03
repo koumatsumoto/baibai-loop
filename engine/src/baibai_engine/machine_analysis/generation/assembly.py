@@ -70,6 +70,7 @@ class CompanyModelInputs:
     capital_actions: Sequence[CapitalAction] = ()
     holder_capital: Sequence[HolderReportedCapital] = ()
     holder_coverage: str = "not_observed"
+    holder_snapshot_sealed_at: datetime | None = None
     provider_capital: dict[str, object] | None = None
 
 
@@ -182,6 +183,7 @@ def generate_models(
                 capital_actions=company.capital_actions,
                 holder_capital=company.holder_capital,
                 holder_coverage=company.holder_coverage,
+                holder_snapshot_sealed_at=company.holder_snapshot_sealed_at,
                 provider_capital=company.provider_capital,
             )
             history = external_observations.get(ticker)
