@@ -11,7 +11,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element  # nosec B405 -- type annotation only
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
     XBRLI,
