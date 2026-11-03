@@ -122,6 +122,29 @@ def test_later_financial_period_with_complete_capital_resolves_event():
     assert result.market_cap_yen == 1080
 
 
+def test_same_day_capital_event_must_match_reported_share_total():
+    action = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 3, 31),
+        received_at=datetime(2026, 4, 1, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed",
+    )
+    result = earnings_price(
+        [annual()],
+        adjusted_price=PriceBar(ASOF, 10.0, None),
+        adjustment_events=(),
+        as_of=ASOF,
+        ttm_rules=RULES,
+        capital_actions=[action],
+    )
+    assert result.market_cap_yen is None
+    assert result.unavailable_reason == "indeterminate_treasury_after_capital_action"
+
+
 @pytest.mark.parametrize("profit", [-100.0, 0.0, 100.0])
 @pytest.mark.parametrize("basis", ["Consolidated", "NonConsolidated"])
 def test_signed_profit_and_standalone_companies_remain_representable(profit, basis):
