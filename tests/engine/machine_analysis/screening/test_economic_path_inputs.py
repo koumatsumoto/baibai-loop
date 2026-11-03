@@ -1115,3 +1115,27 @@ def test_accounting_change_notice_reaches_brief_without_disabling_paths(flag):
     context = economic_screening_brief(saved)["cards"][0]["context"]["accounting_change_context"]
     assert context["read_semantics"] == "positive_native_flags_not_comparability_clearance"
     assert context["disclosures"] == ([disclosure] if flag == "true" else [])
+
+
+def test_holder_report_remains_evidence_and_does_not_rewrite_path_scores():
+    data = payloads()
+    baseline = project(data)
+    data["company_financials"]["holder_capital_evidence"] = {
+        "coverage": "partial",
+        "scope": "retained_metadata_and_originals_only",
+        "receipt_precision": "day_not_intraday",
+        "observations": [
+            {
+                "ticker": "1234",
+                "document_id": "S100TEST",
+                "total_stocks": 2500000,
+                "source_kind": "third_party_holder_report_not_issuer_attestation",
+            }
+        ],
+    }
+    with_evidence = project(data)
+    assert with_evidence.paths == baseline.paths
+    assert (
+        with_evidence.context["holder_capital_evidence"]["observations"][0]["total_stocks"]
+        == 2500000
+    )

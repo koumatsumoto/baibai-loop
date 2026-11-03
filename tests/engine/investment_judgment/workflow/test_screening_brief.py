@@ -333,3 +333,24 @@ def test_brief_does_not_fill_missing_ttm_income():
         "reason": "period_incomparable",
     }
     assert annual["latest_ttm_income"]["parent_profit"] == {}
+
+
+def test_holder_evidence_reaches_brief_without_losing_source_limit():
+    company = card()
+    evidence = {
+        "coverage": "partial",
+        "scope": "retained_metadata_and_originals_only",
+        "receipt_precision": "day_not_intraday",
+        "observations": [
+            {
+                "document_id": "S100TEST",
+                "source_kind": "third_party_holder_report_not_issuer_attestation",
+                "total_stocks": 150,
+            }
+        ],
+    }
+    company["context"]["holder_capital_evidence"] = evidence
+    assert (
+        economic_screening_brief(result(company))["cards"][0]["context"]["holder_capital_evidence"]
+        == evidence
+    )

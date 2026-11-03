@@ -95,6 +95,7 @@ class SealedSQLiteSnapshot:
 
     path: Path
     ref: SQLiteSnapshotSourceRef
+    sealed_at: datetime
 
 
 @dataclass(frozen=True)
@@ -158,7 +159,7 @@ def sealed_sqlite_snapshot(
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
             raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
-        yield SealedSQLiteSnapshot(path=sealed, ref=ref)
+        yield SealedSQLiteSnapshot(path=sealed, ref=ref, sealed_at=datetime.now(UTC))
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 

@@ -240,3 +240,32 @@ def test_native_origin_keeps_identity_observed_before_inspection_expiry(tmp_path
     assert rows[0]["docDescription"] == origin["docDescription"]
     assert rows[0]["legalStatus"] == "0"
     assert rows[0]["xbrlFlag"] == "0"
+
+
+def test_observed_type_scope_keeps_null_type_edits_and_excludes_unrelated_docs(tmp_path):
+    path = tmp_path / "market.sqlite"
+    holder = {**_origin(), "docID": "S100HOLDER", "docTypeCode": "350", "parentDocID": None}
+    unrelated = {
+        **_origin(),
+        "docID": "S100OTHER",
+        "docTypeCode": "120",
+        "seqNumber": 2,
+        "parentDocID": None,
+    }
+    store_edinet_documents(path, ORIGIN_DAY, [holder, unrelated])
+    edit = {
+        "seqNumber": 1,
+        "docID": "S100HOLDER",
+        "docInfoEditStatus": "1",
+        "docDescription": "changed",
+    }
+    store_edinet_documents(path, EDIT_DAY, [edit])
+    with closing(open_connection(path)) as connection:
+        rows = edinet_document_store.read_observed_documents(
+            connection, through=EDIT_DAY, holder_only=True
+        )
+    assert len(rows) == 2
+    assert {row["docID"] for row in rows} == {"S100HOLDER"}
+    folded, quarantined = _canonicalize_document_events(rows, origin_start=None)
+    assert not quarantined
+    assert folded[0]["docDescription"] == "changed"

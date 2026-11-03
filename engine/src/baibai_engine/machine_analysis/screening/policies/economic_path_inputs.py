@@ -315,6 +315,7 @@ def project_company(
             expected_price_date=_text(valuation.get("expected_price_date")),
             model_as_of=_text(valuation.get("as_of")),
         ),
+        "holder_capital_evidence": valuation.get("holder_capital_evidence"),
         "capital_action_context": {
             "observations": valuation.get("capital_action_evidence", []),
             "capital_basis_reason": earnings.get("unavailable_reason"),

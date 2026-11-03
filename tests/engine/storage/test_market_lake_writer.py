@@ -1114,3 +1114,13 @@ def test_gc_does_not_follow_staging_symlink_into_unowned_file(tmp_path: Path) ->
     assert apply_gc(mirror, plan, plan_hash=plan.plan_hash) == ()
     assert retained.read_bytes() == b"not a lake object"
     assert alias.is_symlink()
+
+
+def test_snapshot_seal_clock_is_an_upper_bound_for_included_bytes(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    with sealed_sqlite_snapshot(
+        sqlite_path=sqlite_path, mirror_root=tmp_path / "mirror"
+    ) as snapshot:
+        assert snapshot.ref.captured_at <= snapshot.sealed_at <= datetime.now(UTC)
