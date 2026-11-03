@@ -275,7 +275,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v1-provider-capital-v1"
+        "observations-v8-reported-flow-periods-accounting-flags-v1-provider-capital-v1-holder-evidence-v1"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -574,3 +574,48 @@ def test_saved_old_model_retains_its_payload_without_new_period_defaults():
     assert GeneratedModel.model_validate_json(saved).model_dump_json() == saved
     assert "edinet_reported_flows" not in saved
     assert "ocf_ttm_period" not in saved
+
+
+def test_holder_report_is_retained_as_attributed_evidence_without_rewriting_capital():
+    from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+        HolderReportedCapital,
+    )
+
+    holder = HolderReportedCapital(
+        ticker="1001",
+        reference_date=date(2026, 7, 1),
+        submitted_at=datetime(2026, 7, 2, tzinfo=UTC),
+        document_id="S100TEST",
+        total_stocks=150,
+        original_sha256="a" * 64,
+    )
+    arguments = dict(
+        ticker="1001",
+        documents=(document(),),
+        adjusted_bars=(PriceBar(ASOF, 10.0, None),),
+        adjustment_events=(),
+        trading_dates=CALENDAR,
+        expected_price_date=ASOF,
+        sector=None,
+        as_of=ASOF,
+        input_release=RELEASE,
+        ttm_rules=RULES,
+    )
+    baseline = generate_financial_and_price_models(**arguments)
+    with_evidence = generate_financial_and_price_models(
+        **arguments, holder_capital=(holder,), holder_coverage="partial"
+    )
+    evidence = with_evidence[0].payload["holder_capital_evidence"]
+    assert evidence["coverage"] == "partial"
+    assert evidence["receipt_precision"] == "day_not_intraday"
+    assert evidence["observations"][0]["total_stocks"] == 150
+    assert with_evidence[0].payload["earnings_price"] == baseline[0].payload["earnings_price"]
+    with pytest.raises(ValueError, match="different ticker"):
+        generate_financial_and_price_models(
+            **arguments, holder_capital=(replace(holder, ticker="1002"),)
+        )
+    with pytest.raises(ValueError, match="different ticker"):
+        generate_financial_and_price_models(
+            **arguments,
+            holder_capital=(replace(holder, submitted_at=datetime(2027, 1, 1, tzinfo=UTC)),),
+        )
