@@ -288,3 +288,29 @@ def test_generation_retains_provider_capital_from_the_same_expected_price_day(tm
         "close_yen": 10.0,
         "market_cap_million_yen": 200.0,
     }
+
+
+def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkeypatch):
+    path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
+
+    def fail(*_args, **_kwargs):
+        raise ValueError("unsupported holder source")
+
+    monkeypatch.setattr(generation_reader, "read_holder_capital", fail)
+    with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
+        result = generation_reader.read_and_generate_models(
+            generation_id="partial",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+            economic_path=None,
+            economic_identity=None,
+            as_of=date(2026, 1, 5),
+            evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1234",),
+        ).materialize()
+    assert (
+        result.result("company_financials", "1234").payload["holder_capital_evidence"]["coverage"]
+        == "unavailable"
+    )
+    assert result.result("company_growth", "1234") is not None
