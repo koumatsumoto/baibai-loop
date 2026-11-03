@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import asdict, replace
-from datetime import date
+from datetime import date, datetime
 
 from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.models.company_financials.earnings import earnings_price
@@ -76,6 +76,7 @@ def generate_financial_and_price_models(
     capital_actions: Sequence[CapitalAction] = (),
     holder_capital: Sequence[HolderReportedCapital] = (),
     holder_coverage: str = "not_observed",
+    holder_snapshot_sealed_at: datetime | None = None,
     provider_capital: dict[str, object] | None = None,
 ) -> tuple[GeneratedModel, ...]:
     """同じ個社入力から企業財務・企業成長・テクニカル分析を生成する。
@@ -188,6 +189,7 @@ def generate_financial_and_price_models(
                             "coverage": holder_coverage,
                             "scope": "retained_metadata_and_originals_only",
                             "receipt_precision": "day_not_intraday",
+                            "snapshot_sealed_at": holder_snapshot_sealed_at,
                             "observations": [asdict(item) for item in holder_capital],
                         },
                         "provider_capital_observation": provider_capital,
