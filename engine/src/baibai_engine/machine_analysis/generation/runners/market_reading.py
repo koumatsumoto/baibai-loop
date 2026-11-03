@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import cast
@@ -33,6 +34,7 @@ from baibai_engine.machine_analysis.observations.economic_indicators.read_contra
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
     build_store_observation_reader,
+    latest_acquisition_failure_notes,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.validation import (
     UnavailableObservationError,
@@ -125,12 +127,20 @@ def read_store_snapshot(
             raise value
         return value
 
-    return compute_reading(
+    snapshot = compute_reading(
         series=definitions.series,
         reader=fixed_reader,
         rules=rules,
         rules_revision=rules_revision(rules_path),
         asof=asof,
+    )
+    failure_notes = latest_acquisition_failure_notes(connection, series=definitions.series)
+    return replace(
+        snapshot,
+        series=tuple(
+            replace(reading, notes=(*reading.notes, *failure_notes[reading.series_id]))
+            for reading in snapshot.series
+        ),
     )
 
 

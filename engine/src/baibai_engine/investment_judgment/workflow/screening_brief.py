@@ -114,6 +114,13 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                     "edinet_source_period_end",
                     "ttm_quality_fcf_yield",
                     "dividend_yield",
+                    # The same yield field can use a forecast or a past payout.
+                    # Keep its basis so missing guidance is not read as forecast zero.
+                    "dividend_basis",
+                    "dps_actual_annual",
+                    "dps_forecast_annual",
+                    "dividend_forecast_source",
+                    "dividend_split_factor",
                     "net_share_change_yoy",
                     "tradable_share_change_yoy",
                 ),

@@ -146,10 +146,29 @@ def test_rakuten_follows_official_full_ric():
     )
 
 
+@pytest.mark.parametrize("ticker", ["1301", "130A"])
+def test_rakuten_shared_entry_without_og_url_routes_full_ric(ticker):
+    # The two saved production entry pages were byte-identical and had no
+    # issuer-specific meta tag; identity belongs to the subsequent IFIS page.
+    shell = official_html().split("\n", 1)[1]
+    assert (
+        rakuten.iframe_url(shell, ticker=ticker, source_url=rakuten.public_url(ticker))
+        == rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T"
+    )
+    with pytest.raises(ParseError):
+        rakuten.parse_html(
+            shell,
+            ticker=ticker,
+            source_url=rakuten.IFRAME_BASE + rakuten.IFRAME_PARAMETER + ticker + ".T",
+            fetched_at_utc=RECEIVED,
+        )
+
+
 @pytest.mark.parametrize(
     "html",
     [
         official_html("9432"),
+        official_html() + official_html(),
         official_html().replace("rakuten-sec.ifis.co.jp", "private.example"),
         official_html().replace("report_est", "private_est"),
         official_html().replace("getRIC()", "guessTicker()"),
@@ -204,7 +223,7 @@ def test_rakuten_peer_only_table_with_bound_chart_proves_normal_null(ticker):
     assert observation.rating_count is None
     assert observation.source_url == url
     assert observation.fetched_at_utc == RECEIVED
-    assert observation.parser_version == "rakuten-rating-4"
+    assert observation.parser_version == "rakuten-rating-5"
 
 
 @pytest.mark.parametrize(

@@ -19,7 +19,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
-PARSER_VERSION = "rakuten-rating-4"
+PARSER_VERSION = "rakuten-rating-5"
 IFRAME_BASE = "https://rakuten-sec.ifis.co.jp/index.php"
 IFRAME_PARAMETER = "?action=tp4&sa=report_est&bcode="
 _SCRIPT_ITEMS = re.compile(
@@ -78,7 +78,11 @@ def iframe_url(html: str, *, ticker: str, source_url: str) -> str:
         raise ParseError("source_identity")
     page = document(html)
     identities = page.find("meta", property="og:url")
-    if len(identities) != 1 or identities[0].attrs.get("content") != source_url:
+    # The official entry is a shared shell: captured pages have no og:url and
+    # derive the full RIC from location.search. This step verifies only routing;
+    # parse_html verifies issuer identity in the returned IFIS content. If the
+    # shell does declare identity, conflicting or ambiguous declarations fail.
+    if identities and (len(identities) != 1 or identities[0].attrs.get("content") != source_url):
         raise ParseError("ticker_identity")
     if len(page.find("iframe", id="ifr")) != 1:
         raise ParseError("missing_official_iframe")

@@ -160,6 +160,48 @@ def test_one_source_403_stops_its_unattempted_pairs_while_other_source_acquires(
     assert available.calls[1][0] - available.calls[0][0] >= 0.5
 
 
+@pytest.mark.parametrize("http_status", [200, 404])
+def test_completed_failed_attempts_are_not_success_but_keep_handoff(monkeypatch, http_status):
+    timer = Clock()
+    monkeypatch.setattr(sources.time, "monotonic", timer.monotonic)
+    monkeypatch.setattr(sources.time, "sleep", timer.sleep)
+    client = Session(timer, [(http_status, "<html>no issuer</html>", {})])
+    monkeypatch.setattr(sources.requests, "Session", lambda: client)
+    store = FakeObjectStore()
+    p = replace(plan(), run_id="monex-failed-complete")
+    report = sources.acquire_source(store, p, source="monex")
+    assert report["status"] == "acquired_with_failures"
+    assert report["attempted_completeness"] is True
+    assert report["success_completeness"] is False
+    assert report["state_counts"]["failure"] == 1
+    assert len(staging.read_stages(store, p)) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "exit_code"), [("acquired", 0), ("acquired_with_failures", 1), ("blocked", 1)]
+)
+def test_source_cli_keeps_failed_acquisition_visible(monkeypatch, tmp_path, status, exit_code):
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **kwargs: object())
+    monkeypatch.setattr(daily, "initialize", lambda *args, **kwargs: plan())
+    monkeypatch.setattr(sources, "acquire_source", lambda *args, **kwargs: {"status": status})
+    assert (
+        sources.main(
+            [
+                "acquire",
+                "--source",
+                "monex",
+                "--run-id",
+                "monex-test",
+                "--master-asof",
+                "2026-11-02",
+                "--directory",
+                str(tmp_path),
+            ]
+        )
+        == exit_code
+    )
+
+
 @pytest.mark.parametrize("partial", [False, True])
 @pytest.mark.parametrize("old_binding", [False, True])
 def test_sealed_source_inspection_and_acquire_read_no_stage_http_lease_or_db(

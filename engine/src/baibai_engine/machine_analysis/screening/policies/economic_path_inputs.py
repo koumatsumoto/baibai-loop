@@ -374,6 +374,11 @@ def project_company(
                 "edinet_source_doc_id",
                 "ttm_quality_fcf_yield",
                 "dividend_yield",
+                "dividend_basis",
+                "dps_actual_annual",
+                "dps_forecast_annual",
+                "dividend_forecast_source",
+                "dividend_split_factor",
                 "net_share_change_yoy",
                 "tradable_share_change_yoy",
             )
