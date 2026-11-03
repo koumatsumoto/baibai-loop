@@ -54,14 +54,14 @@ class Fake:
         }
 
 
-def test_dry_run_has_no_deletes_and_apply_only_deletes_planned_duplicate():
+def test_dry_run_has_no_deletes_and_apply_is_disabled():
     s = Fake()
     plan = s.plan()
     assert run(s, plan)["objects"] == 1
     assert not s.deletes
-    result = run(s, plan, apply=True)
-    assert result["deleted"] == [s.old]
-    assert s.keep in s.objects
+    with pytest.raises(RuntimeError, match="apply disabled"):
+        run(s, plan, apply=True)
+    assert s.keep in s.objects and s.old in s.objects
 
 
 def test_stale_pointer_prevents_any_deletion():
@@ -69,7 +69,7 @@ def test_stale_pointer_prevents_any_deletion():
     p = s.plan()
     s.stage = "new-stage"
     with pytest.raises(ValueError, match="pointers changed"):
-        run(s, p, apply=True)
+        run(s, p)
     assert not s.deletes
 
 
@@ -79,7 +79,7 @@ def test_target_current_stage_is_never_deleted():
     s.stage = "group-old2"
     p["pointers"][s.pointer][1] = s.stage
     with pytest.raises(ValueError, match="current or invalid"):
-        run(s, p, apply=True)
+        run(s, p)
     assert not s.deletes
 
 
@@ -88,7 +88,7 @@ def test_missing_or_corrupt_survivor_fails_before_any_delete():
     p = s.plan()
     s.objects[s.keep] = b"changed!"
     with pytest.raises(ValueError, match="survivor bytes"):
-        run(s, p, apply=True)
+        run(s, p)
     assert not s.deletes
 
 
@@ -97,9 +97,9 @@ def test_scope_and_duplicate_mismatch_fail_closed():
     p = s.plan()
     p["groups"][0]["delete"][0]["size"] += 1
     with pytest.raises(ValueError, match="duplicate identity"):
-        run(s, p, apply=True)
+        run(s, p)
     p = deepcopy(s.plan())
     p["bucket"] = "different"
     with pytest.raises(ValueError, match="scope"):
-        run(s, p, apply=True)
+        run(s, p)
     assert not s.deletes

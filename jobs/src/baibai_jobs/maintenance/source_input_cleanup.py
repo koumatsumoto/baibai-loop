@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 PREFIX = "coordination/source-inputs/"
 KEY = re.compile(
@@ -22,7 +22,7 @@ KEY = re.compile(
 
 
 def _head(client: Any, bucket: str, key: str) -> dict[str, Any]:
-    return client.head_object(Bucket=bucket, Key=key)
+    return cast("dict[str, Any]", client.head_object(Bucket=bucket, Key=key))
 
 
 def _check_receipt(client: Any, bucket: str, item: dict[str, Any]) -> None:
@@ -75,6 +75,8 @@ def _pointers(client: Any, bucket: str) -> dict[str, tuple[str, str]]:
 
 def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, Any]:
     """Validate every precondition before deletion; abort on the first error."""
+    if apply:
+        raise RuntimeError("apply disabled pending reference, concurrency and R2 safety review")
     if set(plan) != {"bucket", "pointers", "groups"} or plan["bucket"] != "baibai-stores":
         raise ValueError("unexpected cleanup scope")
     bucket = plan["bucket"]
