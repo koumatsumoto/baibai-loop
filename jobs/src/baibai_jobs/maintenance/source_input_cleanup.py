@@ -216,6 +216,13 @@ def _github_idle() -> None:
         runs = [item for page in pages for item in page.get("workflow_runs", [])]
         if len(runs) != total:
             raise RuntimeError("workflow run listing is incomplete")
+        run_ids = [item.get("id") for item in runs if isinstance(item, dict)]
+        if (
+            len(run_ids) != len(runs)
+            or any(type(run_id) is not int for run_id in run_ids)
+            or len(set(run_ids)) != len(run_ids)
+        ):
+            raise RuntimeError("workflow run listing has invalid or duplicate IDs")
         for item in runs:
             path = item.get("path")
             if not isinstance(path, str):

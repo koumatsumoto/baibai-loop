@@ -335,7 +335,7 @@ def test_github_guard_fails_closed_on_active_or_incomplete(monkeypatch):
         ),
     )
     _github_idle()
-    active = '{"total_count": 1, "workflow_runs": [{"path": ".github/workflows/cloud-market-sources.yml@refs/heads/main"}]}'
+    active = '{"total_count": 1, "workflow_runs": [{"id": 11, "path": ".github/workflows/cloud-market-sources.yml@refs/heads/main"}]}'
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
         lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=active),
@@ -463,8 +463,11 @@ def test_github_paginated_json_detects_batch_on_second_page(monkeypatch):
 
     from baibai_jobs.maintenance.source_input_cleanup import _github_idle
 
-    one = {"total_count": 2, "workflow_runs": [{"path": ".github/workflows/ci.yml"}]}
-    two = {"total_count": 2, "workflow_runs": [{"path": ".github/workflows/cloud-daily-batch.yml"}]}
+    one = {"total_count": 2, "workflow_runs": [{"id": 11, "path": ".github/workflows/ci.yml"}]}
+    two = {
+        "total_count": 2,
+        "workflow_runs": [{"id": 12, "path": ".github/workflows/cloud-daily-batch.yml"}],
+    }
     stdout = json.dumps(one) + "\n" + json.dumps(two)
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_input_cleanup.shutil.which", lambda _: "/usr/bin/gh"
@@ -499,4 +502,22 @@ def test_github_rejects_malformed_or_inconsistent_pages(monkeypatch, payload):
         lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=payload),
     )
     with pytest.raises(RuntimeError, match="invalid workflow run page"):
+        _github_idle()
+
+
+def test_github_rejects_duplicate_run_ids_across_pages(monkeypatch):
+    from types import SimpleNamespace
+
+    from baibai_jobs.maintenance.source_input_cleanup import _github_idle
+
+    page = {"total_count": 2, "workflow_runs": [{"id": 1, "path": ".github/workflows/ci.yml"}]}
+    stdout = json.dumps(page) + "\n" + json.dumps(page)
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.shutil.which", lambda _: "/usr/bin/gh"
+    )
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_input_cleanup.subprocess.run",
+        lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=stdout),
+    )
+    with pytest.raises(RuntimeError, match="duplicate IDs"):
         _github_idle()
