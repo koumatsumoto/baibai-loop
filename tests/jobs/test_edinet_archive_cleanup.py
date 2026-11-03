@@ -251,3 +251,65 @@ def test_current_rejects_changed_release_key(monkeypatch: pytest.MonkeyPatch) ->
         cleanup._current(
             None, {"etag": "etag", "sha256": hashlib.sha256(raw).hexdigest()}, {}, "current"
         )
+
+
+def test_dataset_change_after_first_delete_stops_remaining(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup(monkeypatch)
+    plan = fixture_plan(tmp_path)
+    client = Client()
+    calls = 0
+
+    def dataset_check(*_args: object) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise ValueError("dataset changed")
+
+    monkeypatch.setattr(cleanup, "_dataset_index", dataset_check)
+    with (
+        (tmp_path / "journal").open("w") as journal,
+        pytest.raises(ValueError, match="dataset changed"),
+    ):
+        cleanup.run(
+            client,
+            plan,
+            tmp_path,
+            apply=True,
+            guard=lambda: None,
+            journal=journal,
+            plan_sha256="sha",
+        )
+    assert client.deleted == [plan["targets"][0]["key"]]
+    events = [json.loads(line)["event"] for line in (tmp_path / "journal").read_text().splitlines()]
+    assert events == ["intent", "confirmed_absent"]
+
+
+def test_uncertain_delete_stops_and_journals_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup(monkeypatch)
+    plan = fixture_plan(tmp_path)
+    client = Client()
+
+    def uncertain(*_args: object) -> None:
+        raise RuntimeError("second DELETE request was blocked")
+
+    monkeypatch.setattr(cleanup, "_delete_once", uncertain)
+    with (
+        (tmp_path / "journal").open("w") as journal,
+        pytest.raises(RuntimeError, match="second DELETE"),
+    ):
+        cleanup.run(
+            client,
+            plan,
+            tmp_path,
+            apply=True,
+            guard=lambda: None,
+            journal=journal,
+            plan_sha256="sha",
+        )
+    assert client.deleted == []
+    events = [json.loads(line)["event"] for line in (tmp_path / "journal").read_text().splitlines()]
+    assert events == ["intent", "outcome_unknown"]
