@@ -239,7 +239,9 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[0].payload["earnings_price"] == missing[0].payload["earnings_price"]
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
-    assert present[0].calculation_revision.endswith("observations-v8-reported-flow-periods")
+    assert present[0].calculation_revision.endswith(
+        "observations-v8-reported-flow-periods-accounting-flags-v1"
+    )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
 

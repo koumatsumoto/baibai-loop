@@ -1092,3 +1092,22 @@ def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval(
     assert financial["edinet_reported_flows"] == reported
     assert financial["ocf_ttm_period"] == period
     assert financial["ocf_ttm"] == -1_422_368_000.0
+
+
+@pytest.mark.parametrize("flag", ["true", "false", "", None])
+def test_accounting_change_notice_reaches_brief_without_disabling_paths(flag):
+    data = payloads()
+    baseline = project(data)
+    disclosure = {
+        "disclosure_number": "synthetic-current",
+        "disclosed_at": "2026-01-05",
+        "flags": {"ChgNoASRev": flag, "RetroRst": "false"},
+    }
+    data["company_financials"]["earnings_price"]["accounting_disclosures"] = [disclosure]
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    context = economic_screening_brief(saved)["cards"][0]["context"]["accounting_change_context"]
+    assert context["read_semantics"] == "positive_native_flags_not_comparability_clearance"
+    assert context["disclosures"] == ([disclosure] if flag == "true" else [])
