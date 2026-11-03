@@ -30,12 +30,25 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
+      - name: Check shared TradingView cooldown
+        id: cooldown-check
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown check --directory "$RUNNER_TEMP"
       - name: Capture native market responses
         id: capture
+        if: ${{ steps.cooldown-check.outputs.allowed == 'true' }}
         env:
           TRADINGVIEW_OAUTH_STATE: ${{ secrets.TRADINGVIEW_OAUTH_STATE }}
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
-        run: uv run python -m baibai_jobs.acquisition.tradingview.market_daily "$RUNNER_TEMP/captures"
+        run: |
+          set +e
+          uv run python -m baibai_jobs.acquisition.tradingview.market_daily "$RUNNER_TEMP/captures" 2> "$RUNNER_TEMP/tradingview-stderr.log"
+          status=$?
+          cat "$RUNNER_TEMP/tradingview-stderr.log" >&2
+          exit "$status"
       - name: Prepare received evidence, including a partial failure
         id: prepare
         if: ${{ always() && !cancelled() && steps.capture.outcome != 'skipped' }}
@@ -58,3 +71,15 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           STAGE_ID: tradingview_market-${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run baibai-jobs market-evidence stage --directory "$RUNNER_TEMP/market-handoff" --stage-id "$STAGE_ID"
+      - name: Persist shared TradingView cooldown
+        if: ${{ always() && !cancelled() && steps.capture.outcome != 'skipped' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown record --directory "$RUNNER_TEMP"
+      - name: Report deferred acquisition
+        if: ${{ steps.cooldown-check.outputs.allowed == 'false' }}
+        run: |
+          echo 'TradingView cooldown is active; no market request was made.' >&2
+          exit 1
