@@ -32,6 +32,8 @@ def save_handoff(
     *,
     market: bool = False,
     namespace: str | None = None,
+    reusable_receipt: dict[str, object] | None = None,
+    input_group: str | None = None,
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
@@ -42,7 +44,27 @@ def save_handoff(
             md5.update(chunk)
     digest, size = sha.hexdigest(), path.stat().st_size
     key = f"{prefix}/receipts-{digest}.sqlite"
+    if reusable_receipt is not None and reusable_receipt.get("receipt_sha256") == digest:
+        if namespace != "source-inputs" or input_group is None:
+            raise ValueError("receipt reuse is limited to scoped source inputs")
+        reusable_receipt_key = reusable_receipt.get("receipt_key")
+        if (
+            not isinstance(reusable_receipt_key, str)
+            or reusable_receipt.get("receipt_bytes") != size
+        ):
+            raise LakePublishError("reusable receipt metadata differs")
+        pattern = (
+            rf"coordination/source-inputs/{re.escape(input_group)}-"
+            rf"[A-Za-z0-9_-]+/receipts-{digest}\.sqlite"
+        )
+        if re.fullmatch(pattern, reusable_receipt_key) is None:
+            raise ValueError("reusable receipt identity differs")
+        key = reusable_receipt_key
     remote = store.head(key)
+    if remote is None and key != f"{prefix}/receipts-{digest}.sqlite":
+        # A retired receipt may have been removed. Create the new stage's own object.
+        key = f"{prefix}/receipts-{digest}.sqlite"
+        remote = store.head(key)
     if remote is None:
         path.chmod(0o600)
         remote = store.put_file(
@@ -80,6 +102,7 @@ def load_handoff(
     *,
     market: bool = False,
     namespace: str | None = None,
+    input_group: str | None = None,
 ) -> None:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     saved = read_private(store, prefix + "/handoff.json")
@@ -95,8 +118,17 @@ def load_handoff(
     ):
         raise ValueError("invalid source handoff manifest")
     digest, size = manifest["receipt_sha256"], manifest["receipt_bytes"]
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise LakePublishError("source handoff receipt identity differs")
     key = f"{prefix}/receipts-{digest}.sqlite"
-    if manifest["receipt_key"] != key or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+    if namespace == "source-inputs" and input_group is not None:
+        pattern = (
+            rf"coordination/source-inputs/{re.escape(input_group)}-"
+            rf"[A-Za-z0-9_-]+/receipts-{digest}\.sqlite"
+        )
+        if re.fullmatch(pattern, manifest["receipt_key"]) is not None:
+            key = manifest["receipt_key"]
+    if manifest["receipt_key"] != key:
         raise LakePublishError("source handoff receipt identity differs")
     remote = store.head(key)
     if remote is None or remote.size != size or remote.metadata.get("sha256") != digest:
