@@ -142,3 +142,36 @@ def test_reader_respects_retention_day_and_reports_partial_coverage(tmp_path):
         )
         assert before_list_received == {}
         assert coverage == "partial"
+        connection.execute(
+            "UPDATE edinet_document_lists SET selected_received_at_utc=? WHERE doc_date=?",
+            ("2026-10-30T06:00:00+00:00", "2026-10-30"),
+        )
+        connection.execute(
+            "UPDATE edinet_source_archives SET stored_on=? WHERE doc_id=?",
+            ("2026-11-03", "S100TEST"),
+        )
+        connection.commit()
+        proven, _ = read_holder_capital(
+            connection,
+            as_of=date(2026, 11, 3),
+            known_at=datetime(2026, 11, 3, 8, tzinfo=UTC),
+            snapshot_sealed_at=datetime(2026, 11, 3, 7, tzinfo=UTC),
+            tickers=("1234",),
+        )
+        assert proven["1234"][0].total_stocks == 2500000
+        unproven, _ = read_holder_capital(
+            connection,
+            as_of=date(2026, 11, 3),
+            known_at=datetime(2026, 11, 3, 6, tzinfo=UTC),
+            snapshot_sealed_at=datetime(2026, 11, 3, 7, tzinfo=UTC),
+            tickers=("1234",),
+        )
+        assert unproven == {}
+        earlier_asof, _ = read_holder_capital(
+            connection,
+            as_of=date(2026, 11, 2),
+            known_at=datetime(2026, 11, 3, 8, tzinfo=UTC),
+            snapshot_sealed_at=datetime(2026, 11, 3, 7, tzinfo=UTC),
+            tickers=("1234",),
+        )
+        assert earlier_asof == {}
