@@ -162,9 +162,13 @@ def _journal(stream: TextIO, event: dict[str, Any]) -> None:
 BATCH_WORKFLOWS = frozenset(
     {
         "cloud-article-sources.yml",
+        "cloud-batch-watchdog.yml",
         "cloud-daily-batch.yml",
+        "cloud-economic-source.yml",
         "cloud-economic-sources.yml",
+        "cloud-external-assessment-source.yml",
         "cloud-external-assessment.yml",
+        "cloud-market-source.yml",
         "cloud-market-sources.yml",
         "cloud-materialize.yml",
         "cloud-tradingview-market-daily.yml",
