@@ -11,9 +11,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TextIO, cast
+
+from botocore.exceptions import ClientError
 
 PREFIX = "coordination/source-inputs/"
 KEY = re.compile(
@@ -82,9 +87,9 @@ def _pointers(client: Any, bucket: str) -> dict[str, tuple[str, str]]:
     return result
 
 
-def _handoff_receipts(client: Any, bucket: str) -> set[str]:
-    """A surviving handoff pins its exact receipt, even for an old generation."""
-    referenced: set[str] = set()
+def _handoff_receipts(client: Any, bucket: str) -> dict[str, tuple[str, str]]:
+    """Map each exact receipt to its stage manifest and the manifest's digest."""
+    referenced: dict[str, tuple[str, str]] = {}
     for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=PREFIX):
         for obj in page.get("Contents", []):
             key = obj["Key"]
@@ -96,7 +101,8 @@ def _handoff_receipts(client: Any, bucket: str) -> set[str]:
             response = client.get_object(Bucket=bucket, Key=key)
             body = response["Body"]
             try:
-                handoff = json.loads(body.read(), object_pairs_hook=_unique_members)
+                payload = body.read()
+                handoff = json.loads(payload, object_pairs_hook=_unique_members)
             finally:
                 body.close()
             if not isinstance(handoff, dict) or not isinstance(handoff.get("receipt_key"), str):
@@ -106,15 +112,73 @@ def _handoff_receipts(client: Any, bucket: str) -> set[str]:
                 key.removesuffix("handoff.json")
             ):
                 raise ValueError("handoff references an unexpected receipt")
-            referenced.add(receipt)
+            if receipt in referenced:
+                raise ValueError("multiple handoffs reference a receipt")
+            referenced[receipt] = (key, hashlib.sha256(payload).hexdigest())
     return referenced
 
 
-def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, Any]:
+def _check_retired_handoff(
+    client: Any, bucket: str, receipt: str, expected: tuple[str, str] | None
+) -> None:
+    if expected is None:
+        raise ValueError("a deleted receipt must have an explicitly retired handoff")
+    key, digest = expected
+    if key != receipt.rsplit("/", 1)[0] + "/handoff.json":
+        raise ValueError("retired handoff path differs")
+    response = client.get_object(Bucket=bucket, Key=key)
+    body = response["Body"]
+    try:
+        payload = body.read()
+    finally:
+        body.close()
+    if hashlib.sha256(payload).hexdigest() != digest:
+        raise ValueError("retired handoff changed")
+    handoff = json.loads(payload, object_pairs_hook=_unique_members)
+    if not isinstance(handoff, dict) or handoff.get("receipt_key") != receipt:
+        raise ValueError("retired handoff receipt changed")
+
+
+def _journal(stream: TextIO, event: dict[str, Any]) -> None:
+    stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+
+
+def _github_idle() -> None:
+    """Refuse cleanup if a source reader or publisher is active or cannot be checked."""
+    for workflow in ("cloud-market-sources.yml", "cloud-daily-batch.yml"):
+        for status in ("queued", "in_progress", "waiting", "requested", "pending"):
+            endpoint = (
+                f"repos/koumatsumoto/baibai-loop/actions/workflows/{workflow}/runs"
+                f"?status={status}&per_page=1"
+            )
+            result = subprocess.run(
+                ["gh", "api", endpoint], capture_output=True, text=True, check=False, timeout=30
+            )
+            if result.returncode != 0:
+                raise RuntimeError("cannot verify GitHub Actions activity")
+            response = json.loads(result.stdout, object_pairs_hook=_unique_members)
+            if type(response.get("total_count")) is not int or response["total_count"] != 0:
+                raise RuntimeError("source reader or publisher is active")
+
+
+def run(
+    client: Any,
+    plan: dict[str, Any],
+    *,
+    apply: bool = False,
+    guard: Callable[[], None] | None = None,
+    journal: TextIO | None = None,
+    plan_sha256: str | None = None,
+) -> dict[str, Any]:
     """Validate every precondition before deletion; abort on the first error."""
-    if apply:
-        raise RuntimeError("apply disabled pending reference, concurrency and R2 safety review")
-    if set(plan) != {"bucket", "pointers", "groups"} or plan["bucket"] != "baibai-stores":
+    if apply and (guard is None or journal is None or plan_sha256 is None):
+        raise RuntimeError("apply requires verified lease, run guard and durable journal")
+    if (
+        set(plan) != {"bucket", "account_endpoint_sha256", "pointers", "groups", "retired_handoffs"}
+        or plan["bucket"] != "baibai-stores"
+    ):
         raise ValueError("unexpected cleanup scope")
     bucket = plan["bucket"]
     expected = {k: tuple(v) for k, v in plan["pointers"].items()}
@@ -122,6 +186,7 @@ def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, 
         raise ValueError("current pointers changed or enumeration incomplete")
     current_stages = {stage for _, stage in expected.values()}
     referenced = _handoff_receipts(client, bucket)
+    retired = {key: tuple(value) for key, value in plan["retired_handoffs"].items()}
     all_keys: set[str] = set()
     deletions: list[dict[str, Any]] = []
     for group in plan["groups"]:
@@ -152,19 +217,59 @@ def run(client: Any, plan: dict[str, Any], *, apply: bool = False) -> dict[str, 
             ):
                 raise ValueError("duplicate identity differs")
             _check_receipt(client, bucket, item)
-        if any(item["key"] in referenced for item in group["delete"]):
-            raise ValueError("receipt is referenced by a surviving handoff")
+        for item in group["delete"]:
+            actual = referenced.get(item["key"])
+            allowed = retired.get(item["key"])
+            if actual != allowed:
+                raise ValueError("handoff reference differs from approved plan")
         deletions.extend(group["delete"])
     if not deletions:
         raise ValueError("empty deletion plan")
+    if set(retired) != {item["key"] for item in deletions if item["key"] in referenced}:
+        raise ValueError("retired handoff scope differs from approved plan")
     for group in plan["groups"]:
         _verify_survivor_bytes(client, bucket, group["keep"])
-    return {
-        "mode": "dry-run",
+    report: dict[str, Any] = {
+        "mode": "apply" if apply else "dry-run",
         "objects": len(deletions),
         "bytes": sum(x["size"] for x in deletions),
         "deleted": [],
     }
+    if not apply:
+        return report
+    assert guard is not None
+    assert journal is not None
+    assert plan_sha256 is not None
+    for group in plan["groups"]:
+        for item in group["delete"]:
+            guard()
+            if _pointers(client, bucket) != expected:
+                raise ValueError("current pointers changed during cleanup")
+            _check_retired_handoff(client, bucket, item["key"], retired.get(item["key"]))
+            _check_receipt(client, bucket, group["keep"])
+            _check_receipt(client, bucket, item)
+            _journal(journal, {"event": "intent", "plan_sha256": plan_sha256, **item})
+            try:
+                client.delete_object(Bucket=bucket, Key=item["key"], IfMatch=item["etag"])
+                try:
+                    _head(client, bucket, item["key"])
+                except ClientError as error:
+                    status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    if status != 404:
+                        raise
+                else:
+                    raise RuntimeError("deleted key still exists")
+            except BaseException:
+                _journal(journal, {"event": "outcome_unknown", "key": item["key"]})
+                raise
+            _journal(journal, {"event": "confirmed_absent", "key": item["key"]})
+            report["deleted"].append(item["key"])
+    guard()
+    if _pointers(client, bucket) != expected:
+        raise ValueError("current pointers changed at final check")
+    for group in plan["groups"]:
+        _check_receipt(client, bucket, group["keep"])
+    return report
 
 
 def main() -> None:
@@ -172,16 +277,57 @@ def main() -> None:
     parser.add_argument("plan", type=Path)
     parser.add_argument("--plan-sha256", required=True)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--journal", type=Path)
     args = parser.parse_args()
     payload = args.plan.read_bytes()
     if hashlib.sha256(payload).hexdigest() != args.plan_sha256:
         raise SystemExit("plan digest mismatch")
     plan = json.loads(payload, object_pairs_hook=_unique_members)
     from baibai_engine.storage.objects.r2 import Boto3R2Store
+    from baibai_jobs.publication.lease import acquire, release, verify_held
 
     store = Boto3R2Store(bucket="baibai-stores")
     try:
-        print(json.dumps(run(store._client(), plan, apply=args.apply), ensure_ascii=False))
+        if not args.apply:
+            print(json.dumps(run(store._client(), plan), ensure_ascii=False))
+            return
+        if not args.journal:
+            raise ValueError("apply requires journal path")
+        actual_account = hashlib.sha256(store.endpoint.encode()).hexdigest()
+        if actual_account != plan.get("account_endpoint_sha256"):
+            raise ValueError("R2 account endpoint differs from the approved destination")
+        # The journal stores metadata and outcomes, not a copy of the data.
+        fd = os.open(args.journal, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        directory_fd = os.open(args.journal.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        with os.fdopen(fd, "w", encoding="utf-8") as journal:
+            _journal(journal, {"event": "start", "plan_sha256": args.plan_sha256})
+            handle, expired_previous = acquire(store, "operator")
+            try:
+                if expired_previous:
+                    raise RuntimeError("previous publication lease expired; investigate first")
+
+                def guard() -> None:
+                    verify_held(store, handle)
+                    _github_idle()
+                    verify_held(store, handle)
+
+                guard()
+                report = run(
+                    store._client(),
+                    plan,
+                    apply=True,
+                    guard=guard,
+                    journal=journal,
+                    plan_sha256=args.plan_sha256,
+                )
+                _journal(journal, {"event": "completed", "objects": len(report["deleted"])})
+                print(json.dumps(report, ensure_ascii=False))
+            finally:
+                release(store, handle)
     finally:
         store.close()
 
