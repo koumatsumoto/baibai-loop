@@ -297,3 +297,39 @@ def test_reported_flows_and_independent_cfo_interval_survive_l3_brief():
     assert brief["edinet_reported_flows"] == financial["edinet_reported_flows"]
     assert brief["ocf_ttm_period"] == financial["ocf_ttm_period"]
     assert brief["ocf_ttm"] == financial["ocf_ttm"]
+
+
+def test_brief_keeps_ttm_operating_and_parent_profit_with_their_basis():
+    company = card()
+    company["context"]["annual_observation"] = {
+        "selected_variant": "annual_ttm",
+        "latest_ttm_basis": {
+            "period_start": "2025-07-01",
+            "period_end": "2026-06-30",
+            "statement_basis": "consolidated",
+            "accounting_standard": "JP",
+        },
+        "latest_ttm_metrics": {
+            "operating_profit": {"value": 100.0, "reason": None},
+            "parent_profit": {"value": 1500.0, "reason": None},
+        },
+    }
+    annual = economic_screening_brief(result(company))["cards"][0]["context"]["annual_observation"]
+    assert annual["latest_ttm_income"]["operating_profit"]["value"] == 100.0
+    assert annual["latest_ttm_income"]["parent_profit"]["value"] == 1500.0
+    assert annual["latest_ttm_basis"]["period_start"] == "2025-07-01"
+    assert annual["latest_ttm_basis"]["statement_basis"] == "consolidated"
+    assert "recurring" not in str(annual)
+
+
+def test_brief_does_not_fill_missing_ttm_income():
+    company = card()
+    company["context"]["annual_observation"] = {
+        "latest_ttm_metrics": {"operating_profit": {"value": None, "reason": "period_incomparable"}}
+    }
+    annual = economic_screening_brief(result(company))["cards"][0]["context"]["annual_observation"]
+    assert annual["latest_ttm_income"]["operating_profit"] == {
+        "value": None,
+        "reason": "period_incomparable",
+    }
+    assert annual["latest_ttm_income"]["parent_profit"] == {}
