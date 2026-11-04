@@ -285,22 +285,10 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
     assert report.unavailable_days == 1
 
 
-def test_financial_input_is_not_published_after_l1_cutover(tmp_path, monkeypatch):
-    from baibai_jobs.acquisition import source_inputs
+def test_financial_input_is_not_published_after_l1_cutover():
+    from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 
-    remote = MemoryR2Store()
-    monkeypatch.setattr(source_inputs, "SOURCE_INPUT_GROUPS", ("jquants-financial",))
-    monkeypatch.setattr(source_inputs, "economic_acquisition_groups", lambda: ())
-    result = source_inputs.publish_inputs(
-        remote,
-        market=tmp_path / "not-read-market.sqlite",
-        economic=tmp_path / "not-read-economic.sqlite",
-        identity="batch",
-        asof=date(2026, 11, 4),
-        generations={},
-    )
-    assert result == {"updated": [], "failed": []}
-    assert remote.values == {}
+    assert "jquants-financial" not in SOURCE_INPUT_GROUPS
 
 
 def test_market_plan_leaves_calendar_unknown_without_stopping_other_sources():

@@ -104,11 +104,7 @@ def materialize_price_days(
                 batch = pa.Table.from_arrays(
                     [pa.array(column) for column in zip(*result.rows, strict=True)], names=names
                 )
-                connection.register("_price_l1_batch", batch)
-                try:
-                    connection.execute("INSERT INTO daily_bars SELECT * FROM _price_l1_batch")
-                finally:
-                    connection.unregister("_price_l1_batch")
+                connection.from_arrow(batch).insert_into("daily_bars")
             connection.execute(
                 "INSERT INTO price_receipt_status VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
