@@ -35,7 +35,7 @@ def test_scoped_acquisition_passes_database_to_child_and_export(tmp_path, mocker
     arguments = [
         "acquire",
         "--source",
-        "jquants-market",
+        "jpx-earnings",
         "--asof",
         "2026-10-24",
         "--database",
