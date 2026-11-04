@@ -7,6 +7,7 @@ import json
 import os
 import subprocess  # nosec B404
 import sys
+import tempfile
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -162,6 +163,43 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
     raise ValueError("unsupported market handoff source")
 
 
+def _acquire_financial_l1(asof: date, directory: Path) -> bool:
+    """Acquire from a fixed L1 release without publishing a copied L2 input."""
+    from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+    from baibai_engine.primitives.market_windows import (
+        FINANCIAL_HISTORY_DAYS,
+        FINANCIAL_REVISION_OVERLAP_DAYS,
+    )
+    from baibai_engine.storage.snapshots.objects import open_lake
+    from baibai_engine.storage.snapshots.reader import resolve_current_release
+    from baibai_jobs.acquisition.jquants_financial_receive import run_l1_financial_acquisition
+    from baibai_jobs.publication.datasets import LAKE_DATASETS
+    from baibai_jobs.publication.policy import release_policy_for_profile
+
+    bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+    with (
+        tempfile.TemporaryDirectory(prefix="financial-l1-") as temporary,
+        open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
+        closing(Boto3R2Store(bucket=bucket)) as store,
+        closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
+    ):
+        release = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
+        return run_l1_financial_acquisition(
+            session,
+            release=release,
+            cache=cache,
+            store=store,
+            directory=directory,
+            asof=asof,
+            scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
+            lookback_days=FINANCIAL_HISTORY_DAYS,
+            revision_overlap_days=FINANCIAL_REVISION_OVERLAP_DAYS,
+            client=client,
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -243,6 +281,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in {"acquire", "export"}:
             if args.asof is None or (args.command == "export" and args.since is None):
                 raise ValueError("--asof and export --since are required")
+            if args.command == "acquire" and args.source == "jquants-financial":
+                ok = _acquire_financial_l1(args.asof, directory)
+                if output := os.environ.get("GITHUB_OUTPUT"):
+                    with Path(output).open("a", encoding="utf-8") as stream:
+                        print("stage_ready=true", file=stream)
+                return int(not ok)
             since = args.since or datetime.now(UTC)
             before = (
                 _retained_archive_keys(args.database)

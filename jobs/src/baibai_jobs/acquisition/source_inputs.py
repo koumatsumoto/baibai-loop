@@ -58,6 +58,8 @@ def publish_inputs(
         if only_group not in groups:
             raise ValueError("unsupported source input group")
         groups = [only_group]
+    # Financial acquisition plans from retained originals, not a copied L2 input.
+    groups = [group for group in groups if group != "jquants-financial"]
     updated: list[str] = []
     failed: list[dict[str, str]] = []
     for group in groups:

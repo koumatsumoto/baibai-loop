@@ -158,3 +158,42 @@ def test_l1_acquisition_scheduled_holiday_does_not_fetch(tmp_path, monkeypatch) 
     report = json.loads((output / "result.json").read_text())
     assert report["acquisition"]["status"] == "skipped_non_business_day"
     assert report["request_ids"] == []
+
+
+def test_financial_command_stages_failed_partial_handoff(tmp_path, monkeypatch) -> None:
+    from baibai_jobs.integration import source_handoff
+
+    directory = tmp_path / "stage"
+    output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    def acquisition(asof, target):
+        from baibai_jobs.acquisition.jquants_financial_receive import receive_financial_handoff
+
+        return receive_financial_handoff(
+            target,
+            [asof],
+            asof=asof,
+            started_at=datetime(2026, 11, 4, tzinfo=UTC),
+            client=Client(partial=True),
+        )
+
+    monkeypatch.setattr(source_handoff, "_acquire_financial_l1", acquisition)
+    assert (
+        source_handoff.main(
+            [
+                "acquire",
+                "--source",
+                "jquants-financial",
+                "--asof",
+                "2026-11-02",
+                "--input-directory",
+                str(tmp_path / "missing-input"),
+                "--directory",
+                str(directory),
+            ]
+        )
+        == 1
+    )
+    assert "stage_ready=true" in output.read_text()
+    assert len(json.loads((directory / "result.json").read_text())["request_ids"]) == 1

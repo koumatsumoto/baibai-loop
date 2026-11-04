@@ -30,6 +30,7 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_publica
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
+from baibai_engine.primitives.market_windows import FINANCIAL_REVISION_OVERLAP_DAYS
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     count_overlapping_source_coverage,
     count_source_coverage,
@@ -281,7 +282,7 @@ _WEEKLY_MARGIN_BOOTSTRAP_DAYS = 230
 _SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS = 7
 _MARGIN_ALERT_REVISION_OVERLAP_DAYS = 7
 
-FIN_SUMMARY_REVISION_OVERLAP_DAYS = 7
+FIN_SUMMARY_REVISION_OVERLAP_DAYS = FINANCIAL_REVISION_OVERLAP_DAYS
 """How far back a bootstrap re-reads financial summaries it already has.
 
 A correction is disclosed on its own date and arrives as a new row, so past days
