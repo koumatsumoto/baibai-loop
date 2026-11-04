@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import suppress
-from datetime import date
+from datetime import date, datetime
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsRequest,
@@ -19,7 +19,7 @@ def select_full_days(
     """Return complete receipts and count incomplete evidence per requested day."""
     selected: dict[date, tuple[str, JQuantsRequest]] = {}
     ambiguous: set[date] = set()
-    incomplete = dict.fromkeys(days, 0)
+    pending: dict[date, list[datetime | None]] = {day: [] for day in days}
     for item in requests:
         request = item.request
         if request is None:
@@ -28,7 +28,7 @@ def select_full_days(
                 with suppress(ValueError):
                     affected = {date.fromisoformat(item.first_query["date"])} & days
             for day in affected:
-                incomplete[day] += 1
+                pending[day].append(item.last_received_at)
             continue
         if request.source != source or set(request.params) != {"date"}:
             continue
@@ -36,7 +36,7 @@ def select_full_days(
             day = date.fromisoformat(request.params["date"])
         except ValueError:
             for affected_day in days:
-                incomplete[affected_day] += 1
+                pending[affected_day].append(request.received_at)
             continue
         if day not in days:
             continue
@@ -48,4 +48,11 @@ def select_full_days(
             ambiguous.add(day)
     if ambiguous:
         raise ValueError("receipts have an ambiguous latest time")
+    incomplete = {
+        day: sum(
+            stamp is None or day not in selected or stamp >= selected[day][1].received_at
+            for stamp in stamps
+        )
+        for day, stamps in pending.items()
+    }
     return selected, incomplete

@@ -9,14 +9,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
+from baibai_engine.data_collection.providers.jquants.contracts import JQuantsSource, RetainedRequest
 from baibai_engine.data_collection.providers.jquants.retained import decode_retained_rows
 
 if TYPE_CHECKING:
     from baibai_engine.storage.snapshots.reader import FixedRelease
 
 
-def iter_pending_financial_requests(path: Path, *, known_at: datetime) -> Iterator[RetainedRequest]:
+def iter_pending_requests(
+    path: Path, *, source: JQuantsSource, known_at: datetime
+) -> Iterator[RetainedRequest]:
     """Read one verified private handoff; caller owns its retention and digest check."""
     if known_at.utcoffset() is None:
         raise ValueError("known_at requires a timezone")
@@ -28,7 +30,7 @@ def iter_pending_financial_requests(path: Path, *, known_at: datetime) -> Iterat
             "FROM jquants_source_pages WHERE request_id IN "
             "(SELECT request_id FROM jquants_source_pages WHERE source = ?) "
             "ORDER BY request_id, page_index",
-            ("financial_summaries",),
+            (source,),
         )
         current: str | None = None
         pages: list[tuple[object, ...]] = []

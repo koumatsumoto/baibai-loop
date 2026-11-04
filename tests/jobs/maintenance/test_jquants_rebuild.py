@@ -202,6 +202,17 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             days=[date(2026, 11, 2), date(2026, 11, 3)],
             known_at=datetime(2026, 11, 4, tzinfo=UTC),
         )
+        from baibai_jobs.acquisition.jquants_market_plan import plan_fixed_prices
+
+        price_plan = plan_fixed_prices(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            start=date(2026, 11, 2),
+            end=date(2026, 11, 3),
+            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+        )
+        assert price_plan.plan.days == (date(2026, 11, 3),)
         price_report = rebuild_fixed_days(
             session,
             release=release,

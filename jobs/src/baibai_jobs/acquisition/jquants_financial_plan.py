@@ -22,7 +22,7 @@ from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import FixedRelease, accepted_dataset
 from baibai_jobs.acquisition.jquants_pending import (
-    iter_pending_financial_requests,
+    iter_pending_requests,
     retained_snapshot_time,
     select_handoffs_after_snapshot,
 )
@@ -61,7 +61,7 @@ def plan_fixed_financial_acquisition(
             session, release=release, cache=cache, source="financial_summaries", known_at=known_at
         )
         for path in pending_paths:
-            yield from iter_pending_financial_requests(path, known_at=known_at)
+            yield from iter_pending_requests(path, source="financial_summaries", known_at=known_at)
         for stage in unavailable_stages:
             yield RetainedRequest(f"stage:{stage}", None, "unavailable handoff")
 

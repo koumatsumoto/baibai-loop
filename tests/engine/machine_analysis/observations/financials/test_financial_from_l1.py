@@ -199,3 +199,10 @@ def test_multiple_days_are_built_in_one_pass_and_missing_is_not_empty() -> None:
     assert result[DAY].incomplete_requests == 0
     assert result[other].status == "unavailable"
     assert result[other].incomplete_requests == 1
+
+
+def test_later_complete_receipt_resolves_prior_partial() -> None:
+    at = datetime(2026, 11, 3, tzinfo=UTC)
+    old_partial = RetainedRequest("old", None, "partial", {"date": "20261102"}, at)
+    newer = receipt("new", at + timedelta(seconds=1), [record(2)])
+    assert rebuild_financial_day([old_partial, newer], day=DAY).incomplete_requests == 0

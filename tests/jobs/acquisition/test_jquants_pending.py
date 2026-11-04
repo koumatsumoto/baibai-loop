@@ -6,7 +6,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
-from baibai_jobs.acquisition.jquants_pending import iter_pending_financial_requests
+from baibai_jobs.acquisition.jquants_pending import iter_pending_requests
 
 
 def test_pending_reads_only_original_pages_and_retains_partial(tmp_path) -> None:
@@ -31,7 +31,9 @@ def test_pending_reads_only_original_pages_and_retains_partial(tmp_path) -> None
                 ),
             )
     entries = list(
-        iter_pending_financial_requests(path, known_at=datetime(2026, 11, 4, tzinfo=UTC))
+        iter_pending_requests(
+            path, source="financial_summaries", known_at=datetime(2026, 11, 4, tzinfo=UTC)
+        )
     )
     assert [entry.request_id for entry in entries] == ["complete", "partial"]
     assert entries[0].request is not None
