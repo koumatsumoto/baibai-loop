@@ -116,3 +116,45 @@ def test_unavailable_original_blocks_planned_acquisition(tmp_path) -> None:
     with pytest.raises(ValueError, match="unavailable originals"):
         receive_planned_handoff(tmp_path / "out", frozen, asof=date(2026, 11, 2), client=Client())
     assert not (tmp_path / "out").exists()
+
+
+def test_l1_acquisition_scheduled_holiday_does_not_fetch(tmp_path, monkeypatch) -> None:
+    from baibai_engine.data_collection.providers.jquants.financial_plan import (
+        FinancialAcquisitionPlan,
+    )
+    from baibai_jobs.acquisition import jquants_financial_receive as receiver
+    from baibai_jobs.acquisition.jquants_financial_plan import (
+        FixedFinancialPlan,
+        FrozenFinancialPlan,
+    )
+
+    plan = FinancialAcquisitionPlan((date(2026, 11, 2),), ())
+    frozen = FrozenFinancialPlan(
+        FixedFinancialPlan("r", "0" * 64, "partial", plan),
+        datetime(2026, 11, 4, tzinfo=UTC),
+        (),
+        (),
+    )
+    monkeypatch.setattr(receiver, "freeze_financial_acquisition_plan", lambda *a, **kw: frozen)
+    monkeypatch.setattr(receiver, "available_handoffs", lambda *a, **kw: [])
+    monkeypatch.setattr(
+        receiver, "retained_snapshot_time", lambda *a: datetime(2026, 11, 3, tzinfo=UTC)
+    )
+    monkeypatch.setattr(receiver, "iter_fixed_retained_requests", lambda *a, **kw: iter(()))
+    monkeypatch.setattr(receiver, "business_day_from_originals", lambda *a: False)
+    output = tmp_path / "holiday"
+    assert receiver.run_l1_financial_acquisition(
+        object(),
+        release=object(),
+        cache=object(),
+        store=object(),
+        directory=output,
+        asof=date(2026, 11, 2),
+        scheduled=True,
+        lookback_days=2200,
+        revision_overlap_days=7,
+        client=Client(),
+    )
+    report = json.loads((output / "result.json").read_text())
+    assert report["acquisition"]["status"] == "skipped_non_business_day"
+    assert report["request_ids"] == []

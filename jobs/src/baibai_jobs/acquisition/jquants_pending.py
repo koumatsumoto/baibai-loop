@@ -63,7 +63,10 @@ def retained_snapshot_time(release: FixedRelease) -> datetime | None:
 
 
 def select_pending_financial_handoffs(
-    entries: list[dict[str, object]], *, captured_at: datetime | None
+    entries: list[dict[str, object]],
+    *,
+    captured_at: datetime | None,
+    source: str = "jquants-financial",
 ) -> tuple[list[dict[str, object]], tuple[str, ...]]:
     """Keep originals not provably in the fixed snapshot; never consult L2."""
     selected: list[dict[str, object]] = []
@@ -73,7 +76,7 @@ def select_pending_financial_handoffs(
         if entry.get("invalid"):
             unavailable.append(stage)
             continue
-        if entry.get("source") != "jquants-financial":
+        if entry.get("source") != source:
             raise ValueError("unexpected handoff source")
         marker = entry.get("integration")
         if isinstance(marker, dict) and marker.get("status") == "integrated" and captured_at:

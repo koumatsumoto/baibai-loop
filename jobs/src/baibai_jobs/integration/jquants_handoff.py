@@ -173,7 +173,29 @@ def import_handoff(
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as original,
         closing(open_connection(target)) as conn,
     ):
-        validate_current_schema(original)
+        tables = {
+            row[0]
+            for row in original.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        if set(sources) == {"financial_summaries"} and tables == {"jquants_source_pages"}:
+            columns = [
+                (row[1], row[2], row[3], row[5])
+                for row in original.execute("PRAGMA table_info(jquants_source_pages)")
+            ]
+            if columns != [
+                ("request_id", "TEXT", 1, 1),
+                ("page_index", "INTEGER", 1, 2),
+                ("source", "TEXT", 1, 0),
+                ("query_json", "TEXT", 1, 0),
+                ("received_at_utc", "TEXT", 1, 0),
+                ("received_on", "TEXT", 1, 0),
+                ("body_gzip", "BLOB", 1, 0),
+            ]:
+                raise ValueError("invalid source-only receipt schema")
+        else:
+            validate_current_schema(original)
         incoming = [
             scope for scope in _headers(original, set(sources)) if scope.request_id in request_ids
         ]
