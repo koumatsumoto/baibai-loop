@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsSource, RetainedRequest
+from baibai_engine.data_collection.providers.jquants.dependencies import (
+    dependency_covers_day,
+    dependency_from_request,
+)
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
@@ -94,6 +99,7 @@ class FixedMarketIndexes:
     known_at: datetime
     indexes: dict[JQuantsSource, NativeMarketIndex]
     unavailable_stages: tuple[str, ...]
+    dependencies: tuple[dict[str, Any], ...]
 
 
 def freeze_market_originals(
@@ -102,6 +108,7 @@ def freeze_market_originals(
     release: FixedRelease,
     cache: LakeObjectCache,
     store: ReceiptStore,
+    asof: date,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FixedMarketIndexes:
     """Freeze L1 and pending market originals once; never consult an L2 input."""
@@ -118,19 +125,47 @@ def freeze_market_originals(
         pending,
         missing,
     ):
+        dependencies: dict[JQuantsSource, tuple[datetime, str, dict[str, Any]]] = {}
 
         def originals(source: JQuantsSource) -> Iterator[RetainedRequest]:
-            yield from iter_fixed_retained_requests(
-                session, release=release, cache=cache, source=source, known_at=known_at
+            def inspect(items: Iterable[RetainedRequest]) -> Iterator[RetainedRequest]:
+                for item in items:
+                    request = item.request
+                    if (
+                        request is not None
+                        and source in {"master", "market_calendar"}
+                        and (dependency_covers_day(source, request.params, asof))
+                    ):
+                        old = dependencies.get(source)
+                        if old is None or (request.received_at, item.request_id) > (old[0], old[1]):
+                            dependencies[source] = (
+                                request.received_at,
+                                item.request_id,
+                                dependency_from_request(item.request_id, request),
+                            )
+                    yield item
+
+            yield from inspect(
+                iter_fixed_retained_requests(
+                    session, release=release, cache=cache, source=source, known_at=known_at
+                )
             )
             for _, path in pending:
-                yield from iter_pending_requests(path, source=source, known_at=known_at)
+                yield from inspect(iter_pending_requests(path, source=source, known_at=known_at))
             for stage in missing:
                 yield RetainedRequest(f"stage:{stage}", None, "unavailable handoff")
 
         indexes = {
             source: index_market_originals(originals(source), source=source) for source in sources
         }
+        for source, old in tuple(dependencies.items()):
+            for failed in indexes[source].incomplete:
+                query = dict(failed.query or ())
+                if (not query or dependency_covers_day(source, query, asof)) and (
+                    failed.received_at is None or failed.received_at >= old[0]
+                ):
+                    dependencies.pop(source)
+                    break
     dataset = accepted_dataset(release, JQUANTS_SOURCE_PAGES)
     return FixedMarketIndexes(
         release.release_id,
@@ -139,6 +174,7 @@ def freeze_market_originals(
         known_at,
         indexes,
         tuple(sorted(missing)),
+        tuple(item[2] for _, item in sorted(dependencies.items())),
     )
 
 

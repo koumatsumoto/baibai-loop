@@ -52,22 +52,29 @@ def export_dependencies(database: Path, *, day: date, master_asof: date) -> list
             previous = latest.get(request.source)
             if previous and request.received_at <= datetime.fromisoformat(previous["received_at"]):
                 continue
-            latest[request.source] = {
-                "format": "jquants-acquisition-dependency-v1",
-                "request_id": request_id,
-                "source": request.source,
-                "params": dict(request.params),
-                "received_at": request.received_at.isoformat(),
-                "pages": [
-                    {
-                        "query": dict(page.query),
-                        "received_at": page.received_at.isoformat(),
-                        "body_gzip": base64.b64encode(gzip.compress(page.body, mtime=0)).decode(),
-                    }
-                    for page in request.pages
-                ],
-            }
+            latest[request.source] = dependency_from_request(request_id, request)
     return list(latest.values())
+
+
+def dependency_from_request(request_id: str, request: JQuantsRequest) -> dict[str, Any]:
+    """Serialize a complete native receipt without depending on its physical store."""
+    if request.source not in {"master", "market_calendar"}:
+        raise ValueError("unsupported acquisition dependency")
+    return {
+        "format": "jquants-acquisition-dependency-v1",
+        "request_id": request_id,
+        "source": request.source,
+        "params": dict(request.params),
+        "received_at": request.received_at.isoformat(),
+        "pages": [
+            {
+                "query": dict(page.query),
+                "received_at": page.received_at.isoformat(),
+                "body_gzip": base64.b64encode(gzip.compress(page.body, mtime=0)).decode(),
+            }
+            for page in request.pages
+        ],
+    }
 
 
 def read_dependency(value: dict[str, Any]) -> JQuantsRequest:

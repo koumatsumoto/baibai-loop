@@ -13,12 +13,10 @@ from pathlib import Path
 from baibai_engine.data_collection.providers.jquants.acquisition import acquire_request
 from baibai_engine.data_collection.providers.jquants.calendar import business_day_from_originals
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
-from baibai_engine.data_collection.providers.jquants.contracts import JQuantsAcquisitionError
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
-from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
@@ -77,11 +75,14 @@ def receive_financial_handoff(
         raise ValueError("started_at requires a timezone")
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / "receipts.sqlite"
-    failed = False
+    failure: str | None = None
     try:
         receive_financial_days(output, days, client=client, sleep=sleep)
-    except (JQuantsAcquisitionError, AcquisitionDeadlineExceeded):
-        failed = True
+    except Exception as error:
+        if not output.is_file():
+            raise
+        # Keep received source pages even on an unexpected acquisition failure.
+        failure = type(error).__name__
     with closing(sqlite3.connect(output.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         ids = [
             row[0]
@@ -96,10 +97,13 @@ def receive_financial_handoff(
             "asof": asof.isoformat(),
             "started_at": started_at.isoformat(),
             "request_ids": ids,
-            "acquisition": {"status": "failed" if failed else "received"},
+            "acquisition": {
+                "status": "failed" if failure else "received",
+                **({"failure_type": failure} if failure else {}),
+            },
         },
     )
-    return not failed
+    return failure is None
 
 
 def receive_planned_handoff(

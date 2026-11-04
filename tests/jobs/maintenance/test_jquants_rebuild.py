@@ -59,6 +59,21 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             json.dumps({"data": [{"Code": "13010", "Date": "2026-11-02", "C": 100}]}).encode(),
             mtime=0,
         )
+        calendar_body = gzip.compress(
+            json.dumps({"data": [{"Date": "2026-11-02", "HolDiv": "1"}]}).encode(), mtime=0
+        )
+        conn.execute(
+            "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "calendar",
+                0,
+                "market_calendar",
+                json.dumps({"from": "20261102", "to": "20261102"}),
+                "2026-11-03T00:00:00.000000+00:00",
+                "2026-11-03",
+                calendar_body,
+            ),
+        )
         conn.execute(
             "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
@@ -216,12 +231,26 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             release=release,
             cache=LakeObjectCache(root=tmp_path / "cache", source=source),
             store=market_remote,
+            asof=date(2026, 11, 2),
             clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
         )
         assert market.unavailable_stages == ("jquants-market-bad",)
         assert len(market.indexes["daily_bars"].receipts) == 1
         assert market.indexes["daily_bars"].incomplete[0].request_id == "stage:jquants-market-bad"
         assert market.indexes["master"].incomplete[0].request_id == "stage:jquants-market-bad"
+        assert market.dependencies == ()
+        complete_market = freeze_market_originals(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            store=MemoryR2Store(),
+            asof=date(2026, 11, 2),
+            clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
+        )
+        from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
+
+        assert len(complete_market.dependencies) == 1
+        assert read_dependency(complete_market.dependencies[0]).source == "market_calendar"
         price_plan = plan_fixed_prices(
             session,
             release=release,
