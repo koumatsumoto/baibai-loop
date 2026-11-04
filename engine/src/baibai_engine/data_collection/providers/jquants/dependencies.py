@@ -14,10 +14,10 @@ from typing import Any
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
-)
-from baibai_engine.data_collection.providers.jquants.receipts import (
     JQuantsRequest,
     complete_request,
+)
+from baibai_engine.data_collection.providers.jquants.receipts import (
     read_complete_request,
 )
 
