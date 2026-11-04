@@ -139,3 +139,89 @@ def test_required_days_distinguishes_nonempty_rule_and_partial():
     assert plan_required_days(index, days=requested, require_nonempty=False).days == (
         date(2026, 11, 4),
     )
+
+
+def test_calendar_sessions_preserve_missing_days():
+    from baibai_engine.data_collection.providers.jquants.market_index import calendar_sessions
+
+    source = receipt(
+        "calendar",
+        "market_calendar",
+        {"from": "20261101", "to": "20261103"},
+        [{"Date": "2026-11-01", "HolDiv": "0"}, {"Date": "2026-11-02", "HolDiv": "1"}],
+    )
+    sessions, unknown = calendar_sessions(
+        index_market_originals([source], source="market_calendar"),
+        start=date(2026, 11, 1),
+        end=date(2026, 11, 3),
+    )
+    assert sessions == {date(2026, 11, 1): False, date(2026, 11, 2): True, date(2026, 11, 3): None}
+    assert unknown == ()
+
+
+def test_daily_margin_waits_for_next_session_and_retains_calendar_gaps():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_daily_margin
+
+    calendar = receipt(
+        "calendar",
+        "market_calendar",
+        {"from": "20261102", "to": "20261105"},
+        [
+            {"Date": "2026-11-02", "HolDiv": "1"},
+            {"Date": "2026-11-03", "HolDiv": "0"},
+            {"Date": "2026-11-04", "HolDiv": "1"},
+        ],
+    )
+    margin = receipt("margin", "margin_interest", {"date": "20261102"}, [])
+    result = plan_daily_margin(
+        index_market_originals([margin], source="margin_interest"),
+        index_market_originals([calendar], source="market_calendar"),
+        first_balance_date=date(2026, 11, 2),
+        asof=date(2026, 11, 5),
+    )
+    assert result.days == (date(2026, 11, 2),)
+    assert result.unknown_calendar_days == (date(2026, 11, 5),)
+
+
+def test_weekly_margin_does_not_refresh_postpublication_empty():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_weekly_margin
+
+    rows = [
+        {"Date": f"2026-09-{day:02}", "HolDiv": "1" if day in {14, 15, 16, 17, 18, 21, 22} else "0"}
+        for day in range(14, 23)
+    ]
+    calendar = receipt("calendar", "market_calendar", {"from": "20260914", "to": "20260922"}, rows)
+    empty = receipt("empty", "margin_interest", {"date": "20260918"}, [])
+    result = plan_weekly_margin(
+        index_market_originals([empty], source="margin_interest"),
+        index_market_originals([calendar], source="market_calendar"),
+        start=date(2026, 9, 14),
+        asof=date(2026, 9, 22),
+        final_balance_date=date(2026, 9, 18),
+        final_publication_date=date(2026, 9, 25),
+    )
+    assert result.days == ()
+    assert result.unknown_calendar_days == ()
+
+
+def test_weekly_margin_refreshes_empty_received_before_publication():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_weekly_margin
+
+    rows = [
+        {"Date": f"2026-09-{day:02}", "HolDiv": "1" if day in {14, 15, 16, 17, 18, 21, 22} else "0"}
+        for day in range(14, 23)
+    ]
+    calendar = receipt("calendar", "market_calendar", {"from": "20260914", "to": "20260922"}, rows)
+    page = JQuantsPage(
+        "margin_interest", {"date": "20260918"}, datetime(2026, 9, 21, tzinfo=UTC), b'{"data":[]}'
+    )
+    early = RetainedRequest("early", complete_request([page]), None)
+    result = plan_weekly_margin(
+        index_market_originals([early], source="margin_interest"),
+        index_market_originals([calendar], source="market_calendar"),
+        start=date(2026, 9, 14),
+        asof=date(2026, 9, 22),
+        final_balance_date=date(2026, 9, 18),
+        final_publication_date=date(2026, 9, 25),
+    )
+    assert result.days == (date(2026, 9, 18),)

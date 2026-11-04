@@ -18,6 +18,7 @@ class ReceiptEvidence:
     received_at: datetime
     records: int
     calendar_days: tuple[date, ...] = ()
+    calendar_divisions: tuple[tuple[date, str], ...] = ()
     invalid_calendar_days: tuple[date, ...] = ()
     valid_calendar: bool = True
 
@@ -90,6 +91,7 @@ def index_market_originals(
             continue
         rows = request.records()
         calendar_days: set[date] = set()
+        calendar_divisions: dict[date, str] = {}
         invalid_days: set[date] = set()
         calendar_valid = True
         if source == "market_calendar":
@@ -106,6 +108,7 @@ def index_market_originals(
                     invalid_days.add(observed)
                 else:
                     calendar_days.add(observed)
+                    calendar_divisions[observed] = str(category).strip()
         receipts.append(
             ReceiptEvidence(
                 item.request_id,
@@ -115,6 +118,7 @@ def index_market_originals(
                 request.received_at,
                 len(rows),
                 tuple(sorted(calendar_days)),
+                tuple(sorted(calendar_divisions.items())),
                 tuple(sorted(invalid_days)),
                 calendar_valid,
             )
@@ -277,3 +281,118 @@ def plan_calendar(index: NativeMarketIndex, *, start: date, end: date) -> Native
             missing.append(cursor)
         cursor += timedelta(days=1)
     return NativeAcquisitionPlan(tuple(missing), tuple(sorted(unknown)))
+
+
+def calendar_sessions(
+    index: NativeMarketIndex, *, start: date, end: date
+) -> tuple[dict[date, bool | None], tuple[str, ...]]:
+    """Read known cash-equity sessions from originals; unknown stays unknown."""
+    from datetime import timedelta
+
+    plan = plan_calendar(index, start=start, end=end)
+    unavailable = set(plan.days)
+    latest: dict[date, tuple[datetime, str | None]] = {}
+    for item in index.receipts:
+        for day, division in item.calendar_divisions:
+            if not start <= day <= end or day in unavailable:
+                continue
+            old = latest.get(day)
+            if old is None or item.received_at > old[0]:
+                latest[day] = item.received_at, division
+            elif item.received_at == old[0] and division != old[1]:
+                latest[day] = item.received_at, None
+    result: dict[date, bool | None] = {}
+    day = start
+    while day <= end:
+        value = latest.get(day)
+        category = value[1] if value is not None else None
+        result[day] = category in {"1", "2"} if category in {"0", "1", "2"} else None
+        day += timedelta(days=1)
+    return result, plan.unknown_incomplete_requests
+
+
+@dataclass(frozen=True, slots=True)
+class MarginAcquisitionPlan:
+    days: tuple[date, ...]
+    unknown_calendar_days: tuple[date, ...]
+    unknown_incomplete_requests: tuple[str, ...]
+
+
+def plan_daily_margin(
+    margin: NativeMarketIndex,
+    calendar: NativeMarketIndex,
+    *,
+    first_balance_date: date,
+    asof: date,
+) -> MarginAcquisitionPlan:
+    """Plan published daily balance dates using only native source receipts."""
+    if margin.source != "margin_interest" or calendar.source != "market_calendar":
+        raise ValueError("margin plan requires native margin and calendar indexes")
+    if asof < first_balance_date:
+        return MarginAcquisitionPlan((), (), ())
+    sessions, calendar_unknown = calendar_sessions(calendar, start=first_balance_date, end=asof)
+    trading = [day for day, is_open in sessions.items() if is_open is True]
+    # One later session is required before a daily balance is due for publication.
+    candidates = trading[:-1]
+    plan = plan_required_days(margin, days=candidates, require_nonempty=True)
+    return MarginAcquisitionPlan(
+        plan.days,
+        tuple(day for day, state in sessions.items() if state is None),
+        tuple(sorted(set(calendar_unknown) | set(plan.unknown_incomplete_requests))),
+    )
+
+
+def plan_weekly_margin(
+    margin: NativeMarketIndex,
+    calendar: NativeMarketIndex,
+    *,
+    start: date,
+    asof: date,
+    final_balance_date: date,
+    final_publication_date: date,
+) -> MarginAcquisitionPlan:
+    """Plan the legacy weekly source using its native two-session release lag."""
+    from datetime import timedelta, timezone
+
+    if margin.source != "margin_interest" or calendar.source != "market_calendar":
+        raise ValueError("margin plan requires native margin and calendar indexes")
+    if start > asof or start > final_balance_date:
+        return MarginAcquisitionPlan((), (), ())
+    sessions, calendar_unknown = calendar_sessions(calendar, start=start, end=asof)
+    trading = [day for day, is_open in sessions.items() if is_open is True]
+    balance_end = min(asof, final_balance_date)
+    weeks: dict[tuple[int, int], list[date]] = {}
+    for day in sessions:
+        if day <= balance_end:
+            iso = day.isocalendar()
+            weeks.setdefault((iso.year, iso.week), []).append(day)
+    candidates: list[date] = []
+    publication: dict[date, date] = {}
+    for days in weeks.values():
+        if any(sessions[day] is None for day in days):
+            continue
+        open_days = [day for day in days if sessions[day] is True]
+        if not open_days:
+            continue
+        balance = open_days[-1]
+        later = [day for day in trading if day > balance]
+        if len(later) >= 2:
+            candidates.append(balance)
+            publication[balance] = later[1]
+    planned = plan_required_days(margin, days=candidates, require_nonempty=False)
+    latest, ambiguous, _, _ = _day_state(margin, date_key="date")
+    refresh = set(planned.days)
+    jst = timezone(timedelta(hours=9))
+    for day in candidates:
+        receipt = latest.get(day)
+        if receipt is None or receipt.records or day in ambiguous:
+            continue
+        if receipt.received_at.astimezone(jst).date() <= publication[day] or (
+            day == final_balance_date and asof >= final_publication_date
+        ):
+            refresh.add(day)
+    return MarginAcquisitionPlan(
+        tuple(sorted(refresh)),
+        tuple(day for day, state in sessions.items() if state is None),
+        tuple(sorted(set(calendar_unknown) | set(planned.unknown_incomplete_requests))),
+    )
