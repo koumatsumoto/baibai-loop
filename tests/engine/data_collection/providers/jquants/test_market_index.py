@@ -123,3 +123,19 @@ def test_calendar_one_bad_day_does_not_discard_other_days():
         end=date(2026, 11, 2),
     )
     assert plan.days == (date(2026, 11, 2),)
+
+
+def test_required_days_distinguishes_nonempty_rule_and_partial():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_required_days
+
+    empty = receipt("empty", "margin_interest", {"date": "20261102"}, [])
+    full = receipt("full", "margin_interest", {"date": "20261103"}, [{"Code": "13010"}])
+    index = index_market_originals([empty, full], source="margin_interest")
+    requested = [date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)]
+    assert plan_required_days(index, days=requested, require_nonempty=True).days == (
+        date(2026, 11, 2),
+        date(2026, 11, 4),
+    )
+    assert plan_required_days(index, days=requested, require_nonempty=False).days == (
+        date(2026, 11, 4),
+    )

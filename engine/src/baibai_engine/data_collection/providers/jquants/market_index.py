@@ -130,16 +130,9 @@ class NativeAcquisitionPlan:
     unknown_incomplete_requests: tuple[str, ...]
 
 
-def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> NativeAcquisitionPlan:
-    """Plan source-day receipts; distinguish native empty from absent or partial.
-
-    This only establishes native receipt completion, not L2 row quality.
-    A newer partial receipt is fetched again even when an older complete one exists.
-    """
-    from datetime import timedelta
-
-    if index.source != "daily_bars" or start > end:
-        raise ValueError("daily price plan requires a valid daily-bars interval")
+def _day_state(
+    index: NativeMarketIndex, *, date_key: str
+) -> tuple[dict[date, ReceiptEvidence], set[date], dict[date, datetime | None], list[str]]:
     latest: dict[date, ReceiptEvidence] = {}
     ambiguous: set[date] = set()
     for receipt in index.receipts:
@@ -154,11 +147,11 @@ def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> Na
     unknown: list[str] = []
     for item in index.incomplete:
         query = dict(item.query or ())
-        if set(query) != {"date"}:
+        if set(query) != {date_key}:
             unknown.append(item.request_id)
             continue
         try:
-            day = date.fromisoformat(query["date"])
+            day = date.fromisoformat(query[date_key])
         except ValueError:
             unknown.append(item.request_id)
             continue
@@ -166,6 +159,43 @@ def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> Na
             previous = incomplete.get(day)
             if item.received_at is None or previous is None or item.received_at > previous:
                 incomplete[day] = item.received_at
+    return latest, ambiguous, incomplete, unknown
+
+
+def plan_required_days(
+    index: NativeMarketIndex, *, days: Iterable[date], require_nonempty: bool
+) -> NativeAcquisitionPlan:
+    """Find missing full-scope days without asserting downstream row quality."""
+    date_key = "disc_date" if index.source == "short_sale_reports" else "date"
+    latest, ambiguous, incomplete, unknown = _day_state(index, date_key=date_key)
+    wanted = []
+    for day in sorted(set(days)):
+        current = latest.get(day)
+        partial = incomplete.get(day)
+        unresolved = day in incomplete and (
+            partial is None or current is None or partial >= current.received_at
+        )
+        if (
+            current is None
+            or unresolved
+            or day in ambiguous
+            or (require_nonempty and not current.records)
+        ):
+            wanted.append(day)
+    return NativeAcquisitionPlan(tuple(wanted), tuple(sorted(unknown)))
+
+
+def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> NativeAcquisitionPlan:
+    """Plan source-day receipts; distinguish native empty from absent or partial.
+
+    This only establishes native receipt completion, not L2 row quality.
+    A newer partial receipt is fetched again even when an older complete one exists.
+    """
+    from datetime import timedelta
+
+    if index.source != "daily_bars" or start > end:
+        raise ValueError("daily price plan requires a valid daily-bars interval")
+    latest, ambiguous, incomplete, unknown = _day_state(index, date_key="date")
     days: list[date] = []
     day = start
     while day <= end:
