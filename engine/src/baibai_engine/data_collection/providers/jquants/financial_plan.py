@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from baibai_engine.data_collection.providers.jquants.lake_receipts import RetainedRequest
+from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +31,13 @@ def plan_financial_acquisition(
     complete: dict[date, datetime] = {}
     incomplete: dict[date, datetime | None] = {}
     unknown: list[str] = []
+    pages_by_request: dict[str, dict[int, str]] = {}
     for item in requests:
+        pages = pages_by_request.setdefault(item.request_id, {})
+        for index, fingerprint in item.page_fingerprints:
+            prior_fingerprint = pages.setdefault(index, fingerprint)
+            if prior_fingerprint != fingerprint:
+                raise ValueError("conflicting retained page identity")
         request = item.request
         if request is not None:
             if request.source != "financial_summaries" or set(request.params) != {"date"}:

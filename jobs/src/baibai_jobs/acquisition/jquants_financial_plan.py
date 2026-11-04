@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
+from pathlib import Path
 
+from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.financial_plan import (
     FinancialAcquisitionPlan,
     plan_financial_acquisition,
@@ -16,6 +19,7 @@ from baibai_engine.data_collection.providers.jquants.snapshot_contracts import J
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import FixedRelease, accepted_dataset
+from baibai_jobs.acquisition.jquants_pending import iter_pending_financial_requests
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +39,7 @@ def plan_fixed_financial_acquisition(
     end: date,
     known_at: datetime,
     revision_overlap_days: int,
+    pending_paths: Sequence[Path] = (),
 ) -> FixedFinancialPlan:
     """Plan from retained native requests; no previous L2 or scoped input DB."""
     if known_at.utcoffset() is None:
@@ -42,9 +47,15 @@ def plan_fixed_financial_acquisition(
     if start > end or revision_overlap_days < 0:
         raise ValueError("invalid acquisition interval or revision overlap")
     dataset = accepted_dataset(release, JQUANTS_SOURCE_PAGES)
-    requests = iter_fixed_retained_requests(
-        session, release=release, cache=cache, source="financial_summaries", known_at=known_at
-    )
+
+    def originals() -> Iterator[RetainedRequest]:
+        yield from iter_fixed_retained_requests(
+            session, release=release, cache=cache, source="financial_summaries", known_at=known_at
+        )
+        for path in pending_paths:
+            yield from iter_pending_financial_requests(path, known_at=known_at)
+
+    requests = originals()
     plan = plan_financial_acquisition(
         requests, start=start, end=end, revision_overlap_days=revision_overlap_days
     )

@@ -13,7 +13,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import JQuantsReq
 if TYPE_CHECKING:
     import duckdb
 
-from baibai_engine.data_collection.providers.jquants.lake_receipts import RetainedRequest
+from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
     normalize_financial_summaries,
 )

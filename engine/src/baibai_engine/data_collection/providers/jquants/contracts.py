@@ -108,3 +108,13 @@ def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
         seen.add(cursor)
         expected_query = {**base, "pagination_key": cursor}
     raise JQuantsAcquisitionError("J-Quants request is incomplete")
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedRequest:
+    request_id: str
+    request: JQuantsRequest | None
+    error: str | None
+    first_query: dict[str, str] | None = None
+    last_received_at: datetime | None = None
+    page_fingerprints: tuple[tuple[int, str], ...] = ()

@@ -5,11 +5,14 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage, complete_request
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsPage,
+    RetainedRequest,
+    complete_request,
+)
 from baibai_engine.data_collection.providers.jquants.financial_plan import (
     plan_financial_acquisition,
 )
-from baibai_engine.data_collection.providers.jquants.lake_receipts import RetainedRequest
 
 START = date(2026, 11, 1)
 END = date(2026, 11, 4)
@@ -84,3 +87,34 @@ def test_invalid_ranges_are_rejected() -> None:
         plan_financial_acquisition([], start=END, end=START, revision_overlap_days=0)
     with pytest.raises(ValueError, match="overlap"):
         plan_financial_acquisition([], start=START, end=END, revision_overlap_days=-1)
+
+
+def test_shared_request_identity_must_have_identical_original_pages() -> None:
+    import gzip
+
+    from baibai_engine.data_collection.providers.jquants.retained import decode_retained_rows
+
+    query = json.dumps({"date": "20261101"})
+    clock = "2026-11-03T00:00:00.000000+00:00"
+    first = (
+        "same",
+        0,
+        "financial_summaries",
+        query,
+        clock,
+        gzip.compress(b'{"data": []}', mtime=0),
+    )
+    conflict = (
+        "same",
+        0,
+        "financial_summaries",
+        query,
+        clock,
+        gzip.compress(b'{"data": [{"x": 1}]}', mtime=0),
+    )
+    a = decode_retained_rows("same", [first])
+    b = decode_retained_rows("same", [conflict])
+    plan = plan_financial_acquisition([a, a], start=START, end=END, revision_overlap_days=0)
+    assert date(2026, 11, 1) not in plan.days
+    with pytest.raises(ValueError, match="conflicting retained page"):
+        plan_financial_acquisition([a, b], start=START, end=END, revision_overlap_days=0)

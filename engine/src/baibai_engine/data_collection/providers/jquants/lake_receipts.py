@@ -7,24 +7,17 @@ presence of a derived row or a previous L2 store is never evidence of receipt.
 
 from __future__ import annotations
 
-import gzip
-import json
-import zlib
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 import duckdb
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsAcquisitionError,
-    JQuantsPage,
-    JQuantsRequest,
     JQuantsSource,
-    complete_request,
+    RetainedRequest,
 )
+from baibai_engine.data_collection.providers.jquants.retained import decode_retained_rows
 from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
@@ -34,15 +27,6 @@ from baibai_engine.storage.snapshots.reader import (
     materialize_partitions,
     selected_partitions,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class RetainedRequest:
-    request_id: str
-    request: JQuantsRequest | None
-    error: str | None
-    first_query: dict[str, str] | None = None
-    last_received_at: datetime | None = None
 
 
 def iter_retained_requests(
@@ -84,12 +68,12 @@ def iter_retained_requests(
             for row in batch:
                 identity = str(row[0])
                 if current is not None and identity != current:
-                    yield _complete(current, pages)
+                    yield decode_retained_rows(current, pages)
                     pages = []
                 current = identity
                 pages.append(row)
         if current is not None:
-            yield _complete(current, pages)
+            yield decode_retained_rows(current, pages)
     finally:
         cursor.close()
 
@@ -118,38 +102,3 @@ def iter_fixed_retained_requests(
     )
     paths = materialize_partitions(cache, dataset=dataset, partitions=parts)
     yield from iter_retained_requests(session.connection, paths, source=source, known_at=known_at)
-
-
-def _complete(identity: str, rows: list[tuple[object, ...]]) -> RetainedRequest:
-    pages: list[JQuantsPage] = []
-    first_query: dict[str, str] | None = None
-    last_received_at: datetime | None = None
-    try:
-        clocks = [datetime.fromisoformat(cast(str, row[4])) for row in rows]
-        if any(clock.utcoffset() is None for clock in clocks):
-            raise ValueError("receipt time requires a timezone")
-        last_received_at = max(clocks, default=None)
-        for index, row in enumerate(rows):
-            _, page_index, source, query_json, received, body = row
-            if page_index != index:
-                raise ValueError("missing or duplicate page index")
-            query = json.loads(cast(str, query_json))
-            if not isinstance(query, dict) or any(
-                not isinstance(k, str) or not isinstance(v, str) for k, v in query.items()
-            ):
-                raise ValueError("invalid query")
-            if index == 0:
-                first_query = query
-            pages.append(
-                JQuantsPage(
-                    cast(JQuantsSource, source),
-                    query,
-                    datetime.fromisoformat(cast(str, received)),
-                    gzip.decompress(cast(bytes, body)),
-                )
-            )
-        return RetainedRequest(
-            identity, complete_request(pages), None, first_query, last_received_at
-        )
-    except (JQuantsAcquisitionError, ValueError, TypeError, OSError, EOFError, zlib.error) as error:
-        return RetainedRequest(identity, None, str(error), first_query, last_received_at)

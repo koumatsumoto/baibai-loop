@@ -5,8 +5,11 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage, complete_request
-from baibai_engine.data_collection.providers.jquants.lake_receipts import RetainedRequest
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsPage,
+    RetainedRequest,
+    complete_request,
+)
 from baibai_engine.machine_analysis.observations.financials.from_l1 import rebuild_financial_day
 
 DAY = date(2026, 11, 2)

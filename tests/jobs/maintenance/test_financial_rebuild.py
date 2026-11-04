@@ -3,11 +3,13 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import sqlite3
 from datetime import UTC, date, datetime
 
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
+from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import resolve_release
@@ -69,7 +71,34 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
         manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
     )
     source_path.unlink()
+    pending = tmp_path / "pending.sqlite"
+    with sqlite3.connect(pending) as connection:
+        connection.executescript(JQUANTS_SOURCE_PAGES_DDL)
+        body = gzip.compress(json.dumps({"data": []}).encode(), mtime=0)
+        connection.execute(
+            "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "pending",
+                0,
+                "financial_summaries",
+                json.dumps({"date": "20261103"}),
+                "2026-11-03T01:00:00.000000+00:00",
+                "2026-11-03",
+                body,
+            ),
+        )
     with lake_session() as session:
+        with_pending = plan_fixed_financial_acquisition(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            start=date(2026, 11, 2),
+            end=date(2026, 11, 4),
+            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+            revision_overlap_days=0,
+            pending_paths=[pending],
+        )
+        assert with_pending.plan.days == (date(2026, 11, 4),)
         plan = plan_fixed_financial_acquisition(
             session,
             release=release,
