@@ -104,12 +104,16 @@ def export_prices_from_l1(
                 with suppress(ValueError):
                     day = date.fromisoformat(params["date"])
                     grouped[(day.year, day.month)].append(item)
+        # Once grouped, release each month's native bodies after processing it;
+        # the growing DuckDB projection must not coexist with all decoded history.
+        del requests
         months: dict[tuple[int, int], set[date]] = defaultdict(set)
         for day in days:
             months[(day.year, day.month)].add(day)
         partial_days = 0
         for month, selected_days in sorted(months.items()):
-            results = rebuild_price_days(grouped[month], days=selected_days)
+            month_requests = grouped.pop(month, [])
+            results = rebuild_price_days(month_requests, days=selected_days)
             materialize_price_days(
                 session.connection,
                 results.values(),
@@ -119,6 +123,7 @@ def export_prices_from_l1(
             partial_days += sum(
                 item.status != "ok" or item.incomplete_requests > 0 for item in results.values()
             )
+            del month_requests, results
         coverage: CoverageStatus = (
             "partial"
             if gaps.days or gaps.unknown_incomplete_requests or partial_days or future_rows[0]
