@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
@@ -31,83 +32,116 @@ def available_handoffs(
     ready: list[dict[str, object]] = []
     watermarks: dict[str, datetime] = {}
     blocked_sources: set[str] = set()
+
+    def inspect(
+        item: tuple[bool, str],
+    ) -> tuple[dict[str, object] | None, tuple[str, datetime] | None, str | None]:
+        market, key = item
+        namespace = "market-sources" if market else "economic-sources"
+        stage_id = key.split("/")[-2]
+        source_name = source or f"{namespace}-unreadable"
+        digest = ""
+        try:
+            saved = read_private(store, key)
+            if saved is None:
+                raise ValueError("listed handoff is missing")
+            digest = hashlib.sha256(saved.payload).hexdigest()
+            manifest = json.loads(saved.payload)
+            report = manifest["result"]
+            source_name = report["source"] if market else "economic-" + report["group"]
+            if not isinstance(source_name, str) or (source is not None and source_name != source):
+                raise ValueError("handoff source differs from its scope")
+            started = datetime.fromisoformat(report["started_at"])
+            if started.tzinfo is None:
+                raise ValueError("handoff clock has no timezone")
+            date.fromisoformat(report["asof"])
+            terminal = read_private(
+                store, stage_prefix(stage_id, market=market) + "/integrated.json"
+            )
+            integrated = None
+            watermark = None
+            if terminal:
+                try:
+                    integrated = json.loads(terminal.payload)
+                    status = integrated["status"]
+                except (ValueError, KeyError, TypeError):
+                    return (
+                        {
+                            "market": market,
+                            "stage_id": stage_id,
+                            "source": source_name,
+                            "manifest_sha256": digest,
+                            "invalid": "ValueError",
+                        },
+                        None,
+                        source_name,
+                    )
+                if status != "needs_explicit_recovery":
+                    watermark = (source_name, started)
+                if not include_integrated:
+                    return None, watermark, None
+            return (
+                {
+                    "market": market,
+                    "stage_id": stage_id,
+                    "manifest_sha256": digest,
+                    "source": source_name,
+                    "started_at": started.astimezone(UTC).isoformat(),
+                    "asof": report["asof"],
+                    "integration": integrated,
+                    **(
+                        {"request_ids_complete": True}
+                        if report.get("request_ids_complete") is True
+                        else {}
+                    ),
+                    **(
+                        {"request_ids": report["request_ids"]}
+                        if source_name.startswith("jquants-")
+                        and isinstance(report.get("request_ids"), list)
+                        and all(isinstance(value, str) for value in report["request_ids"])
+                        else {}
+                    ),
+                },
+                watermark,
+                None,
+            )
+        except (R2Error, LakeCASConflict):
+            raise
+        except (LakePublishError, ValueError, KeyError, TypeError) as error:
+            return (
+                {
+                    "market": market,
+                    "stage_id": stage_id,
+                    "source": source_name,
+                    "manifest_sha256": digest,
+                    "invalid": type(error).__name__,
+                },
+                None,
+                None,
+            )
+
+    keys: list[tuple[bool, str]] = []
     for market in (False, True):
         namespace = "market-sources" if market else "economic-sources"
         if source is not None and source.startswith("economic-") == market:
             continue
         selection = source.removeprefix("economic-") + "-" if source is not None else ""
-        for key, _ in store.iter_objects(f"coordination/{namespace}/{selection}"):
-            if not key.endswith("/handoff.json"):
-                continue
-            stage_id = key.split("/")[-2]
-            source_name = source or f"{namespace}-unreadable"
-            digest = ""
-            try:
-                saved = read_private(store, key)
-                if saved is None:
-                    raise ValueError("listed handoff is missing")
-                digest = hashlib.sha256(saved.payload).hexdigest()
-                manifest = json.loads(saved.payload)
-                report = manifest["result"]
-                source_name = report["source"] if market else "economic-" + report["group"]
-                if not isinstance(source_name, str) or (
-                    source is not None and source_name != source
-                ):
-                    raise ValueError("handoff source differs from its scope")
-                started = datetime.fromisoformat(report["started_at"])
-                if started.tzinfo is None:
-                    raise ValueError("handoff clock has no timezone")
-                date.fromisoformat(report["asof"])
-                terminal = read_private(
-                    store, stage_prefix(stage_id, market=market) + "/integrated.json"
-                )
-                integrated = None
-                if terminal:
-                    try:
-                        integrated = json.loads(terminal.payload)
-                        status = integrated["status"]
-                    except (ValueError, KeyError, TypeError):
-                        blocked_sources.add(source_name)
-                        raise ValueError("source ordering marker is invalid") from None
-                    if status != "needs_explicit_recovery":
-                        watermarks[source_name] = max(watermarks.get(source_name, started), started)
-                    if not include_integrated:
-                        continue
-                ready.append(
-                    {
-                        "market": market,
-                        "stage_id": stage_id,
-                        "manifest_sha256": digest,
-                        "source": source_name,
-                        "started_at": started.astimezone(UTC).isoformat(),
-                        "asof": report["asof"],
-                        "integration": integrated,
-                        **(
-                            {"request_ids_complete": True}
-                            if report.get("request_ids_complete") is True
-                            else {}
-                        ),
-                        **(
-                            {"request_ids": report["request_ids"]}
-                            if source_name.startswith("jquants-")
-                            and isinstance(report.get("request_ids"), list)
-                            and all(isinstance(value, str) for value in report["request_ids"])
-                            else {}
-                        ),
-                    }
-                )
-            except (R2Error, LakeCASConflict):
-                raise
-            except (LakePublishError, ValueError, KeyError, TypeError) as error:
-                ready.append(
-                    {
-                        "market": market,
-                        "stage_id": stage_id,
-                        "source": source_name,
-                        "manifest_sha256": digest,
-                        "invalid": type(error).__name__,
-                    }
-                )
+        keys.extend(
+            (market, key)
+            for key, _ in store.iter_objects(f"coordination/{namespace}/{selection}")
+            if key.endswith("/handoff.json")
+        )
+    # Private reads verify each object before and after downloading; independent
+    # receipts do not require serial network round trips. Merge results in listing order.
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        for entry, mark, blocked in workers.map(inspect, keys):
+            if entry is not None:
+                ready.append(entry)
+            if mark is not None:
+                name, started = mark
+                watermarks[name] = max(watermarks.get(name, started), started)
+            if blocked is not None:
+                blocked_sources.add(blocked)
     for entry in ready:
         if entry.get("invalid"):
             continue

@@ -165,3 +165,25 @@ def test_handoff_plan_uses_error_type_not_message_for_failure_scope(tmp_path, mo
         assert [entry["source"] for entry in entries if not entry.get("invalid")] == [
             "economic-fred_csv"
         ]
+
+
+def test_receipt_reads_are_parallel_and_remain_deterministic(tmp_path, monkeypatch):
+    from threading import Barrier
+
+    import baibai_jobs.acquisition.receipts as receipts
+
+    store = MemoryR2Store()
+    stage(store, tmp_path / "first", "boj-2026-10-24-first")
+    stage(store, tmp_path / "second", "fred_csv-2026-10-24-second", "fred_csv")
+    barrier = Barrier(2, timeout=3)
+    original = receipts.read_private
+
+    def synchronized_read(target, key):
+        if key.endswith("/handoff.json"):
+            barrier.wait()
+        return original(target, key)
+
+    monkeypatch.setattr(receipts, "read_private", synchronized_read)
+    items = available_handoffs(store)
+    assert [item["source"] for item in items] == ["economic-boj", "economic-fred_csv"]
+    assert all(not item.get("invalid") for item in items)
