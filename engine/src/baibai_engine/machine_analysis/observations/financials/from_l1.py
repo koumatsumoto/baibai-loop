@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
-
-from baibai_engine.data_collection.providers.jquants.contracts import JQuantsRequest
 
 if TYPE_CHECKING:
     import duckdb
 
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
+from baibai_engine.data_collection.providers.jquants.day_selection import select_full_days
 from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
     normalize_financial_summaries,
 )
@@ -43,38 +41,7 @@ def rebuild_financial_days(
     wanted = set(days)
     if not wanted:
         return {}
-    selected: dict[date, tuple[str, JQuantsRequest]] = {}
-    ambiguous: set[date] = set()
-    incomplete = dict.fromkeys(wanted, 0)
-    for item in requests:
-        request = item.request
-        if request is None:
-            query = item.first_query
-            affected = wanted
-            if query is not None and "date" in query:
-                with suppress(ValueError):
-                    affected = {date.fromisoformat(query["date"])} & wanted
-            for day in affected:
-                incomplete[day] += 1
-            continue
-        if request.source != "financial_summaries" or set(request.params) != {"date"}:
-            continue
-        try:
-            day = date.fromisoformat(request.params["date"])
-        except ValueError:
-            for affected_day in wanted:
-                incomplete[affected_day] += 1
-            continue
-        if day not in wanted:
-            continue
-        prior = selected.get(day)
-        if prior is None or request.received_at > prior[1].received_at:
-            selected[day] = (item.request_id, request)
-            ambiguous.discard(day)
-        elif request.received_at == prior[1].received_at and request.pages != prior[1].pages:
-            ambiguous.add(day)
-    if ambiguous:
-        raise ValueError("financial receipts have an ambiguous latest time")
+    selected, incomplete = select_full_days(requests, source="financial_summaries", days=wanted)
     output: dict[date, FinancialDay] = {}
     for day in sorted(wanted):
         chosen = selected.get(day)
