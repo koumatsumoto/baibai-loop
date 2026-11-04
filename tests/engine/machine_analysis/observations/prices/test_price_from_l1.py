@@ -91,3 +91,65 @@ def test_price_materialization_rolls_back_on_duplicate_ticker_day():
             ).fetchone()[0]
             == 0
         )
+
+
+def test_materialize_price_days_appends_distinct_months_and_rolls_back_duplicates():
+    from baibai_engine.machine_analysis.observations.prices.from_l1 import PriceDay
+
+    first = PriceDay(
+        date(2026, 10, 30),
+        "first",
+        (
+            (
+                "1301",
+                "2026-10-30",
+                None,
+                None,
+                None,
+                100.0,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+        "ok",
+        0,
+        0,
+        0,
+    )
+    second = PriceDay(
+        date(2026, 11, 2),
+        "second",
+        (
+            (
+                "1301",
+                "2026-11-02",
+                None,
+                None,
+                None,
+                110.0,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+        "ok",
+        0,
+        0,
+        0,
+    )
+    with duckdb.connect(":memory:") as conn:
+        materialize_price_days(conn, [first], l1_coverage_status="complete")
+        materialize_price_days(conn, [second], l1_coverage_status="complete", append=True)
+        with pytest.raises(duckdb.ConstraintException):
+            materialize_price_days(conn, [second], l1_coverage_status="complete", append=True)
+        assert conn.execute("SELECT count(*) FROM daily_bars").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM price_receipt_status").fetchone()[0] == 2

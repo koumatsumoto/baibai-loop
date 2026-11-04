@@ -60,7 +60,11 @@ def rebuild_price_days(
 
 
 def materialize_price_days(
-    connection: duckdb.DuckDBPyConnection, results: Iterable[PriceDay], *, l1_coverage_status: str
+    connection: duckdb.DuckDBPyConnection,
+    results: Iterable[PriceDay],
+    *,
+    l1_coverage_status: str,
+    append: bool = False,
 ) -> None:
     if l1_coverage_status not in {"complete", "partial"}:
         raise ValueError("invalid L1 coverage status")
@@ -69,20 +73,22 @@ def materialize_price_days(
         raise ValueError("price day appears more than once")
     connection.execute("BEGIN TRANSACTION")
     try:
-        connection.execute(
-            "CREATE TEMP TABLE daily_bars (ticker VARCHAR NOT NULL, traded_at VARCHAR NOT NULL, "
-            "open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE, "
-            "turnover_value DOUBLE, "
-            "adjustment_factor DOUBLE, upper_limit VARCHAR, lower_limit VARCHAR, "
-            "ex_right_type VARCHAR, "
-            "market_cap_million_yen DOUBLE, PRIMARY KEY(ticker, traded_at))"
-        )
-        connection.execute(
-            "CREATE TEMP TABLE price_receipt_status (day DATE PRIMARY KEY, request_id VARCHAR, "
-            "projection_status VARCHAR NOT NULL, l1_coverage_status VARCHAR NOT NULL, "
-            "rejected_count BIGINT NOT NULL, excluded_count BIGINT NOT NULL, "
-            "incomplete_requests BIGINT NOT NULL)"
-        )
+        if not append:
+            connection.execute(
+                "CREATE TEMP TABLE daily_bars (ticker VARCHAR NOT NULL, "
+                "traded_at VARCHAR NOT NULL, "
+                "open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE, "
+                "turnover_value DOUBLE, "
+                "adjustment_factor DOUBLE, upper_limit VARCHAR, lower_limit VARCHAR, "
+                "ex_right_type VARCHAR, "
+                "market_cap_million_yen DOUBLE, PRIMARY KEY(ticker, traded_at))"
+            )
+            connection.execute(
+                "CREATE TEMP TABLE price_receipt_status (day DATE PRIMARY KEY, request_id VARCHAR, "
+                "projection_status VARCHAR NOT NULL, l1_coverage_status VARCHAR NOT NULL, "
+                "rejected_count BIGINT NOT NULL, excluded_count BIGINT NOT NULL, "
+                "incomplete_requests BIGINT NOT NULL)"
+            )
         for result in days:
             if result.rows:
                 # Columnar transfer avoids a Python-to-DuckDB call per price row.
