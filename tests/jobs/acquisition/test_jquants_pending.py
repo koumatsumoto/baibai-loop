@@ -77,3 +77,14 @@ def test_select_pending_uses_snapshot_capture_not_release_or_l2() -> None:
     assert unavailable == ("bad",)
     all_selected, _ = select_handoffs_after_snapshot(entries, captured_at=None)
     assert len(all_selected) == 5
+
+
+def test_unreadable_handoff_is_explicit_unknown(tmp_path) -> None:
+    path = tmp_path / "receipts.sqlite"
+    path.write_bytes(b"not a sqlite database")
+    entries = list(
+        iter_pending_requests(path, source="daily_bars", known_at=datetime(2026, 11, 4, tzinfo=UTC))
+    )
+    assert len(entries) == 1
+    assert entries[0].request is None
+    assert entries[0].error == "invalid handoff database"

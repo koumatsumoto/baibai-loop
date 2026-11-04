@@ -27,6 +27,16 @@ def iter_pending_requests(
         raise ValueError("known_at requires a timezone")
     if not path.is_absolute() or not path.is_file():
         raise ValueError("verified local handoff is required")
+    try:
+        yield from _read_pending_requests(path, source=source, known_at=known_at)
+    except sqlite3.DatabaseError:
+        # One unreadable handoff is not evidence that other sources are empty.
+        yield RetainedRequest(f"unreadable:{path.parent.name}", None, "invalid handoff database")
+
+
+def _read_pending_requests(
+    path: Path, *, source: JQuantsSource, known_at: datetime
+) -> Iterator[RetainedRequest]:
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as connection:
         rows = connection.execute(
             "SELECT request_id, page_index, source, query_json, received_at_utc, body_gzip "
