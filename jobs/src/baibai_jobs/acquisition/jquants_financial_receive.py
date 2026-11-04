@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -13,8 +13,10 @@ from pathlib import Path
 from baibai_engine.data_collection.providers.jquants.acquisition import acquire_request
 from baibai_engine.data_collection.providers.jquants.calendar import business_day_from_originals
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
+    fixed_complete_request_ids,
     iter_fixed_retained_requests,
 )
 from baibai_engine.storage.json import write_json_atomic
@@ -25,11 +27,8 @@ from baibai_jobs.acquisition.jquants_financial_plan import (
     FrozenFinancialPlan,
     freeze_financial_acquisition_plan,
 )
-from baibai_jobs.acquisition.jquants_pending import (
-    retained_snapshot_time,
-    select_handoffs_after_snapshot,
-)
-from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
+from baibai_jobs.acquisition.jquants_pending import iter_pending_requests, open_pending_originals
+from baibai_jobs.acquisition.receipts import ReceiptStore
 
 
 def receive_financial_days(
@@ -167,19 +166,32 @@ def run_l1_financial_acquisition(
         clock=clock,
     )
     if scheduled and not frozen.result.plan.unknown_incomplete_requests:
-        entries = available_handoffs(store, source="jquants-market", include_integrated=True)
-        pending, unavailable = select_handoffs_after_snapshot(
-            entries, captured_at=retained_snapshot_time(release), source="jquants-market"
-        )
-        if not pending and not unavailable:
-            originals = iter_fixed_retained_requests(
-                session,
-                release=release,
-                cache=cache,
-                source="market_calendar",
-                known_at=frozen.known_at,
-            )
-            if business_day_from_originals(originals, asof) is False:
+        with open_pending_originals(
+            store,
+            release=release,
+            source="jquants-market",
+            clock=lambda: frozen.known_at,
+            verify_l1=lambda ids: fixed_complete_request_ids(
+                session, release=release, cache=cache, known_at=frozen.known_at, candidates=ids
+            ),
+        ) as (_, pending, unavailable):
+
+            def originals() -> Iterator[RetainedRequest]:
+                yield from iter_fixed_retained_requests(
+                    session,
+                    release=release,
+                    cache=cache,
+                    source="market_calendar",
+                    known_at=frozen.known_at,
+                )
+                for _, path in pending:
+                    yield from iter_pending_requests(
+                        path, source="market_calendar", known_at=frozen.known_at
+                    )
+                for stage in unavailable:
+                    yield RetainedRequest(f"stage:{stage}", None, "unavailable handoff")
+
+            if business_day_from_originals(originals(), asof) is False:
                 ok = receive_financial_handoff(
                     directory, (), asof=asof, started_at=frozen.known_at, client=client
                 )

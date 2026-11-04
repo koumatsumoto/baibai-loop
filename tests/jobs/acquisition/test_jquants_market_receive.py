@@ -78,6 +78,30 @@ def test_market_handoff_uses_only_originals_and_replays(tmp_path, monkeypatch):
     canonical = tmp_path / "canonical.sqlite"
     assert _replay("jquants-market", canonical, stage).complete
 
+    # Exercise the actual common-integration gate, not only the inner replay.
+    from contextlib import closing
+
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+    from baibai_jobs.acquisition.economic_staging import save_handoff
+    from baibai_jobs.acquisition.receipts import available_handoffs
+    from baibai_jobs.integration.sources import apply
+
+    store = MemoryR2Store()
+    save_handoff(store, "jquants-market-test", stage, market=True)
+    work = tmp_path / "integration"
+    work.mkdir()
+    (work / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
+    market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
+    with closing(open_connection(market)), closing(initialize_database(economic)):
+        pass
+    monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **kw: {})
+    report = apply(store, work, market=market, economic=economic, asof=ASOF)
+    assert report["handoffs"][0]["applied"] is True
+    assert report["handoffs"][0]["failed"] is False
+
 
 def test_market_source_failure_keeps_partial_and_continues_other_sources(tmp_path, monkeypatch):
     from baibai_engine.data_collection.providers.jquants.contracts import JQuantsAcquisitionError

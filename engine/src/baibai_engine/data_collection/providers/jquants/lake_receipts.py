@@ -92,6 +92,14 @@ def iter_fixed_retained_requests(
     Receipt month is a physical boundary, not the date the provider's data
     describes. Incomplete source coverage remains a property of the release.
     """
+    paths = fixed_receipt_paths(release=release, cache=cache, known_at=known_at)
+    yield from iter_retained_requests(session.connection, paths, source=source, known_at=known_at)
+
+
+def fixed_receipt_paths(
+    *, release: FixedRelease, cache: LakeObjectCache, known_at: datetime
+) -> tuple[Path, ...]:
+    """Resolve only hash-verified L1 partitions at this receipt cutoff."""
     if known_at.utcoffset() is None:
         raise ValueError("known_at requires a timezone")
     dataset = accepted_dataset(release, JQUANTS_SOURCE_PAGES)
@@ -101,5 +109,51 @@ def iter_fixed_retained_requests(
         for part in selected_partitions(release, dataset.name)
         if (int(part.values["year"]), int(part.values["month"])) <= (cutoff.year, cutoff.month)
     )
-    paths = materialize_partitions(cache, dataset=dataset, partitions=parts)
-    yield from iter_retained_requests(session.connection, paths, source=source, known_at=known_at)
+    return materialize_partitions(cache, dataset=dataset, partitions=parts)
+
+
+def fixed_complete_request_ids(
+    session: LakeSession,
+    *,
+    release: FixedRelease,
+    cache: LakeObjectCache,
+    known_at: datetime,
+    candidates: frozenset[str],
+) -> frozenset[str]:
+    """Verify candidate native pagination chains before skipping integrated handoffs."""
+    if not candidates:
+        return frozenset()
+    paths = fixed_receipt_paths(release=release, cache=cache, known_at=known_at)
+    if not paths:
+        return frozenset()
+    cursor = session.connection.cursor()
+    try:
+        cursor.execute(
+            "SELECT request_id, page_index, source, query_json, received_at_utc, body_gzip "
+            "FROM read_parquet($files, union_by_name = false) "
+            "WHERE request_id IN (SELECT unnest($ids)) "
+            "AND CAST(received_at_utc AS TIMESTAMPTZ) <= $cutoff "
+            "ORDER BY request_id, page_index",
+            {
+                "files": [str(path) for path in paths],
+                "ids": sorted(candidates),
+                "cutoff": known_at.astimezone(UTC),
+            },
+        )
+        complete: set[str] = set()
+        current: str | None = None
+        pages: list[tuple[object, ...]] = []
+        while batch := cursor.fetchmany(256):
+            for row in batch:
+                identity = str(row[0])
+                if current is not None and identity != current:
+                    if decode_retained_rows(current, pages).request is not None:
+                        complete.add(current)
+                    pages = []
+                current = identity
+                pages.append(row)
+        if current is not None and decode_retained_rows(current, pages).request is not None:
+            complete.add(current)
+        return frozenset(complete)
+    finally:
+        cursor.close()

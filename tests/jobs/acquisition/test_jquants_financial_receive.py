@@ -138,10 +138,13 @@ def test_l1_acquisition_scheduled_holiday_does_not_fetch(tmp_path, monkeypatch) 
         (),
     )
     monkeypatch.setattr(receiver, "freeze_financial_acquisition_plan", lambda *a, **kw: frozen)
-    monkeypatch.setattr(receiver, "available_handoffs", lambda *a, **kw: [])
-    monkeypatch.setattr(
-        receiver, "retained_snapshot_time", lambda *a: datetime(2026, 11, 3, tzinfo=UTC)
-    )
+    from contextlib import contextmanager
+
+    @contextmanager
+    def no_pending(*args, **kwargs):
+        yield frozen.known_at, (), ()
+
+    monkeypatch.setattr(receiver, "open_pending_originals", no_pending)
     monkeypatch.setattr(receiver, "iter_fixed_retained_requests", lambda *a, **kw: iter(()))
     monkeypatch.setattr(receiver, "business_day_from_originals", lambda *a: False)
     output = tmp_path / "holiday"
@@ -253,3 +256,60 @@ def test_source_only_handoff_survives_private_stage_and_replay(tmp_path) -> None
     assert _replay("jquants-financial", canonical, restored).complete
     with sqlite3.connect(canonical) as conn:
         assert conn.execute("SELECT count(*) FROM jquants_source_pages").fetchone()[0] == 1
+
+
+def test_source_only_handoff_passes_common_integration(tmp_path, monkeypatch) -> None:
+    from contextlib import closing
+
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+    from baibai_jobs.acquisition.economic_staging import save_handoff
+    from baibai_jobs.acquisition.jquants_financial_receive import receive_financial_handoff
+    from baibai_jobs.acquisition.receipts import available_handoffs
+    from baibai_jobs.integration.sources import apply
+
+    stage = tmp_path / "stage"
+    assert receive_financial_handoff(
+        stage,
+        [date(2026, 11, 2)],
+        asof=date(2026, 11, 2),
+        started_at=datetime(2026, 11, 4, tzinfo=UTC),
+        client=Client(),
+    )
+    store = MemoryR2Store()
+    save_handoff(store, "jquants-financial-test", stage, market=True)
+    directory = tmp_path / "integration"
+    directory.mkdir()
+    (directory / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
+    market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
+    with closing(open_connection(market)), closing(initialize_database(economic)):
+        pass
+    monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **kw: {})
+    report = apply(store, directory, market=market, economic=economic, asof=date(2026, 11, 2))
+    assert report["handoffs"][0]["applied"] is True
+    assert report["handoffs"][0]["failed"] is False
+    with sqlite3.connect(market) as conn:
+        assert conn.execute("SELECT count(*) FROM jquants_source_pages").fetchone()[0] == 1
+
+
+def test_unlisted_original_pages_are_not_silently_dropped(tmp_path) -> None:
+    from baibai_jobs.acquisition.jquants_financial_receive import receive_financial_handoff
+    from baibai_jobs.integration.jquants_handoff import import_handoff
+
+    stage = tmp_path / "stage"
+    assert receive_financial_handoff(
+        stage,
+        [date(2026, 11, 2)],
+        asof=date(2026, 11, 2),
+        started_at=datetime(2026, 11, 4, tzinfo=UTC),
+        client=Client(),
+    )
+    with pytest.raises(ValueError, match="does not cover"):
+        import_handoff(
+            stage / "receipts.sqlite",
+            tmp_path / "target.sqlite",
+            (),
+            sources=("financial_summaries",),
+        )

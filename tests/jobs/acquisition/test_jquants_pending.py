@@ -43,40 +43,46 @@ def test_pending_reads_only_original_pages_and_retains_partial(tmp_path) -> None
     assert entries[1].last_received_at == datetime(2026, 11, 3, tzinfo=UTC)
 
 
-def test_select_pending_uses_snapshot_capture_not_release_or_l2() -> None:
-    from baibai_jobs.acquisition.jquants_pending import select_handoffs_after_snapshot
+def test_only_exact_release_marker_proves_inclusion() -> None:
+    from baibai_jobs.acquisition.jquants_pending import select_unproven_handoffs
 
-    capture = datetime(2026, 11, 3, 20, 52, tzinfo=UTC)
+    def entry(stage, status, generation):
+        return {
+            "stage_id": stage,
+            "source": "jquants-financial",
+            "manifest_sha256": "c" * 64,
+            "integration": {
+                "source": "jquants-financial",
+                "manifest_sha256": "c" * 64,
+                "status": status,
+                "canonical_generations": generation,
+                "integrated_at": "2020-01-01T00:00:00+00:00",
+            },
+        }
+
+    exact = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
+    older = {"lake_release_id": "older", "lake_manifest_sha256": "b" * 64}
     entries = [
-        {
-            "stage_id": "before",
-            "source": "jquants-financial",
-            "integration": {"status": "integrated", "integrated_at": "2026-11-03T20:51:00+00:00"},
-        },
-        {
-            "stage_id": "after",
-            "source": "jquants-financial",
-            "integration": {"status": "integrated", "integrated_at": "2026-11-03T20:53:00+00:00"},
-        },
-        {
-            "stage_id": "same",
-            "source": "jquants-financial",
-            "integration": {"status": "integrated", "integrated_at": "2026-11-03T20:52:00+00:00"},
-        },
+        entry("same", "integrated", exact),
+        entry("older", "integrated", older),
+        entry("recover", "needs_explicit_recovery", exact),
         {"stage_id": "pending", "source": "jquants-financial", "integration": None},
-        {
-            "stage_id": "late",
-            "source": "jquants-financial",
-            "integration": {"status": "needs_explicit_recovery"},
-            "late_before_integrated": True,
-        },
         {"stage_id": "bad", "source": "jquants-financial", "invalid": "ValueError"},
     ]
-    selected, unavailable = select_handoffs_after_snapshot(entries, captured_at=capture)
-    assert [entry["stage_id"] for entry in selected] == ["after", "same", "pending", "late"]
+    selected, unavailable = select_unproven_handoffs(
+        entries, release_id="fixed", manifest_sha256="a" * 64, source="jquants-financial"
+    )
+    assert [entry["stage_id"] for entry in selected] == ["older", "recover", "pending"]
     assert unavailable == ("bad",)
-    all_selected, _ = select_handoffs_after_snapshot(entries, captured_at=None)
-    assert len(all_selected) == 5
+    entries[1]["request_ids"] = ["already-in-l1"]
+    selected, _ = select_unproven_handoffs(
+        entries,
+        release_id="fixed",
+        manifest_sha256="a" * 64,
+        source="jquants-financial",
+        l1_request_ids=frozenset({"already-in-l1"}),
+    )
+    assert [entry["stage_id"] for entry in selected] == ["recover", "pending"]
 
 
 def test_unreadable_handoff_is_explicit_unknown(tmp_path) -> None:
@@ -88,3 +94,28 @@ def test_unreadable_handoff_is_explicit_unknown(tmp_path) -> None:
     assert len(entries) == 1
     assert entries[0].request is None
     assert entries[0].error == "invalid handoff database"
+
+
+def test_stale_integration_marker_does_not_prove_inclusion() -> None:
+    from baibai_jobs.acquisition.jquants_pending import select_unproven_handoffs
+
+    entry = {
+        "stage_id": "stale",
+        "source": "jquants-financial",
+        "manifest_sha256": "a" * 64,
+        "request_ids": ["id"],
+        "integration": {
+            "status": "integrated",
+            "source": "jquants-financial",
+            "manifest_sha256": "b" * 64,
+            "canonical_generations": {"lake_release_id": "r", "lake_manifest_sha256": "c" * 64},
+        },
+    }
+    selected, _ = select_unproven_handoffs(
+        [entry],
+        release_id="r",
+        manifest_sha256="c" * 64,
+        source="jquants-financial",
+        l1_request_ids=frozenset({"id"}),
+    )
+    assert selected == [entry]

@@ -142,6 +142,18 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
     save_handoff(store, "jquants-financial-pending", stage_dir, market=True)
     store.store_object("coordination/market-sources/jquants-financial-invalid/handoff.json", b"{}")
     with lake_session() as session:
+        from baibai_engine.data_collection.providers.jquants.lake_receipts import (
+            fixed_complete_request_ids,
+        )
+
+        identities = fixed_complete_request_ids(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+            candidates=frozenset({"old", "price", "calendar", "future", "missing"}),
+        )
+        assert identities == frozenset({"old", "price", "calendar"})
         frozen = freeze_financial_acquisition_plan(
             session,
             release=release,

@@ -14,6 +14,7 @@ from baibai_engine.data_collection.providers.jquants.dependencies import (
     dependency_from_request,
 )
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
+    fixed_complete_request_ids,
     iter_fixed_retained_requests,
 )
 from baibai_engine.data_collection.providers.jquants.market_rules import (
@@ -120,7 +121,18 @@ def freeze_market_originals(
         "margin_alerts",
         "short_sale_reports",
     )
-    with open_pending_originals(store, release=release, source="jquants-market", clock=clock) as (
+    cutoff = clock()
+    if cutoff.utcoffset() is None:
+        raise ValueError("clock requires a timezone")
+    with open_pending_originals(
+        store,
+        release=release,
+        source="jquants-market",
+        clock=lambda: cutoff,
+        verify_l1=lambda ids: fixed_complete_request_ids(
+            session, release=release, cache=cache, known_at=cutoff, candidates=ids
+        ),
+    ) as (
         known_at,
         pending,
         missing,

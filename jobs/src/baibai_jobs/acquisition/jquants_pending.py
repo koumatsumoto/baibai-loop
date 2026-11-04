@@ -68,22 +68,15 @@ def _read_pending_requests(
             yield decode_retained_rows(current, pages)
 
 
-def retained_snapshot_time(release: FixedRelease) -> datetime | None:
-    """Earliest source snapshot in the fixed L1 dataset; unknown means scan all."""
-    manifest = release.dataset_manifest("jquants.source_pages")
-    if any(not part.sources for part in manifest.partitions):
-        return None
-    sources = [source for part in manifest.partitions for source in part.sources]
-    return min((source.captured_at for source in sources), default=None)
-
-
-def select_handoffs_after_snapshot(
+def select_unproven_handoffs(
     entries: list[dict[str, object]],
     *,
-    captured_at: datetime | None,
-    source: str = "jquants-financial",
+    release_id: str,
+    manifest_sha256: str,
+    source: str,
+    l1_request_ids: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, object]], tuple[str, ...]]:
-    """Keep originals not provably in the fixed snapshot; never consult L2."""
+    """Skip only a matching integrated release or complete L1 request identities."""
     selected: list[dict[str, object]] = []
     unavailable: list[str] = []
     for entry in entries:
@@ -94,16 +87,29 @@ def select_handoffs_after_snapshot(
         if entry.get("source") != source:
             raise ValueError("unexpected handoff source")
         marker = entry.get("integration")
-        if isinstance(marker, dict) and marker.get("status") == "integrated" and captured_at:
-            try:
-                integrated_at = datetime.fromisoformat(str(marker["integrated_at"]))
-                if integrated_at.utcoffset() is None:
-                    raise ValueError("integration time requires a timezone")
-            except (KeyError, ValueError):
-                pass
-            else:
-                if integrated_at < captured_at:
-                    continue
+        if (
+            isinstance(marker, dict)
+            and marker.get("status") == "integrated"
+            and marker.get("source") == source
+            and marker.get("manifest_sha256") == entry.get("manifest_sha256")
+            and isinstance(entry.get("manifest_sha256"), str)
+            and len(str(entry["manifest_sha256"])) == 64
+        ):
+            generation = marker.get("canonical_generations")
+            if (
+                isinstance(generation, dict)
+                and generation.get("lake_release_id") == release_id
+                and (generation.get("lake_manifest_sha256") == manifest_sha256)
+            ):
+                continue
+            request_ids = entry.get("request_ids")
+            if (
+                isinstance(request_ids, list)
+                and request_ids
+                and all(isinstance(value, str) and value in l1_request_ids for value in request_ids)
+            ):
+                # Successful integration atomically imports immutable request IDs.
+                continue
         selected.append(entry)
     return selected, tuple(sorted(unavailable))
 
@@ -115,14 +121,25 @@ def open_pending_originals(
     release: FixedRelease,
     source: str,
     clock: Callable[[], datetime],
+    verify_l1: Callable[[frozenset[str]], frozenset[str]] = lambda _: frozenset(),
 ) -> Iterator[tuple[datetime, tuple[tuple[str, Path], ...], tuple[str, ...]]]:
     """Freeze and verify only originals not yet provable in the L1 snapshot."""
     entries = available_handoffs(store, source=source, include_integrated=True)
     known_at = clock()
     if known_at.utcoffset() is None:
         raise ValueError("clock requires a timezone")
-    selected, invalid = select_handoffs_after_snapshot(
-        entries, captured_at=retained_snapshot_time(release), source=source
+    candidates: set[str] = set()
+    for entry in entries:
+        values = entry.get("request_ids")
+        if isinstance(values, list):
+            candidates.update(value for value in values if isinstance(value, str))
+    verified_ids = verify_l1(frozenset(candidates))
+    selected, invalid = select_unproven_handoffs(
+        entries,
+        release_id=release.release_id,
+        manifest_sha256=release.manifest_sha256,
+        source=source,
+        l1_request_ids=verified_ids,
     )
     missing = list(invalid)
     with TemporaryDirectory(prefix="jquants-pending-") as temporary:

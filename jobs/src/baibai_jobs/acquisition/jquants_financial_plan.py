@@ -12,6 +12,7 @@ from baibai_engine.data_collection.providers.jquants.financial_plan import (
     plan_financial_acquisition,
 )
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
+    fixed_complete_request_ids,
     iter_fixed_retained_requests,
 )
 from baibai_engine.data_collection.providers.jquants.native_index import NativeAcquisitionPlan
@@ -98,8 +99,17 @@ def freeze_financial_acquisition_plan(
     A missing or changed handoff is recorded, not mistaken for an empty source.
     Files are transient and fixed by their handoff digest before reading.
     """
+    cutoff = clock()
+    if cutoff.utcoffset() is None:
+        raise ValueError("clock requires a timezone")
     with open_pending_originals(
-        store, release=release, source="jquants-financial", clock=clock
+        store,
+        release=release,
+        source="jquants-financial",
+        clock=lambda: cutoff,
+        verify_l1=lambda ids: fixed_complete_request_ids(
+            session, release=release, cache=cache, known_at=cutoff, candidates=ids
+        ),
     ) as (known_at, pending, missing):
         result = plan_fixed_financial_acquisition(
             session,
