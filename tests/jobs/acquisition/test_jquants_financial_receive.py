@@ -229,3 +229,27 @@ def test_invalid_source_only_schema_is_rejected_before_replay(tmp_path) -> None:
         conn.execute("CREATE TABLE jquants_source_pages(request_id TEXT)")
     with pytest.raises(ValueError, match="source-only receipt schema"):
         import_handoff(source, tmp_path / "target.sqlite", (), sources=("financial_summaries",))
+
+
+def test_source_only_handoff_survives_private_stage_and_replay(tmp_path) -> None:
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
+    from baibai_jobs.acquisition.jquants_financial_receive import receive_financial_handoff
+    from baibai_jobs.integration.source_handoff import _replay
+
+    stage, restored = tmp_path / "stage", tmp_path / "restored"
+    assert receive_financial_handoff(
+        stage,
+        [date(2026, 11, 2)],
+        asof=date(2026, 11, 2),
+        started_at=datetime(2026, 11, 4, tzinfo=UTC),
+        client=Client(),
+    )
+    remote = MemoryR2Store()
+    save_handoff(remote, "jquants-financial-20261102-test", stage, market=True)
+    load_handoff(remote, "jquants-financial-20261102-test", restored, market=True)
+    canonical = tmp_path / "canonical.sqlite"
+    assert _replay("jquants-financial", canonical, restored).complete
+    with sqlite3.connect(canonical) as conn:
+        assert conn.execute("SELECT count(*) FROM jquants_source_pages").fetchone()[0] == 1
