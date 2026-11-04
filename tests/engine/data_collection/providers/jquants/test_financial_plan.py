@@ -127,3 +127,36 @@ def test_equal_timestamp_distinct_receipts_are_not_silently_chosen() -> None:
         [first, second], start=START, end=END, revision_overlap_days=0
     )
     assert START in plan.days
+
+
+def test_native_plan_matches_existing_coverage_for_full_and_empty_days(tmp_path) -> None:
+    from contextlib import closing
+
+    from baibai_engine.storage.sqlite.source_cache.coverage import (
+        missing_intervals,
+        record_source_coverage,
+    )
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+    requests = [complete("a", "20261101", AT), complete("b", "20261102", AT, [{"Code": "13010"}])]
+    db = tmp_path / "previous.sqlite"
+    with closing(open_connection(db)) as conn, conn:
+        for day, count in [(date(2026, 11, 1), 0), (date(2026, 11, 2), 1)]:
+            record_source_coverage(
+                conn,
+                source="jquants_fin_summaries",
+                coverage_key=day.isoformat(),
+                coverage_start=day.isoformat(),
+                coverage_end=day.isoformat(),
+                record_count=count,
+                status="ok",
+                error=None,
+            )
+        missing = missing_intervals(conn, "jquants_fin_summaries", START, END)
+    previous = {
+        first + timedelta(days=offset)
+        for first, last in missing
+        for offset in range((last - first).days + 1)
+    } | {END}
+    plan = plan_financial_acquisition(requests, start=START, end=END, revision_overlap_days=0)
+    assert set(plan.days) == previous

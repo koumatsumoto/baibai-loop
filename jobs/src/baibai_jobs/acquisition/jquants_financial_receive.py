@@ -124,11 +124,17 @@ def receive_planned_handoff(
         sleep=sleep,
     )
     unknown = frozen.result.plan.unknown_incomplete_requests
+    report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+    report["planning"] = {
+        "release_id": frozen.result.release_id,
+        "manifest_sha256": frozen.result.manifest_sha256,
+        "l1_coverage_status": frozen.result.l1_coverage_status,
+        "planned_days": len(frozen.result.plan.days),
+    }
     if unknown:
-        report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
         report["acquisition"]["planning_unknown_count"] = len(unknown)
         report["acquisition"]["status"] = "failed"
-        write_json_atomic(directory / "result.json", report)
+    write_json_atomic(directory / "result.json", report)
     return received and not unknown
 
 
