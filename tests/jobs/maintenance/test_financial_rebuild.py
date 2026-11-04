@@ -14,6 +14,7 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.jquants_financial_plan import plan_fixed_financial_acquisition
 from baibai_jobs.maintenance.financial_rebuild import rebuild_fixed_financial_days
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -69,6 +70,17 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
     )
     source_path.unlink()
     with lake_session() as session:
+        plan = plan_fixed_financial_acquisition(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            start=date(2026, 11, 2),
+            end=date(2026, 11, 3),
+            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+            revision_overlap_days=0,
+        )
+        assert plan.plan.days == (date(2026, 11, 3),)
+        assert plan.l1_coverage_status == "partial"
         report = rebuild_fixed_financial_days(
             session,
             release=release,

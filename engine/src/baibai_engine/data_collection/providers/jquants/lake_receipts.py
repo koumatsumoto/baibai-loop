@@ -25,6 +25,15 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsSource,
     complete_request,
 )
+from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
+from baibai_engine.storage.snapshots.duck import LakeSession
+from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_engine.storage.snapshots.reader import (
+    FixedRelease,
+    accepted_dataset,
+    materialize_partitions,
+    selected_partitions,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +42,7 @@ class RetainedRequest:
     request: JQuantsRequest | None
     error: str | None
     first_query: dict[str, str] | None = None
+    last_received_at: datetime | None = None
 
 
 def iter_retained_requests(
@@ -84,10 +94,41 @@ def iter_retained_requests(
         cursor.close()
 
 
+def iter_fixed_retained_requests(
+    session: LakeSession,
+    *,
+    release: FixedRelease,
+    cache: LakeObjectCache,
+    source: JQuantsSource,
+    known_at: datetime,
+) -> Iterator[RetainedRequest]:
+    """Read only digest-verified L1 partitions of one fixed release.
+
+    Receipt month is a physical boundary, not the date the provider's data
+    describes. Incomplete source coverage remains a property of the release.
+    """
+    if known_at.utcoffset() is None:
+        raise ValueError("known_at requires a timezone")
+    dataset = accepted_dataset(release, JQUANTS_SOURCE_PAGES)
+    cutoff = known_at.astimezone(UTC)
+    parts = tuple(
+        part
+        for part in selected_partitions(release, dataset.name)
+        if (int(part.values["year"]), int(part.values["month"])) <= (cutoff.year, cutoff.month)
+    )
+    paths = materialize_partitions(cache, dataset=dataset, partitions=parts)
+    yield from iter_retained_requests(session.connection, paths, source=source, known_at=known_at)
+
+
 def _complete(identity: str, rows: list[tuple[object, ...]]) -> RetainedRequest:
     pages: list[JQuantsPage] = []
     first_query: dict[str, str] | None = None
+    last_received_at: datetime | None = None
     try:
+        clocks = [datetime.fromisoformat(cast(str, row[4])) for row in rows]
+        if any(clock.utcoffset() is None for clock in clocks):
+            raise ValueError("receipt time requires a timezone")
+        last_received_at = max(clocks, default=None)
         for index, row in enumerate(rows):
             _, page_index, source, query_json, received, body = row
             if page_index != index:
@@ -107,6 +148,8 @@ def _complete(identity: str, rows: list[tuple[object, ...]]) -> RetainedRequest:
                     gzip.decompress(cast(bytes, body)),
                 )
             )
-        return RetainedRequest(identity, complete_request(pages), None, first_query)
+        return RetainedRequest(
+            identity, complete_request(pages), None, first_query, last_received_at
+        )
     except (JQuantsAcquisitionError, ValueError, TypeError, OSError, EOFError, zlib.error) as error:
-        return RetainedRequest(identity, None, str(error), first_query)
+        return RetainedRequest(identity, None, str(error), first_query, last_received_at)

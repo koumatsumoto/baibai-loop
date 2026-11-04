@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 
-from baibai_engine.data_collection.providers.jquants.lake_receipts import iter_retained_requests
+from baibai_engine.data_collection.providers.jquants.lake_receipts import (
+    iter_fixed_retained_requests,
+)
 from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
 from baibai_engine.machine_analysis.observations.financials.from_l1 import (
     materialize_financial_days,
@@ -17,8 +19,6 @@ from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import (
     FixedRelease,
     accepted_dataset,
-    materialize_partitions,
-    selected_partitions,
 )
 
 
@@ -51,19 +51,12 @@ def rebuild_fixed_financial_days(
         raise ValueError("known_at requires a timezone")
     wanted = tuple(sorted(set(days)))
     dataset = accepted_dataset(release, JQUANTS_SOURCE_PAGES)
-    cutoff = known_at.astimezone(UTC)
-    parts = (
-        tuple(
-            part
-            for part in selected_partitions(release, dataset.name)
-            if (int(part.values["year"]), int(part.values["month"])) <= (cutoff.year, cutoff.month)
+    requests = (
+        iter_fixed_retained_requests(
+            session, release=release, cache=cache, source="financial_summaries", known_at=known_at
         )
         if wanted
         else ()
-    )
-    paths = materialize_partitions(cache, dataset=dataset, partitions=parts)
-    requests = iter_retained_requests(
-        session.connection, paths, source="financial_summaries", known_at=known_at
     )
     results = rebuild_financial_days(requests, days=wanted)
     materialize_financial_days(

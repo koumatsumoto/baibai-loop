@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime, timedelta
+
+import pytest
+
+from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage, complete_request
+from baibai_engine.data_collection.providers.jquants.financial_plan import (
+    plan_financial_acquisition,
+)
+from baibai_engine.data_collection.providers.jquants.lake_receipts import RetainedRequest
+
+START = date(2026, 11, 1)
+END = date(2026, 11, 4)
+AT = datetime(2026, 11, 4, tzinfo=UTC)
+
+
+def complete(
+    identity: str, day: str, when: datetime, records: list[dict] | None = None
+) -> RetainedRequest:
+    request = complete_request(
+        [
+            JQuantsPage(
+                "financial_summaries",
+                {"date": day},
+                when,
+                json.dumps({"data": records or []}).encode(),
+            )
+        ]
+    )
+    return RetainedRequest(identity, request, None, {"date": day}, when)
+
+
+def failed(identity: str, day: str, when: datetime | None) -> RetainedRequest:
+    return RetainedRequest(identity, None, "incomplete", {"date": day}, when)
+
+
+def test_complete_empty_receipts_count_and_refresh_tail_is_explicit() -> None:
+    reqs = [
+        complete("a", "20261101", AT),
+        complete("b", "20261102", AT),
+        complete("d", "20261104", AT),
+    ]
+    plan = plan_financial_acquisition(reqs, start=START, end=END, revision_overlap_days=0)
+    assert plan.days == (date(2026, 11, 3), date(2026, 11, 4))
+    assert plan.unknown_incomplete_requests == ()
+
+
+def test_later_incomplete_is_retried_but_older_incomplete_is_superseded() -> None:
+    reqs = [
+        complete("a", "20261101", AT),
+        failed("later", "20261101", AT + timedelta(seconds=1)),
+        failed("old", "20261102", AT - timedelta(seconds=1)),
+        complete("b", "20261102", AT),
+        complete("c", "20261103", AT),
+    ]
+    plan = plan_financial_acquisition(reqs, start=START, end=END, revision_overlap_days=0)
+    assert plan.days == (date(2026, 11, 1), date(2026, 11, 4))
+
+
+def test_unknown_failure_does_not_become_coverage() -> None:
+    reqs = [
+        complete("a", "20261101", AT),
+        failed("untimed", "20261101", None),
+        RetainedRequest("unknown", None, "bad query"),
+    ]
+    plan = plan_financial_acquisition(reqs, start=START, end=END, revision_overlap_days=0)
+    assert date(2026, 11, 1) in plan.days
+    assert plan.unknown_incomplete_requests == ("unknown",)
+
+
+def test_filtered_request_does_not_satisfy_full_day() -> None:
+    page = JQuantsPage(
+        "financial_summaries", {"date": "20261101", "code": "1301"}, AT, b'{"data": []}'
+    )
+    req = RetainedRequest("single", complete_request([page]), None)
+    plan = plan_financial_acquisition([req], start=START, end=END, revision_overlap_days=0)
+    assert plan.days == tuple(START + timedelta(days=i) for i in range(4))
+
+
+def test_invalid_ranges_are_rejected() -> None:
+    with pytest.raises(ValueError, match="start"):
+        plan_financial_acquisition([], start=END, end=START, revision_overlap_days=0)
+    with pytest.raises(ValueError, match="overlap"):
+        plan_financial_acquisition([], start=START, end=END, revision_overlap_days=-1)

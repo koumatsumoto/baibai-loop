@@ -55,6 +55,8 @@ def test_retained_pages_reconstruct_complete_and_report_incomplete(tmp_path: Pat
     ]
     assert actual[1].request is None
     assert actual[1].error
+    assert actual[1].first_query == query
+    assert actual[1].last_received_at == datetime(2026, 11, 1, tzinfo=UTC)
     assert actual[2].request is not None
     assert actual[2].request.records() == []
 
