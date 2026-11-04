@@ -9,12 +9,12 @@ from pathlib import Path
 
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.financial_plan import (
-    FinancialAcquisitionPlan,
     plan_financial_acquisition,
 )
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
+from baibai_engine.data_collection.providers.jquants.native_index import NativeAcquisitionPlan
 from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
@@ -31,7 +31,7 @@ class FixedFinancialPlan:
     release_id: str
     manifest_sha256: str
     l1_coverage_status: str
-    plan: FinancialAcquisitionPlan
+    plan: NativeAcquisitionPlan
 
 
 def plan_fixed_financial_acquisition(

@@ -34,10 +34,12 @@ def business_day_from_originals(requests: Iterable[RetainedRequest], day: date) 
                 return None
             if record_day == day:
                 matching.append(row)
-        divisions = {str(row.get("HolDiv")) for row in matching}
+        divisions = {
+            "" if row.get("HolDiv") is None else str(row["HolDiv"]).strip() for row in matching
+        }
         value = (
             next(iter(divisions)) in {"1", "2"}
-            if len(divisions) == 1 and divisions <= {"0", "1", "2"}
+            if len(divisions) == 1 and "" not in divisions
             else None
         )
         observations.append((request.received_at, value))

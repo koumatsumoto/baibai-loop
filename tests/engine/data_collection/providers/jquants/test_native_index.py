@@ -10,7 +10,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     RetainedRequest,
     complete_request,
 )
-from baibai_engine.data_collection.providers.jquants.market_index import index_market_originals
+from baibai_engine.data_collection.providers.jquants.native_index import index_market_originals
 
 
 def receipt(identity, source, params, rows):
@@ -42,7 +42,7 @@ def test_same_page_identity_cannot_have_different_original_bytes():
 
 
 def test_price_plan_retries_missing_or_newer_partial_and_preserves_empty():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_daily_prices
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_daily_prices
 
     first = receipt("first", "daily_bars", {"date": "20261101"}, [{"Code": "13010"}])
     empty = receipt("empty", "daily_bars", {"date": "20261102"}, [])
@@ -56,7 +56,7 @@ def test_price_plan_retries_missing_or_newer_partial_and_preserves_empty():
 
 
 def test_price_plan_refreshes_trailing_empty_days_and_reports_unknown():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_daily_prices
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_daily_prices
 
     first = receipt("first", "daily_bars", {"date": "20261101"}, [{"Code": "13010"}])
     second = receipt("second", "daily_bars", {"date": "20261102"}, [])
@@ -71,7 +71,7 @@ def test_price_plan_refreshes_trailing_empty_days_and_reports_unknown():
 
 
 def test_calendar_plan_checks_each_day_and_partial_overlap():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_calendar
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_calendar
 
     calendar = receipt(
         "calendar",
@@ -92,7 +92,7 @@ def test_calendar_plan_checks_each_day_and_partial_overlap():
 
 
 def test_calendar_invalid_record_is_not_accepted_as_clean():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_calendar
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_calendar
 
     source = receipt(
         "calendar",
@@ -109,7 +109,7 @@ def test_calendar_invalid_record_is_not_accepted_as_clean():
 
 
 def test_calendar_one_bad_day_does_not_discard_other_days():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_calendar
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_calendar
 
     source = receipt(
         "calendar",
@@ -126,7 +126,7 @@ def test_calendar_one_bad_day_does_not_discard_other_days():
 
 
 def test_required_days_distinguishes_nonempty_rule_and_partial():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_required_days
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_required_days
 
     empty = receipt("empty", "margin_interest", {"date": "20261102"}, [])
     full = receipt("full", "margin_interest", {"date": "20261103"}, [{"Code": "13010"}])
@@ -142,7 +142,7 @@ def test_required_days_distinguishes_nonempty_rule_and_partial():
 
 
 def test_calendar_sessions_preserve_missing_days():
-    from baibai_engine.data_collection.providers.jquants.market_index import calendar_sessions
+    from baibai_engine.data_collection.providers.jquants.native_index import calendar_sessions
 
     source = receipt(
         "calendar",
@@ -160,7 +160,7 @@ def test_calendar_sessions_preserve_missing_days():
 
 
 def test_daily_margin_waits_for_next_session_and_retains_calendar_gaps():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_daily_margin
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_daily_margin
 
     calendar = receipt(
         "calendar",
@@ -184,7 +184,7 @@ def test_daily_margin_waits_for_next_session_and_retains_calendar_gaps():
 
 
 def test_weekly_margin_does_not_refresh_postpublication_empty():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_weekly_margin
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_weekly_margin
 
     rows = [
         {"Date": f"2026-09-{day:02}", "HolDiv": "1" if day in {14, 15, 16, 17, 18, 21, 22} else "0"}
@@ -205,7 +205,7 @@ def test_weekly_margin_does_not_refresh_postpublication_empty():
 
 
 def test_weekly_margin_refreshes_empty_received_before_publication():
-    from baibai_engine.data_collection.providers.jquants.market_index import plan_weekly_margin
+    from baibai_engine.data_collection.providers.jquants.native_index import plan_weekly_margin
 
     rows = [
         {"Date": f"2026-09-{day:02}", "HolDiv": "1" if day in {14, 15, 16, 17, 18, 21, 22} else "0"}

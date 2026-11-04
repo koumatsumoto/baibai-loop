@@ -11,7 +11,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import JQuantsSou
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
-from baibai_engine.data_collection.providers.jquants.market_index import (
+from baibai_engine.data_collection.providers.jquants.native_index import (
     NativeAcquisitionPlan,
     NativeMarketIndex,
     index_market_originals,

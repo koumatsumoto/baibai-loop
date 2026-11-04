@@ -97,8 +97,8 @@ def test_completed_handoff_replays_empty_receipt(tmp_path) -> None:
 
 
 def test_unavailable_original_marks_partial_but_keeps_receiving(tmp_path) -> None:
-    from baibai_engine.data_collection.providers.jquants.financial_plan import (
-        FinancialAcquisitionPlan,
+    from baibai_engine.data_collection.providers.jquants.native_index import (
+        NativeAcquisitionPlan,
     )
     from baibai_jobs.acquisition.jquants_financial_plan import (
         FixedFinancialPlan,
@@ -106,7 +106,7 @@ def test_unavailable_original_marks_partial_but_keeps_receiving(tmp_path) -> Non
     )
     from baibai_jobs.acquisition.jquants_financial_receive import receive_planned_handoff
 
-    plan = FinancialAcquisitionPlan((date(2026, 11, 2),), ("stage:unavailable",))
+    plan = NativeAcquisitionPlan((date(2026, 11, 2),), ("stage:unavailable",))
     frozen = FrozenFinancialPlan(
         FixedFinancialPlan("r", "0" * 64, "partial", plan),
         datetime(2026, 11, 4, tzinfo=UTC),
@@ -121,8 +121,8 @@ def test_unavailable_original_marks_partial_but_keeps_receiving(tmp_path) -> Non
 
 
 def test_l1_acquisition_scheduled_holiday_does_not_fetch(tmp_path, monkeypatch) -> None:
-    from baibai_engine.data_collection.providers.jquants.financial_plan import (
-        FinancialAcquisitionPlan,
+    from baibai_engine.data_collection.providers.jquants.native_index import (
+        NativeAcquisitionPlan,
     )
     from baibai_jobs.acquisition import jquants_financial_receive as receiver
     from baibai_jobs.acquisition.jquants_financial_plan import (
@@ -130,7 +130,7 @@ def test_l1_acquisition_scheduled_holiday_does_not_fetch(tmp_path, monkeypatch) 
         FrozenFinancialPlan,
     )
 
-    plan = FinancialAcquisitionPlan((date(2026, 11, 2),), ())
+    plan = NativeAcquisitionPlan((date(2026, 11, 2),), ())
     frozen = FrozenFinancialPlan(
         FixedFinancialPlan("r", "0" * 64, "partial", plan),
         datetime(2026, 11, 4, tzinfo=UTC),

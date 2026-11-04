@@ -306,7 +306,7 @@ def calendar_sessions(
     while day <= end:
         value = latest.get(day)
         category = value[1] if value is not None else None
-        result[day] = category in {"1", "2"} if category in {"0", "1", "2"} else None
+        result[day] = category in {"1", "2"} if category is not None else None
         day += timedelta(days=1)
     return result, plan.unknown_incomplete_requests
 
