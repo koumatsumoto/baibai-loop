@@ -12,7 +12,7 @@ from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
 from baibai_engine.data_collection.providers.jquants.market_index import (
-    DailyPricePlan,
+    NativeAcquisitionPlan,
     index_market_originals,
     plan_daily_prices,
 )
@@ -28,7 +28,7 @@ class FixedPricePlan:
     release_id: str
     manifest_sha256: str
     l1_coverage_status: str
-    plan: DailyPricePlan
+    plan: NativeAcquisitionPlan
 
 
 def plan_fixed_prices(

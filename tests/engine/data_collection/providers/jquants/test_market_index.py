@@ -68,3 +68,58 @@ def test_price_plan_refreshes_trailing_empty_days_and_reports_unknown():
     )
     assert plan.days == (date(2026, 11, 1), date(2026, 11, 2))
     assert plan.unknown_incomplete_requests == ("unknown",)
+
+
+def test_calendar_plan_checks_each_day_and_partial_overlap():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_calendar
+
+    calendar = receipt(
+        "calendar",
+        "market_calendar",
+        {"from": "20261101", "to": "20261103"},
+        [{"Date": "2026-11-01", "HolDiv": "0"}, {"Date": "2026-11-02", "HolDiv": "1"}],
+    )
+    partial = RetainedRequest(
+        "partial",
+        None,
+        "incomplete",
+        {"from": "20261102", "to": "20261102"},
+        datetime(2026, 11, 5, tzinfo=UTC),
+    )
+    index = index_market_originals([calendar, partial], source="market_calendar")
+    plan = plan_calendar(index, start=date(2026, 11, 1), end=date(2026, 11, 3))
+    assert plan.days == (date(2026, 11, 2), date(2026, 11, 3))
+
+
+def test_calendar_invalid_record_is_not_accepted_as_clean():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_calendar
+
+    source = receipt(
+        "calendar",
+        "market_calendar",
+        {"from": "20261101", "to": "20261101"},
+        [{"Date": "2026-11-01", "HolDiv": None}],
+    )
+    plan = plan_calendar(
+        index_market_originals([source], source="market_calendar"),
+        start=date(2026, 11, 1),
+        end=date(2026, 11, 1),
+    )
+    assert plan.days == (date(2026, 11, 1),)
+
+
+def test_calendar_one_bad_day_does_not_discard_other_days():
+    from baibai_engine.data_collection.providers.jquants.market_index import plan_calendar
+
+    source = receipt(
+        "calendar",
+        "market_calendar",
+        {"from": "20261101", "to": "20261102"},
+        [{"Date": "2026-11-01", "HolDiv": "0"}, {"Date": "2026-11-02", "HolDiv": None}],
+    )
+    plan = plan_calendar(
+        index_market_originals([source], source="market_calendar"),
+        start=date(2026, 11, 1),
+        end=date(2026, 11, 2),
+    )
+    assert plan.days == (date(2026, 11, 2),)

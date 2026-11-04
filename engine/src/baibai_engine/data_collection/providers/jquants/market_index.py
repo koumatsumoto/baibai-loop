@@ -17,6 +17,9 @@ class ReceiptEvidence:
     end: date
     received_at: datetime
     records: int
+    calendar_days: tuple[date, ...] = ()
+    invalid_calendar_days: tuple[date, ...] = ()
+    valid_calendar: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +88,24 @@ def index_market_originals(
                 )
             )
             continue
+        rows = request.records()
+        calendar_days: set[date] = set()
+        invalid_days: set[date] = set()
+        calendar_valid = True
+        if source == "market_calendar":
+            for row in rows:
+                try:
+                    observed = date.fromisoformat(str(row.get("Date", ""))[:10])
+                except ValueError:
+                    calendar_valid = False
+                    continue
+                category = row.get("HolDiv")
+                if observed < first or observed > last:
+                    calendar_valid = False
+                elif observed in calendar_days or category is None or not str(category).strip():
+                    invalid_days.add(observed)
+                else:
+                    calendar_days.add(observed)
         receipts.append(
             ReceiptEvidence(
                 item.request_id,
@@ -92,7 +113,10 @@ def index_market_originals(
                 first,
                 last,
                 request.received_at,
-                len(request.records()),
+                len(rows),
+                tuple(sorted(calendar_days)),
+                tuple(sorted(invalid_days)),
+                calendar_valid,
             )
         )
     return NativeMarketIndex(
@@ -101,12 +125,12 @@ def index_market_originals(
 
 
 @dataclass(frozen=True, slots=True)
-class DailyPricePlan:
+class NativeAcquisitionPlan:
     days: tuple[date, ...]
     unknown_incomplete_requests: tuple[str, ...]
 
 
-def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> DailyPricePlan:
+def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> NativeAcquisitionPlan:
     """Plan source-day receipts; distinguish native empty from absent or partial.
 
     This only establishes native receipt completion, not L2 row quality.
@@ -166,4 +190,60 @@ def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> Da
             while cursor <= end:
                 days.append(cursor)
                 cursor += timedelta(days=1)
-    return DailyPricePlan(tuple(days), tuple(sorted(unknown)))
+    return NativeAcquisitionPlan(tuple(days), tuple(sorted(unknown)))
+
+
+def plan_calendar(index: NativeMarketIndex, *, start: date, end: date) -> NativeAcquisitionPlan:
+    """Re-request only absent, incomplete or ambiguous native calendar dates."""
+    from datetime import timedelta
+
+    if index.source != "market_calendar" or start > end:
+        raise ValueError("calendar plan requires a valid calendar interval")
+    latest: dict[date, tuple[datetime, bool]] = {}
+    for item in index.receipts:
+        available = set(item.calendar_days) - set(item.invalid_calendar_days)
+        cursor = max(start, item.start)
+        stop = min(end, item.end)
+        while cursor <= stop:
+            valid = item.valid_calendar and cursor in available
+            old = latest.get(cursor)
+            if old is None or item.received_at > old[0]:
+                latest[cursor] = item.received_at, valid
+            elif item.received_at == old[0] and valid != old[1]:
+                latest[cursor] = item.received_at, False
+            cursor += timedelta(days=1)
+    unknown: list[str] = []
+    partial: dict[date, datetime | None] = {}
+    for failed in index.incomplete:
+        params = dict(failed.query or ())
+        try:
+            if set(params) != {"from", "to"}:
+                raise ValueError("unknown scope")
+            first, last = date.fromisoformat(params["from"]), date.fromisoformat(params["to"])
+            if first > last:
+                raise ValueError("reversed scope")
+        except ValueError:
+            unknown.append(failed.request_id)
+            continue
+        cursor = max(start, first)
+        stop = min(end, last)
+        while cursor <= stop:
+            previous_partial = partial.get(cursor)
+            if cursor not in partial or (
+                previous_partial is not None
+                and (failed.received_at is None or failed.received_at > previous_partial)
+            ):
+                partial[cursor] = failed.received_at
+            cursor += timedelta(days=1)
+    missing: list[date] = []
+    cursor = start
+    while cursor <= end:
+        receipt = latest.get(cursor)
+        incomplete_at = partial.get(cursor)
+        unresolved = cursor in partial and (
+            incomplete_at is None or receipt is None or incomplete_at >= receipt[0]
+        )
+        if receipt is None or not receipt[1] or unresolved:
+            missing.append(cursor)
+        cursor += timedelta(days=1)
+    return NativeAcquisitionPlan(tuple(missing), tuple(sorted(unknown)))
