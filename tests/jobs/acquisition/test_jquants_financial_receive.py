@@ -197,3 +197,33 @@ def test_financial_command_stages_failed_partial_handoff(tmp_path, monkeypatch) 
     )
     assert "stage_ready=true" in output.read_text()
     assert len(json.loads((directory / "result.json").read_text())["request_ids"]) == 1
+
+
+def test_deadline_stages_already_received_original(tmp_path) -> None:
+    from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
+    from baibai_jobs.acquisition.jquants_financial_receive import receive_financial_handoff
+
+    class DeadlineClient(Client):
+        def pages(self, source, params):
+            yield from super().pages(source, params)
+            raise AcquisitionDeadlineExceeded("deadline")
+
+    directory = tmp_path / "deadline"
+    assert not receive_financial_handoff(
+        directory,
+        [date(2026, 11, 2)],
+        asof=date(2026, 11, 2),
+        started_at=datetime(2026, 11, 4, tzinfo=UTC),
+        client=DeadlineClient(),
+    )
+    assert len(json.loads((directory / "result.json").read_text())["request_ids"]) == 1
+
+
+def test_invalid_source_only_schema_is_rejected_before_replay(tmp_path) -> None:
+    from baibai_jobs.integration.jquants_handoff import import_handoff
+
+    source = tmp_path / "invalid.sqlite"
+    with sqlite3.connect(source) as conn:
+        conn.execute("CREATE TABLE jquants_source_pages(request_id TEXT)")
+    with pytest.raises(ValueError, match="source-only receipt schema"):
+        import_handoff(source, tmp_path / "target.sqlite", (), sources=("financial_summaries",))

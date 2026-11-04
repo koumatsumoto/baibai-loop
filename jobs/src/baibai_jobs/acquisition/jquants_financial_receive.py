@@ -18,6 +18,7 @@ from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
+from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
@@ -79,7 +80,7 @@ def receive_financial_handoff(
     failed = False
     try:
         receive_financial_days(output, days, client=client, sleep=sleep)
-    except JQuantsAcquisitionError:
+    except (JQuantsAcquisitionError, AcquisitionDeadlineExceeded):
         failed = True
     with closing(sqlite3.connect(output.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         ids = [
