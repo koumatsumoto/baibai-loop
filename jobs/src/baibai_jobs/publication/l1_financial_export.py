@@ -12,6 +12,7 @@ from pathlib import Path
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.lake_receipts import iter_retained_requests
 from baibai_engine.data_collection.providers.jquants.native_index import (
+    calendar_sessions,
     index_market_originals,
     plan_required_days,
 )
@@ -86,8 +87,27 @@ def export_financial_from_l1(
         if not days:
             raise ValueError("no complete native financial requests are available")
         start, end = min(days), max(days)
-        horizon = (start + timedelta(days=offset) for offset in range((end - start).days + 1))
+        horizon = tuple(start + timedelta(days=offset) for offset in range((end - start).days + 1))
         gaps = plan_required_days(index, days=horizon, require_nonempty=False)
+        # A scheduled acquisition may skip a proven closed market day. Only skip
+        # missing days for which L1 itself proves closure; an incomplete financial
+        # request or an uncertain calendar remains a gap.
+        possible_closures = set(gaps.days) - days
+        if possible_closures:
+            calendar = index_market_originals(
+                iter_retained_requests(
+                    session.connection, paths, source="market_calendar", known_at=known_at
+                ),
+                source="market_calendar",
+            )
+            sessions, unknown_calendar = calendar_sessions(calendar, start=start, end=end)
+            if not unknown_calendar:
+                closed = {day for day in possible_closures if sessions.get(day) is False}
+                gaps = plan_required_days(
+                    index,
+                    days=(day for day in horizon if day not in closed),
+                    require_nonempty=False,
+                )
         results = rebuild_financial_days(requests(), days=days)
         materialize_financial_days(
             session.connection, results.values(), l1_coverage_status=source.manifest.coverage_status

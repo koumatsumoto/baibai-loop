@@ -21,7 +21,7 @@ from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
 from baibai_jobs.publication.policy import release_policy_for_profile
 
 
-def native_financial_source(tmp_path, dates):
+def native_financial_source(tmp_path, dates, calendar=None):
     source = market_store(tmp_path / "source.sqlite")
     with closing(open_connection(source)) as conn, conn:
         for day, rows in dates:
@@ -35,6 +35,21 @@ def native_financial_source(tmp_path, dates):
                     0,
                     "financial_summaries",
                     json.dumps({"date": day}),
+                    "2026-02-01T00:00:00+00:00",
+                    "2026-02-01",
+                    body,
+                ),
+            )
+    if calendar is not None:
+        with closing(open_connection(source)) as conn, conn:
+            body = gzip.compress(json.dumps({"data": calendar}).encode(), mtime=0)
+            conn.execute(
+                "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "calendar",
+                    0,
+                    "market_calendar",
+                    json.dumps({"from": "20260109", "to": "20260112"}),
                     "2026-02-01T00:00:00+00:00",
                     "2026-02-01",
                     body,
@@ -237,3 +252,59 @@ def test_market_prepare_rejects_later_incomplete_source_without_publishing(tmp_p
     ):
         pytest.fail("partial source must not prepare a release")
     assert "lake/pointers/market/current.json" not in store.values
+
+
+def test_market_holidays_are_skipped_only_when_proven_by_l1(tmp_path, monkeypatch):
+    names = ("jquants.source_pages", "jquants.fin_summaries")
+    narrow_release_policy(monkeypatch, datasets=names)
+    rows = [{"Code": "13010", "DiscDate": "2026-01-09", "DiscNo": "filing"}]
+    calendar = [
+        {"Date": "2026-01-09", "HolDiv": "1"},
+        {"Date": "2026-01-10", "HolDiv": "0"},
+        {"Date": "2026-01-11", "HolDiv": "0"},
+        {"Date": "2026-01-12", "HolDiv": "1"},
+    ]
+    mirror, l1 = native_financial_source(tmp_path, [("20260109", rows), ("20260112", [])], calendar)
+    when = datetime(2026, 2, 4, tzinfo=UTC)
+    result = export_financial_from_l1(
+        source=l1,
+        mirror_root=mirror,
+        producer_git_commit="a" * 40,
+        known_at=when,
+        build_id="holiday",
+        created_at=when,
+    )
+    assert result.missing_days == 0
+    assert result.build.manifest.coverage_status == "complete"
+
+
+def test_partial_financial_request_on_closed_day_is_not_discarded(tmp_path, monkeypatch):
+    names = ("jquants.source_pages", "jquants.fin_summaries")
+    narrow_release_policy(monkeypatch, datasets=names)
+    rows = [{"Code": "13010", "DiscDate": "2026-01-09", "DiscNo": "filing"}]
+    calendar = [
+        {"Date": "2026-01-09", "HolDiv": "1"},
+        {"Date": "2026-01-10", "HolDiv": "0"},
+        {"Date": "2026-01-11", "HolDiv": "0"},
+        {"Date": "2026-01-12", "HolDiv": "1"},
+    ]
+    mirror, l1 = native_financial_source(
+        tmp_path,
+        [
+            ("20260109", rows),
+            ("20260110", {"data": [], "pagination_key": "missing"}),
+            ("20260112", []),
+        ],
+        calendar,
+    )
+    when = datetime(2026, 2, 4, tzinfo=UTC)
+    result = export_financial_from_l1(
+        source=l1,
+        mirror_root=mirror,
+        producer_git_commit="a" * 40,
+        known_at=when,
+        build_id="holiday-incomplete",
+        created_at=when,
+    )
+    assert result.missing_days == 1
+    assert result.build.manifest.coverage_status == "partial"
