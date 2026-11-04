@@ -20,17 +20,17 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 
 def decode_retained_rows(identity: str, rows: list[tuple[object, ...]]) -> RetainedRequest:
     fingerprints: list[tuple[int, str]] = []
-    for row in rows:
-        digest = hashlib.sha256()
-        for value in row:
-            data = value if isinstance(value, bytes) else str(value).encode()
-            digest.update(len(data).to_bytes(8, "big"))
-            digest.update(data)
-        fingerprints.append((int(cast(int, row[1])), digest.hexdigest()))
     pages: list[JQuantsPage] = []
     first_query: dict[str, str] | None = None
     last_received_at: datetime | None = None
     try:
+        for row in rows:
+            digest = hashlib.sha256()
+            for value in row:
+                data = value if isinstance(value, bytes) else str(value).encode()
+                digest.update(len(data).to_bytes(8, "big"))
+                digest.update(data)
+            fingerprints.append((int(cast(int, row[1])), digest.hexdigest()))
         clocks = [datetime.fromisoformat(cast(str, row[4])) for row in rows]
         if any(clock.utcoffset() is None for clock in clocks):
             raise ValueError("receipt time requires a timezone")

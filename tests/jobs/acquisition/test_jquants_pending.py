@@ -39,3 +39,39 @@ def test_pending_reads_only_original_pages_and_retains_partial(tmp_path) -> None
     assert entries[1].request is None
     assert entries[1].first_query == {"date": "20261102"}
     assert entries[1].last_received_at == datetime(2026, 11, 3, tzinfo=UTC)
+
+
+def test_select_pending_uses_snapshot_capture_not_release_or_l2() -> None:
+    from baibai_jobs.acquisition.jquants_pending import select_pending_financial_handoffs
+
+    capture = datetime(2026, 11, 3, 20, 52, tzinfo=UTC)
+    entries = [
+        {
+            "stage_id": "before",
+            "source": "jquants-financial",
+            "integration": {"status": "integrated", "integrated_at": "2026-11-03T20:51:00+00:00"},
+        },
+        {
+            "stage_id": "after",
+            "source": "jquants-financial",
+            "integration": {"status": "integrated", "integrated_at": "2026-11-03T20:53:00+00:00"},
+        },
+        {
+            "stage_id": "same",
+            "source": "jquants-financial",
+            "integration": {"status": "integrated", "integrated_at": "2026-11-03T20:52:00+00:00"},
+        },
+        {"stage_id": "pending", "source": "jquants-financial", "integration": None},
+        {
+            "stage_id": "late",
+            "source": "jquants-financial",
+            "integration": {"status": "needs_explicit_recovery"},
+            "late_before_integrated": True,
+        },
+        {"stage_id": "bad", "source": "jquants-financial", "invalid": "ValueError"},
+    ]
+    selected, unavailable = select_pending_financial_handoffs(entries, captured_at=capture)
+    assert [entry["stage_id"] for entry in selected] == ["after", "same", "pending", "late"]
+    assert unavailable == ("bad",)
+    all_selected, _ = select_pending_financial_handoffs(entries, captured_at=None)
+    assert len(all_selected) == 5

@@ -7,9 +7,13 @@ from collections.abc import Iterator
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.retained import decode_retained_rows
+
+if TYPE_CHECKING:
+    from baibai_engine.storage.snapshots.reader import FixedRelease
 
 
 def iter_pending_financial_requests(path: Path, *, known_at: datetime) -> Iterator[RetainedRequest]:
@@ -47,3 +51,40 @@ def iter_pending_financial_requests(path: Path, *, known_at: datetime) -> Iterat
                     pages.append(row)
         if current is not None and pages:
             yield decode_retained_rows(current, pages)
+
+
+def retained_snapshot_time(release: FixedRelease) -> datetime | None:
+    """Earliest source snapshot in the fixed L1 dataset; unknown means scan all."""
+    manifest = release.dataset_manifest("jquants.source_pages")
+    if any(not part.sources for part in manifest.partitions):
+        return None
+    sources = [source for part in manifest.partitions for source in part.sources]
+    return min((source.captured_at for source in sources), default=None)
+
+
+def select_pending_financial_handoffs(
+    entries: list[dict[str, object]], *, captured_at: datetime | None
+) -> tuple[list[dict[str, object]], tuple[str, ...]]:
+    """Keep originals not provably in the fixed snapshot; never consult L2."""
+    selected: list[dict[str, object]] = []
+    unavailable: list[str] = []
+    for entry in entries:
+        stage = str(entry.get("stage_id", ""))
+        if entry.get("invalid"):
+            unavailable.append(stage)
+            continue
+        if entry.get("source") != "jquants-financial":
+            raise ValueError("unexpected handoff source")
+        marker = entry.get("integration")
+        if isinstance(marker, dict) and marker.get("status") == "integrated" and captured_at:
+            try:
+                integrated_at = datetime.fromisoformat(str(marker["integrated_at"]))
+                if integrated_at.utcoffset() is None:
+                    raise ValueError("integration time requires a timezone")
+            except (KeyError, ValueError):
+                pass
+            else:
+                if integrated_at < captured_at:
+                    continue
+        selected.append(entry)
+    return selected, tuple(sorted(unavailable))

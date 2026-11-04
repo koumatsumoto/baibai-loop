@@ -36,9 +36,10 @@ def iter_retained_requests(
     source: JQuantsSource,
     known_at: datetime,
 ) -> Iterator[RetainedRequest]:
-    """Read one source at a known time, reporting incomplete requests explicitly.
+    """Read one source through a receipt-time cutoff, reporting incomplete requests.
 
-    This does not claim that the retained L1 covers the whole requested history.
+    Receipt time alone does not prove when data became available to a consumer.
+    This does not claim that retained L1 covers the whole requested history.
     Files are exact, validated release objects, never arbitrary globs or URLs.
     """
     if known_at.utcoffset() is None:

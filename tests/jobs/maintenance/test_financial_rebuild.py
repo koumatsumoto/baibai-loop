@@ -3,11 +3,13 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import shutil
 import sqlite3
 from datetime import UTC, date, datetime
 
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
+from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.storage.snapshots.duck import lake_session
@@ -16,7 +18,11 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.jquants_financial_plan import plan_fixed_financial_acquisition
+from baibai_jobs.acquisition.economic_staging import save_handoff
+from baibai_jobs.acquisition.jquants_financial_plan import (
+    freeze_financial_acquisition_plan,
+    plan_fixed_financial_acquisition,
+)
 from baibai_jobs.maintenance.financial_rebuild import rebuild_fixed_financial_days
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -87,7 +93,39 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
                 body,
             ),
         )
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    shutil.copyfile(pending, stage_dir / "receipts.sqlite")
+    (stage_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "jquants-financial",
+                "asof": "2026-11-03",
+                "started_at": "2026-11-03T01:00:00+00:00",
+                "request_ids": ["pending"],
+            }
+        )
+    )
+    store = MemoryR2Store()
+    save_handoff(store, "jquants-financial-pending", stage_dir, market=True)
+    store.store_object("coordination/market-sources/jquants-financial-invalid/handoff.json", b"{}")
     with lake_session() as session:
+        frozen = freeze_financial_acquisition_plan(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            store=store,
+            start=date(2026, 11, 2),
+            end=date(2026, 11, 4),
+            revision_overlap_days=0,
+            clock=lambda: datetime(2026, 11, 4, 2, tzinfo=UTC),
+        )
+        assert frozen.result.plan.days == (date(2026, 11, 4),)
+        assert frozen.pending_stages == ("jquants-financial-pending",)
+        assert frozen.unavailable_stages == ("jquants-financial-invalid",)
+        assert frozen.result.plan.unknown_incomplete_requests == (
+            "stage:jquants-financial-invalid",
+        )
         with_pending = plan_fixed_financial_acquisition(
             session,
             release=release,
