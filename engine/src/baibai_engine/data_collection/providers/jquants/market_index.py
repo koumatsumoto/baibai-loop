@@ -98,3 +98,72 @@ def index_market_originals(
     return NativeMarketIndex(
         source, tuple(receipts), tuple(sorted(incomplete, key=lambda item: item.request_id))
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DailyPricePlan:
+    days: tuple[date, ...]
+    unknown_incomplete_requests: tuple[str, ...]
+
+
+def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> DailyPricePlan:
+    """Plan source-day receipts; distinguish native empty from absent or partial.
+
+    This only establishes native receipt completion, not L2 row quality.
+    A newer partial receipt is fetched again even when an older complete one exists.
+    """
+    from datetime import timedelta
+
+    if index.source != "daily_bars" or start > end:
+        raise ValueError("daily price plan requires a valid daily-bars interval")
+    latest: dict[date, ReceiptEvidence] = {}
+    ambiguous: set[date] = set()
+    for receipt in index.receipts:
+        old = latest.get(receipt.start)
+        if old is None or receipt.received_at > old.received_at:
+            latest[receipt.start] = receipt
+            ambiguous.discard(receipt.start)
+        elif receipt.received_at == old.received_at and receipt.request_id != old.request_id:
+            # Same-clock requests can differ; a new fetch is safer than guessing.
+            ambiguous.add(receipt.start)
+    incomplete: dict[date, datetime | None] = {}
+    unknown: list[str] = []
+    for item in index.incomplete:
+        query = dict(item.query or ())
+        if set(query) != {"date"}:
+            unknown.append(item.request_id)
+            continue
+        try:
+            day = date.fromisoformat(query["date"])
+        except ValueError:
+            unknown.append(item.request_id)
+            continue
+        if day not in incomplete or incomplete[day] is not None:
+            previous = incomplete.get(day)
+            if item.received_at is None or previous is None or item.received_at > previous:
+                incomplete[day] = item.received_at
+    days: list[date] = []
+    day = start
+    while day <= end:
+        current = latest.get(day)
+        incomplete_at = incomplete.get(day)
+        unresolved = day in incomplete and (
+            incomplete_at is None or current is None or incomplete_at >= current.received_at
+        )
+        if current is None or unresolved or day in ambiguous:
+            days.append(day)
+        day += timedelta(days=1)
+    if not days:
+        nonempty = [day for day, receipt in latest.items() if receipt.records]
+        latest_in_window = max((day for day in nonempty if start <= day <= end), default=None)
+        latest_stored = max(nonempty, default=None)
+        if (
+            latest_in_window is not None
+            and latest_in_window < end
+            and latest_stored == latest_in_window
+        ):
+            cursor = latest_in_window
+            while cursor <= end:
+                days.append(cursor)
+                cursor += timedelta(days=1)
+    return DailyPricePlan(tuple(days), tuple(sorted(unknown)))
