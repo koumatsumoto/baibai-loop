@@ -29,7 +29,7 @@ from baibai_jobs.acquisition.jquants_financial_plan import (
 )
 from baibai_jobs.acquisition.jquants_pending import (
     retained_snapshot_time,
-    select_pending_financial_handoffs,
+    select_handoffs_after_snapshot,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
 
@@ -158,7 +158,7 @@ def run_l1_financial_acquisition(
     )
     if scheduled and not frozen.result.plan.unknown_incomplete_requests:
         entries = available_handoffs(store, source="jquants-market", include_integrated=True)
-        pending, unavailable = select_pending_financial_handoffs(
+        pending, unavailable = select_handoffs_after_snapshot(
             entries, captured_at=retained_snapshot_time(release), source="jquants-market"
         )
         if not pending and not unavailable:

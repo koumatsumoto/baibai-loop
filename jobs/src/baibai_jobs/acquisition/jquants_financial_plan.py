@@ -24,7 +24,7 @@ from baibai_engine.storage.snapshots.reader import FixedRelease, accepted_datase
 from baibai_jobs.acquisition.jquants_pending import (
     iter_pending_financial_requests,
     retained_snapshot_time,
-    select_pending_financial_handoffs,
+    select_handoffs_after_snapshot,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs, download_fixed
 
@@ -105,7 +105,7 @@ def freeze_financial_acquisition_plan(
     known_at = clock()
     if known_at.utcoffset() is None:
         raise ValueError("clock requires a timezone")
-    selected, unavailable = select_pending_financial_handoffs(
+    selected, unavailable = select_handoffs_after_snapshot(
         entries, captured_at=retained_snapshot_time(release)
     )
     pending: list[str] = []

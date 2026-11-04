@@ -42,7 +42,7 @@ def test_pending_reads_only_original_pages_and_retains_partial(tmp_path) -> None
 
 
 def test_select_pending_uses_snapshot_capture_not_release_or_l2() -> None:
-    from baibai_jobs.acquisition.jquants_pending import select_pending_financial_handoffs
+    from baibai_jobs.acquisition.jquants_pending import select_handoffs_after_snapshot
 
     capture = datetime(2026, 11, 3, 20, 52, tzinfo=UTC)
     entries = [
@@ -70,8 +70,8 @@ def test_select_pending_uses_snapshot_capture_not_release_or_l2() -> None:
         },
         {"stage_id": "bad", "source": "jquants-financial", "invalid": "ValueError"},
     ]
-    selected, unavailable = select_pending_financial_handoffs(entries, captured_at=capture)
+    selected, unavailable = select_handoffs_after_snapshot(entries, captured_at=capture)
     assert [entry["stage_id"] for entry in selected] == ["after", "same", "pending", "late"]
     assert unavailable == ("bad",)
-    all_selected, _ = select_pending_financial_handoffs(entries, captured_at=None)
+    all_selected, _ = select_handoffs_after_snapshot(entries, captured_at=None)
     assert len(all_selected) == 5

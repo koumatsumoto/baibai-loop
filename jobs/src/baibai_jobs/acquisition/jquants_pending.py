@@ -62,7 +62,7 @@ def retained_snapshot_time(release: FixedRelease) -> datetime | None:
     return min((source.captured_at for source in sources), default=None)
 
 
-def select_pending_financial_handoffs(
+def select_handoffs_after_snapshot(
     entries: list[dict[str, object]],
     *,
     captured_at: datetime | None,
