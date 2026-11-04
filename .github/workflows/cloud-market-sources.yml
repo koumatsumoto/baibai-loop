@@ -1,131 +1,36 @@
-name: cloud-market-sources
-run-name: "market-acquisition ${{ github.event.schedule == '43 7 * * *' && 'inputs' || github.event.schedule == '43 8 * * *' && 'edinet-metrics' || github.event.schedule == '13 9 * * *' && 'edinet-facts' || inputs.source || 'all' }} ${{ inputs.asof || '' }}"
-
+name: Read-only valuation research
 on:
-  schedule:
-    - cron: "43 7 * * *"
-    - cron: "43 8 * * *"
-    - cron: "13 9 * * *"
   workflow_dispatch:
-    inputs:
-      source:
-        description: "One source group, or all"
-        type: string
-        default: all
-      asof:
-        description: "Optional YYYY-MM-DD"
-        type: string
-        default: ''
-
 permissions:
   contents: read
-
 jobs:
-  plan:
-    if: ${{ github.ref == 'refs/heads/main' }}
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    outputs:
-      sources: ${{ steps.plan.outputs.sources }}
-      asof: ${{ steps.plan.outputs.asof }}
-      edinet_all: ${{ steps.plan.outputs.edinet_all }}
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Pin the original acquisition run clock
-        id: clock
+      - name: Check five provider values without persisting production data
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
-          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
-      - name: Select independent source groups for this acquisition slot
-        id: plan
-        env:
-          PYTHONPATH: jobs/src
-          SOURCE: ${{ inputs.source || 'all' }}
-          ASOF: ${{ inputs.asof }}
-          SCHEDULE: ${{ github.event.schedule }}
-          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
         run: |
           python3 - <<'PY'
-          import json
-          import os
-          from datetime import datetime
-          from baibai_jobs.schedule import market_source_target_date
-          all_sources = ['jquants-market', 'jquants-financial', 'jpx-earnings', 'jpx-regulations', 'edinet-list', 'edinet-metrics', 'edinet-facts']
-          day = market_source_target_date(
-              datetime.fromisoformat(os.environ['RUN_CREATED_AT']),
-              schedule=os.environ['SCHEDULE'],
-              asof=os.environ['ASOF'],
-          )
-          source = os.environ['SOURCE']
-          if source != 'all' and source not in all_sources:
-              raise ValueError('unknown source acquisition group')
-          slot = os.environ['SCHEDULE']
-          if slot == '43 8 * * *':
-              selected = ['edinet-metrics']
-          elif slot == '13 9 * * *':
-              selected = ['edinet-facts']
-          elif slot == '43 7 * * *':
-              selected = all_sources[:5] if day.weekday() < 5 else ['edinet-list']
-          else:
-              selected = all_sources[:4] if source == 'all' else [source]
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:
-              print('sources=' + json.dumps([{'source': item} for item in selected]), file=stream)
-              print('asof=' + day.isoformat(), file=stream)
-              print('edinet_all=' + str(not slot and source == 'all').lower(), file=stream)
+          import hashlib, json, os, urllib.error, urllib.parse, urllib.request
+          key = os.environ.get("JQUANTS_API_KEY")
+          if not key:
+              raise SystemExit("JQUANTS_API_KEY unavailable")
+          for code in ("130A", "135A", "2437", "5838", "2784"):
+              url = "https://api.jquants.com/v2/equities/valuation?" + urllib.parse.urlencode({"code": code, "date": "2026-11-04"})
+              req = urllib.request.Request(url, headers={"x-api-key": key, "Accept": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as response:
+                      body = response.read(2_000_001)
+                      if len(body) > 2_000_000:
+                          print(json.dumps({"code": code, "status": "body_limit"}))
+                          continue
+                      payload = json.loads(body)
+                      rows = payload.get("data", [])
+                      print(json.dumps({"code": code, "http": response.status, "rows": len(rows), "values": [{"date": row.get("Date"), "code": row.get("Code"), "market_cap_million_yen": row.get("MktCap")} for row in rows], "has_next_page": bool(payload.get("pagination_key")), "body_sha256": hashlib.sha256(body).hexdigest()}))
+              except urllib.error.HTTPError as error:
+                  print(json.dumps({"code": code, "http": error.code}))
+              except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as error:
+                  print(json.dumps({"code": code, "error": type(error).__name__}))
           PY
-
-  source:
-    needs: plan
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.plan.outputs.sources) }}
-    uses: ./.github/workflows/cloud-market-source.yml
-    with:
-      source: ${{ matrix.source }}
-      asof: ${{ needs.plan.outputs.asof }}
-    secrets: inherit
-
-  edinet-list:
-    needs: plan
-    if: ${{ needs.plan.outputs.edinet_all == 'true' }}
-    uses: ./.github/workflows/cloud-market-source.yml
-    with:
-      source: edinet-list
-      asof: ${{ needs.plan.outputs.asof }}
-    secrets: inherit
-
-  edinet-archives:
-    needs: [plan, edinet-list]
-    if: ${{ needs.plan.outputs.edinet_all == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        source: [edinet-metrics, edinet-facts]
-    uses: ./.github/workflows/cloud-market-source.yml
-    with:
-      source: ${{ matrix.source }}
-      asof: ${{ needs.plan.outputs.asof }}
-    secrets: inherit
-
-  notify-plan-failure:
-    needs: plan
-    if: ${{ always() && github.ref == 'refs/heads/main' && needs.plan.result != 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Report a failed market source selection
-        continue-on-error: true
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          PYTHONPATH: jobs/src
-          SOURCE_GROUP: market-plan
-          ACQUIRE_RESULT: ${{ needs.plan.result }}
-          STAGE_RESULT: skipped
-        run: python3 -m baibai_jobs.observability.source_discord
