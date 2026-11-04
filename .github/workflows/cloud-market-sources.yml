@@ -1,36 +1,44 @@
-name: Read-only valuation research
+name: Research valuation coverage (read-only)
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  probe:
+  coverage:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Check five provider values without persisting production data
+      - name: Aggregate valuation coverage without persisting provider records
         env:
-          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          JQUANTS_KEY: ${{ secrets.JQUANTS_API_KEY }}
+        shell: bash
         run: |
-          python3 - <<'PY'
-          import hashlib, json, os, urllib.error, urllib.parse, urllib.request
-          key = os.environ.get("JQUANTS_API_KEY")
-          if not key:
-              raise SystemExit("JQUANTS_API_KEY unavailable")
-          for code in ("130A", "135A", "2437", "5838", "2784"):
-              url = "https://api.jquants.com/v2/equities/valuation?" + urllib.parse.urlencode({"code": code, "date": "2026-11-04"})
-              req = urllib.request.Request(url, headers={"x-api-key": key, "Accept": "application/json"})
-              try:
-                  with urllib.request.urlopen(req, timeout=25) as response:
-                      body = response.read(2_000_001)
-                      if len(body) > 2_000_000:
-                          print(json.dumps({"code": code, "status": "body_limit"}))
-                          continue
-                      payload = json.loads(body)
-                      rows = payload.get("data", [])
-                      print(json.dumps({"code": code, "http": response.status, "rows": len(rows), "values": [{"date": row.get("Date"), "code": row.get("Code"), "market_cap_million_yen": row.get("MktCap")} for row in rows], "has_next_page": bool(payload.get("pagination_key")), "body_sha256": hashlib.sha256(body).hexdigest()}))
-              except urllib.error.HTTPError as error:
-                  print(json.dumps({"code": code, "http": error.code}))
-              except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as error:
-                  print(json.dumps({"code": code, "error": type(error).__name__}))
-          PY
+          python - <<'PYCODE'
+          import os,urllib.request,urllib.parse,json,collections,hashlib,math,sys
+          groups = {'both_present_same_document': ['2437', '2499', '262A', '274A', '2926', '3010', '3133', '3138', '332A', '3845', '3903', '4071', '429A', '548A', '550A', '5527', '5838', '5851', '6184', '6194', '6579', '6662', '6664', '6721', '7031', '7049', '7064', '7068', '7091', '7217', '7359', '7630', '7831', '8869', '9073', '9220', '9346', '9441'], 'issued_only': ['130A', '135A', '138A', '142A', '143A', '145A', '148A', '149A', '150A', '160A', '168A', '177A', '184A', '189A', '190A', '192A', '195A', '196A', '197A', '198A', '206A', '212A', '218A', '219A', '241A', '2459', '245A', '248A', '278A', '281A', '288A', '2962', '2984', '2997', '2999', '299A', '300A', '302A', '303A', '304A', '323A', '334A', '335A', '336A', '338A', '340A', '341A', '343A', '350A', '352A', '366A', '367A', '3686', '368A', '369A', '373A', '378A', '3840', '386A', '402A', '407A', '414A', '4166', '421A', '4265', '428A', '438A', '4416', '442A', '446A', '460A', '462A', '472A', '475A', '476A', '4777', '477A', '478A', '479A', '480A', '4833', '485A', '4890', '4892', '4896', '500A', '5026', '5031', '504A', '5126', '5131', '519A', '520A', '523A', '5240', '5246', '549A', '5533', '554A', '556A', '5580', '558A', '5591', '5597', '559A', '5618', '584A', '5868', '5870', '5884', '589A', '593A', '598A', '603A', '607A', '618A', '623A', '6573', '6578', '7075', '7127', '7383', '7836', '9165', '9235', '9256', '9327', '9557'], 'no_financial_documents': ['619A', '621A', '622A', '625A', '627A', '634A', '641A', '646A', '648A', '652A', '653A', '656A'], 'neither_present': ['436A', '590A', '640A', '642A']}
+          targets = {code: group for group, codes in groups.items() for code in codes}
+          assert len(targets) == 182
+          key=os.environ['JQUANTS_KEY']
+          page=None; rows=0; seen={}; pages=0
+          while True:
+              params={'date':'2026-11-04'}
+              if page: params['pagination_key']=page
+              request=urllib.request.Request('https://api.jquants.com/v2/equities/valuation?'+urllib.parse.urlencode(params),headers={'x-api-key':key,'Accept':'application/json'})
+              with urllib.request.urlopen(request,timeout=30) as response:
+                  body=response.read(5000001)
+                  if len(body)>5000000: raise ValueError('page exceeds bound')
+                  data=json.loads(body)
+              pages+=1
+              for row in data.get('data',[]):
+                  rows+=1; raw=str(row.get('Code','')); code=raw[:4] if len(raw)==5 and raw.endswith('0') else raw
+                  if code in targets:
+                      seen.setdefault(code,[]).append({'date':row.get('Date'),'cap':row.get('MktCap')})
+              page=data.get('pagination_key')
+              if not page: break
+              if pages>=30: raise ValueError('page bound')
+          out={}
+          for group,codes in groups.items():
+              values=[seen.get(c,[]) for c in codes]
+              out[group]={'target':len(codes),'any':sum(bool(v) for v in values),'one_current_positive':sum(len(v)==1 and v[0]['date']=='2026-11-04' and isinstance(v[0]['cap'],(int,float)) and not isinstance(v[0]['cap'],bool) and math.isfinite(v[0]['cap']) and v[0]['cap']>0 for v in values),'duplicates':sum(len(v)>1 for v in values)}
+          print('COVERAGE_AGGREGATE='+json.dumps({'date':'2026-11-04','pages':pages,'provider_rows':rows,'groups':out},sort_keys=True))
+          PYCODE
