@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
-from contextlib import closing
+from collections.abc import Callable, Iterator
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsSource, RetainedRequest
 from baibai_engine.data_collection.providers.jquants.retained import decode_retained_rows
+from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs, download_fixed
 
 if TYPE_CHECKING:
     from baibai_engine.storage.snapshots.reader import FixedRelease
@@ -93,3 +96,33 @@ def select_handoffs_after_snapshot(
                     continue
         selected.append(entry)
     return selected, tuple(sorted(unavailable))
+
+
+@contextmanager
+def open_pending_originals(
+    store: ReceiptStore,
+    *,
+    release: FixedRelease,
+    source: str,
+    clock: Callable[[], datetime],
+) -> Iterator[tuple[datetime, tuple[tuple[str, Path], ...], tuple[str, ...]]]:
+    """Freeze and verify only originals not yet provable in the L1 snapshot."""
+    entries = available_handoffs(store, source=source, include_integrated=True)
+    known_at = clock()
+    if known_at.utcoffset() is None:
+        raise ValueError("clock requires a timezone")
+    selected, invalid = select_handoffs_after_snapshot(
+        entries, captured_at=retained_snapshot_time(release), source=source
+    )
+    missing = list(invalid)
+    with TemporaryDirectory(prefix="jquants-pending-") as temporary:
+        paths: list[tuple[str, Path]] = []
+        for number, entry in enumerate(selected):
+            directory = Path(temporary) / str(number)
+            try:
+                download_fixed(store, entry, directory)
+            except (LakePublishError, OSError, ValueError):
+                missing.append(str(entry["stage_id"]))
+            else:
+                paths.append((str(entry["stage_id"]), directory / "receipts.sqlite"))
+        yield known_at, tuple(paths), tuple(sorted(missing))

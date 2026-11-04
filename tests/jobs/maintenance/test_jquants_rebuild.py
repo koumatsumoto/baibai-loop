@@ -202,8 +202,26 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             days=[date(2026, 11, 2), date(2026, 11, 3)],
             known_at=datetime(2026, 11, 4, tzinfo=UTC),
         )
-        from baibai_jobs.acquisition.jquants_market_plan import plan_fixed_prices
+        from baibai_jobs.acquisition.jquants_market_plan import (
+            freeze_market_originals,
+            plan_fixed_prices,
+        )
 
+        market_remote = MemoryR2Store()
+        market_remote.store_object(
+            "coordination/market-sources/jquants-market-bad/handoff.json", b"{}"
+        )
+        market = freeze_market_originals(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            store=market_remote,
+            clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
+        )
+        assert market.unavailable_stages == ("jquants-market-bad",)
+        assert len(market.indexes["daily_bars"].receipts) == 1
+        assert market.indexes["daily_bars"].incomplete[0].request_id == "stage:jquants-market-bad"
+        assert market.indexes["master"].incomplete[0].request_id == "stage:jquants-market-bad"
         price_plan = plan_fixed_prices(
             session,
             release=release,

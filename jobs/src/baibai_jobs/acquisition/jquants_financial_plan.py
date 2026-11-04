@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.financial_plan import (
@@ -17,16 +16,14 @@ from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
 from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
-from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import FixedRelease, accepted_dataset
 from baibai_jobs.acquisition.jquants_pending import (
     iter_pending_requests,
-    retained_snapshot_time,
-    select_handoffs_after_snapshot,
+    open_pending_originals,
 )
-from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs, download_fixed
+from baibai_jobs.acquisition.receipts import ReceiptStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,27 +98,9 @@ def freeze_financial_acquisition_plan(
     A missing or changed handoff is recorded, not mistaken for an empty source.
     Files are transient and fixed by their handoff digest before reading.
     """
-    entries = available_handoffs(store, source="jquants-financial", include_integrated=True)
-    known_at = clock()
-    if known_at.utcoffset() is None:
-        raise ValueError("clock requires a timezone")
-    selected, unavailable = select_handoffs_after_snapshot(
-        entries, captured_at=retained_snapshot_time(release)
-    )
-    pending: list[str] = []
-    missing = list(unavailable)
-    with TemporaryDirectory(prefix="jquants-pending-") as temporary:
-        paths: list[Path] = []
-        for index, entry in enumerate(selected):
-            stage = str(entry["stage_id"])
-            directory = Path(temporary) / str(index)
-            try:
-                download_fixed(store, entry, directory)
-            except (LakePublishError, OSError, ValueError):
-                missing.append(stage)
-                continue
-            paths.append(directory / "receipts.sqlite")
-            pending.append(stage)
+    with open_pending_originals(
+        store, release=release, source="jquants-financial", clock=clock
+    ) as (known_at, pending, missing):
         result = plan_fixed_financial_acquisition(
             session,
             release=release,
@@ -130,12 +109,12 @@ def freeze_financial_acquisition_plan(
             end=end,
             known_at=known_at,
             revision_overlap_days=revision_overlap_days,
-            pending_paths=paths,
+            pending_paths=[path for _, path in pending],
             unavailable_stages=missing,
         )
     return FrozenFinancialPlan(
         result=result,
         known_at=known_at,
-        pending_stages=tuple(pending),
-        unavailable_stages=tuple(sorted(missing)),
+        pending_stages=tuple(stage for stage, _ in pending),
+        unavailable_stages=missing,
     )
