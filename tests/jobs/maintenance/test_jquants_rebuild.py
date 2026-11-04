@@ -59,6 +59,21 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             json.dumps({"data": [{"Code": "13010", "Date": "2026-11-02", "C": 100}]}).encode(),
             mtime=0,
         )
+        incomplete_body = gzip.compress(
+            json.dumps({"data": [], "pagination_key": "next"}).encode(), mtime=0
+        )
+        conn.execute(
+            "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "incomplete",
+                0,
+                "daily_bars",
+                json.dumps({"date": "2026-11-01"}),
+                "2026-11-03T00:00:00.000000+00:00",
+                "2026-11-03",
+                incomplete_body,
+            ),
+        )
         calendar_body = gzip.compress(
             json.dumps({"data": [{"Date": "2026-11-02", "HolDiv": "1"}]}).encode(), mtime=0
         )
@@ -151,7 +166,7 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             release=release,
             cache=LakeObjectCache(root=tmp_path / "cache", source=source),
             known_at=datetime(2026, 11, 4, tzinfo=UTC),
-            candidates=frozenset({"old", "price", "calendar", "future", "missing"}),
+            candidates=frozenset({"old", "price", "calendar", "future", "missing", "incomplete"}),
         )
         assert identities == frozenset({"old", "price", "calendar"})
         frozen = freeze_financial_acquisition_plan(
@@ -248,7 +263,9 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
         )
         assert market.unavailable_stages == ("jquants-market-bad",)
         assert len(market.indexes["daily_bars"].receipts) == 1
-        assert market.indexes["daily_bars"].incomplete[0].request_id == "stage:jquants-market-bad"
+        assert "stage:jquants-market-bad" in {
+            item.request_id for item in market.indexes["daily_bars"].incomplete
+        }
         assert market.indexes["master"].incomplete[0].request_id == "stage:jquants-market-bad"
         assert market.dependencies == ()
         complete_market = freeze_market_originals(
