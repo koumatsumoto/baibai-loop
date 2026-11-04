@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from types import MappingProxyType
+from typing import Literal
 
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -49,6 +50,7 @@ from baibai_engine.storage.snapshots.models import (
     load_lake_model_json,
     validate_dataset_contract,
     validate_release_policy,
+    validate_source_generations,
 )
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LakeObjectSource, sha256_bytes
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
@@ -224,6 +226,10 @@ def _load_release(
             raise LakeReadError(f"release and dataset manifest disagree: {name}")
         manifests[name] = manifest
         digests[name] = dataset_digest
+    try:
+        validate_source_generations(release, manifests)
+    except ValueError as error:
+        raise LakeReadError(f"release source graph is inconsistent: {error}") from None
     return FixedRelease(
         release_id=release_id,
         manifest_key=manifest_key,
@@ -313,7 +319,13 @@ def partition_objects(partitions: Sequence[PartitionManifest]) -> tuple[LakeObje
     return tuple(item for partition in partitions for item in partition.objects)
 
 
-def verify_object(path: Path, dataset: LakeDataset, lake_object: LakeObject) -> None:
+def verify_object(
+    path: Path,
+    dataset: LakeDataset,
+    lake_object: LakeObject,
+    *,
+    source_kind: Literal["legacy_sqlite_import", "l1_derived"] = "legacy_sqlite_import",
+) -> None:
     """Check a materialized object against the contract before any row is read.
 
     The comparison is Arrow's exact one, metadata included, so a file with the right
@@ -328,7 +340,7 @@ def verify_object(path: Path, dataset: LakeDataset, lake_object: LakeObject) -> 
         # pyarrow raises ArrowInvalid (a ValueError) for a bad footer and ArrowIOError
         # (an OSError) for an unreadable file.
         raise LakeReadError(f"Parquet object is unreadable: {lake_object.key}: {exc}") from exc
-    if not schema.equals(dataset.arrow_schema, check_metadata=True):
+    if not schema.equals(dataset.arrow_schema_for(source_kind), check_metadata=True):
         raise LakeReadError(f"Parquet object schema does not match the contract: {lake_object.key}")
     if metadata.num_rows != lake_object.rows:
         raise LakeReadError(
@@ -408,8 +420,14 @@ def materialize_partitions(
     """Fetch (or reuse) every object of the selected partitions and verify it."""
 
     paths: list[Path] = []
-    for lake_object in partition_objects(partitions):
-        path = cache.materialize(lake_object)
-        verify_object(path, dataset, lake_object)
-        paths.append(path)
+    for partition in partitions:
+        source_kind: Literal["legacy_sqlite_import", "l1_derived"] = (
+            "l1_derived"
+            if any(source.kind == "l1_dataset" for source in partition.sources)
+            else "legacy_sqlite_import"
+        )
+        for lake_object in partition.objects:
+            path = cache.materialize(lake_object)
+            verify_object(path, dataset, lake_object, source_kind=source_kind)
+            paths.append(path)
     return tuple(paths)

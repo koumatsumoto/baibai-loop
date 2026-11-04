@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+import pyarrow as pa  # type: ignore[import-untyped]
+
 if TYPE_CHECKING:
     import duckdb
 
@@ -102,9 +104,11 @@ def materialize_financial_days(
         )
         for result in days:
             if result.rows:
-                connection.executemany(
-                    "INSERT INTO financial_summaries VALUES (?, ?, ?, ?)", result.rows
+                batch = pa.Table.from_arrays(
+                    [pa.array(column) for column in zip(*result.rows, strict=True)],
+                    names=("ticker", "disclosed_at", "disclosure_number", "document_payload"),
                 )
+                connection.from_arrow(batch).insert_into("financial_summaries")
             connection.execute(
                 "INSERT INTO financial_receipt_status VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
