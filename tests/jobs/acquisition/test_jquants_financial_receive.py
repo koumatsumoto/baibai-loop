@@ -96,7 +96,7 @@ def test_completed_handoff_replays_empty_receipt(tmp_path) -> None:
         assert conn.execute("SELECT count(*) FROM jquants_source_pages").fetchone()[0] == 1
 
 
-def test_unavailable_original_blocks_planned_acquisition(tmp_path) -> None:
+def test_unavailable_original_marks_partial_but_keeps_receiving(tmp_path) -> None:
     from baibai_engine.data_collection.providers.jquants.financial_plan import (
         FinancialAcquisitionPlan,
     )
@@ -113,9 +113,11 @@ def test_unavailable_original_blocks_planned_acquisition(tmp_path) -> None:
         (),
         ("unavailable",),
     )
-    with pytest.raises(ValueError, match="unavailable originals"):
-        receive_planned_handoff(tmp_path / "out", frozen, asof=date(2026, 11, 2), client=Client())
-    assert not (tmp_path / "out").exists()
+    output = tmp_path / "out"
+    assert not receive_planned_handoff(output, frozen, asof=date(2026, 11, 2), client=Client())
+    report = json.loads((output / "result.json").read_text())
+    assert report["acquisition"] == {"status": "failed", "planning_unknown_count": 1}
+    assert len(report["request_ids"]) == 1
 
 
 def test_l1_acquisition_scheduled_holiday_does_not_fetch(tmp_path, monkeypatch) -> None:

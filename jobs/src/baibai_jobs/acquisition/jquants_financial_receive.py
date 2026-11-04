@@ -111,9 +111,7 @@ def receive_planned_handoff(
     sleep: Callable[[float], None] = time.sleep,
 ) -> bool:
     """Consume a frozen L1 plan without treating unavailable sources as empty."""
-    if frozen.result.plan.unknown_incomplete_requests:
-        raise ValueError("cannot acquire from a plan with unavailable originals")
-    return receive_financial_handoff(
+    received = receive_financial_handoff(
         directory,
         frozen.result.plan.days,
         asof=asof,
@@ -121,6 +119,13 @@ def receive_planned_handoff(
         client=client,
         sleep=sleep,
     )
+    unknown = frozen.result.plan.unknown_incomplete_requests
+    if unknown:
+        report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+        report["acquisition"]["planning_unknown_count"] = len(unknown)
+        report["acquisition"]["status"] = "failed"
+        write_json_atomic(directory / "result.json", report)
+    return received and not unknown
 
 
 def run_l1_financial_acquisition(
@@ -151,9 +156,7 @@ def run_l1_financial_acquisition(
         revision_overlap_days=revision_overlap_days,
         clock=clock,
     )
-    if frozen.result.plan.unknown_incomplete_requests:
-        raise ValueError("cannot acquire from a plan with unavailable originals")
-    if scheduled:
+    if scheduled and not frozen.result.plan.unknown_incomplete_requests:
         entries = available_handoffs(store, source="jquants-market", include_integrated=True)
         pending, unavailable = select_pending_financial_handoffs(
             entries, captured_at=retained_snapshot_time(release), source="jquants-market"
