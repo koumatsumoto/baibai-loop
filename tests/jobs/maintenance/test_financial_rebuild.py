@@ -23,7 +23,7 @@ from baibai_jobs.acquisition.jquants_financial_plan import (
     freeze_financial_acquisition_plan,
     plan_fixed_financial_acquisition,
 )
-from baibai_jobs.maintenance.financial_rebuild import rebuild_fixed_financial_days
+from baibai_jobs.maintenance.jquants_rebuild import rebuild_fixed_days
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -54,6 +54,23 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
                     body,
                 ),
             )
+    with open_connection(source_path) as conn:
+        price_body = gzip.compress(
+            json.dumps({"data": [{"Code": "13010", "Date": "2026-11-02", "C": 100}]}).encode(),
+            mtime=0,
+        )
+        conn.execute(
+            "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "price",
+                0,
+                "daily_bars",
+                json.dumps({"date": "2026-11-02"}),
+                "2026-11-03T00:00:00.000000+00:00",
+                "2026-11-03",
+                price_body,
+            ),
+        )
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=source_path, mirror_root=mirror) as snapshot:
         manifest = export_dataset_snapshot(
@@ -177,13 +194,26 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             assert incoming.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall() == [("jquants_source_pages",)]
-        report = rebuild_fixed_financial_days(
+        report = rebuild_fixed_days(
             session,
             release=release,
             cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            source="financial_summaries",
             days=[date(2026, 11, 2), date(2026, 11, 3)],
             known_at=datetime(2026, 11, 4, tzinfo=UTC),
         )
+        price_report = rebuild_fixed_days(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            source="daily_bars",
+            days=[date(2026, 11, 2)],
+            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+        )
+        assert price_report.rows == 1
+        assert session.connection.execute("SELECT ticker, close FROM daily_bars").fetchall() == [
+            ("1301", 100.0)
+        ]
         rows = session.connection.execute(
             "SELECT ticker, disclosed_at, disclosure_number FROM financial_summaries"
         ).fetchall()
