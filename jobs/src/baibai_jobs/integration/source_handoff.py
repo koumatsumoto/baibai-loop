@@ -200,6 +200,38 @@ def _acquire_financial_l1(asof: date, directory: Path) -> bool:
         )
 
 
+def _acquire_market_l1(asof: date, directory: Path) -> bool:
+    """Acquire each market source using retained originals, not L2 copies."""
+    from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+    from baibai_engine.storage.snapshots.objects import open_lake
+    from baibai_engine.storage.snapshots.reader import resolve_current_release
+    from baibai_jobs.acquisition.jquants_market_plan import freeze_market_originals
+    from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
+    from baibai_jobs.publication.datasets import LAKE_DATASETS
+    from baibai_jobs.publication.policy import release_policy_for_profile
+
+    bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+    with (
+        tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
+        open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
+        closing(Boto3R2Store(bucket=bucket)) as store,
+        closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
+    ):
+        release = resolve_current_release(
+            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+        )
+        fixed = freeze_market_originals(
+            session, release=release, cache=cache, store=store, asof=asof
+        )
+        return receive_market_handoff(
+            directory,
+            fixed,
+            asof=asof,
+            client=client,
+            scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -281,8 +313,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in {"acquire", "export"}:
             if args.asof is None or (args.command == "export" and args.since is None):
                 raise ValueError("--asof and export --since are required")
-            if args.command == "acquire" and args.source == "jquants-financial":
-                ok = _acquire_financial_l1(args.asof, directory)
+            if args.command == "acquire" and args.source in {"jquants-financial", "jquants-market"}:
+                acquire = (
+                    _acquire_financial_l1
+                    if args.source == "jquants-financial"
+                    else _acquire_market_l1
+                )
+                ok = acquire(args.asof, directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print("stage_ready=true", file=stream)

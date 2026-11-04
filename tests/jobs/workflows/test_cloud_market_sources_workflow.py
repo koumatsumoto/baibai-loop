@@ -246,3 +246,17 @@ def test_unknown_cron_is_rejected_even_with_explicit_asof(tmp_path, asof):
     assert result.returncode != 0
     assert "unknown market source schedule" in result.stderr
     assert output == {}
+
+
+def test_jquants_sources_skip_scoped_input_and_resume():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/cloud-market-source.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    steps = {step.get("name"): step for step in workflow["jobs"]["acquire"]["steps"]}
+    for name in (
+        "Load only the assigned source input",
+        "Read own confirmed originals and required EDINET list receipts",
+    ):
+        condition = steps[name]["if"]
+        assert "jquants-market" in condition
+        assert "jquants-financial" in condition

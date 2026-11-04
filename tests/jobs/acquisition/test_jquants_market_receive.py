@@ -225,3 +225,38 @@ def test_rate_limit_stops_remaining_requests_and_keeps_received_page(tmp_path, m
     assert client.called == ["master"]
     with sqlite3.connect(stage / "receipts.sqlite") as conn:
         assert conn.execute("SELECT count(*) FROM jquants_source_pages").fetchone()[0] == 1
+
+
+def test_market_command_uses_l1_and_stages_partial_on_failure(tmp_path, monkeypatch):
+    from baibai_jobs.integration import source_handoff
+
+    output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    calls = []
+
+    def acquisition(asof, target):
+        calls.append((asof, target))
+        target.mkdir(parents=True)
+        (target / "result.json").write_text('{"source":"jquants-market"}')
+        return False
+
+    monkeypatch.setattr(source_handoff, "_acquire_market_l1", acquisition)
+    directory = tmp_path / "market-stage"
+    assert (
+        source_handoff.main(
+            [
+                "acquire",
+                "--source",
+                "jquants-market",
+                "--asof",
+                "2026-11-02",
+                "--input-directory",
+                str(tmp_path / "nonexistent"),
+                "--directory",
+                str(directory),
+            ]
+        )
+        == 1
+    )
+    assert calls == [(date(2026, 11, 2), directory)]
+    assert "stage_ready=true" in output.read_text()

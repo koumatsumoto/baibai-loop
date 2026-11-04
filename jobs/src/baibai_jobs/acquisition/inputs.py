@@ -21,18 +21,8 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema,
 )
 
-_MARKET = (
-    "jquants_master_snapshots",
-    "jquants_daily_bars",
-    "jquants_market_calendar",
-    "jquants_weekly_margin",
-    "jquants_margin_alerts",
-    "jquants_all_issues_daily_margin",
-    "jquants_short_sale_reports",
-)
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
-    "jquants-market": _MARKET,
     "edinet-list": _LISTS,
     "edinet-metrics": (*_LISTS, "edinet_metrics"),
     "edinet-facts": _LISTS,

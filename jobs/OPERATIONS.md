@@ -107,11 +107,11 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 ### source入力・市場原本の引渡し
 
-日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側はsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewも独立sourceとして毎日取得し、[取得運用](#tradingview-expectations)に従う。
+日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側は固定L1またはsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewも独立sourceとして毎日取得し、[取得運用](#tradingview-expectations)に従う。
 
 inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・経済取得は共有quotaを守る。
 
-市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は保存済みcalendar/barを使う。TradingViewは平日・土日とも毎日取得する。保存済み受領の保持と履歴読取は新規取得から分離する。
+市場取得は`cloud-market-sources`で07:43 UTCにJ-Quants市場／財務・JPX決算予定／規制・EDINET一覧、08:43 UTCにEDINET metrics用archive、09:13 UTCにEDINET facts用archiveを別々に起動する。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は固定L1と未統合の取引暦原本から取得日を決める。TradingViewは平日・土日とも毎日取得する。保存済み受領の保持と履歴読取は新規取得から分離する。
 
 手動`source=all`は一覧の取得・stage成功後にmetrics/factsを分岐する。他sourceや共通統合は待たせない。archive取得は未統合の一覧受領も作業copyへ投影して読むため、共通統合の先行実行は不要。一覧失敗時はall内のarchive取得を止め、古い一覧だけで当日分を取得できたように見せない。有効な一覧受領を確認できる場合は、必要なarchive sourceだけを同じasofで再実行する。
 
@@ -119,7 +119,7 @@ inputは正本generationと原本hashへ結び付く再生成物で、第二の�
 
 市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同一取得cycle内の最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
 
-scoped inputを使うsourceの初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。J-Quants財務はscoped inputを生成せず、固定L1 releaseと未統合原本から取得計画を作る。独立取得の受領、共通統合のrelease/readback、モデル生成・候補公開時刻、watchdogを確認する。取得workflowと共通統合の責務を分け、削除済みの複合dailyを復活させない。
+scoped inputを使うsourceの初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。J-Quants市場・財務はscoped inputを生成せず、固定L1 releaseと未統合原本から取得計画を作る。独立取得の受領、共通統合のrelease/readback、モデル生成・候補公開時刻、watchdogを確認する。取得workflowと共通統合の責務を分け、削除済みの複合dailyを復活させない。
 
 通常の遅着・未統合受領は次回共通統合、必要なら既存dailyの手動実行で拾う。一つのinput exportが失敗しても前回pointerを保ち、正常groupは更新する。経済の実取得はseedと同値でも一時受領へ残し、統合時にfresh canonicalと比較して変更だけ追記する。同値no-opを統合したstageもsource watermarkを進める。
 

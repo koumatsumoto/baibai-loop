@@ -65,3 +65,10 @@ def test_business_day_input_does_not_substitute_an_older_master(tmp_path):
     export_source_input(canonical, scoped, group="tradingview", asof=monday)
     with closing(open_connection(scoped)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
+
+
+def test_market_l1_acquisition_does_not_publish_scoped_l2_input():
+    from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
+
+    assert "jquants-market" not in SOURCE_INPUT_GROUPS
+    assert "jquants-financial" not in SOURCE_INPUT_GROUPS

@@ -6,21 +6,18 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.external_assessment_stages import wire_success
 from tests.helpers.external_assessment_universe import build_master_lake
-from tests.helpers.jquants_receipts import Session, body, receive
+from tests.helpers.jquants_receipts import body, receive
 from tests.helpers.screening_sqlite import make_master_records
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
-from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.dependencies import load_dependency
 from baibai_jobs.acquisition.economic_staging import save_handoff
-from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_jobs.integration.source_handoff import _export
-from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 DAY = date(2026, 10, 19)
 PREVIOUS = date(2026, 10, 16)
@@ -157,67 +154,98 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
     assert store.get_keys == [f"coordination/external-assessment/{plan.run_id}/plan.json"]
 
 
-def test_scoped_calendar_tail_extension_retains_a_ready_dependency_covering_today(
+def test_l1_calendar_tail_extension_retains_ready_dependency_for_external_assessment(
     tmp_path, monkeypatch
 ):
+    from baibai_engine.data_collection.providers.jquants.contracts import (
+        JQuantsPage,
+        RetainedRequest,
+        complete_request,
+    )
+    from baibai_engine.data_collection.providers.jquants.dependencies import dependency_from_request
+    from baibai_engine.data_collection.providers.jquants.native_index import index_market_originals
+    from baibai_jobs.acquisition import jquants_market_plan as planning
+    from baibai_jobs.acquisition.jquants_market_plan import FixedMarketIndexes
+    from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
+
     store, _, _ = build_master_lake(
         tmp_path,
         monkeypatch,
         snapshot=PREVIOUS,
         calendar=[("2026-10-16", 1), ("2026-10-17", 0), ("2026-10-18", 0)],
     )
-    canonical, scoped = tmp_path / "canonical.sqlite", tmp_path / "scoped.sqlite"
+    monkeypatch.setattr(planning, "FINANCIAL_HISTORY_DAYS", 0)
+    monkeypatch.setattr(planning, "WEEKLY_BALANCE_LOOKBACK_DAYS", 0)
+    monkeypatch.setattr(planning, "MARKET_REVISION_OVERLAP_DAYS", 0)
+    monkeypatch.setattr(planning, "ALL_ISSUES_DAILY_FIRST_BALANCE_DATE", DAY)
     start, end = DAY - timedelta(days=7), DAY + timedelta(days=45)
     prior_end = end - timedelta(days=1)
     prior_records = [
-        {
-            "Date": (start + timedelta(days=offset)).isoformat(),
-            "HolDiv": "1" if (start + timedelta(days=offset)).weekday() < 5 else "0",
-        }
+        {"Date": (start + timedelta(days=offset)).isoformat(), "HolDiv": "1"}
         for offset in range((prior_end - start).days + 1)
     ]
-    prior_calendar = receive(
-        canonical,
+    page = JQuantsPage(
         "market_calendar",
         {"from": start.strftime("%Y%m%d"), "to": prior_end.strftime("%Y%m%d")},
-        body(prior_records),
         RECEIVED - timedelta(days=1),
+        body(prior_records),
     )
-    project_request(canonical, prior_calendar)
-    export_source_input(canonical, scoped, group="jquants-market", asof=DAY)
-    with closing(open_connection(scoped)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 0
-
-    records = [*prior_records, {"Date": end.isoformat(), "HolDiv": "1"}]
-    session = Session(body(make_master_records(DAY)), body(records))
-    maintenance = JQuantsRefresh(
-        scoped,
-        None,
-        client=JQuantsHTTP("synthetic-test-key", session=session, clock=lambda: RECEIVED),
+    prior = complete_request([page])
+    names = (
+        "master",
+        "daily_bars",
+        "market_calendar",
+        "margin_interest",
+        "margin_alerts",
+        "short_sale_reports",
     )
-    assert maintenance.ensure_master(DAY) == 2500
-    assert maintenance.ensure_market_calendar(start, end) == len(records)
-    expected_query = {"from": start.strftime("%Y%m%d"), "to": end.strftime("%Y%m%d")}
-    assert session.calls[1][1]["params"] == expected_query
+    indexes = {name: index_market_originals([], source=name) for name in names}
+    indexes["market_calendar"] = index_market_originals(
+        [RetainedRequest("prior-calendar", prior, None)], source="market_calendar"
+    )
+    fixed = FixedMarketIndexes(
+        "release",
+        "0" * 64,
+        "partial",
+        RECEIVED,
+        indexes,
+        (),
+        (dependency_from_request("prior-calendar", prior),),
+    )
 
-    directory = tmp_path / "scoped-ready"
-    _export("jquants-market", DAY, RECEIVED - timedelta(seconds=1), scoped, directory)
+    class Client:
+        def pages(self, source, params):
+            if source == "master":
+                records = make_master_records(DAY)
+            elif source == "market_calendar":
+                first, last = date.fromisoformat(params["from"]), date.fromisoformat(params["to"])
+                records = [
+                    {"Date": (first + timedelta(days=i)).isoformat(), "HolDiv": "1"}
+                    for i in range((last - first).days + 1)
+                ]
+            else:
+                records = []
+            yield JQuantsPage(source, params, RECEIVED, body(records))
+
+    directory = tmp_path / "l1-ready"
+    assert receive_market_handoff(
+        directory, fixed, asof=DAY, client=Client(), clock=lambda: RECEIVED
+    )
     dependencies = [json.loads(path.read_text()) for path in directory.glob("dependency-*.json")]
     calendar = next(value for value in dependencies if value["source"] == "market_calendar")
-    assert calendar["params"] == expected_query
-    save_handoff(store, f"jquants-market-{DAY.isoformat()}-scoped", directory, market=True)
-    plan = daily.initialize(
+    assert calendar["request_id"] == "prior-calendar"
+    save_handoff(store, f"jquants-market-{DAY.isoformat()}-l1", directory, market=True)
+    result = daily.initialize(
         store,
-        run_id="monex-scoped-tail-extension",
+        run_id="monex-l1-tail-extension",
         source="monex",
         master_asof=None,
         observation_date=DAY,
-        mirror=tmp_path / "scoped-plan",
+        mirror=tmp_path / "l1-plan",
     )
-    binding = json.loads(plan.universe_binding)
-    assert binding["calendar_receipt"]["request_id"] == calendar["request_id"]
-    assert binding["calendar_receipt"]["params"] == expected_query
-    assert len(plan.tickers) == 2500
+    binding = json.loads(result.universe_binding)
+    assert binding["calendar_receipt"]["request_id"] == "prior-calendar"
+    assert len(result.tickers) == 2500
 
 
 @pytest.mark.parametrize("fault", ["old", "partial", "wrong_date"])
