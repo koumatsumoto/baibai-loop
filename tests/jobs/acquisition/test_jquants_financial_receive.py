@@ -313,3 +313,44 @@ def test_unlisted_original_pages_are_not_silently_dropped(tmp_path) -> None:
             (),
             sources=("financial_summaries",),
         )
+
+
+def test_common_integration_retains_partial_native_pages(tmp_path, monkeypatch) -> None:
+    from contextlib import closing
+
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+    from baibai_jobs.acquisition.economic_staging import save_handoff
+    from baibai_jobs.acquisition.jquants_financial_receive import receive_financial_handoff
+    from baibai_jobs.acquisition.receipts import available_handoffs
+    from baibai_jobs.integration.sources import apply
+
+    stage = tmp_path / "stage"
+    assert not receive_financial_handoff(
+        stage,
+        [date(2026, 11, 2)],
+        asof=date(2026, 11, 2),
+        started_at=datetime(2026, 11, 4, tzinfo=UTC),
+        client=Client(partial=True),
+    )
+    store = MemoryR2Store()
+    save_handoff(store, "jquants-financial-partial", stage, market=True)
+    entries = available_handoffs(store)
+    assert (
+        entries[0]["request_ids"] == json.loads((stage / "result.json").read_text())["request_ids"]
+    )
+    directory = tmp_path / "integration"
+    directory.mkdir()
+    (directory / "plan.json").write_text(json.dumps({"handoffs": entries}))
+    market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
+    with closing(open_connection(market)), closing(initialize_database(economic)):
+        pass
+    monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **kw: {})
+    report = apply(store, directory, market=market, economic=economic, asof=date(2026, 11, 2))
+    assert report["handoffs"][0]["applied"] is True
+    assert report["handoffs"][0]["failed"] is True
+    assert report["handoffs"][0]["recovery"] is True
+    with sqlite3.connect(market) as conn:
+        assert conn.execute("SELECT count(*) FROM jquants_source_pages").fetchone()[0] == 1
