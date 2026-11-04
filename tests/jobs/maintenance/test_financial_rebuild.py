@@ -148,6 +148,35 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
         )
         assert plan.plan.days == (date(2026, 11, 3),)
         assert plan.l1_coverage_status == "partial"
+        # Entire acquisition runs with only the fixed L1 and a new source handoff.
+        from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
+        from baibai_jobs.acquisition.jquants_financial_receive import run_l1_financial_acquisition
+
+        class Client:
+            def pages(self, source, params):
+                yield JQuantsPage(source, params, datetime(2026, 11, 4, tzinfo=UTC), b'{"data":[]}')
+
+        output = tmp_path / "new-source-only"
+        assert run_l1_financial_acquisition(
+            session,
+            release=release,
+            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
+            store=MemoryR2Store(),
+            directory=output,
+            asof=date(2026, 11, 3),
+            scheduled=False,
+            lookback_days=1,
+            revision_overlap_days=0,
+            client=Client(),
+            clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
+        )
+        with sqlite3.connect(output / "receipts.sqlite") as incoming:
+            assert incoming.execute("SELECT query_json FROM jquants_source_pages").fetchall() == [
+                ('{"date":"20261103"}',)
+            ]
+            assert incoming.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall() == [("jquants_source_pages",)]
         report = rebuild_fixed_financial_days(
             session,
             release=release,
