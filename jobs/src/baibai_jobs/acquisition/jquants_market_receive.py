@@ -190,6 +190,7 @@ def receive_market_handoff(
             "asof": asof.isoformat(),
             "started_at": fixed.known_at.isoformat(),
             "request_ids": ids,
+            "request_ids_complete": True,
             "planning": {
                 "release_id": fixed.release_id,
                 "manifest_sha256": fixed.manifest_sha256,

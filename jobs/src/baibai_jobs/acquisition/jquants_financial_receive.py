@@ -96,6 +96,7 @@ def receive_financial_handoff(
             "asof": asof.isoformat(),
             "started_at": started_at.isoformat(),
             "request_ids": ids,
+            "request_ids_complete": True,
             "acquisition": {
                 "status": "failed" if failure else "received",
                 **({"failure_type": failure} if failure else {}),

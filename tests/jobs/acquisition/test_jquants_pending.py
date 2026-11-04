@@ -51,6 +51,7 @@ def test_only_exact_release_marker_proves_inclusion() -> None:
             "stage_id": stage,
             "source": "jquants-financial",
             "manifest_sha256": "c" * 64,
+            "request_ids_complete": True,
             "integration": {
                 "source": "jquants-financial",
                 "manifest_sha256": "c" * 64,
@@ -115,6 +116,31 @@ def test_stale_integration_marker_does_not_prove_inclusion() -> None:
         [entry],
         release_id="r",
         manifest_sha256="c" * 64,
+        source="jquants-financial",
+        l1_request_ids=frozenset({"id"}),
+    )
+    assert selected == [entry]
+
+
+def test_legacy_handoff_without_complete_id_contract_is_retained() -> None:
+    from baibai_jobs.acquisition.jquants_pending import select_unproven_handoffs
+
+    entry = {
+        "stage_id": "legacy",
+        "source": "jquants-financial",
+        "manifest_sha256": "a" * 64,
+        "request_ids": ["id"],
+        "integration": {
+            "status": "integrated",
+            "source": "jquants-financial",
+            "manifest_sha256": "a" * 64,
+            "canonical_generations": {"lake_release_id": "r", "lake_manifest_sha256": "b" * 64},
+        },
+    }
+    selected, _ = select_unproven_handoffs(
+        [entry],
+        release_id="r",
+        manifest_sha256="b" * 64,
         source="jquants-financial",
         l1_request_ids=frozenset({"id"}),
     )

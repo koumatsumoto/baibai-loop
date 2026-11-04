@@ -92,6 +92,7 @@ def select_unproven_handoffs(
             and marker.get("status") == "integrated"
             and marker.get("source") == source
             and marker.get("manifest_sha256") == entry.get("manifest_sha256")
+            and entry.get("request_ids_complete") is True
             and isinstance(entry.get("manifest_sha256"), str)
             and len(str(entry["manifest_sha256"])) == 64
         ):
