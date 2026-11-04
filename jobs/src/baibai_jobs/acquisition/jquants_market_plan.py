@@ -4,20 +4,35 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsSource, RetainedRequest
 from baibai_engine.data_collection.providers.jquants.lake_receipts import (
     iter_fixed_retained_requests,
 )
+from baibai_engine.data_collection.providers.jquants.market_rules import (
+    ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
+    CALENDAR_FORWARD_DAYS,
+    CALENDAR_LOOKBACK_DAYS,
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+    MARKET_REVISION_OVERLAP_DAYS,
+    WEEKLY_BALANCE_LOOKBACK_DAYS,
+)
 from baibai_engine.data_collection.providers.jquants.native_index import (
+    MarginAcquisitionPlan,
     NativeAcquisitionPlan,
     NativeMarketIndex,
     index_market_originals,
+    plan_calendar,
+    plan_daily_margin,
     plan_daily_prices,
+    plan_required_days,
+    plan_weekly_margin,
 )
 from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
+from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_engine.storage.snapshots.reader import FixedRelease, accepted_dataset
@@ -124,4 +139,64 @@ def freeze_market_originals(
         known_at,
         indexes,
         tuple(sorted(missing)),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class MarketPlans:
+    master: NativeAcquisitionPlan
+    daily_prices: NativeAcquisitionPlan
+    calendar: NativeAcquisitionPlan
+    weekly_margin: MarginAcquisitionPlan
+    daily_margin: MarginAcquisitionPlan
+    margin_alerts: NativeAcquisitionPlan
+    short_sales: NativeAcquisitionPlan
+
+
+def plan_market_from_originals(
+    indexes: dict[JQuantsSource, NativeMarketIndex], *, asof: date
+) -> MarketPlans:
+    """Plan each source from original receipts; unavailable scopes stay explicit."""
+
+    def refresh_tail(source: JQuantsSource) -> NativeAcquisitionPlan:
+        index = indexes[source]
+        start = asof - timedelta(days=MARKET_REVISION_OVERLAP_DAYS)
+        earliest = min((receipt.start for receipt in index.receipts), default=start)
+        first = min(start, earliest)
+        days = (first + timedelta(days=offset) for offset in range((asof - first).days + 1))
+        missing = plan_required_days(index, days=days, require_nonempty=False)
+        tail = (start + timedelta(days=offset) for offset in range((asof - start).days + 1))
+        return NativeAcquisitionPlan(
+            tuple(sorted(set(missing.days) | set(tail))), missing.unknown_incomplete_requests
+        )
+
+    calendar = indexes["market_calendar"]
+    calendar_start = asof - timedelta(days=CALENDAR_LOOKBACK_DAYS)
+    earliest_calendar = min((item.start for item in calendar.receipts), default=calendar_start)
+    return MarketPlans(
+        master=plan_required_days(indexes["master"], days=[asof], require_nonempty=True),
+        daily_prices=plan_daily_prices(
+            indexes["daily_bars"], start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS), end=asof
+        ),
+        calendar=plan_calendar(
+            calendar,
+            start=min(calendar_start, earliest_calendar),
+            end=asof + timedelta(days=CALENDAR_FORWARD_DAYS),
+        ),
+        weekly_margin=plan_weekly_margin(
+            indexes["margin_interest"],
+            calendar,
+            start=asof - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS),
+            asof=asof,
+            final_balance_date=LEGACY_WEEKLY_LAST_BALANCE_DATE,
+            final_publication_date=LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+        ),
+        daily_margin=plan_daily_margin(
+            indexes["margin_interest"],
+            calendar,
+            first_balance_date=ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
+            asof=asof,
+        ),
+        margin_alerts=refresh_tail("margin_alerts"),
+        short_sales=refresh_tail("short_sale_reports"),
     )

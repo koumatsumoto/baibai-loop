@@ -118,3 +118,12 @@ def test_shared_request_identity_must_have_identical_original_pages() -> None:
     assert date(2026, 11, 1) not in plan.days
     with pytest.raises(ValueError, match="conflicting retained page"):
         plan_financial_acquisition([a, b], start=START, end=END, revision_overlap_days=0)
+
+
+def test_equal_timestamp_distinct_receipts_are_not_silently_chosen() -> None:
+    first = complete("a", "20261101", AT, [{"Code": "13010"}])
+    second = complete("b", "20261101", AT, [{"Code": "13020"}])
+    plan = plan_financial_acquisition(
+        [first, second], start=START, end=END, revision_overlap_days=0
+    )
+    assert START in plan.days

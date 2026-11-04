@@ -272,3 +272,26 @@ def test_financial_input_is_not_published_after_l1_cutover(tmp_path, monkeypatch
     )
     assert result == {"updated": [], "failed": []}
     assert remote.values == {}
+
+
+def test_market_plan_leaves_calendar_unknown_without_stopping_other_sources():
+    from baibai_engine.data_collection.providers.jquants.native_index import index_market_originals
+    from baibai_jobs.acquisition.jquants_market_plan import plan_market_from_originals
+
+    sources = (
+        "master",
+        "daily_bars",
+        "market_calendar",
+        "margin_interest",
+        "margin_alerts",
+        "short_sale_reports",
+    )
+    indexes = {source: index_market_originals([], source=source) for source in sources}
+    asof = date(2026, 11, 4)
+    plan = plan_market_from_originals(indexes, asof=asof)
+    assert plan.master.days == (asof,)
+    assert asof in plan.daily_prices.days
+    assert asof in plan.margin_alerts.days
+    assert asof in plan.short_sales.days
+    assert plan.daily_margin.days == ()
+    assert asof in plan.daily_margin.unknown_calendar_days
