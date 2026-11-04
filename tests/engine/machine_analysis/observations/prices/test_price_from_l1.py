@@ -75,3 +75,19 @@ def test_price_refuses_payload_outside_requested_day():
     source = receipt("bad", records=[{"Code": "13010", "Date": "2026-11-03", "C": 100}])
     with pytest.raises(ValueError, match="outside the request"):
         rebuild_price_days([source], days=[day])
+
+
+def test_price_materialization_rolls_back_on_duplicate_ticker_day():
+    from baibai_engine.machine_analysis.observations.prices.from_l1 import PriceDay
+
+    row = ("1301", "2026-11-02", None, None, None, 100.0, None, None, None, None, None, None, None)
+    duplicate = PriceDay(date(2026, 11, 2), "id", (row, row), "ok", 0, 0, 0)
+    with duckdb.connect(":memory:") as conn:
+        with pytest.raises(duckdb.ConstraintException):
+            materialize_price_days(conn, [duplicate], l1_coverage_status="partial")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_name='daily_bars'"
+            ).fetchone()[0]
+            == 0
+        )

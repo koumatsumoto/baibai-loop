@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+import pyarrow as pa  # type: ignore[import-untyped]
+
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.day_selection import select_full_days
 from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
@@ -83,9 +85,30 @@ def materialize_price_days(
         )
         for result in days:
             if result.rows:
-                connection.executemany(
-                    "INSERT INTO daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", result.rows
+                # Columnar transfer avoids a Python-to-DuckDB call per price row.
+                names = (
+                    "ticker",
+                    "traded_at",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "turnover_value",
+                    "adjustment_factor",
+                    "upper_limit",
+                    "lower_limit",
+                    "ex_right_type",
+                    "market_cap_million_yen",
                 )
+                batch = pa.Table.from_arrays(
+                    [pa.array(column) for column in zip(*result.rows, strict=True)], names=names
+                )
+                connection.register("_price_l1_batch", batch)
+                try:
+                    connection.execute("INSERT INTO daily_bars SELECT * FROM _price_l1_batch")
+                finally:
+                    connection.unregister("_price_l1_batch")
             connection.execute(
                 "INSERT INTO price_receipt_status VALUES (?, ?, ?, ?, ?, ?, ?)",
                 [
