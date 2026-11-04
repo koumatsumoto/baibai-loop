@@ -518,6 +518,11 @@ def validate_snapshot_parity(
                 period=period,
                 expected_rows=rows,
                 expected_object=partition.objects[0],
+                source_kind=(
+                    "l1_derived"
+                    if any(source.kind == "l1_dataset" for source in partition.sources)
+                    else "legacy_sqlite_import"
+                ),
             )
 
 

@@ -14,7 +14,11 @@ from tests.helpers.lake_release import market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import materialize_partitions, resolve_release
 from baibai_engine.storage.snapshots.release import create_release
-from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.writer import (
+    LakeBuildError,
+    export_dataset_snapshot,
+    sealed_sqlite_snapshot,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
@@ -167,7 +171,7 @@ def test_later_incomplete_request_prevents_complete_publication(tmp_path, monkey
         )
 
 
-def test_market_publish_financial_rows_come_from_l1_not_old_sqlite(tmp_path, monkeypatch):
+def test_market_publish_refuses_divergent_financial_model_inputs(tmp_path, monkeypatch):
     from tests.helpers.r2_store import MemoryR2Store
 
     import baibai_jobs.publication.snapshot_publication as publication
@@ -198,23 +202,14 @@ def test_market_publish_financial_rows_come_from_l1_not_old_sqlite(tmp_path, mon
         )
     mirror = tmp_path / "mirror"
     store = MemoryR2Store()
-    with publication.prepare_market_lake(
-        sqlite_path=database, mirror_root=mirror, store=store, release_id="direct-l1"
-    ) as prepared:
-        report = publication.publish_prepared_market_lake(prepared, store=store)
-        assert report.release_id == "direct-l1"
-        derived = prepared.export.datasets["jquants.fin_summaries"].manifest
-        assert all(src.kind == "l1_dataset" for part in derived.partitions for src in part.sources)
-        paths = materialize_partitions(
-            LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)),
-            dataset=LAKE_DATASETS["jquants.fin_summaries"],
-            partitions=derived.partitions,
-        )
-        with duckdb.connect(":memory:") as conn:
-            assert conn.execute(
-                "SELECT ticker, disclosure_number FROM read_parquet(?)", [[str(p) for p in paths]]
-            ).fetchall() == [("1301", "l1-filing")]
-    assert "lake/pointers/market/current.json" in store.values
+    with (
+        pytest.raises(LakeBuildError, match="Parquet values or row order differ"),
+        publication.prepare_market_lake(
+            sqlite_path=database, mirror_root=mirror, store=store, release_id="direct-l1"
+        ),
+    ):
+        pytest.fail("divergent model inputs must not be published")
+    assert "lake/pointers/market/current.json" not in store.values
 
 
 def test_market_prepare_rejects_later_incomplete_source_without_publishing(tmp_path, monkeypatch):

@@ -13,7 +13,11 @@ from tests.helpers.lake_release import market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import materialize_partitions
 from baibai_engine.storage.snapshots.release import create_release
-from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.writer import (
+    LakeBuildError,
+    export_dataset_snapshot,
+    sealed_sqlite_snapshot,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_price_export import export_prices_from_l1
@@ -116,7 +120,7 @@ def test_incomplete_latest_price_day_stops_release(tmp_path, monkeypatch):
         )
 
 
-def test_market_publication_ignores_old_price_projection(tmp_path, monkeypatch):
+def test_market_publication_refuses_divergent_price_model_inputs(tmp_path, monkeypatch):
     from tests.helpers.r2_store import MemoryR2Store
 
     import baibai_jobs.publication.snapshot_publication as publication
@@ -144,22 +148,14 @@ def test_market_publication_ignores_old_price_projection(tmp_path, monkeypatch):
         )
     mirror = tmp_path / "mirror"
     store = MemoryR2Store()
-    with publication.prepare_market_lake(
-        sqlite_path=database, mirror_root=mirror, store=store, release_id="price-from-l1"
-    ) as prepared:
-        publication.publish_prepared_market_lake(prepared, store=store)
-        derived = prepared.export.datasets["jquants.daily_bars"].manifest
-        assert all(src.kind == "l1_dataset" for part in derived.partitions for src in part.sources)
-        paths = materialize_partitions(
-            LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)),
-            dataset=LAKE_DATASETS["jquants.daily_bars"],
-            partitions=derived.partitions,
-        )
-        with duckdb.connect(":memory:") as conn:
-            assert conn.execute(
-                "SELECT ticker, close FROM read_parquet(?)", [[str(p) for p in paths]]
-            ).fetchall() == [("1301", 100.0)]
-    assert "lake/pointers/market/current.json" in store.values
+    with (
+        pytest.raises(LakeBuildError, match="Parquet values or row order differ"),
+        publication.prepare_market_lake(
+            sqlite_path=database, mirror_root=mirror, store=store, release_id="price-from-l1"
+        ),
+    ):
+        pytest.fail("divergent model inputs must not be published")
+    assert "lake/pointers/market/current.json" not in store.values
 
 
 def test_market_publication_derives_financials_and_prices_from_same_l1(tmp_path, monkeypatch):
@@ -172,10 +168,10 @@ def test_market_publication_derives_financials_and_prices_from_same_l1(tmp_path,
     monkeypatch.setattr(publication, "LAKE_DATASETS", {k: LAKE_DATASETS[k] for k in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
     database = market_store(
-        tmp_path / "market.sqlite", daily_bars=(("1301", "2026-01-05", 999.0, 1.0),)
+        tmp_path / "market.sqlite", daily_bars=(("1301", "2026-01-05", 100.0, 1.0),)
     )
     payloads = (
-        ("daily_bars", {"Code": "13010", "Date": "2026-01-05", "C": 100}),
+        ("daily_bars", {"Code": "13010", "Date": "2026-01-05", "C": 100, "Vo": 1}),
         ("financial_summaries", {"Code": "13010", "DiscDate": "2026-01-05", "DiscNo": "filing"}),
     )
     with closing(open_connection(database)) as conn, conn:
@@ -192,10 +188,12 @@ def test_market_publication_derives_financials_and_prices_from_same_l1(tmp_path,
                     gzip.compress(json.dumps({"data": [record]}).encode(), mtime=0),
                 ),
             )
-        conn.execute(
-            "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
-            ("9999", "2026-01-05", "old-l2", "{}"),
+        from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
+            normalize_financial_summaries,
         )
+
+        rows = normalize_financial_summaries([payloads[1][1]]).rows
+        conn.executemany("INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)", rows)
     mirror, store = tmp_path / "mirror", MemoryR2Store()
     with publication.prepare_market_lake(
         sqlite_path=database, mirror_root=mirror, store=store, release_id="both-from-l1"

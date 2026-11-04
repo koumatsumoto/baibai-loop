@@ -51,6 +51,7 @@ from baibai_engine.storage.snapshots.writer import (
     SealedSQLiteSnapshot,
     export_market_snapshot,
     sealed_sqlite_snapshot,
+    validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -185,6 +186,15 @@ def prepare_market_lake(
                 catalog=LAKE_DATASETS,
                 policy=release_policy_for_profile("production"),
             )
+            # Models still read this fixed SQLite snapshot. Refuse to publish a
+            # release if its newly L1-derived inputs differ from the model view.
+            for name in sorted(derived_names):
+                validate_snapshot_parity(
+                    dataset=LAKE_DATASETS[name],
+                    sqlite_path=snapshot.path,
+                    mirror_root=mirror_root,
+                    manifest=export.datasets[name].manifest,
+                )
             yield PreparedMarketLake(
                 sqlite_path=sqlite_path,
                 mirror_root=mirror_root,
