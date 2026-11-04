@@ -25,7 +25,9 @@ def native_financial_source(tmp_path, dates):
     source = market_store(tmp_path / "source.sqlite")
     with closing(open_connection(source)) as conn, conn:
         for day, rows in dates:
-            body = gzip.compress(json.dumps(rows if isinstance(rows, dict) else {"data": rows}).encode(), mtime=0)
+            body = gzip.compress(
+                json.dumps(rows if isinstance(rows, dict) else {"data": rows}).encode(), mtime=0
+            )
             conn.execute(
                 "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -130,16 +132,23 @@ def test_later_incomplete_request_prevents_complete_publication(tmp_path, monkey
     )
     when = datetime(2026, 2, 4, tzinfo=UTC)
     report = export_financial_from_l1(
-        source=l1, mirror_root=mirror, producer_git_commit="a" * 40,
-        known_at=when, build_id="partial-latest", created_at=when,
+        source=l1,
+        mirror_root=mirror,
+        producer_git_commit="a" * 40,
+        known_at=when,
+        build_id="partial-latest",
+        created_at=when,
     )
     assert report.missing_days == 1
     assert report.build.manifest.coverage_status == "partial"
     with pytest.raises(ValueError, match="coverage is partial"):
         create_release(
             dataset_manifest_paths=[l1.manifest_path, report.build.manifest_path],
-            mirror_root=mirror, release_id="partial-latest", created_at=when,
-            catalog=LAKE_DATASETS, policy=release_policy_for_profile("production"),
+            mirror_root=mirror,
+            release_id="partial-latest",
+            created_at=when,
+            catalog=LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
         )
 
 
@@ -158,8 +167,15 @@ def test_market_publish_financial_rows_come_from_l1_not_old_sqlite(tmp_path, mon
     with closing(open_connection(database)) as conn, conn:
         conn.execute(
             "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ("request-1", 0, "financial_summaries", json.dumps({"date": "20260105"}),
-             "2026-02-01T00:00:00+00:00", "2026-02-01", body),
+            (
+                "request-1",
+                0,
+                "financial_summaries",
+                json.dumps({"date": "20260105"}),
+                "2026-02-01T00:00:00+00:00",
+                "2026-02-01",
+                body,
+            ),
         )
         conn.execute(
             "INSERT INTO jquants_fin_summaries VALUES (?, ?, ?, ?)",
@@ -176,7 +192,8 @@ def test_market_publish_financial_rows_come_from_l1_not_old_sqlite(tmp_path, mon
         assert all(src.kind == "l1_dataset" for part in derived.partitions for src in part.sources)
         paths = materialize_partitions(
             LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)),
-            dataset=LAKE_DATASETS["jquants.fin_summaries"], partitions=derived.partitions,
+            dataset=LAKE_DATASETS["jquants.fin_summaries"],
+            partitions=derived.partitions,
         )
         with duckdb.connect(":memory:") as conn:
             assert conn.execute(
@@ -201,9 +218,15 @@ def test_market_prepare_rejects_later_incomplete_source_without_publishing(tmp_p
         for day, payload in (("20260105", complete), ("20260106", incomplete)):
             conn.execute(
                 "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (day, 0, "financial_summaries", json.dumps({"date": day}),
-                 "2026-02-01T00:00:00+00:00", "2026-02-01",
-                 gzip.compress(json.dumps(payload).encode(), mtime=0)),
+                (
+                    day,
+                    0,
+                    "financial_summaries",
+                    json.dumps({"date": day}),
+                    "2026-02-01T00:00:00+00:00",
+                    "2026-02-01",
+                    gzip.compress(json.dumps(payload).encode(), mtime=0),
+                ),
             )
     store = MemoryR2Store()
     with (
