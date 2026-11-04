@@ -17,7 +17,7 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
     with closing(initialize_database(economic)):
         pass
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("jquants-financial",)
+        "baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ("jquants-market",)
     )
     monkeypatch.setattr(
         "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
@@ -38,7 +38,7 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
         )["failed"]
         == []
     )
-    previous = remote.values[input_key("jquants-financial")].body
+    previous = remote.values[input_key("jquants-market")].body
 
     def fail_market_input(*_args, **_kwargs):
         raise ValueError("unavailable market input")
@@ -55,8 +55,8 @@ def test_failed_market_group_retains_prior_input_and_still_updates_economic_grou
         generations=generations,
     )
     assert report["updated"] == ["economic-fred_csv"]
-    assert [item["group"] for item in report["failed"]] == ["jquants-financial"]
-    assert remote.values[input_key("jquants-financial")].body == previous
+    assert [item["group"] for item in report["failed"]] == ["jquants-market"]
+    assert remote.values[input_key("jquants-market")].body == previous
     target = tmp_path / "only-fred.sqlite"
     result = load_input(remote, "economic-fred_csv", target, tmp_path / "input")
     assert result["canonical_generations"] == generations

@@ -5,7 +5,8 @@ two are joined by one rule: the serving release must still be the one the store 
 filled from. That identity lives in the SQLite file itself: a sidecar can be restored or
 copied independently and therefore cannot prove which rows the export is reading.
 
-Every publication derives every partition from the store. The serving release is read
+Financial and daily price observations are derived from the newly exported L1 originals;
+other datasets remain on the legacy store path during migration. The serving release is read
 for two facts only — the origin the store must be bound to, and the history floor the
 new release must still reach — and none of its partitions are carried.
 """
@@ -20,7 +21,7 @@ import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
@@ -50,6 +51,7 @@ from baibai_engine.storage.snapshots.writer import (
     SealedSQLiteSnapshot,
     export_market_snapshot,
     sealed_sqlite_snapshot,
+    validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -57,6 +59,8 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     advance_lake_store_origin,
 )
 from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
+from baibai_jobs.publication.l1_price_export import export_prices_from_l1
 from baibai_jobs.publication.lease import LeaseError, _load_handle, verify_held
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
@@ -131,13 +135,47 @@ def prepare_market_lake(
         }
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
+        policy = release_policy_for_profile("production")
+        policy_names = {item.dataset for item in policy.datasets}
+        finance_enabled = "jquants.fin_summaries" in policy_names
+        price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
+        derived_names = {
+            name
+            for name, enabled in (
+                ("jquants.fin_summaries", finance_enabled),
+                ("jquants.daily_bars", price_enabled),
+            )
+            if enabled
+        }
+        catalog = {name: item for name, item in LAKE_DATASETS.items() if name not in derived_names}
+        git_commit = lake_verified_git_commit()
         export = export_market_snapshot(
             source_snapshot=snapshot,
             mirror_root=mirror_root,
-            producer_git_commit=lake_verified_git_commit(),
+            producer_git_commit=git_commit,
             expected_store_origin=_pointer_origin(previous),
-            catalog=LAKE_DATASETS,
+            catalog=catalog,
         )
+        if derived_names:
+            source = export.datasets.get("jquants.source_pages")
+            if source is None:
+                raise LakePublishError("J-Quants L2 requires retained L1 originals")
+            datasets = dict(export.datasets)
+            if finance_enabled:
+                datasets["jquants.fin_summaries"] = export_financial_from_l1(
+                    source=source,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                    known_at=snapshot.sealed_at,
+                ).build
+            if price_enabled:
+                datasets["jquants.daily_bars"] = export_prices_from_l1(
+                    source=source,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                    known_at=snapshot.sealed_at,
+                ).build
+            export = replace(export, datasets=datasets)
         export_finished = time.perf_counter()
         with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
             release_path, release = create_lake_release(
@@ -148,6 +186,15 @@ def prepare_market_lake(
                 catalog=LAKE_DATASETS,
                 policy=release_policy_for_profile("production"),
             )
+            # Models still read this fixed SQLite snapshot. Refuse to publish a
+            # release if its newly L1-derived inputs differ from the model view.
+            for name in sorted(derived_names):
+                validate_snapshot_parity(
+                    dataset=LAKE_DATASETS[name],
+                    sqlite_path=snapshot.path,
+                    mirror_root=mirror_root,
+                    manifest=export.datasets[name].manifest,
+                )
             yield PreparedMarketLake(
                 sqlite_path=sqlite_path,
                 mirror_root=mirror_root,

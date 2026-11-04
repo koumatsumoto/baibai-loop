@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -68,3 +68,53 @@ def page_envelope(page: JQuantsPage) -> dict[str, Any]:
 def page_records(page: JQuantsPage) -> list[dict[str, Any]]:
     """Read all source fields without normalizing dates, numbers or missing values."""
     return cast(list[dict[str, Any]], page_envelope(page)["data"])
+
+
+@dataclass(frozen=True, slots=True)
+class JQuantsRequest:
+    source: JQuantsSource
+    params: Mapping[str, str]
+    pages: tuple[JQuantsPage, ...]
+
+    @property
+    def received_at(self) -> datetime:
+        return self.pages[-1].received_at
+
+    def records(self) -> list[dict[str, Any]]:
+        return [record for page in self.pages for record in page_records(page)]
+
+
+def complete_request(pages: Sequence[JQuantsPage]) -> JQuantsRequest:
+    """Validate the same native pagination chain in a bounded dependency handoff."""
+    if not pages:
+        raise JQuantsAcquisitionError("J-Quants request has no pages")
+    source = pages[0].source
+    base = dict(pages[0].query)
+    if "pagination_key" in base:
+        raise JQuantsAcquisitionError("J-Quants request starts at a continuation page")
+    expected_query = dict(base)
+    seen: set[str] = set()
+    for index, page in enumerate(pages):
+        if page.source != source or dict(page.query) != expected_query:
+            raise JQuantsAcquisitionError("J-Quants request pagination identity differs")
+        payload = page_envelope(page)
+        cursor = payload.get("pagination_key")
+        if cursor is None or cursor == "":
+            if index != len(pages) - 1:
+                raise JQuantsAcquisitionError("J-Quants request continues after its final page")
+            return JQuantsRequest(source, pages[0].query, tuple(pages))
+        if not isinstance(cursor, str) or cursor in seen:
+            raise JQuantsAcquisitionError("invalid or repeated J-Quants pagination key")
+        seen.add(cursor)
+        expected_query = {**base, "pagination_key": cursor}
+    raise JQuantsAcquisitionError("J-Quants request is incomplete")
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedRequest:
+    request_id: str
+    request: JQuantsRequest | None
+    error: str | None
+    first_query: dict[str, str] | None = None
+    last_received_at: datetime | None = None
+    page_fingerprints: tuple[tuple[int, str], ...] = ()

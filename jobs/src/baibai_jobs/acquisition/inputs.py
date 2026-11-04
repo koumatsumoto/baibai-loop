@@ -33,7 +33,6 @@ _MARKET = (
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
     "jquants-market": _MARKET,
-    "jquants-financial": ("jquants_fin_summaries", "jquants_market_calendar"),
     "edinet-list": _LISTS,
     "edinet-metrics": (*_LISTS, "edinet_metrics"),
     "edinet-facts": _LISTS,

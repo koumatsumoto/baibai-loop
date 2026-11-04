@@ -56,6 +56,11 @@ from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed,
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
+from baibai_jobs.integration.jquants_handoff import (
+    FINANCIAL_SOURCES as JQUANTS_FINANCIAL_SOURCES,
+)
+from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
+from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.integration.source_handoff import _replay
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
@@ -102,9 +107,16 @@ def apply(
                             (packet / "receipts.sqlite").resolve().as_uri() + "?mode=ro", uri=True
                         )
                     ) as raw:
-                        (validate_market_schema if entry["market"] else validate_economic_schema)(
-                            raw
-                        )
+                        if entry["source"] == "jquants-financial":
+                            validate_source_handoff(raw, sources=JQUANTS_FINANCIAL_SOURCES)
+                        elif entry["source"] == "jquants-market":
+                            validate_source_handoff(raw, sources=JQUANTS_MARKET_SOURCES)
+                        else:
+                            (
+                                validate_market_schema
+                                if entry["market"]
+                                else validate_economic_schema
+                            )(raw)
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
                 if entry["market"]:

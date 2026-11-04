@@ -10,9 +10,11 @@ from datetime import date
 # is first published on 2026-09-28. Keeping the two balance-date domains disjoint
 # prevents a daily row from silently changing the meaning of the historical
 # weekly series.
-LEGACY_WEEKLY_LAST_BALANCE_DATE = date(2026, 9, 18)
-LEGACY_WEEKLY_LAST_PUBLICATION_DATE = date(2026, 9, 25)
-ALL_ISSUES_DAILY_FIRST_BALANCE_DATE = date(2026, 9, 25)
+from baibai_engine.data_collection.providers.jquants.market_rules import (
+    ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+)
 
 
 def require_legacy_weekly_balance_date(balance_date: date) -> None:

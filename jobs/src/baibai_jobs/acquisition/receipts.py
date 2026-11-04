@@ -82,6 +82,18 @@ def available_handoffs(
                         "started_at": started.astimezone(UTC).isoformat(),
                         "asof": report["asof"],
                         "integration": integrated,
+                        **(
+                            {"request_ids_complete": True}
+                            if report.get("request_ids_complete") is True
+                            else {}
+                        ),
+                        **(
+                            {"request_ids": report["request_ids"]}
+                            if source_name.startswith("jquants-")
+                            and isinstance(report.get("request_ids"), list)
+                            and all(isinstance(value, str) for value in report["request_ids"])
+                            else {}
+                        ),
                     }
                 )
             except (R2Error, LakeCASConflict):

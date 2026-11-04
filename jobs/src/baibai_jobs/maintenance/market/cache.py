@@ -14,6 +14,12 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsRateLimitError,
 )
+from baibai_engine.data_collection.providers.jquants.market_rules import (
+    CALENDAR_FORWARD_DAYS,
+    CALENDAR_LOOKBACK_DAYS,
+    MARKET_REVISION_OVERLAP_DAYS,
+    WEEKLY_BALANCE_LOOKBACK_DAYS,
+)
 from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
     BARS_INPUT_WINDOW_DAYS,
     FIN_INPUT_WINDOW_DAYS,
@@ -30,6 +36,7 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_publica
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
+from baibai_engine.primitives.market_windows import FINANCIAL_REVISION_OVERLAP_DAYS
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     count_overlapping_source_coverage,
     count_source_coverage,
@@ -58,8 +65,8 @@ def _maintenance(providers: ProviderBundle) -> JQuantsMaintenance:
 # Full historical calendar coverage is prepared separately; this window does not
 # establish the long history needed by momentum or bootstrap a missing baseline.
 # Readers apply their own date ranges; non-business days do not stop model generation.
-_CALENDAR_BOOTSTRAP_BACKWARD_DAYS = 7
-_CALENDAR_BOOTSTRAP_FORWARD_DAYS = 45
+_CALENDAR_BOOTSTRAP_BACKWARD_DAYS = CALENDAR_LOOKBACK_DAYS
+_CALENDAR_BOOTSTRAP_FORWARD_DAYS = CALENDAR_FORWARD_DAYS
 
 
 def invalidate_coverage_command(
@@ -277,11 +284,11 @@ def backfill_history_command(
 
 # The delta axis reaches back 26 balance dates, so an incremental bootstrap has to
 # hold at least that many weeks. The slack absorbs the weeks the exchange skips.
-_WEEKLY_MARGIN_BOOTSTRAP_DAYS = 230
-_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS = 7
-_MARGIN_ALERT_REVISION_OVERLAP_DAYS = 7
+_WEEKLY_MARGIN_BOOTSTRAP_DAYS = WEEKLY_BALANCE_LOOKBACK_DAYS
+_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS = MARKET_REVISION_OVERLAP_DAYS
+_MARGIN_ALERT_REVISION_OVERLAP_DAYS = MARKET_REVISION_OVERLAP_DAYS
 
-FIN_SUMMARY_REVISION_OVERLAP_DAYS = 7
+FIN_SUMMARY_REVISION_OVERLAP_DAYS = FINANCIAL_REVISION_OVERLAP_DAYS
 """How far back a bootstrap re-reads financial summaries it already has.
 
 A correction is disclosed on its own date and arrives as a new row, so past days

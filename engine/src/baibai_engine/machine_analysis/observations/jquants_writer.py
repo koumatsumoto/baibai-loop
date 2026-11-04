@@ -9,12 +9,8 @@ from math import isfinite
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.financials.financial_documents import (
-    required_disclosure_number,
-)
-from baibai_engine.machine_analysis.observations.jquants_decode import (
-    normalize_ex_right_type,
-    provider_record_payload,
+from baibai_engine.machine_analysis.observations.financials.jquants_normalization import (
+    normalize_financial_summaries,
 )
 from baibai_engine.machine_analysis.observations.normalization import (
     NormalizedRows,
@@ -23,6 +19,9 @@ from baibai_engine.machine_analysis.observations.normalization import (
     distinct_source_rows,
     to_float,
     to_str_or_none,
+)
+from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
+    normalize_daily_bars,
 )
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     MASTER_SOURCE,
@@ -62,7 +61,7 @@ def store_jquants_fin_summaries(
 ) -> int:
     if requested_start > requested_end:
         raise ValueError("financial request start must not follow end")
-    normalized = _fin_summary_rows_with_quality(records)
+    normalized = normalize_financial_summaries(records)
     rows = normalized.rows
     if any(
         not requested_start.isoformat() <= str(row[1]) <= requested_end.isoformat() for row in rows
@@ -667,37 +666,6 @@ def store_jquants_master(
             conn.close()
 
 
-def _fin_summary_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
-    rows: list[tuple[Any, ...]] = []
-    seen: dict[tuple[str, str, str], str] = {}
-    rejected_count = 0
-    excluded_count = 0
-    for record in records:
-        ticker, quality = code_quality(record.get("Code"))
-        if quality == "rejected":
-            rejected_count += 1
-            continue
-        if quality == "excluded":
-            excluded_count += 1
-            continue
-        disclosed_at = date_iso(record.get("DiscDate"))
-        if ticker is None or disclosed_at is None:
-            rejected_count += 1
-            continue
-        disclosed_at = date.fromisoformat(disclosed_at).isoformat()
-        # Store provider fields, not selected forecasts or a second numeric truth.
-        # Source record JSON is not the original HTTP response or Bulk CSV bytes.
-        key = (ticker, disclosed_at, required_disclosure_number(record))
-        payload = provider_record_payload(record)
-        if key in seen:
-            if seen[key] != payload:
-                raise ValueError(f"conflicting financial document identity: {key}")
-            continue
-        seen[key] = payload
-        rows.append((*key, payload))
-    return NormalizedRows(rows=rows, rejected_count=rejected_count, excluded_count=excluded_count)
-
-
 def store_jquants_daily_bars(
     db_path: Path,
     records: Iterable[Mapping[str, Any]],
@@ -707,7 +675,7 @@ def store_jquants_daily_bars(
     fetched_at_utc: str | None = None,
     connection: sqlite3.Connection | None = None,
 ) -> int:
-    normalized = _bars_rows_with_quality(records)
+    normalized = normalize_daily_bars(records)
     rows = normalized.rows
     _validate_request_dates(rows, date_index=1, start=requested_start, end=requested_end)
     conn = connection if connection is not None else open_connection(db_path)
@@ -795,46 +763,6 @@ def store_jquants_market_calendar(
     finally:
         if connection is None:
             conn.close()
-
-
-def _bars_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:
-    rows: list[tuple[Any, ...]] = []
-    rejected_count = 0
-    excluded_count = 0
-    for record in records:
-        ticker, code_status = code_quality(record.get("Code"))
-        if code_status == "rejected":
-            rejected_count += 1
-            continue
-        if code_status == "excluded":
-            excluded_count += 1
-            continue
-        traded_at = date_iso(record.get("Date"))
-        if ticker is None or traded_at is None:
-            rejected_count += 1
-            continue
-        rows.append(
-            (
-                ticker,
-                traded_at,
-                to_float(record.get("O")),
-                to_float(record.get("H")),
-                to_float(record.get("L")),
-                to_float(record.get("C")),
-                to_float(record.get("Vo")),
-                to_float(record.get("Va")),
-                to_float(record.get("AdjFactor")),
-                to_str_or_none(record.get("UL")),
-                to_str_or_none(record.get("LL")),
-                normalize_ex_right_type(record.get("ExRT")),
-                to_float(record.get("MktCap")),
-            )
-        )
-    return NormalizedRows(
-        rows=distinct_source_rows(rows, identity_columns=2, source="daily bars"),
-        rejected_count=rejected_count,
-        excluded_count=excluded_count,
-    )
 
 
 def _market_calendar_rows_with_quality(records: Iterable[Mapping[str, Any]]) -> NormalizedRows:

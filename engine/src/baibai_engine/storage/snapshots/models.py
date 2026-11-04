@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from hashlib import sha256
 from types import MappingProxyType
@@ -24,6 +24,7 @@ from baibai_engine.storage.snapshots.keys import (
     LakeLayer,
     PartitionValue,
     canonical_object_key,
+    dataset_manifest_key,
     release_manifest_key,
     validate_dataset_name,
     validate_identifier,
@@ -104,8 +105,27 @@ class LakeReleaseSourceRef(_SourceRefBase):
         return self
 
 
-# Build sources identify temporary sealed SQLite inputs; their bytes are not retained.
-type SourceRef = Annotated[SQLiteSnapshotSourceRef, Field(discriminator="kind")]
+class L1DatasetSourceRef(_SourceRefBase):
+    """The exact L1 dataset manifest used to derive a current L2 partition."""
+
+    kind: Literal["l1_dataset"]
+    dataset: str
+    build_id: str
+    key: str
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> L1DatasetSourceRef:
+        if self.source_id != f"l1-{self.sha256[:24]}":
+            raise ValueError("L1 source identity does not match its digest")
+        if self.key != dataset_manifest_key(dataset=self.dataset, build_id=self.build_id):
+            raise ValueError("L1 source key does not match its dataset and build")
+        return self
+
+
+# Existing L1/legacy L2 snapshots use SQLite; rebuilt L2 names its exact L1 dataset.
+type SourceRef = Annotated[
+    SQLiteSnapshotSourceRef | L1DatasetSourceRef, Field(discriminator="kind")
+]
 
 
 def _source_identity(source: SourceRef) -> tuple[str, str, str]:
@@ -252,12 +272,12 @@ class DatasetManifest(BaseModel):
             raise ValueError("lake datasets keep lineage on each partition")
         if any(not partition.sources for partition in self.partitions):
             raise ValueError("each lake partition requires source lineage")
-        if any(
+        if self.layer == "l1_source" and any(
             source.kind != "sqlite_snapshot"
             for partition in self.partitions
             for source in partition.sources
         ):
-            raise ValueError("lake partitions accept SQLite snapshot sources only")
+            raise ValueError("L1 source partitions cannot depend on a derived dataset")
         partition_identities: set[tuple[tuple[str, PartitionValue], ...]] = set()
         object_keys: set[str] = set()
         object_count = 0
@@ -558,7 +578,7 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: historical dataset served previously cannot disappear")
     # Whether these datasets are one picture of the store at all comes before what the
     # picture says.
-    _require_shared_snapshot_generation(manifests.values())
+    validate_source_generations(release, manifests)
 
     total_manifest_bytes = len(canonical_lake_model_bytes(release))
     total_objects = 0
@@ -618,24 +638,37 @@ def validate_release_policy(
         raise ValueError("release object inventory exceeds the profile budget")
 
 
-def _require_shared_snapshot_generation(manifests: Iterable[DatasetManifest]) -> None:
-    """Every dataset was exported from one sealed read of the market store.
-
-    Two datasets exported from different seals describe the store at two different
-    moments, and a release presents them as one consistent picture of it.
-    """
-
-    identities: set[tuple[str, str, int]] = set()
-    for manifest in manifests:
-        manifest_identities = {
-            (source.source_id, source.sha256, source.schema_version)
-            for partition in manifest.partitions
-            for source in partition.sources
+def validate_source_generations(
+    release: ReleaseManifest, manifests: Mapping[str, DatasetManifest]
+) -> None:
+    """Legacy reads share a seal; rebuilt L2 must reference this release's exact L1."""
+    seals: set[tuple[str, str, int]] = set()
+    for manifest in manifests.values():
+        sources = {source for partition in manifest.partitions for source in partition.sources}
+        sqlite_sources = {
+            source for source in sources if isinstance(source, SQLiteSnapshotSourceRef)
         }
-        if len(manifest_identities) != 1:
-            raise ValueError(
-                f"{manifest.dataset} must reference exactly one SQLite snapshot generation"
-            )
-        identities.update(manifest_identities)
-    if len(identities) != 1:
+        l1_sources = {source for source in sources if isinstance(source, L1DatasetSourceRef)}
+        if sqlite_sources and l1_sources:
+            raise ValueError(f"{manifest.dataset} mixes SQLite and L1 source generations")
+        if sqlite_sources:
+            if len(sqlite_sources) != 1:
+                raise ValueError(
+                    f"{manifest.dataset} must reference exactly one SQLite snapshot generation"
+                )
+            sqlite_source = next(iter(sqlite_sources))
+            seals.add((sqlite_source.source_id, sqlite_source.sha256, sqlite_source.schema_version))
+        for source in l1_sources:
+            target = release.datasets.get(source.dataset)
+            if (
+                manifest.layer != "l2_processed"
+                or target is None
+                or target.layer != "l1_source"
+                or target.build_id != source.build_id
+                or target.manifest_sha256 != source.sha256
+            ):
+                raise ValueError(
+                    f"{manifest.dataset} does not reference the release's exact L1 dataset"
+                )
+    if len(seals) > 1:
         raise ValueError("lake release datasets must share one SQLite snapshot generation")

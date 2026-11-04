@@ -98,13 +98,17 @@ class LakeDataset:
 
     @property
     def arrow_schema(self) -> object:
+        return self.arrow_schema_for("legacy_sqlite_import")
+
+    def arrow_schema_for(
+        self, source_kind: Literal["legacy_sqlite_import", "l1_derived"]
+    ) -> object:
         metadata = {
             b"baibai.contract_version": str(self.contract_version).encode(),
             b"baibai.dataset": self.name.encode(),
             b"baibai.layer": self.layer.encode(),
             b"baibai.primary_key": ",".join(self.primary_key).encode(),
-            # Existing wire tag for SQLite snapshot ingestion, not a schema version.
-            b"baibai.source_kind": b"legacy_sqlite_import",
+            b"baibai.source_kind": source_kind.encode(),
         }
         return pa.schema(
             [

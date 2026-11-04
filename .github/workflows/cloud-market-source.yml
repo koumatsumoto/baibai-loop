@@ -50,6 +50,7 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - name: Load only the assigned source input
+        if: ${{ inputs.source != 'jquants-financial' }}
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -57,6 +58,7 @@ jobs:
           SOURCE: ${{ inputs.source }}
         run: uv run python -m baibai_jobs.integration.source_handoff input --source "$SOURCE" --directory "$RUNNER_TEMP/source-input"
       - name: Read own confirmed originals and required EDINET list receipts
+        if: ${{ inputs.source != 'jquants-financial' }}
         env:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -69,6 +71,9 @@ jobs:
         env:
           SOURCE: ${{ inputs.source }}
           ASOF: ${{ inputs.asof }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           JQUANTS_API_KEY: ${{ startsWith(inputs.source, 'jquants-') && secrets.JQUANTS_API_KEY || '' }}
           EDINET_API_KEY: ${{ startsWith(inputs.source, 'edinet-') && secrets.EDINET_API_KEY || '' }}
         run: uv run python -m baibai_jobs.integration.source_handoff acquire --source "$SOURCE" --asof "$ASOF" --input-directory "$RUNNER_TEMP/source-input" --directory "$RUNNER_TEMP/source-handoff"
