@@ -18,6 +18,8 @@ _COMMANDS = {
     "screening-selection": "baibai_jobs.integration.screening_selection",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
+    "jquants-financial-native": "baibai_jobs.acquisition.jquants_financial_native",
+    "rebuild-financial-native": "baibai_jobs.integration.financial_native",
     "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
     "market-evidence": "baibai_jobs.acquisition.market_context",
     "article-evidence": "baibai_jobs.acquisition.article_evidence",

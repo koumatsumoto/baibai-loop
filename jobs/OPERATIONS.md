@@ -727,3 +727,37 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 4. 通常のnative統合後も同じreceipt/hashを読む。共通更新より遅く着いた独立captureをsource全体のwatermarkだけで捨てず、packetの限定scopeと原受領identityを検証してappendする。
 
 価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。
+
+
+<a id="financial-native-l1"></a>
+## 財務native L1の明示取得・再生成
+
+`jquants-financial-native` はJ-Quants `financial_summaries` の新しい明示入口。
+L1だけで取得計画・差分確定を行い、`rebuild-financial-native` が固定headから既存の財務正規化を使ってParquetを生成する。
+日付範囲は明示する。正常空も完了requestであり、L2の成否で取得をやり直さない。
+新しい通常dailyへの切替、旧L1からの移行、他のJ-Quants source、モデル・候補・L3の接続はまだ含まない。
+
+初期化は新しい空namespaceだけで行う。既存原本を無視した空からの本番再取得や、head消失時の初期化で代替しない。
+本番切替には、旧財務原本と未統合stageの有限な移行・読戻し、原本保持条件の確認、同じsourceの旧writer停止が先に必要。
+その後dailyとL2 consumerを新入口へ移し、財務の旧release依存plan・handoff・source seal・取得用旧readerを撤去する（refs #1820）。
+現在の定期workflowは切り替えていない。
+
+認可済みの切替先・検証先で、同じsourceのwriterを直列に実行する。
+通常取得は新しい作業directoryを指定し、PUT結果が不明な場合はそのdirectoryを保ったまま `resume`、
+未確定の取得ファイルが残る場合は `commit-work` を使う。外部へ再取得して別の受領に置き換えない。
+
+```bash
+uv run baibai-jobs jquants-financial-native initialize --directory /secure-work/financial-init
+uv run baibai-jobs jquants-financial-native acquire --directory /secure-work/financial-cycle \
+  --start 2026-11-01 --end 2026-11-05
+uv run baibai-jobs rebuild-financial-native --work-directory /secure-work/financial-read \
+  --start 2026-11-01 --end 2026-11-05 --output /secure-work/financial-observations
+```
+
+再生成の `head.json` と `input.json` は使用したL1集合・確認時刻・不足を固定する。後から成功した取得状態を混ぜない。
+出力Parquetは削除して再生成でき、原本やheadの削除とは別。取得済み本文は同値なら追加せず、
+確認identityのみ保持する。原本bytesを保持する変更requestはpackにまとめ、rawとnative同値を区別する。
+
+結果不明のpackが未uploadのまま作業directoryを失った場合は自動復旧できず、sourceを止めて原本の復旧を判断する。
+大きすぎる単独request・順序不明の受領も無言で切り捨てない。保留結果と保存済み作業を確認する。
+head再送量・cold読取・実R2・全履歴容量は本番切替前の確認事項であり、fixture成功で代替しない。
