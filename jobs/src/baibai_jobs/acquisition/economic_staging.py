@@ -6,8 +6,11 @@ import base64
 import hashlib
 import json
 import re
+import tempfile
 from pathlib import Path
 
+from baibai_engine.data_collection.receipts.native_sources import fred_transport
+from baibai_engine.data_collection.receipts.native_sources.handoff import validate_pmi_input
 from baibai_engine.data_collection.receipts.native_sources.umich_input import validate_umich_input
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
@@ -16,6 +19,7 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_jobs.acquisition.dependencies import save_dependencies
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
+_PMI_INPUT_FORMAT = "pmi-acquisition-input-v1"
 _UMICH_INPUT_FORMAT = "umich-acquisition-input-v1"
 
 
@@ -40,8 +44,75 @@ def save_handoff(
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
+    report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+    if not market and report.get("group") in {"fred_csv", "economic-fred_csv"}:
+        if namespace not in {None, "economic-sources", "source-inputs"}:
+            raise ValueError("FRED packs require the economic receipt namespace")
+        expected_group = "economic-fred_csv" if namespace == "source-inputs" else "fred_csv"
+        if report["group"] != expected_group or (
+            namespace == "source-inputs" and input_group != expected_group
+        ):
+            raise ValueError("FRED receipt differs from its acquisition scope")
+        rows = fred_transport.snapshot(path)
+        manifest_key = prefix + "/handoff.json"
+        prior = read_private(store, manifest_key)
+        if prior is not None:
+            previous = json.loads(prior.payload)
+            if (
+                isinstance(previous, dict)
+                and isinstance(previous.get("receipt"), dict)
+                and previous.get("format") == fred_transport.FORMAT
+                and previous.get("result") == report
+                and previous["receipt"].get("content_sha256")
+                == fred_transport.snapshot_digest(rows)
+            ):
+                with tempfile.TemporaryDirectory(prefix="fred-fixed-retry-") as temporary:
+                    fred_transport.load(
+                        store, previous["receipt"], Path(temporary) / "receipts.sqlite"
+                    )
+                return stage_id
+            # Retry an already-published old stage without rewriting its immutable
+            # contract. The old loader still verifies the original SQLite bytes.
+            if isinstance(previous, dict) and "format" not in previous:
+                with path.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                if (
+                    previous.get("result") == report
+                    and previous.get("receipt_sha256") == digest
+                    and previous.get("receipt_bytes") == path.stat().st_size
+                ):
+                    with tempfile.TemporaryDirectory(prefix="fred-legacy-retry-") as temporary:
+                        load_handoff(
+                            store,
+                            stage_id,
+                            Path(temporary),
+                            namespace=namespace,
+                            input_group=input_group,
+                        )
+                    return stage_id
+            raise LakePublishError("source handoff identity already has different receipts")
+        packed = {
+            "format": fred_transport.FORMAT,
+            "result": report,
+            "receipt": fred_transport.save(store, rows),
+        }
+        payload = json.dumps(packed, sort_keys=True).encode()
+        try:
+            put_private(store, manifest_key, payload, previous_etag=None)
+        except LakePublishError:
+            saved = read_private(store, manifest_key)
+            if saved is None or saved.payload != payload:
+                raise
+        saved = read_private(store, manifest_key)
+        if saved is None or saved.payload != payload:
+            raise LakePublishError("packed source handoff PUT is not confirmed")
+        return stage_id
+
+    pmi_input = namespace == "source-inputs" and input_group == "economic-spglobal_pmi"
     umich_input = namespace == "source-inputs" and input_group == "economic-umich_sca"
-    receipt_field = "planning_key" if umich_input else "receipt_key"
+    receipt_field = "planning_key" if pmi_input or umich_input else "receipt_key"
+    if pmi_input:
+        validate_pmi_input(path)
     if umich_input:
         validate_umich_input(path)
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
@@ -90,8 +161,11 @@ def save_handoff(
         "receipt_sha256": digest,
         "receipt_bytes": size,
     }
+    if pmi_input:
+        # Old readers must fail before acquisition, not mistake missing bodies
+        # for unknown history and broaden recovery requests.
+        value["receipt_format"] = _PMI_INPUT_FORMAT
     if umich_input:
-        # A legacy reader must not silently broaden recovery when bodies vanish.
         value["receipt_format"] = _UMICH_INPUT_FORMAT
     if market:
         value["dependencies"] = save_dependencies(store, prefix, directory)
@@ -119,6 +193,31 @@ def load_handoff(
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
+    if isinstance(manifest, dict) and manifest.get("format") == fred_transport.FORMAT:
+        result = manifest.get("result")
+        expected_group = "economic-fred_csv" if namespace == "source-inputs" else "fred_csv"
+        if (
+            market
+            or namespace not in {None, "economic-sources", "source-inputs"}
+            or not isinstance(result, dict)
+            or result.get("group") != expected_group
+            or (namespace == "source-inputs" and input_group != expected_group)
+        ):
+            raise ValueError("FRED receipt differs from its acquisition scope")
+        directory.mkdir(parents=True, exist_ok=True)
+        fred_transport.load(store, manifest.get("receipt"), directory / "receipts.sqlite")
+        (directory / "result.json").write_text(json.dumps(result), encoding="utf-8")
+        return
+
+    pmi_input = isinstance(manifest, dict) and manifest.get("receipt_format") == _PMI_INPUT_FORMAT
+    if pmi_input:
+        if (
+            namespace != "source-inputs"
+            or input_group != "economic-spglobal_pmi"
+            or "receipt_key" in manifest
+        ):
+            raise ValueError("PMI planning input is not a source receipt handoff")
+        manifest["receipt_key"] = manifest.get("planning_key")
     umich_input = (
         isinstance(manifest, dict) and manifest.get("receipt_format") == _UMICH_INPUT_FORMAT
     )
@@ -161,6 +260,8 @@ def load_handoff(
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
         raise LakePublishError("source handoff receipt content differs")
+    if pmi_input:
+        validate_pmi_input(path)
     if umich_input:
         validate_umich_input(path)
     path.chmod(0o600)

@@ -16,6 +16,10 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
     save_collection_confirmation,
     save_confirmation,
 )
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    PMI_INPUT_COLUMNS,
+    PMI_INPUT_TABLE,
+)
 
 _RECEIPT_CLOCKS = {
     "economic_source_records": "fetched_at",
@@ -32,6 +36,78 @@ def export_receipts(
     Create a new SQLite file rather than deleting unrelated rows from a backup:
     deleted pages must not carry other source history into the handoff artifact.
     """
+    _export_receipts(source, output, source_ids=source_ids, since=since, documents=True)
+
+
+def export_tsr_input(source: Path, output: Path) -> None:
+    """TSR requests its complete JSON without using previous document bodies.
+
+    Keep the existing run ranges/status and any native coverage rows verbatim;
+    the collector's recovery plan must not change when its documents disappear.
+    Canonical acceptance, not this disposable seed, compares received bodies.
+    """
+    _export_receipts(
+        source,
+        output,
+        source_ids=("tsr-bankruptcies",),
+        since=datetime.min.replace(tzinfo=UTC),
+        documents=False,
+    )
+
+
+def export_pmi_input(source: Path, output: Path, *, source_ids: Sequence[str]) -> None:
+    """Keep latest URL/type/month/phase identities separately from original rows."""
+    _export_receipts(
+        source,
+        output,
+        source_ids=source_ids,
+        since=datetime.min.replace(tzinfo=UTC),
+        documents=False,
+    )
+    with (
+        closing(store.open_read_only_connection(source)) as received,
+        closing(sqlite3.connect(output)) as target,
+        target,
+    ):
+        target.execute(
+            f"CREATE TABLE {PMI_INPUT_TABLE}("  # nosec B608
+            "source_id TEXT NOT NULL, request_key TEXT NOT NULL, fetched_at TEXT NOT NULL, "
+            "source_url TEXT NOT NULL, content_type TEXT NOT NULL, metadata TEXT NOT NULL, "
+            "PRIMARY KEY(source_id, request_key))"
+        )
+        for source_id in dict.fromkeys(source_ids):
+            rows = received.execute(
+                "SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "
+                "c.content_type, c.metadata FROM economic_source_documents c "
+                "WHERE c.source_id=? AND c.fetched_at=("
+                "SELECT MAX(n.fetched_at) FROM economic_source_documents n "
+                "WHERE n.source_id=c.source_id AND n.request_key=c.request_key)",
+                (source_id,),
+            )
+            target.executemany(f"INSERT INTO {PMI_INPUT_TABLE} VALUES (?,?,?,?,?,?)", rows)  # nosec B608
+
+
+def validate_pmi_input(path: Path) -> None:
+    """The dedicated input format must carry planning identities, not fake receipts."""
+    with closing(store.open_read_only_connection(path)) as connection:
+        store.validate_current_schema(connection)
+        info = connection.execute(f"PRAGMA table_info({PMI_INPUT_TABLE})").fetchall()  # nosec B608
+        if tuple(row[1] for row in info) != PMI_INPUT_COLUMNS or tuple(
+            row[1] for row in sorted(info, key=lambda row: row[5]) if row[5]
+        ) != ("source_id", "request_key"):
+            raise ValueError("invalid PMI acquisition input metadata table")
+        if connection.execute("SELECT 1 FROM economic_source_documents LIMIT 1").fetchone():
+            raise ValueError("PMI acquisition input must not contain document receipt bodies")
+
+
+def _export_receipts(
+    source: Path,
+    output: Path,
+    *,
+    source_ids: Sequence[str],
+    since: datetime,
+    documents: bool,
+) -> None:
     if output.exists():
         raise FileExistsError(output)
     if since.tzinfo is None:
@@ -40,6 +116,8 @@ def export_receipts(
         store.validate_current_schema(received)
         with closing(store.initialize_database(output)) as target, target:
             for table, clock in _RECEIPT_CLOCKS.items():
+                if table == "economic_source_documents" and not documents:
+                    continue
                 for source_id in dict.fromkeys(source_ids):
                     # Table/clock are fixed identifiers in this module, values are bound.
                     rows = received.execute(

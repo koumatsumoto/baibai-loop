@@ -430,7 +430,7 @@ def test_partial_outage_keeps_real_request_count_and_recovery_ranges(tmp_path, m
     assert results[0][0][0]["start"] == FIRST.isoformat()
 
 
-def test_other_fourteen_group_exports_are_byte_identical(tmp_path, monkeypatch):
+def test_other_ten_group_exports_are_byte_identical(tmp_path, monkeypatch):
     canonical = tmp_path / "canonical.sqlite"
     catalog = load_sources()
     with closing(native_store.initialize_database(canonical)) as conn, conn:
@@ -451,8 +451,13 @@ def test_other_fourteen_group_exports_are_byte_identical(tmp_path, monkeypatch):
                 status="ok",
                 record_count=1,
             )
-    groups = [group for group in acquisition_groups() if group != "umich_sca"]
-    assert len(groups) == 14
+    groups = [
+        group
+        for group in acquisition_groups()
+        if group
+        not in {"fred_csv", "matsui_margin", "tsr_bankruptcies", "spglobal_pmi", "umich_sca"}
+    ]
+    assert len(groups) == 10
     for group in groups:
         remote = MemoryR2Store()
         publish(remote, canonical, "same", monkeypatch, group="economic-" + group)

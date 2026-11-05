@@ -12,10 +12,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
-from baibai_engine.data_collection.receipts.native_sources.documents import read_documents
-from baibai_engine.data_collection.receipts.native_sources.umich_input import (
-    SOURCE as UMICH_SOURCE,
-)
+from baibai_engine.data_collection.receipts.native_sources.documents import read_document_metadata
+from baibai_engine.data_collection.receipts.native_sources.umich_input import SOURCE as UMICH_SOURCE
 from baibai_engine.data_collection.receipts.native_sources.umich_input import covered_input_days
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
@@ -164,7 +162,7 @@ def _missing_ranges(
         day = date.fromisoformat(observed)
         covered.append((day, day))
     if source.provider in {"spglobal_pmi", "tradingeconomics_pmi"}:
-        for document in read_documents(connection, source.source_id):
+        for document in read_document_metadata(connection, source.source_id):
             identity = document.metadata
             if "observed_at" not in identity or identity.get("phase", "final") != "final":
                 continue
