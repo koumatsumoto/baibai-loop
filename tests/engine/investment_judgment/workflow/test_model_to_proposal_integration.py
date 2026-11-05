@@ -39,10 +39,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
-from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
-    preview_current_terms,
-)
+from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs

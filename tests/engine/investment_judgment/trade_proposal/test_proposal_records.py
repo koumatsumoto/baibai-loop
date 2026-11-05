@@ -13,10 +13,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
     proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import (
-    load_latest_investment_proposal,
-    preview_current_terms,
-)
+from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.query import load_latest_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     HumanProposalReportDraft,
     ProposalCorrectionDraft,

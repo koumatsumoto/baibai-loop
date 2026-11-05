@@ -24,10 +24,8 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     load_proposal_draft,
     proposal_draft_sha256,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
-    preview_current_terms,
-)
+from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError

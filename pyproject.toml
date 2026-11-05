@@ -384,6 +384,20 @@ ignore_imports = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "saved proposal reads do not depend on current terms or authoring"
+type = "forbidden"
+source_modules = ["baibai_engine.investment_judgment.trade_proposal.query"]
+forbidden_modules = [
+  "baibai_engine.investment_judgment.trade_proposal.preview",
+  "baibai_engine.investment_judgment.trade_proposal.inputs",
+  "baibai_engine.investment_judgment.trade_proposal.conditions",
+  "baibai_engine.investment_judgment.trade_proposal.service",
+  "baibai_engine.investment_judgment.trade_proposal.records",
+  "baibai_engine.investment_judgment.workflow.operation",
+  "baibai_engine.investment_judgment.workflow.workspace",
+]
+
+[[tool.importlinter.contracts]]
 name = "Reviewed Assessment storage does not depend on proposal composition"
 type = "forbidden"
 source_modules = ["baibai_engine.investment_judgment.stock_assessment.store"]
