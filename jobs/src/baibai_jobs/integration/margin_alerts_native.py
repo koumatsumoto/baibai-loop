@@ -38,16 +38,14 @@ from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contr
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
+from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.snapshots.models import DatasetManifest
-from baibai_engine.storage.snapshots.objects import LakeObjectError, mirror_path
-from baibai_engine.storage.snapshots.sources import sha256_file
-from baibai_engine.storage.snapshots.writer import LakeBuildError, validate_snapshot_parity
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     range_covered,
     record_range_source_coverage,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.native_projection_cache import verified_cached_scopes
 
 
 def _days(start: date, end: date) -> tuple[date, ...]:
@@ -278,55 +276,23 @@ def _verified_cached_scopes(
     market: Path,
     mirror_root: Path,
 ) -> dict[str, Any]:
-    """Previous L2 is optional. Missing/corrupt/partial cache falls back to fixed L1.
-
-    Only a complete native projection can prove the quality of each reused day.
-    SQLite rows are checked against the immutable published Parquet, not trusted
-    from their count or coverage claims. No new durable cache state is needed.
-    """
-    if previous is None or previous.coverage_status != "complete":
-        return {}
-    sources = {source for part in previous.partitions for source in part.sources}
-    if len(sources) != 1:
-        return {}
-    source = next(iter(sources))
-    if source.kind != "native_l1" or source.namespace != "jquants-margin-alerts":
-        return {}
-    descriptor: dict[str, JsonValue] = {"format": INPUT_FORMAT, "selection_sha256": source.sha256}
-    try:
-        for part in previous.partitions:
-            for obj in part.objects:
-                path = mirror_path(mirror_root, obj.key)
-                if not path.is_file() or sha256_file(path) != obj.sha256:
-                    payload = store.get_bytes(obj.key)
-                    if (
-                        len(payload) != obj.bytes
-                        or hashlib.sha256(payload).hexdigest() != obj.sha256
-                    ):
-                        return {}
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(payload)
-        validate_snapshot_parity(
-            dataset=JQUANTS_MARGIN_ALERTS,
-            sqlite_path=market,
-            mirror_root=mirror_root,
-            manifest=previous,
-        )
-        start, end = margin_alerts_input_interval(store, descriptor)
-        return cast(
+    return verified_cached_scopes(
+        store,
+        previous,
+        market=market,
+        mirror_root=mirror_root,
+        dataset=JQUANTS_MARGIN_ALERTS,
+        namespace="jquants-margin-alerts",
+        input_format=INPUT_FORMAT,
+        read_scopes=lambda descriptor: cast(
             dict[str, Any],
-            read_margin_alerts_input(store, descriptor, days=_days(start, end))["scopes"],
-        )
-    except (
-        KeyError,
-        ValueError,
-        OSError,
-        sqlite3.DatabaseError,
-        LakeBuildError,
-        LakeObjectError,
-        LakePublishError,
-    ):
-        return {}
+            read_margin_alerts_input(
+                store,
+                descriptor,
+                days=_days(*margin_alerts_input_interval(store, descriptor)),
+            )["scopes"],
+        ),
+    )
 
 
 def model_input(

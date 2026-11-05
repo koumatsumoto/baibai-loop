@@ -278,10 +278,12 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_margin_alert_range(start, end))
 
     def ensure_short_sale_reports(self, start: date, end: date) -> int:
+        _require_legacy_short_sales()
         self._fetch_days("short_sale_reports", self._missing(SHORT_SALE_REPORT_SOURCE, start, end))
         return len(self._reader.get_mkt_short_sale_report_range(start, end))
 
     def refresh_short_sale_reports(self, start: date, end: date) -> int:
+        _require_legacy_short_sales()
         planned = merge_date_ranges(
             [
                 *self._missing_since_first_coverage(SHORT_SALE_REPORT_SOURCE, start, end),
@@ -299,6 +301,17 @@ def _require_legacy_margin_alerts() -> None:
         raise JQuantsProviderError(
             "legacy margin alerts writer is disabled; use jquants-margin-alerts-native acquire "
             "and rebuild-margin-alerts-native with its fixed input"
+        )
+
+
+def _require_legacy_short_sales() -> None:
+    from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
+
+    if short_sale_reports_native_enabled():
+        raise JQuantsProviderError(
+            "legacy short-sale reports writer is disabled; "
+            "use jquants-short-sale-reports-native acquire "
+            "and rebuild-short-sale-reports-native with its fixed input"
         )
 
 

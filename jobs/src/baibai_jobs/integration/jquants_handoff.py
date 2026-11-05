@@ -30,6 +30,9 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
     import_requests,
     read_complete_request,
 )
+from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+    verify_migrated_short_sale_receipts,
+)
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
@@ -212,6 +215,7 @@ def import_handoff(
     calendar_fingerprints: Mapping[str, str] | None = None,
     price_fingerprints: Mapping[str, str] | None = None,
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
+    short_sale_reports_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
@@ -251,11 +255,22 @@ def import_handoff(
             if margin_alerts_fingerprints is not None
             else set()
         )
+        migrated_shorts = (
+            verify_migrated_short_sale_receipts(
+                original, request_ids, short_sale_reports_fingerprints
+            )
+            if short_sale_reports_fingerprints is not None
+            else set()
+        )
         active_ids = tuple(
             identity
             for identity in request_ids
             if identity
-            not in migrated_master | migrated_calendar | migrated_price | migrated_alerts
+            not in migrated_master
+            | migrated_calendar
+            | migrated_price
+            | migrated_alerts
+            | migrated_shorts
         )
         incoming = [
             scope for scope in _headers(original, set(sources)) if scope.request_id in active_ids
@@ -303,6 +318,11 @@ def import_handoff(
             **(
                 {"migrated_margin_alerts_requests": sorted(migrated_alerts)}
                 if margin_alerts_fingerprints is not None
+                else {}
+            ),
+            **(
+                {"migrated_short_sale_reports_requests": sorted(migrated_shorts)}
+                if short_sale_reports_fingerprints is not None
                 else {}
             ),
             **(

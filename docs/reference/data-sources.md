@@ -33,7 +33,7 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
-空売り残高報告の独立L1は[明示入口](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)。日付・原本順序の契約は[owner](../../engine/src/baibai_engine/data_collection/providers/jquants/short_sale_reports_native.py)を参照し、通常market writerの切替とは区別する。
+空売り残高報告の独立L1と通常接続は[操作手順](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)。日付・原本順序の契約は[owner](../../engine/src/baibai_engine/data_collection/providers/jquants/short_sale_reports_native.py)を参照し、codeの接続と本番writerの切替を区別する。
 
 財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通の財務観測が原本文書を読み、[企業財務](company-financials.md)が予想・実績の比較座標を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 

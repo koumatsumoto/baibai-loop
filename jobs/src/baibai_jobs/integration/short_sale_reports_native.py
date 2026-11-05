@@ -6,11 +6,12 @@ import argparse
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import JsonValue
 
@@ -18,12 +19,14 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     FixedShortSaleReportsL1,
     ShortSaleReportsL1,
     read_short_sale_requests,
+    verify_migrated_short_sale_receipts,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.short_sale_reports_inputs import (
     INPUT_FORMAT,
     read_short_sale_reports_input,
     retain_short_sale_reports_input,
+    short_sale_reports_input_interval,
 )
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_short_sale_reports,
@@ -32,14 +35,20 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     SHORT_SALE_REPORT_OPERATION,
     SHORT_SALE_REPORT_SOURCE,
 )
+from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
+    JQUANTS_SHORT_SALE_REPORTS,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+from baibai_engine.storage.snapshots.models import DatasetManifest
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     range_covered,
     record_range_source_coverage,
+    record_source_coverage,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.integration.native_projection_cache import verified_cached_scopes
 
 
 def _days(start: date, end: date) -> tuple[date, ...]:
@@ -141,8 +150,8 @@ def materialize_saved_input(
     """Create a fresh finite cache for existing readers, never an acquisition input.
 
     DiscDate selects replacement days; CalcDate remains a separate source field.
-    Preserve the existing reader's disclosure-day/ordinal identity, including
-    repeated reporter rows in provider order. Missing reports are not zero positions.
+    Preserve disclosure-day/source_ordinal identity, including repeated reporter
+    rows in page and row order. Missing reports are not zero positions.
     """
     first, last = saved_interval(saved)
     start, end = start or first, end or last
@@ -160,60 +169,13 @@ def materialize_saved_input(
     selected = read_short_sale_reports_input(store, descriptor, days=days)
     scopes = selected["scopes"]
     _validate_clock(scopes, evaluated_at)
-    adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("xb"):
         pass  # Never modify an existing cache or a production SQLite path.
     try:
         with closing(open_connection(output)) as connection:
             connection.execute("BEGIN")
-            found = set()
-            for item in read_short_sale_requests(
-                store, scopes=scopes, receipts=selected["receipts"], days=days
-            ):
-                if item.last_received_at is not None and item.last_received_at > evaluated_at:
-                    raise ValueError(
-                        "short-sale reports original is later than the evaluation clock"
-                    )
-                if (day := adopted.get(item.request_id)) is None:
-                    continue
-                if item.request is None or item.error is not None:
-                    raise ValueError("adopted short-sale reports original is incomplete")
-                request = item.request
-                if (
-                    request.source != "short_sale_reports"
-                    or set(request.params) != {"disc_date"}
-                    or date.fromisoformat(request.params["disc_date"]) != date.fromisoformat(day)
-                ):
-                    raise ValueError(
-                        "short-sale reports original differs from the fixed disclosure day"
-                    )
-                store_jquants_short_sale_reports(
-                    output,
-                    request.records(),
-                    requested_start=date.fromisoformat(day),
-                    requested_end=date.fromisoformat(day),
-                    fetched_at_utc=scopes[day].get("confirmed_at")
-                    or request.received_at.isoformat(),
-                    connection=connection,
-                )
-                found.add(item.request_id)
-            if found != set(adopted):
-                raise ValueError("short-sale reports selection lacks an adopted original")
-            for day, scope in scopes.items():
-                if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
-                    record_range_source_coverage(
-                        connection,
-                        source=SHORT_SALE_REPORT_SOURCE,
-                        operation=SHORT_SALE_REPORT_OPERATION,
-                        table="jquants_short_sale_reports",
-                        date_column="disclosed_at",
-                        requested_start=date.fromisoformat(day),
-                        requested_end=date.fromisoformat(day),
-                        status="partial" if scope.get("adopted") else "unavailable",
-                        error="native acquisition unresolved",
-                        fetched_at_utc=scope.get("last_attempt_at") or evaluated_at.isoformat(),
-                    )
+            _project_days(store, saved, connection, days=days, output=output)
             unresolved = [
                 day
                 for day in days
@@ -236,6 +198,203 @@ def materialize_saved_input(
         output.unlink(missing_ok=True)
         raise
     return result
+
+
+def _project_days(
+    store: ObjectStore,
+    saved: InputSnapshot,
+    connection: sqlite3.Connection,
+    *,
+    days: tuple[date, ...],
+    output: Path,
+) -> None:
+    """Replace only requested disclosure days; the caller owns the transaction."""
+    if not days:
+        return
+    descriptor = _descriptor(saved)
+    summary = descriptor["summary"]
+    assert isinstance(summary, dict)
+    evaluated_at = datetime.fromisoformat(str(summary["evaluated_at"]))
+    selected = read_short_sale_reports_input(store, descriptor, days=days)
+    scopes = selected["scopes"]
+    _validate_clock(scopes, evaluated_at)
+    adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
+    found = set()
+    # A missing original must remove an untrusted old projection, never preserve it.
+    connection.executemany(
+        "DELETE FROM jquants_short_sale_reports WHERE disclosed_at=?",
+        ((day.isoformat(),) for day in days),
+    )
+    for item in read_short_sale_requests(
+        store, scopes=scopes, receipts=selected["receipts"], days=days
+    ):
+        if item.last_received_at is not None and item.last_received_at > evaluated_at:
+            raise ValueError("short-sale reports original is later than the evaluation clock")
+        if (day := adopted.get(item.request_id)) is None:
+            continue
+        if item.request is None or item.error is not None:
+            raise ValueError("adopted short-sale reports original is incomplete")
+        request = item.request
+        if (
+            request.source != "short_sale_reports"
+            or set(request.params) != {"disc_date"}
+            or date.fromisoformat(request.params["disc_date"]) != date.fromisoformat(day)
+        ):
+            raise ValueError("short-sale reports original differs from the fixed disclosure day")
+        store_jquants_short_sale_reports(
+            output,
+            request.records(),
+            requested_start=date.fromisoformat(day),
+            requested_end=date.fromisoformat(day),
+            fetched_at_utc=scopes[day].get("confirmed_at") or request.received_at.isoformat(),
+            connection=connection,
+        )
+        found.add(item.request_id)
+    if found != set(adopted):
+        raise ValueError("short-sale reports selection lacks an adopted original")
+    _record_unresolved(connection, scopes, evaluated_at)
+
+
+def _record_unresolved(
+    connection: sqlite3.Connection, scopes: dict[str, Any], evaluated_at: datetime
+) -> None:
+    for day, scope in scopes.items():
+        if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
+            record_range_source_coverage(
+                connection,
+                source=SHORT_SALE_REPORT_SOURCE,
+                operation=SHORT_SALE_REPORT_OPERATION,
+                table="jquants_short_sale_reports",
+                date_column="disclosed_at",
+                requested_start=date.fromisoformat(day),
+                requested_end=date.fromisoformat(day),
+                status="partial" if scope.get("adopted") else "unavailable",
+                error="native acquisition unresolved",
+                fetched_at_utc=scope.get("last_attempt_at") or evaluated_at.isoformat(),
+            )
+
+
+def _verified_cached_scopes(
+    store: ObjectStore,
+    previous: DatasetManifest | None,
+    *,
+    market: Path,
+    mirror_root: Path,
+) -> dict[str, Any]:
+    return verified_cached_scopes(
+        store,
+        previous,
+        market=market,
+        mirror_root=mirror_root,
+        dataset=JQUANTS_SHORT_SALE_REPORTS,
+        namespace="jquants-short-sale-reports",
+        input_format=INPUT_FORMAT,
+        read_scopes=lambda descriptor: cast(
+            dict[str, Any],
+            read_short_sale_reports_input(
+                store,
+                descriptor,
+                days=_days(*short_sale_reports_input_interval(store, descriptor)),
+            )["scopes"],
+        ),
+    )
+
+
+def model_input(
+    store: ObjectStore,
+    fixed: FixedShortSaleReportsL1,
+    *,
+    as_of: date,
+    evaluated_at: datetime,
+    market: Path,
+    mirror_root: Path,
+    previous: DatasetManifest | None = None,
+) -> InputSnapshot:
+    """Use one fixed L1 for consumers; only changed days need raw normalization.
+
+    A prior publication is a verified, disposable optimization. Removing every
+    old L2 object or row leaves the same result and input identity from fixed L1.
+    """
+    head = fixed.value()
+    retained = [date.fromisoformat(day) for day in head["scopes"]]
+    first = min(retained, default=as_of - timedelta(days=7))
+    last = max([as_of, *retained])
+    saved = fixed_input(store, fixed, start=first, end=last, evaluated_at=evaluated_at)
+    days = _days(first, last)
+    scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
+    cached = _verified_cached_scopes(store, previous, market=market, mirror_root=mirror_root)
+    reusable = {
+        day
+        for day in days
+        if scopes[day.isoformat()].get("adopted")
+        and scopes[day.isoformat()].get("adopted") == cached.get(day.isoformat(), {}).get("adopted")
+    }
+    with closing(open_connection(market)) as connection, connection:
+        retained_ids = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT DISTINCT request_id FROM jquants_source_pages "
+                "WHERE source='short_sale_reports'"
+            )
+        )
+        verify_migrated_short_sale_receipts(
+            connection,
+            retained_ids,
+            {identity: receipt["fingerprint"] for identity, receipt in head["receipts"].items()},
+        )
+        connection.execute(
+            "DELETE FROM source_coverage WHERE source=?", (SHORT_SALE_REPORT_SOURCE,)
+        )
+        connection.execute("DELETE FROM jquants_source_pages WHERE source='short_sale_reports'")
+        connection.execute(
+            "DELETE FROM jquants_short_sale_reports WHERE disclosed_at < ? OR disclosed_at > ?",
+            (first.isoformat(), last.isoformat()),
+        )
+        for day in sorted(reusable):
+            scope = scopes[day.isoformat()]
+            iso = day.isoformat()
+            # The existing short-report writer records each disclosure day
+            # separately. Keep its original confirmation clock and zero count.
+            count = connection.execute(
+                "SELECT COUNT(*) FROM jquants_short_sale_reports WHERE disclosed_at=?", (iso,)
+            ).fetchone()[0]
+            record_source_coverage(
+                connection,
+                source=SHORT_SALE_REPORT_SOURCE,
+                coverage_key=f"{SHORT_SALE_REPORT_OPERATION}:{iso}..{iso}",
+                coverage_start=iso,
+                coverage_end=iso,
+                record_count=count,
+                status="ok",
+                error=None,
+                fetched_at_utc=scope["confirmed_at"],
+            )
+        _project_days(
+            store,
+            saved,
+            connection,
+            days=tuple(day for day in days if day not in reusable),
+            output=market,
+        )
+        _record_unresolved(connection, scopes, evaluated_at)
+        unresolved = [
+            day for day in days if not range_covered(connection, SHORT_SALE_REPORT_SOURCE, day, day)
+        ]
+        descriptor = dict(_descriptor(saved))
+        summary = descriptor["summary"]
+        assert isinstance(summary, dict)
+        descriptor["summary"] = {
+            **summary,
+            "coverage_status": "partial" if unresolved else "complete",
+            "partial_days": sum(bool(scopes[day.isoformat()].get("adopted")) for day in unresolved),
+        }
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    return InputSnapshot(
+        kind="native_l1",
+        reference="jquants-short-sale-reports-" + digest,
+        sha256=digest,
+        descriptor=descriptor,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

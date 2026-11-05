@@ -25,6 +25,7 @@ env:
   BAIBAI_PRICE_NATIVE: "true"
   BAIBAI_FINANCIAL_NATIVE: "true"
   BAIBAI_MARGIN_ALERTS_NATIVE: ${{ vars.BAIBAI_MARGIN_ALERTS_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_SHORT_SALE_REPORTS_NATIVE: ${{ vars.BAIBAI_SHORT_SALE_REPORTS_NATIVE == 'true' && 'true' || 'false' }}
 
 concurrency:
   group: common-source-integration

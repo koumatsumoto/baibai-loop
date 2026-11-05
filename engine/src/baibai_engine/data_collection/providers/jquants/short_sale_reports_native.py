@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import sqlite3
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
     FullDayL1,
     FullDayObjectStore,
     read_full_day_requests,
+    verify_migrated_full_day_receipts,
 )
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     MARKET_REVISION_OVERLAP_DAYS,
@@ -85,4 +87,17 @@ def read_short_sale_requests(
         days=days,
         contract=_CONTRACT,
         attempt_type=ShortSaleReportsAttempt,
+    )
+
+
+def verify_migrated_short_sale_receipts(
+    connection: sqlite3.Connection, request_ids: Sequence[str], fingerprints: Mapping[str, str]
+) -> set[str]:
+    """Skip old mixed-stage reports only when all disc_date pages were retained exactly."""
+    return verify_migrated_full_day_receipts(
+        connection,
+        request_ids,
+        fingerprints,
+        attempt_type=ShortSaleReportsAttempt,
+        query_date_key="disc_date",
     )
