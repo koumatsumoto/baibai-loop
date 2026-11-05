@@ -796,7 +796,7 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 <a id="jquants-native-operations"></a>
 ## J-Quants native L1の共通操作
 
-通常経路の設定は[財務](src/baibai_jobs/financial_cutover.py)・[日足](src/baibai_jobs/price_cutover.py)・[master](src/baibai_jobs/master_cutover.py)・[取引暦](src/baibai_jobs/calendar_cutover.py)を正本とする。codeの既定値、運用環境の設定、移行・公開の成功は別に確認する。
+通常経路の設定は[財務](src/baibai_jobs/financial_cutover.py)・[日足](src/baibai_jobs/price_cutover.py)・[master](src/baibai_jobs/master_cutover.py)・[取引暦](src/baibai_jobs/calendar_cutover.py)を正本とする。codeの既定値、運用環境の設定、移行・公開の成功は別に確認する。通常CLIの4source既定と対象Actions callerは `true` に揃える。明示 `false` は旧入力の有限検証用で、本番rollbackとして使わない。
 
 - `initialize` は新規の空namespaceだけ。既存原本の移行失敗や消失headを空初期化で迂回しない。
 - 取得は毎回新しいdirectoryを使う。応答不明なら `resume` で確定headを確認し、保存済みattemptは `commit-work` で同じidentityのまま再開する。failed/heldや未試行を正常空へ変えない。

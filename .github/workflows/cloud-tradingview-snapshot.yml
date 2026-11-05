@@ -21,8 +21,8 @@ permissions:
   contents: read
 
 env:
-  BAIBAI_MASTER_NATIVE: ${{ vars.BAIBAI_MASTER_NATIVE == 'true' && 'true' || 'false' }}
-  BAIBAI_CALENDAR_NATIVE: ${{ vars.BAIBAI_CALENDAR_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_MASTER_NATIVE: "true"
+  BAIBAI_CALENDAR_NATIVE: "true"
 
 concurrency:
   group: tradingview-snapshot
