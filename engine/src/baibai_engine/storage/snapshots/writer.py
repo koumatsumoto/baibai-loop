@@ -54,6 +54,7 @@ from baibai_engine.storage.snapshots.models import (
     validate_dataset_contract,
 )
 from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.sqlite.snapshot import backup_to_new_file
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -61,7 +62,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     read_lake_store_origin_from_connection,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION
-from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
 
 _ROW_GROUP_SIZE = 65_536
 _PARQUET_VERSION = "2.6"
@@ -151,7 +151,7 @@ def sealed_sqlite_snapshot(
             )
             if free_bytes < required:
                 raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
-            schema_version = create_snapshot(sqlite_path, sealed)
+            schema_version = backup_to_new_file(sqlite_path, sealed)
             if schema_version != SQLITE_SCHEMA_VERSION:
                 raise LakeBuildError(
                     f"market SQLite schema: {schema_version}; expected {SQLITE_SCHEMA_VERSION}"
