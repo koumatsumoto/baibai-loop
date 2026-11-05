@@ -423,7 +423,7 @@ def materialize_partitions(
     for partition in partitions:
         source_kind: Literal["legacy_sqlite_import", "l1_derived"] = (
             "l1_derived"
-            if any(source.kind == "l1_dataset" for source in partition.sources)
+            if any(source.kind in {"l1_dataset", "native_l1"} for source in partition.sources)
             else "legacy_sqlite_import"
         )
         for lake_object in partition.objects:

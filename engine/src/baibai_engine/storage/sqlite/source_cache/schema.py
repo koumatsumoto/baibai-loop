@@ -17,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.edinet.storage_contracts import (
+    EDINET_FACTS_SCOPE_DDL,
     EDINET_LIST_RESPONSES_DDL,
     EDINET_SOURCE_ARCHIVES_DDL,
 )
@@ -75,7 +76,7 @@ from baibai_engine.storage.sqlite.source_cache.storage_contracts import (
     SOURCE_COVERAGE_DDL,
 )
 
-SQLITE_SCHEMA_VERSION = 49
+SQLITE_SCHEMA_VERSION = 50
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET list projection reconstructs the current rows from retained source receipts.
@@ -104,6 +105,7 @@ _SCHEMA_SQL = (
     + EDINET_SEGMENT_FACTS_DDL
     + EDINET_DEBT_SCHEDULE_DDL
     + EDINET_SOURCE_ARCHIVES_DDL
+    + EDINET_FACTS_SCOPE_DDL
     + EDINET_METRICS_DDL
     + JPX_REGULATION_FLAGS_DDL
     + JPX_REGULATION_SOURCES_DDL

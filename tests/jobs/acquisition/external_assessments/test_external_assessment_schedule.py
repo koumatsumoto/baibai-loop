@@ -19,6 +19,7 @@ from tests.helpers.external_assessment_stages import (
     wire_success,
 )
 from tests.helpers.external_assessment_universe import build_master_lake
+from tests.helpers.workflow_schedule import declared_schedule
 
 import baibai_engine.data_collection.transport.public_pages as source_http
 import baibai_jobs.acquisition.external_assessments.collection as collection
@@ -296,8 +297,9 @@ def test_source_runner_skips_completed_cohorts_and_complete_resume_has_no_http_o
 
 @pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
 def test_workflow_pins_original_clock_and_passes_inputs_through_env(tmp_path, event):
-    workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-    assert workflow["on"]["schedule"] == [{"cron": "13 10,14,22 * * *"}]
+    raw = WORKFLOW.read_text()
+    workflow = yaml.load(raw, Loader=yaml.BaseLoader)
+    assert declared_schedule(raw) == [{"cron": "13 10,14,22 * * *"}]
     assert (
         EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME.hour,
         EXTERNAL_ASSESSMENT_SCHEDULED_FIRE_TIME.minute,

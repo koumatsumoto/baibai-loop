@@ -67,9 +67,7 @@ def test_one_get_owns_the_initial_plus_five_attempts(wire, series_id, failures):
         if series_id != "vix":
             assert records == data["data"]
         else:
-            expected = parse_fred_csv(
-                require_source(series.source_id), data.decode(), start=START, end=END
-            )
+            expected = parse_fred_csv(require_source(series.source_id), data.decode())
             assert records == [row for rows in expected.values() for row in rows]
     assert len(wire.calls) == min(failures + 1, 6)
     assert len(set(wire.calls)) == 1

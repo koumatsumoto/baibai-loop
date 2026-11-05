@@ -110,6 +110,8 @@ def explicit_recovery_ranges(
     connection: sqlite3.Connection, source: SourceDefinition, end: date
 ) -> tuple[tuple[date, date], ...]:
     """Expose unfinished broad acquisitions without restarting them in a daily run."""
+    if source.provider == "fred_csv":
+        return ()
     pending: list[tuple[date, date]] = []
     anchor_row = connection.execute(
         "SELECT MIN(range_start) FROM economic_source_runs WHERE source_id = ? "

@@ -74,6 +74,16 @@ def _check_range(start: date, end: date) -> None:
         raise ValueError("request start must not follow end")
 
 
+def _require_legacy_financial_writer() -> None:
+    from baibai_jobs.financial_cutover import financial_native_enabled
+
+    if financial_native_enabled():
+        raise JQuantsProviderError(
+            "legacy financial writer is disabled; use jquants-financial-native acquire "
+            "and rebuild-financial-native with its fixed input"
+        )
+
+
 class JQuantsRefresh:
     def __init__(
         self,
@@ -135,6 +145,13 @@ class JQuantsRefresh:
             return missing_intervals(conn, source, start, end)
 
     def ensure_master(self, day: date) -> int:
+        from baibai_jobs.master_cutover import master_native_enabled
+
+        if master_native_enabled():
+            raise JQuantsProviderError(
+                "legacy master writer is disabled; acquire with jquants-master-native "
+                "and rebuild the execution projection from its fixed input"
+            )
         cached = read_eq_master_exact(self._path, day)
         if cached is None:
             self._fetch("master", {"date": day.isoformat()})
@@ -154,6 +171,13 @@ class JQuantsRefresh:
             return missing_intervals(conn, source, first, end)
 
     def ensure_market_calendar(self, start: date, end: date) -> int:
+        from baibai_jobs.calendar_cutover import calendar_native_enabled
+
+        if calendar_native_enabled():
+            raise JQuantsProviderError(
+                "native calendar mode requires jquants-calendar-native acquire "
+                "and rebuild-calendar-native"
+            )
         planned = self._missing_since_first_coverage("jquants_market_calendar", start, end)
         if self._missing("jquants_market_calendar", start, end):
             # Scoped inputs keep coverage, not original pages. Extending the
@@ -167,6 +191,13 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_calendar(start, end))
 
     def ensure_daily_bars(self, start: date, end: date) -> int:
+        from baibai_jobs.price_cutover import price_native_enabled
+
+        if price_native_enabled():
+            raise JQuantsProviderError(
+                "legacy daily-bar writer is disabled; use jquants-price-native acquire "
+                "and rebuild-price-native with its fixed input"
+            )
         missing = self._missing("jquants_daily_bars", start, end)
         if not missing:
             latest = latest_daily_bar_date(self._path, start, end)
@@ -185,6 +216,7 @@ class JQuantsRefresh:
         return count_daily_bars(self._path, start, end)
 
     def ensure_fin_summaries(self, start: date, end: date) -> int:
+        _require_legacy_financial_writer()
         self._fetch_days("financial_summaries", self._missing("jquants_fin_summaries", start, end))
         return self._financial_count(start, end)
 
@@ -196,6 +228,7 @@ class JQuantsRefresh:
         revision_overlap_days: int,
         progress: Progress | None = None,
     ) -> int:
+        _require_legacy_financial_writer()
         _check_range(start, end)
         if revision_overlap_days < 0:
             raise ValueError("revision overlap must not be negative")

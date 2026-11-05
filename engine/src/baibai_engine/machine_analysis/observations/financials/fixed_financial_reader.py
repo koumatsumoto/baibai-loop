@@ -36,6 +36,12 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 from baibai_engine.machine_analysis.observations.financials.snapshot_contracts import (
     JQUANTS_FIN_SUMMARIES,
 )
+from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    confirmed_closed_master_bases,
+)
+from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
+    JQUANTS_MARKET_CALENDAR,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import masters_from_payloads
 from baibai_engine.machine_analysis.observations.stocks.snapshot_contracts import (
     JQUANTS_MASTER_SNAPSHOTS,
@@ -102,6 +108,52 @@ def _read_fixed_financial_population(
         sectors: dict[str, str] = {}
         if JQUANTS_MASTER_SNAPSHOTS.name in release.dataset_names():
             master_dataset = accepted_dataset(release, JQUANTS_MASTER_SNAPSHOTS)
+            master_manifest = release.dataset_manifest(master_dataset.name)
+            native = any(
+                source.kind == "native_l1"
+                for partition in master_manifest.partitions
+                for source in partition.sources
+            )
+            master_basis = as_of
+            if native and JQUANTS_MARKET_CALENDAR.name in release.dataset_names():
+                calendar = accepted_dataset(release, JQUANTS_MARKET_CALENDAR)
+                calendar_manifest = release.dataset_manifest(calendar.name)
+                calendar_parts = selected_partitions(release, calendar.name)
+                native_calendar = any(
+                    source.kind == "native_l1" and source.namespace == "jquants-market-calendar"
+                    for partition in calendar_manifest.partitions
+                    for source in partition.sources
+                )
+                if (
+                    native_calendar or calendar_manifest.coverage_status == "complete"
+                ) and calendar_manifest.coverage_start <= as_of <= calendar_manifest.data_as_of:
+                    # Native calendar rows are individually safe. A distant invalid
+                    # day makes the manifest partial, not this contiguous basis.
+                    # This release's verified calendar is part of the basis. A
+                    # missing local object must not silently select another date.
+                    calendar_paths = materialize_partitions(
+                        cache, dataset=calendar, partitions=calendar_parts
+                    )
+                    rows = session.connection.execute(
+                        "SELECT day,holiday_division FROM read_parquet(?)",
+                        [[str(path) for path in calendar_paths]],
+                    ).fetchall()
+                    master_basis = confirmed_closed_master_bases(
+                        {date.fromisoformat(str(day)): str(division) for day, division in rows},
+                        coverage=(
+                            (calendar_manifest.coverage_start, calendar_manifest.data_as_of),
+                        ),
+                    ).get(as_of, as_of)
+            # The fixed manifest distinguishes invalid requested dates from
+            # ordinary sparse gaps without consulting mutable SQLite or native heads.
+            unavailable = max(
+                (
+                    day.isoformat()
+                    for day in master_manifest.unavailable_dates
+                    if day <= master_basis
+                ),
+                default=None,
+            )
             master_paths = materialize_partitions(
                 cache,
                 dataset=master_dataset,
@@ -115,8 +167,14 @@ def _read_fixed_financial_population(
                     "SELECT record_json FROM jquants_master_snapshots "
                     "WHERE snapshot_date = (SELECT MAX(snapshot_date) "
                     "FROM jquants_master_snapshots WHERE snapshot_date <= ?) "
-                    "AND (? IS NULL OR security_code = ?)",
-                    (as_of.isoformat(), ticker, ticker + "0" if ticker is not None else None),
+                    "AND (? IS NULL OR snapshot_date > ?) AND (? IS NULL OR security_code = ?)",
+                    (
+                        master_basis.isoformat(),
+                        unavailable,
+                        unavailable,
+                        ticker,
+                        ticker + "0" if ticker is not None else None,
+                    ),
                 ).fetchall()
                 securities = masters_from_payloads([str(row[0]) for row in rows])
                 sectors = {

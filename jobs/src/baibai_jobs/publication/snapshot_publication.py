@@ -5,8 +5,9 @@ two are joined by one rule: the serving release must still be the one the store 
 filled from. That identity lives in the SQLite file itself: a sidecar can be restored or
 copied independently and therefore cannot prove which rows the export is reading.
 
-Financial and daily price observations are derived from the newly exported L1 originals;
-other datasets remain on the legacy store path during migration. The serving release is read
+Native prices and master snapshots use this execution's rebuilt projection and fixed L1
+identity. Legacy financial and price observations use newly exported originals; other
+datasets remain on the legacy store path during migration. The serving release is read
 for two facts only — the origin the store must be bound to, and the history floor the
 new release must still reach — and none of its partitions are carried.
 """
@@ -22,9 +23,20 @@ import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import cast
 
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    CalendarL1,
+    CalendarObjectStore,
+)
+from baibai_engine.data_collection.providers.jquants.master_native import (
+    MasterL1,
+    MasterObjectStore,
+)
+from baibai_engine.data_collection.providers.jquants.price_native import PriceL1, PriceObjectStore
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
@@ -58,9 +70,22 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOriginError,
     advance_lake_store_origin,
 )
+from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
+from baibai_jobs.financial_cutover import financial_native_enabled
+from baibai_jobs.integration.calendar_native import model_input as native_calendar_model_input
+from baibai_jobs.integration.master_native import model_input as native_master_model_input
+from baibai_jobs.integration.price_native import model_input as native_price_model_input
+from baibai_jobs.master_cutover import master_native_enabled
+from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
+from baibai_jobs.publication.l1_calendar_export import export_calendar_from_native_input
 from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
-from baibai_jobs.publication.l1_price_export import export_prices_from_l1
+from baibai_jobs.publication.l1_master_export import export_master_from_native_input
+from baibai_jobs.publication.l1_price_export import (
+    export_prices_from_l1,
+    export_prices_from_native_input,
+)
 from baibai_jobs.publication.lease import LeaseError, _load_handle, verify_held
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
@@ -112,6 +137,9 @@ class PreparedMarketLake:
     base_resolve_seconds: float
     seal_export_seconds: float
     release_create_seconds: float
+    price_identity: InputSnapshot | None = None
+    master_identity: InputSnapshot | None = None
+    calendar_identity: InputSnapshot | None = None
 
 
 @contextmanager
@@ -121,8 +149,56 @@ def prepare_market_lake(
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
+    as_of: date | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
+    native_lists = edinet_list_native_enabled()
+    native_financial = financial_native_enabled()
+    native_price = price_native_enabled()
+    native_master = master_native_enabled()
+    native_calendar = calendar_native_enabled()
+    if native_calendar and not (native_financial and native_price and native_master):
+        raise ValueError(
+            "native calendar publication requires financial, price and master native modes"
+        )
+    calendar_identity = None
+    if native_calendar:
+        fixed_calendar = CalendarL1(
+            cast(CalendarObjectStore, store), mirror_root / "calendar-native"
+        ).fixed()
+        evaluated_at = datetime.now(UTC)
+        calendar_identity = native_calendar_model_input(
+            store,
+            fixed_calendar,
+            as_of=as_of or evaluated_at.date(),
+            evaluated_at=evaluated_at,
+            market=sqlite_path,
+        )
+    master_identity = None
+    if native_master:
+        fixed_master = MasterL1(
+            cast(MasterObjectStore, store), mirror_root / "master-native"
+        ).fixed()
+        evaluated_at = datetime.now(UTC)
+        master_identity = native_master_model_input(
+            store,
+            fixed_master,
+            as_of=as_of or evaluated_at.date(),
+            evaluated_at=evaluated_at,
+            market=sqlite_path,
+        )
+    price_identity = None
+    if native_price:
+        fixed = PriceL1(cast(PriceObjectStore, store), mirror_root / "price-native").fixed()
+        evaluated_at = datetime.now(UTC)
+        price_identity = native_price_model_input(
+            store,
+            fixed,
+            as_of=as_of or evaluated_at.date(),
+            evaluated_at=evaluated_at,
+            market=sqlite_path,
+            calendar_input=calendar_identity,
+        )
     started = time.perf_counter()
     serving = _serving_pointer(store)
     previous = serving.pointer
@@ -132,22 +208,38 @@ def prepare_market_lake(
         published_coverage_start = {
             name: manifest.coverage_start
             for name, manifest in serving_release.dataset_manifests.items()
+            if not (native_financial and name == "jquants.fin_summaries")
+            and not (native_price and name == "jquants.daily_bars")
+            and not (native_master and name == "jquants.master_snapshots")
+            and not (native_calendar and name == "jquants.market_calendar")
+            and not (native_lists and name == "edinet.list_responses")
         }
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         policy = release_policy_for_profile("production")
         policy_names = {item.dataset for item in policy.datasets}
-        finance_enabled = "jquants.fin_summaries" in policy_names
+        finance_enabled = "jquants.fin_summaries" in policy_names and not native_financial
         price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
+        native_calendar_enabled = native_calendar and "jquants.market_calendar" in policy_names
+        native_master_enabled = native_master and "jquants.master_snapshots" in policy_names
+        native_price_enabled = native_price and "jquants.daily_bars" in policy_names
         derived_names = {
             name
             for name, enabled in (
+                ("jquants.market_calendar", native_calendar_enabled),
+                ("jquants.master_snapshots", native_master_enabled),
                 ("jquants.fin_summaries", finance_enabled),
-                ("jquants.daily_bars", price_enabled),
+                ("jquants.daily_bars", price_enabled or native_price_enabled),
             )
             if enabled
         }
-        catalog = {name: item for name, item in LAKE_DATASETS.items() if name not in derived_names}
+        catalog = {
+            name: item
+            for name, item in LAKE_DATASETS.items()
+            if name not in derived_names
+            and not (native_financial and name == "jquants.fin_summaries")
+            and not (native_lists and name == "edinet.list_responses")
+        }
         git_commit = lake_verified_git_commit()
         export = export_market_snapshot(
             source_snapshot=snapshot,
@@ -155,26 +247,53 @@ def prepare_market_lake(
             producer_git_commit=git_commit,
             expected_store_origin=_pointer_origin(previous),
             catalog=catalog,
+            allow_empty=native_calendar_enabled or native_master_enabled or native_price_enabled,
         )
         if derived_names:
             source = export.datasets.get("jquants.source_pages")
-            if source is None:
+            if source is None and (finance_enabled or (price_enabled and not native_price)):
                 raise LakePublishError("J-Quants L2 requires retained L1 originals")
             datasets = dict(export.datasets)
             if finance_enabled:
+                assert source is not None
                 datasets["jquants.fin_summaries"] = export_financial_from_l1(
                     source=source,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                     known_at=snapshot.sealed_at,
                 ).build
-            if price_enabled:
+            if price_enabled and not native_price:
+                assert source is not None
                 datasets["jquants.daily_bars"] = export_prices_from_l1(
                     source=source,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                     known_at=snapshot.sealed_at,
                 ).build
+            if native_price_enabled:
+                assert price_identity is not None
+                datasets["jquants.daily_bars"] = export_prices_from_native_input(
+                    source_snapshot=snapshot,
+                    saved=price_identity,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                ).build
+            if native_calendar_enabled:
+                assert calendar_identity is not None
+                datasets["jquants.market_calendar"] = export_calendar_from_native_input(
+                    source_snapshot=snapshot,
+                    saved=calendar_identity,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                )
+            if native_master_enabled:
+                assert master_identity is not None
+                datasets["jquants.master_snapshots"] = export_master_from_native_input(
+                    source_snapshot=snapshot,
+                    saved=master_identity,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                )
             export = replace(export, datasets=datasets)
         export_finished = time.perf_counter()
         with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
@@ -207,6 +326,9 @@ def prepare_market_lake(
                 base_resolve_seconds=base_finished - started,
                 seal_export_seconds=export_finished - base_finished,
                 release_create_seconds=time.perf_counter() - export_finished,
+                price_identity=price_identity,
+                master_identity=master_identity,
+                calendar_identity=calendar_identity,
             )
 
 

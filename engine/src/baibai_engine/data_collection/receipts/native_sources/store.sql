@@ -32,4 +32,19 @@ CREATE TABLE economic_source_runs(
 CREATE INDEX idx_economic_source_runs_latest
   ON economic_source_runs(source_id, finished_at DESC);
 
-PRAGMA user_version = 12;
+CREATE TABLE economic_source_record_confirmations(
+  source_id TEXT NOT NULL,
+  observed_at TEXT NOT NULL,
+  checked_at TEXT NOT NULL,
+  adopted_fetched_at TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  PRIMARY KEY(source_id, observed_at)
+);
+
+CREATE TABLE economic_source_collection_confirmations(
+  source_id TEXT PRIMARY KEY,
+  checked_at TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL
+);
+
+PRAGMA user_version = 13;

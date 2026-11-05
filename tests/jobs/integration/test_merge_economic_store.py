@@ -151,5 +151,5 @@ def test_main_reports_a_missing_store(tmp_path, capsys):
     target = tmp_path / "target.sqlite"
     with closing(initialize_database(target)):
         pass
-    assert main(["--source", str(tmp_path / "absent.sqlite"), "--target", str(target)]) == 1
+    assert main(["--canonical", str(tmp_path / "absent.sqlite"), "--target", str(target)]) == 1
     assert "does not exist" in capsys.readouterr().err

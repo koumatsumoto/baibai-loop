@@ -19,6 +19,20 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
 
+def _invalid_master_boundary(connection: sqlite3.Connection, asof: date) -> str | None:
+    row = connection.execute(
+        "SELECT MAX(coverage_start) FROM source_coverage WHERE source=? "
+        "AND coverage_start=coverage_end AND coverage_start<=? "
+        "AND status='unavailable' AND error LIKE ?",
+        (
+            master_contract.MASTER_SOURCE,
+            asof.isoformat(),
+            master_contract.MASTER_VALIDATION_ERROR_PREFIX + "%",
+        ),
+    ).fetchone()
+    return row[0] if row is not None else None
+
+
 def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
     """Read the newest master snapshot at or before ``asof``.
 
@@ -41,6 +55,9 @@ def read_eq_master_asof(sqlite_path: Path, asof: date) -> MasterSnapshotRead:
             "SELECT MAX(snapshot_date) FROM jquants_master_snapshots WHERE snapshot_date <= ?",
             (asof.isoformat(),),
         ).fetchone()[0]
+        invalid = _invalid_master_boundary(conn, asof)
+        if invalid is not None and (snapshot is None or snapshot <= invalid):
+            return MasterSnapshotRead((), None, "unavailable")
         if snapshot is None:
             status = "future_snapshot"
             snapshot = conn.execute(
@@ -112,9 +129,17 @@ def read_master_snapshot(
         "SELECT snapshot_date, record_json "
         "FROM jquants_master_snapshots WHERE snapshot_date = ("
         "SELECT MAX(snapshot_date) FROM jquants_master_snapshots "
-        "WHERE snapshot_date <= ?) ORDER BY security_code"
+        "WHERE snapshot_date <= ?) AND snapshot_date > COALESCE(("
+        "SELECT MAX(coverage_start) FROM source_coverage WHERE source=? "
+        "AND coverage_start=coverage_end AND coverage_start<=? "
+        "AND status='unavailable' AND error LIKE ?), '') ORDER BY security_code"
     )
-    parameters = (as_of.isoformat(),)
+    parameters = (
+        as_of.isoformat(),
+        master_contract.MASTER_SOURCE,
+        as_of.isoformat(),
+        master_contract.MASTER_VALIDATION_ERROR_PREFIX + "%",
+    )
     rows = (
         read_rows(path, statement, parameters, connector=connect_read_only)
         if connection is None

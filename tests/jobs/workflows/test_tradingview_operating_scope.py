@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.workflow_schedule import declared_schedule
 
 from baibai_jobs.cli import build_parser
 
@@ -39,7 +40,7 @@ def test_local_bulk_entry_is_removed_but_offline_rebuild_remains() -> None:
 def test_market_daily_is_a_separate_private_receipt_without_reducing_snapshots() -> None:
     path = ROOT / ".github/workflows/cloud-tradingview-market-daily.yml"
     workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
-    assert [s["cron"] for s in workflow["on"]["schedule"]] == ["30 21 * * *"]
+    assert [s["cron"] for s in declared_schedule(path.read_text())] == ["30 21 * * *"]
     assert workflow["permissions"] == {"contents": "read"}
     steps = workflow["jobs"]["capture"]["steps"]
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sqlite3
 import sys
 from collections import Counter
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
@@ -29,7 +32,15 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
     prepare_edinet_metric_plan,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_jobs.acquisition.edinet_archives import metric_archive_candidates
+from baibai_jobs.acquisition.edinet_fact_plan import (
+    enable_fact_acquisition,
+    needs_archive,
+    prepare_fact_acquisition,
+)
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 
 
 class EdinetMetricAcquisition(Protocol):
@@ -49,32 +60,38 @@ def refresh_edinet_metrics_command(
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     try:
-        cursor = asof_date - timedelta(days=lookback_days)
-        while cursor <= asof_date:
-            acquisition.list_documents(cursor)
-            cursor += timedelta(days=1)
+        if edinet_list_native_enabled():
+            from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+            from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                fixed = EdinetListL1(store, sqlite_path.parent / "edinet-list-read").freeze()
+                result = materialize_lists(fixed, sqlite_path)
+                print(json.dumps({"native_list_input": result}, sort_keys=True), file=out)
+        else:
+            cursor = asof_date - timedelta(days=lookback_days)
+            while cursor <= asof_date:
+                acquisition.list_documents(cursor)
+                cursor += timedelta(days=1)
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
         SQLiteSchemaError,
+        LakePublishError,
         sqlite3.Error,
         OSError,
         ValueError,
     ) as exc:
         print(f"EDINET source preparation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
-    plan = prepare_edinet_metric_plan(
-        asof_date=asof_date,
-        lookback_days=lookback_days,
-        reader=reader,
-        sqlite_path=sqlite_path,
-        stdout=out,
-    )
-    if plan is None:
-        return 1
     try:
-        for candidate in plan.archive_candidates:
-            acquisition.download_csv_zip(candidate.doc_id)
+        candidates, _ = metric_archive_candidates(
+            sqlite_path, asof=asof_date, lookback_days=lookback_days
+        )
+        for doc_id in candidates:
+            acquisition.download_csv_zip(doc_id)
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
@@ -84,6 +101,15 @@ def refresh_edinet_metrics_command(
         ValueError,
     ) as exc:
         print(f"EDINET archive acquisition failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    plan = prepare_edinet_metric_plan(
+        asof_date=asof_date,
+        lookback_days=lookback_days,
+        reader=reader,
+        sqlite_path=sqlite_path,
+        stdout=out,
+    )
+    if plan is None:
         return 1
     return extract_edinet_metrics_from_plan(
         asof_date=asof_date,
@@ -109,6 +135,30 @@ def refresh_edinet_facts_command(
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
+    selected = prepare_fact_acquisition(
+        sqlite_path, asof=asof, initialize=initialize, tickers=tickers
+    )
+    if selected is None:
+        print(
+            "EDINET research facts: skipped=not_initialized; run refresh-edinet-facts --initialize",
+            file=out,
+        )
+        return 0
+    failed: dict[str, str] = {}
+    rate_limited: str | None = None
+    for document in selected:
+        if not needs_archive(document, asof=asof):
+            continue
+        try:
+            acquisition.download_xbrl_zip(str(document["docID"]))
+        except (EdinetAcquisitionError, EDINETProviderError, ValueError, OSError) as exc:
+            doc_id = str(document["docID"])
+            failed[doc_id] = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, EdinetRateLimitError):
+                rate_limited = doc_id
+                break
+    if initialize and not tickers and selected and not failed:
+        enable_fact_acquisition(sqlite_path, asof=asof)
     inputs = prepare_edinet_facts(
         asof=asof, sqlite_path=sqlite_path, initialize=initialize, tickers=tickers, stdout=out
     )
@@ -118,22 +168,20 @@ def refresh_edinet_facts_command(
     reasons: Counter[str] = Counter()
     for document in inputs.documents:
         item = plan_fact_item(document, statuses=inputs.statuses, asof=asof)
-        if item.action == "extract":
-            try:
-                acquisition.download_xbrl_zip(item.doc_id)
-            except (EdinetAcquisitionError, EDINETProviderError, ValueError, OSError) as exc:
-                assert item.identity is not None
+        if item.doc_id in failed:
+            assert item.identity is not None
+            if item.action != "reused":
                 record_failure(
                     sqlite_path,
                     doc_id=item.doc_id,
                     disclosed_on=item.identity.disclosed_on,
-                    reason=f"{type(exc).__name__}: {exc}",
+                    reason=failed[item.doc_id],
                 )
-                counts["failed"] += 1
-                if isinstance(exc, EdinetRateLimitError):
-                    counts["rate_limited"] += 1
-                    break
-                continue
+            counts["failed"] += 1
+            if item.doc_id == rate_limited:
+                counts["rate_limited"] += 1
+                break
+            continue
         process_edinet_fact_item(
             item=item,
             reader=reader,
@@ -143,10 +191,6 @@ def refresh_edinet_facts_command(
             stdout=out,
         )
     return finish_edinet_facts(
-        asof=asof,
-        sqlite_path=sqlite_path,
-        initialize=initialize,
-        tickers=tickers,
         counts=counts,
         reasons=reasons,
         stdout=out,

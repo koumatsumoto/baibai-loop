@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.r2_store import MemoryR2Store
+from tests.helpers.workflow_schedule import declared_schedule
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts
@@ -248,7 +249,8 @@ def test_common_integration_is_independently_scheduled_and_includes_weekends():
     parent = workflow("cloud-economic-sources.yml")
     assert "materialize" not in parent["jobs"]
     common = workflow("cloud-daily-batch.yml")
-    assert common["on"]["schedule"] == [{"cron": "43 13 * * *"}]
+    raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text()
+    assert declared_schedule(raw) == [{"cron": "43 13 * * *"}]
     assert "needs" not in common["jobs"]["daily"]
     runs = [str(step.get("run", "")) for step in common["jobs"]["daily"]["steps"]]
     assert sum("r2_transfer.sh hydrate-market" in run for run in runs) == 1

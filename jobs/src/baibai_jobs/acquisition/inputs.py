@@ -20,12 +20,15 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
+from baibai_jobs.master_cutover import master_native_enabled
 
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
     "edinet-list": _LISTS,
-    "edinet-metrics": (*_LISTS, "edinet_metrics"),
-    "edinet-facts": _LISTS,
+    "edinet-metrics": _LISTS,
+    "edinet-facts": (*_LISTS, "edinet_facts_scope"),
     "jpx-earnings": (),
     "jpx-regulations": (),
     "tradingview": (
@@ -49,6 +52,12 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
     them again in each acquisition runner. JPX acquisitions need no old facts.
     """
     tables = _TABLES[group]
+    if group == "tradingview" and master_native_enabled():
+        tables = tuple(table for table in tables if table != "jquants_master_snapshots")
+    if group == "tradingview" and calendar_native_enabled():
+        tables = tuple(table for table in tables if table != "jquants_market_calendar")
+    if edinet_list_native_enabled() and group.startswith("edinet-"):
+        tables = tuple(table for table in tables if table not in _LISTS)
     if output.exists():
         raise FileExistsError(output)
     with (
@@ -59,7 +68,11 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         validate_current_schema(raw)
         raw.execute("BEGIN")
         rows_by_table = {}
-        basis = calendar_context(raw, asof)[0].isoformat() if group == "tradingview" else None
+        basis = (
+            calendar_context(raw, asof)[0].isoformat()
+            if group == "tradingview" and "jquants_master_snapshots" in tables
+            else None
+        )
         for table in tables:
             condition = "1=1"
             values: tuple[object, ...] = ()
@@ -82,12 +95,11 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             if table
             not in {
                 "edinet_list_responses",
+                "edinet_facts_scope",
                 "tradingview_forecast_snapshots",
                 "tradingview_source_receipts",
             }
         )
-        if group == "edinet-facts":
-            coverage += ("edinet_research_facts",)
         for name in coverage:
             rows = raw.execute(
                 "SELECT * FROM source_coverage WHERE source = ? "

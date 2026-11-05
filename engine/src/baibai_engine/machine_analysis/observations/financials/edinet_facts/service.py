@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import sys
 from collections import Counter
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 from zipfile import BadZipFile
 
+from baibai_engine.data_collection.providers.edinet.facts_scope import read_scope
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.extract import (
     extract_facts,
@@ -26,10 +28,10 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.store i
     document_inventory,
     extraction_status,
     record_failure,
-    record_initialized,
     store_facts,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 class XbrlReader(Protocol):
@@ -51,16 +53,17 @@ def prepare_edinet_facts(
     stdout: TextIO,
 ) -> FactExtractionInputs | None:
     statuses = extraction_status(sqlite_path)
-    if not initialize and "initialized" not in statuses:
+    with closing(connect_read_only(sqlite_path)) as connection:
+        scope = read_scope(connection)
+    if not initialize and scope.since is None:
         print(
             "EDINET research facts: skipped=not_initialized; run explicit --initialize locally",
             file=stdout,
         )
         return None
-    baseline = statuses.get("initialized")
-    since = json.loads(baseline[1] or "{}").get("since") if baseline else None
+    since = scope.since.isoformat() if scope.since else None
     selected = annual_documents(
-        document_inventory(sqlite_path, asof), retained=set(statuses), since=since
+        document_inventory(sqlite_path, asof), retained=set(scope.doc_ids), since=since
     )
     if tickers:
         selected = [doc for doc in selected if parse_sec_code(doc["secCode"]) in tickers]
@@ -124,16 +127,10 @@ def process_edinet_fact_item(
 
 def finish_edinet_facts(
     *,
-    asof: date,
-    sqlite_path: Path,
-    initialize: bool,
-    tickers: tuple[str, ...],
     counts: Counter[str],
     reasons: Counter[str],
     stdout: TextIO,
 ) -> int:
-    if initialize and not tickers and counts["selected"] and not counts["failed"]:
-        record_initialized(sqlite_path, asof)
     print(
         json.dumps(
             {"edinet_research_facts": dict(counts), "missing_reasons": dict(reasons)},
@@ -174,10 +171,6 @@ def extract_edinet_facts_command(
             stdout=out,
         )
     return finish_edinet_facts(
-        asof=asof,
-        sqlite_path=sqlite_path,
-        initialize=initialize,
-        tickers=tickers,
         counts=counts,
         reasons=reasons,
         stdout=out,

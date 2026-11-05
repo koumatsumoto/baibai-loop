@@ -11,12 +11,11 @@ from math import isfinite
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    _validate_document_statuses,
+from baibai_engine.data_collection.providers.edinet.fields import (
     parse_doc_id,
+    validate_document_statuses,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
 
 _RETAINED_NATIVE_FIELDS = (
     "secCode",
@@ -77,7 +76,7 @@ def project_document_list(receipts: Sequence[EdinetListReceipt]) -> DocumentList
                 projected["doc_date"] = doc_date.isoformat()
                 next_observed[key] = projected
                 enriched.append(projected)
-        except (ValueError, UnicodeError, EDINETProviderError) as exc:
+        except (ValueError, UnicodeError) as exc:
             error = f"EDINET list projection failed: {type(exc).__name__}: {exc}"
             continue
         selected = receipt
@@ -115,7 +114,7 @@ def document_list_rechecked_asof(
             continue
         try:
             _decode_receipt(receipt)
-        except (ValueError, UnicodeError, EDINETProviderError):
+        except (ValueError, UnicodeError):
             continue
         return recheck_day
     return None
@@ -163,7 +162,7 @@ def _decode_receipt(
             raise ValueError("EDINET response date does not match the requested day")
     records = [dict(item) for item in results]
     for record in records:
-        _validate_document_statuses(record)
+        validate_document_statuses(record)
     keys: list[tuple[int, str]] = []
     sequences: set[int] = set()
     for record in records:

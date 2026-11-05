@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.workflow_schedule import declared_schedule
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
@@ -27,7 +28,7 @@ def by_id(steps):
 
 
 def test_common_integration_runs_including_weekends_without_acquisition(workflow):
-    assert workflow["on"]["schedule"] == [{"cron": "43 13 * * *"}]
+    assert declared_schedule(WORKFLOW_PATH.read_text()) == [{"cron": "43 13 * * *"}]
     job = workflow["jobs"]["daily"]
     assert int(job["timeout-minutes"]) < 120
     assert "needs" not in job
@@ -132,3 +133,16 @@ def test_integration_date_uses_original_run_and_manual_clock():
     morning = datetime(2026, 10, 24, 0, 1, tzinfo=UTC)
     assert integration_target_date(morning, scheduled=False) == date(2026, 10, 24)
     assert integration_target_date(morning, scheduled=True) == date(2026, 10, 23)
+
+
+def test_economic_l1_finishes_before_any_market_or_l2_dependency(steps, by_id):
+    ids = [step.get("id") for step in steps]
+    assert ids.index("lease-acquire") < ids.index("economic-l1")
+    for later in ("market-plan", "pull", "hydrate", "source-integration", "batch"):
+        assert ids.index("economic-l1") < ids.index(later)
+    assert "economic_sources" in by_id["economic-l1"]["run"]
+    assert "--lease-handle" in by_id["economic-l1"]["run"]
+    assert "continue-on-error" not in by_id["economic-l1"]
+    assert "pull-indicators" not in by_id["source-seal"]["run"]
+    assert "--economic-report-path" in by_id["notify"]["run"]
+    assert "--economic-l1-outcome" in by_id["notify"]["run"]

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.workflow_schedule import declared_schedule
 
 PATH = Path(__file__).resolve().parents[3] / ".github/workflows/cloud-tradingview-snapshot.yml"
 
@@ -24,7 +25,7 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    assert [item["cron"] for item in data["on"]["schedule"]] == [
+    assert [item["cron"] for item in declared_schedule(PATH.read_text())] == [
         "37 6,8,10,12,14 * * 1-5",
         "37 0,4,8 * * 0,6",
     ]
@@ -224,10 +225,15 @@ def test_gates_secret_scopes_and_durability():
     assert "cloud-publish" not in source
     assert "publication_lease" not in source
     assert "JQUANTS_API_KEY" in str(steps["master"].get("env"))
+    assert "master-dependency acquire" in steps["master"]["run"]
+    assert '"$BAIBAI_MASTER_NATIVE" == true' in steps["master"]["run"]
+    assert "master_unavailable" in steps["preflight"]["run"]
+    assert 'get("master_native_input")' in steps["preflight"]["run"]
     assert "TRADINGVIEW_OAUTH_STATE" in str(steps["tradingview"].get("env"))
     for name in (
         "pull",
         "hydrate",
+        "master",
         "cooldown-check",
         "cooldown-save",
         "stage",
@@ -243,6 +249,7 @@ def test_gates_secret_scopes_and_durability():
         if name not in (
             "pull",
             "hydrate",
+            "master",
             "cooldown-check",
             "cooldown-save",
             "stage",

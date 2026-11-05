@@ -25,7 +25,7 @@ def test_native_sdk_and_request_parameters_survive_idempotent_storage(tmp_path):
         assert restored.result_bytes() == original.result_bytes()
         assert restored.request_parameters == original.request_parameters
         assert "request_parameters" not in restored.result.model_dump(by_alias=True)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
         assert conn.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 0
 
 

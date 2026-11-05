@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
-import sys
 import time
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.edinet.models import (
@@ -19,22 +18,20 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_eve
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_observed_documents,
+    read_stored_documents,
+)
+from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+    TARGET_DOC_TYPE_CODES,
+    select_document_candidates,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     is_usable_filing_status,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
-    plan_fact_item,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
-    prepare_edinet_facts,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.service import (
-    prepare_edinet_metric_plan,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
-from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
+from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_jobs.acquisition.edinet_fact_plan import needs_archive, prepare_fact_acquisition
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 # Spread the backfill across existing daily runs; the retained IDs are the queue.
@@ -65,6 +62,44 @@ def holder_archive_candidates(
     return ordered, len(quarantined)
 
 
+def metric_archive_candidates(
+    database: Path, *, asof: date, lookback_days: int = 540
+) -> tuple[list[str], int]:
+    """Plan CSV originals from complete saved lists, never extracted metrics.
+
+    The requested origin window and native event selection stay fixed.
+    Older origins resolve edits/withdrawals but cannot become new candidates.
+    """
+    start = asof - timedelta(days=lookback_days)
+    with closing(connect_read_only(database)) as connection:
+        connection.execute("BEGIN")
+        day = start
+        while day <= asof:
+            if not date_covered(connection, "edinet_documents", day):
+                raise EDINETProviderError("stored EDINET document list is unavailable")
+            day += timedelta(days=1)
+        documents = read_stored_documents(connection, through=asof, start=start)
+        documents.extend(read_observed_documents(connection, through=start - timedelta(days=1)))
+    selection = select_document_candidates(documents, origin_start=start)
+    if not selection.candidates:
+        raise EDINETProviderError("no EDINET CSV filings selected in the acquisition window")
+    # An absent native origin cannot gain an issuer identity from an L2 metric.
+    # Extraction still owns its baseline-only quarantine and adoption decision.
+    quarantined = {
+        event.ticker
+        for event in selection.quarantined_events
+        if event.ticker is not None and event.document_type in TARGET_DOC_TYPE_CODES
+    }
+    return (
+        [
+            candidate.doc_id
+            for ticker, candidate in sorted(selection.candidates.items())
+            if ticker not in quarantined
+        ],
+        len(selection.quarantined_events),
+    )
+
+
 def acquire_archives(
     database: Path,
     *,
@@ -78,30 +113,18 @@ def acquire_archives(
         raise ValueError("unsupported EDINET archive group")
     facts_initialized = True
     if group == "edinet-metrics":
-        plan = prepare_edinet_metric_plan(
-            asof_date=asof,
-            lookback_days=540,
-            reader=EDINETReader(database),
-            sqlite_path=database,
-        )
-        if plan is None:
+        try:
+            candidates, metric_quarantined = metric_archive_candidates(database, asof=asof)
+        except (sqlite3.Error, SQLiteSchemaError, EDINETProviderError, ValueError, OSError):
             return {"status": "failed", "failed": ["selection"]}
-        documents = [(candidate.doc_id, 5) for candidate in plan.archive_candidates]
+        documents = [(doc_id, 5) for doc_id in candidates]
     else:
-        inputs = prepare_edinet_facts(
-            asof=asof,
-            sqlite_path=database,
-            initialize=False,
-            tickers=(),
-            stdout=sys.stdout,
-        )
-        facts_initialized = inputs is not None
+        selected = prepare_fact_acquisition(database, asof=asof)
+        facts_initialized = selected is not None
         documents = [
-            (item.doc_id, 1)
-            for document in (() if inputs is None else inputs.documents)
-            if inputs is not None
-            and (item := plan_fact_item(document, statuses=inputs.statuses, asof=asof)).action
-            == "extract"
+            (str(document["docID"]), 1)
+            for document in (selected or [])
+            if needs_archive(document, asof=asof)
         ]
     holder_pending: list[str] = []
     holder_quarantined = 0
@@ -151,6 +174,8 @@ def acquire_archives(
         "retained_archives_reused": reused,
         "failed": failed,
     }
+    if group == "edinet-metrics":
+        report["document_events_quarantined"] = metric_quarantined
     if group == "edinet-facts":
         report.update(
             annual_archive_plan="available" if facts_initialized else "skipped_not_initialized",

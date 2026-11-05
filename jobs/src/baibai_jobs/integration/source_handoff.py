@@ -8,9 +8,11 @@ import os
 import subprocess  # nosec B404
 import sys
 import tempfile
+from collections.abc import Mapping
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import TypedDict
 
 from baibai_engine.data_collection.providers.edinet.archives import (
     archive_keys as edinet_archive_keys,
@@ -18,17 +20,21 @@ from baibai_engine.data_collection.providers.edinet.archives import (
 from baibai_engine.data_collection.providers.jquants.dependencies import (
     export_dependencies as export_master_calendar_dependencies,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     market_calendar_business_day,
 )
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
+    LakePublishError,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.acquisition.edinet_archives import acquire_archives as acquire_edinet_archives
+from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.integration.edinet_handoff import export_handoff as export_edinet_handoff
 from baibai_jobs.integration.edinet_handoff import import_handoff as import_edinet_handoff
 from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx_handoff
@@ -90,9 +96,13 @@ def _export(
     database: Path,
     directory: Path,
     archives: set[tuple[str, int]] | None = None,
+    master_input: InputSnapshot | None = None,
+    calendar_input: InputSnapshot | None = None,
 ) -> None:
     if source not in SOURCES:
         raise ValueError("unsupported market handoff source")
+    if source == "edinet-list" and edinet_list_native_enabled():
+        raise ValueError("EDINET list native mode does not export legacy stages")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     report: dict[str, object] = {
@@ -101,7 +111,19 @@ def _export(
         "started_at": since.isoformat(),
     }
     if source == "tradingview":
-        report.update(export_tradingview_handoff(database, path, day=asof, since=since).to_json())
+        handoff = (
+            export_tradingview_handoff(database, path, day=asof, since=since)
+            if master_input is None and calendar_input is None
+            else export_tradingview_handoff(
+                database,
+                path,
+                day=asof,
+                since=since,
+                master_input=master_input,
+                calendar_input=calendar_input,
+            )
+        )
+        report.update(handoff.to_json())
     elif source in _JQUANTS_SOURCES:
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
@@ -117,11 +139,19 @@ def _export(
         report.update(
             export_edinet_handoff(database, path, since=since, archives=archives or set())
         )
-    if source in {"jquants-market", "tradingview"}:
+    from baibai_jobs.master_cutover import master_native_enabled
+
+    if source in {"jquants-market", "tradingview"} and not (
+        calendar_native_enabled() and (master_input is not None or master_native_enabled())
+    ):
         basis = date.fromisoformat(str(report["master_asof"])) if source == "tradingview" else asof
         for dependency in export_master_calendar_dependencies(
             database, day=asof, master_asof=basis
         ):
+            if master_input is not None and dependency["source"] == "master":
+                continue
+            if calendar_native_enabled() and dependency["source"] == "market_calendar":
+                continue
             write_json_atomic(directory / f"dependency-{dependency['request_id']}.json", dependency)
     write_json_atomic(directory / "result.json", report)
 
@@ -133,7 +163,18 @@ def _handoff_ids(report: dict[str, object], field: str) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
+def _replay(
+    source: str,
+    database: Path,
+    directory: Path,
+    *,
+    store: Boto3R2Store | None = None,
+    master_input: InputSnapshot | None = None,
+    master_fingerprints: Mapping[str, str] | None = None,
+    calendar_input: InputSnapshot | None = None,
+    calendar_fingerprints: Mapping[str, str] | None = None,
+    price_fingerprints: Mapping[str, str] | None = None,
+) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
 
@@ -146,11 +187,96 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
         raise ValueError("handoff source differs from the publication plan")
     path = directory / "receipts.sqlite"
     if source == "tradingview":
-        return import_tradingview_handoff(path, database, TradingViewHandoff.from_json(report))
+        handoff = TradingViewHandoff.from_json(report)
+        from baibai_jobs.master_cutover import master_native_enabled
+
+        if calendar_native_enabled() and calendar_input is None:
+            raise ValueError("native TradingView replay requires its fixed calendar context")
+        if calendar_input is not None:
+            if store is None:
+                raise ValueError("native calendar replay requires its object store")
+            from baibai_engine.data_collection.providers.jquants.calendar_native import interval
+            from baibai_jobs.integration.calendar_native import (
+                materialize_saved_input as materialize_calendar,
+            )
+
+            materialize_calendar(
+                store,
+                calendar_input,
+                market=database,
+                days=interval(handoff.master_asof, handoff.snapshot_date),
+                replace_all=False,
+            )
+        if master_native_enabled() and master_input is None:
+            raise ValueError("native TradingView replay requires its fixed master context")
+        if master_input is not None:
+            if store is None:
+                raise ValueError("native master replay requires its object store")
+            from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
+            from baibai_jobs.integration.master_native import materialize_saved_input
+
+            if master_input.descriptor is None:
+                raise ValueError("native master replay requires a fixed descriptor")
+            selected_master = read_master_input(
+                store, master_input.descriptor, days=[handoff.master_asof]
+            )
+            scope = selected_master["scopes"].get(handoff.master_asof.isoformat(), {})
+            if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
+                raise ValueError("native master replay acquisition is unresolved")
+            materialize_saved_input(
+                store, master_input, market=database, days=[handoff.master_asof]
+            )
+        if (
+            master_input is None
+            and handoff.master_native_input is None
+            and calendar_input is None
+            and handoff.calendar_native_input is None
+        ):
+            return import_tradingview_handoff(path, database, handoff)
+        return import_tradingview_handoff(
+            path,
+            database,
+            handoff,
+            store=store,
+            native_master=master_input is not None,
+            native_calendar=calendar_input is not None,
+            master_fingerprints=master_fingerprints,
+        )
     if source in _JQUANTS_SOURCES:
+        from baibai_jobs.financial_cutover import financial_native_enabled
+        from baibai_jobs.master_cutover import master_native_enabled
+        from baibai_jobs.price_cutover import price_native_enabled
+
+        if source == "jquants-financial" and financial_native_enabled():
+            raise ValueError("legacy financial handoff is disabled after native cutover")
+        if source == "jquants-market" and price_native_enabled() and price_fingerprints is None:
+            raise ValueError("native price replay requires retained cutover fingerprints")
+
+        if source == "jquants-market" and master_native_enabled() and master_fingerprints is None:
+            raise ValueError("native master replay requires retained cutover fingerprints")
+        if (
+            source == "jquants-market"
+            and calendar_native_enabled()
+            and calendar_fingerprints is None
+        ):
+            raise ValueError("native calendar replay requires retained cutover fingerprints")
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
+        if source == "jquants-market" and (
+            master_fingerprints is not None
+            or calendar_fingerprints is not None
+            or price_fingerprints is not None
+        ):
+            return import_jquants_handoff(
+                path,
+                database,
+                _handoff_ids(report, "request_ids"),
+                sources=selected,
+                master_fingerprints=master_fingerprints,
+                calendar_fingerprints=calendar_fingerprints,
+                price_fingerprints=price_fingerprints,
+            )
         return import_jquants_handoff(
             path, database, _handoff_ids(report, "request_ids"), sources=selected
         )
@@ -161,6 +287,35 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
     if source in _EDINET_SOURCES:
         return import_edinet_handoff(path, database)
     raise ValueError("unsupported market handoff source")
+
+
+def _acquire_edinet_lists(asof: date, directory: Path) -> bool:
+    from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
+    from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+    from baibai_jobs.acquisition.edinet_list_native import acquire_lists
+
+    with (
+        closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store,
+        closing(EDINETHTTP(os.environ.get("EDINET_API_KEY", ""))) as client,
+    ):
+        owner = EdinetListL1(store, directory)
+        started = datetime.now(UTC)
+        try:
+            report = acquire_lists(owner, client, start=asof - timedelta(days=540), end=asof)
+            owner.require_clean_work()
+        except Exception:
+            from baibai_jobs.integration.edinet_list_native import export_pending_handoff
+
+            if export_pending_handoff(owner, asof=asof, started_at=started) and (
+                output := os.environ.get("GITHUB_OUTPUT")
+            ):
+                with Path(output).open("a", encoding="utf-8") as stream:
+                    print("stage_ready=true", file=stream)
+            raise
+    print(json.dumps(report, sort_keys=True))
+    return not bool(report["failed"])
 
 
 def _acquire_financial_l1(asof: date, directory: Path) -> bool:
@@ -177,6 +332,24 @@ def _acquire_financial_l1(asof: date, directory: Path) -> bool:
     from baibai_jobs.publication.policy import release_policy_for_profile
 
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+    from baibai_jobs.financial_cutover import financial_native_enabled
+
+    if financial_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.financial_native import FinancialL1
+        from baibai_jobs.acquisition.jquants_financial_native import acquire_financial_native
+
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
+        ):
+            result = acquire_financial_native(
+                FinancialL1(store, directory),
+                start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
+                end=asof,
+                revision_overlap_days=FINANCIAL_REVISION_OVERLAP_DAYS,
+                client=client,
+            )
+        return not bool(result["failed"] or result["held"])
     with (
         tempfile.TemporaryDirectory(prefix="financial-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -207,10 +380,114 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.acquisition.jquants_market_plan import freeze_market_originals
     from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
+    from baibai_jobs.calendar_cutover import calendar_native_enabled
+    from baibai_jobs.master_cutover import master_native_enabled
+    from baibai_jobs.price_cutover import price_native_enabled
     from baibai_jobs.publication.datasets import LAKE_DATASETS
     from baibai_jobs.publication.policy import release_policy_for_profile
 
+    native_prices = price_native_enabled()
+    native_master = master_native_enabled()
+    native_calendar = calendar_native_enabled()
+    calendar_result = None
+    calendar_fixed = None
+    calendar_ok = True
+    master_result = None
+    master_ok = True
+    native_result: dict[str, object] | None = None
+    price_ok = True
+    provider_halted = False
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+    if native_calendar:
+        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+        from baibai_jobs.acquisition.jquants_calendar_native import (
+            acquire_calendar_native,
+            calendar_window,
+        )
+
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as calendar_store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as calendar_client,
+        ):
+            owner = CalendarL1(calendar_store, directory / "calendar-native")
+            start, end = calendar_window(owner.fixed(), asof)
+            result = acquire_calendar_native(owner, start=start, end=end, client=calendar_client)
+            calendar_fixed = owner.fixed()
+        calendar_result = dict(result)
+        calendar_ok = not bool(result["failed"] or result["held"] or result["incomplete"])
+        provider_halted = bool(result.get("halted"))
+        write_json_atomic(directory / "calendar-native-result.json", calendar_result)
+    if native_prices and provider_halted:
+        price_ok = False
+        native_result = {"halted": 1, "status": "provider_halted"}
+    if native_prices and not provider_halted:
+        from baibai_engine.data_collection.providers.jquants.market_rules import (
+            MARKET_REVISION_OVERLAP_DAYS,
+        )
+        from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+        from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
+        from baibai_jobs.acquisition.jquants_price_native import acquire_price_native
+
+        # Commit price originals first. A missing legacy release or another market
+        # source's later failure cannot roll them back or prevent this acquisition.
+        try:
+            with (
+                closing(Boto3R2Store(bucket=bucket)) as price_store,
+                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as price_client,
+            ):
+                price_owner = PriceL1(price_store, directory / "price-native")
+                result = acquire_price_native(
+                    price_owner,
+                    start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
+                    end=asof,
+                    revision_overlap_days=MARKET_REVISION_OVERLAP_DAYS,
+                    client=price_client,
+                )
+            provider_halted = bool(result.get("halted", 0))
+            native_result = dict(result)
+            price_ok = not bool(result["failed"] or result["held"])
+        except LakePublishError:
+            raise
+        except Exception as error:
+            price_ok = False
+            native_result = {"error": type(error).__name__}
+        directory.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(directory / "price-native-result.json", native_result)
+    if native_master:
+        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+
+        if provider_halted:
+            master_result = {"halted": 1, "status": "provider_halted"}
+            master_ok = False
+        else:
+            try:
+                with (
+                    closing(Boto3R2Store(bucket=bucket)) as master_store,
+                    closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as master_client,
+                ):
+                    master_owner = MasterL1(master_store, directory / "master-native")
+                    acquired_master = acquire_master_native(
+                        master_owner,
+                        start=asof,
+                        end=asof,
+                        client=master_client,
+                    )
+                master_result = dict(acquired_master)
+                provider_halted = bool(acquired_master.get("halted", 0))
+                master_ok = not bool(
+                    acquired_master["failed"]
+                    or acquired_master["held"]
+                    or acquired_master["incomplete"]
+                )
+            except LakePublishError:
+                raise
+            except Exception as error:
+                master_ok = False
+                master_result = {"error": type(error).__name__}
+        directory.mkdir(parents=True, exist_ok=True)
+        assert master_result is not None
+        write_json_atomic(directory / "master-native-result.json", master_result)
     with (
         tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -221,15 +498,73 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
         )
         fixed = freeze_market_originals(
-            session, release=release, cache=cache, store=store, asof=asof
+            session,
+            release=release,
+            cache=cache,
+            store=store,
+            asof=asof,
+            include_daily_prices=not native_prices,
+            include_master=not native_master,
+            include_calendar=not native_calendar,
         )
-        return receive_market_handoff(
+        if calendar_fixed is not None:
+            from dataclasses import replace
+
+            fixed = replace(
+                fixed, indexes={**fixed.indexes, "market_calendar": calendar_fixed.index()}
+            )
+        legacy_ok = receive_market_handoff(
             directory,
             fixed,
             asof=asof,
             client=client,
             scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
+            include_daily_prices=not native_prices,
+            include_master=not native_master,
+            include_calendar=not native_calendar,
+            provider_halted=provider_halted,
         )
+
+    if native_result is not None or master_result is not None or calendar_result is not None:
+        path = directory / "result.json"
+        report = json.loads(path.read_bytes())
+        if (
+            master_result is not None
+            and master_result.get("incomplete")
+            and not (master_result.get("failed") or master_result.get("held"))
+            and report.get("acquisition", {}).get("status") == "skipped_non_business_day"
+        ):
+            # Raw empty stays unfulfilled, but a proven closed cycle does not
+            # require that date's nonempty universe.
+            from baibai_engine.data_collection.providers.jquants.native_index import (
+                calendar_sessions,
+            )
+
+            calendar = fixed.indexes["market_calendar"]
+            sessions, unknown = calendar_sessions(calendar, start=asof, end=asof)
+            receipts = [
+                item
+                for item in calendar.receipts
+                if any(day == asof for day, _ in item.calendar_divisions)
+            ]
+            latest = max((item.received_at for item in receipts), default=None)
+            divisions = {
+                division
+                for item in receipts
+                if item.received_at == latest
+                for day, division in item.calendar_divisions
+                if day == asof
+            }
+            if sessions[asof] is False and not unknown and divisions and divisions <= {"0", "3"}:
+                master_ok = True
+                master_result = {**master_result, "status": "not_required_non_business_day"}
+        report["independent_l1"] = {
+            **({"daily_bars": native_result} if native_result is not None else {}),
+            **({"master": master_result} if master_result is not None else {}),
+            **({"market_calendar": calendar_result} if calendar_result is not None else {}),
+        }
+        write_json_atomic(path, report)
+    return legacy_ok and price_ok and master_ok and calendar_ok
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -248,23 +583,133 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+class _ReplayContext(TypedDict, total=False):
+    master_input: InputSnapshot
+    calendar_input: InputSnapshot
+    master_fingerprints: Mapping[str, str]
+    calendar_fingerprints: Mapping[str, str]
+    price_fingerprints: Mapping[str, str]
+
+
+def _replay_context(
+    store: Boto3R2Store,
+    source: str,
+    directory: Path,
+    packet: dict[str, object],
+    *,
+    master_input: InputSnapshot | None = None,
+    calendar_input: InputSnapshot | None = None,
+    price_fingerprints: Mapping[str, str] | None = None,
+) -> _ReplayContext:
+    """Prefer saved native inputs; latest heads are only for legacy replay migration."""
+    from baibai_jobs.master_cutover import master_native_enabled
+    from baibai_jobs.price_cutover import price_native_enabled
+
+    context: _ReplayContext = {}
+    if source == "jquants-market" and price_native_enabled() and price_fingerprints is None:
+        from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+        price_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in PriceL1(store, directory / "price-native")
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
+    if price_fingerprints is not None:
+        context["price_fingerprints"] = price_fingerprints
+    day = date.fromisoformat(str(packet["asof"]))
+    if source == "tradingview":
+        if master_input is None and packet.get("master_native_input") is not None:
+            master_input = InputSnapshot.model_validate(packet["master_native_input"])
+        if calendar_input is None and packet.get("calendar_native_input") is not None:
+            calendar_input = InputSnapshot.model_validate(packet["calendar_native_input"])
+    if master_native_enabled() and (
+        master_input is None or source == "jquants-market" or packet.get("master_request_ids")
+    ):
+        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_jobs.integration.master_native import fixed_input as fixed_master_input
+
+        fixed_master = MasterL1(store, directory / "master-native").fixed()
+        context["master_fingerprints"] = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in fixed_master.value()["receipts"].items()
+        }
+        if source == "tradingview" and master_input is None:
+            master_input = fixed_master_input(
+                store, fixed_master, as_of=day, evaluated_at=datetime.now(UTC)
+            )
+    if calendar_native_enabled() and (
+        calendar_input is None
+        or source == "jquants-market"
+        or packet.get("calendar_native_input") is None
+    ):
+        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+        from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
+
+        fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
+        context["calendar_fingerprints"] = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in fixed_calendar.value()["receipts"].items()
+        }
+        if source == "tradingview" and calendar_input is None:
+            calendar_input = fixed_calendar_input(
+                store, fixed_calendar, as_of=day, evaluated_at=datetime.now(UTC)
+            )
+    if master_input is not None:
+        context["master_input"] = master_input
+    if calendar_input is not None:
+        context["calendar_input"] = calendar_input
+    return context
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
         if args.command == "replay-copy":
-            replay = _replay(args.source, args.database, directory)
+            packet = json.loads((directory / "result.json").read_bytes())
+            from baibai_jobs.master_cutover import master_native_enabled
+            from baibai_jobs.price_cutover import price_native_enabled
+
+            native = args.source in {"tradingview", "jquants-market"} and (
+                master_native_enabled()
+                or calendar_native_enabled()
+                or (args.source == "jquants-market" and price_native_enabled())
+                or packet.get("master_native_input") is not None
+                or packet.get("calendar_native_input") is not None
+            )
+            if native:
+                with closing(
+                    Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+                ) as store:
+                    context = _replay_context(store, args.source, directory, packet)
+                    replay = _replay(args.source, args.database, directory, store=store, **context)
+            else:
+                replay = _replay(args.source, args.database, directory)
             print(json.dumps(replay.report, sort_keys=True))
             return int(not replay.complete)
         if args.command == "input":
             from baibai_jobs.acquisition.source_inputs import load_input
 
-            load_input(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
-                args.source,
-                args.database,
-                directory,
-            )
+            if args.source == "edinet-list" and edinet_list_native_enabled():
+                raise ValueError("native EDINET lists do not use market source inputs")
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                load_input(store, args.source, args.database, directory)
+                if (
+                    args.source in {"edinet-metrics", "edinet-facts"}
+                    and edinet_list_native_enabled()
+                ):
+                    from baibai_engine.data_collection.providers.edinet.list_native import (
+                        EdinetListL1,
+                    )
+                    from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+                    edinet_fixed = EdinetListL1(store, directory / "native-list").freeze()
+                    result = materialize_lists(edinet_fixed, args.database)
+                    print(json.dumps({"native_list_input": result}, sort_keys=True))
         elif args.command == "resume":
             from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed
 
@@ -272,9 +717,45 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--asof is required")
             store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             saved_input = json.loads((directory / "result.json").read_text())
+            master_input = (
+                InputSnapshot.model_validate(saved_input["master_native_input"])
+                if args.source == "tradingview"
+                and saved_input.get("master_native_input") is not None
+                else None
+            )
+            from baibai_jobs.master_cutover import master_native_enabled
+
+            if args.source == "tradingview" and master_native_enabled() and master_input is None:
+                return 0  # The existing backfill step will acquire then resume these receipts.
+            calendar_input = (
+                InputSnapshot.model_validate(saved_input["calendar_native_input"])
+                if args.source == "tradingview"
+                and saved_input.get("calendar_native_input") is not None
+                else None
+            )
+            if (
+                args.source == "tradingview"
+                and calendar_native_enabled()
+                and calendar_input is None
+            ):
+                raise ValueError("native TradingView resume requires its fixed calendar input")
+            from baibai_jobs.price_cutover import price_native_enabled
+
+            price_fingerprints = None
+            if args.source == "jquants-market" and price_native_enabled():
+                from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+                price_fingerprints = {
+                    identity: receipt["fingerprint"]
+                    for identity, receipt in PriceL1(store, directory / "price-native")
+                    .fixed()
+                    .value()["receipts"]
+                    .items()
+                }
             sources = (
                 ("edinet-list", args.source)
                 if args.source in {"edinet-metrics", "edinet-facts"}
+                and not edinet_list_native_enabled()
                 else (args.source,)
             )
             for source in sources:
@@ -298,7 +779,36 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     packet = directory / f"resume-{source}-{index}"
                     download_fixed(store, entry, packet)
-                    _replay(source, args.database, packet)
+                    if source not in {"tradingview", "jquants-market"} or (
+                        master_input is None
+                        and calendar_input is None
+                        and not master_native_enabled()
+                        and not calendar_native_enabled()
+                        and price_fingerprints is None
+                    ):
+                        _replay(source, args.database, packet)
+                    else:
+                        report = json.loads((packet / "result.json").read_bytes())
+                        context = _replay_context(
+                            store,
+                            source,
+                            directory,
+                            report,
+                            master_input=master_input,
+                            calendar_input=calendar_input,
+                            price_fingerprints=price_fingerprints,
+                        )
+                        if calendar_native_enabled():
+                            from baibai_jobs.acquisition.calendar_dependencies import (
+                                verify_stage_calendar_dependencies,
+                            )
+
+                            # Native packets carry fixed references, not legacy dependencies.
+                            # Old stage dependency evidence is verified against the cutover.
+                            fingerprints = context.get("calendar_fingerprints")
+                            if fingerprints is not None:
+                                verify_stage_calendar_dependencies(store, entry, fingerprints)
+                        _replay(source, args.database, packet, store=store, **context)
         elif args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
@@ -313,6 +823,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in {"acquire", "export"}:
             if args.asof is None or (args.command == "export" and args.since is None):
                 raise ValueError("--asof and export --since are required")
+            if (
+                args.command == "acquire"
+                and args.source == "edinet-list"
+                and edinet_list_native_enabled()
+            ):
+                ok = _acquire_edinet_lists(args.asof, directory)
+                if output := os.environ.get("GITHUB_OUTPUT"):
+                    with Path(output).open("a", encoding="utf-8") as stream:
+                        print("stage_ready=false\nnative_l1=true", file=stream)
+                return int(not ok)
             if args.command == "acquire" and args.source in {"jquants-financial", "jquants-market"}:
                 acquire = (
                     _acquire_financial_l1
@@ -322,7 +842,12 @@ def main(argv: list[str] | None = None) -> int:
                 ok = acquire(args.asof, directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
-                        print("stage_ready=true", file=stream)
+                        from baibai_jobs.financial_cutover import financial_native_enabled
+
+                        native = args.source == "jquants-financial" and financial_native_enabled()
+                        print("stage_ready=" + str(not native).lower(), file=stream)
+                        if native:
+                            print("native_l1=true", file=stream)
                 return int(not ok)
             since = args.since or datetime.now(UTC)
             before = (
@@ -369,7 +894,33 @@ def main(argv: list[str] | None = None) -> int:
                 if args.source.startswith("edinet-")
                 else set()
             )
-            _export(args.source, args.asof, since, args.database, directory, archives)
+            master_input = None
+            calendar_input = None
+            from baibai_jobs.master_cutover import master_native_enabled
+
+            if args.source == "tradingview" and master_native_enabled():
+                if args.input_directory is None:
+                    raise ValueError("native TradingView export requires its fixed source input")
+                saved = json.loads((args.input_directory / "result.json").read_bytes())
+                master_input = InputSnapshot.model_validate(saved["master_native_input"])
+            if args.source == "tradingview" and calendar_native_enabled():
+                if args.input_directory is None:
+                    raise ValueError("native TradingView export requires its fixed source input")
+                saved = json.loads((args.input_directory / "result.json").read_bytes())
+                calendar_input = InputSnapshot.model_validate(saved["calendar_native_input"])
+            if master_input is None and calendar_input is None:
+                _export(args.source, args.asof, since, args.database, directory, archives)
+            else:
+                _export(
+                    args.source,
+                    args.asof,
+                    since,
+                    args.database,
+                    directory,
+                    archives,
+                    master_input,
+                    calendar_input,
+                )
             report = json.loads((directory / "result.json").read_text())
             report["acquisition"] = acquisition_report or {
                 "status": "failed" if status else "received"

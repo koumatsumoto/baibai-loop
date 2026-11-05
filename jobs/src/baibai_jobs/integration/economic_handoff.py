@@ -137,18 +137,34 @@ def acquire(
     return int(any(isinstance(item, EconomicSourceRefreshFailure) for item in outcomes))
 
 
-def receive(directory: Path, database: Path, group: str, source_id: str, *, verify: bool) -> None:
-    expected = selected_sources(group, source_id)
+def validate_handoff(directory: Path, group: str, source_id: str | None = None) -> None:
+    allowed = selected_sources(group)
     report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
-    if report["group"] != group or [row["source_id"] for row in report["sources"]] != expected:
+    expected = [row["source_id"] for row in report["sources"]]
+    if (
+        report["group"] != group
+        or not expected
+        or len(set(expected)) != len(expected)
+        or not set(expected) <= set(allowed)
+        or (source_id is not None and expected != selected_sources(group, source_id))
+    ):
         raise ValueError("economic handoff selection differs from the requested source plan")
     source = directory / "receipts.sqlite"
     with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_economic_schema(conn)
-        for table in ECONOMIC_RECEIPT_KEYS:
+        for table in (
+            *ECONOMIC_RECEIPT_KEYS,
+            "economic_source_record_confirmations",
+            "economic_source_collection_confirmations",
+        ):
             actual = {row[0] for row in conn.execute(f"SELECT DISTINCT source_id FROM {table}")}  # nosec B608
             if not actual <= set(expected):
                 raise ValueError("economic handoff contains another acquisition group's receipts")
+
+
+def receive(directory: Path, database: Path, group: str, source_id: str, *, verify: bool) -> None:
+    validate_handoff(directory, group, source_id)
+    source = directory / "receipts.sqlite"
     if verify:
         verify_stores(source, database)
         print("economic publication readback verified")

@@ -65,8 +65,12 @@ def store_snapshot(
         raise ValueError("conflicting source receipt identity for economic source records")
     latest = connection.execute(
         "SELECT payload FROM economic_source_records WHERE source_id = ? AND observed_at = ? "
-        "ORDER BY fetched_at DESC LIMIT 1",
-        (source_id, observed_day),
+        "AND fetched_at = COALESCE("
+        "(SELECT adopted_fetched_at FROM economic_source_record_confirmations "
+        "WHERE source_id = ? AND observed_at = ?), "
+        "(SELECT MAX(fetched_at) FROM economic_source_records "
+        "WHERE source_id = ? AND observed_at = ?))",
+        (source_id, observed_day, source_id, observed_day, source_id, observed_day),
     ).fetchone()
     if latest is not None and latest[0] == payload and not retain_unchanged.get():
         return False
@@ -112,9 +116,11 @@ def read_snapshots(
         SELECT c.observed_at, c.fetched_at, c.payload
         FROM economic_source_records c
         WHERE c.source_id = ? AND c.observed_at BETWEEN ? AND ?
-          AND c.fetched_at = (
-              SELECT MAX(newest.fetched_at) FROM economic_source_records newest
-              WHERE newest.source_id = c.source_id AND newest.observed_at = c.observed_at
+          AND c.fetched_at = COALESCE(
+              (SELECT adopted_fetched_at FROM economic_source_record_confirmations checked
+               WHERE checked.source_id=c.source_id AND checked.observed_at=c.observed_at),
+              (SELECT MAX(newest.fetched_at) FROM economic_source_records newest
+               WHERE newest.source_id=c.source_id AND newest.observed_at=c.observed_at)
           )
         ORDER BY c.observed_at
         """,

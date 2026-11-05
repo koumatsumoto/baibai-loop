@@ -287,7 +287,7 @@ def test_source_only_handoff_passes_common_integration(tmp_path, monkeypatch) ->
     with closing(open_connection(market)), closing(initialize_database(economic)):
         pass
     monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **kw: {})
-    report = apply(store, directory, market=market, economic=economic, asof=date(2026, 11, 2))
+    report = apply(store, directory, market=market, asof=date(2026, 11, 2))
     assert report["handoffs"][0]["applied"] is True
     assert report["handoffs"][0]["failed"] is False
     with sqlite3.connect(market) as conn:
@@ -348,7 +348,7 @@ def test_common_integration_retains_partial_native_pages(tmp_path, monkeypatch) 
     with closing(open_connection(market)), closing(initialize_database(economic)):
         pass
     monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **kw: {})
-    report = apply(store, directory, market=market, economic=economic, asof=date(2026, 11, 2))
+    report = apply(store, directory, market=market, asof=date(2026, 11, 2))
     assert report["handoffs"][0]["applied"] is True
     assert report["handoffs"][0]["failed"] is True
     assert report["handoffs"][0]["recovery"] is True

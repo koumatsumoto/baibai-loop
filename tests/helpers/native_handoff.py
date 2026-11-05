@@ -30,8 +30,28 @@ def stage(
                 "group": group,
                 "asof": "2026-10-24",
                 "started_at": started_at,
-                "sources": [],
+                "sources": [{"source_id": "fred-payems", "status": "ok"}]
+                if value is not None
+                else [],
             }
         )
     )
     save_handoff(store, stage_id, directory)
+
+
+def integrate_economic(store, work, database, asof):
+    from baibai_jobs.integration.economic_sources import integrate
+    from baibai_jobs.publication.lease import _save_handle, acquire, release
+
+    store.store_object("indicators.sqlite", database.read_bytes())
+    handle, _ = acquire(store, "daily")
+    work.mkdir(parents=True, exist_ok=True)
+    lease = work / "lease.json"
+    _save_handle(lease, handle)
+    output = work / "output.sqlite"
+    try:
+        report = integrate(store, work, database=output, asof=asof, lease_handle=lease)
+        output.replace(database)
+        return report
+    finally:
+        release(store, handle)

@@ -112,7 +112,9 @@ class Change(Contract):
 class InputRelease(Contract):
     release_id: str
     manifest_sha256: str
-    collection_boundary: Literal["fixed_release_membership"] = "fixed_release_membership"
+    collection_boundary: Literal["fixed_release_membership", "fixed_source_head"] = (
+        "fixed_release_membership"
+    )
     # The manifest pins membership; local coverage does not prove receipt timestamps.
     receipt_cutoff: None = None
 

@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.facts_scope import merge_scope, read_scope
 from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_unrechecked_edinet_document_dates,
@@ -20,6 +21,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.integration.replay_result import ReplayResult
 
 
@@ -37,18 +39,23 @@ def export_handoff(
     ):
         validate_current_schema(raw)
         raw.execute("BEGIN")
-        lists = tuple(
-            row[0]
-            for row in raw.execute(
-                "SELECT receipt_id FROM edinet_list_responses WHERE received_at_utc >= ? "
-                "ORDER BY received_at_utc, receipt_id",
-                (since.astimezone(UTC).isoformat(timespec="microseconds"),),
+        lists = (
+            ()
+            if edinet_list_native_enabled()
+            else tuple(
+                row[0]
+                for row in raw.execute(
+                    "SELECT receipt_id FROM edinet_list_responses WHERE received_at_utc >= ? "
+                    "ORDER BY received_at_utc, receipt_id",
+                    (since.astimezone(UTC).isoformat(timespec="microseconds"),),
+                )
             )
         )
         copy_originals(
             raw, target, "edinet_list_responses", [(key,) for key in lists], selection="receipt_id"
         )
         copy_originals(raw, target, "edinet_source_archives", sorted(archives), selection="doc_id")
+        merge_scope(target, read_scope(raw))
     return {"list_receipts": lists, "archives": sorted(archives)}
 
 
@@ -63,8 +70,19 @@ def import_handoff(source: Path, target: Path) -> ReplayResult:
             date.fromisoformat(row[0])
             for row in raw.execute("SELECT DISTINCT doc_date FROM edinet_list_responses")
         }
+        native_lists = edinet_list_native_enabled()
+        if native_lists:
+            for row in raw.execute("SELECT * FROM edinet_list_responses"):
+                prior = conn.execute(
+                    "SELECT * FROM edinet_list_responses WHERE receipt_id = ?", (row[0],)
+                ).fetchone()
+                if prior is None or tuple(prior) != tuple(row):
+                    raise ValueError("legacy stage list receipt is absent from fixed native head")
+            days.clear()
+            lists.clear()
         conflicts = []
         with conn:
+            merge_scope(conn, read_scope(raw))
             added = copy_originals(
                 raw, conn, "edinet_list_responses", lists, selection="receipt_id"
             )

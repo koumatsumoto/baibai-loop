@@ -38,7 +38,7 @@ def _fixed_pointer(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.mark.parametrize("changed_key", list(MACHINE_KEYS))
+@pytest.mark.parametrize("changed_key", ["market.sqlite", "runs.sqlite"])
 def test_published_generation_refuses_any_partial_machine_push(
     tmp_path, monkeypatch: pytest.MonkeyPatch, changed_key: str
 ) -> None:
@@ -60,7 +60,6 @@ def test_published_generation_refuses_any_partial_machine_push(
     assert generations == {
         "lake_release_id": "published",
         "lake_manifest_sha256": "a" * 64,
-        "economic_etag": remote.values["indicators.sqlite"].etag,
     }
     assert sidecar.read_text() == old_economic
 
@@ -77,10 +76,9 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
 
     def publish(*_args, **kwargs):
         published.append(kwargs["generations"])
-        return {"updated": ["economic-fred_csv"], "failed": []}
+        return {"updated": ["edinet-list"], "failed": []}
 
     monkeypatch.setattr(sources, "publish_inputs", publish)
-    pulled_economic = remote.values["indicators.sqlite"].etag
     remote.store_object("indicators.sqlite", b"same logical economic rows, resealed bytes")
     _publish_receipt(remote)
     command = [
@@ -94,12 +92,20 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
         "--identity",
         "synthetic",
         "--group",
-        "economic-fred_csv",
+        "edinet-list",
     ]
     assert sources.main(command) == 0
-    assert published[0]["economic_etag"] == remote.values["indicators.sqlite"].etag
-    assert published[0]["economic_etag"] != pulled_economic
+    assert "economic_etag" not in published[0]
 
     remote.store_object("runs.sqlite", b"partial machine upload")
     assert sources.main(command) == 1
     assert len(published) == 1
+
+
+def test_economic_change_does_not_invalidate_market_bundle(monkeypatch):
+    _fixed_pointer(monkeypatch)
+    remote = _remote_bundle()
+    before = sources.canonical_generations(remote)
+    remote.store_object("indicators.sqlite", b"new independently confirmed economic L1")
+    assert sources.canonical_generations(remote) == before
+    assert "economic_etag" not in before

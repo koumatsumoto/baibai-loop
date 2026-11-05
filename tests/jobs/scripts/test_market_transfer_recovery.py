@@ -24,6 +24,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
+from baibai_jobs.publication import policy as snapshot_policy
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -49,6 +50,20 @@ def table_contents(path: Path) -> dict[str, list[tuple]]:
 @pytest.fixture
 def published_market(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     narrow_release_policy(monkeypatch, datasets=(FIN,))
+    # Finance is optional in production after native cutover. This fixture publishes
+    # only finance, so keep its wire policy valid with that one required dataset.
+    policy = release_policy_for_profile("production")
+    monkeypatch.setattr(
+        snapshot_policy,
+        "PRODUCTION_RELEASE_POLICY",
+        policy.model_copy(
+            update={
+                "datasets": tuple(
+                    item.model_copy(update={"required": True}) for item in policy.datasets
+                )
+            }
+        ),
+    )
     store = tmp_path / "market.sqlite"
     store_jquants_fin_summaries(
         store,
@@ -98,8 +113,6 @@ def test_real_transfer_partial_push_recovers_via_same_schema_market_merge(
     import sys
 
     from tests.helpers.r2_transfer import _environment, _fake_aws, _fake_repo
-
-    from baibai_jobs.publication import policy as snapshot_policy
 
     target, mirror, origin = published_market
     root = _fake_repo(tmp_path)
@@ -178,7 +191,7 @@ runpy.run_module(args[2],run_name='__main__')
     assert partial.returncode != 0, partial.stdout
     with closing(sqlite3.connect(state / "put-market.sqlite")) as conn:
         validate_current_schema(conn)
-        assert conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0] == 0
+        assert conn.execute(f"SELECT COUNT(*) FROM {TABLE}").fetchone()[0] == 0, partial.stderr
     assert read_lake_store_origin(state / "put-market.sqlite") == origin
     assert json.loads((state / "put-machine-manifest.json").read_text()) == old_receipt
     retry = run("push-machine")

@@ -10,12 +10,12 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # the mirror root is the directory the stores live in and not one of them.
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 copy_read_timeout=300
-# The three machine stores are pushed one after another, each conditional on the
-# generation the batch pulled, and three PUTs cannot be made one commit. A push that
+# The market/runs pair is pushed sequentially, each conditional on the pulled
+# generation. Economic L1 is a separate single-object authority. A pair push that
 # stops partway therefore leaves a set nothing ever wrote: the earlier keys at the new
 # generation, the rest at the old one. Per key that state is indistinguishable from a
 # healthy one — the pull's straddle check compares each object with itself — so the
-# receipt is what records which three generations were last seen together. It is
+# receipt is what records which two generations were last seen together. It is
 # rewritten by every push that changes a member and checked before a bundle pull
 # replaces the local stores.
 # The application store is the one object here nothing regenerates: it holds the
@@ -26,7 +26,7 @@ copy_read_timeout=300
 # of every application update.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
-machine_bundle_keys=(market.sqlite runs.sqlite indicators.sqlite)
+machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
 
 cleanup_staging() {
@@ -120,7 +120,12 @@ merge_store() {
 }
 
 merge_economic_store() {
-  merge_store baibai_jobs.integration.native_source_merge "$1" "$2"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -m baibai_jobs.integration.native_source_merge \
+        --canonical "$1" --target "$2" "${@:3}"
+  )
 }
 
 merge_market_store() {
@@ -524,9 +529,9 @@ _push_keys() {
     fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
-    if [[ -n "${ARTICLE_CUTOVER_RECEIPT:-}" ]]; then
-      uv run python -m baibai_jobs.maintenance.article_cutover record-upload \
-        --receipt "${ARTICLE_CUTOVER_RECEIPT}" --key "${key}" \
+    if [[ -n "${MARKET_CUTOVER_RECEIPT:-}" ]]; then
+      uv run python -m baibai_jobs.maintenance.market_cutover record-upload \
+        --receipt "${MARKET_CUTOVER_RECEIPT}" --key "${key}" \
         --upload "${transfer_staging}/${key}" --expected-etag "${expected_version}"
     fi
     if [[ -n "${expected_version}" ]]; then
@@ -675,7 +680,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-article-cutover RECEIPT|resume-article-cutover RECEIPT|push-runs|push-market|push-indicators|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market-cutover RECEIPT|resume-market-cutover RECEIPT|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-economic-cutover RECEIPT|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -714,21 +719,21 @@ case "${1:-}" in
   push-machine)
     push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
-  push-article-cutover)
-    # Only the explicit schema48 -> 49 copy can bypass current/current merge.
+  push-market-cutover)
+    # Only the explicit schema48/49 -> 50 copy can bypass current/current merge.
     # Per-key PUTs remain conditional on the complete fresh machine bundle.
     [[ $# -eq 2 ]] || { usage; exit 2; }
-    export ARTICLE_CUTOVER_RECEIPT="$2"
-    uv run python -m baibai_jobs.maintenance.article_cutover verify-cutover \
+    export MARKET_CUTOVER_RECEIPT="$2"
+    uv run python -m baibai_jobs.maintenance.market_cutover verify-cutover \
       --receipt "$2" --generation-directory "${generation_dir}" \
       --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}"
     push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
-  resume-article-cutover)
+  resume-market-cutover)
     # Read back each possibly completed upload before resending only pending keys.
     [[ $# -eq 2 ]] || { usage; exit 2; }
-    export ARTICLE_CUTOVER_RECEIPT="$2"
-    pending="$(uv run python -m baibai_jobs.maintenance.article_cutover resume-plan \
+    export MARKET_CUTOVER_RECEIPT="$2"
+    pending="$(uv run python -m baibai_jobs.maintenance.market_cutover resume-plan \
       --receipt "$2" --generation-directory "${generation_dir}" \
       --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")"
     for key in ${pending}; do
@@ -758,21 +763,36 @@ case "${1:-}" in
     push_key_if_version market.sqlite "${market_version}"
     write_machine_manifest
     ;;
+  push-economic-cutover)
+    # Explicit schema12 -> 13 publication owns CAS, uncertain PUT recovery and
+    # bundle-manifest readback. It neither merges old/current nor touches L2.
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.economic_cutover publish \
+      --receipt "$2" \
+      --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")
+    ;;
   push-indicators)
-    # Deep history is fetched locally with `collection economic refresh --all-history`, which the
-    # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
-    # recent observations the local store has never seen. So the local store is only
-    # publishable once it contains the cloud copy: pull it, merge it in, and let the
-    # merge refuse the upload if any cloud row would be left behind.
+    shift
+    recheck_args=("$@")
+    while [[ $# -gt 0 ]]; do
+      if [[ $# -lt 2 || "$1" != "--recheck-source" || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+      shift 2
+    done
+    set -- "${recheck_args[@]}"
+    # Compare local receipts with fresh canonical before combining original rows.
+    # A local same-value recheck may be a real A→B→A change against the cloud.
+    # A late or unconfirmed receipt remains local for explicit source recovery.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     indicator_version="$(remote_version indicators.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
     check_sqlite "${transfer_staging}/indicators.sqlite"
-    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
+    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)" "$@"
     cleanup_staging
     transfer_staging=""
     push_key_if_version indicators.sqlite "${indicator_version}"
-    write_machine_manifest
     ;;
   push-app)
     case "${R2_APP_BACKUP_PRUNE:-retain}" in

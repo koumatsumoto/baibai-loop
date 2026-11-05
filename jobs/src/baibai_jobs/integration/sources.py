@@ -8,21 +8,10 @@ import os
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
-from baibai_engine.data_collection.receipts.native_sources.handoff import (
-    accept_rechecks as accept_economic_rechecks,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import (
-    DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
-from baibai_engine.data_collection.receipts.native_sources.store import (
-    validate_current_schema as validate_economic_schema,
-)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -51,9 +40,12 @@ from baibai_jobs.acquisition.article_planning import (
     pending_handoffs,
     publish_planning_input,
 )
-from baibai_jobs.acquisition.market_context import validate_packet as validate_market_packet
+from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
+from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
+from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.jquants_handoff import (
@@ -61,8 +53,9 @@ from baibai_jobs.integration.jquants_handoff import (
 )
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
-from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.master_cutover import master_native_enabled
+from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
@@ -73,17 +66,74 @@ def apply(
     directory: Path,
     *,
     market: Path,
-    economic: Path,
     asof: date,
 ) -> dict[str, object]:
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
-    # Canonical corruption is global and fatal, before any handoff is applied.
-    for database, validate in (
-        (market, validate_market_schema),
-        (economic, validate_economic_schema),
+    if bool(plan.get("financial_native", False)) != financial_native_enabled():
+        raise ValueError("financial cutover mode differs from the fixed integration plan")
+    if bool(plan.get("price_native", False)) != price_native_enabled():
+        raise ValueError("price cutover mode differs from the fixed integration plan")
+    if bool(plan.get("master_native", False)) != master_native_enabled():
+        raise ValueError("master cutover mode differs from the fixed integration plan")
+    if bool(plan.get("calendar_native", False)) != calendar_native_enabled():
+        raise ValueError("calendar cutover mode differs from the fixed integration plan")
+    if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
+        raise ValueError("EDINET list mode differs from the fixed integration plan")
+    calendar_input = None
+    calendar_fingerprints = None
+    if calendar_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+        from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
+
+        fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
+        calendar_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in fixed_calendar.value()["receipts"].items()
+        }
+        calendar_input = calendar_model_input(
+            store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC), market=market
+        )
+    master_input = None
+    master_fingerprints = None
+    price_fingerprints = None
+    if price_native_enabled() and any(
+        entry["source"] == "jquants-market" for entry in plan["handoffs"]
     ):
-        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
-            validate(conn)
+        from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+        price_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in PriceL1(store, directory / "price-native")
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
+    if master_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_jobs.integration.master_native import fixed_input
+
+        fixed_master = MasterL1(store, directory / "master-native").fixed()
+        master_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in fixed_master.value()["receipts"].items()
+        }
+        master_input = fixed_input(
+            store,
+            fixed_master,
+            as_of=asof,
+            evaluated_at=datetime.now(UTC),
+        )
+    if any(not entry["market"] for entry in plan["handoffs"]):
+        raise ValueError("economic handoffs require the independent L1 integration")
+    # Only this owner's canonical corruption is global and fatal.
+    with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        validate_market_schema(conn)
+    native_lists = None
+    if edinet_list_native_enabled():
+        from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
+        from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+        native_lists = materialize_lists(FixedEdinetLists(store, plan["edinet_list_head"]), market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
@@ -99,6 +149,12 @@ def apply(
         else:
             try:
                 download_fixed(store, entry, packet)
+                if calendar_fingerprints is not None:
+                    from baibai_jobs.acquisition.calendar_dependencies import (
+                        verify_stage_calendar_dependencies,
+                    )
+
+                    verify_stage_calendar_dependencies(store, entry, calendar_fingerprints)
                 # Invalid source bytes are local failures. SQLite errors from the
                 # canonical writers below remain fatal storage/integrity failures.
                 try:
@@ -112,26 +168,28 @@ def apply(
                         elif entry["source"] == "jquants-market":
                             validate_source_handoff(raw, sources=JQUANTS_MARKET_SOURCES)
                         else:
-                            (
-                                validate_market_schema
-                                if entry["market"]
-                                else validate_economic_schema
-                            )(raw)
+                            validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
-                if entry["market"]:
-                    replay = _replay(entry["source"], market, packet)
-                    result = replay.report
-                    failed = recovery = not replay.complete
-                else:
-                    if entry["source"] == "economic-" + MARKET_GROUP:
-                        validate_market_packet(packet, canonical=economic)
-                    accepted = packet / "accepted.sqlite"
-                    result = accept_economic_rechecks(
-                        packet / "receipts.sqlite", economic, accepted
+                replay = (
+                    _replay(entry["source"], market, packet)
+                    if master_input is None
+                    and calendar_input is None
+                    and price_fingerprints is None
+                    else _replay(
+                        entry["source"],
+                        market,
+                        packet,
+                        store=store,
+                        master_input=master_input,
+                        master_fingerprints=master_fingerprints,
+                        calendar_input=calendar_input,
+                        calendar_fingerprints=calendar_fingerprints,
+                        price_fingerprints=price_fingerprints,
                     )
-                    merge_stores(accepted, economic)
-                    failed = recovery = bool(result["late_recovery_required"])
+                )
+                result = replay.report
+                failed = recovery = not replay.complete
                 applied = True
             except (R2Error, LakeCASConflict):
                 raise
@@ -140,7 +198,6 @@ def apply(
                 ValueError,
                 MergeError,
                 MarketSchemaError,
-                EconomicSchemaError,
                 JQuantsProviderError,
                 observations_owner.FetchError,
                 sqlite3.IntegrityError,
@@ -162,6 +219,8 @@ def apply(
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
     extractions = extract_saved_edinet(market, asof=asof)
+    if native_lists is not None:
+        extractions["native_lists"] = native_lists
     for outcome in outcomes:
         if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
             outcome["article_delta"] = capture_delta(
@@ -193,7 +252,7 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     keys = manifest.get("keys")
     if not isinstance(keys, dict):
         raise LakePublishError("published machine bundle receipt is invalid")
-    for key in ("market.sqlite", "runs.sqlite", "indicators.sqlite"):
+    for key in ("market.sqlite", "runs.sqlite"):
         recorded = keys.get(key)
         current = store.head(key)
         if (
@@ -206,16 +265,14 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     return {
         "lake_release_id": pointer.release_id,
         "lake_manifest_sha256": pointer.manifest_sha256,
-        "economic_etag": keys["indicators.sqlite"],
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "apply", "verify", "seal", "inputs", "check"))
+    parser.add_argument("command", choices=("plan", "apply", "seal", "inputs", "check"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
-    parser.add_argument("--economic", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--identity")
     parser.add_argument("--group", help="Reissue only this scoped input group")
@@ -286,24 +343,43 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return int(integration_failed)
-        if args.command == "verify":
-            report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
-            for index, outcome in enumerate(report["handoffs"]):
-                if not outcome["entry"]["market"] and outcome["applied"]:
-                    verify_stores(
-                        directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic
-                    )
-            return 0
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         directory.mkdir(parents=True, exist_ok=True)
         if args.command == "plan":
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
+            edinet_head = None
+            if edinet_list_native_enabled():
+                from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+
+                edinet_head = EdinetListL1(store, directory / "edinet-native").freeze().value()
             write_json_atomic(
                 directory / "plan.json",
                 {
-                    "handoffs": [*available_handoffs(store), *pending_handoffs(store)],
+                    "handoffs": [
+                        entry
+                        for entry in [
+                            *available_handoffs(store, market=True),
+                            *pending_handoffs(store),
+                        ]
+                        if not (
+                            (
+                                financial_native_enabled()
+                                and entry.get("source") == "jquants-financial"
+                            )
+                            or (
+                                edinet_list_native_enabled()
+                                and entry.get("source") == "edinet-list"
+                            )
+                        )
+                    ],
+                    "edinet_list_native": edinet_list_native_enabled(),
+                    "edinet_list_head": edinet_head,
+                    "financial_native": financial_native_enabled(),
+                    "price_native": price_native_enabled(),
+                    "master_native": master_native_enabled(),
+                    "calendar_native": calendar_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },
@@ -311,9 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "apply":
             if args.asof is None:
                 raise ValueError("--asof is required")
-            report = apply(
-                store, directory, market=args.market, economic=args.economic, asof=args.asof
-            )
+            report = apply(store, directory, market=args.market, asof=args.asof)
             public_report = dict(report)
             public_report["handoffs"] = [
                 {
@@ -339,22 +413,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
-                input_report: dict[str, Any] = (
-                    {"updated": [], "failed": []}
-                    if args.group in ARTICLE_SOURCES
-                    else cast(
-                        dict[str, Any],
-                        publish_inputs(
-                            store,
-                            market=args.market,
-                            economic=args.economic,
-                            identity=args.identity,
-                            asof=args.asof,
-                            generations=generations,
-                            only_group=args.group,
-                        ),
+                input_report: dict[str, Any] = {"updated": [], "failed": []}
+                groups = (
+                    tuple(
+                        group
+                        for group in SOURCE_INPUT_GROUPS
+                        if not (edinet_list_native_enabled() and group == "edinet-list")
                     )
+                    if args.group is None
+                    else (args.group,)
                 )
+                for group in groups:
+                    if group in ARTICLE_SOURCES:
+                        continue
+                    if group not in SOURCE_INPUT_GROUPS:
+                        raise ValueError("economic inputs are published by economic L1 integration")
+                    result = publish_inputs(
+                        store,
+                        market=args.market,
+                        economic=directory / "unused-market-input",
+                        identity=args.identity,
+                        asof=args.asof,
+                        generations=generations,
+                        only_group=group,
+                    )
+                    input_report["updated"].extend(result["updated"])
+                    input_report["failed"].extend(result["failed"])
                 for source in (
                     ARTICLE_SOURCES
                     if args.group is None
@@ -381,6 +465,8 @@ def main(argv: list[str] | None = None) -> int:
                     directory=directory / "external-readback",
                 )
             for outcome in report["handoffs"]:
+                if not outcome["entry"]["market"]:
+                    raise ValueError("economic handoffs must be sealed by economic L1 integration")
                 if outcome["entry"].get("invalid"):
                     continue
                 if (

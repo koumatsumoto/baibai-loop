@@ -23,6 +23,9 @@ from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS, SourceDefi
 from baibai_engine.data_collection.provider_registry import provider_spec
 from baibai_engine.data_collection.providers.jquants.options import OptionChainSource
 from baibai_engine.data_collection.receipts.native_sources import store
+from baibai_engine.data_collection.receipts.native_sources.confirmations import (
+    confirm_source_response,
+)
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     read_documents,
     store_document,
@@ -122,7 +125,10 @@ def refresh_sources(
                 received = _refresh_source(
                     connection, source, start=first, end=source_end, context=context
                 )
-                if recent:
+                # FRED's one complete response already covered every native period.
+                # Replaying it through calendar-gap recovery would invent later
+                # confirmation clocks for the same cached HTTP receipt.
+                if recent and source.provider != "fred_csv":
                     for missing_start, missing_end in recovery_ranges(connection, source, end):
                         received += _refresh_source(
                             connection,
@@ -236,17 +242,26 @@ def _refresh_source(
             fetched_at = datetime.now(UTC)
             count = 0
             with connection:
-                for offset in range((end - start).days + 1):
-                    day = start + timedelta(days=offset)
-                    daily_records = records_by_day.get(day, ())
-                    store_snapshot(
+                if source.provider == "fred_csv":
+                    confirm_source_response(
                         connection,
                         source_id=source.source_id,
-                        observed_at=day,
                         fetched_at=fetched_at,
-                        records=daily_records,
+                        records_by_day=records_by_day,
                     )
-                    count += len(daily_records)
+                    count = sum(len(rows) for rows in records_by_day.values())
+                else:
+                    for offset in range((end - start).days + 1):
+                        day = start + timedelta(days=offset)
+                        daily_records = records_by_day.get(day, ())
+                        store_snapshot(
+                            connection,
+                            source_id=source.source_id,
+                            observed_at=day,
+                            fetched_at=fetched_at,
+                            records=daily_records,
+                        )
+                        count += len(daily_records)
             received = count
     except sqlite3.Error:
         raise

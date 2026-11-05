@@ -106,11 +106,15 @@ Operation完了、提案公開、人間の採用、注文、約定は別の状�
 | runs SQLite | 再生成可能なモデル世代・候補政策結果と、必要な旧run。 |
 | calibration directory | 再生成可能な歴史評価snapshot。runs DBとは別の保存単位。 |
 
-通常のsource取得は担当範囲のread-only inputから原受領handoffを作り、全体正本を直接更新しない。共通統合は開始時点で受入対象となるimmutable handoffを固定し、全sourceの完了を待たずに各ownerの投影を適用する。同じ入力からモデル生成・候補保存を終えてからreleaseを公開する。原本受領の成功とL2投影の成功を一つにしない。部分copyへ全体releaseの所属情報を付けない。
+通常のsource取得は担当範囲のread-only inputから原受領handoffを作り、全体正本を直接更新しない。経済L1は取得済みimmutable handoffとfreshな単独正本だけから公開し、読戻し・seal・次回取得inputまでをL2より先に完了する。market/runsのbundleや前回lake releaseを要求しない。market側の共通統合は受入対象handoffを別に固定し、全sourceの完了を待たず各ownerの投影を適用する。同じ入力からモデル生成・候補保存を終えてからmarket releaseを公開する。原本受領の成功とL2投影の成功を一つにしない。部分copyへ全体releaseの所属情報を付けない。
 
 取得の起動時刻、対象期間、実受領時刻、公開時刻は別である。再実行では原受領の充足とL2投影の充足を区別する。原本の再利用・再投影を分離する方針と、現在のsource別の再取得条件は同一ではない。具体的なcycle・再開単位・予算はsource ownerが持ち、[sourceの入口](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)から辿る。
 
-現行のhandoff契約は全source共通ではない。J-Quants財務・市場の取得計画は固定L1と未統合原本を使う。他の取得系には投影coverageを使う計画が残り、順次L1起点へ移す。財務と日足の通常公開経路はL1原本からDuckDBで再生成する。その他のL2の通常公開経路は移行中である。記事は未処理workと未統合stage、TradingViewは当日要求の充足、公開HTML外部評価は固定planとconfirmed readyをそれぞれ保持する。外部評価の通常readyは保全済みの累積stage集合を固定し、集合単位の反映ackと取得planの終了を分ける。後着した小集合で既存原本を巻き戻さず、未試行pairは継続できる。旧来の明示partial terminalはそのplanを閉じる元の意味で保持する。全sourceが同じ更新粒度や再試行規則を持つという保証ではない。未実装の共通化は企画Issueへ分け、実装済みの正本・再開条件を上書きしない。
+現行のhandoff契約は全source共通ではない。J-Quants財務・市場の取得計画は固定L1と未統合原本を使う。他の取得系には投影coverageを使う計画が残り、順次L1起点へ移す。財務・日足・master・取引暦の通常公開経路はL1原本から再生成し、同じ固定入力をモデルと公開へ渡す。その他のL2の通常公開経路は移行中である。記事は未処理workと未統合stage、TradingViewは当日要求の充足、公開HTML外部評価は固定planとconfirmed readyをそれぞれ保持する。外部評価の通常readyは保全済みの累積stage集合を固定し、集合単位の反映ackと取得planの終了を分ける。後着した小集合で既存原本を巻き戻さず、未試行pairは継続できる。旧来の明示partial terminalはそのplanを閉じる元の意味で保持する。全sourceが同じ更新粒度や再試行規則を持つという保証ではない。未実装の共通化は企画Issueへ分け、実装済みの正本・再開条件を上書きしない。
+
+日足も独立headと不変request packを使い、L2の失敗や未公開に依存せず取得する。明示日付の全銘柄requestの保存機構だけを財務・日足・masterで共有し、masterの疎な取得日/非空充足、取引暦の範囲、信用残の公表遅延、空売りの開示日はそれぞれのsource契約に残す。通常price readerは一度固定したheadから実行用投影を全置換し、同じ固定selectionをモデル入力と公開L2のlineageへ渡す。旧price stageの有限移行・切替条件は[日足native L1](../jobs/OPERATIONS.md#price-native-l1)に従う。masterは通常universeとTradingView/外部評価の取得依存を同じ独立L1へ接続し、year/v3内のsnapshot日別objectを再利用する。旧market/TradingView両writerの有限移行と保持条件は[master native L1](../jobs/OPERATIONS.md#master-native-l1)に従う。取引暦はrange原本を一度だけ保全し、重なる範囲の採用/確認・失敗を日別に解決する専用headを持つ。同じ固定暦をmargin計画・masterの休日basis・TradingView/外部評価・モデル/公開へ渡し、年partition内の月別L2 objectを再利用する。原本の受領充足と既知HolDivによる安全な休日判断を分け、未知分類/欠落/partialを休場へ変換しない。有限移行と既存native sourceとの同時切替条件は[取引暦native L1](../jobs/OPERATIONS.md#calendar-native-l1)に従う。
+
+財務は独立headと不変request packを使い、L2 releaseやSQLite sealなしで取得する。切替後の通常generationは開始時に一度固定したheadから財務観測を作る。採用request・確認/失敗状態は変更された月だけ不変の共有固定入力へ保存し、generationと個社Selectionは同じidentityと有限のsummaryを持つ。本文・日別L2・毎日の全履歴descriptorは複写しない。共有固定入力はruns cacheとは別寿命であり、保存判断の過去入力を再計算する間は原本packとともに保持する。個社への表示とexact参照は[運用](../jobs/OPERATIONS.md#financial-native-l1)に従う。market releaseは財務L2を含めず、成長モデルの財務入力identityもnative集合を指す。他の観測・補完のmarket releaseは別identityとして残す。移行中の共通設定は既定で旧経路を選び、本番切替は未実施。新旧を恒久並行せず、有限移行・比較・独立readerの切替条件と撤去対象を[財務native L1の運用](../jobs/OPERATIONS.md#financial-native-l1)に示す。
 
 L3は必要なモデル断面・政策結果をapplication DBへ複写し、再開時に可変storeから再計算しない。生成cacheと政策結果の整理はJobsが参照順とtransactionを束ね、生成側に候補政策の削除責務を持たせない。原本・判断・取引履歴はcache整理の対象ではない。
 
@@ -119,3 +123,5 @@ module名・CLI名と保存identityは別の契約である。既存のobject ke
 原本bytes・受領日時・source identity、nullと0、既知の不足を保持する。規則の意味変更は新revisionとし、配置変更だけで意味revisionを更新しない。過去計算の再現には当時のコードと入力も必要であり、古い実装を現行経路へ復活させない。
 
 取得・発行・復旧と明示的なローカル運用は[OPERATIONS](../jobs/OPERATIONS.md)、開発環境と検証は[development](development.md)、文書の統合・削減は[文書ルール](documentation.md)に従う。
+
+EDINET一覧は`BAIBAI_EDINET_LIST_NATIVE`切替後、実受領UUID/時刻とexact gzipを独立head・不変objectで保持する。通常GETと原本CAS公開にmarket L2/input/共通公開の成功を必要とせず、日次統合だけが固定headの全受領から一覧/文書を再構築する。同値bodyの共有と受領イベントの保持を分け、訂正・取消・遅着・同時刻曖昧さをsourceの純粋な解釈規則で扱う。旧normalized行や不足原本から受領を捏造しない。原本不足inventoryを解消してから全履歴・全EDINET stageを有限移行し、旧一覧writerを停止する。CSV/XBRL・facts scopeの独立公開とL3 lineageは残件である。[切替・中断回復](../jobs/OPERATIONS.md#edinet-list-native-l1)を参照。

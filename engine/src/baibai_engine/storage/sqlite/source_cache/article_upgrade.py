@@ -16,12 +16,14 @@ from baibai_engine.data_collection.receipts.articles.storage_contracts import AR
 from baibai_engine.machine_analysis.observations.articles.storage_contracts import (
     ARTICLE_OBSERVATIONS_DDL,
 )
+from baibai_engine.storage.sqlite.source_cache.facts_scope_upgrade import (
+    SCHEMA49_SQL,
+    validate_schema49,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import (
-    _SCHEMA_SQL,
     _expected_schema_shape,
     _index_info,
     _table_info,
-    validate_current_schema,
 )
 
 
@@ -34,7 +36,7 @@ def upgrade_article_working_copy(source: Path, destination: Path) -> None:
         old.execute("BEGIN")
         if old.execute("PRAGMA user_version").fetchone()[0] != 48:
             raise ValueError("article upgrade accepts only schema 48")
-        old_ddl = _SCHEMA_SQL.replace(ARTICLE_RECEIPTS_DDL, "").replace(
+        old_ddl = SCHEMA49_SQL.replace(ARTICLE_RECEIPTS_DDL, "").replace(
             ARTICLE_OBSERVATIONS_DDL, ""
         )
         tables, indexes = _expected_schema_shape(old_ddl)
@@ -60,7 +62,7 @@ def upgrade_article_working_copy(source: Path, destination: Path) -> None:
                 + ARTICLE_OBSERVATIONS_DDL
                 + "PRAGMA user_version=49;COMMIT;"
             )
-            validate_current_schema(target)
+            validate_schema49(target)
         finally:
             target.close()
     finally:

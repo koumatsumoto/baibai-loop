@@ -1,8 +1,9 @@
 """Resolve exact observation master basis from the saved cash-equity calendar."""
 
 import sqlite3
+from collections.abc import Mapping, Sequence
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -63,3 +64,25 @@ def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[
             (as_of.isoformat(),),
         )
     }
+
+
+def confirmed_closed_master_bases(
+    calendar: Mapping[date, str], *, coverage: Sequence[tuple[date, date]]
+) -> dict[date, date]:
+    """Known closed sessions may use the preceding verified cash-equity session.
+
+    Unknown classifications, gaps and unconfirmed coverage never authorize a
+    date adjustment. Acquisition itself does not depend on this L2 selection.
+    """
+    result: dict[date, date] = {}
+    previous: date | None = None
+    basis: date | None = None
+    for day, division in sorted(calendar.items()):
+        if division in {"1", "2"}:
+            basis = day
+        elif division not in {"0", "3"} or previous != day - timedelta(days=1):
+            basis = None
+        elif basis is not None and any(start <= basis <= day <= end for start, end in coverage):
+            result[day] = basis
+        previous = day
+    return result

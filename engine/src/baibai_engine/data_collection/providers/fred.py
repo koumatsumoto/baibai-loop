@@ -57,7 +57,7 @@ class FredSource:
                 max_bytes=MAX_CSV_RESPONSE_BYTES,
                 context=context,
             )
-            return parse_fred_csv(series, text, start=start, end=end)
+            return parse_fred_csv(series, text)
         except (IndicatorsProviderError, RequestException, ValueError) as exc:
             if context is not None:
                 context.discard_cached_bytes(series.source_url, None)
@@ -66,7 +66,7 @@ class FredSource:
             raise ProviderFetchStoppedError(str(exc)) from None
 
 
-def parse_fred_csv(series: SourceDefinition, text: str, *, start: date, end: date) -> NativeRecords:
+def parse_fred_csv(series: SourceDefinition, text: str) -> NativeRecords:
     reader = csv.DictReader(io.StringIO(text))
     for column in ("observation_date", series.provider_series_id):
         if column not in (reader.fieldnames or ()):
@@ -76,12 +76,13 @@ def parse_fred_csv(series: SourceDefinition, text: str, *, start: date, end: dat
         raise IndicatorsProviderError("FRED CSV has duplicate columns")
     records: dict[date, list[dict[str, object]]] = defaultdict(list)
     for row in reader:
-        if None in row:
-            raise IndicatorsProviderError("FRED CSV row has more fields than its header")
+        if None in row or any(value is None for value in row.values()):
+            raise IndicatorsProviderError("FRED CSV row does not match its header")
         observed_at_raw = row.get("observation_date")
         if not observed_at_raw:
             raise IndicatorsProviderError("FRED CSV row has no observation_date")
         observed_at = date.fromisoformat(observed_at_raw)
-        if start <= observed_at <= end:
-            records[observed_at].append(dict(row))
+        records[observed_at].append(dict(row))
+    if not records:
+        raise IndicatorsProviderError("FRED full-history CSV contains no observation rows")
     return dict(records)

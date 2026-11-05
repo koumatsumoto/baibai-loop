@@ -78,7 +78,7 @@ def test_first_recent_refresh_is_distinct_from_explicit_history_rebuild(tmp_path
 
     def fetch(source, *, start, **kwargs):
         starts.append(start)
-        return {}
+        return {END: [{"native": "value"}]}
 
     monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
     path = tmp_path / "source.sqlite"
@@ -171,7 +171,9 @@ def test_failed_all_history_attempt_does_not_reopen_itself_during_recent_refresh
         assert recent_start(source, END) == END - timedelta(days=370)
         assert recovery_ranges(conn, source, END) == ()
         assert conn.execute("SELECT status FROM economic_source_runs").fetchone()[0] == "failed"
-        assert explicit_recovery_ranges(conn, source, END)
+        # FRED's next request is always complete; calendar backfill gaps do not
+        # imply a separate recoverable historical request for this provider.
+        assert explicit_recovery_ranges(conn, source, END) == ()
 
 
 def test_partially_received_native_days_are_not_reacquired_as_missing_history(tmp_path):

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.jquants_receipts import FIRST_AT, body, calendar, receive
-from tests.helpers.native_handoff import stage
+from tests.helpers.native_handoff import integrate_economic, stage
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
@@ -17,7 +17,17 @@ from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff
 from baibai_jobs.integration.replay_result import ReplayResult
-from baibai_jobs.integration.sources import apply
+from baibai_jobs.integration.sources import apply as apply_market
+
+
+def apply(store, work, *, market, economic, asof):
+    economic_report = integrate_economic(store, work / "economic", economic, asof)
+    plan = json.loads((work / "plan.json").read_text())
+    plan["handoffs"] = [entry for entry in plan["handoffs"] if entry["market"]]
+    (work / "plan.json").write_text(json.dumps(plan))
+    result = apply_market(store, work, market=market, asof=asof)
+    result["handoffs"].extend(economic_report["handoffs"])
+    return result
 
 
 def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_source(

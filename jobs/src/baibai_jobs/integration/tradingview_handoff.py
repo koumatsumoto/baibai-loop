@@ -10,9 +10,17 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.jquants.dependencies import (
+    dependency_covers_day,
+    read_dependency,
+)
+from baibai_engine.data_collection.providers.jquants.master_native import (
+    verify_migrated_master_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.receipts import read_complete_request
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL_IDENTIFIERS
 from baibai_engine.data_collection.providers.tradingview.receipts import read_tool_results
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -24,6 +32,10 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
     decode_tool_result,
 )
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
+    validate_master_snapshot,
+)
+from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
@@ -32,6 +44,7 @@ from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.maintenance.tradingview_context import (
     calendar_context,
     snapshot_state,
+    symbols_from_master_payloads,
     universe,
     validate_time,
 )
@@ -53,6 +66,8 @@ class TradingViewHandoff:
     symbols: tuple[str, ...]
     receipt_ids: tuple[str, ...]
     master_request_ids: tuple[str, ...]
+    master_native_input: InputSnapshot | None = None
+    calendar_native_input: InputSnapshot | None = None
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -61,6 +76,16 @@ class TradingViewHandoff:
             "symbols": list(self.symbols),
             "receipt_ids": list(self.receipt_ids),
             "master_request_ids": list(self.master_request_ids),
+            **(
+                {"master_native_input": self.master_native_input.model_dump(mode="json")}
+                if self.master_native_input is not None
+                else {}
+            ),
+            **(
+                {"calendar_native_input": self.calendar_native_input.model_dump(mode="json")}
+                if self.calendar_native_input is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -76,12 +101,26 @@ class TradingViewHandoff:
                 symbols=tuple(value["symbols"]),
                 receipt_ids=tuple(value["receipt_ids"]),
                 master_request_ids=tuple(value["master_request_ids"]),
+                master_native_input=InputSnapshot.model_validate(value["master_native_input"])
+                if value.get("master_native_input") is not None
+                else None,
+                calendar_native_input=InputSnapshot.model_validate(value["calendar_native_input"])
+                if value.get("calendar_native_input") is not None
+                else None,
             )
         except (KeyError, TypeError) as error:
             raise ValueError("invalid TradingView handoff metadata") from error
 
 
-def export_handoff(source: Path, output: Path, *, day: date, since: datetime) -> TradingViewHandoff:
+def export_handoff(
+    source: Path,
+    output: Path,
+    *,
+    day: date,
+    since: datetime,
+    master_input: InputSnapshot | None = None,
+    calendar_input: InputSnapshot | None = None,
+) -> TradingViewHandoff:
     """Retain new MCP receipts and any exact-date master received in this acquisition.
 
     The output has no L2 facts, source coverage, or origin from the working copy.
@@ -106,12 +145,34 @@ def export_handoff(source: Path, output: Path, *, day: date, since: datetime) ->
                 (day.isoformat(), cutoff),
             )
         )
-        masters = tuple(
-            row[0]
-            for row in conn.execute(
-                "SELECT DISTINCT request_id FROM jquants_source_pages "
-                "WHERE source = 'master' AND received_at_utc >= ? ORDER BY request_id",
-                (cutoff,),
+        if master_input is not None:
+            master_input = InputSnapshot.model_validate_json(master_input.model_dump_json())
+            if (
+                master_input.descriptor is None
+                or master_input.descriptor.get("format") != "jquants-master-input-v1"
+                or master_input.descriptor.get("as_of") != basis.isoformat()
+            ):
+                raise ValueError("TradingView master input differs from its required date")
+        if calendar_input is not None:
+            from baibai_jobs.integration.calendar_native import saved_interval
+
+            calendar_input = InputSnapshot.model_validate_json(calendar_input.model_dump_json())
+            if (
+                calendar_input.descriptor is None
+                or calendar_input.descriptor.get("as_of") != day.isoformat()
+                or saved_interval(calendar_input) != (basis, day)
+            ):
+                raise ValueError("TradingView calendar input differs from its required basis")
+        masters = (
+            ()
+            if master_input is not None
+            else tuple(
+                row[0]
+                for row in conn.execute(
+                    "SELECT DISTINCT request_id FROM jquants_source_pages "
+                    "WHERE source = 'master' AND received_at_utc >= ? ORDER BY request_id",
+                    (cutoff,),
+                )
             )
         )
         with closing(open_connection(output)) as target, target:
@@ -124,7 +185,7 @@ def export_handoff(source: Path, output: Path, *, day: date, since: datetime) ->
                     rows = conn.execute(f"SELECT * FROM {table} WHERE {column} = ?", (identity,))  # nosec B608
                     placeholders = ",".join("?" for _ in rows.description or ())
                     target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)  # nosec B608
-    return TradingViewHandoff(day, basis, symbols, receipts, masters)
+    return TradingViewHandoff(day, basis, symbols, receipts, masters, master_input, calendar_input)
 
 
 def _copy_raw(
@@ -152,19 +213,59 @@ def _copy_raw(
     return inserted
 
 
-def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> ReplayResult:
+def import_handoff(
+    source: Path,
+    target: Path,
+    handoff: TradingViewHandoff,
+    *,
+    store: ObjectStore | None = None,
+    native_master: bool = False,
+    native_calendar: bool = False,
+    master_fingerprints: Mapping[str, str] | None = None,
+) -> ReplayResult:
     """Add original receipts and replay missing tickers; never replace a saved snapshot.
 
     A changed calendar/master universe refuses the handoff. A master received by
     the acquisition is projected only when canonical state still lacks that date.
     A canonical master already present is retained, including its newer fields.
     """
+    saved_calendar = None
+    if handoff.calendar_native_input is not None:
+        if store is None or not native_calendar:
+            raise SourceDataError("TradingView native calendar requires its fixed native context")
+        from baibai_jobs.acquisition.calendar_dependencies import saved_calendar_context
+
+        saved_calendar = saved_calendar_context(
+            store, handoff.calendar_native_input, observation_date=handoff.snapshot_date
+        )
+        if saved_calendar[0] != handoff.master_asof:
+            raise SourceDataError("TradingView handoff differs from its saved native calendar")
+    if handoff.master_native_input is not None:
+        if store is None or not native_master or handoff.master_request_ids:
+            raise SourceDataError(
+                "TradingView native master handoff requires its fixed native context"
+            )
+        from baibai_jobs.acquisition.master_dependencies import saved_master_dependency
+
+        request = read_dependency(
+            saved_master_dependency(store, handoff.master_native_input, day=handoff.master_asof)
+        )
+        snapshot = validate_master_snapshot(request.records(), handoff.master_asof)
+        if (
+            tuple(symbols_from_master_payloads([row[2] for row in snapshot.rows]))
+            != handoff.symbols
+        ):
+            raise SourceDataError(
+                "TradingView handoff universe differs from its saved native master"
+            )
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
         closing(open_connection(target)) as conn,
     ):
         validate_current_schema(raw)
-        basis, _ = calendar_context(conn, handoff.snapshot_date)
+        basis, business = calendar_context(conn, handoff.snapshot_date)
+        if saved_calendar is not None and saved_calendar != (basis, business):
+            raise SourceDataError("TradingView saved calendar differs from canonical calendar")
         if basis != handoff.master_asof:
             raise SourceDataError("TradingView handoff differs from canonical calendar")
         has_master = (
@@ -176,14 +277,26 @@ def import_handoff(source: Path, target: Path, handoff: TradingViewHandoff) -> R
         )
         if has_master and tuple(universe(conn, basis)) != handoff.symbols:
             raise SourceDataError("TradingView handoff universe differs from canonical master")
-        if not has_master and len(handoff.master_request_ids) != 1:
+        if not has_master and (native_master or len(handoff.master_request_ids) != 1):
             raise SourceDataError("TradingView handoff requires one complete exact-date master")
+        if native_master and handoff.master_request_ids:
+            if master_fingerprints is None:
+                raise ValueError("legacy TradingView master requires native cutover fingerprints")
+            if verify_migrated_master_receipts(
+                raw, handoff.master_request_ids, master_fingerprints
+            ) != set(handoff.master_request_ids):
+                raise ValueError(
+                    "legacy TradingView master identity differs from the native cutover"
+                )
         for request_id in handoff.master_request_ids:
             request = read_complete_request(raw, request_id)
-            if request.source != "master" or dict(request.params) != {"date": basis.isoformat()}:
+            if request.source != "master" or not dependency_covers_day(
+                "master", request.params, basis
+            ):
                 raise SourceDataError("TradingView handoff has a different master request")
         with conn:
-            _copy_raw(conn, raw, "jquants_source_pages", handoff.master_request_ids)
+            if not native_master:
+                _copy_raw(conn, raw, "jquants_source_pages", handoff.master_request_ids)
             raw_added = _copy_raw(conn, raw, "tradingview_source_receipts", handoff.receipt_ids)
     if not has_master:
         project_request(target, handoff.master_request_ids[0])

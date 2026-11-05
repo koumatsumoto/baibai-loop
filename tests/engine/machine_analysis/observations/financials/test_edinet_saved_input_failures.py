@@ -298,13 +298,17 @@ def test_archive_acquisition_recovers_artificial_quarantine_without_fetching_his
         acquired = acquire_archives(
             path, group="edinet-metrics", asof=TARGET, api_key="synthetic-key", retained=set()
         )
-        http.return_value.fetch_archive.assert_called_once_with("S100SAVED", 5)
+        assert [call.args for call in http.return_value.fetch_archive.call_args_list] == [
+            ("S100SAVED", 5),
+            ("S100OTHER", 5),
+        ]
         http.return_value.fetch_list.assert_not_called()
     assert acquired == {
         "status": "received",
-        "downloaded": 1,
+        "downloaded": 2,
         "retained_archives_reused": 0,
         "failed": [],
+        "document_events_quarantined": 0,
     }
     # Acquisition only retains bytes. Saved integration performs the L2 recovery.
     assert set(EDINETReader(path).load_metric_records(TARGET)) == {"8306"}

@@ -11,7 +11,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from itertools import islice
+from itertools import groupby, islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
@@ -45,6 +45,7 @@ from baibai_engine.storage.snapshots.models import (
     L1DatasetSourceRef,
     LakeObject,
     ManifestTotals,
+    NativeL1SourceRef,
     PartitionManifest,
     SourceRef,
     SQLiteSnapshotSourceRef,
@@ -178,11 +179,16 @@ def export_dataset_snapshot(
     source_snapshot: SealedSQLiteSnapshot,
     build_id: str | None = None,
     created_at: datetime | None = None,
+    native_source: NativeL1SourceRef | None = None,
+    native_coverage_status: CoverageStatus | None = None,
+    object_date_grain: Literal["day", "month"] | None = None,
+    unavailable_dates: tuple[date, ...] = (),
 ) -> LakeBuildReport:
     """Derive every partition of one dataset from the sealed snapshot.
 
     The sealed snapshot is passed in rather than captured here: it belongs to the
-    operation, and one export writes every dataset from one seal.
+    operation, and one export writes every dataset from one seal. Native lineage
+    is supplied only for projections rebuilt from that fixed input in this operation.
 
     Nothing is carried from an earlier build. An object is addressed by the digest of
     its own bytes, so a partition whose rows did not move lands on the key it already
@@ -191,6 +197,12 @@ def export_dataset_snapshot(
     generation could disagree with this one.
     """
 
+    if (native_source is None) != (native_coverage_status is None):
+        raise ValueError("native lineage and its coverage must be provided together")
+    if native_source is not None and dataset.layer != "l2_processed":
+        raise ValueError("native lineage requires a derived L2 dataset")
+    if object_date_grain is not None and dataset.primary_key[:1] != (dataset.date_column,):
+        raise ValueError("date-split objects require the date as the first primary key")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
@@ -206,21 +218,46 @@ def export_dataset_snapshot(
             periods = _selected_periods(connection, dataset)
             if not periods:
                 raise LakeBuildError("dataset holds no rows")
-            built = [
-                _build_period(
-                    dataset=dataset,
-                    period=period,
-                    staging_root=staging_root,
-                    rows=_period_rows(connection, dataset, period),
-                    sources=(snapshot.ref,),
+            built = []
+            date_index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
+            for period in periods:
+                rows = _period_rows(connection, dataset, period)
+                groups = (
+                    groupby(
+                        rows,
+                        key=lambda row: (
+                            str(row[date_index])[:7]
+                            if object_date_grain == "month"
+                            else str(row[date_index])
+                        ),
+                    )
+                    if object_date_grain is not None
+                    else ((None, rows),)
                 )
-                for period in periods
-            ]
+                for day, group in groups:
+                    built.append(
+                        _build_period(
+                            dataset=dataset,
+                            period=period,
+                            staging_root=staging_root,
+                            rows=group,
+                            sources=(native_source or snapshot.ref,),
+                            object_label=day,
+                        )
+                    )
             coverage_status, coverage_start, data_as_of, population_count = _coverage_assessment(
                 connection, dataset
             )
 
-        ordered = tuple(item.manifest for item in built)
+        ordered = tuple(
+            PartitionManifest(
+                values=period_values(dataset, period),
+                objects=tuple(obj for item in items for obj in item.manifest.objects),
+                sources=items[0].manifest.sources,
+            )
+            for period, group in groupby(built, key=lambda item: item.period)
+            if (items := list(group))
+        )
         totals = ManifestTotals(
             objects=sum(len(item.objects) for item in ordered),
             bytes=sum(obj.bytes for item in ordered for obj in item.objects),
@@ -238,7 +275,8 @@ def export_dataset_snapshot(
             coverage_start=coverage_start,
             data_as_of=data_as_of,
             population_count=population_count,
-            coverage_status=coverage_status,
+            coverage_status=native_coverage_status or coverage_status,
+            unavailable_dates=unavailable_dates,
             partition_by=dataset.partition_by,
             partitions=ordered,
             totals=totals,
@@ -259,7 +297,7 @@ def export_dataset_snapshot(
         return LakeBuildReport(
             manifest_path=manifest_path,
             manifest=manifest,
-            partitions=len(built),
+            partitions=len(ordered),
             new_objects=new_objects,
         )
     except Exception as exc:
@@ -443,6 +481,7 @@ def export_market_snapshot(
     producer_git_commit: str,
     expected_store_origin: LakeStoreOrigin | None,
     created_at: datetime | None = None,
+    allow_empty: bool = False,
 ) -> LakeExportReport:
     """同じsealをモデル生成にも渡せるよう、snapshotの寿命はcallerが所有する。"""
     catalog = freeze_catalog(catalog)
@@ -461,7 +500,7 @@ def export_market_snapshot(
         # why they are empty; release policy decides whether an omitted dataset is
         # allowed, including required inputs and previously published history.
         populated = tuple(name for name in sorted(catalog) if _has_rows(probe, catalog[name]))
-    if not populated:
+    if not populated and not allow_empty:
         raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
     reports = {
         dataset_name: export_dataset_snapshot(
@@ -510,20 +549,24 @@ def validate_snapshot_parity(
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
             rows = _period_rows(connection, dataset, period)
-            if len(partition.objects) != 1:
-                raise LakeBuildError("a canonical partition must contain exactly one object")
-            _validate_parquet(
-                mirror_root / partition.objects[0].key,
-                dataset=dataset,
-                period=period,
-                expected_rows=rows,
-                expected_object=partition.objects[0],
-                source_kind=(
-                    "l1_derived"
-                    if any(source.kind == "l1_dataset" for source in partition.sources)
-                    else "legacy_sqlite_import"
-                ),
-            )
+            for obj in sorted(partition.objects, key=lambda item: item.min_key):
+                _validate_parquet(
+                    mirror_root / obj.key,
+                    dataset=dataset,
+                    period=period,
+                    expected_rows=islice(rows, obj.rows),
+                    expected_object=obj,
+                    source_kind=(
+                        "l1_derived"
+                        if any(
+                            source.kind in {"l1_dataset", "native_l1"}
+                            for source in partition.sources
+                        )
+                        else "legacy_sqlite_import"
+                    ),
+                )
+            if next(rows, None) is not None:
+                raise LakeBuildError("manifest objects omit SQLite partition rows")
 
 
 def _row_batch_size(dataset: LakeDataset) -> int:
@@ -539,8 +582,10 @@ def _build_period(
     staging_root: Path,
     rows: Iterable[tuple[object, ...]],
     sources: tuple[SourceRef, ...],
+    object_label: str | None = None,
 ) -> _BuiltPartition:
-    provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}.parquet"
+    label = "-" + object_label if object_label else ""
+    provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}{label}.parquet"
     names = tuple(column.name for column in dataset.columns)
     pk_indexes = _pk_indexes(dataset)
     batch_size = _row_batch_size(dataset)
@@ -550,7 +595,7 @@ def _build_period(
     max_key: tuple[str, ...] | None = None
     source_kind: Literal["legacy_sqlite_import", "l1_derived"] = (
         "l1_derived"
-        if any(source.kind == "l1_dataset" for source in sources)
+        if any(source.kind in {"l1_dataset", "native_l1"} for source in sources)
         else "legacy_sqlite_import"
     )
     schema = dataset.arrow_schema_for(source_kind)

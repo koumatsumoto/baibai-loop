@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.observations.stocks.models import SecurityMa
 
 MASTER_SOURCE: Final = "jquants_master_snapshots"
 MASTER_OPERATION: Final = "get_eq_master"
+MASTER_VALIDATION_ERROR_PREFIX: Final = "invalid master snapshot: "
 MIN_COMMON_STOCK_MASTER_ROWS: Final = 2500
 _REQUIRED_FIELDS: Final = ("Date", "Code", "CoName", "MktNm", "S33Nm", "ProdCat")
 

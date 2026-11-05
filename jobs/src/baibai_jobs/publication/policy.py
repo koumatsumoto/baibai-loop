@@ -114,7 +114,9 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.fin_summaries",
-            required=True,
+            # Native financial inputs live outside the market release after cutover.
+            # Readers accept absence; the old publisher still guards its history floor.
+            required=False,
             carries_history=True,
             require_complete_coverage=True,
         ),
@@ -123,6 +125,9 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             required=True,
             carries_history=True,
             require_complete_coverage=True,
+            # Native rows each prove a safe day. Distant unavailable days must not
+            # block an unrelated verified interval or bless legacy partial rows.
+            allow_partial_native_l1=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jpx.earnings_calendar",

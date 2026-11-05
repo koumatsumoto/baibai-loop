@@ -110,6 +110,9 @@ def freeze_market_originals(
     cache: LakeObjectCache,
     store: ReceiptStore,
     asof: date,
+    include_daily_prices: bool = True,
+    include_master: bool = True,
+    include_calendar: bool = True,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FixedMarketIndexes:
     """Freeze L1 and pending market originals once; never consult an L2 input."""
@@ -121,6 +124,12 @@ def freeze_market_originals(
         "margin_alerts",
         "short_sale_reports",
     )
+    if not include_daily_prices:
+        sources = tuple(source for source in sources if source != "daily_bars")
+    if not include_master:
+        sources = tuple(source for source in sources if source != "master")
+    if not include_calendar:
+        sources = tuple(source for source in sources if source != "market_calendar")
     cutoff = clock()
     if cutoff.utcoffset() is None:
         raise ValueError("clock requires a timezone")
@@ -202,7 +211,12 @@ class MarketPlans:
 
 
 def plan_market_from_originals(
-    indexes: dict[JQuantsSource, NativeMarketIndex], *, asof: date
+    indexes: dict[JQuantsSource, NativeMarketIndex],
+    *,
+    asof: date,
+    include_daily_prices: bool = True,
+    include_master: bool = True,
+    include_calendar: bool = True,
 ) -> MarketPlans:
     """Plan each source from original receipts; unavailable scopes stay explicit."""
 
@@ -222,15 +236,21 @@ def plan_market_from_originals(
     calendar_start = asof - timedelta(days=CALENDAR_LOOKBACK_DAYS)
     earliest_calendar = min((item.start for item in calendar.receipts), default=calendar_start)
     return MarketPlans(
-        master=plan_required_days(indexes["master"], days=[asof], require_nonempty=True),
+        master=plan_required_days(indexes["master"], days=[asof], require_nonempty=True)
+        if include_master
+        else NativeAcquisitionPlan((), ()),
         daily_prices=plan_daily_prices(
             indexes["daily_bars"], start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS), end=asof
-        ),
+        )
+        if include_daily_prices
+        else NativeAcquisitionPlan((), ()),
         calendar=plan_calendar(
             calendar,
             start=min(calendar_start, earliest_calendar),
             end=asof + timedelta(days=CALENDAR_FORWARD_DAYS),
-        ),
+        )
+        if include_calendar
+        else NativeAcquisitionPlan((), ()),
         weekly_margin=plan_weekly_margin(
             indexes["margin_interest"],
             calendar,
