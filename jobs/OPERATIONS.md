@@ -796,7 +796,7 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 
 対象は従来どおり全銘柄の日別requestと2,200日前までの取得範囲。保持済みのより古い日も移行・再生成から捨てない。source workflowの起動scheduleは変えず、切替後の日足は旧market releaseの休場日skipに依存せず、直近7日を含む訂正確認を各起動時に行う。休日の追加GETが生じる点は切替前に確認する。正常空は完了とし、未知field・null/0・行順をnative差分に残す。paginationだけが変わった同値確認は本文を追加せず、実確認時刻だけ進める。final 429または取得期限で停止した場合、同じpassの残りのJ-Quants GETも止め、成功済み・partialと未試行を区別する。許可されたL1範囲をL2の都合で狭めない。
 
-日足と財務が共有するのは全銘柄の単日requestという境界、pack/head確定、固定入力metadataだけ。日足の補正係数・市場時価総額・価格正規化は価格ownerのまま維持する。masterの非空要件、取引暦の区間重複、信用残の公表日、空売りのdisc_dateを単日財務契約へ入れない。
+日足・財務・masterが共有するのは全銘柄の明示単日requestの保存境界、pack/head確定、固定入力metadataだけ。日足の補正係数・市場時価総額・価格正規化は価格ownerのまま維持する。masterの疎な取得日・非空充足、取引暦の区間重複、信用残の公表日、空売りのdisc_dateを単日財務の取得計画へ入れない。
 
 通常公開は日足headを一度だけ固定し、その全保持期間と不足を月単位で再生成する。作業market SQLiteの日足・同coverageを置換してからsealし、同じ選択をモデルと公開日足へ渡す。公開はそのrunで原本から再構築したsealの価格行を再利用し、同じ原本を二度GET・正規化しない。日足L2のlineageは旧source_pagesではなく不変selectionを指す。作業copyの旧日足source_pagesだけを除き、原本pack・旧immutable release・stageは削除しない。新しいheadが取得途中で進んでもそのgenerationへ混ぜない。原本が失われた場合に旧L2へfallbackしない。
 
@@ -909,3 +909,48 @@ uv run baibai-jobs financial-native-cutover compare --directory /secure-work/fin
 
 
 財務入力の表示はidentity・鮮度/不足summaryと保存descriptorへのexact JSON参照を渡す。新しいgeneration・Selectionは共有固定入力の参照だけを持ち、全社の採用集合を個社へ複写しない。旧保存のinline本文は書き換えず、読取とcold再生成の入口・保持条件は[財務native L1](#financial-native-l1)に従う。
+
+<a id="master-native-l1"></a>
+## master native L1と取得依存の切替
+
+`BAIBAI_MASTER_NATIVE` は既定 `false`。masterの取得・通常モデル/公開・TradingView・外部評価を同じ設定で切り替える。この変更では本番variable・権限・storeを変更していない。master以外のcalendar/margin/short-saleの取得頻度・範囲・公表日の意味は維持する。
+
+masterは全provider Code・全製品区分・secondary issue・未知fieldを原本に保持する。通常marketは当日だけを取得し、過去の保持日は疎な集合のまま残す。財務/日足の連続2,200日backfillや7日overlapを流用しない。非空で完了した当日を通常は再取得せず、空・partial・heldは未充足。HTTP完了の空や少数行もL1へ保存し、Date一致・Code一意・必須field・普通株2,500件floorのconsumer検証で原本を捨てない。明示訂正だけ `--force` で再確認できる。同値では本文を追加しない。
+
+marketはmasterを旧release/L2の読取前に確定する。後段の失敗で受領を失わず、final 429/deadline・保存競合では同passの共有quota利用を止める。旧calendarの休場skipより前の取得になるため、平日祝日にもGETが生じ得る。通常consumerは成功coverage・連続日・既知HolDivから休場を確定できる時だけ、masterのbasisを前営業日へ固定する。全体as_of、raw要求日、実受領時計は変えない。未知code・欠けた暦・partial coverageから休場を推測しない。確定休場cycleのHTTP空は原本と未充足を残し、通常wrapperはnonempty master不要と報告して不要なjob失敗にしない。実provider失敗・heldは隠さない。
+
+通常モデルはheadを一度固定し、保持済みの全snapshotを新しい実行copyへ一回だけ再構築してsealする。公開も同じsealを使い、旧L2をauthorityにしない。現在選択された営業日のinvalidは拒否する。古いinvalidは原本とunavailable境界を残し、新しい正常日で前進できる。未取得の疎な日とinvalid日を混同せず、後続valid以降の正当なprior参照を維持する。公開manifestの小さい `unavailable_dates` は全invalid日を固定し、表示用12件上限とは別。固定財務readerもこの境界を使う。
+
+公開masterは従来のyear/v3契約を維持し、年内を1snapshot日1content-addressed Parquetへ分ける。新日・訂正日はその日だけ追加し、非変更日のobjectを再利用する。前年/当年の初回・同値確認・新日・旧日訂正の合成公開はPUT `[2,0,1,1]`、各bodyは当該日だけで、既存year readerも複数objectを読める。通常処理でremote objectを削除せず、GCによる増加抑制を仮定しない。L2は原本から再生成できるcacheで、再計算用の `fixed-inputs/jquants-master/v1/` root/月metadataと `l1/jquants/master/v1/` packは別に保持する。full-head更新・全保持歴の正規化は残り、実容量・転送量・速度・新prefixの権限/lifecycleは未検証。
+
+```bash
+uv run baibai-jobs jquants-master-native initialize --directory /secure-work/master-init
+uv run baibai-jobs jquants-master-native acquire --directory /secure-work/master-cycle \
+  --start 2026-11-05 --end 2026-11-05
+uv run baibai-jobs jquants-master-native acquire --directory /secure-work/master-correction \
+  --start 2026-11-04 --end 2026-11-04 --force
+uv run baibai-jobs rebuild-master-native --work-directory /secure-work/master-read \
+  --start 2026-10-01 --end 2026-11-05 --output /secure-work/master-observations
+```
+
+保存generation/Selectionの `inputs.master` JSONを `rebuild-master-native --saved-input <JSON>` へ渡せば、head・作業SQLite・providerなしで同じscopeと不足を再生する。休日basisも固定metadataから再生し、最新暦へ取り替えない。`commit-work` は保存受領の再確認であり、空が未充足なら正常終了へ変えない。master flag下の旧 `maintain-market backfill-master` も同じnative writerへ向く。明示日にはL2を要求せず、月末cohort日を作る時だけ既存bars gridを読む。旧cacheへrawを再書込せず、通常consumerまたは明示rebuildで投影する。
+
+TradingViewの15:37 JSTを含む既存枠は残す。scoped inputはcalendarと自身の受領だけを持ち、masterはpreflight前にnativeのexact basisを投影する。必要時のGETも同じnative writerへ向け、取得後に既存readyをresumeしてから収集する。取得で使った小さいInputSnapshot参照を同じsource-input resultとstageへ固定し、master本文をTradingView stageへ再複写しない。後続のhead変更をexportへ混ぜない。新しい外部評価planもmasterを直接nativeから固定するため、後段market readyの成功を要求しない。calendarは既存固定release/readyを使い、保存済みplanは元のbindingで再開する。新しいfailed/held/空から旧masterへ黙ってfallbackしない。
+
+### 旧masterの有限移行
+
+通常dailyへ移行を代行させない。market・TradingViewの両master writerとdailyを停止し、queued jobもdrainする。exact旧release ID/digest、実UTC境界、両sourceの全ready stageを固定する。`master-native-cutover prepare` はmarketの全 `request_ids` とTradingViewの `master_request_ids` / `receipt_ids` を実原本と照合する。他source原本は移さず保持し、不明scope・filtered原本・page欠損・identity衝突・未保持のmaster失敗はblockする。
+
+```bash
+uv run baibai-jobs master-native-cutover prepare --directory /secure-work/master-migration \
+  --work-directory /secure-work/master-mirror --release <FIXED_OLD_RELEASE> \
+  --manifest-sha256 <FIXED_SHA256> --known-at <UTC_BOUNDARY>
+uv run baibai-jobs master-native-cutover apply --directory /secure-work/master-migration \
+  --work-directory /secure-work/master-writer
+uv run baibai-jobs master-native-cutover verify --directory /secure-work/master-migration \
+  --work-directory /secure-work/master-cold
+uv run baibai-jobs master-native-cutover compare --directory /secure-work/master-migration \
+  --work-directory /secure-work/master-compare
+```
+
+空のnative prefixを明示初期化してから、prepareのblockerを解消し、apply→全pack読戻し→全過去取得日/全Codeの旧投影compareを確認する。未知開始時刻を捏造しない。同値確認はfingerprintだけなので、そのexact受領bytesが必要な間は旧release/stageも保持する。移行後の旧mixed stageはnativeに保持したmaster fingerprintと実bytesを照合し、master投影を繰り返さず、calendar/margin等の他原本だけを従来どおり再生する。旧writerが新たに作った未移行IDは拒否する。実R2/provider受入、容量/保持条件の確認、code/store/全consumer設定を揃える本番切替は別途必要で、ここでは未実施。

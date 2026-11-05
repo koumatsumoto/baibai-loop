@@ -8,6 +8,7 @@ import os
 import subprocess  # nosec B404
 import sys
 import tempfile
+from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -18,14 +19,14 @@ from baibai_engine.data_collection.providers.edinet.archives import (
 from baibai_engine.data_collection.providers.jquants.dependencies import (
     export_dependencies as export_master_calendar_dependencies,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     market_calendar_business_day,
 )
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
-    LakeCASConflict,
-    R2Error,
+    LakePublishError,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -92,6 +93,7 @@ def _export(
     database: Path,
     directory: Path,
     archives: set[tuple[str, int]] | None = None,
+    master_input: InputSnapshot | None = None,
 ) -> None:
     if source not in SOURCES:
         raise ValueError("unsupported market handoff source")
@@ -103,7 +105,14 @@ def _export(
         "started_at": since.isoformat(),
     }
     if source == "tradingview":
-        report.update(export_tradingview_handoff(database, path, day=asof, since=since).to_json())
+        handoff = (
+            export_tradingview_handoff(database, path, day=asof, since=since)
+            if master_input is None
+            else export_tradingview_handoff(
+                database, path, day=asof, since=since, master_input=master_input
+            )
+        )
+        report.update(handoff.to_json())
     elif source in _JQUANTS_SOURCES:
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
@@ -124,6 +133,8 @@ def _export(
         for dependency in export_master_calendar_dependencies(
             database, day=asof, master_asof=basis
         ):
+            if master_input is not None and dependency["source"] == "master":
+                continue
             write_json_atomic(directory / f"dependency-{dependency['request_id']}.json", dependency)
     write_json_atomic(directory / "result.json", report)
 
@@ -135,7 +146,15 @@ def _handoff_ids(report: dict[str, object], field: str) -> tuple[str, ...]:
     return tuple(values)
 
 
-def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
+def _replay(
+    source: str,
+    database: Path,
+    directory: Path,
+    *,
+    store: Boto3R2Store | None = None,
+    master_input: InputSnapshot | None = None,
+    master_fingerprints: Mapping[str, str] | None = None,
+) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
 
@@ -148,11 +167,54 @@ def _replay(source: str, database: Path, directory: Path) -> ReplayResult:
         raise ValueError("handoff source differs from the publication plan")
     path = directory / "receipts.sqlite"
     if source == "tradingview":
-        return import_tradingview_handoff(path, database, TradingViewHandoff.from_json(report))
+        handoff = TradingViewHandoff.from_json(report)
+        from baibai_jobs.master_cutover import master_native_enabled
+
+        if master_native_enabled() and master_input is None:
+            raise ValueError("native TradingView replay requires its fixed master context")
+        if master_input is not None:
+            if store is None:
+                raise ValueError("native master replay requires its object store")
+            from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
+            from baibai_jobs.integration.master_native import materialize_saved_input
+
+            if master_input.descriptor is None:
+                raise ValueError("native master replay requires a fixed descriptor")
+            selected_master = read_master_input(
+                store, master_input.descriptor, days=[handoff.master_asof]
+            )
+            scope = selected_master["scopes"].get(handoff.master_asof.isoformat(), {})
+            if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
+                raise ValueError("native master replay acquisition is unresolved")
+            materialize_saved_input(
+                store, master_input, market=database, days=[handoff.master_asof]
+            )
+        if master_input is None and handoff.master_native_input is None:
+            return import_tradingview_handoff(path, database, handoff)
+        return import_tradingview_handoff(
+            path,
+            database,
+            handoff,
+            store=store,
+            native_master=master_input is not None,
+            master_fingerprints=master_fingerprints,
+        )
     if source in _JQUANTS_SOURCES:
+        from baibai_jobs.master_cutover import master_native_enabled
+
+        if source == "jquants-market" and master_native_enabled() and master_fingerprints is None:
+            raise ValueError("native master replay requires retained cutover fingerprints")
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
+        if source == "jquants-market" and master_fingerprints is not None:
+            return import_jquants_handoff(
+                path,
+                database,
+                _handoff_ids(report, "request_ids"),
+                sources=selected,
+                master_fingerprints=master_fingerprints,
+            )
         return import_jquants_handoff(
             path, database, _handoff_ids(report, "request_ids"), sources=selected
         )
@@ -227,11 +289,15 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.acquisition.jquants_market_plan import freeze_market_originals
     from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
+    from baibai_jobs.master_cutover import master_native_enabled
     from baibai_jobs.price_cutover import price_native_enabled
     from baibai_jobs.publication.datasets import LAKE_DATASETS
     from baibai_jobs.publication.policy import release_policy_for_profile
 
     native_prices = price_native_enabled()
+    native_master = master_native_enabled()
+    master_result = None
+    master_ok = True
     native_result: dict[str, object] | None = None
     price_ok = True
     provider_halted = False
@@ -251,8 +317,9 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
                 closing(Boto3R2Store(bucket=bucket)) as price_store,
                 closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as price_client,
             ):
+                price_owner = PriceL1(price_store, directory / "price-native")
                 result = acquire_price_native(
-                    PriceL1(price_store, directory / "price-native"),
+                    price_owner,
                     start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
                     end=asof,
                     revision_overlap_days=MARKET_REVISION_OVERLAP_DAYS,
@@ -261,13 +328,48 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             provider_halted = bool(result.get("halted", 0))
             native_result = dict(result)
             price_ok = not bool(result["failed"] or result["held"])
-        except (R2Error, LakeCASConflict):
+        except LakePublishError:
             raise
         except Exception as error:
             price_ok = False
             native_result = {"error": type(error).__name__}
         directory.mkdir(parents=True, exist_ok=True)
         write_json_atomic(directory / "price-native-result.json", native_result)
+    if native_master:
+        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+
+        if provider_halted:
+            master_result = {"halted": 1, "status": "provider_halted"}
+            master_ok = False
+        else:
+            try:
+                with (
+                    closing(Boto3R2Store(bucket=bucket)) as master_store,
+                    closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as master_client,
+                ):
+                    master_owner = MasterL1(master_store, directory / "master-native")
+                    acquired_master = acquire_master_native(
+                        master_owner,
+                        start=asof,
+                        end=asof,
+                        client=master_client,
+                    )
+                master_result = dict(acquired_master)
+                provider_halted = bool(acquired_master.get("halted", 0))
+                master_ok = not bool(
+                    acquired_master["failed"]
+                    or acquired_master["held"]
+                    or acquired_master["incomplete"]
+                )
+            except LakePublishError:
+                raise
+            except Exception as error:
+                master_ok = False
+                master_result = {"error": type(error).__name__}
+        directory.mkdir(parents=True, exist_ok=True)
+        assert master_result is not None
+        write_json_atomic(directory / "master-native-result.json", master_result)
     with (
         tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -284,6 +386,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             store=store,
             asof=asof,
             include_daily_prices=not native_prices,
+            include_master=not native_master,
         )
         legacy_ok = receive_market_handoff(
             directory,
@@ -292,15 +395,49 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             client=client,
             scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
             include_daily_prices=not native_prices,
+            include_master=not native_master,
             provider_halted=provider_halted,
         )
 
-    if native_result is not None:
+    if native_result is not None or master_result is not None:
         path = directory / "result.json"
         report = json.loads(path.read_bytes())
-        report["independent_l1"] = {"daily_bars": native_result}
+        if (
+            master_result is not None
+            and master_result.get("incomplete")
+            and not (master_result.get("failed") or master_result.get("held"))
+            and report.get("acquisition", {}).get("status") == "skipped_non_business_day"
+        ):
+            # Raw empty stays unfulfilled, but a proven closed cycle does not
+            # require that date's nonempty universe.
+            from baibai_engine.data_collection.providers.jquants.native_index import (
+                calendar_sessions,
+            )
+
+            calendar = fixed.indexes["market_calendar"]
+            sessions, unknown = calendar_sessions(calendar, start=asof, end=asof)
+            receipts = [
+                item
+                for item in calendar.receipts
+                if any(day == asof for day, _ in item.calendar_divisions)
+            ]
+            latest = max((item.received_at for item in receipts), default=None)
+            divisions = {
+                division
+                for item in receipts
+                if item.received_at == latest
+                for day, division in item.calendar_divisions
+                if day == asof
+            }
+            if sessions[asof] is False and not unknown and divisions and divisions <= {"0", "3"}:
+                master_ok = True
+                master_result = {**master_result, "status": "not_required_non_business_day"}
+        report["independent_l1"] = {
+            **({"daily_bars": native_result} if native_result is not None else {}),
+            **({"master": master_result} if master_result is not None else {}),
+        }
         write_json_atomic(path, report)
-    return legacy_ok and price_ok
+    return legacy_ok and price_ok and master_ok
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -324,7 +461,52 @@ def main(argv: list[str] | None = None) -> int:
     directory = args.directory
     try:
         if args.command == "replay-copy":
-            replay = _replay(args.source, args.database, directory)
+            packet = json.loads((directory / "result.json").read_bytes())
+            from baibai_jobs.master_cutover import master_native_enabled
+
+            if args.source == "tradingview" and packet.get("master_native_input") is not None:
+                with closing(
+                    Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+                ) as store:
+                    replay = _replay(
+                        args.source,
+                        args.database,
+                        directory,
+                        store=store,
+                        master_input=InputSnapshot.model_validate(packet["master_native_input"]),
+                    )
+            elif master_native_enabled() and args.source in {"tradingview", "jquants-market"}:
+                from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+                from baibai_jobs.integration.master_native import fixed_input
+
+                with closing(
+                    Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+                ) as store:
+                    fixed = MasterL1(store, directory / "master-native").fixed()
+                    fingerprints = {
+                        identity: receipt["fingerprint"]
+                        for identity, receipt in fixed.value()["receipts"].items()
+                    }
+                    saved_master = (
+                        fixed_input(
+                            store,
+                            fixed,
+                            as_of=date.fromisoformat(packet["asof"]),
+                            evaluated_at=datetime.now(UTC),
+                        )
+                        if args.source == "tradingview"
+                        else None
+                    )
+                    replay = _replay(
+                        args.source,
+                        args.database,
+                        directory,
+                        store=store,
+                        master_input=saved_master,
+                        master_fingerprints=fingerprints,
+                    )
+            else:
+                replay = _replay(args.source, args.database, directory)
             print(json.dumps(replay.report, sort_keys=True))
             return int(not replay.complete)
         if args.command == "input":
@@ -343,6 +525,30 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--asof is required")
             store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             saved_input = json.loads((directory / "result.json").read_text())
+            master_input = (
+                InputSnapshot.model_validate(saved_input["master_native_input"])
+                if args.source == "tradingview"
+                and saved_input.get("master_native_input") is not None
+                else None
+            )
+            from baibai_jobs.master_cutover import master_native_enabled
+
+            if args.source == "tradingview" and master_native_enabled() and master_input is None:
+                return 0  # The existing backfill step will acquire then resume these receipts.
+            master_fingerprints = None
+            if master_native_enabled() and (
+                args.source == "jquants-market"
+                or (args.source == "tradingview" and master_input is not None)
+            ):
+                from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+
+                master_fingerprints = {
+                    identity: receipt["fingerprint"]
+                    for identity, receipt in MasterL1(store, directory / "master-native")
+                    .fixed()
+                    .value()["receipts"]
+                    .items()
+                }
             sources = (
                 ("edinet-list", args.source)
                 if args.source in {"edinet-metrics", "edinet-facts"}
@@ -369,7 +575,17 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     packet = directory / f"resume-{source}-{index}"
                     download_fixed(store, entry, packet)
-                    _replay(source, args.database, packet)
+                    if master_input is None and master_fingerprints is None:
+                        _replay(source, args.database, packet)
+                    else:
+                        _replay(
+                            source,
+                            args.database,
+                            packet,
+                            store=store,
+                            master_input=master_input,
+                            master_fingerprints=master_fingerprints,
+                        )
         elif args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
@@ -445,7 +661,20 @@ def main(argv: list[str] | None = None) -> int:
                 if args.source.startswith("edinet-")
                 else set()
             )
-            _export(args.source, args.asof, since, args.database, directory, archives)
+            master_input = None
+            from baibai_jobs.master_cutover import master_native_enabled
+
+            if args.source == "tradingview" and master_native_enabled():
+                if args.input_directory is None:
+                    raise ValueError("native TradingView export requires its fixed source input")
+                saved = json.loads((args.input_directory / "result.json").read_bytes())
+                master_input = InputSnapshot.model_validate(saved["master_native_input"])
+            if master_input is None:
+                _export(args.source, args.asof, since, args.database, directory, archives)
+            else:
+                _export(
+                    args.source, args.asof, since, args.database, directory, archives, master_input
+                )
             report = json.loads((directory / "result.json").read_text())
             report["acquisition"] = acquisition_report or {
                 "status": "failed" if status else "received"

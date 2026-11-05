@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
@@ -33,8 +34,13 @@ def universe(conn: sqlite3.Connection, day: date) -> list[str]:
     ).fetchall()
     if not rows:
         raise SourceDataError("Exact-date J-Quants master is unavailable")
+    return symbols_from_master_payloads([row[0] for row in rows])
+
+
+def symbols_from_master_payloads(payloads: Sequence[str]) -> list[str]:
+    """Apply the same provider product/market population to SQL and native inputs."""
     result = []
-    for security in masters_from_payloads([row[0] for row in rows]):
+    for security in masters_from_payloads(payloads):
         if not security.is_common_stock or security.market_segment.upper() not in ELIGIBLE_MARKETS:
             continue
         if not re.fullmatch(r"[0-9][0-9A-Z]{3}", security.ticker):

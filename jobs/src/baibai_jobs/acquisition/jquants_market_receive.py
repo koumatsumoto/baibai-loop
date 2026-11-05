@@ -51,6 +51,7 @@ def receive_market_handoff(
     client: JQuantsHTTP,
     scheduled: bool = False,
     include_daily_prices: bool = True,
+    include_master: bool = True,
     provider_halted: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
@@ -108,7 +109,10 @@ def receive_market_handoff(
 
         def plan() -> MarketPlans:
             return plan_market_from_originals(
-                indexes, asof=asof, include_daily_prices=include_daily_prices
+                indexes,
+                asof=asof,
+                include_daily_prices=include_daily_prices,
+                include_master=include_master,
             )
 
         unknown: set[str] = set(fixed.unavailable_stages)
@@ -118,8 +122,9 @@ def receive_market_handoff(
             )
             skipped = scheduled and sessions[asof] is False and not calendar_unknown
             if not skipped:
-                master = plan().master
-                receive("master", ({"date": day.isoformat()} for day in master.days))
+                if include_master:
+                    master = plan().master
+                    receive("master", ({"date": day.isoformat()} for day in master.days))
                 if include_daily_prices:
                     prices = plan().daily_prices
                     receive("daily_bars", ({"date": day.isoformat()} for day in prices.days))

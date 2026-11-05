@@ -19,6 +19,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BAIBAI_MASTER_NATIVE: ${{ vars.BAIBAI_MASTER_NATIVE == 'true' && 'true' || 'false' }}
+
 concurrency:
   group: tradingview-snapshot
   queue: max
@@ -126,6 +129,14 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.integration.source_handoff input --source tradingview --directory "$RUNNER_TEMP/source-input"
+      - name: Fix native master before resuming TradingView receipts
+        if: steps.target.outputs.eligible == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TARGET_DATE: ${{ steps.target.outputs.target_date }}
+        run: uv run baibai-jobs master-dependency hydrate --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
       - name: Resume own ready receipts without full market hydration
         id: hydrate
         if: steps.target.outputs.eligible == 'true'
@@ -188,8 +199,17 @@ jobs:
         if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && steps.preflight.outputs.needs_master == 'true'
         env:
           JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
-        run: uv run baibai-jobs maintain-market backfill-master --asof "$TARGET_DATE"
+        run: |
+          if [[ "$BAIBAI_MASTER_NATIVE" == true ]]; then
+            uv run baibai-jobs master-dependency acquire --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
+            uv run python -m baibai_jobs.integration.source_handoff resume --source tradingview --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
+          else
+            uv run baibai-jobs maintain-market backfill-master --asof "$TARGET_DATE"
+          fi
       - name: Refresh TradingView expectations
         id: tradingview
         if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')
@@ -336,7 +356,7 @@ jobs:
           RECEIPT_SINCE: ${{ steps.receipt-cutoff.outputs.since }}
           STAGE_ID: tradingview-${{ steps.target.outputs.target_date }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          uv run python -m baibai_jobs.integration.source_handoff export --source tradingview --asof "$TARGET_DATE" --since "$RECEIPT_SINCE" --directory "$RUNNER_TEMP/source-handoff"
+          uv run python -m baibai_jobs.integration.source_handoff export --source tradingview --asof "$TARGET_DATE" --since "$RECEIPT_SINCE" --directory "$RUNNER_TEMP/source-handoff" --input-directory "$RUNNER_TEMP/source-input"
           uv run python -m baibai_jobs.integration.source_handoff stage --source tradingview --stage-id "$STAGE_ID" --directory "$RUNNER_TEMP/source-handoff"
       - name: Persist provider cooldown
         id: cooldown-save

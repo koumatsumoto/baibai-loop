@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
-from datetime import date, timedelta
+import gzip
+import hashlib
+import json
+import sqlite3
+import zlib
+from collections.abc import Iterator, Mapping, Sequence
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsPage,
     JQuantsRequest,
     RetainedRequest,
 )
@@ -93,3 +99,47 @@ def plan_master_days(
         or scopes.get(day.isoformat(), {}).get("failure")
         or scopes.get(day.isoformat(), {}).get("held")
     )
+
+
+def verify_migrated_master_receipts(
+    connection: sqlite3.Connection, request_ids: Sequence[str], fingerprints: Mapping[str, str]
+) -> set[str]:
+    """Accept an old writer's bytes only when the finite cutover already retained them."""
+    migrated = set()
+    for identity in request_ids:
+        rows = connection.execute(
+            "SELECT page_index,source,query_json,received_at_utc,body_gzip "
+            "FROM jquants_source_pages WHERE request_id=? ORDER BY page_index",
+            (identity,),
+        ).fetchall()
+        if not any(row[1] == "master" for row in rows):
+            continue
+        if any(index != row[0] or row[1] != "master" for index, row in enumerate(rows)):
+            raise ValueError("legacy master has missing pages or mixed source identity")
+        try:
+            pages = tuple(
+                JQuantsPage(
+                    "master",
+                    json.loads(query),
+                    datetime.fromisoformat(received),
+                    gzip.decompress(body),
+                )
+                for _index, _source, query, received, body in rows
+            )
+        except (OSError, EOFError, zlib.error) as error:
+            raise ValueError("legacy master page cannot be decoded") from error
+        query = dict(pages[0].query)
+        if set(query) != {"date"}:
+            raise ValueError("legacy master does not have an unfiltered explicit date")
+        attempt = MasterAttempt(identity, date.fromisoformat(query["date"]), None, pages)
+        payload = json.dumps(
+            attempt.value(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+        if fingerprints.get(identity) != hashlib.sha256(payload).hexdigest():
+            raise ValueError("legacy master is absent from or differs from the native cutover")
+        migrated.add(identity)
+    return migrated

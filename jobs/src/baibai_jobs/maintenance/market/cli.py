@@ -347,6 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     ):
         sqlite_path = Path(args.sqlite_path)
 
+    from baibai_jobs.master_cutover import master_native_enabled
+
+    if args.command == "backfill-master" and master_native_enabled():
+        from baibai_jobs.maintenance.master_native_backfill import backfill_native_master
+
+        return backfill_native_master(args, sqlite_path=sqlite_path)
+
     if args.command == "build-tender-offer-exits":
         exits_path = Path(args.sqlite_path)
         return build_tender_offer_exits_command(

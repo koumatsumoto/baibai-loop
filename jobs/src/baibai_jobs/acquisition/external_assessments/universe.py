@@ -13,7 +13,10 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 
-from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
+from baibai_engine.data_collection.providers.jquants.dependencies import (
+    dependency_covers_day,
+    read_dependency,
+)
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_MARKET_CALENDAR,
 )
@@ -151,7 +154,9 @@ def received_master_universe(value: dict[str, Any], master_asof: date) -> tuple[
     """Use an exact complete native receipt without assigning a full lake origin."""
     _require_master_date(master_asof)
     request = read_dependency(value)
-    if request.source != "master" or request.params != {"date": master_asof.isoformat()}:
+    if request.source != "master" or not dependency_covers_day(
+        "master", request.params, master_asof
+    ):
         raise ValueError("external assessment requires an exact-date master receipt")
     snapshot = validate_master_snapshot(request.records(), master_asof)
     return _common_stock_tickers(masters_from_payloads([row[2] for row in snapshot.rows]))

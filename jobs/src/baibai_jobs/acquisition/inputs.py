@@ -20,6 +20,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.master_cutover import master_native_enabled
 
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
@@ -49,6 +50,8 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
     them again in each acquisition runner. JPX acquisitions need no old facts.
     """
     tables = _TABLES[group]
+    if group == "tradingview" and master_native_enabled():
+        tables = tuple(table for table in tables if table != "jquants_master_snapshots")
     if output.exists():
         raise FileExistsError(output)
     with (

@@ -8,7 +8,7 @@ import os
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -52,6 +52,7 @@ from baibai_jobs.integration.jquants_handoff import (
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
@@ -70,6 +71,25 @@ def apply(
         raise ValueError("financial cutover mode differs from the fixed integration plan")
     if bool(plan.get("price_native", False)) != price_native_enabled():
         raise ValueError("price cutover mode differs from the fixed integration plan")
+    if bool(plan.get("master_native", False)) != master_native_enabled():
+        raise ValueError("master cutover mode differs from the fixed integration plan")
+    master_input = None
+    master_fingerprints = None
+    if master_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+        from baibai_jobs.integration.master_native import fixed_input
+
+        fixed_master = MasterL1(store, directory / "master-native").fixed()
+        master_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in fixed_master.value()["receipts"].items()
+        }
+        master_input = fixed_input(
+            store,
+            fixed_master,
+            as_of=asof,
+            evaluated_at=datetime.now(UTC),
+        )
     if any(not entry["market"] for entry in plan["handoffs"]):
         raise ValueError("economic handoffs require the independent L1 integration")
     # Only this owner's canonical corruption is global and fatal.
@@ -106,7 +126,18 @@ def apply(
                             validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
-                replay = _replay(entry["source"], market, packet)
+                replay = (
+                    _replay(entry["source"], market, packet)
+                    if master_input is None
+                    else _replay(
+                        entry["source"],
+                        market,
+                        packet,
+                        store=store,
+                        master_input=master_input,
+                        master_fingerprints=master_fingerprints,
+                    )
+                )
                 result = replay.report
                 failed = recovery = not replay.complete
                 applied = True
@@ -282,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                     "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),
+                    "master_native": master_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },

@@ -14,6 +14,9 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsSource,
 )
+from baibai_engine.data_collection.providers.jquants.master_native import (
+    verify_migrated_master_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.receipts import (
     import_requests,
     read_complete_request,
@@ -191,7 +194,12 @@ def validate_source_handoff(
 
 
 def import_handoff(
-    source: Path, target: Path, request_ids: Sequence[str], *, sources: Sequence[JQuantsSource]
+    source: Path,
+    target: Path,
+    request_ids: Sequence[str],
+    *,
+    sources: Sequence[JQuantsSource],
+    master_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
@@ -211,13 +219,19 @@ def import_handoff(
         }
         if retained_ids != set(request_ids):
             raise ValueError("J-Quants handoff request list does not cover its original pages")
+        migrated_master = (
+            verify_migrated_master_receipts(original, request_ids, master_fingerprints)
+            if master_fingerprints is not None
+            else set()
+        )
+        active_ids = tuple(identity for identity in request_ids if identity not in migrated_master)
         incoming = [
-            scope for scope in _headers(original, set(sources)) if scope.request_id in request_ids
+            scope for scope in _headers(original, set(sources)) if scope.request_id in active_ids
         ]
-        if {scope.request_id for scope in incoming} != set(request_ids):
+        if {scope.request_id for scope in incoming} != set(active_ids):
             raise ValueError("J-Quants handoff contains an unexpected or filtered request")
         with conn:
-            added = import_requests(original, conn, request_ids)
+            added = import_requests(original, conn, active_ids)
         complete = []
         incomplete = []
         valid_incoming = []
@@ -254,6 +268,11 @@ def import_handoff(
             "raw_pages_added": added,
             "replayed_requests": replayed,
             "incomplete_requests": incomplete,
+            **(
+                {"migrated_master_requests": sorted(migrated_master)}
+                if master_fingerprints is not None
+                else {}
+            ),
         },
         complete=not incomplete,
     )
