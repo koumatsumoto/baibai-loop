@@ -855,6 +855,61 @@ compareは予定日までの全保持範囲を検査する。移行中は旧writ
 
 この接続はmargin-alert単独であり、short_saleの `disc_date` と行順、margin_interestの週次/全日次・公表lag・固定暦は統合しない。両sourceの独立入口がmergeされても通常writer/consumerの切替は別途行う。
 
+<a id="short-sale-reports-native-l1"></a>
+## 空売り残高報告native L1の明示入口
+
+通常writerは未切替。`jquants-short-sale-reports-native` の `initialize / plan / acquire / resume / commit-work` は旧market releaseやL2を使わない。query・日付・順序の意味は[取得owner](src/baibai_jobs/acquisition/jquants_short_sale_reports_native.py)と[固定reader](src/baibai_jobs/integration/short_sale_reports_native.py)に置く。保存・中断再開・固定inputは[共通操作](#jquants-native-operations)に従う。
+
+```bash
+uv run baibai-jobs jquants-short-sale-reports-native plan \
+  --directory /secure-work/short-sale-plan --asof 2026-11-05
+uv run baibai-jobs jquants-short-sale-reports-native acquire \
+  --directory /secure-work/short-sale-cycle --asof 2026-11-05
+uv run baibai-jobs rebuild-short-sale-reports-native \
+  --work-directory /secure-work/short-sale-read --start 2026-10-29 --end 2026-11-05 \
+  --output /secure-work/short-sale-output
+```
+
+既存原本は `short-sale-reports-native-cutover prepare / apply / verify / compare` で有限移行する。引数と順序は上のmargin-alert手順と同じ。prepareは旧releaseと統合済みを含む全market stageを固定し、apply前に不明scope・欠損・未来の受領を解消する。compareは開示日と行順のidentityで旧投影を比較する。正常空・失敗・未取得を混同せず、旧release/stageは削除しない。
+
+固定読取は新規 `short-sale-reports.sqlite` と `input.json` を出力する。`--saved-input` は最新headなしで再生できる。通常取得・consumerへの接続と本番移行は後続であり、毎日の全履歴再構築や進行中の別source切替を前提にしない。
+
+<a id="margin-interest-native-l1"></a>
+## 週次・全銘柄日次信用残の独立L1
+
+`jquants-margin-interest-native` は明示CLIだけ。通常market writer、旧maintenance、historical readerの経路は変えない。`margin_alerts`（指定銘柄の別source）と混ぜない。取得・固定読取の前に、必要範囲を持つnative calendarを用意する。通常calendarの初回53日窓だけでは週次230日・日次2026-09-25以降の全範囲を満たさない。`plan` の `unknown_calendar_days` / `unknown_incomplete_requests` を無視したり、unknownを休場へ変えたりしない。
+
+```bash
+uv run baibai-jobs jquants-margin-interest-native initialize \
+  --directory /secure-work/margin-interest-init
+uv run baibai-jobs jquants-margin-interest-native plan \
+  --directory /secure-work/margin-interest-plan --asof 2026-11-05
+uv run baibai-jobs jquants-margin-interest-native acquire \
+  --directory /secure-work/margin-interest-cycle --asof 2026-11-05
+# 明示backfillは終端を含む。--force はこの有限区間の訂正再取得にだけ使う。
+uv run baibai-jobs jquants-margin-interest-native acquire \
+  --directory /secure-work/margin-interest-backfill --asof 2026-11-05 \
+  --start 2026-09-18 --end 2026-10-30
+uv run baibai-jobs rebuild-margin-interest-native \
+  --work-directory /secure-work/margin-interest-read \
+  --calendar-head /secure-work/margin-interest-cycle/calendar-fixed.json \
+  --start 2026-09-18 --end 2026-10-30 --output /secure-work/margin-interest-output
+```
+
+- 週次は従来の230日窓・各ISO週の最終取引日・2営業日公表lag。2026-09-18残高までを対象にし、公表日以前（JST）の空と最終週の空は再確認する。
+- 有限backfillでも週次空の充足には実確認JST日より前の後続2営業日の暦証拠が必要。証拠不足は再確認対象と不足暦を残すが、有限区間から現在asofまでの全暦は要求しない。最終週の空は公表日以降、終端後の暦がなくても再確認し、rebuild/compareも未充足として報告する。
+- 全銘柄日次は2026-09-25からasofまでの取引日を保ち、通常取得は後続1営業日を待つ。空は未充足。7日overlapや直近230日だけに狭めない。9月19〜24日をどちらの系列にも作り替えない。
+- 計画は固定calendarとnative原本の実確認時刻・raw件数だけを見る。正常な非空原本のL2変換がpartialでも、そのL2を取得条件に戻さない。旧maintenanceがL2 partialを再取得する挙動はそのまま残す。
+- 取得は新しいdirectoryを使い、`plan.json` と `calendar-fixed.json` を保存する。`commit-work` は両方と保存attemptを使い、最新暦に差し替えず、日次空・失敗・未試行を残したまま成功にしない。同値確認は実確認時刻を更新するが、元HTTP pageの時刻は変えない。
+- rebuildは新規 `margin-interest.sqlite` / `input.json` / `result.json` を出す。`--saved-input` では固定したmarginとcalendarのmetadata/packだけを読み、最新head・旧releaseを参照しない。週次9列・日次16列（PubDateを含む）の投影とcoverageを保存する。これは有限観測copyであり、歴史promptの完全再現を保証する入口ではない。
+- 歴史評価の公表時差fallbackは保存済み価格日のまま。native calendarへ置換しない。PubDate優先、同日引け除外、観測済み26週、35日鮮度、split/share基準を変えない。歴史評価比較を行う場合は価格入力も固定する。
+
+### 有限移行
+
+[共通手順](#jquants-native-operations)に従い、`margin-interest-native-cutover prepare` に `--release` / `--manifest-sha256` / `--known-at` と `--directory` / `--work-directory` を渡す。全source_pages partitionと統合済みを含む全market stageを調べ、対象sourceだけを移す。境界後の受領・filtered request・欠落page/宣言identity・未知の失敗scopeはblockedにする。`daily_margin_incomplete` は実在する空またはpartial原本が必要で、正常空へ昇格しない。
+
+blocked解消後の空targetに対して `apply` → `verify` → `compare`。compareは同じ固定旧releaseと保存した `--calendar-head`、比較終端 `--asof` を必須とし、元のUTC境界後のmargin/calendar確認を拒否する。週次・日次の全保持行を別々に照合する。取得範囲・coverage差分が残れば切替根拠にはしない。旧release/stage/原本は削除しない。通常writer接続と本番実行は別途の指示・検証が必要。
+
 <a id="price-native-l1"></a>
 ## 日足native L1の取得・固定読取・有限移行
 
@@ -1008,6 +1063,10 @@ uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/cale
 
 <a id="edinet-list-native-l1"></a>
 ### EDINET一覧原本の独立取得・有限切替
+
+`BAIBAI_EDINET_LIST_NATIVE` の通常既定は `true` で、取得・dailyのActionsも明示 `true` に揃える。明示 `false` は旧入力の有限検証用であり、本番writerの並行稼働には使わない。
+
+配置は移行・全原本読戻し・cold/warm比較の成功後とし、停止中のcronは初回native公開・次hydrate・source inputsの読戻しまで再開しない。
 
 `BAIBAI_EDINET_LIST_NATIVE=true`で一覧の通常GET・原本公開をmarket/L2から分離する。取得範囲・日別CAS・実受領UUID/時刻と同値gzipの扱いは[取得owner](src/baibai_jobs/acquisition/edinet_list_native.py)と[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/list_native.py)を正本とする。取得失敗を正常空へ変えず、旧normalized行から原本・受領を作らない。flagの値だけで移行完了を認定しない。
 

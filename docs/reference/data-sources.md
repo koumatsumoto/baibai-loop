@@ -33,6 +33,8 @@ J-Quantsはnative HTTP pageをL1として保存する。masterや財務summary�
 
 masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
 
+空売り残高報告の独立L1は[明示入口](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)。日付・原本順序の契約は[owner](../../engine/src/baibai_engine/data_collection/providers/jquants/short_sale_reports_native.py)を参照し、通常market writerの切替とは区別する。
+
 財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通の財務観測が原本文書を読み、[企業財務](company-financials.md)が予想・実績の比較座標を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
 
 JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
@@ -44,6 +46,8 @@ JPXの規制・決算予定・資本政策・上場廃止は完了済みsource b
 margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日で、後日訂正も公表・受領の文脈を保つ。全銘柄残高の判断用cutoffとmargin-alertの公表日範囲読取は別契約であり、[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)を参照する。PubDateだけで正確なAPI利用可能時刻や訂正前vintageを再現できるわけではない。
 
 margin-alertの独立取得・固定consumer・有限移行は[明示native入口](../../jobs/OPERATIONS.md#margin-alerts-native-l1)にあり、通常market取得への接続とは別である。公表前の空応答、取得失敗、取得済み対象なしを分ける。株数と金額は元の単位を保持し、欠測金額を株数×価格で補わない。指標の週比較と株式basisは[市場環境](market-context.md#margin)に従う。
+
+週次・全銘柄日次の独立L1は[明示CLI](../../jobs/OPERATIONS.md#margin-interest-native-l1)で取得・有限移行・固定読取する。通常writerと歴史評価の経路は変更しない。
 
 ## 経済原本
 

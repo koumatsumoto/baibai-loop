@@ -21,6 +21,7 @@ from baibai_jobs.maintenance import (
     calendar_native_cutover,
     financial_native_cutover,
     margin_alerts_native_cutover,
+    margin_interest_native_cutover,
     master_native_cutover,
     price_native_cutover,
 )
@@ -36,6 +37,7 @@ AT = datetime(2026, 11, 3, tzinfo=UTC)
         ("master", master_native_cutover),
         ("market_calendar", calendar_native_cutover),
         ("margin_alerts", margin_alerts_native_cutover),
+        ("margin_interest", margin_interest_native_cutover),
     ],
 )
 @pytest.mark.parametrize(
