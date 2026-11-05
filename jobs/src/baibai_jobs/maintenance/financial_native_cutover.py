@@ -26,7 +26,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialAttempt,
     FinancialL1,
 )
-from baibai_engine.data_collection.providers.jquants.lake_receipts import fixed_receipt_paths
+from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
 from baibai_engine.machine_analysis.observations.financials.from_l1 import rebuild_financial_days
 from baibai_engine.machine_analysis.observations.financials.snapshot_contracts import (
     JQUANTS_FIN_SUMMARIES,
@@ -95,7 +95,12 @@ def prepare_migration(
     if known_at.utcoffset() is None:
         raise ValueError("migration boundary requires a timezone")
     directory.mkdir(parents=True, exist_ok=False)
-    paths = fixed_receipt_paths(release=release, cache=cache, known_at=known_at)
+    # 移行は全履歴を検査し、境界後の受領を月partitionごと黙って除外しない。
+    paths = materialize_partitions(
+        cache,
+        dataset=accepted_dataset(release, JQUANTS_SOURCE_PAGES),
+        partitions=selected_partitions(release, JQUANTS_SOURCE_PAGES.name),
+    )
     entries = available_handoffs(store, source="jquants-financial", include_integrated=True)
     prepared: dict[str, dict[str, Any]] = {}
     incomplete: set[str] = set()

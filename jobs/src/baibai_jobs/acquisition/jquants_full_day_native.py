@@ -69,7 +69,9 @@ def acquire_full_day_native(
         # generator is resumed to request the following page.
         write_json_atomic(path, owner.attempt_type(identity, day, started, ()).value())
         try:
-            for page in client.pages(owner.contract.source, {"date": day.strftime("%Y%m%d")}):
+            for page in client.pages(
+                owner.contract.source, {"date": day.strftime(owner.contract.query_date_format)}
+            ):
                 pages.append(page)
                 write_json_atomic(
                     path, owner.attempt_type(identity, day, started, tuple(pages)).value()
