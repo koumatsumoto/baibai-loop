@@ -451,6 +451,7 @@ def export_market_snapshot(
     producer_git_commit: str,
     expected_store_origin: LakeStoreOrigin | None,
     created_at: datetime | None = None,
+    allow_empty: bool = False,
 ) -> LakeExportReport:
     """同じsealをモデル生成にも渡せるよう、snapshotの寿命はcallerが所有する。"""
     catalog = freeze_catalog(catalog)
@@ -469,7 +470,7 @@ def export_market_snapshot(
         # why they are empty; release policy decides whether an omitted dataset is
         # allowed, including required inputs and previously published history.
         populated = tuple(name for name in sorted(catalog) if _has_rows(probe, catalog[name]))
-    if not populated:
+    if not populated and not allow_empty:
         raise LakeBuildError("no lake dataset holds a row in this SQLite generation")
     reports = {
         dataset_name: export_dataset_snapshot(

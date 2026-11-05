@@ -5,8 +5,9 @@ two are joined by one rule: the serving release must still be the one the store 
 filled from. That identity lives in the SQLite file itself: a sidecar can be restored or
 copied independently and therefore cannot prove which rows the export is reading.
 
-Financial and daily price observations are derived from the newly exported L1 originals;
-other datasets remain on the legacy store path during migration. The serving release is read
+Native prices and master snapshots use this execution's rebuilt projection and fixed L1
+identity. Legacy financial and price observations use newly exported originals; other
+datasets remain on the legacy store path during migration. The serving release is read
 for two facts only — the origin the store must be bound to, and the history floor the
 new release must still reach — and none of its partitions are carried.
 """
@@ -26,6 +27,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
+from baibai_engine.data_collection.providers.jquants.master_native import (
+    MasterL1,
+    MasterObjectStore,
+)
 from baibai_engine.data_collection.providers.jquants.price_native import PriceL1, PriceObjectStore
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.filesystem import fsync_directory
@@ -62,10 +67,13 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     advance_lake_store_origin,
 )
 from baibai_jobs.financial_cutover import financial_native_enabled
+from baibai_jobs.integration.master_native import model_input as native_master_model_input
 from baibai_jobs.integration.price_native import model_input as native_price_model_input
+from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
+from baibai_jobs.publication.l1_master_export import export_master_from_native_input
 from baibai_jobs.publication.l1_price_export import (
     export_prices_from_l1,
     export_prices_from_native_input,
@@ -122,6 +130,7 @@ class PreparedMarketLake:
     seal_export_seconds: float
     release_create_seconds: float
     price_identity: InputSnapshot | None = None
+    master_identity: InputSnapshot | None = None
 
 
 @contextmanager
@@ -136,6 +145,20 @@ def prepare_market_lake(
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
     native_financial = financial_native_enabled()
     native_price = price_native_enabled()
+    native_master = master_native_enabled()
+    master_identity = None
+    if native_master:
+        fixed_master = MasterL1(
+            cast(MasterObjectStore, store), mirror_root / "master-native"
+        ).fixed()
+        evaluated_at = datetime.now(UTC)
+        master_identity = native_master_model_input(
+            store,
+            fixed_master,
+            as_of=as_of or evaluated_at.date(),
+            evaluated_at=evaluated_at,
+            market=sqlite_path,
+        )
     price_identity = None
     if native_price:
         fixed = PriceL1(cast(PriceObjectStore, store), mirror_root / "price-native").fixed()
@@ -158,6 +181,7 @@ def prepare_market_lake(
             for name, manifest in serving_release.dataset_manifests.items()
             if not (native_financial and name == "jquants.fin_summaries")
             and not (native_price and name == "jquants.daily_bars")
+            and not (native_master and name == "jquants.master_snapshots")
         }
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
@@ -165,10 +189,12 @@ def prepare_market_lake(
         policy_names = {item.dataset for item in policy.datasets}
         finance_enabled = "jquants.fin_summaries" in policy_names and not native_financial
         price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
+        native_master_enabled = native_master and "jquants.master_snapshots" in policy_names
         native_price_enabled = native_price and "jquants.daily_bars" in policy_names
         derived_names = {
             name
             for name, enabled in (
+                ("jquants.master_snapshots", native_master_enabled),
                 ("jquants.fin_summaries", finance_enabled),
                 ("jquants.daily_bars", price_enabled or native_price_enabled),
             )
@@ -187,6 +213,7 @@ def prepare_market_lake(
             producer_git_commit=git_commit,
             expected_store_origin=_pointer_origin(previous),
             catalog=catalog,
+            allow_empty=native_master_enabled or native_price_enabled,
         )
         if derived_names:
             source = export.datasets.get("jquants.source_pages")
@@ -217,6 +244,14 @@ def prepare_market_lake(
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                 ).build
+            if native_master_enabled:
+                assert master_identity is not None
+                datasets["jquants.master_snapshots"] = export_master_from_native_input(
+                    source_snapshot=snapshot,
+                    saved=master_identity,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                )
             export = replace(export, datasets=datasets)
         export_finished = time.perf_counter()
         with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
@@ -250,6 +285,7 @@ def prepare_market_lake(
                 seal_export_seconds=export_finished - base_finished,
                 release_create_seconds=time.perf_counter() - export_finished,
                 price_identity=price_identity,
+                master_identity=master_identity,
             )
 
 
