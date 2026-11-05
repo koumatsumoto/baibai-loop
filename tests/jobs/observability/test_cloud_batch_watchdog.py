@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.workflow_schedule import declared_schedule
 
 from baibai_jobs.integration.workflow_inputs import WorkflowInputError, validate_watchdog_input
 from baibai_jobs.observability.watchdog import (
@@ -597,10 +598,8 @@ def test_the_observed_cross_midnight_failure_stays_on_its_cron_day() -> None:
 
 
 def test_the_batch_cron_this_anchors_on_is_the_one_the_workflow_declares() -> None:
-    workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
-    )
-    crons = [entry["cron"] for entry in workflow[True]["schedule"]]
+    raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    crons = [entry["cron"] for entry in declared_schedule(raw)]
 
     assert len(crons) == 1
     minute, hour, *_rest = crons[0].split()
@@ -853,14 +852,12 @@ def test_the_watchdog_uses_only_checkout_as_an_external_action() -> None:
 def test_the_watchdog_covers_daily_macro_and_weekday_market_schedules() -> None:
     workflow = yaml.load(WATCHDOG_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert isinstance(workflow, dict)
-    daily = yaml.load(
-        (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8"),
-        Loader=yaml.BaseLoader,
-    )
+    daily_raw = (ROOT / ".github/workflows/cloud-daily-batch.yml").read_text(encoding="utf-8")
+    daily = yaml.load(daily_raw, Loader=yaml.BaseLoader)
     assert isinstance(daily, dict)
 
     watchdog_cron = workflow["on"]["schedule"][1]["cron"]
-    batch_cron = daily["on"]["schedule"][0]["cron"]
+    batch_cron = declared_schedule(daily_raw)[0]["cron"]
     watchdog_minute, watchdog_hour, _, _, watchdog_days = watchdog_cron.split()
     batch_minute, batch_hour, _, _, batch_days = batch_cron.split()
 
