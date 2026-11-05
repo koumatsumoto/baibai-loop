@@ -3,7 +3,7 @@
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -498,6 +498,21 @@ def test_historical_read_uses_publication_time_and_preserves_immutable_payload(c
             "UPDATE stock_assessment_review SET payload = '{}' WHERE review_id = ?",
             (pair.review.review_id,),
         )
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    ["2026-10-14T16:06:00.123456+09:00", "2026-10-14T07:06:00.123456+00:00"],
+)
+def test_pair_retains_exact_publication_time_on_read_and_retry(connection, timestamp):
+    published_at = datetime.fromisoformat(timestamp)
+    pair = publish(connection, now=published_at)
+    before = connection.execute("SELECT * FROM stock_assessment").fetchall()
+    loaded = load_reviewed_assessment(connection, pair.assessment_id)
+    retried = publish(connection, now=published_at + timedelta(days=1))
+    assert pair == loaded == retried
+    assert all(item.published_at.isoformat() == timestamp for item in (pair, loaded, retried))
+    assert connection.execute("SELECT * FROM stock_assessment").fetchall() == before
 
 
 def test_latest_is_selected_before_corrupt_content_is_checked(connection):

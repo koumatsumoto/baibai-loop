@@ -292,11 +292,60 @@ def test_programming_errors_are_not_hidden(tmp_path, monkeypatch):
         cli.main([str(draft)], now=NOW)
 
 
-@pytest.mark.parametrize("content", ["[", "[]", "schema_version: 99"])
-def test_parse_failure_keeps_existing_error(tmp_path, capsys, content):
+@pytest.mark.parametrize("target", ["assessment", "review"])
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("[", "failed to load {label}:"),
+        ("[]", "{label} root must be a mapping"),
+        ("null", "{label} root must be a mapping"),
+        ("", "{label} root must be a mapping"),
+        ("schema_version: 99", "validation errors for"),
+    ],
+)
+def test_parse_failure_keeps_existing_error(tmp_path, capsys, target, content, message):
     draft = tmp_path / "assessment.yaml"
-    draft.write_text(content)
-    assert cli.main([str(draft)], now=NOW) == 2
+    review_path = tmp_path / "review.yaml"
+    assessment, review = diagnostic_pair()
+    draft.write_text(content if target == "assessment" else yaml.safe_dump(assessment))
+    review_path.write_text(content if target == "review" else yaml.safe_dump(review))
+    before = {path: path.read_bytes() for path in (draft, review_path)}
+    assert cli.main([str(draft), "--review", str(review_path)], now=NOW) == 2
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err.startswith("error:")
+    label = "assessment" if target == "assessment" else "Assessment Review"
+    assert message.format(label=label) in output.err
+    assert {path: path.read_bytes() for path in (draft, review_path)} == before
+
+
+def test_missing_assessment_is_a_file_diagnostic(tmp_path, capsys):
+    draft = tmp_path / "missing.yaml"
+    assert cli.main([str(draft)], now=NOW) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err.startswith("error: failed to load assessment:")
+    assert not draft.exists()
+
+
+@pytest.mark.parametrize("target", ["assessment", "review"])
+def test_unreadable_file_retains_its_cli_diagnostic(tmp_path, capsys, monkeypatch, target):
+    draft = tmp_path / "assessment.yaml"
+    review_path = tmp_path / "review.yaml"
+    assessment, review = diagnostic_pair()
+    draft.write_text(yaml.safe_dump(assessment))
+    review_path.write_text(yaml.safe_dump(review))
+    bad_path = draft if target == "assessment" else review_path
+    read_text = type(draft).read_text
+
+    def unreadable(path, *args, **kwargs):
+        if path == bad_path:
+            raise PermissionError("unreadable authoring file")
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(draft), "read_text", unreadable)
+    assert cli.main([str(draft), "--review", str(review_path)], now=NOW) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    label = "assessment" if target == "assessment" else "Assessment Review"
+    assert output.err == f"error: failed to load {label}: unreadable authoring file\n"

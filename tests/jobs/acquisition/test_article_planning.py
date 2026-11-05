@@ -99,8 +99,8 @@ def test_daily_input_refresh_keeps_acquisition_cas_and_pending_stage(tmp_path):
 
 
 def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_path, monkeypatch):
+    from baibai_engine.storage.objects.json import put_private
     from baibai_jobs.acquisition import article_planning
-    from baibai_jobs.acquisition.external_assessments.staging import put_private
 
     remote = MemoryR2Store()
     publish_planning_input(remote, "boj_news", {"lake_release_id": "initial"})

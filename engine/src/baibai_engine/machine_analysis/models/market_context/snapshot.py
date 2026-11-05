@@ -1,13 +1,4 @@
-"""Produce benchmark-trend history and sector aggregates from cached bars.
-
-The snapshot is the entry point for AI research on the market itself: a weekly
-time series of the mechanical benchmark trend and universe breadth, plus a
-sector map (per-sector return medians and breadth) at the evaluation date. It
-also feeds the explicit market context assessment with machine-collected inputs. All
-fields are deterministic transforms of stored market observations. Return windows
-and trend thresholds are shared with the benchmark model;
-results also depend on the available history in each requested input window.
-"""
+"""固定価格と各時点のmasterから市場breadth・業種集計を計算する。"""
 
 from __future__ import annotations
 
@@ -124,6 +115,7 @@ def _sector_table(
     benchmark = series_by_ticker.get(benchmark_ticker)
     observation_date = benchmark.last_date_on(asof_date) if benchmark is not None else None
     if observation_date is None:
+        # benchmark欠測でも業種内比較は残し、古い最終価格を同じ断面へ混ぜない。
         observation_date = max(
             (
                 day

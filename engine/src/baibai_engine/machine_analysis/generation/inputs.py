@@ -103,6 +103,8 @@ def read_and_generate_models(
     price_identity: InputSnapshot | None = None,
     master_identity: InputSnapshot | None = None,
     calendar_identity: InputSnapshot | None = None,
+    margin_alerts_identity: InputSnapshot | None = None,
+    short_sale_reports_identity: InputSnapshot | None = None,
 ) -> ModelGenerationStream:
     """callerは同じmarket sealからreleaseを作り、economic copyも固定する。
 
@@ -307,6 +309,16 @@ def read_and_generate_models(
             ),
             **({"economic": economic_identity} if economic_identity is not None else {}),
             **({"calendar": calendar_identity} if calendar_identity is not None else {}),
+            **(
+                {"margin_alerts": margin_alerts_identity}
+                if margin_alerts_identity is not None
+                else {}
+            ),
+            **(
+                {"short_sale_reports": short_sale_reports_identity}
+                if short_sale_reports_identity is not None
+                else {}
+            ),
             **({"master": master_identity} if master_identity is not None else {}),
             **({"price": price_identity} if price_identity is not None else {}),
             **({"financial": financial_input.identity} if financial_input is not None else {}),

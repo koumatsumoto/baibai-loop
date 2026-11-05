@@ -20,6 +20,14 @@ class FactsScope:
     doc_ids: frozenset[str] = frozenset()
     legacy_origins: frozenset[str] = frozenset()
 
+    def join(self, incoming: FactsScope) -> FactsScope:
+        starts = [value for value in (self.since, incoming.since) if value is not None]
+        return FactsScope(
+            min(starts) if starts else None,
+            self.doc_ids | incoming.doc_ids,
+            self.legacy_origins | incoming.legacy_origins,
+        )
+
 
 def read_scope(connection: sqlite3.Connection, *, schema: str = "main") -> FactsScope:
     if schema not in {"main", "source"}:
@@ -52,12 +60,7 @@ def merge_scope(connection: sqlite3.Connection, incoming: FactsScope) -> FactsSc
     if not connection.in_transaction:
         connection.execute("BEGIN IMMEDIATE")
     current = read_scope(connection)
-    starts = [value for value in (current.since, incoming.since) if value is not None]
-    merged = FactsScope(
-        min(starts) if starts else None,
-        current.doc_ids | incoming.doc_ids,
-        current.legacy_origins | incoming.legacy_origins,
-    )
+    merged = current.join(incoming)
     if merged != current:
         connection.execute(
             "INSERT INTO edinet_facts_scope VALUES (1,?,?,?) "

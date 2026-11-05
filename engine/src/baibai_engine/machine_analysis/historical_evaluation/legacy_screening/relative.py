@@ -49,12 +49,8 @@ def relative_valuation(
         baseline = sector_values if on_sector else market_metric_values.get(metric, [])
         sector_median = median(baseline) if baseline else None
         sector_medians[metric] = sector_median
-        # どちらの母集団が答えたかを値と同じ粒度で残す。両者は同じ語で呼ばれるが
-        # 別の量である。市場fallbackには業種構成の違いも入るため、素性が無いと
-        # 同業比較なのか市場比較なのかを後から区別できない。
-        # 中央値そのものが出なかった軸には基準が無い。どちらも答えていないのに
-        # 「市場へ落ちた」と書くと、EDINET 由来の軸のように母集団全体で値が立たない
-        # 軸が全行 fallback として並び、実際に落ちた軸と見分けが付かなくなる。
+        # 市場fallbackを同業比較と混同させない。中央値自体がない軸にbasisを付けると、
+        # 未観測を実在する市場比較として表示してしまう。
         if sector_median is not None:
             sector_bases[metric] = (
                 SECTOR_MEDIAN_BASIS_SECTOR if on_sector else SECTOR_MEDIAN_BASIS_MARKET
@@ -66,11 +62,8 @@ def relative_valuation(
         )
         history_values = valuation_history.get(metric, [])
         self_positions[metric] = self_range_position(history_values, current)
-        # 自己レンジの中央値。機械 E[r] の保守側 anchor に使う。標本が薄い履歴
-        # (直近上場等) の中央値は anchor として不安定なため 100 本を下限にする。
-        # `valuation_history` は fundamentals を最新値で固定して価格だけを動かすので、
-        # これは倍率の履歴ではなく価格の履歴を倍率の単位で表したものである。価格比例の
-        # 軸では `自己中央値 / 現値` が軸によらず `median(終値) / 現在株価` に一致する。
+        # 現在財務を固定した価格感応値で、当時の倍率履歴ではない。
+        # 薄い履歴の中央値をanchorにしないため、観測本数の下限を置く。
         self_medians[metric] = median(history_values) if len(history_values) >= 100 else None
 
     return RelativeValuation(

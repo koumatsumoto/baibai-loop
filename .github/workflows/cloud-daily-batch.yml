@@ -4,11 +4,10 @@ name: cloud-daily-batch
 run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
-  # #1820 本番切替中は定期起動を停止。再開時は下の元scheduleを復元する。
-  # schedule:
-  #   # 22:43 JST, independently of every acquisition workflow. Late receipts wait
-  #   # for the next integration; weekends still generate models from saved inputs.
-  #   - cron: "43 13 * * *"
+  schedule:
+    # 22:43 JST, independently of every acquisition workflow. Late receipts wait
+    # for the next integration; weekends still generate models from saved inputs.
+    - cron: "43 13 * * *"
   workflow_dispatch:
     inputs:
       asof:
@@ -22,9 +21,11 @@ permissions:
 env:
   BAIBAI_MASTER_NATIVE: "true"
   BAIBAI_CALENDAR_NATIVE: "true"
-  BAIBAI_EDINET_LIST_NATIVE: ${{ vars.BAIBAI_EDINET_LIST_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_EDINET_LIST_NATIVE: "true"
   BAIBAI_PRICE_NATIVE: "true"
   BAIBAI_FINANCIAL_NATIVE: "true"
+  BAIBAI_MARGIN_ALERTS_NATIVE: ${{ vars.BAIBAI_MARGIN_ALERTS_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_SHORT_SALE_REPORTS_NATIVE: ${{ vars.BAIBAI_SHORT_SALE_REPORTS_NATIVE == 'true' && 'true' || 'false' }}
 
 concurrency:
   group: common-source-integration

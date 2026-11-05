@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -485,7 +485,7 @@ def replay_events_through(
     seen_executions: set[str] = set()
     lots: dict[str, list[_Lot]] = defaultdict(list)
     metadata: dict[str, tuple[str, tuple[str, ...]]] = {}
-    board_lot = _policy_positive_int(_policy_mapping(policy, "order_constraints"), "board_lot")
+    board_lot = policy["order_constraints"]["board_lot"]
 
     for event in events:
         if event.occurred_at > as_of:
@@ -1068,8 +1068,7 @@ def active_human_overrides(
     policy: PolicyConfig = PORTFOLIO_POLICY,
 ) -> dict[tuple[str, str], HumanOverride]:
     """Validate price-independent override constraints and resolve them at one instant."""
-    cash_policy = _policy_mapping(policy, "cash_management")
-    max_override_days = _policy_number(cash_policy, "override_max_days")
+    max_override_days = policy["cash_management"]["override_max_days"]
     active_overrides: dict[tuple[str, str], HumanOverride] = {}
     for override in overrides:
         duration_days = (override.expires_at - override.approved_at).total_seconds() / 86_400
@@ -1096,8 +1095,8 @@ def _portfolio_warnings(
     total_capital: int,
     policy: PolicyConfig,
 ) -> tuple[PortfolioWarning, ...]:
-    cash_policy = _policy_mapping(policy, "cash_management")
-    risk_policy = _policy_mapping(policy, "risk_budget")
+    cash_policy = policy["cash_management"]
+    risk_policy = policy["risk_budget"]
     active_overrides = active_human_overrides(document.overrides, as_of=as_of, policy=policy)
 
     ticker_exposure: dict[str, int] = defaultdict(int)
@@ -1117,12 +1116,12 @@ def _portfolio_warnings(
 
     warnings: list[PortfolioWarning] = []
     warning_specs = (
-        ("ticker", ticker_exposure, "max_ticker_concentration_pct"),
-        ("sector", sector_exposure, "max_sector_concentration_pct"),
-        ("common_factor", factor_exposure, "max_common_factor_concentration_pct"),
+        ("ticker", ticker_exposure, risk_policy["max_ticker_concentration_pct"]),
+        ("sector", sector_exposure, risk_policy["max_sector_concentration_pct"]),
+        ("common_factor", factor_exposure, risk_policy["max_common_factor_concentration_pct"]),
     )
-    for scope, exposures, policy_key in warning_specs:
-        warning_pct = _policy_number(risk_policy, policy_key)
+    for scope, exposures, threshold in warning_specs:
+        warning_pct = float(threshold)
         for scope_key, exposure in sorted(exposures.items()):
             raw_actual_pct = exposure * 100 / total_capital
             actual_pct = round(raw_actual_pct, 2)
@@ -1140,7 +1139,7 @@ def _portfolio_warnings(
 
     raw_dry_powder_pct = available_cash * 100 / total_capital
     dry_powder_pct = round(raw_dry_powder_pct, 2)
-    dry_powder_warning = _policy_number(cash_policy, "dry_powder_warning_pct")
+    dry_powder_warning = float(cash_policy["dry_powder_warning_pct"])
     if raw_dry_powder_pct < dry_powder_warning:
         warnings.append(
             _warning(
@@ -1176,24 +1175,3 @@ def _warning(
         override_reason=override.reason if override else None,
         override_expires_at=override.expires_at if override else None,
     )
-
-
-def _policy_mapping(policy: PolicyConfig, key: str) -> Mapping[str, object]:
-    value = policy.get(key)
-    if not isinstance(value, Mapping):
-        raise PortfolioLedgerError(f"policy.{key} must be a mapping")
-    return cast(Mapping[str, object], value)
-
-
-def _policy_number(policy: Mapping[str, object], key: str) -> float:
-    value = policy.get(key)
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise PortfolioLedgerError(f"policy.{key} must be numeric")
-    return float(value)
-
-
-def _policy_positive_int(policy: Mapping[str, object], key: str) -> int:
-    value = policy.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise PortfolioLedgerError(f"policy.{key} must be a positive integer")
-    return value

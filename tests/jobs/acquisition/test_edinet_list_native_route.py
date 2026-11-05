@@ -29,6 +29,14 @@ DAY = date(2026, 11, 2)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
 
 
+@pytest.fixture(params=["explicit", "default"])
+def native_mode(monkeypatch, request):
+    if request.param == "explicit":
+        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    else:
+        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
+
+
 def payload(day, *, rows=()):
     return json.dumps(
         {
@@ -201,8 +209,7 @@ def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything
     assert database.read_bytes() == before
 
 
-def test_native_mode_stops_old_live_list_writer_before_http(tmp_path, monkeypatch):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+def test_native_mode_stops_old_live_list_writer_before_http(tmp_path, native_mode):
     with (
         closing(EDINETRefresh("unused", sqlite_path=tmp_path / "market.sqlite")) as client,
         pytest.raises(RuntimeError, match="writer moved"),
@@ -211,8 +218,7 @@ def test_native_mode_stops_old_live_list_writer_before_http(tmp_path, monkeypatc
     assert not (tmp_path / "market.sqlite").exists()
 
 
-def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkeypatch):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkeypatch, native_mode):
     monkeypatch.setattr(
         "baibai_jobs.integration.source_handoff._acquire_edinet_lists", lambda *a: True
     )
@@ -238,7 +244,7 @@ def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkey
     assert not (tmp_path / "absent.sqlite").exists()
 
 
-def test_native_archive_input_drops_list_copies_but_keeps_source_scope(tmp_path, monkeypatch):
+def test_native_archive_input_drops_list_copies_but_keeps_source_scope(tmp_path, native_mode):
     from baibai_engine.data_collection.providers.edinet.facts_scope import (
         FactsScope,
         merge_scope,
@@ -250,7 +256,6 @@ def test_native_archive_input_drops_list_copies_but_keeps_source_scope(tmp_path,
     materialize_lists(owner.freeze(), database)
     with closing(open_connection(database)) as conn, conn:
         merge_scope(conn, FactsScope(DAY, frozenset({"S100TEST"}), frozenset()))
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     output = tmp_path / "input.sqlite"
     export_source_input(database, output, group="edinet-facts", asof=DAY)
     with closing(open_connection(output)) as conn:
@@ -486,7 +491,7 @@ def test_native_cache_dehydrate_and_hydrate_roundtrip_without_lake_raw(tmp_path,
 
 @pytest.mark.parametrize("failure", [OSError, ValueError])
 def test_workflow_route_exports_pending_even_when_acquirer_returns_failure(
-    tmp_path, monkeypatch, failure
+    tmp_path, monkeypatch, failure, native_mode
 ):
     from baibai_engine.data_collection.providers.edinet import http
     from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY
@@ -500,7 +505,6 @@ def test_workflow_route_exports_pending_even_when_acquirer_returns_failure(
     client.close = lambda: None
     monkeypatch.setattr(http, "EDINETHTTP", lambda _: client)
     monkeypatch.setattr(source_handoff, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     output = tmp_path / "outputs"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     real_put = store.put_file
@@ -541,7 +545,7 @@ def test_workflow_route_exports_pending_even_when_acquirer_returns_failure(
 
 @pytest.mark.parametrize("command", ["hydrate", "dehydrate"])
 def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
-    tmp_path, monkeypatch, command
+    tmp_path, monkeypatch, command, native_mode
 ):
     from contextlib import contextmanager
     from types import SimpleNamespace
@@ -553,7 +557,6 @@ def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
     store.close = lambda: None
     database = tmp_path / "market.sqlite"
     materialize_lists(owner.freeze(), database)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(r2, "Boto3R2Store", lambda **_: store)
     release = SimpleNamespace(dataset_names=lambda: ("edinet.document_lists",))
     cache = SimpleNamespace(source=None)
@@ -597,13 +600,12 @@ def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
 
 
 def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, native_mode
 ):
     from baibai_jobs.acquisition import source_inputs
     from baibai_jobs.integration import sources
 
     store = MemoryR2Store()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(sources, "_load_handle", lambda _: object())
     monkeypatch.setattr(sources, "verify_held", lambda *_: None)

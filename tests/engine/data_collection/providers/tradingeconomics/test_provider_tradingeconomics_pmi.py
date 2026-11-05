@@ -14,6 +14,7 @@ from baibai_engine.data_collection.catalog import load_sources, require_source
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
+    read_document_metadata,
     read_documents,
     store_document,
 )
@@ -83,13 +84,13 @@ def document(body, *, url=URL, stream="jp_manufacturing", when=WHEN):
     }[stream]
     article = te.parse_article(body, stream=stream, url=url)
     return SourceDocument(
-        source_id,
-        te.request_key(url),
-        url,
-        "text/html",
-        when,
-        body,
-        {
+        source_id=source_id,
+        request_key=te.request_key(url),
+        source_url=url,
+        content_type="text/html",
+        fetched_at=when,
+        payload=body,
+        metadata={
             "delivery_provider": "tradingeconomics",
             "measurement_provider": "spglobal",
             "stream": stream,
@@ -247,13 +248,16 @@ def test_existing_pdf_history_is_not_fetched_from_the_refused_route(monkeypatch)
     index = te.BASE_URL + te.STREAM_PATHS["jp_manufacturing"]
     old_month = date(2026, 8, 1)
     old = SourceDocument(
-        "spglobal-jp-pmi-mfg",
-        old_month.isoformat(),
-        "https://www.pmi.spglobal.com/old",
-        "application/pdf",
-        WHEN,
-        b"%PDF untouched",
-        {"observed_at": old_month.isoformat(), "release_observed_at": old_month.isoformat()},
+        source_id="spglobal-jp-pmi-mfg",
+        request_key=old_month.isoformat(),
+        source_url="https://www.pmi.spglobal.com/old",
+        content_type="application/pdf",
+        fetched_at=WHEN,
+        payload=b"%PDF untouched",
+        metadata={
+            "observed_at": old_month.isoformat(),
+            "release_observed_at": old_month.isoformat(),
+        },
     )
     docs, calls = acquire(
         monkeypatch,
@@ -417,7 +421,7 @@ def test_malformed_same_url_outside_index_stays_recheckable_and_can_repair(
         assert _missing_ranges(conn, source, SEP, date(2026, 9, 30), []) == (
             (SEP, date(2026, 9, 30)),
         )
-        existing = {doc.request_key: doc for doc in read_documents(conn, source.source_id)}
+        existing = {doc.request_key: doc for doc in read_document_metadata(conn, source.source_id)}
         replies[URL] = html(FINAL.replace("54.1", "54.3"), modified="2026-10-29T01:00:00Z")
         calls.clear()
         with FetchContext() as context:
@@ -493,7 +497,7 @@ def test_known_url_corrected_to_out_of_range_month_removes_stale_month(
         for doc in received:
             store_document(conn, doc)
         assert read_document_series(conn, series, start=SEP, end=SEP) == ()
-        existing = {doc.request_key: doc for doc in read_documents(conn, source.source_id)}
+        existing = {doc.request_key: doc for doc in read_document_metadata(conn, source.source_id)}
         replies[URL] = html(FINAL)
         calls.clear()
         with FetchContext() as context:

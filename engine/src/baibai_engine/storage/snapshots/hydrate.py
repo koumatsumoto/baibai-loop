@@ -39,13 +39,13 @@ from baibai_engine.storage.snapshots.reader import (
     selected_partitions,
 )
 from baibai_engine.storage.snapshots.retention import exclusive_lock
+from baibai_engine.storage.sqlite.snapshot import backup_to_new_file, validate_snapshot
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     read_lake_store_origin,
     write_lake_store_origin,
 )
-from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot, validate_snapshot
 
 _MIN_FREE_BYTES = 64 * 1024 * 1024
 
@@ -192,7 +192,7 @@ def hydrate_market_store(
         temporary = store.with_name(f".{store.name}.{os.getpid()}.{uuid.uuid4().hex}.hydrating")
         rows: dict[str, int] = {}
         try:
-            schema_version = create_snapshot(store, temporary)
+            schema_version = backup_to_new_file(store, temporary)
             connection = sqlite3.connect(temporary)
             try:
                 connection.execute("PRAGMA journal_mode=OFF")

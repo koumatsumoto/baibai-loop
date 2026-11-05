@@ -60,13 +60,13 @@ def body(value=100, *, padding=0):
 
 def document(when=WHEN, payload=None):
     return SourceDocument(
-        SOURCE,
-        "history",
-        require_source(SOURCE).source_url,
-        "application/json",
-        when,
-        body() if payload is None else payload,
-        {"params": {"data": "data"}},
+        source_id=SOURCE,
+        request_key="history",
+        source_url=require_source(SOURCE).source_url,
+        content_type="application/json",
+        fetched_at=when,
+        payload=body() if payload is None else payload,
+        metadata={"params": {"data": "data"}},
     )
 
 

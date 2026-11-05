@@ -26,6 +26,7 @@ def _price_block(
 ) -> dict[str, object] | None:
     if not bars:
         return None
+    # 個社の実在bar窓。共通営業日窓へ読み替えると欠測銘柄の比較期間が変わる。
     prices = [bar.price for bar in bars]
     current = prices[-1]
     returns = {

@@ -136,6 +136,7 @@ def evaluate_buy_terms(
     else:
         lot_cost = limit * board_lot
         cash_lots = max(0, int(cash // lot_cost))
+        # guideは絶対上限ではないため、cashで賄える1単元まで除外しない。
         guide_lots = max(1, int(guide // lot_cost))
         maximum_quantity = min(cash_lots, guide_lots) * board_lot
         if maximum_quantity == 0:

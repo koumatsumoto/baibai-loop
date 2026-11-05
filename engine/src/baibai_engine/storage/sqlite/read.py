@@ -18,10 +18,23 @@ def connect_read_only(path: Path) -> sqlite3.Connection:
 
     resolved = path.resolve()
     connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only = ON")
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+    except BaseException:
+        connection.close()
+        raise
+
+
+def written_schema_version(connection: sqlite3.Connection) -> int | None:
+    """未初期化だけをNoneとし、tableを持つversion 0を未公開へ落とさない。"""
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0] or 0)
+    table = connection.execute(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
+    ).fetchone()
+    return None if version == 0 and table is None else version
 
 
 def is_missing_table_error(error: sqlite3.OperationalError) -> bool:
@@ -33,11 +46,7 @@ def is_missing_table_error(error: sqlite3.OperationalError) -> bool:
 def is_unwritten_database(path: Path) -> bool:
     """Classify an existing store by version 0 and absence of user tables, read-only."""
     with closing(connect_read_only(path)) as connection:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0] or 0)
-        table = connection.execute(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-        ).fetchone()
-    return version == 0 and table is None
+        return written_schema_version(connection) is None
 
 
 def is_unwritten_store(error: sqlite3.OperationalError, path: Path) -> bool:

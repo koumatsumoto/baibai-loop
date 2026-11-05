@@ -365,6 +365,7 @@ source_modules = [
   "baibai_engine.machine_analysis.models.company_financials",
   "baibai_engine.investment_judgment.stock_assessment.scenario", "baibai_engine.investment_judgment.stock_assessment.valuation",
   "baibai_engine.investment_judgment.stock_assessment.cash_share_cb", "baibai_engine.investment_judgment.stock_assessment.document",
+  "baibai_engine.investment_judgment.independent_review.contracts",
   "baibai_engine.investment_judgment.trade_proposal.contracts", "baibai_engine.investment_judgment.trade_proposal.entry_policy",
   "baibai_engine.investment_judgment.trade_proposal.holding_policy",
 ]
@@ -377,6 +378,7 @@ forbidden_modules = [
   "baibai_engine.investment_judgment.workflow.workspace",
   "baibai_engine.investment_judgment.stock_assessment.store",
   "baibai_engine.investment_judgment.trade_proposal.service",
+  "baibai_engine.investment_judgment.draft_files",
 ]
 # The common-stock grid is a pure domain helper.
 ignore_imports = [
@@ -388,6 +390,17 @@ name = "Reviewed Assessment storage does not depend on proposal composition"
 type = "forbidden"
 source_modules = ["baibai_engine.investment_judgment.stock_assessment.store"]
 forbidden_modules = ["baibai_engine.investment_judgment.trade_proposal.service", "baibai_engine.investment_judgment.trade_proposal.inputs", "baibai_engine.investment_judgment.workflow.workspace", "baibai_engine.investment_judgment.workflow.operation"]
+
+[[tool.importlinter.contracts]]
+name = "retrospective persistence and evidence do not depend on query composition"
+type = "layers"
+# 保存と再訪は根拠照合を共有し、互いの入口へ戻らない。
+layers = [
+  "baibai_engine.investment_judgment.judgment_retrospective.query",
+  "baibai_engine.investment_judgment.judgment_retrospective.store",
+  "baibai_engine.investment_judgment.judgment_retrospective.context",
+  "baibai_engine.investment_judgment.judgment_retrospective.document",
+]
 
 [[tool.importlinter.contracts]]
 name = "external assessment observation contracts stay independent of services"

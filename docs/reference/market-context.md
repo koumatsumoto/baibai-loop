@@ -5,18 +5,15 @@
 <a id="market-context-reads"></a>
 ## 比較する母集団と時点
 
-| 出力 | 比較対象 |
-| --- | --- |
-| market snapshot | benchmarkと同じ観測日の普通株breadth・業種中央値。過去の各時点以下のmasterを使う |
-| security context | 指定銘柄と同じ開始・終了日のbenchmark、自己を除いた同業peer。端点不足を補間しない |
+普通株の母集団は各時点以下の最新masterを使い、除外された銘柄を古いsnapshotから戻さない。全市場・業種の参照母集団を調査候補だけへ縮めない。入力固定は[生成owner](../../engine/src/baibai_engine/machine_analysis/generation/runners/market_snapshot.py)、算式・窓・fieldは[市場モデル](../../engine/src/baibai_engine/machine_analysis/models/market_context/)が所有する。
 
-masterはcutoff以下の一つの最新snapshotを選び、その中にないtickerを古いsnapshotから復活させない。普通株とETF等を混ぜず、価格・benchmark・master・要求日の各基準日を示す。peer中央値と市場の業種中央値は別母集団である。保存旧runの業種relative strengthは当時のScreening母集団で業種平均と市場平均を比較した値で、個別対業種の差ではない。旧値はrawのまま読み、現行生成や較正で再計算しない。
+市場snapshotのbreadthはbenchmarkと同じ観測日の普通株を使う。業種表はbenchmarkがなくても保持価格の最新観測日で成立し得るが、benchmark比較や市場breadthの成立を意味しない。業種の騰落率中央値は各銘柄の観測bar窓を集計するため、開始日まで揃った比較とは限らない。
 
-価格は[調整済み価格reader](../../engine/src/baibai_engine/machine_analysis/observations/prices/adjusted_prices.py)からprice-only basisで読む。個別対peerの差はratioの差で、0.1は10 percentage points。乖離を企業の割安認定へ変換しない。価格の自己順位百分位と、旧較正に残る倍率の自己レンジ内位置は別の量である。
+個別株の相対値は、その銘柄と同じ開始・終了日のbenchmarkと、自己を除く同業peerを比較する。端点不足を補間せず、業種表の中央値で代用しない。差はratioの差で、0.1は10 percentage points。価格は配当を含まない調整済み終値であり、乖離を企業の割安認定にしない。価格の自己順位百分位も、旧較正の倍率レンジ内位置とは別の量である。
 
-既存security contextの`price.return_1d/5d/20d/60d`は個社観測bar差分、`high_52w`は直近252終値の高値で、共通営業日窓へ変更していない。新生成の`price_path_relative`だけがTAの[共通calendar観測](technical-analysis.md#共通calendarの価格context)と同じref・正確な開始/終了日でbenchmarkを比較する。G252は253営業日期間内の観測peak→現在で、旧252終値highとも前年比とも異なる。生成時に既読の長期benchmark系列と日状態を再利用し、端点が欠測・不整合なら当該比較だけを未評価にする。旧MC相対値・peer値の異窓流用や、新しいpeer比較は行わない。
+個社の観測bar窓と、TAの[共通calendar観測](technical-analysis.md#共通calendarの価格context)は別の時間軸である。`price_path_relative`はTAの実在する価格対と同じ端点を使い、benchmark不足を相対比較だけへ局所化する。観測peakからの下落を前年比returnや旧bar窓の高値差へ読み替えない。旧runの業種relative strengthも当時の候補母集団による別定義なので、現行値へ再計算しない。
 
-旧ticker-profileは旧runと可変モデル・現在ledgerを混合するため撤去した。調査のモデル入力はselection-contextで固定generationから読み、取引事実は[Portfolio Ledger](portfolio-ledger.md)、決算予定・規制等の原観測は各market readerから必要時に確認する。selection-contextへイベント一覧や現在ledgerの集中度が含まれるとは扱わない。共通生成は全masterと共有価格から市場・業種の参照文脈を作り、個社だけを調査するときも参照母集団を候補集合へ縮めない。
+調査はSelectionの固定generationを使う。決算予定・規制等の原観測と現在の[台帳](portfolio-ledger.md)は別に確認し、固定モデル入力に含まれるとは扱わない。
 
 <a id="margin"></a>
 ## 信用需給
@@ -32,34 +29,24 @@ levelは公表済み直近残高で、cadenceが変わっても語義は変わ�
 <a id="reading"></a>
 ## Reading
 
-Yahooの1日足closeは取引途中の値を含む。保存原本のsession時刻と受領時刻から途中と確認できる場合は、その意味をReading・派生系列へ渡す。現在時刻や固定の米国閉場時刻で過去の受領を判定せず、原値・取得範囲は維持する。session終了や過去日のバーだけで公式終値・先物清算値の確定を認定しない。
+Readingは保存観測と[dated規則](../../engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/)から系列の水準・歴史分布・鮮度を記述する。regime、合成score、売買signalではなく、L2系列を原本storeへ複製しない。計算は[Readingモデル](../../engine/src/baibai_engine/machine_analysis/models/market_context/reading/)、保存原本からの入力選択と読取制約は[生成reader](../../engine/src/baibai_engine/machine_analysis/generation/runners/market_reading.py)を辿る。読取commandは`baibai-engine market-context --help`を参照する。
 
-Readingは保存L1とdated規則から記述統計・鮮度を計算する。regime、合成score、売買signalではなく、系列ごとに水準が歴史分布のどこにあるかを読む共通の物差しである。L2系列・scalar履歴を原本storeへ複製しない。
+percentile/z-scoreが水準と前年比のどちらを比較するかは`statistic`で確認する。latest・trendは元系列のままで、統計窓・観測数・sampling頻度を揃えて読む。履歴不足でも最新値が誤りとは限らず、stale・取得失敗・分布の端を区別する。指標CLIの`--latest`も保存入力の最後の観測を元の日付で返すだけで、今日の値や鮮度を保証しない。次回公表の目安はcadence/lagの推定で、公式calendarではない。
 
-```bash
-uv run baibai-engine market-context reading --asof <YYYY-MM-DD> --format json
-uv run baibai-engine market-context snapshot --asof <YYYY-MM-DD> --format json
-uv run baibai-engine market-context indicators get jp.policy_rate --latest
-```
+Yahooの1日足closeは取引途中の値を含む。保存session・受領時刻で途中と確認できた意味をReadingへ渡し、現在時刻から過去の受領を判定しない。session終了や過去日のbarも公式終値・先物清算値の確定証明ではない。
 
-指標CLIの`--latest`は保存入力から得られる最後の観測を元の日付で返す。今日の値や鮮度の保証ではなく、当日rangeの欠測を補完しない。
-
-percentile/z-scoreの対象がlevelかyoyかをstatisticで確認する。latestやtrendまでyoyへ変わるわけではない。実効窓・観測数・sampling頻度を揃え、疎な系列を密な日次履歴と同列に比較しない。履歴不足でも最新値そのものが誤りとは限らず、stale・取得失敗・分布の端を区別する。next_print_estimateはcadence/lagの推定で公式calendarではない。
-
-ネット流動性は入力の単位を揃えるが、WALCLの水曜残高、WTREGENの週平均、日次RRPを組み合わせる近似であり、同時点の厳密な残高や投資可能資金ではない。月次整列の代表日や採用入力vintageも実公表時刻ではない。
-
-Readingの規則は[所有ドメインのdated YAML](../../engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/)と出力のrules_revision（filename stem）で識別する。物理配置とrevisionを分け、保存判断が引用した数値・意味を配置整理で変えず、current copyを増やさない。式変更は保存原本の再読で行い、必要な原本不足がある場合だけ取得する。
+ネット流動性はWALCLの水曜残高、WTREGENの週平均、日次RRPを単位を揃えて組み合わせる近似で、同時点の厳密な残高や投資可能資金ではない。月次の代表日や採用vintageも実公表時刻ではない。
 
 <a id="option-iv"></a>
 ### オプションIVの読み方
 
-iv30・skewは30日を挟む適格な限月を要し、skewの期間補間は逆平方根の満期軸を使う規約である。SQ直後や急変時の欠測を平穏とせず、termの負値だけをパニック、skewの縮小だけを警戒後退としない。put/callのIV差は両限月で確認するが、差だけでsourceの誤りを確定しない。[当時の標本と診断](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-07-31-option-iv-quantiles/report.md)は売買閾値や将来収益の検証ではない。
+iv30・skewは適格な30日限月をそのまま使うか、30日を挟む2限月から補間する。[補間と基準検査](../../engine/src/baibai_engine/machine_analysis/observations/economic_indicators/option_iv.py)は計算規約であり、SQ直後や急変時の欠測を平穏としない。termの負値だけをパニック、skewの縮小だけを警戒後退とせず、put/callのIV差だけでsource誤りを確定しない。[当時の標本と診断](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-07-31-option-iv-quantiles/report.md)は売買閾値や将来収益の検証ではない。
 
 ### 再計算とPITの限界
 
-read_semanticsがrecomputed_from_current_storeなら現在storeの後日取得・改定情報から再計算している。Investment Judgmentのknown_atはReadingへ一律適用されず、ProviderSpecが公表vintage能力を持つと宣言したsourceだけを対象日でclampする。bulk履歴の受領時刻で一律clampすると、当時既知だった履歴まで消してしまう。
+`read_semantics.mode`が`recomputed_from_current_store`なら、現在の保存履歴から後日取得・改定値を含めて再計算している。ReadingへResearchの`known_at`は適用されず、公表vintageを持つsourceだけを対象日で制限する。bulk履歴の受領時刻で一律に絞ると、当時既知だった履歴まで消してしまう。
 
-as-ofの固定やJST日末cutoffは**intraday PITの保証ではない**。公表日、受領時刻、改定vintageの能力を確認し、当時の判断品質や成績との照合へこの限界を残す。投資部門別PubDateも改定の正確なAPI利用可能時刻ではない。snapshot固定は再開時の同一入力を保つ。
+snapshot固定は再開時の同一入力を保つが、**intraday PITの保証ではない**。同じas-ofだけでは後日再計算の入力も固定されない。投資部門別PubDateを含め、公表日は正確なAPI利用可能時刻や改定履歴の完全性を示さない。当時の判断・成績と照合する際もこの限界を残す。
 
 <a id="assessment"></a>
 ## 市場環境判断

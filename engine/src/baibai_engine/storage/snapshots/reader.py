@@ -37,6 +37,7 @@ from baibai_engine.storage.snapshots.models import (
     ReleasePolicy,
     canonical_lake_model_bytes,
     load_lake_model_json,
+    parquet_source_kind,
     validate_dataset_contract,
     validate_release_policy,
     validate_source_generations,
@@ -410,11 +411,7 @@ def materialize_partitions(
 
     paths: list[Path] = []
     for partition in partitions:
-        source_kind: Literal["legacy_sqlite_import", "l1_derived"] = (
-            "l1_derived"
-            if any(source.kind in {"l1_dataset", "native_l1"} for source in partition.sources)
-            else "legacy_sqlite_import"
-        )
+        source_kind = parquet_source_kind(partition.sources)
         for lake_object in partition.objects:
             path = cache.materialize(lake_object)
             verify_object(path, dataset, lake_object, source_kind=source_kind)

@@ -20,11 +20,11 @@ from typing import Any
 
 from baibai_engine.data_collection.receipts.articles.store import read_body, read_receipt
 from baibai_engine.storage.json import write_json_atomic
+from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition.article_planning import ARTICLE_NAMESPACE, ARTICLE_SOURCES
 from baibai_jobs.acquisition.economic_staging import stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import read_private
 from baibai_jobs.acquisition.receipts import download_fixed
 
 

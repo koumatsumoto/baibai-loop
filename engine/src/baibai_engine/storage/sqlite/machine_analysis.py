@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.storage.paths import RUNS_DB_PATH
+from baibai_engine.storage.sqlite.read import connect_read_only as connect_sqlite_read_only
+from baibai_engine.storage.sqlite.read import written_schema_version
 
 DEFAULT_RUN_STORE_PATH = RUNS_DB_PATH
 
@@ -126,23 +128,11 @@ def initialize_run_store(path: Path | None = None) -> int:
 def connect_read_only(path: Path | None = None) -> sqlite3.Connection:
     """Open the run store read-only and require its current schema."""
 
-    resolved = run_store_path(path).resolve()
-    connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    register_run_clock(connection)
-    connection.execute("PRAGMA query_only = ON")
-    connection.execute("PRAGMA foreign_keys = ON")
+    connection = connect_sqlite_read_only(run_store_path(path))
     try:
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        has_tables = connection.execute(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-        ).fetchone()
-        if version == 0 and has_tables is None:
-            # An untouched file is the same no-store state as an absent path. The
-            # first domain query raises OperationalError, which the caller reports as
-            # no publication; it is not an obsolete store accepted as current.
-            return connection
-        if version != RUN_STORE_SCHEMA_VERSION:
+        register_run_clock(connection)
+        version = written_schema_version(connection)
+        if version is not None and version != RUN_STORE_SCHEMA_VERSION:
             raise RuntimeError(
                 "screening run store schema is not current "
                 f"(found {version}, expected {RUN_STORE_SCHEMA_VERSION}); use explicit migration"

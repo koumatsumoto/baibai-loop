@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import Any
 
+from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_jobs.acquisition.external_assessments.cohorts import RunPlan, new_result, record_outcome
 from baibai_jobs.acquisition.external_assessments.collection import CollectionResult
@@ -14,8 +15,6 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     CohortStage,
     load_stage,
     prefix,
-    put_private,
-    read_private,
     stage_bytes,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore

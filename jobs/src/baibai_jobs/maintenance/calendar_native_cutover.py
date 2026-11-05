@@ -36,6 +36,7 @@ from baibai_engine.machine_analysis.observations.prices.snapshot_contracts impor
     JQUANTS_MARKET_CALENDAR,
 )
 from baibai_engine.storage.json import write_json_atomic
+from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
 from baibai_engine.storage.snapshots.duck import LakeSession
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, open_lake
@@ -48,7 +49,6 @@ from baibai_engine.storage.snapshots.reader import (
 )
 from baibai_jobs.acquisition.dependencies import load_dependency
 from baibai_jobs.acquisition.economic_staging import stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import read_private
 from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs, download_fixed
 
 

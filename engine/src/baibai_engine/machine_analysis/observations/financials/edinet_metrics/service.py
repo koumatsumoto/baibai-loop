@@ -45,12 +45,16 @@ from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, connect_current
 
 
-class EdinetMetricReader(Protocol):
+class EdinetMetricArchiveReader(Protocol):
+    """Selected CSV originals, independent of where list rows are projected."""
+
+    def read_csv_zip(self, doc_id: str) -> bytes: ...
+
+
+class EdinetMetricReader(EdinetMetricArchiveReader, Protocol):
     """Stored document and archive inputs for offline metric extraction."""
 
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
-
-    def read_csv_zip(self, doc_id: str) -> bytes: ...
 
 
 def extract_edinet_metrics_command(
@@ -171,7 +175,7 @@ def extract_edinet_metrics_from_plan(
     *,
     asof_date: date,
     plan: MetricExtractionPlan,
-    reader: EdinetMetricReader,
+    reader: EdinetMetricArchiveReader,
     sqlite_path: Path,
     stdout: TextIO | None = None,
     unavailable_doc_ids: frozenset[str] = frozenset(),

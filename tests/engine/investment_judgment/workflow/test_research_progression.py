@@ -288,9 +288,10 @@ def test_exact_assessment_pair_and_selected_purpose_are_verified(case, change):
     assert service.get(operation.operation_id) == operation
 
 
-def test_future_assessment_publication_cannot_be_recorded(case):
+@pytest.mark.parametrize("later", [timedelta(microseconds=1), timedelta(minutes=1)])
+def test_future_assessment_publication_cannot_be_recorded(case, later):
     db, _ = case
-    reference = seed_assessment(db, now=NOW + timedelta(minutes=1))
+    reference = seed_assessment(db, now=NOW + later)
     service, operation = start(case, ("1234",))
     with pytest.raises(ValueError, match="precedes Assessment publication"):
         service.record_assessment(operation.operation_id, reference, now=NOW)
