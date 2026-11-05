@@ -3,31 +3,21 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from itertools import chain
 from pathlib import Path
 
 from pydantic import JsonValue
 
 from baibai_engine.storage.snapshots.keys import validate_lake_object_key
 
-# Report published objects and build workspaces separately so abandoned staging
-# cannot hide growth of the canonical publication graph.
+# 中断したbuildの作業容量で公開objectの増加を隠さないよう、予算を分ける。
 SOFT_BUDGET_BYTES = {
-    # Published objects and in-flight staging have separate soft budgets so staging
-    # leaks cannot hide growth of the canonical publication graph.
     "published": 10 * 1024**3,
-    # In-flight staging, including what a failed build left behind. It is under no
-    # manifest, so nothing else in this report grows when it does — and it holds whole
-    # sealed stores, so a repeated large failure is otherwise an invisible leak.
     "workspace": 20 * 1024**3,
 }
 
-
-# Files the operation writes beside the lake namespace, not objects the lake publishes.
+# mirror直下のstoreやbackupは集計外。lake外の制御fileもobjectと区別する。
 _CONTROL_FILES = frozenset({".lake-writer.lock"})
-
-# The mirror root is a directory the operator also keeps stores and generation records in,
-# so the lake is one subtree of it rather than the whole thing.
-_NAMESPACE = "lake"
 
 
 def _capacity_class(key: str) -> str | None:
@@ -45,10 +35,6 @@ def _area(key: str) -> str:
     parts = key.split("/")
     if parts[:3] in (["lake", "l1", "source"], ["lake", "l2", "processed"]) and len(parts) >= 4:
         return "/".join(parts[:4])
-    if parts[:2] == ["lake", "manifests"] and len(parts) >= 3:
-        return "/".join(parts[:3])
-    if parts[:2] == ["lake", "pointers"] and len(parts) >= 3:
-        return "/".join(parts[:3])
     return "/".join(parts[:3])
 
 
@@ -71,25 +57,18 @@ def inventory(root: Path) -> dict[str, JsonValue]:
         raise ValueError("inventory root must be a directory")
 
     totals: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
-    invalid_keys: list[JsonValue] = []
+    invalid_paths: list[Path] = []
     objects = 0
     total_bytes = 0
     capacity: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     control_files = 0
     control_bytes = 0
-    # Walking the whole root would describe the operator's directory rather than the lake:
-    # a market store, a backup and a generation record are not badly named lake objects,
-    # and counting them as such buries the one thing an invalid key is meant to surface.
-    walked = list((root / _NAMESPACE).rglob("*"))
-    walked.extend(root / name for name in _CONTROL_FILES)
-    for path in sorted(walked):
+    for path in chain((root / "lake").rglob("*"), (root / name for name in _CONTROL_FILES)):
         if not path.is_file():
             continue
-        key = path.relative_to(root).as_posix()
+        relative = path.relative_to(root)
+        key = relative.as_posix()
         size = path.stat().st_size
-        # Operational control files live beside the namespace rather than in it. Counting
-        # them as lake objects makes the totals disagree with the prefix breakdown, and
-        # reporting them as invalid keys makes a healthy store look corrupt.
         if key in _CONTROL_FILES:
             control_files += 1
             control_bytes += size
@@ -99,7 +78,7 @@ def inventory(root: Path) -> dict[str, JsonValue]:
         try:
             validate_lake_object_key(key)
         except ValueError:
-            invalid_keys.append(key)
+            invalid_paths.append(relative)
             continue
         area = totals[_area(key)]
         area[0] += 1
@@ -132,5 +111,5 @@ def inventory(root: Path) -> dict[str, JsonValue]:
             for name, budget in sorted(SOFT_BUDGET_BYTES.items())
         ],
         "control_files": {"objects": control_files, "bytes": control_bytes},
-        "invalid_keys": invalid_keys,
+        "invalid_keys": [path.as_posix() for path in sorted(invalid_paths)],
     }

@@ -42,8 +42,8 @@ jobs:
       run_id: ${{ steps.cycle.outputs.run_id }}
       observation_date: ${{ steps.cycle.outputs.observation_date }}
     env:
-      BAIBAI_MASTER_NATIVE: ${{ vars.BAIBAI_MASTER_NATIVE == 'true' && 'true' || 'false' }}
-      BAIBAI_CALENDAR_NATIVE: ${{ vars.BAIBAI_CALENDAR_NATIVE == 'true' && 'true' || 'false' }}
+      BAIBAI_MASTER_NATIVE: "true"
+      BAIBAI_CALENDAR_NATIVE: "true"
       SOURCE: ${{ inputs.source }}
       SOURCE_RUN_ID: ${{ inputs.run_id }}
       MASTER_ASOF: ${{ inputs.master_asof }}

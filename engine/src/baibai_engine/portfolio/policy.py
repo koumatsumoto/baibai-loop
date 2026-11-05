@@ -3,13 +3,40 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TypedDict
 
-type PolicyConfig = Mapping[str, Any]
+
+class CashManagementPolicy(TypedDict):
+    dry_powder_warning_pct: float
+    override_max_days: int
+
+
+class RiskBudgetPolicy(TypedDict):
+    max_ticker_concentration_pct: float
+    max_sector_concentration_pct: float
+    max_common_factor_concentration_pct: float
+    max_adv_participation_pct: float
+
+
+class OrderConstraints(TypedDict):
+    board_lot: int
+
+
+class ValuationPolicy(TypedDict):
+    market_price_max_age_days: int
+
+
+class PolicyConfig(TypedDict):
+    cash_management: CashManagementPolicy
+    risk_budget: RiskBudgetPolicy
+    order_constraints: OrderConstraints
+    valuation: ValuationPolicy
+
 
 # 資本額は ledger event から再計算する。ここには状態を置かず、判断時に適用する
 # warning line と注文制約だけを置く。
-PORTFOLIO_POLICY: dict[str, Any] = {
+# 保存済み提案の policy hash を変えないため、型を付けても辞書の表現を保つ。
+PORTFOLIO_POLICY: PolicyConfig = {
     "cash_management": {
         "dry_powder_warning_pct": 20.0,
         "override_max_days": 31,
@@ -27,7 +54,7 @@ PORTFOLIO_POLICY: dict[str, Any] = {
 }
 
 
-def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
+def validate_policy(policy: Mapping[str, object] = PORTFOLIO_POLICY) -> None:
     """Fail fast when a code-owned policy threshold is missing or mistyped."""
 
     positive_integer_paths = (
@@ -52,7 +79,7 @@ def validate_policy(policy: PolicyConfig = PORTFOLIO_POLICY) -> None:
             raise RuntimeError(f"PORTFOLIO_POLICY.{'.'.join(path)} must be within 0..100")
 
 
-def _value_at(policy: PolicyConfig, path: tuple[str, ...]) -> object:
+def _value_at(policy: Mapping[str, object], path: tuple[str, ...]) -> object:
     current: object = policy
     for key in path:
         if not isinstance(current, Mapping) or key not in current:

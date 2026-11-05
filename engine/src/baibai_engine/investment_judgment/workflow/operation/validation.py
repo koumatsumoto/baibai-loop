@@ -85,10 +85,6 @@ def validate_progress(
         pair = require_assessment_ref(connection, outcome.assessment_ref)
         if pair.document.input_snapshot.ticker != outcome.ticker:
             raise ValueError("research outcome differs from its Reviewed Assessment ticker")
-        row = connection.execute(
-            "SELECT published_at FROM stock_assessment WHERE assessment_id=?",
-            (outcome.assessment_ref.assessment_id,),
-        ).fetchone()
-        if row is None or datetime.fromisoformat(row[0]) > now:
+        if pair.published_at > now:
             raise ValueError("research outcome precedes Assessment publication")
     return progress

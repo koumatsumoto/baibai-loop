@@ -171,8 +171,10 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
         "item": proposal.items[0].model_dump(mode="json"),
     }
     assert origin["assessment"]["reference"]["assessment_id"] == case.pair.assessment_id
+    assert origin["assessment"]["published_at"] == case.pair.published_at.isoformat()
     citations = result["context"]["citations"]
     assert citations[0]["record"]["reference"] == research.reference.model_dump(mode="json")
+    assert citations[1]["record"]["published_at"] == case.pair.published_at.isoformat()
     assert (
         citations[0]["record"]["document"]["facts"][0]["value"]
         != citations[1]["record"]["document"]["input_snapshot"]["facts"][0]["value"]
@@ -427,10 +429,23 @@ def test_service_derived_ledger_preserves_partial_fills_release_cutoff_and_late_
     ledger_service.apply_document(
         expected_head=head, expected_document=initial, replacement=replacement
     )
-    raw = _draft(case.app, proposal_id=proposal.proposal_id, ticker="1234")
+    scaffold = scaffold_retrospective(
+        retrospective_id="retro-1",
+        as_of=AS_OF,
+        proposal_id=proposal.proposal_id,
+        ticker="1234",
+        milestone="契約更新の節目",
+        db_path=case.app,
+        known_at=NOW,
+    )
+    raw = scaffold["draft"]
     raw["document"].update(comparisons=[], lesson=LESSON)
     old = _save(case.app, raw)
     assert old.ledger.event_ids == ("order", "fill-1", "fill-2", "release")
+    assert old.ledger.append_head == scaffold["context"]["ledger"]["append_head"]
+    assert old.ledger.event_ids == tuple(
+        event["event_id"] for event in scaffold["context"]["ledger"]["events"]
+    )
     context = get_retrospective(retrospective_id="retro-1", db_path=case.app)["context"]
     assert context["ledger"]["events"][1]["occurred_on"] == "2026-10-15"
     current, head = ledger_service.load_with_head()

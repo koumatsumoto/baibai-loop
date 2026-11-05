@@ -109,6 +109,8 @@ def integrate_models(
             price_identity=prepared.price_identity,
             master_identity=prepared.master_identity,
             calendar_identity=prepared.calendar_identity,
+            margin_alerts_identity=prepared.margin_alerts_identity,
+            short_sale_reports_identity=prepared.short_sale_reports_identity,
         )
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)

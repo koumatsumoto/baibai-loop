@@ -14,9 +14,7 @@ from baibai_engine.machine_analysis.models.market_context.history import trailin
 
 NIKKEI225_ETF_PROXY = "1321"
 
-# Pre-registered fixed thresholds (no grid search; docs/reference/market-context.md).
-# The +/-3% bands are chosen display categories, not statistical significance
-# thresholds or a claim about expected annual returns.
+# 表示用の区分。統計的有意性や期待収益を表さず、候補の足切りに使わない。
 RALLY_RETURN_20D_MIN = 0.03
 SELLOFF_RETURN_20D_MAX = -0.03
 

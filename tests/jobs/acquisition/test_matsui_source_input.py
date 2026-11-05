@@ -46,13 +46,13 @@ def document(when=WHEN, value="-10", *, padding=0):
     <h2>買い残</h2><dt>評価損益率</dt><dd>{value}％</dd><h2>倍率</h2>
     <p class="market-brand-contents-text">権利落ち日はみなし数値。</p></div>""".encode()
     return SourceDocument(
-        SOURCE,
-        receipt_day,
-        require_source(SOURCE).source_url,
-        "text/html",
-        when,
-        body + b" " * padding,
-        {"receipt_jst_date": receipt_day},
+        source_id=SOURCE,
+        request_key=receipt_day,
+        source_url=require_source(SOURCE).source_url,
+        content_type="text/html",
+        fetched_at=when,
+        payload=body + b" " * padding,
+        metadata={"receipt_jst_date": receipt_day},
     )
 
 
@@ -180,7 +180,7 @@ def test_current_get_rechecks_corrections_failure_and_l2_ignore_input_history(
     for module in (acquisition, matsui, native_store, handoff):
         monkeypatch.setattr(module, "datetime", Clock)
     monkeypatch.setattr(matsui, "fetch_bytes", fetch)
-    monkeypatch.setattr(acquisition, "read_documents", no_history)
+    monkeypatch.setattr(acquisition, "read_document_metadata", no_history)
     events = [
         (WHEN + timedelta(hours=1), "-10", 1, 0),  # same body
         (WHEN + timedelta(hours=2), "-20", 0, 0),  # A -> B

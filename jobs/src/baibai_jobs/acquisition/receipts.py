@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
+from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
@@ -18,7 +19,6 @@ from baibai_engine.storage.objects.r2 import (
     R2Error,
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
 
 class ReceiptStore(ObjectStore, Protocol):

@@ -15,7 +15,10 @@ from baibai_engine.data_collection.providers.tradingeconomics.pmi_contract impor
     parse_article,
     request_key,
 )
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    SourceDocumentMetadata,
+)
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
@@ -41,7 +44,7 @@ class TradingEconomicsPmiSource:
         end: date,
         session: HttpSession,
         context: FetchContext | None,
-        existing: Mapping[str, SourceDocument],
+        existing: Mapping[str, SourceDocumentMetadata],
         force: bool,
         recheck_existing: bool = True,
         selected_urls: tuple[str, ...] | None = None,
@@ -86,7 +89,7 @@ class TradingEconomicsPmiSource:
             except IndicatorsProviderError as error:
                 discovered = ()
                 failures.append(str(error))
-        latest = dict(existing)
+        latest = {key: document.metadata for key, document in existing.items()}
         for url in sorted(known | set(discovered)):
             key = request_key(url)
             if (
@@ -153,20 +156,20 @@ class TradingEconomicsPmiSource:
                     }
                 )
             document = SourceDocument(
-                source.source_id,
-                key,
-                url,
-                "text/html",
-                datetime.now(UTC),
-                body,
-                metadata,
+                source_id=source.source_id,
+                request_key=key,
+                source_url=url,
+                content_type="text/html",
+                fetched_at=datetime.now(UTC),
+                payload=body,
+                metadata=metadata,
             )
-            latest[key] = document
+            latest[key] = metadata
             yield document
         covered = {
-            str(document.metadata.get("observed_at"))
-            for document in latest.values()
-            if document.metadata.get("phase", "final") == "final"
+            str(metadata.get("observed_at"))
+            for metadata in latest.values()
+            if metadata.get("phase", "final") == "final"
         }
         first = start
         if first.day != 1:

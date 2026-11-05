@@ -35,13 +35,13 @@ def _document(path, body):
         store_document(
             connection,
             SourceDocument(
-                "original-document",
-                "history",
-                "https://example.com/raw",
-                "application/json",
-                WHEN,
-                body,
-                {},
+                source_id="original-document",
+                request_key="history",
+                source_url="https://example.com/raw",
+                content_type="application/json",
+                fetched_at=WHEN,
+                payload=body,
+                metadata={},
             ),
         )
 

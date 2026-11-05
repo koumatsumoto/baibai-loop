@@ -10,6 +10,7 @@ from pydantic import JsonValue
 
 from baibai_engine.machine_analysis.generation.full_day_inputs import (
     FullDayInputContract,
+    full_day_input_interval,
     read_full_day_input,
     retain_full_day_input,
 )
@@ -35,3 +36,9 @@ def read_margin_alerts_input(
     store: ObjectStore, descriptor: dict[str, JsonValue], *, days: Sequence[date]
 ) -> dict[str, Any]:
     return read_full_day_input(store, descriptor, days=days, contract=_CONTRACT)
+
+
+def margin_alerts_input_interval(
+    store: ObjectStore, descriptor: dict[str, JsonValue]
+) -> tuple[date, date]:
+    return full_day_input_interval(store, descriptor, contract=_CONTRACT)

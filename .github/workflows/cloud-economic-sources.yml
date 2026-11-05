@@ -2,9 +2,8 @@ name: cloud-economic-sources
 run-name: "economic ${{ inputs.group || 'all' }} ${{ inputs.source_id || 'all' }} ${{ inputs.asof || '' }}"
 
 on:
-  # #1820 本番切替中は定期起動を停止。再開時は下の元scheduleを復元する。
-  # schedule:
-  #   - cron: "43 7 * * *" # Preserve the former daily start; include holidays/weekends.
+  schedule:
+    - cron: "43 7 * * *" # Preserve the former daily start; include holidays/weekends.
   workflow_dispatch:
     inputs:
       group:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime, timedelta
 from hashlib import sha256
 from types import MappingProxyType
@@ -143,6 +143,17 @@ class NativeL1SourceRef(_SourceRefBase):
 type SourceRef = Annotated[
     SQLiteSnapshotSourceRef | L1DatasetSourceRef | NativeL1SourceRef, Field(discriminator="kind")
 ]
+
+
+def parquet_source_kind(
+    sources: Iterable[SourceRef],
+) -> Literal["legacy_sqlite_import", "l1_derived"]:
+    """L2でもSQLite由来はlegacyのため、layerではなく固定したlineageで決める。"""
+    return (
+        "l1_derived"
+        if any(source.kind in {"l1_dataset", "native_l1"} for source in sources)
+        else "legacy_sqlite_import"
+    )
 
 
 def _source_identity(source: SourceRef) -> tuple[str, str, str]:

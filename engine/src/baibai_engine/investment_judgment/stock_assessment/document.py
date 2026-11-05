@@ -10,15 +10,12 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from pathlib import Path
 from typing import Annotated, Literal
 
-import yaml
 from pydantic import (
     AwareDatetime,
     BaseModel,
     Field,
-    ValidationError,
     field_validator,
     model_validator,
 )
@@ -52,7 +49,6 @@ from baibai_engine.machine_analysis.observations.prices.sessions import latest_e
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.numbers import decimal_to_number, finite_decimal
 from baibai_engine.primitives.time import JST
-from baibai_engine.primitives.yaml import safe_load
 
 _RISK_AXES = frozenset(
     {
@@ -391,21 +387,6 @@ def _valuation_context_number(value: Decimal) -> int | float:
     if isinstance(number, float) and not math.isfinite(number):
         raise ValueError("valuation context number is not finite after output conversion")
     return number
-
-
-def load_assessment(path: Path) -> StockAssessmentDocument:
-    """Load a strict YAML assessment."""
-
-    try:
-        raw = safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as error:
-        raise AssessmentError(f"failed to load assessment: {error}") from error
-    if not isinstance(raw, Mapping):
-        raise AssessmentError("assessment root must be a mapping")
-    try:
-        return StockAssessmentDocument.model_validate(raw)
-    except ValidationError as error:
-        raise AssessmentError(str(error)) from error
 
 
 def evaluate_assessment(

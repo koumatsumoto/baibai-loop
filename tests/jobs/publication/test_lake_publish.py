@@ -34,6 +34,7 @@ from baibai_engine.storage.snapshots.writer import (
     export_market_store,
     sealed_sqlite_snapshot,
 )
+from baibai_engine.storage.sqlite.snapshot import backup_to_new_file
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -42,7 +43,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     write_lake_store_origin,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.lease import _save_handle, acquire, release
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -655,7 +655,7 @@ def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(
     live_store = tmp_path / "market.sqlite"
     _bind_market_store_to_pointer(live_store, pointer)
     stale_store = tmp_path / "stale-market.sqlite"
-    create_snapshot(live_store, stale_store)
+    backup_to_new_file(live_store, stale_store)
     with closing(sqlite3.connect(stale_store)) as connection, connection:
         write_lake_store_origin(
             connection,
@@ -664,13 +664,13 @@ def test_origin_is_checked_from_the_same_sealed_snapshot_that_is_exported(
                 release_manifest_sha256="0" * 64,
             ),
         )
-    real_create_snapshot = lake_writer_module.create_snapshot
+    real_backup_to_new_file = lake_writer_module.backup_to_new_file
 
     def replace_between_origin_check_and_seal(_source: Path, output: Path) -> int:
-        return real_create_snapshot(stale_store, output)
+        return real_backup_to_new_file(stale_store, output)
 
     monkeypatch.setattr(
-        lake_writer_module, "create_snapshot", replace_between_origin_check_and_seal
+        lake_writer_module, "backup_to_new_file", replace_between_origin_check_and_seal
     )
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
     before = store.values["lake/pointers/market/current.json"].body
