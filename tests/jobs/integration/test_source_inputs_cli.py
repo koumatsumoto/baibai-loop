@@ -92,7 +92,7 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch, native)
     expected = [
-        group for group in SOURCE_INPUT_GROUPS if native != "true" or group != "edinet-list"
+        group for group in SOURCE_INPUT_GROUPS if native == "false" or group != "edinet-list"
     ]
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
@@ -111,7 +111,7 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
         if group.startswith("edinet-"):
             with closing(open_connection(database)) as conn:
                 assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (
-                    0 if native == "true" else 1,
+                    1 if native == "false" else 0,
                 )
                 if group == "edinet-facts":
                     assert read_scope(conn).doc_ids == frozenset({"S100XBRL"})
@@ -129,9 +129,9 @@ def test_explicit_list_input_is_rejected_only_after_native_cutover(
     tmp_path, monkeypatch, capsys, native
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch, native)
-    assert sources.main([*command, "--group", "edinet-list"]) == (1 if native == "true" else 0)
+    assert sources.main([*command, "--group", "edinet-list"]) == (0 if native == "false" else 1)
     output = capsys.readouterr()
-    if native == "true":
+    if native != "false":
         assert "ValueError" in output.err
         assert remote.put_keys == []
     else:
