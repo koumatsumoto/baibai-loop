@@ -173,6 +173,7 @@ def _replay(
     master_fingerprints: Mapping[str, str] | None = None,
     calendar_input: InputSnapshot | None = None,
     calendar_fingerprints: Mapping[str, str] | None = None,
+    price_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
@@ -242,7 +243,14 @@ def _replay(
             master_fingerprints=master_fingerprints,
         )
     if source in _JQUANTS_SOURCES:
+        from baibai_jobs.financial_cutover import financial_native_enabled
         from baibai_jobs.master_cutover import master_native_enabled
+        from baibai_jobs.price_cutover import price_native_enabled
+
+        if source == "jquants-financial" and financial_native_enabled():
+            raise ValueError("legacy financial handoff is disabled after native cutover")
+        if source == "jquants-market" and price_native_enabled() and price_fingerprints is None:
+            raise ValueError("native price replay requires retained cutover fingerprints")
 
         if source == "jquants-market" and master_native_enabled() and master_fingerprints is None:
             raise ValueError("native master replay requires retained cutover fingerprints")
@@ -256,7 +264,9 @@ def _replay(
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
         if source == "jquants-market" and (
-            master_fingerprints is not None or calendar_fingerprints is not None
+            master_fingerprints is not None
+            or calendar_fingerprints is not None
+            or price_fingerprints is not None
         ):
             return import_jquants_handoff(
                 path,
@@ -265,6 +275,7 @@ def _replay(
                 sources=selected,
                 master_fingerprints=master_fingerprints,
                 calendar_fingerprints=calendar_fingerprints,
+                price_fingerprints=price_fingerprints,
             )
         return import_jquants_handoff(
             path, database, _handoff_ids(report, "request_ids"), sources=selected
@@ -577,6 +588,7 @@ class _ReplayContext(TypedDict, total=False):
     calendar_input: InputSnapshot
     master_fingerprints: Mapping[str, str]
     calendar_fingerprints: Mapping[str, str]
+    price_fingerprints: Mapping[str, str]
 
 
 def _replay_context(
@@ -587,11 +599,25 @@ def _replay_context(
     *,
     master_input: InputSnapshot | None = None,
     calendar_input: InputSnapshot | None = None,
+    price_fingerprints: Mapping[str, str] | None = None,
 ) -> _ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
     from baibai_jobs.master_cutover import master_native_enabled
+    from baibai_jobs.price_cutover import price_native_enabled
 
     context: _ReplayContext = {}
+    if source == "jquants-market" and price_native_enabled() and price_fingerprints is None:
+        from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+        price_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in PriceL1(store, directory / "price-native")
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
+    if price_fingerprints is not None:
+        context["price_fingerprints"] = price_fingerprints
     day = date.fromisoformat(str(packet["asof"]))
     if source == "tradingview":
         if master_input is None and packet.get("master_native_input") is not None:
@@ -644,10 +670,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "replay-copy":
             packet = json.loads((directory / "result.json").read_bytes())
             from baibai_jobs.master_cutover import master_native_enabled
+            from baibai_jobs.price_cutover import price_native_enabled
 
             native = args.source in {"tradingview", "jquants-market"} and (
                 master_native_enabled()
                 or calendar_native_enabled()
+                or (args.source == "jquants-market" and price_native_enabled())
                 or packet.get("master_native_input") is not None
                 or packet.get("calendar_native_input") is not None
             )
@@ -711,6 +739,19 @@ def main(argv: list[str] | None = None) -> int:
                 and calendar_input is None
             ):
                 raise ValueError("native TradingView resume requires its fixed calendar input")
+            from baibai_jobs.price_cutover import price_native_enabled
+
+            price_fingerprints = None
+            if args.source == "jquants-market" and price_native_enabled():
+                from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+                price_fingerprints = {
+                    identity: receipt["fingerprint"]
+                    for identity, receipt in PriceL1(store, directory / "price-native")
+                    .fixed()
+                    .value()["receipts"]
+                    .items()
+                }
             sources = (
                 ("edinet-list", args.source)
                 if args.source in {"edinet-metrics", "edinet-facts"}
@@ -743,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
                         and calendar_input is None
                         and not master_native_enabled()
                         and not calendar_native_enabled()
+                        and price_fingerprints is None
                     ):
                         _replay(source, args.database, packet)
                     else:
@@ -754,6 +796,7 @@ def main(argv: list[str] | None = None) -> int:
                             report,
                             master_input=master_input,
                             calendar_input=calendar_input,
+                            price_fingerprints=price_fingerprints,
                         )
                         if calendar_native_enabled():
                             from baibai_jobs.acquisition.calendar_dependencies import (

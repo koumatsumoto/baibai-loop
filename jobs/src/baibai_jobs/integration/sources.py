@@ -95,6 +95,19 @@ def apply(
         )
     master_input = None
     master_fingerprints = None
+    price_fingerprints = None
+    if price_native_enabled() and any(
+        entry["source"] == "jquants-market" for entry in plan["handoffs"]
+    ):
+        from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+        price_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in PriceL1(store, directory / "price-native")
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
     if master_native_enabled():
         from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
         from baibai_jobs.integration.master_native import fixed_input
@@ -160,7 +173,9 @@ def apply(
                     raise ValueError("invalid source SQLite receipt") from error
                 replay = (
                     _replay(entry["source"], market, packet)
-                    if master_input is None and calendar_input is None
+                    if master_input is None
+                    and calendar_input is None
+                    and price_fingerprints is None
                     else _replay(
                         entry["source"],
                         market,
@@ -170,6 +185,7 @@ def apply(
                         master_fingerprints=master_fingerprints,
                         calendar_input=calendar_input,
                         calendar_fingerprints=calendar_fingerprints,
+                        price_fingerprints=price_fingerprints,
                     )
                 )
                 result = replay.report

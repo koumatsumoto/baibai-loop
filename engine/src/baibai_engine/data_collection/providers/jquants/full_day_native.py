@@ -10,7 +10,9 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-from collections.abc import Callable, Iterator, Sequence
+import sqlite3
+import zlib
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -251,6 +253,48 @@ def read_full_day_requests(
 
 class FullDayObjectStore(ObjectStore, Protocol):
     def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]: ...
+
+
+def verify_migrated_full_day_receipts(
+    connection: sqlite3.Connection,
+    request_ids: Sequence[str],
+    fingerprints: Mapping[str, str],
+    *,
+    attempt_type: type[FullDayAttempt],
+) -> set[str]:
+    """Skip a legacy request only when the finite cutover retained these exact pages."""
+    source = attempt_type.source
+    migrated = set()
+    for identity in request_ids:
+        rows = connection.execute(
+            "SELECT page_index,source,query_json,received_at_utc,body_gzip "
+            "FROM jquants_source_pages WHERE request_id=? ORDER BY page_index",
+            (identity,),
+        ).fetchall()
+        if not any(row[1] == source for row in rows):
+            continue
+        if any(index != row[0] or row[1] != source for index, row in enumerate(rows)):
+            raise ValueError(f"legacy {source} has missing pages or mixed source identity")
+        try:
+            pages = tuple(
+                JQuantsPage(
+                    source,
+                    json.loads(query),
+                    datetime.fromisoformat(received),
+                    gzip.decompress(body),
+                )
+                for _index, _source, query, received, body in rows
+            )
+        except (OSError, EOFError, zlib.error) as error:
+            raise ValueError(f"legacy {source} page cannot be decoded") from error
+        query = dict(pages[0].query)
+        if set(query) != {"date"}:
+            raise ValueError(f"legacy {source} does not have an unfiltered explicit date")
+        attempt = attempt_type(identity, date.fromisoformat(query["date"]), None, pages)
+        if fingerprints.get(identity) != _digest(_json(attempt.value())):
+            raise ValueError(f"legacy {source} is absent from or differs from the native cutover")
+        migrated.add(identity)
+    return migrated
 
 
 class FullDayL1[Attempt: FullDayAttempt, Fixed: FixedFullDayL1]:

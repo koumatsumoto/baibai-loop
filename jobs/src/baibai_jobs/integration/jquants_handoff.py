@@ -20,6 +20,9 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 from baibai_engine.data_collection.providers.jquants.master_native import (
     verify_migrated_master_receipts,
 )
+from baibai_engine.data_collection.providers.jquants.price_native import (
+    verify_migrated_price_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.receipts import (
     import_requests,
     read_complete_request,
@@ -204,6 +207,7 @@ def import_handoff(
     sources: Sequence[JQuantsSource],
     master_fingerprints: Mapping[str, str] | None = None,
     calendar_fingerprints: Mapping[str, str] | None = None,
+    price_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
@@ -233,10 +237,15 @@ def import_handoff(
             if calendar_fingerprints is not None
             else set()
         )
+        migrated_price = (
+            verify_migrated_price_receipts(original, request_ids, price_fingerprints)
+            if price_fingerprints is not None
+            else set()
+        )
         active_ids = tuple(
             identity
             for identity in request_ids
-            if identity not in migrated_master | migrated_calendar
+            if identity not in migrated_master | migrated_calendar | migrated_price
         )
         incoming = [
             scope for scope in _headers(original, set(sources)) if scope.request_id in active_ids
@@ -281,6 +290,11 @@ def import_handoff(
             "raw_pages_added": added,
             "replayed_requests": replayed,
             "incomplete_requests": incomplete,
+            **(
+                {"migrated_price_requests": sorted(migrated_price)}
+                if price_fingerprints is not None
+                else {}
+            ),
             **(
                 {"migrated_calendar_requests": sorted(migrated_calendar)}
                 if calendar_fingerprints is not None

@@ -794,6 +794,10 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 
 `daily_bars` は `BAIBAI_PRICE_NATIVE=true` で取得側と通常consumerを同時に切り替える。既定値は `false`。この実装ではrepository variable・権限・本番storeを変更していない。通常 `jquants-market` は先に日足を独立L1へ確定し、その後master・取引暦・信用残・注意銘柄・空売りの従来取得とhandoffを続ける。日足だけを旧releaseから再取得・stage化しない。後段の市場release取得やL2が失敗しても確定済み日足を取り消さない。
 
+切替後の旧 `maintain-market bootstrap-cache` / `backfill-history` は日足の取得前に明示失敗し、`jquants-price-native acquire` と `rebuild-price-native` を案内する。旧SQLiteだけへの成功書込は次のnative再生成で原本ごと失われるため許可しない。明示範囲の取得は新入口で行い、他sourceの取得範囲・継続条件は変えない。
+
+旧mixed stageの再生（通常apply・resume・replay-copy）は、日足のrequest ID・query・受領時刻・全page bytesを有限移行時のnative fingerprintと照合する。移行済み日足は旧SQLiteへ再import・再投影せず、calendar/margin等の他原本だけを従来どおり再生する。L1成功/L2部分欠損や未完pageの移行済み日足でも、他sourceを止めない。未移行ID・差替え・filtered queryは他sourceを含む書込前に拒否し、原stageを保持して明示復旧対象にする。
+
 対象は従来どおり全銘柄の日別requestと2,200日前までの取得範囲。保持済みのより古い日も移行・再生成から捨てない。source workflowの起動scheduleは変えず、切替後の日足は旧market releaseの休場日skipに依存せず、直近7日を含む訂正確認を各起動時に行う。休日の追加GETが生じる点は切替前に確認する。正常空は完了とし、未知field・null/0・行順をnative差分に残す。paginationだけが変わった同値確認は本文を追加せず、実確認時刻だけ進める。final 429または取得期限で停止した場合、同じpassの残りのJ-Quants GETも止め、成功済み・partialと未試行を区別する。許可されたL1範囲をL2の都合で狭めない。
 
 日足・財務・masterが共有するのは全銘柄の明示単日requestの保存境界、pack/head確定、固定入力metadataだけ。日足の補正係数・市場時価総額・価格正規化は価格ownerのまま維持する。masterの疎な取得日・非空充足、取引暦の区間重複、信用残の公表日、空売りのdisc_dateを単日財務の取得計画へ入れない。
@@ -840,6 +844,10 @@ apply/verifyは旧版・partialを含む移行packをcold照合し、compareは�
 L1だけで取得計画・差分確定を行い、`rebuild-financial-native` が固定headから既存の財務正規化を使ってParquetを生成する。
 日付範囲は明示する。正常空も完了requestであり、L2の成否で取得をやり直さない。
 通常source入口とdailyの財務consumerは共通設定 `BAIBAI_FINANCIAL_NATIVE` で一組として選択する。既定値は `false`。repository variableを `true` にする操作は本番切替であり、この変更では実施していない。他のJ-Quants sourceとL3は別の移行単位である。
+
+切替後の旧 `maintain-market bootstrap-cache --source-group jquants-financial` / `backfill-history` は財務の取得前に明示失敗し、`jquants-financial-native acquire` と `rebuild-financial-native` を案内する。旧SQLiteだけへ追加した訂正はnativeの固定入力へ入らないため、旧経路で成功を返さない。必要な明示範囲は新入口で取得する。
+
+旧財務stageの明示 `integration.source_handoff replay-copy` / `resume` もnative切替後は拒否する。財務原本は切替前に有限移行を完了させ、未移行stageは保存したまま明示復旧する。旧SQLiteへの投影を成功扱いしてnative入力に混ぜない。
 
 初期化は新しい空namespaceだけで行う。既存原本を無視した空からの本番再取得や、head消失時の初期化で代替しない。
 本番切替には、旧財務原本と未統合stageの有限な移行・読戻し、原本保持条件の確認、同じsourceの旧writer停止が先に必要。
