@@ -51,6 +51,7 @@ from baibai_engine.storage.snapshots.models import (
     SQLiteSnapshotSourceRef,
     canonical_lake_model_bytes,
     load_lake_model_json,
+    parquet_source_kind,
     validate_dataset_contract,
 )
 from baibai_engine.storage.snapshots.sources import sha256_file
@@ -411,7 +412,7 @@ def export_l1_derived_dataset(
                 period=item.period,
                 expected_rows=rows(item.period),
                 expected_object=item.manifest.objects[0],
-                source_kind="l1_derived",
+                source_kind=parquet_source_kind(item.manifest.sources),
             )
         partitions = tuple(item.manifest for item in built)
         manifest = DatasetManifest(
@@ -556,14 +557,7 @@ def validate_snapshot_parity(
                     period=period,
                     expected_rows=islice(rows, obj.rows),
                     expected_object=obj,
-                    source_kind=(
-                        "l1_derived"
-                        if any(
-                            source.kind in {"l1_dataset", "native_l1"}
-                            for source in partition.sources
-                        )
-                        else "legacy_sqlite_import"
-                    ),
+                    source_kind=parquet_source_kind(partition.sources),
                 )
             if next(rows, None) is not None:
                 raise LakeBuildError("manifest objects omit SQLite partition rows")
@@ -593,12 +587,7 @@ def _build_period(
     count = 0
     min_key: tuple[str, ...] | None = None
     max_key: tuple[str, ...] | None = None
-    source_kind: Literal["legacy_sqlite_import", "l1_derived"] = (
-        "l1_derived"
-        if any(source.kind in {"l1_dataset", "native_l1"} for source in sources)
-        else "legacy_sqlite_import"
-    )
-    schema = dataset.arrow_schema_for(source_kind)
+    schema = dataset.arrow_schema_for(parquet_source_kind(sources))
     with pq.ParquetWriter(
         provisional,
         schema,
