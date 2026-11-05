@@ -39,17 +39,11 @@ JPXの規制・決算予定・資本政策・上場廃止は完了済みsource b
 
 ### 信用残のsourceと日付
 
-| source | 母集団と残高対象日 |
-| --- | --- |
-| margin-interest旧週次 | 全銘柄、2026-09-18残高まで。原則第2営業日に公表 |
-| margin-interest全銘柄日次 | 全銘柄、2026-09-25残高から。翌営業日公表 |
-| margin-alert | 日々公表銘柄等の選別されたsubset。全銘柄残高の代替ではない |
+全銘柄の旧週次と日次は残高対象日の異なる系列で、日々公表のmargin-alertは選別されたsubsetである。切替日・取得窓は[source規則](../../engine/src/baibai_engine/data_collection/providers/jquants/market_rules.py)、全銘柄残高の公表lag/cutoffは[公表owner](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_publication.py)が所有する。subsetを全銘柄残高の代替・欠損補完にせず、掲載されないtickerを0にしない。
 
-margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日。後日訂正は公表・受領の文脈を保ち、公表前の当日残高を要求しない。subsetにないtickerを残高0にせず、全銘柄とunionして穴埋めしない。
+margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日で、後日訂正も公表・受領の文脈を保つ。全銘柄残高の判断用cutoffとmargin-alertの公表日範囲読取は別契約であり、[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)を参照する。PubDateだけで正確なAPI利用可能時刻や訂正前vintageを再現できるわけではない。
 
-margin-alertの独立L1差分取得・固定consumer・有限移行は[明示native入口](../../jobs/OPERATIONS.md#margin-alerts-native-l1)を使う。通常marketの取得経路はまだ切り替えず、L1受領の成功と投影品質を分けて検証する。
-
-PubDateは正確なAPI利用可能時刻の証明ではない。L2読取は公表日より後のas-ofから使い、公表日当日は含めない。全銘柄日次の既知PubDateは行ごとに適用し、同じ残高日の別銘柄が利用可能でも後発訂正を混ぜない。PubDateが未収録の場合だけ既存の営業日lag規約を使う。取得用の保存行読取と判断時点の選択は分け、訂正前vintageの復元を保証しない。公表日前の空応答、取得失敗、取得済み対象なしは別である。株数と金額はそれぞれ提供元の単位で保持し、欠測金額を株数×価格で補わない。指標の26週比較と株式basisは[市場環境](market-context.md#margin)に従う。
+margin-alertの独立取得・固定consumer・有限移行は[明示native入口](../../jobs/OPERATIONS.md#margin-alerts-native-l1)にあり、通常market取得への接続とは別である。公表前の空応答、取得失敗、取得済み対象なしを分ける。株数と金額は元の単位を保持し、欠測金額を株数×価格で補わない。指標の週比較と株式basisは[市場環境](market-context.md#margin)に従う。
 
 ## 経済原本
 

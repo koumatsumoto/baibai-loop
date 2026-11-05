@@ -5,11 +5,8 @@ from __future__ import annotations
 from bisect import bisect_right
 from datetime import date
 
-# The weekly all-issues publication ends with the 2026-09-18 balance, published
-# on 2026-09-25. The replacement dataset starts with the 2026-09-25 balance and
-# is first published on 2026-09-28. Keeping the two balance-date domains disjoint
-# prevents a daily row from silently changing the meaning of the historical
-# weekly series.
+# 全銘柄の週次と日次は残高日で分離し、後発の日次で旧週次の意味を変えない。
+# 日々公表subsetのmargin-alertは、この全銘柄残高の公表契約に含めない。
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
@@ -63,12 +60,9 @@ def _publication_has_happened(
     trading_day_lag: int,
     publication_date: date | None = None,
 ) -> bool:
-    """Whether the publication day is strictly before `asof`.
+    """引け後公表の全銘柄残高を、同日終値時点の既知値へ遡及させない。
 
-    Same comparison for both cadences: the publication lands in the late afternoon
-    while a decision prices at the close, so a balance published on `asof` is not
-    yet usable at `asof`'s price. A known provider publication date takes precedence;
-    only its absence uses the existing trading-day-lag approximation.
+    明示PubDateを優先し、欠ける場合だけ営業日lagで近似する。
     """
     if publication_date is not None:
         return publication_date < asof
