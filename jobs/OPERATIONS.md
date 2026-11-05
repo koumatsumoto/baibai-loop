@@ -786,6 +786,14 @@ uv run baibai-jobs rebuild-financial-native --work-directory /secure-work/financ
 ```
 
 再生成の `head.json` と `input.json` は使用したL1集合・確認時刻・不足を固定する。後から成功した取得状態を混ぜない。
+過去のgeneration/Operationから再生成する場合は、保存済みJSONの `inputs.generation.inputs.financial`（generation headerなら `inputs.financial`）にある完全なInputSnapshotを取り出し、`rebuild-financial-native --saved-input <SAVED_INPUT_JSON>` へ渡す。表示用summaryではなくdescriptorを含む正確なJSONを使う。snapshotのdigestと各packのfingerprintを検証し、latest headやruns cacheへfallbackしない。head更新後・runs削除後も同じrowsと不足/失敗statusを再生成できる。保存選択の外の期間は拒否する。出力は元head参照と完全な保存InputSnapshotを `input.json` に残し、存在しないfull head bytesを `head.json` として作らない。
+
+```bash
+uv run baibai-jobs rebuild-financial-native --saved-input /secure-work/saved-financial-input.json \
+  --work-directory /secure-work/financial-cold-read --start 2026-11-01 --end 2026-11-05 \
+  --output /secure-work/saved-financial-observations
+```
+
 出力Parquetは削除して再生成でき、原本やheadの削除とは別。取得済み本文は同値なら追加せず、
 確認identityのみ保持する。原本bytesを保持する変更requestはpackにまとめ、rawとnative同値を区別する。
 
@@ -820,3 +828,6 @@ uv run baibai-jobs financial-native-cutover compare --directory /secure-work/fin
 ```
 
 設定をfalseへ戻すだけでは旧投影やwriterの境界を戻せない。異常時はwriter/dailyを止め、最後の確定head・旧release・移行planを使って到達点と再開先を判断する。切替後の正常運転と独立callerの移行を確認したら、共通設定と旧財務plan/handoff・受領copy・source seal依存・財務L2 export/parity・取得用旧readerを削除する。旧immutable原本の保持/削除は別の認可事項であり、この撤去に含めない。
+
+
+財務入力の表示はidentity・鮮度/不足summaryと、保存済みdescriptorのexact JSON参照を渡す。全社generationに一度固定した採用集合と、applicationの個社Selectionに保存する全descriptorはまだ重複する。この永続保存の薄型化は残件であり、表示縮小だけで完了としない。後続ではapplication側に不変の共有source入力を一度保存し、個社sliceは実際に使った文書のreceipt/content参照と関連失敗範囲だけを固定する。runs削除後も参照を取得できること、Selectionのhash・再開・モデルの意味を維持することが境界である。毎日のfull head archiveを別storeへ増設する方法では解消しない。

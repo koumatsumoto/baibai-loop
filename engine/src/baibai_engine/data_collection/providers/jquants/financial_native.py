@@ -224,53 +224,62 @@ class FixedFinancialL1:
     def requests(self, store: ObjectStore, *, days: Sequence[date]) -> Iterator[RetainedRequest]:
         """Read current adopted originals and relevant failures from this fixed head."""
         value = self.value()
-        wanted: dict[str, dict[str, Any]] = {}
-        for day in days:
-            scope = value["scopes"].get(day.isoformat(), {})
-            for field in ("adopted", "failure"):
-                identity = scope.get(field)
-                if identity:
-                    wanted[identity] = value["receipts"][identity]
-        by_pack: dict[str, set[str]] = {}
-        for identity, receipt in wanted.items():
-            by_pack.setdefault(receipt["pack"], set()).add(identity)
-        for digest, identities in by_pack.items():
-            saved = _read(store, PREFIX + "packs/" + digest + ".json.gz")
-            if saved is None or _digest(saved[0]) != digest:
-                raise LakePublishError("fixed financial L1 pack is unavailable")
-            values = json.loads(gzip.decompress(saved[0]))
-            found: set[str] = set()
-            for raw in values:
-                identity = raw["request_id"]
-                if identity not in identities:
-                    continue
-                if _digest(_json(raw)) != wanted[identity]["fingerprint"]:
-                    raise LakePublishError("financial receipt differs from its fixed head")
-                found.add(identity)
-                item = FinancialAttempt.from_value(raw)
-                try:
-                    request = complete_request(item.pages)
-                except JQuantsAcquisitionError:
-                    request = None
-                yield RetainedRequest(
-                    identity,
-                    request,
-                    None if request else item.failure or "incomplete request",
-                    {"date": item.day.isoformat()},
-                    item.order_time,
-                )
-            if found != identities:
-                raise LakePublishError("financial pack lacks a fixed receipt")
-        for day in days:
-            scope = value["scopes"].get(day.isoformat(), {})
-            if identity := scope.get("held"):
-                yield RetainedRequest(
-                    identity,
-                    None,
-                    "ambiguous receipt order",
-                    {"date": day.isoformat()},
-                    datetime.fromisoformat(scope["last_attempt_at"]),
-                )
+        return read_financial_requests(
+            store, scopes=value["scopes"], receipts=value["receipts"], days=days
+        )
+
+
+def read_financial_requests(
+    store: ObjectStore, *, scopes: dict[str, Any], receipts: dict[str, Any], days: Sequence[date]
+) -> Iterator[RetainedRequest]:
+    """Read digest-verified packs using an explicitly fixed head or saved input selection."""
+    wanted: dict[str, dict[str, Any]] = {}
+    for day in days:
+        scope = scopes.get(day.isoformat(), {})
+        for field in ("adopted", "failure"):
+            identity = scope.get(field)
+            if identity:
+                wanted[identity] = receipts[identity]
+    by_pack: dict[str, set[str]] = {}
+    for identity, receipt in wanted.items():
+        by_pack.setdefault(receipt["pack"], set()).add(identity)
+    for digest, identities in by_pack.items():
+        saved = _read(store, PREFIX + "packs/" + digest + ".json.gz")
+        if saved is None or _digest(saved[0]) != digest:
+            raise LakePublishError("fixed financial L1 pack is unavailable")
+        values = json.loads(gzip.decompress(saved[0]))
+        found: set[str] = set()
+        for raw in values:
+            identity = raw["request_id"]
+            if identity not in identities:
+                continue
+            if _digest(_json(raw)) != wanted[identity]["fingerprint"]:
+                raise LakePublishError("financial receipt differs from its fixed head")
+            found.add(identity)
+            item = FinancialAttempt.from_value(raw)
+            try:
+                request = complete_request(item.pages)
+            except JQuantsAcquisitionError:
+                request = None
+            yield RetainedRequest(
+                identity,
+                request,
+                None if request else item.failure or "incomplete request",
+                {"date": item.day.isoformat()},
+                item.order_time,
+            )
+        if found != identities:
+            raise LakePublishError("financial pack lacks a fixed receipt")
+    for day in days:
+        scope = scopes.get(day.isoformat(), {})
+        if identity := scope.get("held"):
+            yield RetainedRequest(
+                identity,
+                None,
+                "ambiguous receipt order",
+                {"date": day.isoformat()},
+                datetime.fromisoformat(scope["last_attempt_at"]),
+            )
 
 
 class FinancialObjectStore(ObjectStore, Protocol):
