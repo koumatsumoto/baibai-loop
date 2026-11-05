@@ -350,6 +350,7 @@ def prepare_market_lake(
                 ("daily_bars", native_price),
                 ("master", native_master),
                 ("market_calendar", native_calendar),
+                ("margin_alerts", native_alerts),
             )
             if enabled
         )
