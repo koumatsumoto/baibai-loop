@@ -8,6 +8,7 @@ import pytest
 
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
+    SourceDocumentMetadata,
     read_document_metadata,
     read_documents,
     store_document,
@@ -136,8 +137,18 @@ def test_metadata_reader_uses_the_same_latest_request_receipts_without_payload(t
     with closing(initialize_database(tmp_path / "indicators.sqlite")) as conn, conn:
         for value in (other_request, latest, old, other_source):
             store_document(conn, value)
-        expected = [row.metadata for row in read_documents(conn, old.source_id)]
-        assert expected == [latest.metadata, other_request.metadata]
+        expected = [
+            SourceDocumentMetadata(
+                source_id=row.source_id,
+                request_key=row.request_key,
+                source_url=row.source_url,
+                content_type=row.content_type,
+                fetched_at=row.fetched_at,
+                metadata=row.metadata,
+            )
+            for row in read_documents(conn, old.source_id)
+        ]
+        assert [row.metadata for row in expected] == [latest.metadata, other_request.metadata]
         conn.set_authorizer(
             lambda action, table, column, *_: (
                 sqlite3.SQLITE_DENY

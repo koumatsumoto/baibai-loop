@@ -217,13 +217,13 @@ def test_pmi_partial_pdf_months_cover_history_even_when_the_range_failed(tmp_pat
             store_document(
                 conn,
                 SourceDocument(
-                    source.source_id,
-                    day.isoformat(),
-                    "https://example.com/release.pdf",
-                    "application/pdf",
-                    datetime(2025, 10, 1, tzinfo=UTC),
-                    b"%PDF original",
-                    {"observed_at": day.isoformat()},
+                    source_id=source.source_id,
+                    request_key=day.isoformat(),
+                    source_url="https://example.com/release.pdf",
+                    content_type="application/pdf",
+                    fetched_at=datetime(2025, 10, 1, tzinfo=UTC),
+                    payload=b"%PDF original",
+                    metadata={"observed_at": day.isoformat()},
                 ),
             )
         assert recovery_ranges(conn, source, END) == ((date(2025, 10, 1), date(2025, 10, 17)),)
@@ -259,13 +259,13 @@ def test_pmi_recovery_plans_from_receipt_metadata_without_reading_pdf_bodies(
             store_document(
                 conn,
                 SourceDocument(
-                    source.source_id,
-                    day.isoformat(),
-                    "https://example.com/release.pdf",
-                    "application/pdf",
-                    datetime(2026, 10, 23, tzinfo=UTC),
-                    b"%PDF original",
-                    {"observed_at": day.isoformat(), "phase": phase},
+                    source_id=source.source_id,
+                    request_key=day.isoformat(),
+                    source_url="https://example.com/release.pdf",
+                    content_type="application/pdf",
+                    fetched_at=datetime(2026, 10, 23, tzinfo=UTC),
+                    payload=b"%PDF original",
+                    metadata={"observed_at": day.isoformat(), "phase": phase},
                 ),
             )
         conn.set_authorizer(

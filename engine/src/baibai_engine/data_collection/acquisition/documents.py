@@ -8,7 +8,10 @@ from baibai_engine.data_collection.providers.matsui.margin import MatsuiMarginSo
 from baibai_engine.data_collection.providers.spglobal.pmi import SpGlobalPmiSource
 from baibai_engine.data_collection.providers.tradingeconomics.pmi import TradingEconomicsPmiSource
 from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    SourceDocumentMetadata,
+)
 from baibai_engine.data_collection.transport.context import FetchContext, IndicatorsProviderError
 
 
@@ -18,7 +21,7 @@ def fetch_source_documents(
     start: date,
     end: date,
     context: FetchContext,
-    existing: Mapping[str, SourceDocument],
+    existing: Mapping[str, SourceDocumentMetadata],
     force: bool,
     recheck_existing: bool = True,
 ) -> Iterator[SourceDocument]:

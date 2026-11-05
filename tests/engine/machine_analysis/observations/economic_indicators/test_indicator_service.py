@@ -333,13 +333,13 @@ def test_tsr_all_history_collects_original_json_from_provider_floor(tmp_path, mo
     series = load_definitions().by_id()["jp.bankruptcies"]
     payload = '[{"period_division":"月次","title":"2003年1月 全国企業倒産 1,462件"}]'.encode()
     original = SourceDocument(
-        series.source_id,
-        "history",
-        series.source_url,
-        "application/json",
-        datetime(2026, 7, 20, tzinfo=UTC),
-        payload,
-        {},
+        source_id=series.source_id,
+        request_key="history",
+        source_url=series.source_url,
+        content_type="application/json",
+        fetched_at=datetime(2026, 7, 20, tzinfo=UTC),
+        payload=payload,
+        metadata={},
     )
     fetch = Mock(return_value=iter([original]))
     monkeypatch.setattr(acquisition, "fetch_source_documents", fetch)

@@ -37,13 +37,13 @@ def test_receipt_identity_conflict_is_owned_by_collection_and_does_not_change_in
                 store_document(
                     connection,
                     SourceDocument(
-                        "test",
-                        "request",
-                        "https://example.test/doc",
-                        "text/plain",
-                        stamp,
-                        payload.encode(),
-                        {},
+                        source_id="test",
+                        request_key="request",
+                        source_url="https://example.test/doc",
+                        content_type="text/plain",
+                        fetched_at=stamp,
+                        payload=payload.encode(),
+                        metadata={},
                     ),
                 )
             else:

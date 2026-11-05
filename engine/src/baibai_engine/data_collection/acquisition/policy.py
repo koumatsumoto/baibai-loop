@@ -160,7 +160,8 @@ def _missing_ranges(
         day = date.fromisoformat(observed)
         covered.append((day, day))
     if source.provider in {"spglobal_pmi", "tradingeconomics_pmi"}:
-        for identity in read_document_metadata(connection, source.source_id):
+        for document in read_document_metadata(connection, source.source_id):
+            identity = document.metadata
             if "observed_at" not in identity or identity.get("phase", "final") != "final":
                 continue
             month = date.fromisoformat(str(identity["observed_at"]))
