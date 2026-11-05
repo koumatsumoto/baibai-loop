@@ -1016,7 +1016,7 @@ uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/cale
 空prefixの明示initialize後、prepare blocker解消→apply→全pack読戻し→旧投影compareを確認する。同値確認は本文を省くため、そのexact応答bytesが必要な間は旧release/stage/dependencyも保持する。移行済み旧mixed stageはcalendar raw fingerprintと完全一致を確認してcalendarだけ再投影から外し、margin等の他原本は従来どおり再生する。ID一致だけで移行済みにせず、未移行/改変原本は拒否する。切替後の旧bootstrap calendar writerは明示停止し、専用native CLIへ向ける。旧原本の削除・実R2/provider受入・本番移行はここでは行わない。
 
 <a id="edinet-list-native-l1"></a>
-### EDINET一覧原本の独立取得・有限切替（#1820、既定は未切替）
+### EDINET一覧原本の独立取得・有限切替（#1820）
 
 `BAIBAI_EDINET_LIST_NATIVE` は有限移行後の通常既定 `true`。取得とdailyのActionsも明示 `true` に揃え、旧repository variableが `false` でも旧writerへ戻さない。旧入力の有限検証には明示 `false` を使えるが、本番のrollbackではない。配置は移行・全原本読戻し・比較の成功後とし、停止中のcronは初回native公開・次hydrate・source inputsの読戻しまで再開しない。
 
