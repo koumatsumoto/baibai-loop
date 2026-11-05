@@ -52,6 +52,7 @@ def receive_market_handoff(
     scheduled: bool = False,
     include_daily_prices: bool = True,
     include_master: bool = True,
+    include_calendar: bool = True,
     provider_halted: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
@@ -113,6 +114,7 @@ def receive_market_handoff(
                 asof=asof,
                 include_daily_prices=include_daily_prices,
                 include_master=include_master,
+                include_calendar=include_calendar,
             )
 
         unknown: set[str] = set(fixed.unavailable_stages)

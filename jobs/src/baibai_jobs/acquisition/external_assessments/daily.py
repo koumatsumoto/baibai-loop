@@ -29,6 +29,10 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.objects import LakeObjectCache
+from baibai_jobs.acquisition.calendar_dependencies import (
+    fix_calendar_dependency,
+    saved_calendar_context,
+)
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
 from baibai_jobs.acquisition.dependencies import (
     available_dependencies,
@@ -84,6 +88,7 @@ from baibai_jobs.acquisition.master_dependencies import (
     fix_master_dependency,
     saved_master_dependency,
 )
+from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.publication.snapshot_publication import _resolve_serving_release, _serving_pointer
 
@@ -138,6 +143,8 @@ def initialize(
         raise ValueError("private master cache directory required for a new plan")
     mirror.mkdir(mode=0o700, parents=True, exist_ok=True)
     mirror.chmod(0o700)
+    if calendar_native_enabled() and not master_native_enabled():
+        raise ValueError("native calendar external plans require native master")
     if master_native_enabled():
         tickers, binding = _native_master_universe(
             store, mirror=mirror, master_asof=master_asof, observation_date=observation_date
@@ -239,9 +246,17 @@ def initialize(
 def _native_master_universe(
     store: ObjectStore, *, mirror: Path, master_asof: date | None, observation_date: date | None
 ) -> tuple[tuple[str, ...], str]:
-    """Use old calendar evidence only; master membership is fixed directly from native L1."""
+    """Fix native dependencies once; saved plans retain their original universe and basis."""
     selected: dict[str, object] = {}
-    if observation_date is not None:
+    if observation_date is not None and calendar_native_enabled():
+        calendar_input = fix_calendar_dependency(
+            store, directory=mirror / "calendar-native", observation_date=observation_date
+        )
+        master_asof, _ = saved_calendar_context(
+            store, calendar_input, observation_date=observation_date
+        )
+        selected["calendar_native_input"] = calendar_input.model_dump(mode="json")
+    elif observation_date is not None:
         pointer = _serving_pointer(store).pointer
         if pointer is None:
             raise ValueError("external assessment calendar requires an existing lake release")

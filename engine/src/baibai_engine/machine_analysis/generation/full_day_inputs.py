@@ -26,6 +26,7 @@ class FullDayInputContract:
     selection_format: str
     month_format: str
     allow_legacy_inline: bool = False
+    receipt_fields: tuple[str, ...] = ("adopted", "failure", "held")
 
 
 class _Selection(BaseModel):
@@ -129,7 +130,7 @@ def retain_full_day_input(
             {"format": contract.month_format, "month": month, "scopes": {}, "receipts": {}},
         )
         block["scopes"][day] = scope
-        for field in ("adopted", "failure", "held"):
+        for field in contract.receipt_fields:
             if identity := scope.get(field):
                 block["receipts"][identity] = receipts[identity]
     with tempfile.TemporaryDirectory(prefix=".full-day-input-") as temporary:
@@ -152,13 +153,16 @@ def retain_full_day_input(
 
 
 def _bounded_input(
-    scopes: dict[str, Any], receipts: dict[str, Any], days: Sequence[date]
+    scopes: dict[str, Any],
+    receipts: dict[str, Any],
+    days: Sequence[date],
+    contract: FullDayInputContract,
 ) -> dict[str, Any]:
     selected = {day.isoformat(): scopes[day.isoformat()] for day in days}
     wanted = {
         identity
         for scope in selected.values()
-        for field in ("adopted", "failure", "held")
+        for field in contract.receipt_fields
         if (identity := scope.get(field))
     }
     return {"scopes": selected, "receipts": {identity: receipts[identity] for identity in wanted}}
@@ -182,7 +186,7 @@ def read_full_day_input(
             raise ValueError("saved full-day input lacks its fixed selection")
         if any(day.isoformat() not in legacy_scopes for day in days):
             raise ValueError("requested interval is outside the saved full-day selection")
-        return _bounded_input(legacy_scopes, legacy_receipts, days)
+        return _bounded_input(legacy_scopes, legacy_receipts, days, contract)
     if descriptor.get("format") != contract.input_format:
         raise ValueError("unsupported fixed full-day input format")
     digest = descriptor.get("selection_sha256")
@@ -206,4 +210,4 @@ def read_full_day_input(
             if day in scopes:
                 scopes[day] = scope
         receipts.update(block["receipts"])
-    return _bounded_input(scopes, receipts, days)
+    return _bounded_input(scopes, receipts, days, contract)

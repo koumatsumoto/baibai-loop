@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    verify_migrated_calendar_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsSource,
@@ -200,6 +203,7 @@ def import_handoff(
     *,
     sources: Sequence[JQuantsSource],
     master_fingerprints: Mapping[str, str] | None = None,
+    calendar_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
@@ -224,7 +228,16 @@ def import_handoff(
             if master_fingerprints is not None
             else set()
         )
-        active_ids = tuple(identity for identity in request_ids if identity not in migrated_master)
+        migrated_calendar = (
+            verify_migrated_calendar_receipts(original, request_ids, calendar_fingerprints)
+            if calendar_fingerprints is not None
+            else set()
+        )
+        active_ids = tuple(
+            identity
+            for identity in request_ids
+            if identity not in migrated_master | migrated_calendar
+        )
         incoming = [
             scope for scope in _headers(original, set(sources)) if scope.request_id in active_ids
         ]
@@ -268,6 +281,11 @@ def import_handoff(
             "raw_pages_added": added,
             "replayed_requests": replayed,
             "incomplete_requests": incomplete,
+            **(
+                {"migrated_calendar_requests": sorted(migrated_calendar)}
+                if calendar_fingerprints is not None
+                else {}
+            ),
             **(
                 {"migrated_master_requests": sorted(migrated_master)}
                 if master_fingerprints is not None

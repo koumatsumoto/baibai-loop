@@ -33,7 +33,12 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.paths import MARKET_DB_PATH
+from baibai_jobs.acquisition.calendar_dependencies import (
+    CalendarDependencyUnavailable,
+    prepare_tradingview_calendar,
+)
 from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.integration.master_native import fixed_input, materialize_saved_input
 from baibai_jobs.maintenance.tradingview_context import calendar_context
 from baibai_jobs.master_cutover import master_native_enabled
@@ -100,6 +105,10 @@ def prepare_tradingview_master(
     client: JQuantsHTTP | None = None,
 ) -> bool:
     """Preserve TradingView's calendar basis and its existing early fetch opportunity."""
+    if calendar_native_enabled() and not prepare_tradingview_calendar(
+        store, directory=directory, market=market, observation_date=observation_date
+    ):
+        raise CalendarDependencyUnavailable("native TradingView calendar is unavailable")
     with closing(sqlite3.connect(market)) as connection:
         basis, _business = calendar_context(connection, observation_date)
     report = json.loads((directory / "result.json").read_bytes())

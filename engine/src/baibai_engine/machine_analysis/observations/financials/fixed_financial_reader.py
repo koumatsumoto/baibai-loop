@@ -119,10 +119,16 @@ def _read_fixed_financial_population(
                 calendar = accepted_dataset(release, JQUANTS_MARKET_CALENDAR)
                 calendar_manifest = release.dataset_manifest(calendar.name)
                 calendar_parts = selected_partitions(release, calendar.name)
+                native_calendar = any(
+                    source.kind == "native_l1" and source.namespace == "jquants-market-calendar"
+                    for partition in calendar_manifest.partitions
+                    for source in partition.sources
+                )
                 if (
-                    calendar_manifest.coverage_status == "complete"
-                    and calendar_manifest.coverage_start <= as_of <= calendar_manifest.data_as_of
-                ):
+                    native_calendar or calendar_manifest.coverage_status == "complete"
+                ) and calendar_manifest.coverage_start <= as_of <= calendar_manifest.data_as_of:
+                    # Native calendar rows are individually safe. A distant invalid
+                    # day makes the manifest partial, not this contiguous basis.
                     # This release's verified calendar is part of the basis. A
                     # missing local object must not silently select another date.
                     calendar_paths = materialize_partitions(

@@ -181,7 +181,7 @@ def export_dataset_snapshot(
     created_at: datetime | None = None,
     native_source: NativeL1SourceRef | None = None,
     native_coverage_status: CoverageStatus | None = None,
-    split_objects_by_date: bool = False,
+    object_date_grain: Literal["day", "month"] | None = None,
     unavailable_dates: tuple[date, ...] = (),
 ) -> LakeBuildReport:
     """Derive every partition of one dataset from the sealed snapshot.
@@ -201,7 +201,7 @@ def export_dataset_snapshot(
         raise ValueError("native lineage and its coverage must be provided together")
     if native_source is not None and dataset.layer != "l2_processed":
         raise ValueError("native lineage requires a derived L2 dataset")
-    if split_objects_by_date and dataset.primary_key[:1] != (dataset.date_column,):
+    if object_date_grain is not None and dataset.primary_key[:1] != (dataset.date_column,):
         raise ValueError("date-split objects require the date as the first primary key")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
@@ -223,8 +223,15 @@ def export_dataset_snapshot(
             for period in periods:
                 rows = _period_rows(connection, dataset, period)
                 groups = (
-                    groupby(rows, key=lambda row: str(row[date_index]))
-                    if split_objects_by_date
+                    groupby(
+                        rows,
+                        key=lambda row: (
+                            str(row[date_index])[:7]
+                            if object_date_grain == "month"
+                            else str(row[date_index])
+                        ),
+                    )
+                    if object_date_grain is not None
                     else ((None, rows),)
                 )
                 for day, group in groups:

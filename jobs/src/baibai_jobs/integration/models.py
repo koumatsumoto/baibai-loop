@@ -108,6 +108,7 @@ def integrate_models(
             financial_input=financial_input,
             price_identity=prepared.price_identity,
             master_identity=prepared.master_identity,
+            calendar_identity=prepared.calendar_identity,
         )
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)

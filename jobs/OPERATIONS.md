@@ -954,3 +954,47 @@ uv run baibai-jobs master-native-cutover compare --directory /secure-work/master
 ```
 
 空のnative prefixを明示初期化してから、prepareのblockerを解消し、apply→全pack読戻し→全過去取得日/全Codeの旧投影compareを確認する。未知開始時刻を捏造しない。同値確認はfingerprintだけなので、そのexact受領bytesが必要な間は旧release/stageも保持する。移行後の旧mixed stageはnativeに保持したmaster fingerprintと実bytesを照合し、master投影を繰り返さず、calendar/margin等の他原本だけを従来どおり再生する。旧writerが新たに作った未移行IDは拒否する。実R2/provider受入、容量/保持条件の確認、code/store/全consumer設定を揃える本番切替は別途必要で、ここでは未実施。
+
+<a id="calendar-native-l1"></a>
+## market_calendar native L1と日別充足
+
+`BAIBAI_CALENDAR_NATIVE` は既定 `false`。standaloneのinitialize/plan/acquire/commit-workと固定入力再生成は他sourceのflag・L2・releaseを必要としない。通常モデル/公開を切り替える時だけ、旧財務/日足exporterのcalendar原本依存を残さないため `BAIBAI_FINANCIAL_NATIVE` / `BAIBAI_PRICE_NATIVE` / `BAIBAI_MASTER_NATIVE` も同時にtrueにする。既存workflowのcronは変更しない。通常marketはcalendarを旧release解決より前に確定し、同じ日別native indexをmarginの発表日計画とscheduled休場判定へ渡す。後段のrelease/モデル失敗は確定済みcalendar原本を巻き戻さない。final429・deadline・保存障害後に共有quotaの後続GETを始めない。
+
+要求はunfiltered `from` / `to` の閉区間。開始は `min(asof−7日, 保持した全rangeの最古要求日)`、終了は `asof＋45日` で、未取得/欠落/duplicate/blank/partial/held日だけを連続rangeへまとめる。初期は53日、翌日の既取得日を再GETせず先端1日だけ取得する。これは既存の欠測補修計画を保つもので、priceの強制7日overlapをcalendarへ流用しない。既取得日の訂正確認は明示rangeと `--force` を使う。古い履歴・未来日・要求内の空日を捨てず、全履歴の不足を毎回の対象に残す。
+
+range本文・全field・行順・query・実page受領時計をそのまま一度packへ保存し、範囲を日別に切り刻んだ原本を増やさない。overlapの採用/確認・failure/heldは小さい日別headで解決する。A@1→重なるB@2→同値A@3は、現在の重なりが違えばA@3を変更として採用する。全内容同値は本文を増やさず確認時計/identityへ結び付け、元page時計を書き換えない。完全同値が証明できる同時計だけは不要なheldにしない。異内容同時計はheld、古い後着は原本を保つが新しい日を巻き戻さない。正常空・malformed/out-of-range・欠落/重複日も原本として保存し、取得未充足として明示する。
+
+非空の未知HolDivはraw受領完了でも安全な休場証明ではない。native日別projectionは既知0/3だけclosed、1/2だけopenとし、unknown・failure・held・invalid日をrow/成功coverageへ出さない。原本と明示不足は残す。後続の狭い正常rangeが回復した日へ、古い広いpartial原本を再適用しない。遠い過去/未来の不正日が当日の連続した正常暦を無効にしない一方、当日・前営業日までの必要区間にgapがあれば休日basisを推測しない。
+
+通常モデルはcalendarを一度固定・投影してからmasterの休日basisを決め、同じsealと固定入力を通常公開へ渡す。L2はyear/v2契約のまま月ごとのcontent-addressed objectへ分け、同値と未変更月は再利用する。native参照だけを持つcalendar partial releaseは不足を明示して公開できるが、旧legacy partialのcomplete要件は緩めない。固定金融も当日の必要連続区間を使い、無関係なpartialからbasisを変えない。TradingViewと外部評価はcalendarの小さい固定InputSnapshotも保存し、旧market ready成功・最新head・最新暦へfallbackせず再開する。
+
+```bash
+uv run baibai-jobs jquants-calendar-native initialize --directory /secure-work/calendar-init
+uv run baibai-jobs jquants-calendar-native acquire --directory /secure-work/calendar-cycle \
+  --start 2026-10-29 --end 2026-12-20
+uv run baibai-jobs jquants-calendar-native acquire --directory /secure-work/calendar-correction \
+  --start 2026-11-01 --end 2026-12-20 --force
+uv run baibai-jobs jquants-calendar-native commit-work --directory /secure-work/calendar-cycle
+uv run baibai-jobs rebuild-calendar-native --saved-input /secure-work/calendar-input.json \
+  --output /secure-work/calendar-cold
+```
+
+work再送は保存した実受領だけを再確認し、空/partialを成功へ変えない。通常inputの再計算用 `fixed-inputs/jquants-market-calendar/v1/` root/月metadataと `l1/jquants/market-calendar/v1/` packを、削除可能なParquet cacheとは分けて保持する。mutable full-head更新、全選択metadataと原本packのcold GET、全保持歴の一回の投影は残る。新prefixの権限/lifecycle・実容量/速度/課金は未検証。remote GCによる保存量抑制は仮定しない。
+
+### 旧calendar rangeとdependencyの有限移行
+
+通常dailyへ移行を代行させない。market/calendarの旧writerとdaily・待機runを停止し、固定旧release ID/digest・実UTC境界・market/TradingViewの全ready stageを固定する。market stageの全request ID、TradingViewのmaster/receipt IDを実bodyと照合し、別途保存されたcalendar dependency JSONも固定manifestとdigestを検証して取り込む。filtered/不明scope、page欠損、identity衝突、原本のない失敗は停止して人が確認する。開始時刻は未知ならNULLのまま、page時計を捏造しない。
+
+```bash
+uv run baibai-jobs calendar-native-cutover prepare --directory /secure-work/calendar-migration \
+  --work-directory /secure-work/calendar-mirror --release <FIXED_OLD_RELEASE> \
+  --manifest-sha256 <FIXED_SHA256> --known-at <UTC_BOUNDARY>
+uv run baibai-jobs calendar-native-cutover apply --directory /secure-work/calendar-migration \
+  --work-directory /secure-work/calendar-writer
+uv run baibai-jobs calendar-native-cutover verify --directory /secure-work/calendar-migration \
+  --work-directory /secure-work/calendar-cold-verify
+uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/calendar-migration \
+  --work-directory /secure-work/calendar-compare
+```
+
+空prefixの明示initialize後、prepare blocker解消→apply→全pack読戻し→旧投影compareを確認する。同値確認は本文を省くため、そのexact応答bytesが必要な間は旧release/stage/dependencyも保持する。移行済み旧mixed stageはcalendar raw fingerprintと完全一致を確認してcalendarだけ再投影から外し、margin等の他原本は従来どおり再生する。ID一致だけで移行済みにせず、未移行/改変原本は拒否する。切替後の旧bootstrap calendar writerは明示停止し、専用native CLIへ向ける。旧原本の削除・実R2/provider受入・本番移行はここでは行わない。

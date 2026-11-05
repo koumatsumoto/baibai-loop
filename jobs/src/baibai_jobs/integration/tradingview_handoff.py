@@ -67,6 +67,7 @@ class TradingViewHandoff:
     receipt_ids: tuple[str, ...]
     master_request_ids: tuple[str, ...]
     master_native_input: InputSnapshot | None = None
+    calendar_native_input: InputSnapshot | None = None
 
     def to_json(self) -> dict[str, object]:
         return {
@@ -78,6 +79,11 @@ class TradingViewHandoff:
             **(
                 {"master_native_input": self.master_native_input.model_dump(mode="json")}
                 if self.master_native_input is not None
+                else {}
+            ),
+            **(
+                {"calendar_native_input": self.calendar_native_input.model_dump(mode="json")}
+                if self.calendar_native_input is not None
                 else {}
             ),
         }
@@ -98,6 +104,9 @@ class TradingViewHandoff:
                 master_native_input=InputSnapshot.model_validate(value["master_native_input"])
                 if value.get("master_native_input") is not None
                 else None,
+                calendar_native_input=InputSnapshot.model_validate(value["calendar_native_input"])
+                if value.get("calendar_native_input") is not None
+                else None,
             )
         except (KeyError, TypeError) as error:
             raise ValueError("invalid TradingView handoff metadata") from error
@@ -110,6 +119,7 @@ def export_handoff(
     day: date,
     since: datetime,
     master_input: InputSnapshot | None = None,
+    calendar_input: InputSnapshot | None = None,
 ) -> TradingViewHandoff:
     """Retain new MCP receipts and any exact-date master received in this acquisition.
 
@@ -143,6 +153,16 @@ def export_handoff(
                 or master_input.descriptor.get("as_of") != basis.isoformat()
             ):
                 raise ValueError("TradingView master input differs from its required date")
+        if calendar_input is not None:
+            from baibai_jobs.integration.calendar_native import saved_interval
+
+            calendar_input = InputSnapshot.model_validate_json(calendar_input.model_dump_json())
+            if (
+                calendar_input.descriptor is None
+                or calendar_input.descriptor.get("as_of") != day.isoformat()
+                or saved_interval(calendar_input) != (basis, day)
+            ):
+                raise ValueError("TradingView calendar input differs from its required basis")
         masters = (
             ()
             if master_input is not None
@@ -165,7 +185,7 @@ def export_handoff(
                     rows = conn.execute(f"SELECT * FROM {table} WHERE {column} = ?", (identity,))  # nosec B608
                     placeholders = ",".join("?" for _ in rows.description or ())
                     target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", rows)  # nosec B608
-    return TradingViewHandoff(day, basis, symbols, receipts, masters, master_input)
+    return TradingViewHandoff(day, basis, symbols, receipts, masters, master_input, calendar_input)
 
 
 def _copy_raw(
@@ -200,6 +220,7 @@ def import_handoff(
     *,
     store: ObjectStore | None = None,
     native_master: bool = False,
+    native_calendar: bool = False,
     master_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Add original receipts and replay missing tickers; never replace a saved snapshot.
@@ -208,6 +229,17 @@ def import_handoff(
     the acquisition is projected only when canonical state still lacks that date.
     A canonical master already present is retained, including its newer fields.
     """
+    saved_calendar = None
+    if handoff.calendar_native_input is not None:
+        if store is None or not native_calendar:
+            raise SourceDataError("TradingView native calendar requires its fixed native context")
+        from baibai_jobs.acquisition.calendar_dependencies import saved_calendar_context
+
+        saved_calendar = saved_calendar_context(
+            store, handoff.calendar_native_input, observation_date=handoff.snapshot_date
+        )
+        if saved_calendar[0] != handoff.master_asof:
+            raise SourceDataError("TradingView handoff differs from its saved native calendar")
     if handoff.master_native_input is not None:
         if store is None or not native_master or handoff.master_request_ids:
             raise SourceDataError(
@@ -231,7 +263,9 @@ def import_handoff(
         closing(open_connection(target)) as conn,
     ):
         validate_current_schema(raw)
-        basis, _ = calendar_context(conn, handoff.snapshot_date)
+        basis, business = calendar_context(conn, handoff.snapshot_date)
+        if saved_calendar is not None and saved_calendar != (basis, business):
+            raise SourceDataError("TradingView saved calendar differs from canonical calendar")
         if basis != handoff.master_asof:
             raise SourceDataError("TradingView handoff differs from canonical calendar")
         has_master = (

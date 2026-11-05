@@ -433,6 +433,8 @@ class ReleaseDatasetPolicy(BaseModel):
     flag is per dataset because completeness is a property of what records the source,
     not of the release the dataset happens to join.
     """
+    allow_partial_native_l1: bool = False
+    """Allow partial coverage only when every partition has exclusively native lineage."""
 
     @field_validator("dataset")
     @classmethod
@@ -627,7 +629,20 @@ def validate_release_policy(
             or release_dataset.totals != manifest.totals
         ):
             raise ValueError(f"{dataset}: release dataset inventory does not match its manifest")
-        if dataset_policy.require_complete_coverage and manifest.coverage_status != "complete":
+        native_partial = (
+            dataset_policy.allow_partial_native_l1
+            and manifest.coverage_status == "partial"
+            and all(
+                partition.sources
+                and all(source.kind == "native_l1" for source in partition.sources)
+                for partition in manifest.partitions
+            )
+        )
+        if (
+            dataset_policy.require_complete_coverage
+            and manifest.coverage_status != "complete"
+            and not native_partial
+        ):
             raise ValueError(
                 f"{dataset}: coverage is {manifest.coverage_status}, but its profile requires "
                 "complete"

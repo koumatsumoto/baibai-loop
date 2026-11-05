@@ -161,6 +161,13 @@ class JQuantsRefresh:
             return missing_intervals(conn, source, first, end)
 
     def ensure_market_calendar(self, start: date, end: date) -> int:
+        from baibai_jobs.calendar_cutover import calendar_native_enabled
+
+        if calendar_native_enabled():
+            raise JQuantsProviderError(
+                "native calendar mode requires jquants-calendar-native acquire "
+                "and rebuild-calendar-native"
+            )
         planned = self._missing_since_first_coverage("jquants_market_calendar", start, end)
         if self._missing("jquants_market_calendar", start, end):
             # Scoped inputs keep coverage, not original pages. Extending the

@@ -112,6 +112,7 @@ def freeze_market_originals(
     asof: date,
     include_daily_prices: bool = True,
     include_master: bool = True,
+    include_calendar: bool = True,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FixedMarketIndexes:
     """Freeze L1 and pending market originals once; never consult an L2 input."""
@@ -127,6 +128,8 @@ def freeze_market_originals(
         sources = tuple(source for source in sources if source != "daily_bars")
     if not include_master:
         sources = tuple(source for source in sources if source != "master")
+    if not include_calendar:
+        sources = tuple(source for source in sources if source != "market_calendar")
     cutoff = clock()
     if cutoff.utcoffset() is None:
         raise ValueError("clock requires a timezone")
@@ -213,6 +216,7 @@ def plan_market_from_originals(
     asof: date,
     include_daily_prices: bool = True,
     include_master: bool = True,
+    include_calendar: bool = True,
 ) -> MarketPlans:
     """Plan each source from original receipts; unavailable scopes stay explicit."""
 
@@ -244,7 +248,9 @@ def plan_market_from_originals(
             calendar,
             start=min(calendar_start, earliest_calendar),
             end=asof + timedelta(days=CALENDAR_FORWARD_DAYS),
-        ),
+        )
+        if include_calendar
+        else NativeAcquisitionPlan((), ()),
         weekly_margin=plan_weekly_margin(
             indexes["margin_interest"],
             calendar,

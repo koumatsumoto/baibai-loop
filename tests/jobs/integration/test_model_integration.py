@@ -1,3 +1,4 @@
+import hashlib
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -32,6 +33,12 @@ def integration(tmp_path, monkeypatch):
         source_snapshot=SimpleNamespace(sealed_at=datetime(2026, 10, 25, tzinfo=UTC)),
         price_identity=None,
         master_identity=None,
+        calendar_identity=InputSnapshot(
+            kind="native_l1",
+            reference="calendar-native-fixed",
+            sha256=hashlib.sha256(b"{}").hexdigest(),
+            descriptor={},
+        ),
     )
 
     @contextmanager
@@ -51,6 +58,7 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["evaluation_time"] >= prepared.source_snapshot.sealed_at
         assert kwargs["price_identity"] is prepared.price_identity
         assert kwargs["master_identity"] is prepared.master_identity
+        assert kwargs["calendar_identity"] is prepared.calendar_identity
         assert kwargs["market_release"].release_id == "new-release"
         assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
         return ModelGenerationStream(
@@ -64,6 +72,7 @@ def integration(tmp_path, monkeypatch):
                         kind="lake_release", reference="new-release", sha256="a" * 64
                     ),
                     "economic": kwargs["economic_identity"],
+                    "calendar": kwargs["calendar_identity"],
                 },
                 subject_plan={
                     "1234": GenerationSubject(
@@ -172,6 +181,7 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
     assert stored.inputs["market"].reference == result["lake"]["release_id"]
     assert stored.inputs["economic"].sha256 == result["economic_snapshot_sha256"]
+    assert stored.inputs["calendar"].reference == "calendar-native-fixed"
 
 
 def test_generation_failure_does_not_publish_or_save_a_partial_run(integration, monkeypatch):

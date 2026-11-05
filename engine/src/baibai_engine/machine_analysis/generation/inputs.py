@@ -99,6 +99,7 @@ def read_and_generate_models(
     financial_input: FinancialModelInput | None = None,
     price_identity: InputSnapshot | None = None,
     master_identity: InputSnapshot | None = None,
+    calendar_identity: InputSnapshot | None = None,
 ) -> ModelGenerationStream:
     """callerは同じmarket sealからreleaseを作り、economic copyも固定する。
 
@@ -302,6 +303,7 @@ def read_and_generate_models(
                 sha256=market_release.manifest_sha256,
             ),
             **({"economic": economic_identity} if economic_identity is not None else {}),
+            **({"calendar": calendar_identity} if calendar_identity is not None else {}),
             **({"master": master_identity} if master_identity is not None else {}),
             **({"price": price_identity} if price_identity is not None else {}),
             **({"financial": financial_input.identity} if financial_input is not None else {}),

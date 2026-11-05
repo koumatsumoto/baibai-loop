@@ -43,6 +43,7 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
+from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
@@ -73,6 +74,22 @@ def apply(
         raise ValueError("price cutover mode differs from the fixed integration plan")
     if bool(plan.get("master_native", False)) != master_native_enabled():
         raise ValueError("master cutover mode differs from the fixed integration plan")
+    if bool(plan.get("calendar_native", False)) != calendar_native_enabled():
+        raise ValueError("calendar cutover mode differs from the fixed integration plan")
+    calendar_input = None
+    calendar_fingerprints = None
+    if calendar_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+        from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
+
+        fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
+        calendar_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in fixed_calendar.value()["receipts"].items()
+        }
+        calendar_input = calendar_model_input(
+            store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC), market=market
+        )
     master_input = None
     master_fingerprints = None
     if master_native_enabled():
@@ -110,6 +127,12 @@ def apply(
         else:
             try:
                 download_fixed(store, entry, packet)
+                if calendar_fingerprints is not None:
+                    from baibai_jobs.acquisition.calendar_dependencies import (
+                        verify_stage_calendar_dependencies,
+                    )
+
+                    verify_stage_calendar_dependencies(store, entry, calendar_fingerprints)
                 # Invalid source bytes are local failures. SQLite errors from the
                 # canonical writers below remain fatal storage/integrity failures.
                 try:
@@ -128,7 +151,7 @@ def apply(
                     raise ValueError("invalid source SQLite receipt") from error
                 replay = (
                     _replay(entry["source"], market, packet)
-                    if master_input is None
+                    if master_input is None and calendar_input is None
                     else _replay(
                         entry["source"],
                         market,
@@ -136,6 +159,8 @@ def apply(
                         store=store,
                         master_input=master_input,
                         master_fingerprints=master_fingerprints,
+                        calendar_input=calendar_input,
+                        calendar_fingerprints=calendar_fingerprints,
                     )
                 )
                 result = replay.report
@@ -314,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
                     "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
+                    "calendar_native": calendar_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },
