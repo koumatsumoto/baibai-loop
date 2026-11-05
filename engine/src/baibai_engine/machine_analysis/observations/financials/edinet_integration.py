@@ -5,10 +5,12 @@ from __future__ import annotations
 import sys
 from collections import Counter
 from contextlib import closing
+from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.data_collection.providers.edinet.archives import archive_keys
 from baibai_engine.data_collection.providers.edinet.facts_scope import read_scope
 from baibai_engine.data_collection.providers.edinet.list_projection import (
@@ -55,13 +57,19 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 def extract_saved_edinet(
-    database: Path, *, asof: date, lookback_days: int = 540
+    database: Path,
+    *,
+    asof: date,
+    lookback_days: int = 540,
+    metric_archives: FixedEdinetArchives | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Use saved source dates; never turn missing acquisition into extraction failure.
 
     The strict acquisition/manual extraction CLIs retain their requested-date
     contract. Only the independent integration selects available saved inputs.
     Validation/parse/storage failures are not classified as missing acquisition.
+    An explicit fixed metric archive input reads selected ZIPs without copying
+    them into SQLite. It does not alter the existing warm baseline contract.
     """
     baseline = read_edinet_metric_baseline(database, asof)
     with closing(connect_read_only(database)) as conn:
@@ -83,6 +91,7 @@ def extract_saved_edinet(
         )
     with closing(connect_read_only(database)) as archive_connection:
         retained = archive_keys(archive_connection)
+    retained_metrics = metric_archives.archive_keys if metric_archives is not None else retained
     reader = EDINETReader(database)
     metrics: dict[str, Any] = {
         "exit_code": 0,
@@ -109,8 +118,14 @@ def extract_saved_edinet(
         plan = make_metric_extraction_plan(
             selection=selection, baseline=baseline, extractor_revision=EDINET_METRIC_REVISION
         )
+        if selection.quarantined_events:
+            metrics["quarantined_events"] = [
+                asdict(event) for event in selection.quarantined_events
+            ]
         missing = [
-            item.doc_id for item in plan.archive_candidates if (item.doc_id, 5) not in retained
+            item.doc_id
+            for item in plan.archive_candidates
+            if (item.doc_id, 5) not in retained_metrics
         ]
         if not selection.candidates:
             metrics["deferred_inputs"].append("no_selected_filings")
@@ -131,7 +146,7 @@ def extract_saved_edinet(
             code = extract_edinet_metrics_from_plan(
                 asof_date=available,
                 plan=plan,
-                reader=reader,
+                reader=metric_archives if metric_archives is not None else reader,
                 sqlite_path=database,
                 unavailable_doc_ids=frozenset(missing),
             )
