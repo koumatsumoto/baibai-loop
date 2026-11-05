@@ -336,3 +336,72 @@ def test_legacy_recheck_claim_requires_actual_current_day_raw(tmp_path):
 
     _, plan = prepare(tmp_path, [original], configure=configure)
     assert any("real current-day proof" in item["reason"] for item in plan["blocked"])
+
+
+def test_release_selected_original_can_be_retained_in_integrated_stage(tmp_path):
+    original = row(body=valid_body())
+    store = MemoryR2Store()
+    stage(tmp_path, store, "edinet-list", [original], suffix="integrated", status="integrated")
+
+    def configure(database):
+        project_fixture(database)
+        with closing(sqlite3.connect(database)) as conn, conn:
+            conn.execute("DELETE FROM edinet_list_responses")
+
+    store, plan = prepare(tmp_path, [original], configure=configure, store=store)
+    assert not plan["blocked"]
+    assert not plan["missing_raw_days"]
+    assert len(plan["receipts"]) == 1
+    owner = EdinetListL1(store, tmp_path / "target")
+    assert cutover.apply_migration(owner, directory=tmp_path / "plan")["added"] == 1
+    (actual,) = owner.freeze().iter_receipts()
+    assert actual.receipt_id == original[0]
+    assert actual.body_gzip == original[3]
+    assert actual.received_at == datetime.fromisoformat(original[2])
+
+
+def test_legacy_recheck_proof_can_be_retained_in_another_fixed_source(tmp_path):
+    original = row(body=valid_body())
+    proof_day = AT.date()
+    proof = row(
+        day=proof_day,
+        at=AT - timedelta(seconds=1),
+        body=json.dumps(
+            {
+                "metadata": {
+                    "parameter": {"date": proof_day.isoformat()},
+                    "resultset": {"count": 0},
+                },
+                "results": [],
+            }
+        ).encode(),
+    )
+    store = MemoryR2Store()
+    stage(tmp_path, store, "edinet-metrics", [proof])
+
+    def configure(database):
+        project_fixture(database)
+        with closing(sqlite3.connect(database)) as conn, conn:
+            conn.execute(
+                "UPDATE edinet_document_lists SET rechecked_asof=?", (proof_day.isoformat(),)
+            )
+
+    _, plan = prepare(tmp_path, [original], configure=configure, store=store)
+    assert not plan["blocked"]
+    assert len(plan["receipts"]) == 2
+
+
+def test_legacy_enrichment_can_use_earlier_original_in_fixed_stage(tmp_path):
+    earlier = row(at=AT - timedelta(seconds=1), body=valid_body())
+    vanished = row(body=valid_body(legal="0", sec=None))
+    store = MemoryR2Store()
+    stage(tmp_path, store, "edinet-facts", [earlier])
+
+    def configure(database):
+        project_fixture(database)
+        with closing(sqlite3.connect(database)) as conn, conn:
+            conn.execute("UPDATE edinet_documents SET sec_code='20000'")
+
+    _, plan = prepare(tmp_path, [vanished], configure=configure, store=store)
+    assert not plan["blocked"]
+    assert len(plan["receipts"]) == 2

@@ -97,6 +97,7 @@ def prepare_migration(
     inputs: list[dict[str, str]] = []
     legacy_lists: list[tuple[Any, ...]] = []
     legacy_documents: list[tuple[Any, ...]] = []
+    projections: list[tuple[str, list[tuple[Any, ...]], list[tuple[Any, ...]]]] = []
     entries = [
         entry
         for source in SOURCES
@@ -143,6 +144,8 @@ def prepare_migration(
         list_rows: list[tuple[Any, ...]],
         document_rows: list[tuple[Any, ...]],
     ) -> None:
+        if not list_rows and not document_rows:
+            return
         originals = {
             identity: _receipt(
                 prepared[identity], (directory / prepared[identity]["file"]).read_bytes()
@@ -232,9 +235,7 @@ def prepare_migration(
                     legacy_lists.extend(batch)
                 else:
                     legacy_documents.extend(batch)
-    verify_projection(
-        "release:" + release.release_id, set(prepared), legacy_lists, legacy_documents
-    )
+    projections.append(("release:" + release.release_id, legacy_lists, legacy_documents))
     for number, entry in enumerate(entries):
         origin = "stage:" + str(entry["stage_id"])
         if entry.get("invalid"):
@@ -283,15 +284,16 @@ def prepare_migration(
                         projected_days.update(
                             date.fromisoformat(row[0]).isoformat() for row in conn.execute(query)
                         )
-                verify_projection(
-                    origin,
-                    found,
-                    list(conn.execute("SELECT * FROM edinet_document_lists"))
-                    if "edinet_document_lists" in tables
-                    else [],
-                    list(conn.execute("SELECT * FROM edinet_documents"))
-                    if "edinet_documents" in tables
-                    else [],
+                projections.append(
+                    (
+                        origin,
+                        list(conn.execute("SELECT * FROM edinet_document_lists"))
+                        if "edinet_document_lists" in tables
+                        else [],
+                        list(conn.execute("SELECT * FROM edinet_documents"))
+                        if "edinet_documents" in tables
+                        else [],
+                    )
                 )
             if set(declared) != found:
                 raise ValueError("handoff declared list receipts differ from actual raw IDs")
@@ -304,6 +306,10 @@ def prepare_migration(
             LakePublishError,
         ) as error:
             blocked.append({"origin": origin, "reason": str(error)})
+    # Selected receipt and recheck evidence may be retained in another fixed
+    # source. Validate only after collecting the complete release/stage union.
+    for origin, list_rows, document_rows in projections:
+        verify_projection(origin, set(prepared), list_rows, document_rows)
     missing = sorted(projected_days - {item["doc_date"] for item in prepared.values()})
     plan = {
         "format": FORMAT,
