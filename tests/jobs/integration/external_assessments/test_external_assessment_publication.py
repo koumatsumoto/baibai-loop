@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 from tests.helpers.external_assessment_publication import publication as publication
-from tests.helpers.workflow_schedule import PAUSE, declared_schedule
+from tests.helpers.workflow_schedule import declared_schedule
 from tools.quality.drift.check_workflow_trust import check_workflow
 
 import baibai_jobs.integration.external_assessments as external_assessment
@@ -133,10 +133,7 @@ def test_missing_external_assessment_dataset_is_empty_only_when_expected_history
 def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_lease():
     raw = WORKFLOW.read_text(encoding="utf-8")
     workflow = yaml.load(raw, Loader=yaml.BaseLoader)
-    expected_triggers = {"workflow_dispatch"}
-    if PAUSE not in raw.splitlines():
-        expected_triggers.add("schedule")
-    assert set(workflow["on"]) == expected_triggers
+    assert set(workflow["on"]) == {"workflow_dispatch", "schedule"}
     assert declared_schedule(raw) == [{"cron": "13 10,14,22 * * *"}]
     acquire_job = workflow["jobs"]["source"]
     assert acquire_job["strategy"]["max-parallel"] == "4"

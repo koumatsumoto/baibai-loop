@@ -1,10 +1,9 @@
 name: cloud-article-sources
 
 on:
-  # #1820 本番切替中は定期起動を停止。再開時は下の元scheduleを復元する。
-  # schedule:
-  #   # Six slots/day; 13:13 UTC precedes the independent 13:43 daily integration.
-  #   - cron: '13 1,5,9,13,17,21 * * *'
+  schedule:
+    # Six slots/day; 13:13 UTC precedes the independent 13:43 daily integration.
+    - cron: '13 1,5,9,13,17,21 * * *'
   workflow_dispatch:
     inputs:
       group:
