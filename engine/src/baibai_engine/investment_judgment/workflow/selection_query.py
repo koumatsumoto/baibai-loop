@@ -131,6 +131,15 @@ def load_generated_selection_context(
         dict[str, Any],
         project_generated_inputs(models, company_growth_periods=None if compact_screening else 12),
     )
+    # Selection未保存のcontextは、現存する固定generationを参照する。
+    # prepare後の投影だけがapplication DB内のSelectionを参照できる。
+    for name, identity in models.inputs.items():
+        if identity.kind == "native_l1":
+            entry = model_inputs["analysis_source"]["inputs"][name]
+            entry["generation_input_ref"] = {
+                "generation_id": models.generation_id,
+                "json_pointer": entry.pop("full_result_ref").removeprefix("/inputs/generation"),
+            }
     # contextにはOperationの/inputs/generation参照先がない。政策の有無にかかわらず
     # 明示詳細は完全payloadを渡し、古いquarter/annual観測もその場で読めるようにする。
     for model in models.models:

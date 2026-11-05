@@ -26,6 +26,9 @@ from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
 )
+from baibai_engine.investment_judgment.workflow.selection_query import (
+    load_generated_selection_context,
+)
 from baibai_engine.investment_judgment.workflow.workspace.selected_prepare import (
     prepare_selected_workspace,
     resume_selected_workspace,
@@ -134,6 +137,30 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
         ).materialize()
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "workspace"
     ModelGenerationStore(runs).publish(generated)
+    context = load_generated_selection_context(
+        request=ResearchRequest(
+            text="財務を確認する", scope="specified_stocks", requested_tickers=("1301",)
+        ),
+        generation_id=generated.generation_id,
+        screening_selection_id=None,
+        research_as_of=AS_OF,
+        known_at=evaluated_at,
+        runs_path=runs,
+        db_path=app,
+    )
+    context_entry = context["model_inputs"]["analysis_source"]["inputs"]["financial"]
+    assert not app.exists()
+    assert "full_result_ref" not in context_entry
+    assert "descriptor" not in context_entry
+    assert context_entry["summary"] == expected_summary
+    generation_ref = context_entry["generation_input_ref"]
+    persisted = ModelGenerationStore(runs).read(generation_ref["generation_id"])
+    context_exact = _resolve(persisted.model_dump(mode="json"), generation_ref["json_pointer"])
+    assert context_exact == financial.identity.descriptor
+    assert (
+        hashlib.sha256(canonical_json(context_exact).encode()).hexdigest()
+        == context_entry["sha256"]
+    )
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(
