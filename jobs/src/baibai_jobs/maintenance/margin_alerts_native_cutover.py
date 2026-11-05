@@ -26,12 +26,12 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsPage,
     complete_request,
 )
-from baibai_engine.data_collection.providers.jquants.lake_receipts import fixed_receipt_paths
 from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
     PREFIX,
     MarginAlertsAttempt,
     MarginAlertsL1,
 )
+from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
 from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
     JQUANTS_MARGIN_ALERTS,
 )
@@ -100,7 +100,12 @@ def prepare_migration(
     if known_at.utcoffset() is None:
         raise ValueError("migration boundary requires a timezone")
     directory.mkdir(parents=True, exist_ok=False)
-    paths = fixed_receipt_paths(release=release, cache=cache, known_at=known_at)
+    # 移行は全履歴を検査し、境界後の受領を月partitionごと黙って除外しない。
+    paths = materialize_partitions(
+        cache,
+        dataset=accepted_dataset(release, JQUANTS_SOURCE_PAGES),
+        partitions=selected_partitions(release, JQUANTS_SOURCE_PAGES.name),
+    )
     entries = available_handoffs(store, source="jquants-market", include_integrated=True)
     prepared: dict[str, dict[str, Any]] = {}
     incomplete: set[str] = set()

@@ -50,7 +50,9 @@ def prepare(tmp_path, monkeypatch, rows, *, stage_rows=(), entries=None, report=
         pa.Table.from_arrays([pa.array(column) for column in zip(*rows, strict=True)], names=names),
         source,
     )
-    monkeypatch.setattr(cutover, "fixed_receipt_paths", lambda **_: (source,))
+    monkeypatch.setattr(cutover, "accepted_dataset", lambda *a: cutover.JQUANTS_SOURCE_PAGES)
+    monkeypatch.setattr(cutover, "selected_partitions", lambda *a: ())
+    monkeypatch.setattr(cutover, "materialize_partitions", lambda *a, **kw: (source,))
     store = MemoryR2Store()
     if stage_rows or report is not None:
         packet = tmp_path / "packet"
