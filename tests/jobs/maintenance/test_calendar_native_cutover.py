@@ -78,7 +78,9 @@ def prepare(tmp_path, monkeypatch, items, store=None):
             path,
         )
         paths = (path,)
-    monkeypatch.setattr(cutover, "fixed_receipt_paths", lambda **_: paths)
+    monkeypatch.setattr(cutover, "accepted_dataset", lambda *a: cutover.JQUANTS_SOURCE_PAGES)
+    monkeypatch.setattr(cutover, "selected_partitions", lambda *a: ())
+    monkeypatch.setattr(cutover, "materialize_partitions", lambda *a, **kw: paths)
     store = store or MemoryR2Store()
     before = len(store.put_keys)
     with lake_session() as session:
@@ -162,7 +164,9 @@ def test_unknown_scope_and_incomplete_identity_block_apply_without_writes(
             )
         )
         pq.write_table(pa.Table.from_arrays([pa.array([x]) for x in altered], names=NAMES), path)
-        monkeypatch.setattr(cutover, "fixed_receipt_paths", lambda **_: (path,))
+        monkeypatch.setattr(cutover, "accepted_dataset", lambda *a: cutover.JQUANTS_SOURCE_PAGES)
+        monkeypatch.setattr(cutover, "selected_partitions", lambda *a: ())
+        monkeypatch.setattr(cutover, "materialize_partitions", lambda *a, **kw: (path,))
         with lake_session() as session:
             plan = cutover.prepare_migration(
                 session,
