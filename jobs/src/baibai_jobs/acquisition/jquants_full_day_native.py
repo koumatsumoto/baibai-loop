@@ -98,13 +98,13 @@ def build_parser(description: str) -> argparse.ArgumentParser:
 def native_main(
     argv: list[str] | None,
     *,
-    description: str,
+    parser: argparse.ArgumentParser,
     owner_type: Callable[[Any, Path], FullDayL1[Any, Any]],
     attempt_type: type[FullDayAttempt],
     store_factory: Callable[..., Any],
     client_factory: Callable[..., JQuantsHTTP],
 ) -> int:
-    args = build_parser(description).parse_args(argv)
+    args = parser.parse_args(argv)
     try:
         with closing(
             store_factory(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")

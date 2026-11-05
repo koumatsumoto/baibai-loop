@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -12,7 +13,13 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     PriceL1,
 )
 from baibai_engine.storage.objects.r2 import Boto3R2Store
-from baibai_jobs.acquisition.jquants_full_day_native import acquire_full_day_native, native_main
+from baibai_jobs.acquisition.jquants_full_day_native import (
+    acquire_full_day_native,
+    native_main,
+)
+from baibai_jobs.acquisition.jquants_full_day_native import (
+    build_parser as build_full_day_parser,
+)
 
 
 def acquire_price_native(
@@ -36,10 +43,14 @@ def acquire_price_native(
     )
 
 
+def build_parser() -> argparse.ArgumentParser:
+    return build_full_day_parser(__doc__ or "")
+
+
 def main(argv: list[str] | None = None) -> int:
     return native_main(
         argv,
-        description=__doc__ or "",
+        parser=build_parser(),
         owner_type=PriceL1,
         attempt_type=PriceAttempt,
         store_factory=Boto3R2Store,
