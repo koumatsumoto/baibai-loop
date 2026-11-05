@@ -30,6 +30,7 @@ def _fact_value(value: object) -> Any:
 def proposal_inputs_fingerprint(inputs: ProposalInputs) -> str:
     """checked_atだけを除き、Decimal同値/同instant/集合順に依らずhashする。"""
 
+    # 再読時刻だけの差で、内容Reviewのやり直しを要求しない。
     payload = inputs.model_dump(mode="python", exclude={"checked_at"})
     for name, key in (
         ("positions", "ticker"),

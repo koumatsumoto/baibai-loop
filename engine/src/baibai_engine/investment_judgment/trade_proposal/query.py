@@ -187,6 +187,7 @@ def _preview_buy(
 
     ceiling = item.terms.limit_price_yen if item.terms is not None else item.proposed_limit_yen
     assert ceiling is not None
+    # 保存数量を現在の数量上限へ置換せず、作者が選んだ同じ案を再検証する。
     result = buy_evaluation(
         pair,
         inputs=inputs,
