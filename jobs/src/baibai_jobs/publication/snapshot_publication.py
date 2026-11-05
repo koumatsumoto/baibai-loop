@@ -397,6 +397,7 @@ def prepare_market_lake(
                 ("master", native_master),
                 ("market_calendar", native_calendar),
                 ("margin_alerts", native_alerts),
+                ("short_sale_reports", native_shorts),
             )
             if enabled
         )
