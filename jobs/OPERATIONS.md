@@ -808,9 +808,9 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 移行や全期間再取得を通常dailyへ代行させない。旧release/stageには同値確認時のexact bytesもあるため、自動削除しない。合成testやcodeのmergeは本番切替の証拠ではない。
 
 <a id="margin-alerts-native-l1"></a>
-## 日々公表銘柄margin-alert native L1の明示取得・固定読取
+## 日々公表銘柄margin-alert native L1と通常経路
 
-`jquants-margin-alerts-native` は明示入口で、通常market writerには未接続。取得日とoverlapは[owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残のsource](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。休日skipを前提にせず、通常接続時に追加GETと保持範囲を確認する。
+`BAIBAI_MARGIN_ALERTS_NATIVE` は通常 `jquants-market` の取得とdailyの固定reader/公開を一組で選ぶ。既定は `false` で、本番切替は未実施。取得日とoverlapは[owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残のsource](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。native取得は旧market releaseを開く前に確定し、日々公表の原本取得はL2の成否・品質を使わない。既知休場でも8暦日の公表確認を行うため、切替前に追加GETとprovider予算を確認する。
 
 ```bash
 uv run baibai-jobs jquants-margin-alerts-native initialize \
@@ -826,7 +826,7 @@ uv run baibai-jobs rebuild-margin-alerts-native \
 
 `rebuild-margin-alerts-native` は新規 `margin-alerts.sqlite` と `input.json` を出力し、既存SQLiteを上書きしない。`--saved-input` で同じ有限範囲を再生する。正常空・partial・未取得の読取は[既存consumerへの投影](src/baibai_jobs/integration/margin_alerts_native.py)に従う。
 
-### 有限移行と残る本番接続
+### 有限移行と本番切替
 
 統合済みを含む全market stageを固定し、margin-alertの原本だけを移す。source別失敗や欠損はprepareの結果で確認する。
 
@@ -845,7 +845,15 @@ uv run baibai-jobs margin-alerts-native-cutover compare \
   --asof 2026-11-05
 ```
 
-compareは予定日までの全保持範囲を検査する。通常writerとconsumerの接続は別途必要で、明示CLIの成功を通常経路の切替完了とは扱わない。
+compareは予定日までの全保持範囲を検査する。移行中は旧writerを止め、最後の全stageを同じUTC境界で固定する。prepare/apply/verify/compare、prefixの権限・保持、取得予算を確認してから通常sourceとdailyの `BAIBAI_MARGIN_ALERTS_NATIVE` を同時に有効化する。code/Actionsの既定値変更や本番variable更新はこの接続変更に含めない。旧release/stageは削除しない。
+
+旧mixed stageでは移行済alerts原本の全page fingerprintを照合し、それ以外のsourceだけを従来どおり反映する。不一致・未移行は黙ってskipせず明示回復する。切替後の旧maintenance取得は拒否し、明示native取得と固定入力の再生成を使う。
+
+通常dailyは固定L1 selectionを一つだけ採り、同じ投影をモデルの `inputs.margin_alerts` と公開L2のnative lineageに渡す。前回のcompleteなnative L2はParquetとSQLiteの全行照合後に限ってcacheとして使い、変更された公表日だけをrawから投影する。cacheの欠損・改変・partial時は固定L1のみから再生成する。取得側はcacheを読まない。公開objectはyear/v2の中で月別に内容共有し、既存の共通seal以外に毎日の全履歴snapshotや専用cache namespaceを増やさない。
+
+初回通常source後に独立headの増分と旧stageからalertsが外れること、初回daily後にreaderのPubDate/AppDate・正常空訂正・partial、保存inputと公開lineage、次回hydrateを確認する。全履歴0行は固定readerでは正常空だが、現market releaseはdatasetの観測行を必須にしており公開できない。既存非空履歴の有限移行をこの切替の前提とし、空原本へ架空行を足さない。
+
+この接続はmargin-alert単独であり、short_saleの `disc_date` と行順、margin_interestの週次/全日次・公表lag・固定暦は統合しない。両sourceの独立入口がmergeされても通常writer/consumerの切替は別途行う。
 
 <a id="short-sale-reports-native-l1"></a>
 ## 空売り残高報告native L1の明示入口

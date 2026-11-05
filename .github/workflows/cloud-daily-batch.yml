@@ -24,6 +24,7 @@ env:
   BAIBAI_EDINET_LIST_NATIVE: "true"
   BAIBAI_PRICE_NATIVE: "true"
   BAIBAI_FINANCIAL_NATIVE: "true"
+  BAIBAI_MARGIN_ALERTS_NATIVE: ${{ vars.BAIBAI_MARGIN_ALERTS_NATIVE == 'true' && 'true' || 'false' }}
 
 concurrency:
   group: common-source-integration

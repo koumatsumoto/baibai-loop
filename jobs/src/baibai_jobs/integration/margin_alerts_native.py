@@ -6,11 +6,12 @@ import argparse
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import JsonValue
 
@@ -18,10 +19,12 @@ from baibai_engine.data_collection.providers.jquants.margin_alerts_native import
     FixedMarginAlertsL1,
     MarginAlertsL1,
     read_margin_alert_requests,
+    verify_migrated_margin_alert_receipts,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_alerts_inputs import (
     INPUT_FORMAT,
+    margin_alerts_input_interval,
     read_margin_alerts_input,
     retain_margin_alerts_input,
 )
@@ -30,9 +33,16 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     MARGIN_ALERT_OPERATION,
     MARGIN_ALERT_SOURCE,
 )
+from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
+    JQUANTS_MARGIN_ALERTS,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
+from baibai_engine.storage.snapshots.models import DatasetManifest
+from baibai_engine.storage.snapshots.objects import LakeObjectError, mirror_path
+from baibai_engine.storage.snapshots.sources import sha256_file
+from baibai_engine.storage.snapshots.writer import LakeBuildError, validate_snapshot_parity
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     range_covered,
     record_range_source_coverage,
@@ -158,58 +168,13 @@ def materialize_saved_input(
     selected = read_margin_alerts_input(store, descriptor, days=days)
     scopes = selected["scopes"]
     _validate_clock(scopes, evaluated_at)
-    adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("xb"):
         pass  # Never modify an existing cache or a production SQLite path.
     try:
         with closing(open_connection(output)) as connection:
             connection.execute("BEGIN")
-            found = set()
-            for item in read_margin_alert_requests(
-                store, scopes=scopes, receipts=selected["receipts"], days=days
-            ):
-                if item.last_received_at is not None and item.last_received_at > evaluated_at:
-                    raise ValueError("margin alerts original is later than the evaluation clock")
-                if (day := adopted.get(item.request_id)) is None:
-                    continue
-                if item.request is None or item.error is not None:
-                    raise ValueError("adopted margin alerts original is incomplete")
-                request = item.request
-                if (
-                    request.source != "margin_alerts"
-                    or set(request.params) != {"date"}
-                    or date.fromisoformat(request.params["date"]) != date.fromisoformat(day)
-                ):
-                    raise ValueError(
-                        "margin alerts original differs from the fixed publication day"
-                    )
-                store_jquants_margin_alerts(
-                    output,
-                    request.records(),
-                    requested_start=date.fromisoformat(day),
-                    requested_end=date.fromisoformat(day),
-                    fetched_at_utc=scopes[day].get("confirmed_at")
-                    or request.received_at.isoformat(),
-                    connection=connection,
-                )
-                found.add(item.request_id)
-            if found != set(adopted):
-                raise ValueError("margin alerts selection lacks an adopted original")
-            for day, scope in scopes.items():
-                if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
-                    record_range_source_coverage(
-                        connection,
-                        source=MARGIN_ALERT_SOURCE,
-                        operation=MARGIN_ALERT_OPERATION,
-                        table="jquants_margin_alerts",
-                        date_column="publication_date",
-                        requested_start=date.fromisoformat(day),
-                        requested_end=date.fromisoformat(day),
-                        status="partial" if scope.get("adopted") else "unavailable",
-                        error="native acquisition unresolved",
-                        fetched_at_utc=scope.get("last_attempt_at") or evaluated_at.isoformat(),
-                    )
+            _project_days(store, saved, connection, days=days, output=output)
             unresolved = [
                 day for day in days if not range_covered(connection, MARGIN_ALERT_SOURCE, day, day)
             ]
@@ -230,6 +195,227 @@ def materialize_saved_input(
         output.unlink(missing_ok=True)
         raise
     return result
+
+
+def _project_days(
+    store: ObjectStore,
+    saved: InputSnapshot,
+    connection: sqlite3.Connection,
+    *,
+    days: tuple[date, ...],
+    output: Path,
+) -> None:
+    """Replace only requested publication days; the caller owns the transaction."""
+    if not days:
+        return
+    descriptor = _descriptor(saved)
+    summary = descriptor["summary"]
+    assert isinstance(summary, dict)
+    evaluated_at = datetime.fromisoformat(str(summary["evaluated_at"]))
+    selected = read_margin_alerts_input(store, descriptor, days=days)
+    scopes = selected["scopes"]
+    _validate_clock(scopes, evaluated_at)
+    adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
+    found = set()
+    # A missing original must remove an untrusted old projection, never preserve it.
+    connection.executemany(
+        "DELETE FROM jquants_margin_alerts WHERE publication_date=?",
+        ((day.isoformat(),) for day in days),
+    )
+    for item in read_margin_alert_requests(
+        store, scopes=scopes, receipts=selected["receipts"], days=days
+    ):
+        if item.last_received_at is not None and item.last_received_at > evaluated_at:
+            raise ValueError("margin alerts original is later than the evaluation clock")
+        if (day := adopted.get(item.request_id)) is None:
+            continue
+        if item.request is None or item.error is not None:
+            raise ValueError("adopted margin alerts original is incomplete")
+        request = item.request
+        if (
+            request.source != "margin_alerts"
+            or set(request.params) != {"date"}
+            or date.fromisoformat(request.params["date"]) != date.fromisoformat(day)
+        ):
+            raise ValueError("margin alerts original differs from the fixed publication day")
+        store_jquants_margin_alerts(
+            output,
+            request.records(),
+            requested_start=date.fromisoformat(day),
+            requested_end=date.fromisoformat(day),
+            fetched_at_utc=scopes[day].get("confirmed_at") or request.received_at.isoformat(),
+            connection=connection,
+        )
+        found.add(item.request_id)
+    if found != set(adopted):
+        raise ValueError("margin alerts selection lacks an adopted original")
+    _record_unresolved(connection, scopes, evaluated_at)
+
+
+def _record_unresolved(
+    connection: sqlite3.Connection, scopes: dict[str, Any], evaluated_at: datetime
+) -> None:
+    for day, scope in scopes.items():
+        if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
+            record_range_source_coverage(
+                connection,
+                source=MARGIN_ALERT_SOURCE,
+                operation=MARGIN_ALERT_OPERATION,
+                table="jquants_margin_alerts",
+                date_column="publication_date",
+                requested_start=date.fromisoformat(day),
+                requested_end=date.fromisoformat(day),
+                status="partial" if scope.get("adopted") else "unavailable",
+                error="native acquisition unresolved",
+                fetched_at_utc=scope.get("last_attempt_at") or evaluated_at.isoformat(),
+            )
+
+
+def _verified_cached_scopes(
+    store: ObjectStore,
+    previous: DatasetManifest | None,
+    *,
+    market: Path,
+    mirror_root: Path,
+) -> dict[str, Any]:
+    """Previous L2 is optional. Missing/corrupt/partial cache falls back to fixed L1.
+
+    Only a complete native projection can prove the quality of each reused day.
+    SQLite rows are checked against the immutable published Parquet, not trusted
+    from their count or coverage claims. No new durable cache state is needed.
+    """
+    if previous is None or previous.coverage_status != "complete":
+        return {}
+    sources = {source for part in previous.partitions for source in part.sources}
+    if len(sources) != 1:
+        return {}
+    source = next(iter(sources))
+    if source.kind != "native_l1" or source.namespace != "jquants-margin-alerts":
+        return {}
+    descriptor: dict[str, JsonValue] = {"format": INPUT_FORMAT, "selection_sha256": source.sha256}
+    try:
+        for part in previous.partitions:
+            for obj in part.objects:
+                path = mirror_path(mirror_root, obj.key)
+                if not path.is_file() or sha256_file(path) != obj.sha256:
+                    payload = store.get_bytes(obj.key)
+                    if (
+                        len(payload) != obj.bytes
+                        or hashlib.sha256(payload).hexdigest() != obj.sha256
+                    ):
+                        return {}
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(payload)
+        validate_snapshot_parity(
+            dataset=JQUANTS_MARGIN_ALERTS,
+            sqlite_path=market,
+            mirror_root=mirror_root,
+            manifest=previous,
+        )
+        start, end = margin_alerts_input_interval(store, descriptor)
+        return cast(
+            dict[str, Any],
+            read_margin_alerts_input(store, descriptor, days=_days(start, end))["scopes"],
+        )
+    except (
+        KeyError,
+        ValueError,
+        OSError,
+        sqlite3.DatabaseError,
+        LakeBuildError,
+        LakeObjectError,
+        LakePublishError,
+    ):
+        return {}
+
+
+def model_input(
+    store: ObjectStore,
+    fixed: FixedMarginAlertsL1,
+    *,
+    as_of: date,
+    evaluated_at: datetime,
+    market: Path,
+    mirror_root: Path,
+    previous: DatasetManifest | None = None,
+) -> InputSnapshot:
+    """Use one fixed L1 for consumers; only changed days need raw normalization.
+
+    A prior publication is a verified, disposable optimization. Removing every
+    old L2 object or row leaves the same result and input identity from fixed L1.
+    """
+    head = fixed.value()
+    retained = [date.fromisoformat(day) for day in head["scopes"]]
+    first = min(retained, default=as_of - timedelta(days=7))
+    last = max([as_of, *retained])
+    saved = fixed_input(store, fixed, start=first, end=last, evaluated_at=evaluated_at)
+    days = _days(first, last)
+    scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
+    cached = _verified_cached_scopes(store, previous, market=market, mirror_root=mirror_root)
+    reusable = {
+        day
+        for day in days
+        if scopes[day.isoformat()].get("adopted")
+        and scopes[day.isoformat()].get("adopted") == cached.get(day.isoformat(), {}).get("adopted")
+    }
+    with closing(open_connection(market)) as connection, connection:
+        retained_ids = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT DISTINCT request_id FROM jquants_source_pages WHERE source='margin_alerts'"
+            )
+        )
+        verify_migrated_margin_alert_receipts(
+            connection,
+            retained_ids,
+            {identity: receipt["fingerprint"] for identity, receipt in head["receipts"].items()},
+        )
+        connection.execute("DELETE FROM source_coverage WHERE source=?", (MARGIN_ALERT_SOURCE,))
+        connection.execute("DELETE FROM jquants_source_pages WHERE source='margin_alerts'")
+        connection.execute(
+            "DELETE FROM jquants_margin_alerts WHERE publication_date < ? OR publication_date > ?",
+            (first.isoformat(), last.isoformat()),
+        )
+        for day in sorted(reusable):
+            scope = scopes[day.isoformat()]
+            record_range_source_coverage(
+                connection,
+                source=MARGIN_ALERT_SOURCE,
+                operation=MARGIN_ALERT_OPERATION,
+                table="jquants_margin_alerts",
+                date_column="publication_date",
+                requested_start=day,
+                requested_end=day,
+                status="ok",
+                error=None,
+                fetched_at_utc=scope["confirmed_at"],
+            )
+        _project_days(
+            store,
+            saved,
+            connection,
+            days=tuple(day for day in days if day not in reusable),
+            output=market,
+        )
+        _record_unresolved(connection, scopes, evaluated_at)
+        unresolved = [
+            day for day in days if not range_covered(connection, MARGIN_ALERT_SOURCE, day, day)
+        ]
+        descriptor = dict(_descriptor(saved))
+        summary = descriptor["summary"]
+        assert isinstance(summary, dict)
+        descriptor["summary"] = {
+            **summary,
+            "coverage_status": "partial" if unresolved else "complete",
+            "partial_days": sum(bool(scopes[day.isoformat()].get("adopted")) for day in unresolved),
+        }
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    return InputSnapshot(
+        kind="native_l1",
+        reference="jquants-margin-alerts-" + digest,
+        sha256=digest,
+        descriptor=descriptor,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

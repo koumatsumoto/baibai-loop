@@ -17,6 +17,9 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsSource,
 )
+from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+    verify_migrated_margin_alert_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.master_native import (
     verify_migrated_master_receipts,
 )
@@ -208,6 +211,7 @@ def import_handoff(
     master_fingerprints: Mapping[str, str] | None = None,
     calendar_fingerprints: Mapping[str, str] | None = None,
     price_fingerprints: Mapping[str, str] | None = None,
+    margin_alerts_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
@@ -242,10 +246,16 @@ def import_handoff(
             if price_fingerprints is not None
             else set()
         )
+        migrated_alerts = (
+            verify_migrated_margin_alert_receipts(original, request_ids, margin_alerts_fingerprints)
+            if margin_alerts_fingerprints is not None
+            else set()
+        )
         active_ids = tuple(
             identity
             for identity in request_ids
-            if identity not in migrated_master | migrated_calendar | migrated_price
+            if identity
+            not in migrated_master | migrated_calendar | migrated_price | migrated_alerts
         )
         incoming = [
             scope for scope in _headers(original, set(sources)) if scope.request_id in active_ids
@@ -290,6 +300,11 @@ def import_handoff(
             "raw_pages_added": added,
             "replayed_requests": replayed,
             "incomplete_requests": incomplete,
+            **(
+                {"migrated_margin_alerts_requests": sorted(migrated_alerts)}
+                if margin_alerts_fingerprints is not None
+                else {}
+            ),
             **(
                 {"migrated_price_requests": sorted(migrated_price)}
                 if price_fingerprints is not None

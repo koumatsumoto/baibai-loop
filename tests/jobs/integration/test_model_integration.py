@@ -33,6 +33,7 @@ def integration(tmp_path, monkeypatch):
         source_snapshot=SimpleNamespace(sealed_at=datetime(2026, 10, 25, tzinfo=UTC)),
         price_identity=None,
         master_identity=None,
+        margin_alerts_identity=None,
         calendar_identity=InputSnapshot(
             kind="native_l1",
             reference="calendar-native-fixed",
@@ -59,6 +60,7 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["price_identity"] is prepared.price_identity
         assert kwargs["master_identity"] is prepared.master_identity
         assert kwargs["calendar_identity"] is prepared.calendar_identity
+        assert kwargs["margin_alerts_identity"] is prepared.margin_alerts_identity
         assert kwargs["market_release"].release_id == "new-release"
         assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
         return ModelGenerationStream(

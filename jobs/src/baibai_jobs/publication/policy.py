@@ -142,6 +142,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             required=True,
             carries_history=True,
             require_complete_coverage=True,
+            allow_partial_native_l1=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.all_issues_daily_margin",
