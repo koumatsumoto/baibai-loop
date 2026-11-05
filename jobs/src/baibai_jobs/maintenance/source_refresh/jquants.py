@@ -135,6 +135,13 @@ class JQuantsRefresh:
             return missing_intervals(conn, source, start, end)
 
     def ensure_master(self, day: date) -> int:
+        from baibai_jobs.master_cutover import master_native_enabled
+
+        if master_native_enabled():
+            raise JQuantsProviderError(
+                "legacy master writer is disabled; acquire with jquants-master-native "
+                "and rebuild the execution projection from its fixed input"
+            )
         cached = read_eq_master_exact(self._path, day)
         if cached is None:
             self._fetch("master", {"date": day.isoformat()})

@@ -202,3 +202,16 @@ def test_confirmed_closed_empty_is_retained_without_false_cycle_failure(
     assert result["incomplete"] == 1
     if expected:
         assert result["status"] == "not_required_non_business_day"
+
+
+def test_native_mode_closes_the_remaining_legacy_bootstrap_master_writer(tmp_path, monkeypatch):
+    from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+    from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
+
+    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
+    refresh = JQuantsRefresh(tmp_path / "execution.sqlite", None)
+    monkeypatch.setattr(
+        refresh, "_fetch", lambda *_: pytest.fail("old writer must not GET or write")
+    )
+    with pytest.raises(JQuantsProviderError, match="legacy master writer is disabled"):
+        refresh.ensure_master(DAY)

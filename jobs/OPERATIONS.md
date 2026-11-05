@@ -933,7 +933,7 @@ uv run baibai-jobs rebuild-master-native --work-directory /secure-work/master-re
   --start 2026-10-01 --end 2026-11-05 --output /secure-work/master-observations
 ```
 
-保存generation/Selectionの `inputs.master` JSONを `rebuild-master-native --saved-input <JSON>` へ渡せば、head・作業SQLite・providerなしで同じscopeと不足を再生する。休日basisも固定metadataから再生し、最新暦へ取り替えない。`commit-work` は保存受領の再確認であり、空が未充足なら正常終了へ変えない。master flag下の旧 `maintain-market backfill-master` も同じnative writerへ向く。明示日にはL2を要求せず、月末cohort日を作る時だけ既存bars gridを読む。旧cacheへrawを再書込せず、通常consumerまたは明示rebuildで投影する。
+保存generation/Selectionの `inputs.master` JSONを `rebuild-master-native --saved-input <JSON>` へ渡せば、head・作業SQLite・providerなしで同じscopeと不足を再生する。休日basisも固定metadataから再生し、最新暦へ取り替えない。`commit-work` は保存受領の再確認であり、空が未充足なら正常終了へ変えない。master flag下の旧 `maintain-market backfill-master` も同じnative writerへ向く。明示日にはL2を要求せず、月末cohort日を作る時だけ既存bars gridを読む。旧cacheへrawを再書込せず、通常consumerまたは明示rebuildで投影する。native切替後の旧bootstrap-cache master writerは明示停止し、通常source取得/共通統合か専用native CLIへ向ける。他sourceは通常の取得経路を維持する。
 
 TradingViewの15:37 JSTを含む既存枠は残す。scoped inputはcalendarと自身の受領だけを持ち、masterはpreflight前にnativeのexact basisを投影する。必要時のGETも同じnative writerへ向け、取得後に既存readyをresumeしてから収集する。取得で使った小さいInputSnapshot参照を同じsource-input resultとstageへ固定し、master本文をTradingView stageへ再複写しない。後続のhead変更をexportへ混ぜない。新しい外部評価planもmasterを直接nativeから固定するため、後段market readyの成功を要求しない。calendarは既存固定release/readyを使い、保存済みplanは元のbindingで再開する。新しいfailed/held/空から旧masterへ黙ってfallbackしない。
 
