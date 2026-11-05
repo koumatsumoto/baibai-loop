@@ -240,8 +240,6 @@ def verify_migration(owner: FinancialL1, *, directory: Path) -> None:
     """Cold-read every migrated pack, including superseded and partial originals."""
     plan = json.loads((directory / "plan.json").read_bytes())
     head = owner.fixed().value()
-    if head["pending"] is not None:
-        raise ValueError("migration has an unconfirmed commit")
     expected = {item["request_id"]: item["sha256"] for item in plan["attempts"]}
     for identity, digest in expected.items():
         if head["receipts"].get(identity, {}).get("fingerprint") != digest:

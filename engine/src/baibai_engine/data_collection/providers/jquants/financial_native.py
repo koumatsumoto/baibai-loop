@@ -199,14 +199,16 @@ class FixedFinancialL1:
         value = json.loads(self.payload)
         if not isinstance(value, dict):
             raise ValueError("financial L1 head must be an object")
+        if value["format"] != FORMAT:
+            raise ValueError("unsupported financial L1 format")
+        if value.get("pending") is not None:
+            raise LakePublishError("legacy pending financial L1 commit requires explicit recovery")
         return value
 
     def plan(self, *, start: date, end: date, revision_overlap_days: int) -> tuple[date, ...]:
         if start > end or revision_overlap_days < 0:
             raise ValueError("invalid financial acquisition interval")
         value = self.value()
-        if value["pending"] is not None:
-            raise LakePublishError("resolve the pending financial L1 commit before acquisition")
         scopes = value["scopes"]
         recent = end - timedelta(days=revision_overlap_days)
         return tuple(
@@ -269,17 +271,6 @@ class FixedFinancialL1:
                     {"date": day.isoformat()},
                     datetime.fromisoformat(scope["last_attempt_at"]),
                 )
-        # An in-flight commit is not published content. Consumers retain the
-        # known incomplete ranges instead of reporting the prior head as fresh.
-        if value["pending"] is not None:
-            for day in days:
-                if day.isoformat() in value["pending"]["days"]:
-                    yield RetainedRequest(
-                        "pending:" + day.isoformat(),
-                        None,
-                        "unconfirmed L1 commit",
-                        {"date": day.isoformat()},
-                    )
 
 
 class FinancialObjectStore(ObjectStore, Protocol):
@@ -308,30 +299,12 @@ class FinancialL1:
         saved = _read(self.store, HEAD_KEY)
         if saved is None:
             raise LakePublishError("financial L1 is not initialized; explicit cutover is required")
-        value = json.loads(saved[0])
-        if value["format"] != FORMAT:
-            raise ValueError("unsupported financial L1 format")
-        return FixedFinancialL1(*saved)
+        fixed = FixedFinancialL1(*saved)
+        fixed.value()
+        return fixed
 
     def resume(self) -> FixedFinancialL1:
-        """Resolve pending PUTs before comparing or acquiring another request."""
-        fixed = self.fixed()
-        pending = fixed.value()["pending"]
-        if pending is None:
-            return fixed
-        for digest in pending["packs"]:
-            key = PREFIX + "packs/" + digest + ".json.gz"
-            saved = _read(self.store, key)
-            if saved is None:
-                path = self.directory / (digest + ".object")
-                if not path.is_file() or _digest(path.read_bytes()) != digest:
-                    raise LakePublishError(
-                        "pending financial pack requires its saved work directory"
-                    )
-                _put(self.store, key, path.read_bytes(), self.directory, etag=None)
-            elif _digest(saved[0]) != digest:
-                raise LakePublishError("pending financial pack conflicts")
-        _put(self.store, HEAD_KEY, _json(pending["next"]), self.directory, etag=fixed.etag)
+        """Confirm the last durable head; never require an earlier runner's local files."""
         return self.fixed()
 
     def commit(self, attempts: Sequence[FinancialAttempt]) -> dict[str, list[str]]:
@@ -341,7 +314,6 @@ class FinancialL1:
             key: [] for key in ("changed", "equal", "failed", "held", "retried")
         }
         packed: list[dict[str, Any]] = []
-        affected: set[str] = set()
         for item in attempts:
             raw = item.value()
             identity, day = item.request_id, item.day.isoformat()
@@ -383,10 +355,8 @@ class FinancialL1:
                 value["receipts"][identity]["pack"] = ""
             if held:
                 if stamp == datetime.fromisoformat(previous_at):
-                    affected.add(day)
                     value["scopes"][day] = {**scope, "held": identity}
                 continue
-            affected.add(day)
             scope = {**scope, "last_attempt_at": stamp.isoformat()}
             if request is None:
                 scope["failure"] = identity
@@ -408,12 +378,19 @@ class FinancialL1:
         packs = self._packs(packed, value)
         if value == fixed.value():
             return report
-        # Stage the exact candidate and immutable identities before the first
-        # payload PUT. Runner loss cannot turn an ambiguous PUT into a new fetch.
-        pending_head = fixed.value()
-        pending_head["pending"] = {"next": value, "packs": packs, "days": sorted(affected)}
-        _put(self.store, HEAD_KEY, _json(pending_head), self.directory, etag=fixed.etag)
-        self.resume()
+        # Accepted state is the single head CAS. Every referenced immutable pack
+        # must already be durable. Failure before the CAS leaves only unreferenced
+        # packs, never a public head requiring a lost runner's work directory.
+        for digest in packs:
+            path = self.directory / (digest + ".object")
+            _put(
+                self.store,
+                PREFIX + "packs/" + digest + ".json.gz",
+                path.read_bytes(),
+                self.directory,
+                etag=None,
+            )
+        _put(self.store, HEAD_KEY, _json(value), self.directory, etag=fixed.etag)
         return report
 
     def _packs(self, rows: list[dict[str, Any]], head: dict[str, Any]) -> list[str]:

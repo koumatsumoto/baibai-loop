@@ -39,13 +39,14 @@ def model_input(
     if evaluated_at.utcoffset() is None:
         raise ValueError("evaluation time requires a timezone")
     head = fixed.value()
-    retained_days = [
-        date.fromisoformat(day) for day in head["scopes"] if date.fromisoformat(day) <= as_of
-    ]
+    # Disclosure-date selection belongs to each model. Growth intentionally uses
+    # later retained corrections for old accounting periods (retrospective_v7).
+    retained_days = [date.fromisoformat(day) for day in head["scopes"]]
     if not retained_days:
         raise ValueError("native financial L1 has no retained source days")
     start = min(retained_days)
-    days = tuple(start + timedelta(days=i) for i in range((as_of - start).days + 1))
+    end = max(as_of, max(retained_days))
+    days = tuple(start + timedelta(days=i) for i in range((end - start).days + 1))
     scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
     for scope in scopes.values():
         for field in ("confirmed_at", "last_attempt_at", "changed_at"):
@@ -65,7 +66,6 @@ def model_input(
         "as_of": as_of.isoformat(),
         "scopes": scopes,
         "receipts": {identity: head["receipts"][identity] for identity in sorted(identities)},
-        "pending_days": [] if head["pending"] is None else head["pending"]["days"],
     }
     requests = tuple(fixed.requests(store, days=days))
     if any(

@@ -254,3 +254,65 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         )
     with sqlite3.connect(upload) as connection:
         assert connection.execute("SELECT close FROM jquants_daily_bars").fetchone()[0] == 100
+
+
+def test_retained_later_correction_preserves_growth_retrospective_semantics(tmp_path):
+    from baibai_engine.machine_analysis.models.company_growth.generation import (
+        generate_company_growth,
+    )
+    from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+        normalize_financial_summary,
+    )
+
+    evaluation = datetime(2026, 10, 1, tzinfo=UTC)
+    as_of = date(2026, 6, 30)
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    originals = []
+    attempts = []
+    for identity, disclosed, sales in (
+        ("original", "2026-05-15", 100),
+        ("correction", "2026-09-15", 200),
+    ):
+        record = {
+            "Code": "13010",
+            "DiscDate": disclosed,
+            "DiscNo": identity,
+            "DiscTime": "15:00:00",
+            "DocType": "FYFinancialStatements_Consolidated_JP",
+            "CurPerType": "FY",
+            "CurPerSt": "2025-04-01",
+            "CurPerEn": "2026-03-31",
+            "CurFYSt": "2025-04-01",
+            "CurFYEn": "2026-03-31",
+            "Sales": sales,
+        }
+        originals.append(normalize_financial_summary(record))
+        page = JQuantsPage(
+            "financial_summaries",
+            {"date": disclosed},
+            evaluation,
+            json.dumps({"data": [record]}).encode(),
+        )
+        attempts.append(
+            FinancialAttempt(identity, date.fromisoformat(disclosed), evaluation, (page,))
+        )
+    owner.commit(attempts)
+    native = model_input(store, owner.fixed(), as_of=as_of, evaluated_at=evaluation)
+
+    def growth(documents):
+        return generate_company_growth(
+            documents,
+            ticker="1301",
+            sector=None,
+            as_of=as_of,
+            input_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+        )
+
+    legacy = growth(originals)
+    result = growth(native.documents)
+    assert result.periods == legacy.periods
+    assert result.periods[0].observations[0].metrics["sales"].value == 200
+    assert result.calculation_method == "company_growth_retrospective_v7"
+    assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"

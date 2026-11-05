@@ -772,11 +772,10 @@ L1だけで取得計画・差分確定を行い、`rebuild-financial-native` が
 初期化は新しい空namespaceだけで行う。既存原本を無視した空からの本番再取得や、head消失時の初期化で代替しない。
 本番切替には、旧財務原本と未統合stageの有限な移行・読戻し、原本保持条件の確認、同じsourceの旧writer停止が先に必要。
 その後dailyとL2 consumerを新入口へ移し、財務の旧release依存plan・handoff・source seal・取得用旧readerを撤去する（refs #1820）。
-切替後は通常source入口がnative L1へ直接確定し、旧financial handoffを作らない。dailyの固定planは旧financial stageを受け入れず、plan作成とapplyの設定不一致も拒否する。native generationはheadを一度だけ固定して財務観測を再生成し、確認・不足を含む小さなdescriptorを保存する。本文はL1に残し、財務L2の毎日Parquet公開とSQLite parityは行わない。価格など他のrelease入力は引き続き固定market releaseを使う。
+切替後は通常source入口がnative L1へ直接確定し、旧financial handoffを作らない。dailyの固定planは旧financial stageを受け入れず、plan作成とapplyの設定不一致も拒否する。native generationはheadを一度だけ固定して保持済み全開示から財務観測を再生成し、採用集合・確認・不足をdescriptorに保存する。開示日のas-of制限は各model ownerへ任せ、company_growthの保持済み後続訂正を使うretrospective契約を維持する。本文はL1に残し、財務L2の毎日Parquet公開とSQLite parityは行わない。価格など他のrelease入力は引き続き固定market releaseを使う。
 
 認可済みの切替先・検証先で、同じsourceのwriterを直列に実行する。
-通常取得は新しい作業directoryを指定し、PUT結果が不明な場合はそのdirectoryを保ったまま `resume`、
-未確定の取得ファイルが残る場合は `commit-work` を使う。外部へ再取得して別の受領に置き換えない。
+通常取得は新しい作業directoryを指定する。不変packのPUT・読戻しを終えてからheadを一回CASし、headが参照する本文はすでに保全済みとする。PUT結果が不明なら `resume` で最後の確定headを確認する。保存したattemptファイルがある場合は `commit-work` で同じidentityを再比較できる。新runnerに旧runnerの一時directoryを要求しない。head確定前の停止で残ったpackは未採用であり、固定入力に混ぜない。次runnerで別の受領を取得した事実と区別する。
 
 ```bash
 uv run baibai-jobs jquants-financial-native initialize --directory /secure-work/financial-init
@@ -790,7 +789,7 @@ uv run baibai-jobs rebuild-financial-native --work-directory /secure-work/financ
 出力Parquetは削除して再生成でき、原本やheadの削除とは別。取得済み本文は同値なら追加せず、
 確認identityのみ保持する。原本bytesを保持する変更requestはpackにまとめ、rawとnative同値を区別する。
 
-結果不明のpackが未uploadのまま作業directoryを失った場合は自動復旧できず、sourceを止めて原本の復旧を判断する。
+旧protocolのpendingが残るheadを検知した場合は明示errorでsourceを止める。旧作業directory・原本・確定状態を認可済みの隔離手順で復旧し、新writerで未保全本文を採用しない。新writerはpendingを作らない。既存namespaceの旧pendingが解消済みと実読戻しで確認できた後に、この暫定停止検査とpending:null字段を撤去する。定期workflowの切替前という導入履歴だけでは、旧明示CLIの実行不存在を証明しない。
 大きすぎる単独request・順序不明の受領も無言で切り捨てない。保留結果と保存済み作業を確認する。
 head再送量・cold読取・実R2・全履歴容量は本番切替前の確認事項であり、fixture成功で代替しない。
 

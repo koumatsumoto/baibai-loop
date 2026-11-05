@@ -15,7 +15,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
     financial_content_id,
 )
-from baibai_engine.storage.objects.r2 import LakePublishError, R2Error
+from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 
 DAY = date(2026, 11, 1)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
@@ -145,25 +145,101 @@ class FailPacks(MemoryR2Store):
         return super().put_file(key, path, **kwargs)
 
 
-def test_pending_write_blocks_new_plan_and_recovers_original_identity(tmp_path):
+def test_pack_failure_never_publishes_a_head_requiring_the_lost_work_directory(tmp_path):
     store = FailPacks()
     owner = FinancialL1(store, tmp_path / "work")
     owner.initialize()
+    before = owner.fixed()
     with pytest.raises(R2Error):
-        owner.commit([attempt("a")])
-    fixed = owner.fixed()
-    assert fixed.value()["receipts"] == {}
-    assert fixed.value()["pending"] is not None
-    with pytest.raises(LakePublishError, match="pending"):
-        fixed.plan(start=DAY, end=DAY, revision_overlap_days=0)
-    assert next(fixed.requests(store, days=[DAY])).request is None
+        owner.commit([attempt("uncommitted")])
     fresh = FinancialL1(store, tmp_path / "fresh")
-    with pytest.raises(LakePublishError, match="saved work directory"):
-        fresh.resume()
+    assert fresh.resume().payload == before.payload
+    assert fresh.fixed().plan(start=DAY, end=DAY, revision_overlap_days=0) == (DAY,)
     store.fail = False
-    owner.resume()
-    assert [r.request_id for r in owner.fixed().requests(store, days=[DAY])] == ["a"]
-    assert owner.commit([attempt("a")])["retried"] == ["a"]
+    assert fresh.commit([attempt("new-receipt")])["changed"] == ["new-receipt"]
+    assert set(fresh.fixed().value()["receipts"]) == {"new-receipt"}
+
+
+class FailHead(MemoryR2Store):
+    fail_head = False
+    uploaded = False
+
+    def put_file(self, key, path, **kwargs):
+        if key == HEAD_KEY and self.fail_head:
+            if self.uploaded:
+                super().put_file(key, path, **kwargs)
+            raise R2Error("lost head acknowledgement")
+        return super().put_file(key, path, **kwargs)
+
+
+def test_pack_before_unpublished_head_is_unreferenced_and_fresh_runner_can_continue(tmp_path):
+    store = FailHead()
+    owner = FinancialL1(store, tmp_path / "first")
+    owner.initialize()
+    before = owner.fixed()
+    store.fail_head = True
+    with pytest.raises(R2Error):
+        owner.commit([attempt("uncommitted")])
+    assert len(packs(owner)) == 1
+    fresh = FinancialL1(store, tmp_path / "fresh")
+    assert fresh.resume().payload == before.payload
+    assert list(fresh.fixed().requests(store, days=[DAY])) == []
+    store.fail_head = False
+    fresh.commit([attempt("new-receipt", at=AT + timedelta(hours=1))])
+    assert len(packs(fresh)) == 2
+    assert [item.request_id for item in fresh.fixed().requests(store, days=[DAY])] == [
+        "new-receipt"
+    ]
+
+
+def test_lost_head_response_is_read_back_without_republishing_or_refetching(tmp_path):
+    store = FailHead()
+    owner = FinancialL1(store, tmp_path / "first")
+    owner.initialize()
+    store.fail_head = store.uploaded = True
+    assert owner.commit([attempt("a")])["changed"] == ["a"]
+    assert [
+        item.request_id
+        for item in FinancialL1(store, tmp_path / "fresh").resume().requests(store, days=[DAY])
+    ] == ["a"]
+    assert len(packs(owner)) == 1
+
+
+def test_head_cas_conflict_never_overwrites_another_writer(tmp_path, monkeypatch):
+    import baibai_engine.data_collection.providers.jquants.financial_native as native
+
+    store = MemoryR2Store()
+    first = FinancialL1(store, tmp_path / "first")
+    first.initialize()
+    other = FinancialL1(store, tmp_path / "other")
+    build = native.FinancialL1._packs
+
+    def race(owner, rows, value):
+        result = build(owner, rows, value)
+        if owner is first:
+            other.commit([attempt("rival", value=2, at=AT + timedelta(hours=1))])
+        return result
+
+    monkeypatch.setattr(native.FinancialL1, "_packs", race)
+    with pytest.raises(LakeCASConflict):
+        first.commit([attempt("stale")])
+    assert set(other.fixed().value()["receipts"]) == {"rival"}
+    assert [item.request_id for item in other.fixed().requests(store, days=[DAY])] == ["rival"]
+    assert len(packs(other)) == 2
+
+
+def test_legacy_pending_head_requires_explicit_recovery_instead_of_silent_adoption(tmp_path):
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "first")
+    owner.initialize()
+    value = owner.fixed().value()
+    value["pending"] = {"packs": ["unknown"], "days": [DAY.isoformat()], "next": value.copy()}
+    store.store_object(HEAD_KEY, json.dumps(value).encode())
+    fresh = FinancialL1(store, tmp_path / "fresh")
+    with pytest.raises(LakePublishError, match=r"legacy pending.*explicit recovery"):
+        fresh.resume()
+    with pytest.raises(LakePublishError, match=r"legacy pending.*explicit recovery"):
+        fresh.fixed()
 
 
 def test_lost_put_response_is_verified_without_new_request(tmp_path):
