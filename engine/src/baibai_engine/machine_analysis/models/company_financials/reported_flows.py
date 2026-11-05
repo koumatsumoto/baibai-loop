@@ -58,8 +58,7 @@ def _reported_flows(record: EdinetMetricRecord | None) -> dict[str, object] | No
             "capex": record.capex_ttm,
             "free_cash_flow": record.fcf_ttm,
         },
-        # type=5 CSV から作った既存 metric store は context の日付を保持しない。
-        # 年次 metadata による既存 exact の認定と native fact duration の観測は別である。
+        # 既存metricはcontext日付を持たず、年度metadataのexactを実測期間へ読み替えない。
         "measurement_period": {
             "start": None,
             "end": None,

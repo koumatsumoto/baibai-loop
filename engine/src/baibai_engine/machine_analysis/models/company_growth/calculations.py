@@ -220,7 +220,7 @@ def _margin(metrics: dict[Metric, Value], sector: str | None) -> None:
 def _closest_group(
     groups: Sequence[Sequence[JQuantsFinancialSummary]], *, expected_end: date
 ) -> Sequence[JQuantsFinancialSummary] | None:
-    # Choose the measurement interval before inspecting any metric's availability.
+    # 値の揃う期間を探すと、欠測科目だけ比較基準がずれる。
     return min(
         groups,
         key=lambda group: (

@@ -123,9 +123,7 @@ def _unchanged_annual_pdf(
     rows: Sequence[JQuantsFinancialSummary],
     statements: Sequence[PdfStatement],
 ) -> PdfStatement | None:
-    # Only the annual CURRENT amounts are used. A current quarter's comparative
-    # column can change while its current amounts stay unchanged, so never use
-    # this rule for that operand.
+    # 当期額が不変でも比較欄は訂正され得るため、年度の当期operandにだけ使う。
     if any(item.disclosure_number == latest.disclosure_number for item in statements):
         return None
     fields = tuple(_FIELDS.values())
@@ -233,9 +231,7 @@ def select_pdf_financials(
             status="unavailable", current=current, reason="annual_disclosure_missing_or_ambiguous"
         )
     if current.accounting_standard == "JP":
-        # The same-day reference explicitly restates the previous full-year actual.
-        # An old annual filing, even the latest native annual record, is not on the
-        # new quarter's accounting basis and must not be silently substituted.
+        # 新基準の比較期と合成するため、旧年度ではなく同日公表の組替済み年度実績を使う。
         references = {
             item.source_sha256: item
             for item in retained
