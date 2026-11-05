@@ -314,3 +314,44 @@ def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkey
         == "unavailable"
     )
     assert result.result("company_growth", "1234") is not None
+
+
+def test_shared_market_model_contains_retained_tradingview_observations(tmp_path, monkeypatch):
+    from tests.helpers.tradingview_market import CLOCK, capture
+
+    from baibai_engine.data_collection.providers.tradingview.market_receipts import (
+        retain_market_capture,
+    )
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+    from baibai_engine.storage.snapshots.sources import sha256_file
+
+    market = market_store(
+        tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),)
+    )
+    economic = tmp_path / "economic.sqlite"
+    with closing(initialize_database(economic)) as c:
+        retain_market_capture(c, capture(receipt_id="quote"))
+        retain_market_capture(
+            c, capture(receipt_id="bar", bars=True, received=CLOCK + timedelta(minutes=1))
+        )
+    monkeypatch.setattr(generation_reader, "reading_snapshot", lambda *_args, **_kwargs: None)
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
+        result = generation_reader.read_and_generate_models(
+            generation_id="with-tv",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+            economic_path=economic,
+            economic_identity=InputSnapshot(
+                kind="sqlite_snapshot", reference="economy", sha256=sha256_file(economic)
+            ),
+            as_of=date(2026, 1, 5),
+            evaluation_time=CLOCK + timedelta(hours=1),
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1234",),
+        ).materialize()
+    common = result.result("market_context", "market")
+    tv = common.payload["tradingview_market"]
+    assert tv["quotes"][0]["receipt_id"] == "quote"
+    assert tv["bars"][0]["receipt_id"] == "bar"
+    assert "tradingview" in common.calculation_revision

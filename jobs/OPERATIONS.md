@@ -786,6 +786,8 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 3. 別sessionは返却stage ID/manifest SHAを指定し、`download --directory <NEW_DIR> --stage-id <ID> --manifest-sha256 <SHA>`で再GETなしに復元する。`read --directory <DIR> --receipt-id <RECEIPT> --sha256 <CAPTURE_SHA>`は観測と、同じ原本を指すAssessment入力を返す。未保存のlocal captureはL3用の耐久参照を返さない。
 4. 通常のnative統合後も同じreceipt/hashを読む。共通更新より遅く着いた独立captureをsource全体のwatermarkだけで捨てず、packetの限定scopeと原受領identityを検証してappendする。
 
+モデル生成は固定したeconomic入力から市場補助観測を読み、L3にも同じ受領参照・時計・欠測を渡す。symbolごとの最新受領が失敗・不正payloadなら古い成功価格へ戻さない。受領cutoffは評価時刻と評価基準日のJST日末の両方で限定するため、前日基準の寄前評価には当日朝に受領した夜間情報を含めない。その情報が必要な判断では別の明示入力として固定する。
+
 価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。
 
 
