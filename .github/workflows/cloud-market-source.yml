@@ -20,6 +20,7 @@ env:
   BAIBAI_PRICE_NATIVE: "true"
   BAIBAI_FINANCIAL_NATIVE: "true"
   BAIBAI_MARGIN_ALERTS_NATIVE: ${{ vars.BAIBAI_MARGIN_ALERTS_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_SHORT_SALE_REPORTS_NATIVE: ${{ vars.BAIBAI_SHORT_SALE_REPORTS_NATIVE == 'true' && 'true' || 'false' }}
 
 # One source keeps its acquisition and private handoff ordered. A shared provider
 # quota additionally serializes its network jobs, without the publication lock.

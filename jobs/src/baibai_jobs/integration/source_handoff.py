@@ -48,6 +48,7 @@ from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
 from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
+from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
 
 SOURCES = (
     "tradingview",
@@ -176,6 +177,7 @@ def _replay(
     calendar_fingerprints: Mapping[str, str] | None = None,
     price_fingerprints: Mapping[str, str] | None = None,
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
+    short_sale_reports_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
@@ -268,6 +270,14 @@ def _replay(
             and margin_alerts_fingerprints is None
         ):
             raise ValueError("native margin alerts replay requires retained cutover fingerprints")
+        if (
+            source == "jquants-market"
+            and short_sale_reports_native_enabled()
+            and short_sale_reports_fingerprints is None
+        ):
+            raise ValueError(
+                "native short-sale reports replay requires retained cutover fingerprints"
+            )
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
@@ -276,6 +286,7 @@ def _replay(
             or calendar_fingerprints is not None
             or price_fingerprints is not None
             or margin_alerts_fingerprints is not None
+            or short_sale_reports_fingerprints is not None
         ):
             return import_jquants_handoff(
                 path,
@@ -286,6 +297,7 @@ def _replay(
                 calendar_fingerprints=calendar_fingerprints,
                 price_fingerprints=price_fingerprints,
                 margin_alerts_fingerprints=margin_alerts_fingerprints,
+                short_sale_reports_fingerprints=short_sale_reports_fingerprints,
             )
         return import_jquants_handoff(
             path, database, _handoff_ids(report, "request_ids"), sources=selected
@@ -400,6 +412,9 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
     native_alerts = margin_alerts_native_enabled()
+    native_shorts = short_sale_reports_native_enabled()
+    shorts_result = None
+    shorts_ok = True
     alerts_result = None
     alerts_ok = True
     calendar_result = None
@@ -528,6 +543,33 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             provider_halted = bool(acquired_alerts.get("halted"))
             alerts_ok = not bool(acquired_alerts["failed"] or acquired_alerts["held"])
         write_json_atomic(directory / "margin-alerts-native-result.json", alerts_result)
+    if native_shorts:
+        from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+            ShortSaleReportsL1,
+        )
+        from baibai_jobs.acquisition.jquants_short_sale_reports_native import (
+            acquire_short_sale_reports_native,
+        )
+
+        if provider_halted:
+            shorts_result = {"halted": 1, "status": "provider_halted"}
+            shorts_ok = False
+        else:
+            # This source commits before the remaining market release is opened.
+            # A later legacy or L2 failure cannot undo its received originals.
+            with (
+                closing(Boto3R2Store(bucket=bucket)) as shorts_store,
+                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as shorts_client,
+            ):
+                acquired_shorts = acquire_short_sale_reports_native(
+                    ShortSaleReportsL1(shorts_store, directory / "short-sale-reports-native"),
+                    asof=asof,
+                    client=shorts_client,
+                )
+            shorts_result = dict(acquired_shorts)
+            provider_halted = bool(acquired_shorts.get("halted"))
+            shorts_ok = not bool(acquired_shorts["failed"] or acquired_shorts["held"])
+        write_json_atomic(directory / "short-sale-reports-native-result.json", shorts_result)
     with (
         tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -547,6 +589,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             include_master=not native_master,
             include_calendar=not native_calendar,
             include_margin_alerts=not native_alerts,
+            include_short_sales=not native_shorts,
         )
         if calendar_fixed is not None:
             from dataclasses import replace
@@ -564,12 +607,13 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             include_master=not native_master,
             include_calendar=not native_calendar,
             include_margin_alerts=not native_alerts,
+            include_short_sales=not native_shorts,
             provider_halted=provider_halted,
         )
 
     if any(
         result is not None
-        for result in (native_result, master_result, calendar_result, alerts_result)
+        for result in (native_result, master_result, calendar_result, alerts_result, shorts_result)
     ):
         path = directory / "result.json"
         report = json.loads(path.read_bytes())
@@ -608,9 +652,10 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             **({"master": master_result} if master_result is not None else {}),
             **({"market_calendar": calendar_result} if calendar_result is not None else {}),
             **({"margin_alerts": alerts_result} if alerts_result is not None else {}),
+            **({"short_sale_reports": shorts_result} if shorts_result is not None else {}),
         }
         write_json_atomic(path, report)
-    return legacy_ok and price_ok and master_ok and calendar_ok and alerts_ok
+    return legacy_ok and price_ok and master_ok and calendar_ok and alerts_ok and shorts_ok
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -636,6 +681,7 @@ class _ReplayContext(TypedDict, total=False):
     calendar_fingerprints: Mapping[str, str]
     price_fingerprints: Mapping[str, str]
     margin_alerts_fingerprints: Mapping[str, str]
+    short_sale_reports_fingerprints: Mapping[str, str]
 
 
 def _replay_context(
@@ -648,6 +694,7 @@ def _replay_context(
     calendar_input: InputSnapshot | None = None,
     price_fingerprints: Mapping[str, str] | None = None,
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
+    short_sale_reports_fingerprints: Mapping[str, str] | None = None,
 ) -> _ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
     from baibai_jobs.master_cutover import master_native_enabled
@@ -680,6 +727,22 @@ def _replay_context(
                 .items()
             }
         context["margin_alerts_fingerprints"] = margin_alerts_fingerprints
+    if source == "jquants-market" and short_sale_reports_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+            ShortSaleReportsL1,
+        )
+
+        if short_sale_reports_fingerprints is None:
+            short_sale_reports_fingerprints = {
+                identity: receipt["fingerprint"]
+                for identity, receipt in ShortSaleReportsL1(
+                    store, directory / "short-sale-reports-native"
+                )
+                .fixed()
+                .value()["receipts"]
+                .items()
+            }
+        context["short_sale_reports_fingerprints"] = short_sale_reports_fingerprints
     day = date.fromisoformat(str(packet["asof"]))
     if source == "tradingview":
         if master_input is None and packet.get("master_native_input") is not None:
@@ -739,7 +802,11 @@ def main(argv: list[str] | None = None) -> int:
                 or calendar_native_enabled()
                 or (
                     args.source == "jquants-market"
-                    and (price_native_enabled() or margin_alerts_native_enabled())
+                    and (
+                        price_native_enabled()
+                        or margin_alerts_native_enabled()
+                        or short_sale_reports_native_enabled()
+                    )
                 )
                 or packet.get("master_native_input") is not None
                 or packet.get("calendar_native_input") is not None
@@ -850,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
                         and not master_native_enabled()
                         and not calendar_native_enabled()
                         and not margin_alerts_native_enabled()
+                        and not short_sale_reports_native_enabled()
                         and price_fingerprints is None
                     ):
                         _replay(source, args.database, packet)

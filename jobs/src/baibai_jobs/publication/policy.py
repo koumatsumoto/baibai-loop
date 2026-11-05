@@ -99,6 +99,7 @@ PRODUCTION_RELEASE_POLICY = ReleasePolicy(
             required=True,
             carries_history=True,
             require_complete_coverage=True,
+            allow_partial_native_l1=True,
         ),
         ReleaseDatasetPolicy(
             dataset="jquants.weekly_margin",

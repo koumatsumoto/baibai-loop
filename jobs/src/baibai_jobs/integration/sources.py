@@ -60,6 +60,7 @@ from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
+from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
 
 
 def apply(
@@ -82,6 +83,8 @@ def apply(
         raise ValueError("EDINET list mode differs from the fixed integration plan")
     if bool(plan.get("margin_alerts_native", False)) != margin_alerts_native_enabled():
         raise ValueError("margin alerts mode differs from the fixed integration plan")
+    if bool(plan.get("short_sale_reports_native", False)) != short_sale_reports_native_enabled():
+        raise ValueError("short-sale reports mode differs from the fixed integration plan")
     margin_alerts_fingerprints = None
     if margin_alerts_native_enabled() and any(
         entry["source"] == "jquants-market" for entry in plan["handoffs"]
@@ -93,6 +96,23 @@ def apply(
         margin_alerts_fingerprints = {
             identity: receipt["fingerprint"]
             for identity, receipt in MarginAlertsL1(store, directory / "margin-alerts-native")
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
+    short_sale_reports_fingerprints = None
+    if short_sale_reports_native_enabled() and any(
+        entry["source"] == "jquants-market" for entry in plan["handoffs"]
+    ):
+        from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+            ShortSaleReportsL1,
+        )
+
+        short_sale_reports_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in ShortSaleReportsL1(
+                store, directory / "short-sale-reports-native"
+            )
             .fixed()
             .value()["receipts"]
             .items()
@@ -195,6 +215,7 @@ def apply(
                     and calendar_input is None
                     and price_fingerprints is None
                     and margin_alerts_fingerprints is None
+                    and short_sale_reports_fingerprints is None
                     else _replay(
                         entry["source"],
                         market,
@@ -206,6 +227,7 @@ def apply(
                         calendar_fingerprints=calendar_fingerprints,
                         price_fingerprints=price_fingerprints,
                         margin_alerts_fingerprints=margin_alerts_fingerprints,
+                        short_sale_reports_fingerprints=short_sale_reports_fingerprints,
                     )
                 )
                 result = replay.report
@@ -401,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
                     "master_native": master_native_enabled(),
                     "calendar_native": calendar_native_enabled(),
                     "margin_alerts_native": margin_alerts_native_enabled(),
+                    "short_sale_reports_native": short_sale_reports_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },
