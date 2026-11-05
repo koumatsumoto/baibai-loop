@@ -25,7 +25,7 @@ import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as staging
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
-from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
 from baibai_engine.storage.snapshots.objects import LakeObjectError
 from baibai_jobs.acquisition.external_assessments.cohorts import new_result, record_outcome
@@ -35,47 +35,6 @@ from baibai_jobs.acquisition.external_assessments.collection import (
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionResult as ExternalAssessmentCollectionResult,
 )
-
-
-def test_private_put_requires_generation_and_verifies_hashes_and_private_mode():
-    store = FakeObjectStore()
-    first = staging.put_private(store, "private/key", b'{"count":1}', previous_etag=None)
-    second = staging.put_private(store, "private/key", b'{"count":2}', previous_etag=first.etag)
-    assert [(match, create) for _, match, create, _ in store.puts] == [
-        (None, True),
-        (first.etag, False),
-    ]
-    assert second.etag != first.etag
-    assert staging.read_private(store, "private/key") == second
-    assert store.events[-3:] == [
-        ("HEAD", "private/key"),
-        ("GET", "private/key"),
-        ("HEAD", "private/key"),
-    ]
-    with pytest.raises(LakeCASConflict, match="stale conditional"):
-        staging.put_private(store, "private/key", b"different", previous_etag=first.etag)
-    assert store.objects["private/key"][0] == second.payload
-
-
-@pytest.mark.parametrize(
-    "fault", ["changed", "deleted", "truncated", "wrong_sha", "empty_etag", "oversize"]
-)
-def test_private_read_refuses_racing_or_invalid_objects(fault):
-    store = FakeObjectStore()
-    store.seed("private/key", b'{"count":1}')
-    if fault in {"wrong_sha", "empty_etag", "oversize"}:
-        body, remote = store.objects["private/key"]
-        if fault == "wrong_sha":
-            remote = replace(remote, metadata={"sha256": "wrong"})
-        elif fault == "empty_etag":
-            remote = replace(remote, etag="")
-        else:
-            remote = replace(remote, size=staging.MAX_PRIVATE_OBJECT_BYTES + 1)
-        store.objects["private/key"] = body, remote
-    else:
-        store.read_fault = fault
-    with pytest.raises(LakePublishError, match="private external assessment object"):
-        staging.read_private(store, "private/key")
 
 
 def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):

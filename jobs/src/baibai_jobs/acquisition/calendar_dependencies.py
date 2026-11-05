@@ -18,10 +18,10 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
 from baibai_engine.machine_analysis.generation.calendar_inputs import read_calendar_input
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.json import write_json_atomic
+from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_jobs.acquisition.dependencies import load_dependency
 from baibai_jobs.acquisition.economic_staging import stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import read_private
 from baibai_jobs.integration.calendar_native import (
     fixed_input,
     materialize_saved_input,

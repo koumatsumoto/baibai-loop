@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.dependencies import dependency_covers_day
+from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
-from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
 
 def save_dependencies(store: ObjectStore, prefix: str, directory: Path) -> list[dict[str, Any]]:

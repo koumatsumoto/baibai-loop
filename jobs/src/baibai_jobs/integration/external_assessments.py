@@ -42,6 +42,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 from baibai_engine.machine_analysis.observations.external_assessments.store import (
     save_observations as external_assessment_save_observations,
 )
+from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
@@ -63,12 +64,7 @@ from baibai_jobs.acquisition.external_assessments.identity import (
     PUBLISHED_FORMAT,
 )
 from baibai_jobs.acquisition.external_assessments.raw import read_raw_bundle
-from baibai_jobs.acquisition.external_assessments.staging import (
-    CohortStage,
-    prefix,
-    put_private,
-    read_terminal,
-)
+from baibai_jobs.acquisition.external_assessments.staging import CohortStage, prefix, read_terminal
 from baibai_jobs.acquisition.receipts import ReceiptStore
 from baibai_jobs.integration.external_assessment_ready import (
     acknowledged_bundles,

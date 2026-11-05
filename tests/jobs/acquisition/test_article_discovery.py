@@ -12,6 +12,7 @@ import baibai_jobs.acquisition.article_discovery as worksets
 from baibai_engine.data_collection.providers.articles.contracts import NativeLink
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
+from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -25,7 +26,6 @@ from baibai_jobs.acquisition.article_planning import (
     source_key,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff
-from baibai_jobs.acquisition.external_assessments.staging import put_private
 from baibai_jobs.maintenance.article_recovery import register_discovery
 
 

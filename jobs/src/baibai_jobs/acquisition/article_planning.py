@@ -11,6 +11,7 @@ from typing import Any
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.storage.json import write_json_atomic
+from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_jobs.acquisition.article_discovery import (
     DISCOVERY_FORMAT,
@@ -25,7 +26,6 @@ from baibai_jobs.acquisition.article_frontier import (
     bind_local_stage,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 
 ARTICLE_SOURCES = tuple(SOURCES)
 TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})

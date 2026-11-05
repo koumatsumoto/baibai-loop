@@ -9,6 +9,7 @@ from tests.helpers.article_acquisition import SLOT, _packet, receipt
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
+from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_evidence import exact_entry
@@ -19,7 +20,6 @@ from baibai_jobs.acquisition.article_planning import (
     source_key,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff
-from baibai_jobs.acquisition.external_assessments.staging import put_private
 from baibai_jobs.acquisition.receipts import download_fixed, seal_integrated
 from baibai_jobs.maintenance.article_recovery import prepare, register_discovery
 

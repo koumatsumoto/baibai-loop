@@ -18,6 +18,7 @@ from tests.helpers.external_assessment_stages import FakeObjectStore, observatio
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as external_assessment_staging
+from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
@@ -133,9 +134,7 @@ def test_acknowledged_put_reduces_round_trips_without_missing_or_duplicate_recei
         elapsed, operations = clock[0], client.calls.copy()
         assert report["cohort_complete"] is True
         assert report["provider_requests"] == len(calls) == 50
-        saved = external_assessment_staging.read_private(
-            store, external_assessment_staging.stage_key(p, 0)
-        )
+        saved = read_private(store, external_assessment_staging.stage_key(p, 0))
         durable = external_assessment_staging.load_stage(p, saved.payload)
         assert len(durable.result.observations) == 50
         metadata, bodies = external_assessment_raw.read_raw_bundle(

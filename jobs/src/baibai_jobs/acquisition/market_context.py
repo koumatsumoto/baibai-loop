@@ -30,9 +30,9 @@ from baibai_engine.machine_analysis.observations.prices.tradingview_market impor
 )
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.filesystem import write_text_new
+from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
-from baibai_jobs.acquisition.external_assessments.staging import read_private
 
 
 def prepare(
