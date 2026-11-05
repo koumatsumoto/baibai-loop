@@ -847,6 +847,25 @@ uv run baibai-jobs margin-alerts-native-cutover compare \
 
 compareは予定日までの全保持範囲を検査する。通常writerとconsumerの接続は別途必要で、明示CLIの成功を通常経路の切替完了とは扱わない。
 
+<a id="short-sale-reports-native-l1"></a>
+## 空売り残高報告native L1の明示入口
+
+通常writerは未切替。`jquants-short-sale-reports-native` の `initialize / plan / acquire / resume / commit-work` は旧market releaseやL2を使わない。query・日付・順序の意味は[取得owner](src/baibai_jobs/acquisition/jquants_short_sale_reports_native.py)と[固定reader](src/baibai_jobs/integration/short_sale_reports_native.py)に置く。保存・中断再開・固定inputは[共通操作](#jquants-native-operations)に従う。
+
+```bash
+uv run baibai-jobs jquants-short-sale-reports-native plan \
+  --directory /secure-work/short-sale-plan --asof 2026-11-05
+uv run baibai-jobs jquants-short-sale-reports-native acquire \
+  --directory /secure-work/short-sale-cycle --asof 2026-11-05
+uv run baibai-jobs rebuild-short-sale-reports-native \
+  --work-directory /secure-work/short-sale-read --start 2026-10-29 --end 2026-11-05 \
+  --output /secure-work/short-sale-output
+```
+
+既存原本は `short-sale-reports-native-cutover prepare / apply / verify / compare` で有限移行する。引数と順序は上のmargin-alert手順と同じ。prepareは旧releaseと統合済みを含む全market stageを固定し、apply前に不明scope・欠損・未来の受領を解消する。compareは開示日と行順のidentityで旧投影を比較する。正常空・失敗・未取得を混同せず、旧release/stageは削除しない。
+
+固定読取は新規 `short-sale-reports.sqlite` と `input.json` を出力する。`--saved-input` は最新headなしで再生できる。通常取得・consumerへの接続と本番移行は後続であり、毎日の全履歴再構築や進行中の別source切替を前提にしない。
+
 <a id="price-native-l1"></a>
 ## 日足native L1の取得・固定読取・有限移行
 
