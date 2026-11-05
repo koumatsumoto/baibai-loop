@@ -1,0 +1,255 @@
+name: cloud-economic-cutover-once
+
+# One authorized schema 12 -> 13 operation. Never a recurring acquisition job.
+on:
+  push:
+    branches: [codex/issue1820-economic-cutover-once]
+    paths: [.github/workflows/cloud-economic-cutover-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-economic-cutover-once' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: run one-off economic cutover 2026-11-05' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: source-acquire-fred_csv
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed public code as this run's exact base
+        env:
+          EXPECTED_CODE_SHA: df6db387ad45ee15ac69fe980c5f89c347789539
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Preserve originals and publish economic schema 13 with verified inputs
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python - <<'PY'
+          """One authorized economic schema cutover using the established owners only."""
+          from __future__ import annotations
+          
+          import base64
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import sqlite3
+          import subprocess
+          import sys
+          import time
+          from datetime import UTC, datetime
+          from pathlib import Path
+          
+          from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
+          from baibai_engine.storage.snapshots.sources import sha256_file
+          from baibai_jobs.maintenance import economic_cutover as cutover
+          from baibai_jobs.publication import lease
+          
+          
+          def exact_read(store, key, output):
+              before = store.head(key)
+              if before is None:
+                  raise ValueError('required object missing')
+              store.download_file(key, output, expect_bytes=before.size)
+              after = store.head(key)
+              if after is None or after.etag != before.etag or output.stat().st_size != before.size:
+                  raise ValueError('object changed during download')
+              return after
+          
+          
+          class DurableCutoverStore:
+              """Preserve resumable owner state before every canonical write, never delete."""
+              def __init__(self, store, directory, prefix, handle):
+                  self.store = store
+                  self.directory = directory
+                  self.prefix = prefix
+                  self.handle = handle
+                  self.verified = set()
+                  self.sequence = 0
+          
+              def __getattr__(self, name):
+                  return getattr(self.store, name)
+          
+              def preserve(self, path, *, checkpoint=False):
+                  digest = sha256_file(path)
+                  key = (self.prefix + f'checkpoints/{self.sequence:04d}-' + digest + '.json'
+                         if checkpoint else self.prefix + 'objects/' + digest)
+                  if key in self.verified:
+                      return key
+                  remote = self.store.head(key)
+                  if remote is None:
+                      lease.verify_held(self.store, self.handle)
+                      with path.open('rb') as stream:
+                          md5 = hashlib.file_digest(stream, lambda: hashlib.md5(usedforsecurity=False)).digest()
+                      # An uncertain response is resolved by exact readback, not a new key.
+                      with contextlib.suppress(LakePublishError):
+                          self.store.put_file(key, path, sha256=digest,
+                              content_md5=base64.b64encode(md5).decode(),
+                              content_type='application/octet-stream', if_none_match=True)
+                  readback = self.directory / 'preservation-readback'
+                  exact_read(self.store, key, readback)
+                  if sha256_file(readback) != digest:
+                      raise ValueError('private preservation readback differs')
+                  readback.unlink()
+                  self.verified.add(key)
+                  return key
+          
+              def checkpoint(self):
+                  receipt = self.directory / 'cutover.json'
+                  paths = [self.directory / 'schema12.sqlite', self.directory / 'base-manifest.json',
+                           *sorted((self.directory / 'generations').glob('*.etag'))]
+                  if receipt.exists():
+                      value = json.loads(receipt.read_bytes())
+                      paths.append(receipt)
+                      if 'candidate' in value:
+                          paths.append(Path(value['candidate']['path']))
+                      if 'manifest_candidate' in value.get('publication', {}):
+                          paths.append(Path(value['publication']['manifest_candidate']['path']))
+                  mapping = {str(path.resolve()): self.preserve(path) for path in paths}
+                  index = self.directory / 'checkpoint-index.json'
+                  index.write_text(json.dumps({'format': 'economic-cutover-private-checkpoint-v1',
+                      'files': mapping}, sort_keys=True))
+                  self.preserve(index, checkpoint=True)
+                  self.sequence += 1
+          
+              def put_file(self, key, path, **kwargs):
+                  if key not in (cutover.KEY, cutover.MANIFEST) and not key.startswith('coordination/source-inputs/economic-'):
+                      raise ValueError('write outside the authorized economic cutover scope')
+                  if key in (cutover.KEY, cutover.MANIFEST):
+                      self.checkpoint()
+                      # Backups can take time. Recheck lease immediately before the owner PUT.
+                      lease.verify_held(self.store, self.handle)
+                      value = json.loads((self.directory / 'cutover.json').read_bytes())
+                      cutover._unchanged_peers(self.store, value['base_generations'])
+                  return self.store.put_file(key, path, **kwargs)
+          
+          
+          def refresh_fred(database, directory):
+              environment = {key: value for key, value in os.environ.items()
+                             if key not in ('R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY')}
+              environment['BAIBAI_ACQUISITION_DEADLINE'] = str(int(time.time()) + 20 * 60)
+              command = ['uv', 'run', 'baibai-jobs', 'acquire-economic', 'refresh', '--group',
+                         'fred_csv', '--recent', '--end', datetime.now(UTC).date().isoformat(),
+                         '--db', str(database)]
+              with (directory / 'fred-private.log').open('wb') as output:
+                  result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT,
+                                          env=environment, timeout=25 * 60, check=False)
+              return result.returncode == 0
+          
+          
+          def execute(store, directory, prefix, *, refresh=refresh_fred, emit=lambda **_: None):
+              directory.mkdir(parents=True, exist_ok=False)
+              handle, _ = lease.acquire(store, 'operator')
+              handle_path = directory / 'lease.json'
+              durable = DurableCutoverStore(store, directory, prefix, handle)
+              phase = 'pin_base'
+              report = {'cutover_completed': False, 'lease_released': False}
+              try:
+                  lease._save_handle(handle_path, handle)
+                  heads = {key: store.head(key) for key in cutover.BUNDLE_KEYS}
+                  if any(value is None for value in heads.values()):
+                      raise ValueError('required canonical object missing')
+                  generations = {key: value.etag for key, value in heads.items()}
+                  base_manifest = directory / 'base-manifest.json'
+                  exact_read(store, cutover.MANIFEST, base_manifest)
+                  manifest = json.loads(base_manifest.read_bytes())
+                  if manifest.get('schema_version') != 1 or manifest.get('keys') != generations:
+                      raise ValueError('canonical bundle differs from manifest')
+                  source = directory / 'schema12.sqlite'
+                  downloaded = exact_read(store, cutover.KEY, source)
+                  if downloaded.etag != generations[cutover.KEY]:
+                      raise ValueError('economic generation changed')
+                  with contextlib.closing(sqlite3.connect(source.resolve().as_uri()+'?mode=ro', uri=True)) as conn:
+                      if conn.execute('PRAGMA user_version').fetchone()[0] != 12:
+                          raise ValueError('economic source is not schema12')
+                  generation_dir = directory / 'generations'
+                  generation_dir.mkdir()
+                  for key, etag in generations.items():
+                      (generation_dir / (key+'.etag')).write_text(etag)
+                  phase = 'preserve_original'
+                  durable.checkpoint()
+                  emit(phase=phase, original_readback_verified=True)
+                  phase = 'prepare_and_recheck'
+                  candidate = directory / 'schema13.sqlite'
+                  receipt = directory / 'cutover.json'
+                  cutover.prepare_copy(source, candidate, receipt, generation_dir)
+                  fred_ok = refresh(candidate, directory)
+                  phase = 'freeze_and_preserve'
+                  frozen = cutover.freeze(receipt)
+                  durable.checkpoint()
+                  emit(phase=phase, old_rows_preserved=True, fred_recheck_success=fred_ok,
+                       confirmation_gaps_present=bool(frozen['unconfirmed_native_periods']))
+                  phase = 'publish_and_reissue_inputs'
+                  result = cutover.reissue_inputs(durable, receipt, handle_path)
+                  if not result['readback_verified'] or len(result['updated']) != 15:
+                      raise ValueError('economic inputs not fully verified')
+                  phase = 'final_checkpoint'
+                  durable.checkpoint()
+                  report.update(cutover_completed=True, schema=13, all_economic_inputs_verified=True,
+                                canonical_bytes_readback_verified=True, market_runs_unchanged=True,
+                                originals_preserved=True, fred_recheck_success=fred_ok,
+                                confirmation_gaps_present=bool(frozen['unconfirmed_native_periods']))
+              except Exception as error:
+                  # No private IDs, ETags, sizes, counts, payloads or exception strings in public logs.
+                  report.update(failed_phase=phase, error_type=type(error).__name__)
+              finally:
+                  try:
+                      lease.release(store, handle)
+                      report['lease_released'] = True
+                  except Exception as error:
+                      report.update(lease_release_error_type=type(error).__name__)
+              return report
+          
+          
+          def main():
+              run_id = os.environ.get('GITHUB_RUN_ID', '')
+              attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '')
+              if not run_id.isdigit() or attempt != '1':
+                  print(json.dumps({'refused': True, 'reason': 'only_first_authorized_run_attempt'}))
+                  return 1
+              directory = Path('/tmp/baibai-economic-cutover')
+              public = sys.stdout
+              def emit(**value):
+                  print(json.dumps(value, sort_keys=True), file=public, flush=True)
+              store = Boto3R2Store(bucket='baibai-stores')
+              private_log = Path('/tmp/baibai-economic-cutover-private.log')
+              try:
+                  with private_log.open('w') as private, contextlib.redirect_stdout(private), contextlib.redirect_stderr(private):
+                      report = execute(store, directory,
+                          f'coordination/cutovers/economic-12-13/{run_id}/', emit=emit)
+              except Exception as error:
+                  report = {'cutover_completed': False, 'error_type': type(error).__name__}
+              finally:
+                  store.close()
+              emit(**report)
+              return 0 if report.get('cutover_completed') and report.get('lease_released') else 1
+          
+          
+          if __name__ == '__main__':
+              raise SystemExit(main())
+          PY
