@@ -119,10 +119,12 @@ def _read_fixed_financial_population(
                 calendar = accepted_dataset(release, JQUANTS_MARKET_CALENDAR)
                 calendar_manifest = release.dataset_manifest(calendar.name)
                 calendar_parts = selected_partitions(release, calendar.name)
-                if calendar_manifest.coverage_status == "complete" and all(
-                    mirror_path(mirror, obj.key).is_file()
-                    for obj in partition_objects(calendar_parts)
+                if (
+                    calendar_manifest.coverage_status == "complete"
+                    and calendar_manifest.coverage_start <= as_of <= calendar_manifest.data_as_of
                 ):
+                    # This release's verified calendar is part of the basis. A
+                    # missing local object must not silently select another date.
                     calendar_paths = materialize_partitions(
                         cache, dataset=calendar, partitions=calendar_parts
                     )

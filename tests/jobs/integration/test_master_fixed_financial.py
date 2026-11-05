@@ -182,3 +182,28 @@ def test_empty_unavailable_dates_leave_existing_manifest_bytes_unchanged(name):
     )
     assert canonical_lake_model_bytes(manifest) == expected
     assert "unavailable_dates" not in manifest.model_dump(mode="json")
+
+
+def test_missing_fixed_calendar_cannot_silently_change_sector_basis(tmp_path, monkeypatch):
+    from baibai_engine.storage.snapshots.objects import LakeObjectError
+
+    holiday = records(SUNDAY)
+    for row in holiday:
+        row["S33Nm"] = "銀行業"
+    store, owner, market = setup_native(
+        tmp_path, [attempt("business", day=FRIDAY), attempt("holiday", day=SUNDAY, rows=holiday)]
+    )
+    calendar(market)
+    saved = model_input(store, owner.fixed(), as_of=SUNDAY, evaluated_at=AT, market=market)
+    mirror, origin, _manifest = fixed_release(
+        tmp_path, monkeypatch, market, saved, with_calendar=True
+    )
+    assert (
+        read_fixed_financial_documents(mirror, origin=origin, ticker="1301", as_of=SUNDAY).sector
+        == "卸売業"
+    )
+    for path in mirror.rglob("*.parquet"):
+        if "jquants.market_calendar" in str(path):
+            path.unlink()
+    with pytest.raises(LakeObjectError):
+        read_fixed_financial_documents(mirror, origin=origin, ticker="1301", as_of=SUNDAY)
