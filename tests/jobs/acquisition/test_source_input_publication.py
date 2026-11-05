@@ -73,7 +73,7 @@ def test_read_scoped_input_from_same_group_previous_stage(tmp_path, monkeypatch)
 
     remote = MemoryR2Store()
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("boj",)
     )
     monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
     monkeypatch.setattr(
@@ -88,24 +88,24 @@ def test_read_scoped_input_from_same_group_previous_stage(tmp_path, monkeypatch)
         identity="first",
         generations={"version": "one"},
     )
-    first = "coordination/source-inputs/economic-fred_csv-first/handoff.json"
+    first = "coordination/source-inputs/economic-boj-first/handoff.json"
     value = json.loads(remote.values[first].body)
     value["result"]["canonical_generations"] = {"version": "two"}
-    second = "coordination/source-inputs/economic-fred_csv-second/handoff.json"
+    second = "coordination/source-inputs/economic-boj-second/handoff.json"
     remote.store_object(second, json.dumps(value).encode())
     remote.store_object(
-        input_key("economic-fred_csv"),
+        input_key("economic-boj"),
         json.dumps(
-            {"stage_id": "economic-fred_csv-second", "canonical_generations": {"version": "two"}}
+            {"stage_id": "economic-boj-second", "canonical_generations": {"version": "two"}}
         ).encode(),
     )
-    result = load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "read")
+    result = load_input(remote, "economic-boj", tmp_path / "db", tmp_path / "read")
     assert result["canonical_generations"] == {"version": "two"}
     assert (tmp_path / "db").read_bytes() == b"fixed content"
-    value["receipt_key"] = value["receipt_key"].replace("economic-fred_csv-", "other-")
+    value["receipt_key"] = value["receipt_key"].replace("economic-boj-", "other-")
     remote.store_object(second, json.dumps(value).encode())
     with pytest.raises(LakePublishError, match="identity differs"):
-        load_input(remote, "economic-fred_csv", tmp_path / "db2", tmp_path / "read2")
+        load_input(remote, "economic-boj", tmp_path / "db2", tmp_path / "read2")
 
 
 def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monkeypatch):
@@ -113,7 +113,7 @@ def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monke
 
     remote = MemoryR2Store()
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("boj",)
     )
     monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
     monkeypatch.setattr(
@@ -128,9 +128,9 @@ def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monke
         assert result["failed"] == []
     receipts = [key for key in remote.values if key.endswith(".sqlite")]
     assert len(receipts) == 1
-    pointer = json.loads(remote.values[input_key("economic-fred_csv")].body)
-    assert pointer["stage_id"] == "economic-fred_csv-third"
-    result = load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
+    pointer = json.loads(remote.values[input_key("economic-boj")].body)
+    assert pointer["stage_id"] == "economic-boj-third"
+    result = load_input(remote, "economic-boj", tmp_path / "db", tmp_path / "retrieved")
     assert result["canonical_generations"] == {"version": "third"}
     assert (tmp_path / "db").read_bytes() == b"identical database"
 
@@ -138,7 +138,7 @@ def test_unchanged_input_reuses_receipt_and_refreshes_generation(tmp_path, monke
 def test_changed_input_creates_new_receipt(tmp_path, monkeypatch):
     remote = MemoryR2Store()
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("boj",)
     )
     monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
     source = tmp_path / "input-data"
@@ -154,14 +154,14 @@ def test_changed_input_creates_new_receipt(tmp_path, monkeypatch):
         )
         assert result["failed"] == []
     assert len([key for key in remote.values if key.endswith(".sqlite")]) == 2
-    load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
+    load_input(remote, "economic-boj", tmp_path / "db", tmp_path / "retrieved")
     assert (tmp_path / "db").read_bytes() == b"second"
 
 
 def test_missing_previous_blob_is_recreated_under_new_stage(tmp_path, monkeypatch):
     remote = MemoryR2Store()
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("boj",)
     )
     monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
     monkeypatch.setattr(
@@ -175,8 +175,8 @@ def test_missing_previous_blob_is_recreated_under_new_stage(tmp_path, monkeypatc
     result = publish_inputs(remote, **args, identity="second", generations={"version": "two"})
     assert result["failed"] == []
     assert old_key not in remote.values
-    assert any("fred_csv-second/" in key for key in remote.values if key.endswith(".sqlite"))
-    load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
+    assert any("boj-second/" in key for key in remote.values if key.endswith(".sqlite"))
+    load_input(remote, "economic-boj", tmp_path / "db", tmp_path / "retrieved")
     assert (tmp_path / "db").read_bytes() == b"same"
 
 
@@ -189,7 +189,7 @@ def test_reused_input_refuses_a_receipt_from_another_group(tmp_path, monkeypatch
 
     remote = MemoryR2Store()
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("boj",)
     )
     monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
     monkeypatch.setattr(
@@ -199,19 +199,19 @@ def test_reused_input_refuses_a_receipt_from_another_group(tmp_path, monkeypatch
     args = dict(market=tmp_path / "market", economic=tmp_path / "economic", asof=DAY)
     for identity in ("first", "second"):
         publish_inputs(remote, **args, identity=identity, generations={"version": identity})
-    manifest_key = "coordination/source-inputs/economic-fred_csv-second/handoff.json"
+    manifest_key = "coordination/source-inputs/economic-boj-second/handoff.json"
     manifest = json.loads(remote.values[manifest_key].body)
-    manifest["receipt_key"] = manifest["receipt_key"].replace("economic-fred_csv-", "other-")
+    manifest["receipt_key"] = manifest["receipt_key"].replace("economic-boj-", "other-")
     remote.store_object(manifest_key, json.dumps(manifest).encode())
     with pytest.raises(LakePublishError, match="identity differs"):
-        load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
+        load_input(remote, "economic-boj", tmp_path / "db", tmp_path / "retrieved")
     assert not (tmp_path / "db").exists()
 
 
 def test_invalid_previous_blob_is_not_reused(tmp_path, monkeypatch):
     remote = MemoryR2Store()
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("fred_csv",)
+        "baibai_jobs.acquisition.source_inputs.economic_acquisition_groups", lambda: ("boj",)
     )
     monkeypatch.setattr("baibai_jobs.acquisition.source_inputs.SOURCE_INPUT_GROUPS", ())
     monkeypatch.setattr(
@@ -224,6 +224,6 @@ def test_invalid_previous_blob_is_not_reused(tmp_path, monkeypatch):
     remote.values[old_key].metadata["sha256"] = "bad"
     result = publish_inputs(remote, **args, identity="second", generations={"version": "two"})
     assert result["failed"] == []
-    load_input(remote, "economic-fred_csv", tmp_path / "db", tmp_path / "retrieved")
+    load_input(remote, "economic-boj", tmp_path / "db", tmp_path / "retrieved")
     assert (tmp_path / "db").read_bytes() == b"same"
-    assert any("fred_csv-second/" in key for key in remote.values if key.endswith(".sqlite"))
+    assert any("boj-second/" in key for key in remote.values if key.endswith(".sqlite"))
