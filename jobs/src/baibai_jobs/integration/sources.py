@@ -64,6 +64,7 @@ from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MA
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
@@ -80,6 +81,8 @@ def apply(
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
     if bool(plan.get("financial_native", False)) != financial_native_enabled():
         raise ValueError("financial cutover mode differs from the fixed integration plan")
+    if bool(plan.get("price_native", False)) != price_native_enabled():
+        raise ValueError("price cutover mode differs from the fixed integration plan")
     # Canonical corruption is global and fatal, before any handoff is applied.
     for database, validate in (
         (market, validate_market_schema),
@@ -315,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     ],
                     "financial_native": financial_native_enabled(),
+                    "price_native": price_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },

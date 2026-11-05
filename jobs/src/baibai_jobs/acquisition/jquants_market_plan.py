@@ -110,6 +110,7 @@ def freeze_market_originals(
     cache: LakeObjectCache,
     store: ReceiptStore,
     asof: date,
+    include_daily_prices: bool = True,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FixedMarketIndexes:
     """Freeze L1 and pending market originals once; never consult an L2 input."""
@@ -121,6 +122,8 @@ def freeze_market_originals(
         "margin_alerts",
         "short_sale_reports",
     )
+    if not include_daily_prices:
+        sources = tuple(source for source in sources if source != "daily_bars")
     cutoff = clock()
     if cutoff.utcoffset() is None:
         raise ValueError("clock requires a timezone")
@@ -202,7 +205,10 @@ class MarketPlans:
 
 
 def plan_market_from_originals(
-    indexes: dict[JQuantsSource, NativeMarketIndex], *, asof: date
+    indexes: dict[JQuantsSource, NativeMarketIndex],
+    *,
+    asof: date,
+    include_daily_prices: bool = True,
 ) -> MarketPlans:
     """Plan each source from original receipts; unavailable scopes stay explicit."""
 
@@ -225,7 +231,9 @@ def plan_market_from_originals(
         master=plan_required_days(indexes["master"], days=[asof], require_nonempty=True),
         daily_prices=plan_daily_prices(
             indexes["daily_bars"], start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS), end=asof
-        ),
+        )
+        if include_daily_prices
+        else NativeAcquisitionPlan((), ()),
         calendar=plan_calendar(
             calendar,
             start=min(calendar_start, earliest_calendar),

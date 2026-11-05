@@ -50,6 +50,8 @@ def receive_market_handoff(
     asof: date,
     client: JQuantsHTTP,
     scheduled: bool = False,
+    include_daily_prices: bool = True,
+    provider_halted: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
 ) -> bool:
@@ -61,7 +63,9 @@ def receive_market_handoff(
     indexes = dict(fixed.indexes)
     errors: set[str] = set()
     seen: set[str] = set()
-    halted = False
+    halted = provider_halted
+    if provider_halted:
+        errors.add("provider_halted")
     skipped = False
     with closing(sqlite3.connect(output)) as conn:
         conn.executescript(JQUANTS_SOURCE_PAGES_DDL)
@@ -103,7 +107,9 @@ def receive_market_handoff(
             )
 
         def plan() -> MarketPlans:
-            return plan_market_from_originals(indexes, asof=asof)
+            return plan_market_from_originals(
+                indexes, asof=asof, include_daily_prices=include_daily_prices
+            )
 
         unknown: set[str] = set(fixed.unavailable_stages)
         try:
@@ -114,8 +120,9 @@ def receive_market_handoff(
             if not skipped:
                 master = plan().master
                 receive("master", ({"date": day.isoformat()} for day in master.days))
-                prices = plan().daily_prices
-                receive("daily_bars", ({"date": day.isoformat()} for day in prices.days))
+                if include_daily_prices:
+                    prices = plan().daily_prices
+                    receive("daily_bars", ({"date": day.isoformat()} for day in prices.days))
                 calendar = plan().calendar
                 receive(
                     "market_calendar",

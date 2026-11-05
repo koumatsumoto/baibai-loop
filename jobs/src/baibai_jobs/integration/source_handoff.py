@@ -225,10 +225,45 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.acquisition.jquants_market_plan import freeze_market_originals
     from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
+    from baibai_jobs.price_cutover import price_native_enabled
     from baibai_jobs.publication.datasets import LAKE_DATASETS
     from baibai_jobs.publication.policy import release_policy_for_profile
 
+    native_prices = price_native_enabled()
+    native_result: dict[str, object] | None = None
+    price_ok = True
+    provider_halted = False
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+    if native_prices:
+        from baibai_engine.data_collection.providers.jquants.market_rules import (
+            MARKET_REVISION_OVERLAP_DAYS,
+        )
+        from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+        from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
+        from baibai_jobs.acquisition.jquants_price_native import acquire_price_native
+
+        # Commit price originals first. A missing legacy release or another market
+        # source's later failure cannot roll them back or prevent this acquisition.
+        try:
+            with (
+                closing(Boto3R2Store(bucket=bucket)) as price_store,
+                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as price_client,
+            ):
+                result = acquire_price_native(
+                    PriceL1(price_store, directory / "price-native"),
+                    start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
+                    end=asof,
+                    revision_overlap_days=MARKET_REVISION_OVERLAP_DAYS,
+                    client=price_client,
+                )
+            provider_halted = bool(result.get("halted", 0))
+            native_result = dict(result)
+            price_ok = not bool(result["failed"] or result["held"])
+        except Exception as error:
+            price_ok = False
+            native_result = {"error": type(error).__name__}
+        directory.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(directory / "price-native-result.json", native_result)
     with (
         tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -239,15 +274,29 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
         )
         fixed = freeze_market_originals(
-            session, release=release, cache=cache, store=store, asof=asof
+            session,
+            release=release,
+            cache=cache,
+            store=store,
+            asof=asof,
+            include_daily_prices=not native_prices,
         )
-        return receive_market_handoff(
+        legacy_ok = receive_market_handoff(
             directory,
             fixed,
             asof=asof,
             client=client,
             scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
+            include_daily_prices=not native_prices,
+            provider_halted=provider_halted,
         )
+
+    if native_result is not None:
+        path = directory / "result.json"
+        report = json.loads(path.read_bytes())
+        report["independent_l1"] = {"daily_bars": native_result}
+        write_json_atomic(path, report)
+    return legacy_ok and price_ok
 
 
 def build_parser() -> argparse.ArgumentParser:

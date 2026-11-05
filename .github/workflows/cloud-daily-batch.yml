@@ -19,6 +19,7 @@ permissions:
   contents: read
 
 env:
+  BAIBAI_PRICE_NATIVE: ${{ vars.BAIBAI_PRICE_NATIVE == 'true' && 'true' || 'false' }}
   BAIBAI_FINANCIAL_NATIVE: ${{ vars.BAIBAI_FINANCIAL_NATIVE == 'true' && 'true' || 'false' }}
 
 concurrency:

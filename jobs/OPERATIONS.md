@@ -763,6 +763,50 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。
 
 
+<a id="price-native-l1"></a>
+## 日足native L1の取得・固定読取・有限移行
+
+`daily_bars` は `BAIBAI_PRICE_NATIVE=true` で取得側と通常consumerを同時に切り替える。既定値は `false`。この実装ではrepository variable・権限・本番storeを変更していない。通常 `jquants-market` は先に日足を独立L1へ確定し、その後master・取引暦・信用残・注意銘柄・空売りの従来取得とhandoffを続ける。日足だけを旧releaseから再取得・stage化しない。後段の市場release取得やL2が失敗しても確定済み日足を取り消さない。
+
+対象は従来どおり全銘柄の日別requestと2,200日前までの取得範囲。保持済みのより古い日も移行・再生成から捨てない。source workflowの起動scheduleは変えず、切替後の日足は旧market releaseの休場日skipに依存せず、直近7日を含む訂正確認を各起動時に行う。休日の追加GETが生じる点は切替前に確認する。正常空は完了とし、未知field・null/0・行順をnative差分に残す。paginationだけが変わった同値確認は本文を追加せず、実確認時刻だけ進める。final 429または取得期限で停止した場合、同じpassの残りのJ-Quants GETも止め、成功済み・partialと未試行を区別する。許可されたL1範囲をL2の都合で狭めない。
+
+日足と財務が共有するのは全銘柄の単日requestという境界、pack/head確定、固定入力metadataだけ。日足の補正係数・市場時価総額・価格正規化は価格ownerのまま維持する。masterの非空要件、取引暦の区間重複、信用残の公表日、空売りのdisc_dateを単日財務契約へ入れない。
+
+通常公開は日足headを一度だけ固定し、その全保持期間と不足を月単位で再生成する。作業market SQLiteの日足・同coverageを置換してからsealし、同じ選択をモデルと公開日足へ渡す。日足L2のlineageは旧source_pagesではなく不変selectionを指す。作業copyの旧日足source_pagesだけを除き、原本pack・旧immutable release・stageは削除しない。新しいheadが取得途中で進んでもそのgenerationへ混ぜない。原本が失われた場合に旧L2へfallbackしない。
+
+独立取得は新しい作業directoryを使う。初期化は空namespaceへの一回だけで、消失headを空から作り直さない。明示範囲の取得と再生成は次を使う。
+
+```bash
+uv run baibai-jobs jquants-price-native initialize --directory /secure-work/price-init
+uv run baibai-jobs jquants-price-native acquire --directory /secure-work/price-cycle \
+  --start 2026-11-01 --end 2026-11-05
+uv run baibai-jobs rebuild-price-native --work-directory /secure-work/price-read \
+  --start 2026-11-01 --end 2026-11-05 --output /secure-work/price-observations
+```
+
+過去generationの `inputs.price` の正確なInputSnapshot JSONを `rebuild-price-native --saved-input <JSON>` へ渡すと、最新head・前回L2・provider取得なしで要求範囲を再生成する。`fixed-inputs/jquants-price/v1/` の共有root/月metadataと `l1/jquants/daily-bars/v1/` の原本packを再計算が必要な間保持する。descriptorへ本文・全履歴scopeを毎日複写せず、変更された月だけ追加する。確認時刻・失敗・保留も固定する。全履歴headの書換え・月数分のcold GET・全履歴正規化は残り、実R2の速度・転送量・権限/lifecycleは未検証である。
+
+### 旧日足原本と混在market stageからの切替
+
+通常dailyへ移行を代行させない。旧市場writer・dailyを停止して実行中/queued jobをdrainし、exact旧release ID/SHA256、実UTC境界、未統合を含む全market stageを固定する。`price-native-cutover prepare` はmarket stageの全宣言request IDを原本と照合したうえで、日足だけを移す。他sourceの明示失敗を日足失敗へ変換しない。filteredな日足・原本欠損・未知scope・日足失敗なのに失敗原本が無いstageは `blocked` とし、空成功を作らない。
+
+```bash
+uv run baibai-jobs price-native-cutover prepare --directory /secure-work/price-migration \
+  --work-directory /secure-work/price-mirror --release <FIXED_OLD_RELEASE> \
+  --manifest-sha256 <FIXED_OLD_SHA256> --known-at <REAL_UTC_BOUNDARY>
+# planのblocked/原本/全stageを確認し、空targetへinitializeしてから実施
+uv run baibai-jobs price-native-cutover apply --directory /secure-work/price-migration \
+  --work-directory /secure-work/price-mirror
+uv run baibai-jobs price-native-cutover verify --directory /secure-work/price-migration \
+  --work-directory /secure-work/price-cold-read
+uv run baibai-jobs price-native-cutover compare --directory /secure-work/price-migration \
+  --work-directory /secure-work/price-compare
+```
+
+apply/verifyは旧版・partialを含む移行packをcold照合し、compareは同じ旧releaseのL2とnative再生成の値・不足を比べる。旧投影を原本として埋めない。同値確認はfingerprintだけを持つため、その確認時のexact page bytesの全履歴には旧release/stageの保持も必要である。移行完了だけで旧物を削除しない。prepare後の後着stageがあれば境界を作り直す。
+
+保留・差分の受入と新旧writer境界、保存先のwrite/read権限と期限削除対象外を確認してから、同じcodeで共通variableを切り替える。初回dailyのモデルprice identity、価格値・補正係数・coverage、公開L2のnative lineage、次hydrateを読戻す。fixture成功を実store受入としない。設定をfalseへ戻すだけでは新旧境界や旧投影を復元できない。異常時はsource/dailyを止め、確定head・移行plan・旧releaseから再開先を決める。安定後に旧price plan/stage依存と移行設定を撤去する。その他のJ-Quants移行と原本削除は別である（refs #1820）。
+
 <a id="financial-native-l1"></a>
 ## 財務native L1の明示取得・再生成
 
