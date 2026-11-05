@@ -794,3 +794,27 @@ def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
     rebound = selection_binding(OperationService(app).get(prepared.operation_id).payload)
     assert rebound.inputs.generation.inputs["financial"].descriptor == descriptor
     assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == projection
+
+
+def test_market_display_keeps_retained_tradingview_evidence():
+    from baibai_engine.investment_judgment.workflow.generated_inputs import _project_market_context
+
+    source = {
+        "reading": None,
+        "tradingview_market": {
+            "coverage": "partial",
+            "quotes": [
+                {
+                    "symbol": "OSE:SYNTH",
+                    "received_at": "2026-01-05T04:00:00+00:00",
+                    "last_trade_at": None,
+                    "delay_seconds": 900,
+                }
+            ],
+        },
+    }
+    projected = _project_market_context(
+        source, full_result_ref="/inputs/generation/models/0/payload"
+    )
+    assert projected["tradingview_market"] == source["tradingview_market"]
+    assert projected is not source

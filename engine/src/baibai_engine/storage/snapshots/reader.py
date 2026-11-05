@@ -1,18 +1,7 @@
-"""Resolve one release at the start of a run, then read only that release.
+"""開始時に一つのreleaseを固定し、実行途中の公開で入力が混ざるのを防ぐ。
 
-The current pointer is the single mutable object in the lake. It is read exactly
-once, at ``resolve_current_release``; everything downstream travels as a
-``FixedRelease`` holding immutable keys and digests. A publisher that switches the
-pointer while a run is in flight therefore cannot change what that run reads.
-
-Reads are fail-closed on identity, and the identity chain is closed by digest at
-every edge: the release manifest must hash to what the pointer named, each dataset
-manifest must hash to what the release entry named, and each object must hash to
-what its dataset manifest named while also carrying the schema, contract, row
-count that manifest published. Declared key ranges are validated structurally,
-not recomputed from object rows by this reader. A reader accepts exactly one
-``contract_version`` per dataset; a different contract is an error rather than
-something to adapt to.
+読取は固定key・digestとownerの契約を使う。宣言されたkey範囲の構造は検査するが、
+行から範囲を再計算する検証ではない。
 """
 
 from __future__ import annotations
