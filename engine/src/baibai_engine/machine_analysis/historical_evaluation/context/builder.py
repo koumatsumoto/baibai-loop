@@ -242,6 +242,7 @@ def _declared_asofs(
 def _prediction_boundaries(
     panels: Mapping[str, Sequence[PanelRow]], asofs: Sequence[str]
 ) -> list[float]:
+    # 結果を観測できた企業だけで帯を作ると脱落企業が境界を動かすため、宣言した予測全体で固定する。
     signals = {
         asof: [
             row
