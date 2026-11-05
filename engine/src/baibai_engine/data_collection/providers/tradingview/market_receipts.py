@@ -62,20 +62,32 @@ def read_market_capture(
     ).fetchall()
     if len(rows) != 1:
         raise ValueError("exact market receipt is missing or ambiguous")
-    fetched_at, url, content_type, payload, metadata_json = rows[0]
+    capture = decode_market_capture(receipt_id, *rows[0])
+    if capture.digest() != expected_sha256:
+        raise ValueError("exact market receipt digest differs")
+    return capture
+
+
+def decode_market_capture(
+    receipt_id: str,
+    fetched_at: str,
+    url: str,
+    content_type: str,
+    payload: bytes,
+    metadata_json: str,
+) -> MarketToolCapture:
+    """Decode one retained SDK response using the same source contract everywhere."""
     metadata = json.loads(metadata_json)
     if (
-        metadata.pop("format", None) != "tradingview-market-receipt-v1"
+        not isinstance(metadata, dict)
+        or metadata.pop("format", None) != "tradingview-market-receipt-v1"
         or url != SOURCE_URL
         or content_type != "application/json"
         or metadata.get("receipt_id") != receipt_id
     ):
         raise ValueError("market receipt source contract changed")
-    capture = MarketToolCapture(
+    return MarketToolCapture(
         **metadata,
         received_at_utc=datetime.fromisoformat(fetched_at),
         result=CallToolResult.model_validate_json(payload),
     )
-    if capture.digest() != expected_sha256:
-        raise ValueError("exact market receipt digest differs")
-    return capture
