@@ -349,7 +349,7 @@ def _write_projection(projection: sqlite3.Connection, output: Path) -> None:
     for table, schema in schemas.items():
         filename = "master_snapshots" if table == "jquants_master_snapshots" else table
         with pq.ParquetWriter(output / (filename + ".parquet"), schema=schema) as writer:
-            cursor = projection.execute(f"SELECT * FROM {table} ORDER BY 1,2")
+            cursor = projection.execute(f"SELECT * FROM {table} ORDER BY 1,2")  # nosec B608
             while rows := cursor.fetchmany(10000):
                 writer.write_table(
                     pa.Table.from_pylist(
