@@ -1,4 +1,6 @@
+import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -215,13 +217,64 @@ def test_pmi_partial_pdf_months_cover_history_even_when_the_range_failed(tmp_pat
             store_document(
                 conn,
                 SourceDocument(
-                    source.source_id,
-                    day.isoformat(),
-                    "https://example.com/release.pdf",
-                    "application/pdf",
-                    datetime(2025, 10, 1, tzinfo=UTC),
-                    b"%PDF original",
-                    {"observed_at": day.isoformat()},
+                    source_id=source.source_id,
+                    request_key=day.isoformat(),
+                    source_url="https://example.com/release.pdf",
+                    content_type="application/pdf",
+                    fetched_at=datetime(2025, 10, 1, tzinfo=UTC),
+                    payload=b"%PDF original",
+                    metadata={"observed_at": day.isoformat()},
                 ),
             )
         assert recovery_ranges(conn, source, END) == ((date(2025, 10, 1), date(2025, 10, 17)),)
+
+
+@pytest.mark.parametrize("provider", ["spglobal_pmi", "tradingeconomics_pmi"])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_pmi_recovery_plans_from_receipt_metadata_without_reading_pdf_bodies(
+    tmp_path, provider, explicit
+):
+    from baibai_engine.data_collection.receipts.native_sources.documents import (
+        SourceDocument,
+        store_document,
+    )
+
+    source = replace(load_sources()["spglobal-jp-pmi-mfg"], provider=provider)
+    first = date(2024 if explicit else 2025, 1, 1)
+    finish = date(2025, 12, 31) if explicit else date(2025, 10, 1)
+    last = finish if explicit else recent_start(source, END) - timedelta(days=1)
+    planner = explicit_recovery_ranges if explicit else recovery_ranges
+    with closing(initialize_database(tmp_path / "source.sqlite")) as conn, conn:
+        record_source_run(
+            conn,
+            source_id=source.source_id,
+            start=first,
+            end=finish,
+            started_at=datetime(2026, 10, 23, tzinfo=UTC),
+            status="failed",
+            record_count=2,
+        )
+        for month, phase in ((1, "final"), (2, "flash")):
+            day = first.replace(month=month)
+            store_document(
+                conn,
+                SourceDocument(
+                    source_id=source.source_id,
+                    request_key=day.isoformat(),
+                    source_url="https://example.com/release.pdf",
+                    content_type="application/pdf",
+                    fetched_at=datetime(2026, 10, 23, tzinfo=UTC),
+                    payload=b"%PDF original",
+                    metadata={"observed_at": day.isoformat(), "phase": phase},
+                ),
+            )
+        conn.set_authorizer(
+            lambda action, table, column, *_: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_READ
+                and table == "economic_source_documents"
+                and column == "payload"
+                else sqlite3.SQLITE_OK
+            )
+        )
+        assert planner(conn, source, END) == ((first.replace(month=2), last),)

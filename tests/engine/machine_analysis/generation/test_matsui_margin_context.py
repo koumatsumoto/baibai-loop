@@ -69,13 +69,13 @@ def document(*, when=WHEN, body=None):
 
     receipt_day = when.astimezone(ZoneInfo("Asia/Tokyo")).date().isoformat()
     return SourceDocument(
-        SOURCE_ID,
-        receipt_day,
-        require_source(SOURCE_ID).source_url,
-        "text/html",
-        when,
-        html() if body is None else body,
-        {"receipt_jst_date": receipt_day},
+        source_id=SOURCE_ID,
+        request_key=receipt_day,
+        source_url=require_source(SOURCE_ID).source_url,
+        content_type="text/html",
+        fetched_at=when,
+        payload=html() if body is None else body,
+        metadata={"receipt_jst_date": receipt_day},
     )
 
 

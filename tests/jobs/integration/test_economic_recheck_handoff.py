@@ -47,13 +47,13 @@ def received(path, value, at, kind, *, confirmed=False):
         return store_document(
             conn,
             SourceDocument(
-                "test",
-                "document",
-                "https://example.test/pmi.pdf",
-                "application/pdf",
-                at,
-                value.encode(),
-                {},
+                source_id="test",
+                request_key="document",
+                source_url="https://example.test/pmi.pdf",
+                content_type="application/pdf",
+                fetched_at=at,
+                payload=value.encode(),
+                metadata={},
             ),
         )
 
@@ -168,7 +168,13 @@ def test_explicit_cli_recheck_survives_publication_and_pending_older_stage(
         lambda *args, **kwargs: iter(
             [
                 SourceDocument(
-                    "test", "document", definition.source_url, "application/pdf", actual, b"A", {}
+                    source_id="test",
+                    request_key="document",
+                    source_url=definition.source_url,
+                    content_type="application/pdf",
+                    fetched_at=actual,
+                    payload=b"A",
+                    metadata={},
                 )
             ]
         ),

@@ -1,5 +1,6 @@
 import sqlite3
 from contextlib import closing
+from dataclasses import replace
 from datetime import UTC, date, datetime
 
 import pytest
@@ -10,11 +11,77 @@ from baibai_engine.data_collection.receipts.native_sources import store as store
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
+    store_document,
 )
 from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
-from baibai_engine.data_collection.transport.context import ProviderFetchStoppedError
+from baibai_engine.data_collection.transport.context import FetchContext, ProviderFetchStoppedError
 
 DAY = date(2026, 7, 20)
+
+
+@pytest.mark.parametrize(
+    "provider", ["spglobal_pmi", "tradingeconomics_pmi", "tsr_bankruptcies", "matsui_margin"]
+)
+def test_document_refresh_passes_receipt_scope_without_loading_old_bodies(
+    tmp_path, monkeypatch, provider
+):
+    source = replace(load_sources()["spglobal-jp-pmi-mfg"], provider=provider)
+    old = SourceDocument(
+        source_id=source.source_id,
+        request_key="2026-07-01",
+        source_url="https://example.com/old.pdf",
+        content_type="application/pdf",
+        fetched_at=datetime(2026, 7, 20, tzinfo=UTC),
+        payload=b"old body",
+        metadata={"observed_at": "2026-07-01", "phase": "final"},
+    )
+    latest = replace(
+        old,
+        source_url="https://example.com/latest.html",
+        content_type="text/html",
+        fetched_at=datetime(2026, 7, 21, tzinfo=UTC),
+        payload=b"new body",
+        metadata={"observed_at": "2026-07-01", "phase": "flash"},
+    )
+    inspected = []
+
+    def fetch(definition, *, existing, **kwargs):
+        assert definition == source
+        assert list(existing) == [latest.request_key]
+        stored = existing[latest.request_key]
+        for field in (
+            "source_id",
+            "request_key",
+            "source_url",
+            "content_type",
+            "fetched_at",
+            "metadata",
+        ):
+            assert getattr(stored, field) == getattr(latest, field)
+        assert not hasattr(stored, "payload")
+        inspected.append(stored)
+        return ()
+
+    monkeypatch.setattr(acquisition, "fetch_source_documents", fetch)
+    with (
+        closing(store.initialize_database(tmp_path / "source.sqlite")) as conn,
+        FetchContext() as ctx,
+    ):
+        with conn:
+            store_document(conn, old)
+            store_document(conn, latest)
+            store_document(conn, replace(old, source_id="other-source"))
+        conn.set_authorizer(
+            lambda action, table, column, *_: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_READ
+                and table == "economic_source_documents"
+                and column == "payload"
+                else sqlite3.SQLITE_OK
+            )
+        )
+        assert acquisition._refresh_source(conn, source, start=DAY, end=DAY, context=ctx) == 0
+        assert len(inspected) == 1
 
 
 def test_native_acquisition_is_source_scoped_and_does_not_require_a_numeric_reading(
@@ -58,13 +125,13 @@ def test_uninterpreted_document_is_still_a_successful_source_receipt(tmp_path, m
     path = tmp_path / "source.sqlite"
     source = next(item for item in load_sources().values() if item.provider == "tsr_bankruptcies")
     document = SourceDocument(
-        source.source_id,
-        "history",
-        source.source_url,
-        "application/json",
-        datetime(2026, 7, 20, tzinfo=UTC),
-        b'{"unrecognized": null}',
-        {},
+        source_id=source.source_id,
+        request_key="history",
+        source_url=source.source_url,
+        content_type="application/json",
+        fetched_at=datetime(2026, 7, 20, tzinfo=UTC),
+        payload=b'{"unrecognized": null}',
+        metadata={},
     )
     monkeypatch.setattr(
         acquisition, "fetch_source_documents", lambda *args, **kwargs: iter([document])
@@ -189,13 +256,13 @@ def test_old_pdf_failure_keeps_original_and_does_not_block_new_month(tmp_path, m
         store_document(
             conn,
             SourceDocument(
-                source_id,
-                old.isoformat(),
-                old_url,
-                "application/pdf",
-                datetime(2026, 8, 1, tzinfo=UTC),
-                b"%PDF retained old original",
-                {"observed_at": old.isoformat(), "release_observed_at": old.isoformat()},
+                source_id=source_id,
+                request_key=old.isoformat(),
+                source_url=old_url,
+                content_type="application/pdf",
+                fetched_at=datetime(2026, 8, 1, tzinfo=UTC),
+                payload=b"%PDF retained old original",
+                metadata={"observed_at": old.isoformat(), "release_observed_at": old.isoformat()},
             ),
         )
     outcome = acquisition.refresh_sources(
