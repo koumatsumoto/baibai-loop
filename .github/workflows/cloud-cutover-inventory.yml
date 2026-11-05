@@ -1,8 +1,11 @@
 name: cloud-cutover-inventory
 
-# #1820: one explicit read-only check while scheduled writers are paused.
+# #1820: one explicitly authorized read-only check on this dedicated branch.
+# A later commit cannot run it again unless its exact message is deliberately reused.
 on:
-  workflow_dispatch:
+  push:
+    branches: [codex/issue1820-readonly-cutover-inventory]
+    paths: [.github/workflows/cloud-cutover-inventory.yml]
 
 permissions:
   contents: read
@@ -13,7 +16,11 @@ concurrency:
 
 jobs:
   inspect:
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-readonly-cutover-inventory' &&
+          github.event.head_commit.message == 'ops: run one-off cutover inventory 2026-11-05' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,17 +39,16 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           uv run python - <<'PY'
-          import hashlib
           import json
           import os
           import re
           from collections import Counter
           from datetime import UTC, datetime
-
+          
           import boto3
           from botocore.config import Config
           from botocore.exceptions import BotoCoreError, ClientError
-
+          
           bucket = 'baibai-stores'
           account = os.environ['R2_ACCOUNT_ID']
           if not re.fullmatch(r'[0-9a-f]{32}', account):
@@ -59,7 +65,7 @@ jobs:
           counts = Counter()
           report = {'checked_at_utc': datetime.now(UTC).isoformat(), 'read_only': True}
           heads = {}
-
+          
           def call(operation, **kwargs):
               counts[operation] += 1
               try:
@@ -69,16 +75,15 @@ jobs:
                   return None, code if re.fullmatch(r'[A-Za-z0-9_-]{1,60}', code) else 'ClientError'
               except BotoCoreError:
                   return None, 'ConnectionError'
-
+          
           def head(key):
               value, error = call('head_object', Key=key)
               if error:
                   return {'status': 'missing' if error in ('404', 'NoSuchKey', 'NotFound') else 'unavailable',
                           'error': error}
               heads[key] = value
-              return {'status': 'present', 'bytes': value['ContentLength'],
-                      'etag': value['ETag'].strip('"')}
-
+              return {'status': 'present'}
+          
           def small_json(key):
               meta = heads.get(key)
               if meta is None:
@@ -101,8 +106,8 @@ jobs:
                   parsed = json.loads(body)
               except (ValueError, UnicodeDecodeError):
                   return None, 'invalid_json'
-              return parsed if isinstance(parsed, dict) else None, None
-
+              return (parsed, None) if isinstance(parsed, dict) else (None, 'invalid_metadata_object')
+          
           keys = ('market.sqlite', 'runs.sqlite', 'indicators.sqlite',
                   'machine-manifest.json', 'lake/pointers/market/current.json',
                   'coordination/publication-lease.json')
@@ -126,8 +131,8 @@ jobs:
                   schemas[key] = {'error': 'invalid_or_unbounded_sqlite_header'}
           report['sqlite_headers'] = schemas
           manifest, error = small_json('machine-manifest.json')
-          if manifest:
-              saved = manifest.get('keys', {})
+          if manifest and isinstance(manifest.get('keys'), dict):
+              saved = manifest['keys']
               report['machine_manifest'] = {'schema_version': manifest.get('schema_version'),
                   'recorded_keys': sorted(key for key in saved if key in keys[:3]),
                   'matches_current_heads': {key: saved.get(key) == heads[key]['ETag'].strip('"')
@@ -137,11 +142,23 @@ jobs:
           pointer, error = small_json('lake/pointers/market/current.json')
           if pointer:
               # No source payload, credentials, arbitrary user text or signed URLs are logged.
-              report['current_release'] = {key: pointer.get(key) for key in ('release_id', 'manifest_sha256')}
+              report['current_release'] = {'release_id_present': bool(pointer.get('release_id')),
+                  'manifest_hash_valid': bool(re.fullmatch(r'[0-9a-f]{64}', str(pointer.get('manifest_sha256', ''))))}
           else:
               report['current_release'] = {'error': error or 'invalid_pointer'}
           lease, error = small_json('coordination/publication-lease.json')
-          report['lease'] = {key: lease.get(key) for key in ('state', 'purpose', 'expires_at_utc')} if lease else {'error': error}
+          if lease:
+              expired = None
+              try:
+                  expiry = datetime.fromisoformat(lease['expires_at_utc'].replace('Z', '+00:00'))
+                  if expiry.tzinfo is not None:
+                      expired = expiry <= datetime.now(UTC)
+              except (KeyError, TypeError, ValueError, AttributeError):
+                  pass
+              report['lease'] = {'held': lease.get('state') == 'held',
+                  'released': lease.get('state') == 'released', 'expired': expired}
+          else:
+              report['lease'] = {'error': error or 'invalid_lease'}
           native = ('l1/jquants/financial-summaries/v1/', 'l1/jquants/daily-bars/v1/',
                     'l1/jquants/master/v1/', 'l1/jquants/market-calendar/v1/', 'l1/edinet/lists/v1/')
           report['native_heads'] = {}
@@ -152,7 +169,7 @@ jobs:
                   value, error = small_json(key)
                   if value is not None:
                       state['pending_present'] = bool(value.get('pending'))
-                      state['receipt_count'] = len(value.get('receipts', {}))
+                      state['receipts_present'] = bool(value.get('receipts'))
                   else:
                       state['metadata_error'] = error
               report['native_heads'][prefix] = state
@@ -162,7 +179,7 @@ jobs:
                       'external-assessment/raw/', 'external-assessment/retained/')
           report['prefixes'] = {}
           for prefix in prefixes:
-              total = size = 0
+              any_objects = False
               token = None
               stages = {}
               error = None
@@ -175,8 +192,7 @@ jobs:
                   if error:
                       break
                   for item in page.get('Contents', []):
-                      total += 1
-                      size += item['Size']
+                      any_objects = True
                       if prefix.startswith('coordination/'):
                           suffix = item['Key'][len(prefix):]
                           if '/' in suffix:
@@ -189,28 +205,29 @@ jobs:
                   if not token:
                       error = 'missing_continuation_token'
                       break
-              summary = {'objects': total, 'bytes': size, 'complete': not error and not truncated}
+              summary = {'any_objects': any_objects, 'complete': not error and not truncated}
               if error:
                   summary['error'] = error
               if stages:
-                  summary['stages'] = len(stages)
-                  summary['handoffs'] = sum('handoff.json' in names for names in stages.values())
-                  summary['without_integrated_marker'] = sum('handoff.json' in names and 'integrated.json' not in names for names in stages.values())
-                  summary['objects_without_handoff'] = sum('handoff.json' not in names for names in stages.values())
+                  summary['handoffs_present'] = any('handoff.json' in names for names in stages.values())
+                  summary['without_integrated_marker_present'] = any('handoff.json' in names and 'integrated.json' not in names for names in stages.values())
+                  summary['objects_without_handoff_present'] = any('handoff.json' not in names for names in stages.values())
               report['prefixes'][prefix] = summary
           lifecycle, error = call('get_bucket_lifecycle_configuration')
           if error:
               report['lifecycle'] = {'error': error, 'verified': False}
           else:
-              rules = []
+              expiry_overlap = False
               for rule in lifecycle.get('Rules', []):
+                  if rule.get('Status') != 'Enabled':
+                      continue
                   filt = rule.get('Filter', {})
-                  rules.append({'status': rule.get('Status'),
-                      'prefix': rule.get('Prefix', filt.get('Prefix', filt.get('And', {}).get('Prefix', ''))),
-                      'has_expiration': bool(rule.get('Expiration')),
-                      'has_noncurrent_expiration': bool(rule.get('NoncurrentVersionExpiration'))})
-              report['lifecycle'] = {'verified': True, 'rules': rules}
-          report['api_calls'] = dict(counts)
+                  prefix = rule.get('Prefix', filt.get('Prefix', filt.get('And', {}).get('Prefix', '')))
+                  expires = bool(rule.get('Expiration') or rule.get('NoncurrentVersionExpiration'))
+                  if expires and any(known.startswith(prefix) or prefix.startswith(known) for known in (*native, 'fixed-inputs/')):
+                      expiry_overlap = True
+              report['lifecycle'] = {'verified': True, 'native_or_fixed_input_expiry_overlap_possible': expiry_overlap}
+          report['only_read_operations_used'] = set(counts).issubset({'head_object', 'get_object', 'list_objects_v2', 'get_bucket_lifecycle_configuration'})
           report['limits'] = ['Metadata inventory only; no original payload downloaded.',
               'No write-permission or original-integrity verification.',
               'Each prefix listing is limited to 20 pages; incomplete means unknown.',
