@@ -784,7 +784,7 @@ uv run baibai-jobs rebuild-price-native --work-directory /secure-work/price-read
   --start 2026-11-01 --end 2026-11-05 --output /secure-work/price-observations
 ```
 
-過去generationの `inputs.price` の正確なInputSnapshot JSONを `rebuild-price-native --saved-input <JSON>` へ渡すと、最新head・前回L2・provider取得なしで要求範囲を再生成する。`fixed-inputs/jquants-price/v1/` の共有root/月metadataと `l1/jquants/daily-bars/v1/` の原本packを再計算が必要な間保持する。descriptorへ本文・全履歴scopeを毎日複写せず、変更された月だけ追加する。確認時刻・失敗・保留も固定する。全履歴headの書換え・月数分のcold GET・全履歴正規化は残り、実R2の速度・転送量・権限/lifecycleは未検証である。
+過去generationの `inputs.price` の正確なInputSnapshot JSONを `rebuild-price-native --saved-input <JSON>` へ渡すと、最新head・前回L2・provider取得なしで要求範囲を再生成する。`fixed-inputs/jquants-price/v1/` の共有root/月metadataと `l1/jquants/daily-bars/v1/` の原本packを再計算が必要な間保持する。descriptorへ本文・全履歴scopeを毎日複写せず、変更された月だけ追加する。確認時刻・失敗・保留も固定する。全保持期間が0行でも再生成は成功するが、価格必須の現行release政策は0行公開を拒否する。原本取得の失敗とは別である。全履歴headの書換え・月数分のcold GET・全履歴正規化は残り、実R2の速度・転送量・権限/lifecycleは未検証である。
 
 ### 旧日足原本と混在market stageからの切替
 

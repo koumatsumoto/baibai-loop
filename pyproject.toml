@@ -714,7 +714,11 @@ allow_indirect_imports = true
 
 
 [[tool.importlinter.contracts]]
-name = "native financial acquisition never depends on L2"
+name = "native full-day acquisition never depends on L2"
 type = "forbidden"
-source_modules = ["baibai_jobs.acquisition.jquants_financial_native"]
+source_modules = [
+  "baibai_jobs.acquisition.jquants_full_day_native",
+  "baibai_jobs.acquisition.jquants_financial_native",
+  "baibai_jobs.acquisition.jquants_price_native",
+]
 forbidden_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.portfolio"]
