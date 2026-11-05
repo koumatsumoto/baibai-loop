@@ -69,6 +69,26 @@ def verify_generated_inputs(
         raise ValueError("model input slice differs from its canonical generation")
 
 
+def _analysis_source(saved: ModelInputSlice) -> dict[str, JsonValue]:
+    """Display identities and bounded source summaries, retaining exact saved JSON references."""
+    source = saved.model_dump(mode="json", exclude={"models", "inputs"})
+    inputs = {}
+    for name, identity in saved.inputs.items():
+        entry = identity.model_dump(mode="json", exclude={"descriptor"})
+        if identity.kind == "native_l1":
+            descriptor = identity.descriptor
+            entry["summary"] = deepcopy(
+                descriptor.get("summary", {"status": "not_recorded"})
+                if descriptor
+                else {"status": "not_recorded"}
+            )
+            segment = name.replace("~", "~0").replace("/", "~1")
+            entry["full_result_ref"] = f"/inputs/generation/inputs/{segment}/descriptor"
+        inputs[name] = entry
+    source["inputs"] = inputs
+    return source
+
+
 def project_generated_inputs(
     saved: ModelInputSlice, *, company_growth_periods: int | None = 12
 ) -> dict[str, JsonValue]:
@@ -127,7 +147,7 @@ def project_generated_inputs(
         return cast(
             dict[str, JsonValue],
             {
-                "analysis_source": saved.model_dump(mode="json", exclude={"models"}),
+                "analysis_source": _analysis_source(saved),
                 "securities": securities,
                 "shared_subjects": shared_subjects,
             },
@@ -136,7 +156,7 @@ def project_generated_inputs(
     return cast(
         dict[str, JsonValue],
         {
-            "analysis_source": saved.model_dump(mode="json", exclude={"models"}),
+            "analysis_source": _analysis_source(saved),
             "market_context": None
             if common is None
             else _project_market_context(

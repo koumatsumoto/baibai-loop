@@ -81,6 +81,48 @@ def model_input(
         day.isoformat(): {"status": item.status, "incomplete": item.incomplete_requests}
         for day, item in results.items()
     }
+    unresolved = [
+        day
+        for day, item in results.items()
+        if item.status in {"unavailable", "partial"}
+        or item.incomplete_requests
+        or scopes[day.isoformat()].get("failure")
+        or scopes[day.isoformat()].get("held")
+    ]
+    ranges: list[dict[str, str]] = []
+    for day in unresolved:
+        if ranges and date.fromisoformat(ranges[-1]["end"]) + timedelta(days=1) == day:
+            ranges[-1]["end"] = day.isoformat()
+        else:
+            ranges.append({"start": day.isoformat(), "end": day.isoformat()})
+    confirmed = [scope["confirmed_at"] for scope in scopes.values() if scope.get("confirmed_at")]
+    changed = [scope["changed_at"] for scope in scopes.values() if scope.get("changed_at")]
+    selected["summary"] = {
+        "head_sha256": fixed.content_id,
+        "retained_source_days": {
+            "start": min(retained_days).isoformat(),
+            "end": max(retained_days).isoformat(),
+        },
+        "as_of": as_of.isoformat(),
+        "adopted_requests": sum(bool(scope.get("adopted")) for scope in scopes.values()),
+        "normal_empty_days": sum(
+            item.request_id is not None
+            and not item.rows
+            and not item.rejected_count
+            and not item.excluded_count
+            for item in results.values()
+        ),
+        "unavailable_days": sum(item.status == "unavailable" for item in results.values()),
+        "partial_days": sum(item.status == "partial" for item in results.values()),
+        "incomplete_days": sum(bool(item.incomplete_requests) for item in results.values()),
+        "failed_days": sum(bool(scope.get("failure")) for scope in scopes.values()),
+        "held_days": sum(bool(scope.get("held")) for scope in scopes.values()),
+        "oldest_confirmed_at": min(confirmed) if confirmed else None,
+        "latest_confirmed_at": max(confirmed) if confirmed else None,
+        "latest_changed_at": max(changed) if changed else None,
+        "unresolved_ranges": ranges[:12],
+        "additional_unresolved_ranges": max(0, len(ranges) - 12),
+    }
     documents = []
     for item in results.values():
         for row in item.rows:

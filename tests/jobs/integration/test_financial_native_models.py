@@ -316,3 +316,26 @@ def test_retained_later_correction_preserves_growth_retrospective_semantics(tmp_
     assert result.periods[0].observations[0].metrics["sales"].value == 200
     assert result.calculation_method == "company_growth_retrospective_v7"
     assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"
+
+
+def test_native_input_summary_bounds_unresolved_ranges_and_separates_confirmed_changed(tmp_path):
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    owner.commit([attempt("a")])
+    owner.commit([attempt("equal", at=AT + timedelta(hours=1))])
+    observed = model_input(
+        store, owner.fixed(), as_of=DAY + timedelta(days=30), evaluated_at=AT + timedelta(hours=1)
+    )
+    summary = observed.identity.descriptor["summary"]
+    assert summary["adopted_requests"] == 1
+    assert summary["unavailable_days"] == 30
+    assert summary["unresolved_ranges"] == [
+        {
+            "start": (DAY + timedelta(days=1)).isoformat(),
+            "end": (DAY + timedelta(days=30)).isoformat(),
+        }
+    ]
+    assert summary["latest_changed_at"] == AT.isoformat()
+    assert summary["latest_confirmed_at"] == (AT + timedelta(hours=1)).isoformat()
+    assert len(json.dumps(summary)) < 1500

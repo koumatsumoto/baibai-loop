@@ -663,3 +663,104 @@ def test_old_full_market_workspace_requires_explicit_display_repair_and_keeps_au
         "read_semantics_inheritance"
         in yaml.safe_load(inputs.read_text())["market_context"]["reading"]
     )
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
+    tmp_path, schema_version
+):
+    import hashlib
+    import json
+
+    from baibai_engine.machine_analysis.generation.contracts import GenerationSubject, InputSnapshot
+    from baibai_engine.primitives.json import canonical_json
+
+    runs = tmp_path / "runs"
+    original = seed_generation(runs, now=NOW, as_of=AS_OF)
+    days = [(date(2020, 1, 1) + timedelta(days=index)).isoformat() for index in range(2201)]
+    descriptor = {
+        "head_sha256": "b" * 64,
+        "scopes": {
+            day: {
+                "adopted": day,
+                "confirmed_at": NOW.isoformat(),
+                "changed_at": NOW.isoformat(),
+                "last_attempt_at": NOW.isoformat(),
+                "failure": None,
+                "held": None,
+            }
+            for day in days
+        },
+        "receipts": {day: {"pack": "c" * 64, "fingerprint": "d" * 64} for day in days},
+        "receipt_status": {day: {"status": "ok", "incomplete": 0} for day in days},
+        "summary": {
+            "retained_source_days": {"start": days[0], "end": days[-1]},
+            "normal_empty_days": 2201,
+            "unavailable_days": 0,
+            "partial_days": 0,
+            "failed_days": 0,
+            "held_days": 0,
+            "unresolved_ranges": [],
+            "additional_unresolved_ranges": 0,
+        },
+    }
+    assert len(canonical_json(descriptor)) > 800_000
+    financial = InputSnapshot(
+        kind="native_l1",
+        reference="fixed-financial",
+        sha256=hashlib.sha256(canonical_json(descriptor).encode()).hexdigest(),
+        descriptor=descriptor,
+    )
+    plan = {
+        subject: GenerationSubject(
+            scope="market" if subject == "market" else "stock",
+            model_ids=tuple(
+                model.model_id for model in original.models if model.subject == subject
+            ),
+        )
+        for subject in ("1234", "market")
+    }
+    generation = original.model_copy(
+        update={
+            "generation_id": "native-input-reference",
+            "inputs": {**original.inputs, "financial": financial},
+            "schema_version": schema_version,
+            "subject_plan": plan if schema_version == 2 else None,
+        }
+    )
+    ModelGenerationStore(runs).publish(generation)
+    draft = GeneratedResearchSelectionDraft(
+        schema_version=2,
+        request=ResearchRequest(
+            text="調査する", scope="specified_stocks", requested_tickers=("1234",)
+        ),
+        research_as_of=AS_OF,
+        input_known_at=NOW,
+        generation_id=generation.generation_id,
+        selection_summary="固定入力を確認",
+        targets=(selected_target(),),
+    )
+    workspace, app = tmp_path / "workspace", tmp_path / "app"
+    prepared = prepare_selected_workspace(
+        draft=draft, db_path=app, workspace=workspace, runs_path=runs, now=NOW
+    )
+    saved = selection_binding(OperationService(app).get(prepared.operation_id).payload)
+    digest = selection_sha256(saved)
+    projection = project_research_inputs(saved)
+    entry = projection["analysis_source"]["inputs"]["financial"]
+    assert "descriptor" not in entry
+    assert entry["summary"]["normal_empty_days"] == 2201
+    assert len(json.dumps(projection["analysis_source"])) < 3000
+    exact = saved.model_dump(mode="json")
+    for part in entry["full_result_ref"].strip("/").split("/"):
+        exact = exact[part]
+    assert exact == descriptor
+    assert hashlib.sha256(canonical_json(exact).encode()).hexdigest() == entry["sha256"]
+    runs.unlink()
+    resumed = resume_selected_workspace(
+        operation_id=prepared.operation_id, db_path=app, workspace=workspace, now=NOW
+    )
+    assert resumed.selection_sha256 == digest
+    rebound = selection_binding(OperationService(app).get(prepared.operation_id).payload)
+    assert rebound.inputs.generation.inputs["financial"].descriptor == descriptor
+    assert yaml.safe_load((workspace / "domain-inputs.yaml").read_text()) == projection
