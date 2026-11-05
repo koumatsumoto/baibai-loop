@@ -1,0 +1,446 @@
+name: cloud-edinet-list-verify-resume-once
+
+# 本人承認済み移行の同plan検証再開。native head/body・正本・定期writer/flagsは変更しない。
+on:
+  push:
+    branches: [codex/issue1820-edinet-list-verify-resume-once]
+    paths: [.github/workflows/cloud-edinet-list-verify-resume-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-edinet-list-verify-resume-once' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: verify EDINET migration 42067961003 once' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    concurrency:
+      group: source-acquire-edinet
+      queue: max
+      cancel-in-progress: false
+    env:
+      BAIBAI_FINANCIAL_NATIVE: 'false'
+      BAIBAI_PRICE_NATIVE: 'false'
+      BAIBAI_MASTER_NATIVE: 'false'
+      BAIBAI_CALENDAR_NATIVE: 'false'
+      BAIBAI_EDINET_LIST_NATIVE: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed merged code as this run's exact base
+        env:
+          EXPECTED_CODE_SHA: f965a8f5c54d0512079199a9e2a495e61f12d815
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Verify adopted EDINET originals and compare cold reconstruction
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python - <<'PYCODE'
+          """停止runの固定EDINET原本だけを検証・再開する。既存原本と正本は削除しない。"""
+          
+          from __future__ import annotations
+          
+          import base64
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import sqlite3
+          import sys
+          import traceback
+          from datetime import UTC, datetime
+          from itertools import islice
+          from pathlib import Path
+          
+          from baibai_engine.data_collection.providers.edinet.facts_scope import read_scope
+          from baibai_engine.data_collection.providers.edinet.list_native import (
+              EdinetListL1,
+              FixedEdinetLists,
+          )
+          from baibai_engine.storage.json import write_json_atomic
+          from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
+          from baibai_engine.storage.snapshots.objects import open_lake
+          from baibai_engine.storage.snapshots.reader import iter_partition_rows, resolve_release
+          from baibai_engine.storage.snapshots.sources import sha256_file
+          from baibai_engine.storage.sqlite.source_cache.schema import (
+              open_connection,
+              validate_current_schema,
+          )
+          from baibai_jobs.acquisition.receipts import available_handoffs
+          from baibai_jobs.integration.edinet_list_native import materialize_lists
+          from baibai_jobs.integration.sources import canonical_generations
+          from baibai_jobs.maintenance import edinet_list_cutover as cutover
+          from baibai_jobs.maintenance.economic_cutover import _read
+          from baibai_jobs.publication import lease
+          
+          PINNED_KEYS = (
+              "market.sqlite",
+              "runs.sqlite",
+              "indicators.sqlite",
+              "machine-manifest.json",
+              "lake/pointers/market/current.json",
+          )
+          DATASETS = (cutover.EDINET_LIST_RESPONSES, cutover.EDINET_DOCUMENT_LISTS, cutover.EDINET_DOCUMENTS)
+          
+          
+          class NativeReads:
+              """診断済みheadの検証だけを行い、nativeへの全書込を拒否する。"""
+          
+              def __init__(self, store):
+                  self.store = store
+          
+              def head(self, key):
+                  return self.store.head(key)
+          
+              def get_bytes(self, key):
+                  return self.store.get_bytes(key)
+          
+              def put_file(self, key, path, **kwargs):
+                  raise ValueError("verification-only recovery cannot write a native body or head")
+          
+          
+          def preserve(store, directory, prefix, path, guard):
+              """小さい固定plan/結果のみ私有保全。原本は既存不変release/stageをそのまま保持する。"""
+              digest = sha256_file(path)
+              key = prefix + path.name + "-" + digest
+              if store.head(key) is None:
+                  guard()
+                  with path.open("rb") as stream:
+                      md5 = hashlib.file_digest(stream, lambda: hashlib.md5(usedforsecurity=False)).digest()
+                  with contextlib.suppress(LakePublishError):
+                      store.put_file(
+                          key,
+                          path,
+                          sha256=digest,
+                          content_md5=base64.b64encode(md5).decode(),
+                          content_type="application/octet-stream",
+                          if_none_match=True,
+                      )
+              check = directory / "private-readback"
+              _read(store, key, check)
+              if sha256_file(check) != digest:
+                  raise ValueError("private plan readback differs")
+              check.unlink()
+              return key
+          
+          
+          def compare_projection(session, directory, fixed):
+              """旧投影を持つ作業copyとcold copyを同じ固定原本から再生成し一致を確認する。"""
+              warm, cold = directory / "warm.sqlite", directory / "cold.sqlite"
+              shutil.copyfile(directory / "market50.sqlite", warm)
+              with contextlib.closing(open_connection(warm)) as conn, conn:
+                  scope = read_scope(conn)
+                  for dataset in DATASETS:
+                      paths = sorted((directory / "plan").glob(dataset.name + "-*.parquet"))
+                      columns = ",".join(column.name for column in dataset.columns)
+                      placeholders = ",".join("?" for _ in dataset.columns)
+                      conflict = "IGNORE" if dataset == cutover.EDINET_LIST_RESPONSES else "REPLACE"
+                      for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=None):
+                          conn.executemany(
+                              f"INSERT OR {conflict} INTO {dataset.sqlite_table} ({columns}) "
+                              f"VALUES ({placeholders})",
+                              batch,
+                          )
+              warm_report = materialize_lists(fixed, warm)
+              cold_report = materialize_lists(fixed, cold)
+              if warm_report != cold_report:
+                  raise ValueError("cold and warm native reconstruction differ")
+              with (
+                  contextlib.closing(sqlite3.connect(warm)) as w,
+                  contextlib.closing(sqlite3.connect(cold)) as c,
+              ):
+                  for table in ("edinet_list_responses", "edinet_document_lists", "edinet_documents"):
+                      query = f"SELECT * FROM {table} ORDER BY 1,2"
+                      if w.execute(query).fetchall() != c.execute(query).fetchall():
+                          raise ValueError("cold and warm EDINET rows differ")
+                  query = (
+                      "SELECT * FROM source_coverage WHERE source='edinet_documents' ORDER BY coverage_key"
+                  )
+                  if w.execute(query).fetchall() != c.execute(query).fetchall():
+                      raise ValueError("cold and warm EDINET coverage differ")
+                  if read_scope(w) != scope:
+                      raise ValueError("list reconstruction changed facts acquisition scope")
+              return {
+                  **cold_report,
+                  "cold_warm_equal": True,
+                  "facts_scope_unchanged": True,
+                  "legacy_projection_evidence_verified": True,
+              }
+          
+          
+          ORIGINAL_RUN = "42067961003"
+          ORIGINAL_PREFIX = "coordination/cutovers/edinet-list-native/" + ORIGINAL_RUN + "/"
+          
+          
+          def read_prior(store, directory):
+              """Read the original content-addressed state and plan, never reconstruct a boundary."""
+              names = ("state.json", "plan.json", "plan.sha256")
+              keys = {}
+              entries = list(islice(store.iter_objects(ORIGINAL_PREFIX), 65))
+              if len(entries) > 64:
+                  raise ValueError("original private evidence listing exceeds its fixed bound")
+              for key, size in entries:
+                  for name in names:
+                      if not key.startswith(ORIGINAL_PREFIX + name + "-"):
+                          continue
+                      digest = key[len(ORIGINAL_PREFIX + name + "-") :]
+                      limit = 64 * 1024 * 1024 if name == "plan.json" else 1024 * 1024
+                      if name in keys or re.fullmatch(r"[0-9a-f]{64}", digest) is None or size > limit:
+                          raise ValueError("original private evidence is ambiguous or invalid")
+                      path = directory / ("original-" + name)
+                      meta = _read(store, key, path)
+                      if meta.size != size or sha256_file(path) != digest:
+                          raise ValueError("original private evidence changed")
+                      keys[name] = key
+              if set(keys) != set(names):
+                  raise ValueError("original private state or fixed plan is missing")
+              state = json.loads((directory / "original-state.json").read_bytes())
+              plan = json.loads((directory / "original-plan.json").read_bytes())
+              digest = sha256_file(directory / "original-plan.json")
+              if (directory / "original-plan.sha256").read_text().strip() != digest:
+                  raise ValueError("original fixed plan digest differs")
+              if (
+                  state.get("format") != "edinet-list-cutover-once-v1"
+                  or set(state.get("base_etags", {})) != set(PINNED_KEYS)
+                  or any(not isinstance(value, str) or not value for value in state["base_etags"].values())
+                  or plan.get("format") != cutover.FORMAT
+                  or plan.get("blocked") != []
+                  or plan.get("missing_raw_days") != []
+                  or not isinstance(plan.get("handoffs"), list)
+                  or plan.get("known_at") != state.get("known_at")
+                  or plan.get("release_id") != state.get("generations", {}).get("lake_release_id")
+                  or plan.get("manifest_sha256") != state.get("generations", {}).get("lake_manifest_sha256")
+              ):
+                  raise ValueError("original fixed state and plan disagree or are unresolved")
+              boundary = datetime.fromisoformat(state["known_at"])
+              if boundary.utcoffset() != UTC.utcoffset(boundary):
+                  raise ValueError("original migration boundary is not UTC")
+              # Validate expected UUID/date/time/hash metadata before any lease or native write.
+              receipt_map(plan["receipts"])
+              return state, plan, keys
+          
+          
+          def receipt_map(items):
+              fields = ("receipt_id", "doc_date", "received_at_utc", "sha256")
+              fixed = FixedEdinetLists(
+                  None,
+                  {
+                      "format": "edinet-list-native-v1",
+                      "receipts": [{key: item[key] for key in fields} for item in items],
+                  },
+              )
+              return {item["receipt_id"]: item for item in fixed.value()["receipts"]}
+          
+          
+          def execute(store, directory, prefix, *, prepare=cutover.prepare_migration, emit=lambda **_: None):
+              directory.mkdir(parents=True, exist_ok=False)
+              if prefix == ORIGINAL_PREFIX or not prefix.startswith(
+                  "coordination/cutovers/edinet-list-native/"
+              ):
+                  raise ValueError("resume must preserve its evidence under a new private run prefix")
+              state, original_plan, original_keys = read_prior(store, directory)
+              expected = receipt_map(original_plan["receipts"])
+              native = NativeReads(store)
+              initial = EdinetListL1(native, directory / "initial").freeze()
+              if receipt_map(initial.value()["receipts"]) != expected:
+                  raise ValueError("native head no longer equals the fully adopted original plan")
+              # Validate current peers against the ORIGINAL boundary before acquiring a fresh lease.
+              downloaded = _read(store, "market.sqlite", directory / "market50.sqlite")
+              with contextlib.closing(
+                  sqlite3.connect((directory / "market50.sqlite").as_uri() + "?mode=ro", uri=True)
+              ) as conn:
+                  validate_current_schema(conn)
+              generations = canonical_generations(store)
+              base = {key: store.head(key) for key in PINNED_KEYS}
+              if (
+                  generations != state["generations"]
+                  or any(meta is None or meta.etag != state["base_etags"][key] for key, meta in base.items())
+                  or base["market.sqlite"].etag != downloaded.etag
+                  or canonical_generations(store) != generations
+              ):
+                  raise ValueError("canonical state differs from the original fixed migration boundary")
+              if any(
+                  os.environ.get("BAIBAI_" + name + "_NATIVE", "false") != "false"
+                  for name in ("FINANCIAL", "PRICE", "MASTER", "CALENDAR", "EDINET_LIST")
+              ):
+                  raise ValueError("finite migration must precede the shared native-mode switch")
+              # Never release a reconstructed old handle or change the lease TTL.
+              handle, _ = lease.acquire(store, "operator")
+              report = {"migration_completed": False, "lease_released": False, "resumed_original_run": True}
+              phase = "reprepare"
+              expected_handoffs = original_plan["handoffs"]
+          
+              def private_guard():
+                  lease.verify_held(store, handle)
+          
+              def guard(check_peers=True):
+                  lease.verify_held(store, handle)
+                  if check_peers and any(
+                      (current := store.head(key)) is None or current.etag != meta.etag
+                      for key, meta in base.items()
+                  ):
+                      raise ValueError("canonical state changed during EDINET migration resume")
+                  if check_peers:
+                      current_handoffs = [
+                          entry
+                          for source in cutover.SOURCES
+                          for entry in available_handoffs(store, source=source, include_integrated=True)
+                      ]
+                      if current_handoffs != expected_handoffs:
+                          raise ValueError("EDINET handoffs changed after the original fixed boundary")
+          
+              def save(name, value):
+                  path = directory / name
+                  write_json_atomic(path, value)
+                  return preserve(store, directory, prefix, path, private_guard)
+          
+              try:
+                  guard()
+                  boundary = datetime.fromisoformat(state["known_at"])
+                  save(
+                      "resume.json",
+                      {
+                          "format": "edinet-list-cutover-resume-v1",
+                          "original_run": ORIGINAL_RUN,
+                          "original_evidence": original_keys,
+                          "known_at": state["known_at"],
+                          "generations": generations,
+                          "base_etags": state["base_etags"],
+                      },
+                  )
+                  with open_lake(mirror=directory / "mirror", bucket="baibai-stores") as (session, cache):
+                      release = resolve_release(
+                          cache.source,
+                          generations["lake_release_id"],
+                          manifest_sha256=generations["lake_manifest_sha256"],
+                      )
+                      prepare(
+                          session,
+                          release=release,
+                          cache=cache,
+                          store=store,
+                          known_at=boundary,
+                          directory=directory / "plan",
+                      )
+                      for name in ("plan.json", "plan.sha256"):
+                          if (directory / "plan" / name).read_bytes() != (
+                              directory / ("original-" + name)
+                          ).read_bytes():
+                              raise ValueError(
+                                  "reprepared plan is not byte-identical to the original fixed plan"
+                              )
+                      # Full source/input hashes and actual gzip validation remain mandatory.
+                      cutover._prepared(directory / "plan")
+                      guard()
+                      for name in ("plan.json", "plan.sha256"):
+                          preserve(store, directory, prefix, directory / "plan" / name, private_guard)
+                      emit(phase=phase, same_fixed_plan_verified=True, fixed_originals_complete=True)
+                      # Diagnosis proved head adoption. This run never applies or repairs it.
+                      phase = "verify_compare"
+                      if EdinetListL1(native, directory / "rechecked").freeze().identity != initial.identity:
+                          raise ValueError("native head changed while preparing verification")
+                      report["apply_skipped"] = True
+                      emit(phase="head_already_complete", apply_skipped=True)
+                      # A fresh owner reads every body even when metadata already matches.
+                      fresh = EdinetListL1(native, directory / "fresh")
+                      cutover.verify_migration(fresh, directory=directory / "plan")
+                      fixed = fresh.freeze()
+                      if receipt_map(fixed.value()["receipts"]) != expected:
+                          raise ValueError("native head changed after full original verification")
+                      comparison = compare_projection(session, directory, fixed)
+                      save("comparison.json", comparison)
+                      guard()
+                      if fresh.freeze().identity != fixed.identity:
+                          raise ValueError("native head changed during cold and warm comparison")
+                      report.update(
+                          migration_completed=True,
+                          same_fixed_plan_verified=True,
+                          native_readback_verified=True,
+                          cold_warm_equal=True,
+                          legacy_projection_evidence_verified=True,
+                          facts_scope_unchanged=True,
+                          canonical_unchanged=True,
+                          legacy_release_stage_preserved=True,
+                          projection_failures_present=bool(comparison["failed_days"]),
+                          shared_flags_unchanged=True,
+                      )
+                      # As in the reviewed original, this precedes release. Terminal JSON is
+                      # the release result; this private record alone never proves release.
+                      save("completed.json", report)
+              except Exception as error:
+                  report.update(
+                      migration_completed=False, failed_phase=phase, error_type=type(error).__name__
+                  )
+                  error_path = directory / "error-private.txt"
+                  error_path.write_text(traceback.format_exc())
+                  with contextlib.suppress(Exception):
+                      preserve(store, directory, prefix, error_path, private_guard)
+              finally:
+                  try:
+                      lease.release(store, handle)
+                      report["lease_released"] = True
+                  except Exception as error:
+                      report["lease_release_error_type"] = type(error).__name__
+              return report
+          
+          
+          def main():
+              run_id = os.environ.get("GITHUB_RUN_ID", "")
+              if not run_id.isdigit() or os.environ.get("GITHUB_RUN_ATTEMPT") != "1":
+                  print(json.dumps({"phase": "refused", "refused": True}))
+                  return 1
+              public = sys.stdout
+          
+              def emit(**value):
+                  print(json.dumps(value, sort_keys=True), file=public, flush=True)
+          
+              store = Boto3R2Store(bucket="baibai-stores")
+              try:
+                  with (
+                      Path("/tmp/edinet-resume-private.log").open("w") as private,
+                      contextlib.redirect_stdout(private),
+                      contextlib.redirect_stderr(private),
+                  ):
+                      report = execute(
+                          store,
+                          Path("/tmp/baibai-edinet-list-resume"),
+                          f"coordination/cutovers/edinet-list-native/{run_id}/",
+                          emit=emit,
+                      )
+              except Exception as error:
+                  report = {"migration_completed": False, "error_type": type(error).__name__}
+              finally:
+                  store.close()
+              emit(
+                  phase=report.get(
+                      "failed_phase", "completed" if report.get("migration_completed") else "failed"
+                  ),
+                  **{key: value for key, value in report.items() if type(value) is bool},
+              )
+              return 0 if report.get("migration_completed") and report.get("lease_released") else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PYCODE
