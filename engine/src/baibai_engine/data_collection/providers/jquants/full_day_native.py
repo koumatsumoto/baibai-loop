@@ -1,8 +1,8 @@
 """Unfiltered full-day J-Quants receipt persistence, independent of L2.
 
-Financial summaries, daily bars, master snapshots and margin sources share this
-unfiltered explicit-date persistence boundary. Acquisition and projection rules
-stay with each source. Interval calendars use another storage contract.
+Financial summaries, daily bars, master snapshots, margin sources and short-sale
+reports share this unfiltered explicit-date persistence boundary. Acquisition and
+projection rules stay with each source. Interval calendars use another storage contract.
 """
 
 from __future__ import annotations
@@ -38,11 +38,17 @@ from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 @dataclass(frozen=True, slots=True)
 class FullDayContract:
     source: Literal[
-        "financial_summaries", "daily_bars", "master", "margin_alerts", "margin_interest"
+        "financial_summaries",
+        "daily_bars",
+        "master",
+        "margin_alerts",
+        "short_sale_reports",
+        "margin_interest",
     ]
     prefix: str
     format: str
     query_date_format: str = "%Y%m%d"
+    query_date_key: Literal["date", "disc_date"] = "date"
 
     @property
     def head_key(self) -> str:
@@ -50,9 +56,9 @@ class FullDayContract:
 
 
 def _day(request: JQuantsRequest, contract: FullDayContract) -> str:
-    if request.source != contract.source or set(request.params) != {"date"}:
+    if request.source != contract.source or set(request.params) != {contract.query_date_key}:
         raise ValueError("full-day native L1 requires an unfiltered explicit source day")
-    return date.fromisoformat(request.params["date"]).isoformat()
+    return date.fromisoformat(request.params[contract.query_date_key]).isoformat()
 
 
 def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> str:
@@ -77,7 +83,14 @@ def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> s
 @dataclass(frozen=True, slots=True)
 class FullDayAttempt:
     source: ClassVar[
-        Literal["financial_summaries", "daily_bars", "master", "margin_alerts", "margin_interest"]
+        Literal[
+            "financial_summaries",
+            "daily_bars",
+            "master",
+            "margin_alerts",
+            "short_sale_reports",
+            "margin_interest",
+        ]
     ]
 
     request_id: str
@@ -239,7 +252,7 @@ def read_full_day_requests(
                 identity,
                 request,
                 None if request else item.failure or "incomplete request",
-                {"date": item.day.isoformat()},
+                {contract.query_date_key: item.day.isoformat()},
                 item.order_time,
             )
         if found != identities:
@@ -251,7 +264,7 @@ def read_full_day_requests(
                 identity,
                 None,
                 "ambiguous receipt order",
-                {"date": day.isoformat()},
+                {contract.query_date_key: day.isoformat()},
                 datetime.fromisoformat(scope["last_attempt_at"]),
             )
 
@@ -266,6 +279,7 @@ def verify_migrated_full_day_receipts(
     fingerprints: Mapping[str, str],
     *,
     attempt_type: type[FullDayAttempt],
+    query_date_key: Literal["date", "disc_date"] = "date",
 ) -> set[str]:
     """Skip a legacy request only when the finite cutover retained these exact pages."""
     source = attempt_type.source
@@ -293,9 +307,9 @@ def verify_migrated_full_day_receipts(
         except (OSError, EOFError, zlib.error) as error:
             raise ValueError(f"legacy {source} page cannot be decoded") from error
         query = dict(pages[0].query)
-        if set(query) != {"date"}:
+        if set(query) != {query_date_key}:
             raise ValueError(f"legacy {source} does not have an unfiltered explicit date")
-        attempt = attempt_type(identity, date.fromisoformat(query["date"]), None, pages)
+        attempt = attempt_type(identity, date.fromisoformat(query[query_date_key]), None, pages)
         if fingerprints.get(identity) != _digest(_json(attempt.value())):
             raise ValueError(f"legacy {source} is absent from or differs from the native cutover")
         migrated.add(identity)

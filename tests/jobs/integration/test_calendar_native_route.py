@@ -148,9 +148,9 @@ def test_final_calendar_quota_halts_price_master_and_remaining_market_gets(tmp_p
 
 
 @pytest.mark.parametrize("value", ["TRUE", "1", "yes", " true"])
-def test_flag_is_strict_and_default_false(monkeypatch, value):
+def test_flag_is_strict_and_default_native(monkeypatch, value):
     monkeypatch.delenv("BAIBAI_CALENDAR_NATIVE", raising=False)
-    assert not calendar_native_enabled()
+    assert calendar_native_enabled()
     monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", value)
     with pytest.raises(ValueError, match="true or false"):
         calendar_native_enabled()
