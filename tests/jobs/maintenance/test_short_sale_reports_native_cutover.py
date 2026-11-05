@@ -1,6 +1,7 @@
 """Finite legacy migration keeps real originals and blocks unknown scope/time."""
 
 import gzip
+import hashlib
 import json
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.jquants_receipts import body, receive
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.short_sale_reports_native import records
 
@@ -17,8 +19,18 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     ShortSaleReportsAttempt,
     ShortSaleReportsL1,
 )
+from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.snapshots.duck import lake_session
+from baibai_engine.storage.snapshots.keys import release_manifest_key
+from baibai_engine.storage.snapshots.models import (
+    ReleaseDataset,
+    ReleaseManifest,
+    canonical_lake_model_bytes,
+)
+from baibai_engine.storage.snapshots.objects import open_lake
+from baibai_engine.storage.snapshots.reader import resolve_release
+from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.maintenance import short_sale_reports_native_cutover as cutover
 
@@ -50,7 +62,9 @@ def prepare(tmp_path, monkeypatch, rows, *, stage_rows=(), entries=None, report=
         pa.Table.from_arrays([pa.array(column) for column in zip(*rows, strict=True)], names=names),
         source,
     )
-    monkeypatch.setattr(cutover, "fixed_receipt_paths", lambda **_: (source,))
+    monkeypatch.setattr(cutover, "accepted_dataset", lambda *a: JQUANTS_SOURCE_PAGES)
+    monkeypatch.setattr(cutover, "selected_partitions", lambda *a: ())
+    monkeypatch.setattr(cutover, "materialize_partitions", lambda *a, **kw: (source,))
     store = MemoryR2Store()
     if stage_rows or report is not None:
         packet = tmp_path / "packet"
@@ -268,3 +282,69 @@ def test_prepared_future_stage_does_not_write_native_target(tmp_path, monkeypatc
     with pytest.raises(ValueError, match="unresolved"):
         cutover.apply_migration(owner, directory=tmp_path / "plan")
     assert store.values == before
+
+
+@pytest.mark.parametrize(
+    "future",
+    [
+        datetime(2026, 11, 7, tzinfo=UTC),
+        datetime(2026, 12, 1, tzinfo=UTC),
+        datetime(2027, 1, 1, tzinfo=UTC),
+    ],
+)
+def test_future_receipt_blocks_migration_across_month_partitions(tmp_path, future):
+    db, mirror = tmp_path / "legacy.sqlite", tmp_path / "mirror"
+    for received in (AT, future):
+        day = received.date() - timedelta(days=1)
+        receive(
+            db, "short_sale_reports", {"disc_date": day.isoformat()}, body(records(day)), received
+        )
+    with sealed_sqlite_snapshot(sqlite_path=db, mirror_root=mirror) as snapshot:
+        report = export_dataset_snapshot(
+            dataset=JQUANTS_SOURCE_PAGES,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            source_snapshot=snapshot,
+            build_id="originals",
+            created_at=future,
+        )
+    dataset = report.manifest
+    release = ReleaseManifest(
+        manifest_version=2,
+        release_id="synthetic",
+        profile="production",
+        created_at=future,
+        data_as_of=dataset.data_as_of,
+        datasets={
+            dataset.dataset: ReleaseDataset(
+                build_id=dataset.build_id,
+                layer=dataset.layer,
+                contract_version=dataset.contract_version,
+                manifest_sha256=hashlib.sha256(report.manifest_path.read_bytes()).hexdigest(),
+                data_as_of=dataset.data_as_of,
+                coverage_status=dataset.coverage_status,
+                totals=dataset.totals,
+            )
+        },
+    )
+    payload = canonical_lake_model_bytes(release)
+    path = mirror / release_manifest_key(release_id=release.release_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    store = MemoryR2Store()
+    with open_lake(mirror=mirror) as (session, cache):
+        fixed = resolve_release(
+            cache.source, release.release_id, manifest_sha256=hashlib.sha256(payload).hexdigest()
+        )
+        plan = cutover.prepare_migration(
+            session,
+            release=fixed,
+            cache=cache,
+            store=store,
+            known_at=AT + timedelta(days=2),
+            directory=tmp_path / "plan",
+        )
+    assert len(plan["attempts"]) == 1
+    assert len(plan["blocked"]) == 1
+    assert plan["blocked"][0]["reason"] == "receipt is later than the fixed migration boundary"
+    assert not store.put_keys
