@@ -71,6 +71,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     advance_lake_store_origin,
 )
 from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.calendar_native import model_input as native_calendar_model_input
 from baibai_jobs.integration.master_native import model_input as native_master_model_input
@@ -151,6 +152,7 @@ def prepare_market_lake(
     as_of: date | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
+    native_lists = edinet_list_native_enabled()
     native_financial = financial_native_enabled()
     native_price = price_native_enabled()
     native_master = master_native_enabled()
@@ -209,6 +211,7 @@ def prepare_market_lake(
             and not (native_price and name == "jquants.daily_bars")
             and not (native_master and name == "jquants.master_snapshots")
             and not (native_calendar and name == "jquants.market_calendar")
+            and not (native_lists and name == "edinet.list_responses")
         }
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
@@ -234,6 +237,7 @@ def prepare_market_lake(
             for name, item in LAKE_DATASETS.items()
             if name not in derived_names
             and not (native_financial and name == "jquants.fin_summaries")
+            and not (native_lists and name == "edinet.list_responses")
         }
         git_commit = lake_verified_git_commit()
         export = export_market_snapshot(

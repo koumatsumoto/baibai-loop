@@ -44,6 +44,7 @@ from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
@@ -76,6 +77,8 @@ def apply(
         raise ValueError("master cutover mode differs from the fixed integration plan")
     if bool(plan.get("calendar_native", False)) != calendar_native_enabled():
         raise ValueError("calendar cutover mode differs from the fixed integration plan")
+    if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
+        raise ValueError("EDINET list mode differs from the fixed integration plan")
     calendar_input = None
     calendar_fingerprints = None
     if calendar_native_enabled():
@@ -112,6 +115,12 @@ def apply(
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
+    native_lists = None
+    if edinet_list_native_enabled():
+        from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
+        from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+        native_lists = materialize_lists(FixedEdinetLists(store, plan["edinet_list_head"]), market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
@@ -194,6 +203,8 @@ def apply(
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
     extractions = extract_saved_edinet(market, asof=asof)
+    if native_lists is not None:
+        extractions["native_lists"] = native_lists
     for outcome in outcomes:
         if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
             outcome["article_delta"] = capture_delta(
@@ -322,6 +333,11 @@ def main(argv: list[str] | None = None) -> int:
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
+            edinet_head = None
+            if edinet_list_native_enabled():
+                from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+
+                edinet_head = EdinetListL1(store, directory / "edinet-native").freeze().value()
             write_json_atomic(
                 directory / "plan.json",
                 {
@@ -332,10 +348,18 @@ def main(argv: list[str] | None = None) -> int:
                             *pending_handoffs(store),
                         ]
                         if not (
-                            financial_native_enabled()
-                            and entry.get("source") == "jquants-financial"
+                            (
+                                financial_native_enabled()
+                                and entry.get("source") == "jquants-financial"
+                            )
+                            or (
+                                edinet_list_native_enabled()
+                                and entry.get("source") == "edinet-list"
+                            )
                         )
                     ],
+                    "edinet_list_native": edinet_list_native_enabled(),
+                    "edinet_list_head": edinet_head,
                     "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
@@ -374,7 +398,15 @@ def main(argv: list[str] | None = None) -> int:
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
                 input_report: dict[str, Any] = {"updated": [], "failed": []}
-                groups = SOURCE_INPUT_GROUPS if args.group is None else (args.group,)
+                groups = (
+                    tuple(
+                        group
+                        for group in SOURCE_INPUT_GROUPS
+                        if not (edinet_list_native_enabled() and group == "edinet-list")
+                    )
+                    if args.group is None
+                    else (args.group,)
+                )
                 for group in groups:
                     if group in ARTICLE_SOURCES:
                         continue

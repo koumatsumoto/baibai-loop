@@ -21,6 +21,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     open_connection,
     validate_current_schema,
 )
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.integration.replay_result import ReplayResult
 
 
@@ -38,12 +39,16 @@ def export_handoff(
     ):
         validate_current_schema(raw)
         raw.execute("BEGIN")
-        lists = tuple(
-            row[0]
-            for row in raw.execute(
-                "SELECT receipt_id FROM edinet_list_responses WHERE received_at_utc >= ? "
-                "ORDER BY received_at_utc, receipt_id",
-                (since.astimezone(UTC).isoformat(timespec="microseconds"),),
+        lists = (
+            ()
+            if edinet_list_native_enabled()
+            else tuple(
+                row[0]
+                for row in raw.execute(
+                    "SELECT receipt_id FROM edinet_list_responses WHERE received_at_utc >= ? "
+                    "ORDER BY received_at_utc, receipt_id",
+                    (since.astimezone(UTC).isoformat(timespec="microseconds"),),
+                )
             )
         )
         copy_originals(
@@ -65,6 +70,16 @@ def import_handoff(source: Path, target: Path) -> ReplayResult:
             date.fromisoformat(row[0])
             for row in raw.execute("SELECT DISTINCT doc_date FROM edinet_list_responses")
         }
+        native_lists = edinet_list_native_enabled()
+        if native_lists:
+            for row in raw.execute("SELECT * FROM edinet_list_responses"):
+                prior = conn.execute(
+                    "SELECT * FROM edinet_list_responses WHERE receipt_id = ?", (row[0],)
+                ).fetchone()
+                if prior is None or tuple(prior) != tuple(row):
+                    raise ValueError("legacy stage list receipt is absent from fixed native head")
+            days.clear()
+            lists.clear()
         conflicts = []
         with conn:
             merge_scope(conn, read_scope(raw))

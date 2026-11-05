@@ -6,11 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
-from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
-from baibai_engine.machine_analysis.observations.disclosures.edinet_list_projection import (
+from baibai_engine.data_collection.providers.edinet.list_projection import (
     document_list_rechecked_asof,
     project_document_list,
 )
+from baibai_engine.data_collection.providers.edinet.receipts import EdinetListReceipt
 
 _DAY = date(2026, 10, 15)
 _START = datetime(2026, 10, 15, 0, 0, tzinfo=UTC)

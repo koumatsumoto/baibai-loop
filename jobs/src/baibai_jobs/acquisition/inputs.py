@@ -21,6 +21,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema,
 )
 from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
@@ -55,6 +56,8 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         tables = tuple(table for table in tables if table != "jquants_master_snapshots")
     if group == "tradingview" and calendar_native_enabled():
         tables = tuple(table for table in tables if table != "jquants_market_calendar")
+    if edinet_list_native_enabled() and group.startswith("edinet-"):
+        tables = tuple(table for table in tables if table not in _LISTS)
     if output.exists():
         raise FileExistsError(output)
     with (

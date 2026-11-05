@@ -71,6 +71,13 @@ class EDINETRefresh:
         *,
         force_refresh: bool = False,
     ) -> list[dict[str, Any]]:
+        from baibai_jobs.edinet_cutover import edinet_list_native_enabled
+
+        if edinet_list_native_enabled():
+            raise EdinetAcquisitionError(
+                "EDINET list writer moved to edinet-list-native; "
+                "acquire there before metric refresh or saved extraction"
+            )
         sqlite_path = self._sqlite_path
         if not force_refresh and sqlite_path.exists():
             connection = connect_current(sqlite_path)

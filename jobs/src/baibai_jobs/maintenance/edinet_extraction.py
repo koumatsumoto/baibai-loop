@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sqlite3
 import sys
 from collections import Counter
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
@@ -29,6 +32,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
     prepare_edinet_metric_plan,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_jobs.acquisition.edinet_archives import metric_archive_candidates
 from baibai_jobs.acquisition.edinet_fact_plan import (
@@ -36,6 +40,7 @@ from baibai_jobs.acquisition.edinet_fact_plan import (
     needs_archive,
     prepare_fact_acquisition,
 )
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 
 
 class EdinetMetricAcquisition(Protocol):
@@ -55,14 +60,26 @@ def refresh_edinet_metrics_command(
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     try:
-        cursor = asof_date - timedelta(days=lookback_days)
-        while cursor <= asof_date:
-            acquisition.list_documents(cursor)
-            cursor += timedelta(days=1)
+        if edinet_list_native_enabled():
+            from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+            from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                fixed = EdinetListL1(store, sqlite_path.parent / "edinet-list-read").freeze()
+                result = materialize_lists(fixed, sqlite_path)
+                print(json.dumps({"native_list_input": result}, sort_keys=True), file=out)
+        else:
+            cursor = asof_date - timedelta(days=lookback_days)
+            while cursor <= asof_date:
+                acquisition.list_documents(cursor)
+                cursor += timedelta(days=1)
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
         SQLiteSchemaError,
+        LakePublishError,
         sqlite3.Error,
         OSError,
         ValueError,

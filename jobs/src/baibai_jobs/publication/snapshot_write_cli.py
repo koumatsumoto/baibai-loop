@@ -6,8 +6,10 @@ import argparse
 import json
 import sys
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.hydrate import (
     LakeHydrateError,
     dehydrate_market_store,
@@ -33,6 +35,7 @@ from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.storage.snapshots.writer import export_market_store
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -194,12 +197,27 @@ def _resolve_release_target(
     ), still_current
 
 
+def _clear_independent_list_cache(args: argparse.Namespace, release: FixedRelease) -> None:
+    if not edinet_list_native_enabled() or "edinet.list_responses" in release.dataset_names():
+        return
+    from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+    from baibai_engine.storage.objects.r2 import Boto3R2Store
+    from baibai_jobs.integration.edinet_list_native import clear_verified_receipt_cache
+
+    if args.bucket is None:
+        raise ValueError("native EDINET receipt cache verification requires --bucket")
+    with closing(Boto3R2Store(bucket=args.bucket)) as store:
+        fixed = EdinetListL1(store, args.mirror / "edinet-native").freeze()
+        clear_verified_receipt_cache(fixed, args.store)
+
+
 def _hydrate(args: argparse.Namespace) -> int:
     """Resolve one release, then fill the market store's lake-owned tables from it."""
 
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (session, cache):
             release, still_current = _resolve_release_target(args, cache.source)
+            _clear_independent_list_cache(args, release)
             dataset_names = release.dataset_names()
             with prefetching_hydration_cache(
                 cache,
@@ -220,6 +238,7 @@ def _hydrate(args: argparse.Namespace) -> int:
         LakeCredentialError,
         LakeHydrateError,
         LakeObjectError,
+        LakePublishError,
         LakeReadError,
         OSError,
         ValueError,
@@ -236,6 +255,7 @@ def _dehydrate(args: argparse.Namespace) -> int:
     try:
         with open_lake(mirror=args.mirror, bucket=args.bucket) as (_, cache):
             release, still_current = _resolve_release_target(args, cache.source)
+            _clear_independent_list_cache(args, release)
             report = dehydrate_market_store(
                 args.store, release=release, still_current=still_current, catalog=LAKE_DATASETS
             )
@@ -243,6 +263,7 @@ def _dehydrate(args: argparse.Namespace) -> int:
         LakeCredentialError,
         LakeHydrateError,
         LakeObjectError,
+        LakePublishError,
         LakeReadError,
         OSError,
         ValueError,

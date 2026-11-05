@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.workflow_schedule import declared_schedule
 
 PATH = Path(__file__).resolve().parents[3] / ".github/workflows/cloud-tradingview-snapshot.yml"
 
@@ -24,7 +25,7 @@ def workflow():
 
 def test_metadata_order_and_exclusive_writer():
     data = workflow()
-    assert [item["cron"] for item in data["on"]["schedule"]] == [
+    assert [item["cron"] for item in declared_schedule(PATH.read_text())] == [
         "37 6,8,10,12,14 * * 1-5",
         "37 0,4,8 * * 0,6",
     ]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
@@ -10,6 +9,12 @@ from typing import Any
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.data_collection.providers.edinet.fields import (
+    parse_doc_id as _parse_doc_id,
+)
+from baibai_engine.data_collection.providers.edinet.fields import (
+    validate_document_statuses as _validate_native_statuses,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     coalesce_field,
     parse_sec_code,
@@ -19,7 +24,20 @@ from baibai_engine.machine_analysis.observations.financials.edinet_decode import
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
-_DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
+
+
+def parse_doc_id(value: object) -> str:
+    try:
+        return _parse_doc_id(value)
+    except ValueError as error:
+        raise EDINETProviderError(str(error)) from error
+
+
+def _validate_document_statuses(document: Mapping[str, Any]) -> None:
+    try:
+        _validate_native_statuses(document)
+    except ValueError as error:
+        raise EDINETProviderError(str(error)) from error
 
 
 @dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
@@ -31,13 +49,6 @@ class QuarantinedDocumentEvent:
     event_type: str
     document_type: str | None = None
     ticker: str | None = None
-
-
-def parse_doc_id(value: object) -> str:
-    raw = str(value or "").strip()
-    if not raw.isascii() or not _DOC_ID_RE.fullmatch(raw.upper()):
-        raise EDINETProviderError(f"invalid EDINET docID: {safe_error_value(value)}")
-    return raw.upper()
 
 
 def _canonicalize_document_events(
@@ -248,28 +259,6 @@ def _tombstone_document_tree(
             origin["legalStatus"] = "0"
         pending.extend(children.get(doc_id, ()))
     return seen
-
-
-def _validate_document_statuses(document: Mapping[str, Any]) -> None:
-    allowed = {
-        "legal": {None, "0", "1", "2"},
-        "withdrawal": {None, "0", "1", "2"},
-        "edit": {None, "0", "1", "2"},
-        "disclosure": {None, "0", "1", "2", "3"},
-    }
-    values = {
-        "legal": text_or_none(coalesce_field(document, "legalStatus", "legal_status")),
-        "withdrawal": text_or_none(
-            coalesce_field(document, "withdrawalStatus", "withdrawal_status")
-        ),
-        "edit": text_or_none(coalesce_field(document, "docInfoEditStatus", "doc_info_edit_status")),
-        "disclosure": text_or_none(
-            coalesce_field(document, "disclosureStatus", "disclosure_status")
-        ),
-    }
-    for name, value in values.items():
-        if value not in allowed[name]:
-            raise EDINETProviderError(f"unknown EDINET {name} status: {value!r}")
 
 
 def _document_event_sort_key(document: Mapping[str, Any]) -> tuple[str, str, int]:

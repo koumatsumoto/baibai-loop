@@ -2,10 +2,11 @@ name: cloud-market-sources
 run-name: "market-acquisition ${{ github.event.schedule == '43 7 * * *' && 'inputs' || github.event.schedule == '43 8 * * *' && 'edinet-metrics' || github.event.schedule == '13 9 * * *' && 'edinet-facts' || inputs.source || 'all' }} ${{ inputs.asof || '' }}"
 
 on:
-  schedule:
-    - cron: "43 7 * * *"
-    - cron: "43 8 * * *"
-    - cron: "13 9 * * *"
+  # #1820 本番切替中は定期起動を停止。再開時は下の元scheduleを復元する。
+  # schedule:
+  #   - cron: "43 7 * * *"
+  #   - cron: "43 8 * * *"
+  #   - cron: "13 9 * * *"
   workflow_dispatch:
     inputs:
       source:

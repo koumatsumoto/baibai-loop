@@ -7,6 +7,15 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
+from baibai_engine.data_collection.providers.edinet.fields import (
+    coalesce_field as coalesce_field,
+)
+from baibai_engine.data_collection.providers.edinet.fields import (
+    safe_error_value as safe_error_value,
+)
+from baibai_engine.data_collection.providers.edinet.fields import (
+    text_or_none as text_or_none,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
     EDINETProviderError,
@@ -75,30 +84,6 @@ def parse_sec_code(sec_code: Any) -> str:
         return normalize_ticker(raw)
     except ValueError as exc:
         raise EDINETProviderError(f"invalid EDINET secCode: {safe_error_value(sec_code)}") from exc
-
-
-def safe_error_value(value: object, *, max_length: int = 80) -> str:
-    text = str(value)
-    sanitized = "".join(
-        char if char.isprintable() and char not in "\r\n\t" else "?" for char in text
-    )
-    if len(sanitized) > max_length:
-        sanitized = sanitized[:max_length] + "..."
-    return repr(sanitized)
-
-
-def coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
-    """Return first key with a non-None/non-empty value, preserving legitimate zeros."""
-    for key in keys:
-        if key in record and record[key] not in (None, ""):
-            return record[key]
-    return None
-
-
-def text_or_none(value: Any) -> str | None:
-    if value in (None, ""):
-        return None
-    return str(value)
 
 
 def _parse_optional_ttm_quality(value: Any) -> TTMQuality | None:

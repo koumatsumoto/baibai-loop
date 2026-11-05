@@ -123,3 +123,5 @@ module名・CLI名と保存identityは別の契約である。既存のobject ke
 原本bytes・受領日時・source identity、nullと0、既知の不足を保持する。規則の意味変更は新revisionとし、配置変更だけで意味revisionを更新しない。過去計算の再現には当時のコードと入力も必要であり、古い実装を現行経路へ復活させない。
 
 取得・発行・復旧と明示的なローカル運用は[OPERATIONS](../jobs/OPERATIONS.md)、開発環境と検証は[development](development.md)、文書の統合・削減は[文書ルール](documentation.md)に従う。
+
+EDINET一覧は`BAIBAI_EDINET_LIST_NATIVE`切替後、実受領UUID/時刻とexact gzipを独立head・不変objectで保持する。通常GETと原本CAS公開にmarket L2/input/共通公開の成功を必要とせず、日次統合だけが固定headの全受領から一覧/文書を再構築する。同値bodyの共有と受領イベントの保持を分け、訂正・取消・遅着・同時刻曖昧さをsourceの純粋な解釈規則で扱う。旧normalized行や不足原本から受領を捏造しない。原本不足inventoryを解消してから全履歴・全EDINET stageを有限移行し、旧一覧writerを停止する。CSV/XBRL・facts scopeの独立公開とL3 lineageは残件である。[切替・中断回復](../jobs/OPERATIONS.md#edinet-list-native-l1)を参照。

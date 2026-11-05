@@ -18,6 +18,8 @@ _COMMANDS = {
     "screening-selection": "baibai_jobs.integration.screening_selection",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
+    "edinet-list-native": "baibai_jobs.maintenance.edinet_list_native",
+    "edinet-list-cutover": "baibai_jobs.maintenance.edinet_list_cutover",
     "jquants-financial-native": "baibai_jobs.acquisition.jquants_financial_native",
     "rebuild-calendar-native": "baibai_jobs.integration.calendar_native",
     "calendar-native-cutover": "baibai_jobs.maintenance.calendar_native_cutover",

@@ -68,7 +68,7 @@ metricsのlookbackは取得coverageと抽出候補の範囲であり、archive�
 
 通常`edinet-metrics`のCSV取得計画は、保存一覧の540日前〜asof（両端込み）の充足、nativeの訂正/取消・ticker選択とarchiveのdocID/typeだけを使う。L2 metricの成功・失敗・revision・破損でGET対象を減らさず、選択文書の原ZIPが無ければ取得する。受領済みのtype5 ZIPは再取得しない。一覧不足/失敗・候補0は取得失敗として報告するが、取得plannerがL2 failure coverageを書き込むことはない。nativeでtickerを特定できる未解決eventは隔離する。originとtickerを失ったeventの関連企業をL2 baselineから推測せず、baselineだけに残る対応の隔離は既存のL2抽出ownerが維持する。原本を取得できたことをL2への採用成功と扱わない。
 
-取得inputからmetric本文/coverageを外すため、code更新後の次の通常input発行で小さい形へ置き換える。旧inputの余分なL2欄は読まず、既存schema・原本・受領時刻・stage形式を変換しない。未統合stageの原ZIPと一覧は従来通りresumeで保全する。明示`maintain-market refresh-edinet-metrics`も、要求lookbackの一覧を保存→同じsource-only計画でCSV原本を確保→L2計画/抽出の順にする。既定540日と明示lookbackは変えず、L2が再利用可能でも欠けた原ZIPは取得し、L2破損/抽出失敗や後続archive失敗でも先に保存した原ZIPを保つ。原本取得に失敗した場合はL2計画/抽出へ進まず失敗終了する。CSV取得計画の置換だけならschema/stage移行は不要で、保持済みtype5 ZIPは既存の同一性で再利用する。factsの取得範囲は後述のschema50でsource所有へ移し、その切替には全sourceのinputと未統合stageをschema50へ揃える。一覧投影/coverageとmarket共通公開への依存は残り、一覧原本からの計画とL1公開の分離は別段階とする（refs #1820）。今回の切替でfacts未初期化を迂回したり過去全件GETを増やしたりしない。
+取得inputからmetric本文/coverageを外すため、code更新後の次の通常input発行で小さい形へ置き換える。旧inputの余分なL2欄は読まず、既存schema・原本・受領時刻・stage形式を変換しない。未統合stageの原ZIPと一覧は従来通りresumeで保全する。明示`maintain-market refresh-edinet-metrics`も、要求lookbackの一覧を保存→同じsource-only計画でCSV原本を確保→L2計画/抽出の順にする。既定540日と明示lookbackは変えず、L2が再利用可能でも欠けた原ZIPは取得し、L2破損/抽出失敗や後続archive失敗でも先に保存した原ZIPを保つ。原本取得に失敗した場合はL2計画/抽出へ進まず失敗終了する。CSV取得計画の置換だけならschema/stage移行は不要で、保持済みtype5 ZIPは既存の同一性で再利用する。factsの取得範囲は後述のschema50でsource所有へ移し、その切替には全sourceのinputと未統合stageをschema50へ揃える。一覧原本からの計画とL1公開は後述の[一覧native切替](#edinet-list-native-l1)で分離する。archive input/scopeと一覧L2のmarket共通公開依存は残る（refs #1820）。今回の切替でfacts未初期化を迂回したり過去全件GETを増やしたりしない。
 
 一覧の不正再受領では既存のok日の投影・受領時計を保つ。未適格日の不正受領は、選択できた正常原典由来の証拠とfailed coverageを保存し、`edinet.documents`だけはpartialでも公開して正常な別sourceと原本保存を止めない。partial公開は日別取得の完了認定ではなく、厳密な日付読取はfailed日を拒否する。正常な別日の訂正・取下げは反映し、不正日は新しいhandoffがなくても失敗報告を続け、正常受領で回復するまで`source-check`は成功にしない。
 
@@ -998,3 +998,35 @@ uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/cale
 ```
 
 空prefixの明示initialize後、prepare blocker解消→apply→全pack読戻し→旧投影compareを確認する。同値確認は本文を省くため、そのexact応答bytesが必要な間は旧release/stage/dependencyも保持する。移行済み旧mixed stageはcalendar raw fingerprintと完全一致を確認してcalendarだけ再投影から外し、margin等の他原本は従来どおり再生する。ID一致だけで移行済みにせず、未移行/改変原本は拒否する。切替後の旧bootstrap calendar writerは明示停止し、専用native CLIへ向ける。旧原本の削除・実R2/provider受入・本番移行はここでは行わない。
+
+<a id="edinet-list-native-l1"></a>
+### EDINET一覧原本の独立取得・有限切替（#1820、既定は未切替）
+
+`BAIBAI_EDINET_LIST_NATIVE=true`では、通常`edinet-list`はmarket SQLite、source input、L2 release、共通公開leaseを読み書きせず、`l1/edinet/lists/v1/head.json`と不変gzip objectを使う。HTTP層が返した実bodyを日別GETの直後に保存・読戻しし、次の日のGETや解釈より先にheadをCASする。既存HTTP契約のまま、HTTPエラー/429でbodyが返らない場合の原本を捏造しない。新受領はUUIDと実UTC microsecond時刻を持ち、同値bodyでも別受領を保持する。同一gzip bytesは共有するが、旧gzipを再圧縮したり同一内容の受領を統合したりしない。
+
+取得範囲は既定540日前〜asofの両端込み541日、全保持履歴にある未再確認日（窓外を含む）、実JST当日である。過去asofでも実当日の正常一覧を先に受領し、その後の過去日受領で再確認proofを作る。L2のok/failed時計でGETを省略しない。通常初回541 GETでは日別head CASも541回行う。既に検証した不変bodyを同じowner内で使い回し、各日公開で全履歴objectをHEAD/GETし直さない。実ストレージの時間・費用・サイズは切替前に別途測定する。
+
+日次統合は開始時にheadをplanへ固定し、全UUIDから一覧/文書を再構築する。遅着受領、訂正・取消、同時刻異bytesの曖昧さを既存native規則で扱い、max時刻だけで差分を落とさない。不正な後続bodyがあっても、選択可能な直前の正常投影とその実受領時計はcold/warmで同じになる。不正dayは別途毎回失敗報告し、正常取得まで成功にしない。metrics/factsのinputも同じ原本から一覧を作るが、窓外の不正dayだけで全archive取得を止めず、各plannerが必要範囲を判定する。
+
+market releaseは切替後`edinet.list_responses`を新規複写しない。SQLiteのraw tableは検証可能なcacheであり、push用copyのdehydrate/世代切替hydrateでは、全ローカルUUID・日付・時刻・gzipが独立headの実objectと一致した場合だけcacheを空にする。他datasetの「releaseにない行は削除不可」検査は緩めない。独立head/object、旧release、旧stageの原本は削除しない。offlineのhydrate/dehydrateにも、この検証用の明示`--bucket`が必要になる。
+
+#### 既存原本を持つ環境の切替
+
+1. EDINET一覧の旧通常writerと手動refresh/bootstrap/backfill、metrics/facts取得、日次統合・公開を停止し、実行中をdrainする。先にschema50切替を終える。対象code、旧固定release ID/digest、移行境界UTC時刻を記録し、旧release/stageは保持する。
+2. `uv run baibai-jobs edinet-list-cutover prepare --directory <新規plan-dir> --work-directory <work-dir> --release <固定release> --manifest-sha256 <digest> --known-at <UTC時刻>`を実行する。全履歴partitionと`edinet-list`/`edinet-metrics`/`edinet-facts`の全stage（integrated、late、要確認も含む）を固定する。通常resumeのskip条件は使わない。
+3. `blocked`と`missing_raw_days`を確認する。normalized JSONしかない日、selected UUID欠落、旧文書identityを再現できない原本不足、再確認proof欠落、同UUIDの異bytes/時刻、固定境界後の受領は切替を止める。今日のGETを失われた過去受領へ置換せず、旧原本を復元できない間は旧modeを維持する。余分な手動SQLite copyにだけ原本がある場合も、先に旧正規経路へ保全してからprepareをやり直す。
+4. 同じ固定planに`edinet-list-cutover apply`、続いて`verify`を実行する（両方`--directory`/`--work-directory`を指定）。全input hashを公開前に検証し、実gzip/UUID/時刻を全件読戻す。途中再開は同じplanだけで行う。別の新取得が混ざったtargetへ古い移行を上書きしない。mixed stageのZIP・scope・結果は変更しない。
+5. codeと`BAIBAI_EDINET_LIST_NATIVE=true`を取得・日次統合・手動運用へ同時に揃える。旧edinet-list stageを通常統合で再適用せず、原本として残す。旧metrics/facts stageの一覧はheadに完全一致するものだけ既知として扱い、原ZIP/scopeを従来通り受け入れる。新source input発行はedinet-listを作らず、metrics/factsから旧一覧コピーを外す。
+6. 独立取得→固定head再構築→market公開→dehydrate/pull/hydrate→再構築を確認する。L2公開失敗でも既に確認済みの一覧L1は残る。切替後の旧`EDINETRefresh.list_documents`入口はHTTP前に拒否するため、一覧bootstrap/backfillは使わない。必要な一覧は`edinet-list-native acquire --start <開始日> --asof <日付> --directory <新規work-dir>`で取得する。既存`maintain-market refresh-edinet-metrics --lookback-days N`はnative headを固定して一覧を再構築し、同じ任意N日（0や540日超を含む）の未保存CSV原本GET→L2抽出を行う。旧一覧writerを呼ばず、一覧未取得日は成功へ補わない。一覧新GETとCSV取得をこの順に明示実行する。保存原本だけの再抽出は従来のextractを使う。flagを戻して旧writerを並行稼働させない。
+
+原本を全く持たない新規環境だけは、明示`edinet-list-native initialize --directory <work-dir>`で空headを作り、その後acquireする。既存環境の移行失敗をinitializeで迂回しない。
+
+#### 公開失敗時の原受領保全
+
+同じwork directoryに`pending.json`があれば、新しいHTTPを始めず拒否する。手元workが残る場合は`edinet-list-native commit-work --directory <同じwork-dir>`でその実受領を再公開する。新UUIDや取得時刻を付け直さない。
+
+通常workflowでbody/head公開が失敗した場合は、pending原本を既存のprivate source handoffへ保存する（`stage_ready=true`）。runを失敗のまま通知し、通常統合でこのstageを成功扱いしない。保存されたstage IDを確認して、`edinet-list-native commit-stage --stage-id <ID> --directory <新規work-dir>`で固定原本の公開・読戻し・integrated markerを完了する。旧形式stageはこの入口で変換せず、上記有限cutoverを使う。既知のhead PUT成功後の応答不明も同じUUIDで冪等に確認する。
+
+runnerの強制kill、local disk故障、private stage保存も失敗した場合まで原本回復を保証しない。既存の期限前打切りとpartial stage保存を使い、通常publication失敗を成功通知へ変えない。新remote journalやreceipt複製層は追加しない。
+
+残件: CSV/XBRL ZIPとfacts scopeの保存/input、一覧L2の共通release公開、archive原本の独立公開はmarket経路に残る。今回で一覧の通常GETと原本公開をL2から切り離すが、EDINET全取得や#1820全体の完了ではない。保存判断の過去EDINET入力を独立headまで一貫固定するL3 lineageの拡張も別に検証する。本PRで本番flag・権限・retentionは変更しない。

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.workflow_schedule import declared_schedule
 
 from baibai_jobs.schedule import MARKET_SOURCE_SCHEDULES, market_source_target_date
 
@@ -109,7 +110,7 @@ def _run_plan(
 
 
 def test_workflow_crons_match_supported_market_source_slots():
-    crons = {slot["cron"] for slot in _workflow()["on"]["schedule"]}
+    crons = {slot["cron"] for slot in declared_schedule(WORKFLOW.read_text())}
     assert crons == set(MARKET_SOURCE_SCHEDULES)
 
 
