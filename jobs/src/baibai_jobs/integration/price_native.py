@@ -21,6 +21,7 @@ from pydantic import JsonValue
 
 from baibai_engine.data_collection.providers.jquants.price_native import (
     FixedPriceL1,
+    PriceL1,
     read_price_requests,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
@@ -282,9 +283,56 @@ def rebuild_saved_input(
     return result
 
 
+def rebuild(
+    store: ObjectStore, fixed: FixedPriceL1, *, start: date, end: date, output: Path
+) -> dict[str, Any]:
+    """Rebuild an explicit interval directly from exact head bytes, without an execution DB."""
+    days = _days(start, end)
+    scopes = fixed.value()["scopes"]
+    output.mkdir(parents=True, exist_ok=False)
+    counts: dict[str, Any] = {
+        "days": len(days),
+        "rows": 0,
+        "unavailable": 0,
+        "partial": 0,
+        "incomplete": 0,
+    }
+    complete = True
+    with duckdb.connect(":memory:") as connection:
+        for index, month in enumerate(_months(days)):
+            results = rebuild_price_days(fixed.requests(store, days=month), days=month)
+            materialize_price_days(
+                connection, results.values(), l1_coverage_status="partial", append=index > 0
+            )
+            for day, item in results.items():
+                complete = complete and not _unresolved(item, scopes.get(day.isoformat(), {}))
+                counts["rows"] += len(item.rows)
+                counts["unavailable"] += int(item.status == "unavailable")
+                counts["partial"] += int(item.status == "partial")
+                counts["incomplete"] += int(bool(item.incomplete_requests))
+        counts["coverage_status"] = "complete" if complete else "partial"
+        connection.execute(
+            "UPDATE price_receipt_status SET l1_coverage_status=?", [counts["coverage_status"]]
+        )
+        for table in ("daily_bars", "price_receipt_status"):
+            pq.write_table(connection.table(table).to_arrow_table(), output / (table + ".parquet"))
+    (output / "head.json").write_bytes(fixed.payload)
+    write_json_atomic(
+        output / "input.json",
+        {
+            "head_sha256": fixed.content_id,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "acquisition": {day.isoformat(): scopes.get(day.isoformat(), {}) for day in days},
+        },
+    )
+    return counts
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--saved-input", type=Path, required=True)
+    parser.add_argument("--saved-input", type=Path)
+    parser.add_argument("--work-directory", type=Path, required=True)
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -293,14 +341,15 @@ def main(argv: list[str] | None = None) -> int:
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
-            saved = InputSnapshot.model_validate_json(args.saved_input.read_bytes())
-            print(
-                json.dumps(
-                    rebuild_saved_input(
-                        store, saved, start=args.start, end=args.end, output=args.output
-                    )
+            if args.saved_input is not None:
+                saved = InputSnapshot.model_validate_json(args.saved_input.read_bytes())
+                result = rebuild_saved_input(
+                    store, saved, start=args.start, end=args.end, output=args.output
                 )
-            )
+            else:
+                fixed = PriceL1(store, args.work_directory).fixed()
+                result = rebuild(store, fixed, start=args.start, end=args.end, output=args.output)
+            print(json.dumps(result))
     except Exception as error:
         print(f"price native rebuild failed: {type(error).__name__}", file=sys.stderr)
         return 1

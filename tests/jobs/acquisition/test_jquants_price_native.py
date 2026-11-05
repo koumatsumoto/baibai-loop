@@ -144,3 +144,58 @@ def test_final_rate_limit_halts_shared_quota_after_preserving_price_failure(tmp_
     )
     assert report["failed"] == report["halted"] == 1
     assert next(owner.fixed().requests(store, days=[DAY])).error == "JQuantsRateLimitError"
+
+
+def test_price_cli_acquisition_replay_and_fixed_head_rebuild(tmp_path, monkeypatch):
+    import pyarrow.parquet as pq
+
+    from baibai_jobs import cli
+    from baibai_jobs.acquisition import jquants_price_native as acquisition
+    from baibai_jobs.integration import price_native as integration
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    store = Store()
+    monkeypatch.setattr(acquisition, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(integration, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(acquisition, "JQuantsHTTP", lambda _: Client())
+    work = str(tmp_path / "work")
+    assert cli.main(["jquants-price-native", "initialize", "--directory", work]) == 0
+    assert (
+        cli.main(
+            [
+                "jquants-price-native",
+                "acquire",
+                "--directory",
+                work,
+                "--start",
+                DAY.isoformat(),
+                "--end",
+                DAY.isoformat(),
+            ]
+        )
+        == 0
+    )
+    assert cli.main(["jquants-price-native", "commit-work", "--directory", work]) == 0
+    assert (
+        cli.main(
+            [
+                "rebuild-price-native",
+                "--work-directory",
+                str(tmp_path / "read"),
+                "--start",
+                DAY.isoformat(),
+                "--end",
+                DAY.isoformat(),
+                "--output",
+                str(tmp_path / "output"),
+            ]
+        )
+        == 0
+    )
+    assert pq.read_table(tmp_path / "output" / "daily_bars.parquet").to_pylist()[0]["close"] == 100
+    assert (tmp_path / "output" / "head.json").read_bytes() == PriceL1(
+        store, tmp_path / "cold"
+    ).fixed().payload
