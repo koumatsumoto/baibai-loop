@@ -201,8 +201,10 @@ def export_dataset_snapshot(
         raise ValueError("native lineage and its coverage must be provided together")
     if native_source is not None and dataset.layer != "l2_processed":
         raise ValueError("native lineage requires a derived L2 dataset")
-    if object_date_grain is not None and dataset.primary_key[:1] != (dataset.date_column,):
-        raise ValueError("date-split objects require the date as the first primary key")
+    if object_date_grain is not None and dataset.date_column not in dataset.primary_key:
+        raise ValueError("date-split objects require the date in the primary key")
+    if object_date_grain == "month" and dataset.primary_key[:1] != (dataset.date_column,):
+        raise ValueError("month-split objects require the date as the first primary key")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
@@ -221,7 +223,9 @@ def export_dataset_snapshot(
             built = []
             date_index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
             for period in periods:
-                rows = _period_rows(connection, dataset, period)
+                rows = _period_rows(
+                    connection, dataset, period, date_first=object_date_grain == "day"
+                )
                 groups = (
                     groupby(
                         rows,
@@ -548,8 +552,31 @@ def validate_snapshot_parity(
         if source_periods != set(partitions):
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
-            rows = _period_rows(connection, dataset, period)
-            for obj in sorted(partition.objects, key=lambda item: item.min_key):
+            # A date can follow the ticker in the logical key. Daily physical
+            # objects then overlap in key ranges, while their rows remain key-sorted.
+            # Read their actual date bounds so old whole-month objects keep the
+            # original order, including when their endpoint keys share one date.
+            date_index = (
+                dataset.primary_key.index(dataset.date_column)
+                if dataset.date_column in dataset.primary_key
+                else 0
+            )
+            date_first = bool(
+                date_index
+                and len(partition.objects) > 1
+                and all(
+                    _single_date_object(mirror_root / obj.key, dataset=dataset)
+                    for obj in partition.objects
+                )
+            )
+            rows = _period_rows(connection, dataset, period, date_first=date_first)
+            objects = sorted(
+                partition.objects,
+                key=lambda item: (
+                    (item.min_key[date_index], item.min_key) if date_first else ("", item.min_key)
+                ),
+            )
+            for obj in objects:
                 _validate_parquet(
                     mirror_root / obj.key,
                     dataset=dataset,
@@ -775,16 +802,41 @@ def _period_rows(
     connection: sqlite3.Connection,
     dataset: LakeDataset,
     period: Period,
+    *,
+    date_first: bool = False,
 ) -> Iterator[tuple[object, ...]]:
     prefix = f"{period_label(period)}-"
     columns = ", ".join(column.name for column in dataset.columns)
-    order = ", ".join(dataset.primary_key)
+    order = ", ".join(
+        dict.fromkeys((dataset.date_column, *dataset.primary_key))
+        if date_first
+        else dataset.primary_key
+    )
     query = (
         f"SELECT {columns} FROM {dataset.sqlite_table} "  # nosec B608
         f"WHERE {dataset.date_column} LIKE ? ORDER BY {order}"
     )
     for row in connection.execute(query, (f"{prefix}%",)):
         yield tuple(row)
+
+
+def _single_date_object(path: Path, *, dataset: LakeDataset) -> bool:
+    """Recognize daily objects without changing the existing manifest contract."""
+    index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
+    try:
+        with pq.ParquetFile(path, pre_buffer=False) as parquet:
+            days = set()
+            for group in range(parquet.metadata.num_row_groups):
+                statistics = parquet.metadata.row_group(group).column(index).statistics
+                if statistics is None or not statistics.has_min_max or statistics.null_count:
+                    return False
+                if statistics.min != statistics.max:
+                    return False
+                days.add(statistics.min)
+            return len(days) == 1
+    except (OSError, ValueError):
+        # The normal object verification below owns missing/corrupt-file errors.
+        return False
 
 
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:

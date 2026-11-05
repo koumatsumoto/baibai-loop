@@ -804,6 +804,8 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 
 通常公開は日足headを一度だけ固定し、その全保持期間と不足を月単位で再生成する。作業market SQLiteの日足・同coverageを置換してからsealし、同じ選択をモデルと公開日足へ渡す。公開はそのrunで原本から再構築したsealの価格行を再利用し、同じ原本を二度GET・正規化しない。日足L2のlineageは旧source_pagesではなく不変selectionを指す。作業copyの旧日足source_pagesだけを除き、原本pack・旧immutable release・stageは削除しない。新しいheadが取得途中で進んでもそのgenerationへ混ぜない。原本が失われた場合に旧L2へfallbackしない。
 
+日足Parquetは既存のmonth/v2・`(ticker,traded_at)`契約を保ち、月内を1日1objectへ分ける。同値確認はobjectを追加せず、新日・訂正日だけを追加する。旧月objectと旧releaseは読めるまま残し、通常処理で削除しない。小さいobject数は増えるが、同月の過去価格を新日ごとに累積複製しない。cold readerはmanifestの全objectを論理key順で読み、保存世代の再計算は従来どおり固定selectionとL1 packから行う。
+
 独立取得は新しい作業directoryを使う。初期化は空namespaceへの一回だけで、消失headを空から作り直さない。明示範囲の取得と再生成は次を使う。
 
 ```bash
