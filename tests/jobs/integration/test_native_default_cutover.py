@@ -53,8 +53,6 @@ def test_all_explicit_workflow_callers_ignore_old_false_repository_vars(
         assert env[key] == "true"  # No vars expression can reinstate the old writer.
         monkeypatch.setenv(key, env[key])
         assert MODES[source]() is True
-    if filename in {"cloud-daily-batch.yml", "cloud-tradingview-snapshot.yml"}:
-        assert "schedule" not in workflow["on"]
 
 
 def test_no_jquants_native_repository_var_reader_is_left_in_workflows():

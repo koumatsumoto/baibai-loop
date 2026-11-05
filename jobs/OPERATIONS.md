@@ -1003,6 +1003,10 @@ uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/cale
 <a id="edinet-list-native-l1"></a>
 ### EDINET一覧原本の独立取得・有限切替
 
+`BAIBAI_EDINET_LIST_NATIVE` の通常既定は `true` で、取得・dailyのActionsも明示 `true` に揃える。明示 `false` は旧入力の有限検証用であり、本番writerの並行稼働には使わない。
+
+配置は移行・全原本読戻し・cold/warm比較の成功後とし、停止中のcronは初回native公開・次hydrate・source inputsの読戻しまで再開しない。
+
 `BAIBAI_EDINET_LIST_NATIVE=true`で一覧の通常GET・原本公開をmarket/L2から分離する。取得範囲・日別CAS・実受領UUID/時刻と同値gzipの扱いは[取得owner](src/baibai_jobs/acquisition/edinet_list_native.py)と[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/list_native.py)を正本とする。取得失敗を正常空へ変えず、旧normalized行から原本・受領を作らない。flagの値だけで移行完了を認定しない。
 
 日次統合はheadを開始時に固定して全受領から一覧/文書を再構築する。不正dayを毎回報告しつつ選択可能な正常投影を保つ。metrics/factsは各plannerの必要範囲で不足を判定する。archiveやL2の失敗で一覧L1の成功を取り消さない。
