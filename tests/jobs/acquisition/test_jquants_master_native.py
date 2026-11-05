@@ -64,3 +64,21 @@ def test_explicit_force_rechecks_same_day_for_tradingview_backfill(tmp_path):
         )
         assert result["changed"] == 1
         assert len(client.calls) == 1
+
+
+def test_commit_work_does_not_turn_saved_empty_into_fulfilled_master(tmp_path, monkeypatch, capsys):
+    import baibai_jobs.acquisition.jquants_master_native as command
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    store = Store()
+    owner = MasterL1(store, tmp_path)
+    owner.initialize()
+    acquire_master_native(owner, start=DAY, end=DAY, client=Client([]), clock=lambda: AT)
+    monkeypatch.setattr(command, "Boto3R2Store", lambda **_: store)
+    assert command.main(["commit-work", "--directory", str(tmp_path)]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["unresolved"] == {DAY.isoformat(): ["nonempty_master_required"]}
+    assert len(result["retried"]) == 1

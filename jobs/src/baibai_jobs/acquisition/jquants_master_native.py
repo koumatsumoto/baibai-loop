@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command not in {"plan", "acquire"}:
+    if args.command not in {"plan", "acquire", "commit-work"}:
         return native_main(
             argv,
             parser=build_parser(),
@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
             client_factory=JQuantsHTTP,
         )
     try:
-        if args.start is None or args.end is None:
+        if args.command != "commit-work" and (args.start is None or args.end is None):
             raise ValueError("--start and --end are required")
         if args.revision_overlap_days:
             raise ValueError(
@@ -84,6 +84,23 @@ def main(argv: list[str] | None = None) -> int:
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         ) as store:
             owner = MasterL1(store, args.directory)
+            if args.command == "commit-work":
+                attempts = [
+                    MasterAttempt.from_value(json.loads(path.read_bytes()))
+                    for path in args.directory.glob("attempt-*.json")
+                ]
+                attempts.sort(
+                    key=lambda item: (item.attempted_at or item.order_time, item.request_id)
+                )
+                replayed = owner.commit(attempts)
+                fixed = owner.fixed()
+                unresolved = {
+                    day.isoformat(): ["nonempty_master_required"]
+                    for day in sorted({item.day for item in attempts})
+                    if plan_master_days(store, fixed, start=day, end=day)
+                }
+                print(json.dumps({**replayed, "unresolved": unresolved}, sort_keys=True))
+                return int(bool(unresolved))
             if args.command == "plan":
                 print(
                     json.dumps(
