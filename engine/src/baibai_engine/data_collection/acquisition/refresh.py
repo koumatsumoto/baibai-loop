@@ -27,7 +27,7 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
     confirm_source_response,
 )
 from baibai_engine.data_collection.receipts.native_sources.documents import (
-    read_documents,
+    read_document_metadata,
     store_document,
 )
 from baibai_engine.data_collection.receipts.native_sources.records import (
@@ -195,7 +195,8 @@ def _refresh_source(
         context.check_deadline()
         if source.provider in DOCUMENT_PROVIDERS:
             existing = {
-                item.request_key: item for item in read_documents(connection, source.source_id)
+                item.request_key: item
+                for item in read_document_metadata(connection, source.source_id)
             }
             for document in fetch_source_documents(
                 source,

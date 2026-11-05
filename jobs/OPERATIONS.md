@@ -159,6 +159,12 @@ FRED以外の比較窓・人工空・確認方式は変更しない。経済SQLi
 
 inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・経済取得は共有quotaを守る。
 
+PMIの取得inputは最新requestごとのURL・content type・実受領時刻・metadataを専用planning tableへ置き、過去PDF/HTML本文を複写しない。月・release月・flash/final・requested month・identity errorをそのまま保持し、run/native coverageも残す。本文のない行を原本document tableへ作らない。取得中は固定metadataと今回の実受領の新しい方で回復を判断し、通常handoffは今回の実本文だけを運ぶ。L2は保持正本のPDF/HTMLから再生成し、planning metadataを実績値や原本の代わりに使わない。TEの実績・forecast等の判定やrouteは変えず、新しい取得groupを有効化しない。
+
+`economic-spglobal_pmi` の新inputは `pmi-acquisition-input-v1` / `planning_key` で識別する。新readerは旧全履歴SQLite inputも読めるが、旧readerは新formatを取得前に拒否する。全readerへの新code配布と旧writer/待機runのdrainを済ませてから新inputを発行する。通常経済統合も全groupのinputを発行するため、provider取得だけを止めてもwriter先行を避けられない。新format公開後は旧codeのrunをrerunせず、新codeで再開する。
+
+移行は保持正本から通常input発行1回で行い、provider再取得・原本変換・L1 schema変更・新prefixは不要。generation/hashの検証、input不足時の失敗、同値input再利用を維持する。旧input/stage/正本の削除やretention変更は伴わず、固定参照中のobjectを保持する。runやrequest metadataは増えるため一定量にはならない。経済正本全体の転送とL1本文のsource別object化は #1820 の残作業である。
+
 `cloud-market-sources`は市場／財務・JPX・EDINET一覧と、EDINET metrics/facts用archiveを別slotに分ける。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は固定した取引暦原本から取得日を決め、native暦の有効時はその固定入力を使う。TradingViewは平日・土日とも毎日取得する。保存済み受領の保持と履歴読取は新規取得から分離する。
 
 手動`source=all`は一覧の取得・stage成功後にmetrics/factsを分岐する。他sourceや共通統合は待たせない。archive取得は未統合の一覧受領も作業copyへ投影して読むため、共通統合の先行実行は不要。一覧失敗時はall内のarchive取得を止め、古い一覧だけで当日分を取得できたように見せない。有効な一覧受領を確認できる場合は、必要なarchive sourceだけを同じasofで再実行する。

@@ -10,7 +10,10 @@ from typing import cast
 
 from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.provider_contracts import ProviderSpec
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    SourceDocumentMetadata,
+)
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
@@ -48,7 +51,7 @@ class SpGlobalPmiSource:
         end: date,
         session: HttpSession,
         context: FetchContext | None,
-        existing: Mapping[str, SourceDocument],
+        existing: Mapping[str, SourceDocument | SourceDocumentMetadata],
         force: bool,
         recheck_existing: bool = True,
     ) -> Iterator[SourceDocument]:
