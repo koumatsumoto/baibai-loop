@@ -12,7 +12,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.integration.test_master_native_models import attempt as master_attempt
-from tests.jobs.integration.test_price_native_models import AT, DAY
+from tests.jobs.integration.test_price_native_models import DAY
 from tests.jobs.integration.test_price_native_models import attempt as price_attempt
 
 import baibai_jobs.publication.snapshot_publication as publication
@@ -52,7 +52,7 @@ def mixed_release(tmp_path, monkeypatch):
                         0,
                         source,
                         "{}",
-                        AT.isoformat(),
+                        received + "T00:00:00+00:00",
                         received,
                         gzip.compress(b'{"data":[]}'),
                     ),
@@ -199,3 +199,8 @@ def test_floor_reads_exact_old_parquet_and_stops_at_first_remaining_month(
         assert objects[0].key in store.get_keys
         assert objects[1].key in store.get_keys
         assert objects[2].key not in store.get_keys
+    assert not (mirror / objects[0].key).exists()
+    assert not (mirror / objects[1].key).exists()
+    # The unchanged March object was also produced by this export and must remain.
+    assert (mirror / objects[2].key).exists()
+    assert not list(mirror.glob(".source-history-*"))

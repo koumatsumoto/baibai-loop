@@ -464,16 +464,24 @@ def _remaining_source_pages_start(
     for partition in selected_partitions(serving, dataset.name):
         earliest = None
         for item in partition.objects:
-            path = _fetch(store, mirror_root, item.key, expected_sha256=item.sha256)
-            verify_object(path, dataset, item)
-            # Native bodies are neither decoded nor copied. Earlier monthly partitions
-            # alone suffice once a surviving source supplies a history floor.
-            with pq.ParquetFile(path, pre_buffer=False) as parquet:
-                for batch in parquet.iter_batches(columns=["source", "received_on"]):
-                    for row in batch.to_pylist():
-                        if row["source"] not in migrated_sources:
-                            received = date.fromisoformat(row["received_on"])
-                            earliest = received if earliest is None else min(earliest, received)
+            # Hydrate evicts large raw objects. Do not accumulate their second copies
+            # beside this publication's seal and exports just to inspect two columns.
+            with tempfile.TemporaryDirectory(
+                dir=mirror_root, prefix=".source-history-"
+            ) as directory:
+                root = (
+                    mirror_root
+                    if lake_mirror_path(mirror_root, item.key).is_file()
+                    else Path(directory)
+                )
+                path = _fetch(store, root, item.key, expected_sha256=item.sha256)
+                verify_object(path, dataset, item)
+                with pq.ParquetFile(path, pre_buffer=False) as parquet:
+                    for batch in parquet.iter_batches(columns=["source", "received_on"]):
+                        for row in batch.to_pylist():
+                            if row["source"] not in migrated_sources:
+                                received = date.fromisoformat(row["received_on"])
+                                earliest = received if earliest is None else min(earliest, received)
         if earliest is not None:
             return earliest
     return None
