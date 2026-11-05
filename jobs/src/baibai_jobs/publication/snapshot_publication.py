@@ -212,11 +212,10 @@ def prepare_market_lake(
             if native_price_enabled:
                 assert price_identity is not None
                 datasets["jquants.daily_bars"] = export_prices_from_native_input(
-                    store=store,
+                    source_snapshot=snapshot,
                     saved=price_identity,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
-                    known_at=snapshot.sealed_at,
                 ).build
             export = replace(export, datasets=datasets)
         export_finished = time.perf_counter()

@@ -21,6 +21,7 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
 from baibai_engine.machine_analysis.generation.price_inputs import read_price_input
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import materialize_partitions
+from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.price_native import model_input, rebuild_saved_input
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
@@ -125,16 +126,20 @@ def test_native_publication_is_derived_from_saved_selection_not_latest_or_source
     saved = model_input(
         store, owner.fixed(), as_of=DAY + timedelta(days=1), evaluated_at=AT, market=market
     )
-    del store.values[HEAD_KEY]
-    market.unlink()
-    exported = export_prices_from_native_input(
-        store=store,
-        saved=saved,
-        mirror_root=tmp_path / "mirror",
-        producer_git_commit="a" * 40,
-        known_at=AT,
-        created_at=AT,
-    )
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "seal") as snapshot:
+        del store.values[HEAD_KEY]
+        # Later changes to the live execution copy do not enter the already fixed seal.
+        with sqlite3.connect(market) as connection:
+            connection.execute("UPDATE jquants_daily_bars SET close=999")
+        store.get_keys.clear()
+        exported = export_prices_from_native_input(
+            source_snapshot=snapshot,
+            saved=saved,
+            mirror_root=tmp_path / "mirror",
+            producer_git_commit="a" * 40,
+            created_at=AT,
+        )
+        assert store.get_keys == []
     assert exported.build.manifest.coverage_status == "complete"
     assert len(exported.build.manifest.partitions) == 2
     for partition in exported.build.manifest.partitions:
@@ -226,6 +231,8 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     )
     assert consumed_prices == [100]
     assert store.get_keys.count(HEAD_KEY) == 1
+    pack_reads = [key for key in store.get_keys if "/daily-bars/v1/packs/" in key]
+    assert len(pack_reads) == len(set(pack_reads)) == 1
     saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
     assert saved.inputs["price"].descriptor["head_sha256"] == fixed.content_id
     with sqlite3.connect(market) as connection:
@@ -307,13 +314,13 @@ def test_partial_normalization_never_claims_complete_coverage(tmp_path):
     saved = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
     assert saved.descriptor["summary"]["partial_days"] == 1
     assert saved.descriptor["summary"]["coverage_status"] == "partial"
-    result = export_prices_from_native_input(
-        store=store,
-        saved=saved,
-        mirror_root=tmp_path / "mirror",
-        producer_git_commit="a" * 40,
-        known_at=AT,
-        created_at=AT,
-    )
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "seal") as snapshot:
+        result = export_prices_from_native_input(
+            source_snapshot=snapshot,
+            saved=saved,
+            mirror_root=tmp_path / "mirror",
+            producer_git_commit="a" * 40,
+            created_at=AT,
+        )
     assert result.build.manifest.coverage_status == "partial"
     assert result.build.manifest.totals.rows == 1
