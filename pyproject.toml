@@ -390,6 +390,17 @@ source_modules = ["baibai_engine.investment_judgment.stock_assessment.store"]
 forbidden_modules = ["baibai_engine.investment_judgment.trade_proposal.service", "baibai_engine.investment_judgment.trade_proposal.inputs", "baibai_engine.investment_judgment.workflow.workspace", "baibai_engine.investment_judgment.workflow.operation"]
 
 [[tool.importlinter.contracts]]
+name = "retrospective persistence and evidence do not depend on query composition"
+type = "layers"
+# 保存と再訪は根拠照合を共有し、互いの入口へ戻らない。
+layers = [
+  "baibai_engine.investment_judgment.judgment_retrospective.query",
+  "baibai_engine.investment_judgment.judgment_retrospective.store",
+  "baibai_engine.investment_judgment.judgment_retrospective.context",
+  "baibai_engine.investment_judgment.judgment_retrospective.document",
+]
+
+[[tool.importlinter.contracts]]
 name = "external assessment observation contracts stay independent of services"
 type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.observations.external_assessments.contract", "baibai_engine.machine_analysis.observations.external_assessments.models"]
