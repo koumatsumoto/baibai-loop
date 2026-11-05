@@ -1,0 +1,280 @@
+name: cloud-margin-alerts-preflight-once
+
+# 承認済みの一度限りのmetadata読取。PUT・原本body・provider GETなし。
+on:
+  push:
+    branches: [codex/margin-alerts-preflight-20261106]
+    paths: [.github/workflows/cloud-margin-alerts-preflight-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/margin-alerts-preflight-20261106' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: 日々公表移行のmetadataを一度確認 (2026-11-06)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require reviewed merged code and only this temporary workflow
+        env:
+          EXPECTED_CODE_SHA: cf467e4d2c2afd15860801b00a56bddb2e5802bb
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/cloud-margin-alerts-preflight-once.yml'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Read finite migration metadata without changing production
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python - <<'PYCODE'
+          """margin-alerts移行前の有限metadata確認。原本本文・lease・本番状態を書き換えない。"""
+          
+          from __future__ import annotations
+          
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          from datetime import UTC, datetime
+          from pathlib import Path
+          from threading import Lock
+          
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import HEAD_KEY, PREFIX
+          from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
+          from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
+              JQUANTS_MARGIN_ALERTS,
+          )
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_engine.storage.snapshots.reader import accepted_dataset, resolve_release
+          from baibai_engine.storage.snapshots.release import LakeReleasePointer
+          from baibai_jobs.acquisition.receipts import available_handoffs
+          from baibai_jobs.publication import lease
+          
+          POINTER = "lake/pointers/market/current.json"
+          MANIFEST = "machine-manifest.json"
+          CANONICAL = ("market.sqlite", "runs.sqlite", "indicators.sqlite", MANIFEST, POINTER)
+          STAGES = "coordination/market-sources/jquants-market-"
+          METADATA_LIMIT = 32 * 1024 * 1024
+          OBJECT_LIMIT = 4 * 1024 * 1024
+          LIST_LIMIT = 10_000
+          INPUT_LIMIT = 1024 * 1024 * 1024
+          
+          
+          class PreflightFailure(RuntimeError):
+              """公開してよい固定codeだけをmessageに持つ。"""
+          
+          
+          def require(condition, code):
+              if not condition:
+                  raise PreflightFailure(code)
+          
+          
+          class MetadataOnly:
+              """既存GET/HEAD/LISTだけを公開し、metadataの総読取量も制限する。"""
+          
+              def __init__(self, store):
+                  self.store = store
+                  self.read_bytes_total = 0
+                  self.lock = Lock()
+          
+              def head(self, key):
+                  require(
+                      key in {*CANONICAL, HEAD_KEY, lease.PUBLICATION_LEASE_KEY}
+                      or key.startswith(("lake/", STAGES, PREFIX)),
+                      "head_outside_scope",
+                  )
+                  return self.store.head(key)
+          
+              def get_bytes(self, key):
+                  require(
+                      key in {POINTER, MANIFEST, lease.PUBLICATION_LEASE_KEY}
+                      or (key.startswith("lake/manifests/") and key.endswith(".json"))
+                      or (key.startswith(STAGES) and key.endswith(("/handoff.json", "/integrated.json"))),
+                      "body_read_outside_metadata",
+                  )
+                  before = self.head(key)
+                  require(before is not None, "required_metadata_missing")
+                  require(before.size <= OBJECT_LIMIT, "metadata_object_limit")
+                  with self.lock:
+                      require(self.read_bytes_total + before.size <= METADATA_LIMIT, "metadata_total_limit")
+                      self.read_bytes_total += before.size
+                  response = self.store._client(before.size).get_object(
+                      Bucket=self.store.bucket, Key=key, IfMatch=before.etag
+                  )
+                  body = response["Body"]
+                  try:
+                      payload = body.read(before.size + 1)
+                  finally:
+                      body.close()
+                  require(len(payload) == before.size, "metadata_size_changed")
+                  require(self.head(key) == before, "metadata_changed_during_read")
+                  return payload
+          
+              def read_bytes(self, key):
+                  return self.get_bytes(key)
+          
+              def iter_objects(self, prefix):
+                  require(prefix in {STAGES, PREFIX}, "list_outside_scope")
+                  for index, entry in enumerate(self.store.iter_objects(prefix)):
+                      require(index < LIST_LIMIT, "metadata_listing_limit")
+                      yield entry
+          
+          
+          def inspect(store, *, input_limit=INPUT_LIMIT):
+              reader = MetadataOnly(store)
+              before = {key: reader.head(key) for key in CANONICAL}
+              require(all(item is not None for item in before.values()), "canonical_metadata_missing")
+              machine = json.loads(reader.get_bytes(MANIFEST))
+              require(
+                  machine.get("schema_version") == 1
+                  and set(machine.get("keys", {})) == {"market.sqlite", "runs.sqlite"}
+                  and all(machine["keys"][key] == before[key].etag for key in machine["keys"]),
+                  "canonical_pair_mismatch",
+              )
+              pointer = LakeReleasePointer.model_validate_json(reader.get_bytes(POINTER))
+              release = resolve_release(reader, pointer.release_id, manifest_sha256=pointer.manifest_sha256)
+              objects = {}
+              for dataset in (JQUANTS_SOURCE_PAGES, JQUANTS_MARGIN_ALERTS):
+                  accepted_dataset(release, dataset)
+                  for partition in release.dataset_manifest(dataset.name).partitions:
+                      for obj in partition.objects:
+                          require(
+                              obj.key not in objects or objects[obj.key] == obj.bytes,
+                              "physical_object_size_conflict",
+                          )
+                          objects[obj.key] = obj.bytes
+              handoffs = available_handoffs(reader, source="jquants-market", include_integrated=True)
+              valid_handoffs = not any(entry.get("invalid") for entry in handoffs)
+              receipt_bytes = 0
+              for entry in handoffs:
+                  if entry.get("invalid"):
+                      continue
+                  prefix = f"coordination/market-sources/{entry['stage_id']}/"
+                  payload = reader.get_bytes(prefix + "handoff.json")
+                  require(
+                      hashlib.sha256(payload).hexdigest() == entry["manifest_sha256"],
+                      "handoff_changed_during_preflight",
+                  )
+                  manifest = json.loads(payload)
+                  digest, size = manifest.get("receipt_sha256"), manifest.get("receipt_bytes")
+                  require(
+                      isinstance(digest, str)
+                      and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+                      and type(size) is int
+                      and size >= 0,
+                      "receipt_metadata_invalid",
+                  )
+                  key = prefix + f"receipts-{digest}.sqlite"
+                  require(manifest.get("receipt_key") == key, "receipt_key_mismatch")
+                  remote = reader.head(key)
+                  require(
+                      remote is not None and remote.size == size and remote.metadata.get("sha256") == digest,
+                      "receipt_metadata_mismatch",
+                  )
+                  # prepare downloads each stage into its own directory, even for equal content.
+                  receipt_bytes += size
+              target = dict(reader.iter_objects(PREFIX))
+              head = reader.head(HEAD_KEY)
+              current_lease = lease._generation(reader)
+              # An expired held lease still needs its previous owner checked, not automatic takeover.
+              lease_clear = current_lease is None or current_lease[0].state == "released"
+              require(before == {key: reader.head(key) for key in CANONICAL}, "canonical_changed")
+              require(
+                  handoffs == available_handoffs(reader, source="jquants-market", include_integrated=True),
+                  "handoffs_changed",
+              )
+              require(target == dict(reader.iter_objects(PREFIX)), "target_changed")
+              require(head == reader.head(HEAD_KEY), "target_head_changed")
+              require(current_lease == lease._generation(reader), "publication_lease_changed")
+              estimated = sum(objects.values()) + receipt_bytes
+              public = {
+                  "preflight_completed": True,
+                  "canonical_pair_consistent": True,
+                  "current_and_handoffs_stable": True,
+                  "native_target_empty": head is None and not target,
+                  "native_head_exists": head is not None,
+                  "native_orphans_present": head is None and bool(target),
+                  "publication_lease_clear": lease_clear,
+                  "handoff_metadata_resolved": valid_handoffs,
+                  "legacy_alert_rows_present": release.dataset_manifest(
+                      JQUANTS_MARGIN_ALERTS.name
+                  ).totals.rows
+                  > 0,
+                  "legacy_input_bytes_within_limit": estimated <= input_limit,
+                  "original_bytes_verified": False,
+                  "retention_verified": False,
+                  "remote_writes": False,
+                  "provider_requests": False,
+              }
+              private = {
+                  "checked_at": datetime.now(UTC).isoformat(),
+                  "release_id": release.release_id,
+                  "manifest_sha256": release.manifest_sha256,
+                  "release_data_as_of": release.data_as_of.isoformat(),
+                  "canonical_etags": {key: item.etag for key, item in before.items()},
+                  "handoffs": handoffs,
+                  "target_objects": target,
+                  "legacy_download_bytes": estimated,
+                  "legacy_download_limit": input_limit,
+                  "metadata_read_bytes": reader.read_bytes_total,
+                  "public": public,
+              }
+              return public, private
+          
+          
+          def main():
+              output = sys.stdout
+              try:
+                  directory = Path(os.environ["RUNNER_TEMP"])
+                  with (
+                      (directory / "margin-preflight-private.log").open("w") as private_log,
+                      contextlib.redirect_stdout(private_log),
+                      contextlib.redirect_stderr(private_log),
+                      contextlib.closing(Boto3R2Store(bucket="baibai-stores")) as store,
+                  ):
+                      public, private = inspect(store)
+                      path = directory / "margin-preflight-private.json"
+                      path.write_text(json.dumps(private, sort_keys=True), encoding="utf-8")
+                      path.chmod(0o600)
+              except Exception as error:
+                  public = {
+                      "preflight_completed": False,
+                      "error_type": type(error).__name__,
+                      "remote_writes": False,
+                      "provider_requests": False,
+                  }
+                  if isinstance(error, PreflightFailure):
+                      public["reason"] = str(error)
+              print(json.dumps(public, sort_keys=True), file=output)
+              return 0 if public.get("preflight_completed") else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PYCODE
