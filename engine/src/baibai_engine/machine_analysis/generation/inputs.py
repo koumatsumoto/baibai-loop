@@ -66,6 +66,9 @@ from baibai_engine.machine_analysis.observations.prices.price_observation_reader
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     _adjustment_events_from_rows,
 )
+from baibai_engine.machine_analysis.observations.prices.tradingview_market import (
+    stored_market_context,
+)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
@@ -325,9 +328,12 @@ def read_and_generate_models(
             "reading": None
             if economic_path is None
             else reading_snapshot(economic_path, asof=as_of),
+            "tradingview_market": None
+            if economic_path is None
+            else stored_market_context(economic_path, asof=as_of, known_at=evaluation_time),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-bar-timing-v5",
+        market_context_revision="shared-market-context-bar-timing-v6-tradingview",
         growth_start=growth_start,
         trends=trends,
     )

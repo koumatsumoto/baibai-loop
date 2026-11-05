@@ -85,7 +85,9 @@ def prepare(tmp_path, monkeypatch, rows, store=None):
         pa.Table.from_arrays([pa.array(column) for column in zip(*rows, strict=True)], names=NAMES),
         original,
     )
-    monkeypatch.setattr(cutover, "fixed_receipt_paths", lambda **_: (original,))
+    monkeypatch.setattr(cutover, "accepted_dataset", lambda *a: cutover.JQUANTS_SOURCE_PAGES)
+    monkeypatch.setattr(cutover, "selected_partitions", lambda *a: ())
+    monkeypatch.setattr(cutover, "materialize_partitions", lambda *a, **kw: (original,))
     store = store or MemoryR2Store()
     before = len(store.put_keys)
     with lake_session() as session:

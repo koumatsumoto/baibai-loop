@@ -1,25 +1,7 @@
-"""Fill a market SQLite store's lake-owned tables from one fixed release, and empty them.
+"""固定releaseと実行用SQLiteの間でlake所有tableを展開・除去する。
 
-The market store keeps being written by ingest after it is filled, so it must carry the
-market schema itself — its write-time guards and its indexes — rather than a shape
-derived from the dataset contract. The two differ: the store constrains ``week_end`` and
-carries secondary indexes the contract does not declare, and a store built to the
-contract shape would silently accept rows the real one rejects.
-
-So the fill works from the store outwards. A sealed copy of the store supplies the schema
-and every table the lake does not own, and each release-published table is emptied and
-reloaded from the release's objects. The copy is promoted with a single rename, so a
-reader never sees a half-filled store and a failed fill leaves the previous one intact.
-
-Filling is fail-closed on the count: a store whose lake tables silently stayed empty
-would let a screening run publish an empty universe as a healthy result, which is the
-one new failure the daily lake cycle introduces. The loaded rows must equal what the
-release manifest published, per dataset.
-
-Emptying checks the store origin and per-dataset row counts against the release before
-removing lake-owned rows from the upload copy. Datasets absent from the release must not
-lose local rows. These checks do not compare row values: the caller must publish local
-changes first and must not edit lake-owned rows between publication and snapshotting.
+実行DBの制約・索引とlake外の状態を失わないよう、元DBのcopyへ展開する。
+除去は公開済みのupload copyだけが対象で、値の同一性はcallerが保証する。
 """
 
 from __future__ import annotations
