@@ -2,9 +2,10 @@ name: cloud-tradingview-snapshot
 run-name: "tradingview ${{ github.event.schedule || 'manual' }}"
 
 on:
-  schedule:
-    - cron: "37 6,8,10,12,14 * * 1-5"
-    - cron: "37 0,4,8 * * 0,6"
+  # #1820 本番切替中は定期起動を停止。再開時は下の元scheduleを復元する。
+  # schedule:
+  #   - cron: "37 6,8,10,12,14 * * 1-5"
+  #   - cron: "37 0,4,8 * * 0,6"
   workflow_dispatch:
     inputs:
       interval:
