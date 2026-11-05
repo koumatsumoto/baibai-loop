@@ -8,6 +8,7 @@ import hashlib
 import json
 import uuid
 from collections.abc import Iterable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -169,19 +170,33 @@ class FixedEdinetLists:
 
     def iter_receipts(self, days: Iterable[date] | None = None) -> Iterator[NativeListReceipt]:
         selected = set(days) if days is not None else None
-        for entry in self.value()["receipts"]:
-            day = date.fromisoformat(entry["doc_date"])
-            if selected is not None and day not in selected:
-                continue
-            saved = _read(self._store, _body_key(entry["sha256"]), cache=self._body_cache)
-            if saved is None or _digest(saved[0]) != entry["sha256"]:
-                self._body_cache.pop(_body_key(entry["sha256"]), None)
+        entries = [
+            entry
+            for entry in self.value()["receipts"]
+            if selected is None or date.fromisoformat(entry["doc_date"]) in selected
+        ]
+        if not entries:
+            return
+
+        def read_body(digest: str) -> tuple[str, bytes]:
+            key = _body_key(digest)
+            saved = _read(self._store, key, cache=self._body_cache)
+            if saved is None or _digest(saved[0]) != digest:
+                self._body_cache.pop(key, None)
                 raise LakePublishError("EDINET list body missing or hash mismatch")
+            return digest, saved[0]
+
+        # 各読取では共有gzipを一度ずつ検証する。独立した転送は有限並列とし、
+        # 受領UUID・時刻・返却順は固定headのまま保つ。次の読取もHEAD検査を行う。
+        digests = dict.fromkeys(entry["sha256"] for entry in entries)
+        with ThreadPoolExecutor(max_workers=8) as workers:
+            bodies = dict(workers.map(read_body, digests, buffersize=16))
+        for entry in entries:
             yield NativeListReceipt(
                 entry["receipt_id"],
-                day,
+                date.fromisoformat(entry["doc_date"]),
                 datetime.fromisoformat(entry["received_at_utc"]),
-                saved[0],
+                bodies[entry["sha256"]],
             )
 
 

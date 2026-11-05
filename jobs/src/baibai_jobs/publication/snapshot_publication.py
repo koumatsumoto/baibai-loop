@@ -27,6 +27,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarL1,
     CalendarObjectStore,
@@ -57,6 +59,8 @@ from baibai_engine.storage.snapshots.reader import FixedRelease as LakeFixedRele
 from baibai_engine.storage.snapshots.reader import (
     LakeReadError,
     resolve_release,
+    selected_partitions,
+    verify_object,
 )
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.snapshots.release import create_release as create_lake_release
@@ -222,7 +226,7 @@ def prepare_market_lake(
     started = time.perf_counter()
     serving = _serving_pointer(store)
     previous = serving.pointer
-    published_coverage_start: Mapping[str, date] = {}
+    published_coverage_start: dict[str, date] = {}
     serving_release = None
     if previous is not None:
         serving_release = _resolve_serving_release(store, mirror_root, previous)
@@ -384,6 +388,33 @@ def prepare_market_lake(
                     )
                 )
             export = replace(export, datasets=datasets)
+        # source_pages mixes native-migrated originals with sources still served here.
+        # Compare like-for-like history, without exempting the remaining originals.
+        migrated_sources = frozenset(
+            source
+            for source, enabled in (
+                ("daily_bars", native_price),
+                ("master", native_master),
+                ("market_calendar", native_calendar),
+                ("margin_alerts", native_alerts),
+            )
+            if enabled
+        )
+        source_pages = export.datasets.get("jquants.source_pages")
+        served_start = published_coverage_start.get("jquants.source_pages")
+        if (
+            migrated_sources
+            and serving_release is not None
+            and served_start is not None
+            and (source_pages is None or source_pages.manifest.coverage_start > served_start)
+        ):
+            remaining_start = _remaining_source_pages_start(
+                serving_release, store, mirror_root, migrated_sources
+            )
+            if remaining_start is None:
+                published_coverage_start.pop("jquants.source_pages")
+            else:
+                published_coverage_start["jquants.source_pages"] = remaining_start
         export_finished = time.perf_counter()
         with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
             release_path, release = create_lake_release(
@@ -511,6 +542,40 @@ def _pointer_origin(pointer: LakeReleasePointer | None) -> LakeStoreOrigin | Non
         release_id=pointer.release_id,
         release_manifest_sha256=pointer.manifest_sha256,
     )
+
+
+def _remaining_source_pages_start(
+    serving: LakeFixedRelease,
+    store: ObjectStore,
+    mirror_root: Path,
+    migrated_sources: frozenset[str],
+) -> date | None:
+    """Keep the fixed old release's floor only for originals still owned by the lake."""
+    dataset = LAKE_DATASETS["jquants.source_pages"]
+    for partition in selected_partitions(serving, dataset.name):
+        earliest = None
+        for item in partition.objects:
+            # Hydrate evicts large raw objects. Do not accumulate their second copies
+            # beside this publication's seal and exports just to inspect two columns.
+            with tempfile.TemporaryDirectory(
+                dir=mirror_root, prefix=".source-history-"
+            ) as directory:
+                root = (
+                    mirror_root
+                    if lake_mirror_path(mirror_root, item.key).is_file()
+                    else Path(directory)
+                )
+                path = _fetch(store, root, item.key, expected_sha256=item.sha256)
+                verify_object(path, dataset, item)
+                with pq.ParquetFile(path, pre_buffer=False) as parquet:
+                    for batch in parquet.iter_batches(columns=["source", "received_on"]):
+                        for row in batch.to_pylist():
+                            if row["source"] not in migrated_sources:
+                                received = date.fromisoformat(row["received_on"])
+                                earliest = received if earliest is None else min(earliest, received)
+        if earliest is not None:
+            return earliest
+    return None
 
 
 @contextmanager
