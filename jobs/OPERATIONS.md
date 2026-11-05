@@ -66,6 +66,10 @@ EDINETは取得日と抽出日を分ける。当日一覧・必要archiveの未�
 
 metricsのlookbackは取得coverageと抽出候補の範囲であり、archive取得計画・明示抽出・共通統合とも訂正・取下げの解決に使う保持origin/祖先は切り捨てない。旧年度operationを誤ってorphan扱いしたquarantine行は再利用せず、archive取得計画で選択された現年度文書のCSVを確保し、次回統合で回復する。CSV未到着なら入力延期を保ち、古い正常baselineへ戻さない。保持証拠の範囲だけを直すこの回復に、全期間再取得・全件再抽出や抽出意味revisionの付替えは不要。
 
+通常`edinet-metrics`のCSV取得計画は、保存一覧の540日前〜asof（両端込み）の充足、nativeの訂正/取消・ticker選択とarchiveのdocID/typeだけを使う。L2 metricの成功・失敗・revision・破損でGET対象を減らさず、選択文書の原ZIPが無ければ取得する。受領済みのtype5 ZIPは再取得しない。一覧不足/失敗・候補0は取得失敗として報告するが、取得plannerがL2 failure coverageを書き込むことはない。nativeでtickerを特定できる未解決eventは隔離する。originとtickerを失ったeventの関連企業をL2 baselineから推測せず、baselineだけに残る対応の隔離は既存のL2抽出ownerが維持する。原本を取得できたことをL2への採用成功と扱わない。
+
+取得inputからmetric本文/coverageを外すため、code更新後の次の通常input発行で小さい形へ置き換える。旧inputの余分なL2欄は読まず、既存schema・原本・受領時刻・stage形式を変換しない。未統合stageの原ZIPと一覧は従来通りresumeで保全する。今回の分離は通常CSV取得だけであり、一覧投影/coverageとmarket共通公開への依存、factsのinitialized/sinceによる取得範囲、明示`maintain-market refresh-edinet-metrics`のL2計画依存は残る（refs #1820）。後続で取得開始範囲のsource所有化と明示取得caller、一覧原本からの計画、L1公開を分離する。今回の切替でfacts未初期化を迂回したり過去全件GETを増やしたりしない。
+
 一覧の不正再受領では既存のok日の投影・受領時計を保つ。未適格日の不正受領は、選択できた正常原典由来の証拠とfailed coverageを保存し、`edinet.documents`だけはpartialでも公開して正常な別sourceと原本保存を止めない。partial公開は日別取得の完了認定ではなく、厳密な日付読取はfailed日を拒否する。正常な別日の訂正・取下げは反映し、不正日は新しいhandoffがなくても失敗報告を続け、正常受領で回復するまで`source-check`は成功にしない。
 
 Screening成功は全source成功を意味しない。旧snapshot日を当日へ書き換えず、`edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc`、文書ID・提出日時・対象期間で鮮度を確認する。採用条件は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。入力延期だけなら `source-check` は成功、不正受領・解析・公開・readbackの失敗はエラーになる。check無効化や全取得の重複起動ではなく、失敗したsourceだけを修復する。

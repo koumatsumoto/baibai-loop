@@ -24,7 +24,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
 _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
     "edinet-list": _LISTS,
-    "edinet-metrics": (*_LISTS, "edinet_metrics"),
+    "edinet-metrics": _LISTS,
     "edinet-facts": _LISTS,
     "jpx-earnings": (),
     "jpx-regulations": (),

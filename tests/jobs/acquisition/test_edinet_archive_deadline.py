@@ -13,11 +13,10 @@ def test_archive_deadline_exports_successful_keys_and_stages_failed_acquisition(
     source, tmp_path, monkeypatch
 ):
     documents = [SimpleNamespace(doc_id=name) for name in ("S100GOOD", "S100STOP", "S100NEXT")]
-    monkeypatch.setattr(edinet_archives, "EDINETReader", lambda _: None)
     monkeypatch.setattr(
         edinet_archives,
-        "prepare_edinet_metric_plan",
-        lambda **_: SimpleNamespace(archive_candidates=documents),
+        "metric_archive_candidates",
+        lambda *_, **__: ([document.doc_id for document in documents], 0),
     )
     monkeypatch.setattr(
         edinet_archives,
