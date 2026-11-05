@@ -171,8 +171,10 @@ def test_buy_roundtrip_reuses_scoped_evidence_without_rewriting_old_records(tmp_
         "item": proposal.items[0].model_dump(mode="json"),
     }
     assert origin["assessment"]["reference"]["assessment_id"] == case.pair.assessment_id
+    assert origin["assessment"]["published_at"] == case.pair.published_at.isoformat()
     citations = result["context"]["citations"]
     assert citations[0]["record"]["reference"] == research.reference.model_dump(mode="json")
+    assert citations[1]["record"]["published_at"] == case.pair.published_at.isoformat()
     assert (
         citations[0]["record"]["document"]["facts"][0]["value"]
         != citations[1]["record"]["document"]["input_snapshot"]["facts"][0]["value"]

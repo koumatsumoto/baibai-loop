@@ -49,7 +49,9 @@ def _pair(*, number=1, explanation=None, partial=False):
     review_raw["reviewed_assessment_sha256"] = identity
     review = AssessmentReview.model_validate(review_raw)
     evaluation = evaluate_assessment(document, review=review, identity=identity, now=PUBLISHED)
-    return ReviewedAssessment(assessment_id(number), document, review, identity, evaluation)
+    return ReviewedAssessment(
+        assessment_id(number), document, review, identity, evaluation, published_at=PUBLISHED
+    )
 
 
 def _ref(pair):

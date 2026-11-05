@@ -318,10 +318,7 @@ def _check_proposal(
         pairs[pair.assessment_id] = pair
         if pair.document.input_snapshot.ticker != item.ticker:
             raise ProposalConflictError("proposal item and exact assessment ticker differ")
-        published_at = connection.execute(
-            "SELECT published_at FROM stock_assessment WHERE assessment_id=?", (pair.assessment_id,)
-        ).fetchone()
-        if datetime.fromisoformat(str(published_at[0])) > now:
+        if pair.published_at > now:
             blockers.append(
                 GateReason(
                     code="assessment_after_proposal",

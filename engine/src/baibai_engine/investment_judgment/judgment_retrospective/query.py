@@ -50,21 +50,10 @@ def _assessment_reference(pair: ReviewedAssessment) -> AssessmentRef:
     )
 
 
-def _assessment_publication(connection: sqlite3.Connection, assessment_id: str) -> datetime:
-    row = connection.execute(
-        "SELECT published_at FROM stock_assessment WHERE assessment_id=?", (assessment_id,)
-    ).fetchone()
-    if row is None:
-        raise ValueError(f"unknown assessment: {assessment_id}")
-    return _datetime(str(row[0]))
-
-
-def _assessment_context(
-    connection: sqlite3.Connection, pair: ReviewedAssessment
-) -> dict[str, object]:
+def _assessment_context(pair: ReviewedAssessment) -> dict[str, object]:
     return {
         "reference": _assessment_reference(pair).model_dump(mode="json"),
-        "published_at": _assessment_publication(connection, pair.assessment_id).isoformat(),
+        "published_at": pair.published_at.isoformat(),
         "document": pair.document.model_dump(mode="json"),
         "review": pair.review.model_dump(mode="json"),
     }
@@ -94,7 +83,7 @@ def _origin_context(
             pair = require_assessment_ref(connection, item.assessment_ref)
     else:
         pair = require_assessment_ref(connection, origin)
-        published_at = _assessment_publication(connection, origin.assessment_id)
+        published_at = pair.published_at
     if pair is not None and pair.document.input_snapshot.ticker != ticker:
         raise ValueError("origin Assessment ticker mismatch")
     if published_at > recorded_at or published_at.astimezone(JST).date() > as_of:
@@ -105,7 +94,7 @@ def _origin_context(
         "reference": origin.model_dump(mode="json"),
         "published_at": published_at.isoformat(),
         "proposal": proposal_context,
-        "assessment": None if pair is None else _assessment_context(connection, pair),
+        "assessment": None if pair is None else _assessment_context(pair),
     }
 
 
@@ -167,9 +156,9 @@ def _citation_contexts(
                     pair = require_assessment_ref(connection, citation.reference)
                     snapshot = pair.document.input_snapshot
                     ticker, as_of = snapshot.ticker, snapshot.as_of
-                    saved_at = _assessment_publication(connection, pair.assessment_id)
+                    saved_at = pair.published_at
                     sources, facts = snapshot.sources, snapshot.facts
-                    content = _assessment_context(connection, pair)
+                    content = _assessment_context(pair)
                 if ticker != document.ticker:
                     raise ValueError("citation ticker mismatch")
                 if as_of > document.as_of or saved_at > recorded_at:
