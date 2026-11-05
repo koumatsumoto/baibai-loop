@@ -1,10 +1,11 @@
 name: cloud-tradingview-market-daily
 
 on:
-  schedule:
-    # 06:30 JST: after the OSE night session and the US regular close,
-    # including the currently observed 15-minute OSE quote delay.
-    - cron: "30 21 * * *"
+  # #1820 本番切替中は定期起動を停止。再開時は下の元scheduleを復元する。
+  # schedule:
+  #   # 06:30 JST: after the OSE night session and the US regular close,
+  #   # including the currently observed 15-minute OSE quote delay.
+  #   - cron: "30 21 * * *"
   workflow_dispatch:
 
 permissions:
