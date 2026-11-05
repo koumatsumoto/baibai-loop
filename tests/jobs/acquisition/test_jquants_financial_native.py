@@ -217,3 +217,113 @@ def test_cli_dispatch_acquires_commits_retries_and_rebuilds(tmp_path, monkeypatc
     )
     assert (tmp_path / "output" / "input.json").is_file()
     assert cli.main(["jquants-financial-native", "plan", "--directory", work]) == 1
+
+
+@pytest.mark.parametrize("kind", ["no-pages", "partial", "held"])
+def test_commit_work_retry_keeps_current_unresolved_scope_failed(
+    tmp_path, monkeypatch, capsys, kind
+):
+    from baibai_engine.data_collection.providers.jquants.financial_native import FinancialAttempt
+    from baibai_jobs.acquisition import jquants_financial_native as acquisition
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    store = Store()
+    owner = FinancialL1(store, tmp_path / "work")
+    owner.initialize()
+    monkeypatch.setattr(acquisition, "Boto3R2Store", lambda **_: store)
+    if kind == "held":
+        original = FinancialAttempt(
+            "original",
+            DAY,
+            AT,
+            tuple(Client(AT).pages("financial_summaries", {"date": DAY.isoformat()})),
+        )
+        owner.commit([original])
+        item = FinancialAttempt(
+            "held",
+            DAY,
+            AT,
+            tuple(Client(AT, value=2).pages("financial_summaries", {"date": DAY.isoformat()})),
+        )
+    else:
+        pages = (
+            ()
+            if kind == "no-pages"
+            else (
+                JQuantsPage(
+                    "financial_summaries",
+                    {"date": DAY.isoformat()},
+                    AT,
+                    b'{"data": [], "pagination_key": "next"}',
+                ),
+            )
+        )
+        item = FinancialAttempt("failed", DAY, AT, pages, "provider_failure")
+    (owner.directory / "attempt-saved.json").write_text(json.dumps(item.value()))
+    args = ["commit-work", "--directory", str(owner.directory)]
+    assert acquisition.main(args) == 1
+    capsys.readouterr()
+    writes = len(store.put_keys)
+    assert acquisition.main(args) == 1
+    report = json.loads(capsys.readouterr().out)
+    reason = "held" if kind == "held" else "failure"
+    assert report["retried"] == [item.request_id]
+    assert report["unresolved"] == {DAY.isoformat(): [reason]}
+    assert len(store.put_keys) == writes
+
+    # A new successful receipt resolves the scope. Replaying the old failed
+    # directory must not keep an obsolete failure alive forever.
+    fresh_at = AT + timedelta(hours=1)
+    fresh = FinancialAttempt(
+        "fresh",
+        DAY,
+        fresh_at,
+        tuple(Client(fresh_at).pages("financial_summaries", {"date": DAY.isoformat()})),
+    )
+    owner.commit([fresh])
+    assert acquisition.main(args) == 0
+    assert json.loads(capsys.readouterr().out)["unresolved"] == {}
+    owner.commit(
+        [
+            FinancialAttempt(
+                "new-failure", DAY, fresh_at + timedelta(hours=1), (), "provider_failure"
+            )
+        ]
+    )
+    assert acquisition.main(args) == 1
+    assert json.loads(capsys.readouterr().out)["unresolved"] == {DAY.isoformat(): ["failure"]}
+
+
+def test_commit_work_reports_current_scope_not_historical_failures(tmp_path, monkeypatch, capsys):
+    from baibai_engine.data_collection.providers.jquants.financial_native import FinancialAttempt
+    from baibai_jobs.acquisition import jquants_financial_native as acquisition
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    store = Store()
+    owner = FinancialL1(store, tmp_path / "work")
+    owner.initialize()
+    monkeypatch.setattr(acquisition, "Boto3R2Store", lambda **_: store)
+    failed = FinancialAttempt("failed", DAY, AT, (), "provider_failure")
+    later = AT + timedelta(hours=1)
+    recovered = FinancialAttempt(
+        "recovered",
+        DAY,
+        later,
+        tuple(Client(later).pages("financial_summaries", {"date": DAY.isoformat()})),
+    )
+    for item in (failed, recovered):
+        (owner.directory / f"attempt-{item.request_id}.json").write_text(json.dumps(item.value()))
+    # Unrelated failure must not poison this directory's resolved source day.
+    other_day = DAY + timedelta(days=1)
+    owner.commit([FinancialAttempt("unrelated", other_day, AT, (), "provider_failure")])
+    assert acquisition.main(["commit-work", "--directory", str(owner.directory)]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["failed"] == ["failed"]
+    assert report["changed"] == ["recovered"]
+    assert report["unresolved"] == {}
