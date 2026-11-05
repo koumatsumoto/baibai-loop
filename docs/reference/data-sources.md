@@ -47,6 +47,8 @@ margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規
 
 margin-alertの独立取得・固定consumer・有限移行は[明示native入口](../../jobs/OPERATIONS.md#margin-alerts-native-l1)にあり、通常market取得への接続とは別である。公表前の空応答、取得失敗、取得済み対象なしを分ける。株数と金額は元の単位を保持し、欠測金額を株数×価格で補わない。指標の週比較と株式basisは[市場環境](market-context.md#margin)に従う。
 
+週次・全銘柄日次の独立L1は[明示CLI](../../jobs/OPERATIONS.md#margin-interest-native-l1)で取得・有限移行・固定読取する。通常writerと歴史評価の経路は変更しない。
+
 ## 経済原本
 
 取得時刻は受領・改訂の順序で、公表vintageや当時の既知値とは限らない。正常bulk応答の空日と取得失敗を分ける。FREDは全CSVの実在期間を比較し、過去にnative行が存在した期間の消失だけを空集合として残す。全暦日を埋める人工空は新規作成しない。最新原本が空・欠測でも古い非null値へ戻らず、取得失敗では既存原本を消さない。取得成功とL2計算可能は別の事実である。L2定義の退役・改名だけでsource factを消さない。

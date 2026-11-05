@@ -1,9 +1,8 @@
 """Unfiltered full-day J-Quants receipt persistence, independent of L2.
 
-Financial summaries, daily bars, master snapshots, margin alerts and short-sale
-reports share this unfiltered explicit-date persistence boundary. Their acquisition
-and projection rules stay with each source. Interval calendars and delayed all-issues
-margin publications differ.
+Financial summaries, daily bars, master snapshots, margin sources and short-sale
+reports share this unfiltered explicit-date persistence boundary. Acquisition and
+projection rules stay with each source. Interval calendars use another storage contract.
 """
 
 from __future__ import annotations
@@ -39,7 +38,12 @@ from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 @dataclass(frozen=True, slots=True)
 class FullDayContract:
     source: Literal[
-        "financial_summaries", "daily_bars", "master", "margin_alerts", "short_sale_reports"
+        "financial_summaries",
+        "daily_bars",
+        "master",
+        "margin_alerts",
+        "short_sale_reports",
+        "margin_interest",
     ]
     prefix: str
     format: str
@@ -80,7 +84,12 @@ def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> s
 class FullDayAttempt:
     source: ClassVar[
         Literal[
-            "financial_summaries", "daily_bars", "master", "margin_alerts", "short_sale_reports"
+            "financial_summaries",
+            "daily_bars",
+            "master",
+            "margin_alerts",
+            "short_sale_reports",
+            "margin_interest",
         ]
     ]
 
@@ -413,6 +422,10 @@ class FullDayL1[Attempt: FullDayAttempt, Fixed: FixedFullDayL1]:
                         "held": None,
                     }
                 )
+                if self.contract.source == "margin_interest":
+                    # Raw envelope count is needed for weekly/daily empty fulfillment.
+                    # Existing source head formats and their empty rules stay unchanged.
+                    scope["record_count"] = len(request.records())
                 if not equal:
                     scope["changed_at"] = stamp.isoformat()
             value["scopes"][day] = scope
