@@ -46,6 +46,8 @@ class ReviewedAssessment:
     review: AssessmentReview
     core_sha256: str
     evaluation: AssessmentEvaluation
+    # 利用側で保存行を再読せず、検証したpairと同じ公開時刻を使う。
+    published_at: datetime
 
 
 def latest_assessment_id(connection: sqlite3.Connection, ticker: str) -> str | None:
@@ -123,7 +125,9 @@ def load_reviewed_assessment(
             _verify_prior_ref(connection, prior_ref, document)
     except ValueError as error:
         raise ResearchValidationError(f"要再評価: {assessment_id}: {error}") from error
-    return ReviewedAssessment(assessment_id, document, review, identity, evaluation)
+    return ReviewedAssessment(
+        assessment_id, document, review, identity, evaluation, published_at=published_at
+    )
 
 
 def load_latest_reviewed_assessment(
@@ -279,7 +283,14 @@ def publish_reviewed_assessment(
         connection.execute("RELEASE reviewed_assessment_publication")
         raise
     connection.execute("RELEASE reviewed_assessment_publication")
-    return ReviewedAssessment(assessment_id, assessment, review, result.assessment_sha256, result)
+    return ReviewedAssessment(
+        assessment_id,
+        assessment,
+        review,
+        result.assessment_sha256,
+        result,
+        published_at=published_at,
+    )
 
 
 class AssessmentStoreService:
