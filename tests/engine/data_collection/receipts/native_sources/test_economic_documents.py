@@ -1,3 +1,4 @@
+import sqlite3
 from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -7,6 +8,7 @@ import pytest
 
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
+    read_document_metadata,
     read_documents,
     store_document,
 )
@@ -119,3 +121,58 @@ def test_document_bodies_participate_in_store_merge(tmp_path):
     merge_stores(source, target)
     with closing(initialize_database(target)) as conn:
         assert list(read_documents(conn, value.source_id)) == [value]
+
+
+def test_metadata_reader_uses_the_same_latest_request_receipts_without_payload(tmp_path):
+    old = document()
+    latest = replace(
+        old,
+        fetched_at=old.fetched_at + timedelta(days=1),
+        payload=b"%PDF changed",
+        metadata={"observed_at": "2026-08-01", "phase": "flash"},
+    )
+    other_request = document(request_key="2026-09-01", metadata={"observed_at": "2026-09-01"})
+    other_source = document(source_id="other-source", metadata={"other": True})
+    with closing(initialize_database(tmp_path / "indicators.sqlite")) as conn, conn:
+        for value in (other_request, latest, old, other_source):
+            store_document(conn, value)
+        expected = [row.metadata for row in read_documents(conn, old.source_id)]
+        assert expected == [latest.metadata, other_request.metadata]
+        conn.set_authorizer(
+            lambda action, table, column, *_: (
+                sqlite3.SQLITE_DENY
+                if action == sqlite3.SQLITE_READ
+                and table == "economic_source_documents"
+                and column == "payload"
+                else sqlite3.SQLITE_OK
+            )
+        )
+        assert list(read_document_metadata(conn, old.source_id)) == expected
+        assert list(read_document_metadata(conn, "absent-source")) == []
+
+
+@pytest.mark.parametrize("reader", [read_documents, read_document_metadata])
+@pytest.mark.parametrize(
+    ("metadata", "fetched_at", "match"),
+    [
+        ("[]", None, "must be a mapping"),
+        ("null", None, "must be a mapping"),
+        ("not-json", None, "Expecting value"),
+        ("{}", "invalid", "Invalid isoformat string"),
+    ],
+)
+def test_latest_invalid_document_metadata_does_not_fall_back_to_prior_receipt(
+    tmp_path, reader, metadata, fetched_at, match
+):
+    old = document()
+    latest = replace(old, fetched_at=old.fetched_at + timedelta(days=1), payload=b"changed")
+    with closing(initialize_database(tmp_path / "indicators.sqlite")) as conn, conn:
+        store_document(conn, old)
+        store_document(conn, latest)
+        timestamp = latest.fetched_at.isoformat(timespec="microseconds")
+        conn.execute(
+            "UPDATE economic_source_documents SET metadata=?, fetched_at=? WHERE fetched_at=?",
+            (metadata, fetched_at or timestamp, timestamp),
+        )
+        with pytest.raises(ValueError, match=match):
+            list(reader(conn, old.source_id))

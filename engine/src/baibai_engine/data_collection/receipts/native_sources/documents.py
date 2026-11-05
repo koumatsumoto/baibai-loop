@@ -73,9 +73,6 @@ def read_documents(connection: sqlite3.Connection, source_id: str) -> Iterator[S
         (source_id,),
     )
     for source_id, key, fetched_at, url, content_type, payload, raw_metadata in rows:
-        metadata = json.loads(raw_metadata)
-        if not isinstance(metadata, dict):
-            raise ValueError("stored source document metadata must be a mapping")
         yield SourceDocument(
             source_id=source_id,
             request_key=key,
@@ -83,5 +80,30 @@ def read_documents(connection: sqlite3.Connection, source_id: str) -> Iterator[S
             content_type=content_type,
             fetched_at=datetime.fromisoformat(fetched_at),
             payload=payload,
-            metadata=metadata,
+            metadata=_decode_metadata(raw_metadata),
         )
+
+
+def read_document_metadata(
+    connection: sqlite3.Connection, source_id: str
+) -> Iterator[Mapping[str, object]]:
+    """Plan from the latest receipt scope without loading retained document bodies."""
+    rows = connection.execute(
+        "SELECT c.fetched_at, c.metadata FROM economic_source_documents c "
+        "WHERE c.source_id = ? AND c.fetched_at = ("
+        "SELECT MAX(n.fetched_at) FROM economic_source_documents n "
+        "WHERE n.source_id = c.source_id AND n.request_key = c.request_key) "
+        "ORDER BY c.request_key",
+        (source_id,),
+    )
+    for fetched_at, raw_metadata in rows:
+        # Keep receipt validation even when planning does not need its clock.
+        datetime.fromisoformat(fetched_at)
+        yield _decode_metadata(raw_metadata)
+
+
+def _decode_metadata(raw: str) -> Mapping[str, object]:
+    metadata = json.loads(raw)
+    if not isinstance(metadata, dict):
+        raise ValueError("stored source document metadata must be a mapping")
+    return metadata
