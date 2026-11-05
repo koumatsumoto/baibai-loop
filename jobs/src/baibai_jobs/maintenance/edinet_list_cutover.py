@@ -140,22 +140,11 @@ def prepare_migration(
 
     def verify_projection(
         origin: str,
-        raw_ids: set[str],
         list_rows: list[tuple[Any, ...]],
         document_rows: list[tuple[Any, ...]],
     ) -> None:
         if not list_rows and not document_rows:
             return
-        originals = {
-            identity: _receipt(
-                prepared[identity], (directory / prepared[identity]["file"]).read_bytes()
-            ).decoded()
-            for identity in raw_ids
-            if identity in prepared
-        }
-        by_day: dict[date, list[Any]] = defaultdict(list)
-        for item in originals.values():
-            by_day[item.doc_date].append(item)
         documents: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
         for row in document_rows:
             documents[str(row[0])].append(tuple(row))
@@ -308,8 +297,18 @@ def prepare_migration(
             blocked.append({"origin": origin, "reason": str(error)})
     # Selected receipt and recheck evidence may be retained in another fixed
     # source. Validate only after collecting the complete release/stage union.
-    for origin, list_rows, document_rows in projections:
-        verify_projection(origin, set(prepared), list_rows, document_rows)
+    evidence = [item for item in projections if item[1] or item[2]]
+    if evidence:
+        # 全originで同じ固定unionを使う。各stageの投影ごとに全gzipを再展開しない。
+        originals = {
+            identity: _receipt(item, (directory / item["file"]).read_bytes()).decoded()
+            for identity, item in prepared.items()
+        }
+        by_day: dict[date, list[Any]] = defaultdict(list)
+        for item in originals.values():
+            by_day[item.doc_date].append(item)
+        for origin, list_rows, document_rows in evidence:
+            verify_projection(origin, list_rows, document_rows)
     missing = sorted(projected_days - {item["doc_date"] for item in prepared.values()})
     plan = {
         "format": FORMAT,
