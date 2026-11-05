@@ -233,15 +233,18 @@ def test_receipts_cross_only_private_r2_with_content_verification(tmp_path):
     assert (downloaded / "receipts.sqlite").read_bytes() == (
         directory / "receipts.sqlite"
     ).read_bytes()
-    assert all(key.startswith("coordination/economic-sources/") for key in store.put_keys)
+    assert all(
+        key.startswith(("coordination/economic-sources/", "l1/economic/fred/v1/"))
+        for key in store.put_keys
+    )
     assert not any(
         "artifact" in str(workflow(name))
         for name in ("cloud-economic-source.yml", "cloud-economic-sources.yml")
     )
     assert save_handoff(store, "42-1-fred_csv", directory) == stage
-    key = next(key for key in store.values if key.endswith(".sqlite"))
+    key = next(key for key in store.values if "/packs/" in key)
     store.values[key].body = b"tampered"
-    with pytest.raises(LakePublishError, match="receipt"):
+    with pytest.raises(LakePublishError, match="integrity"):
         load_handoff(store, stage, tmp_path / "corrupt")
 
 

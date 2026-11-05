@@ -15,7 +15,10 @@ from baibai_engine.data_collection.providers.tradingeconomics.pmi_contract impor
     parse_article,
     request_key,
 )
-from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
+from baibai_engine.data_collection.receipts.native_sources.documents import (
+    SourceDocument,
+    SourceDocumentMetadata,
+)
 from baibai_engine.data_collection.transport.context import (
     FetchContext,
     HttpSession,
@@ -41,7 +44,7 @@ class TradingEconomicsPmiSource:
         end: date,
         session: HttpSession,
         context: FetchContext | None,
-        existing: Mapping[str, SourceDocument],
+        existing: Mapping[str, SourceDocument | SourceDocumentMetadata],
         force: bool,
         recheck_existing: bool = True,
         selected_urls: tuple[str, ...] | None = None,

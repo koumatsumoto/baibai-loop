@@ -22,6 +22,65 @@ class SourceDocument:
     metadata: Mapping[str, object]
 
 
+@dataclass(frozen=True, slots=True)
+class SourceDocumentMetadata:
+    """Acquisition planning identity, never a replacement for a document body."""
+
+    source_id: str
+    request_key: str
+    source_url: str
+    content_type: str
+    fetched_at: datetime
+    metadata: Mapping[str, object]
+
+
+PMI_INPUT_TABLE = "economic_pmi_input_documents"
+PMI_INPUT_COLUMNS = (
+    "source_id",
+    "request_key",
+    "fetched_at",
+    "source_url",
+    "content_type",
+    "metadata",
+)
+
+
+def read_document_metadata(
+    connection: sqlite3.Connection, source_id: str
+) -> Iterator[SourceDocumentMetadata]:
+    """Merge the fixed PMI planning seed with this acquisition's real receipts.
+
+    Canonical and old scoped inputs have only the ordinary document table. Never
+    read their payload column just to decide which URLs/months need acquisition.
+    """
+    latest: dict[str, SourceDocumentMetadata] = {}
+    tables = ["economic_source_documents"]
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (PMI_INPUT_TABLE,)
+    ).fetchone():
+        tables.insert(0, PMI_INPUT_TABLE)
+    for table in tables:
+        rows = connection.execute(
+            f"SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "  # nosec B608
+            f"c.content_type, c.metadata FROM {table} c "
+            "WHERE c.source_id=? AND c.fetched_at=("
+            f"SELECT MAX(n.fetched_at) FROM {table} n "
+            "WHERE n.source_id=c.source_id AND n.request_key=c.request_key)",
+            (source_id,),
+        )
+        for source, key, fetched, url, content_type, raw in rows:
+            metadata = json.loads(raw)
+            if not isinstance(metadata, dict):
+                raise ValueError("stored source document metadata must be a mapping")
+            item = SourceDocumentMetadata(
+                source, key, url, content_type, datetime.fromisoformat(fetched), metadata
+            )
+            prior = latest.get(key)
+            if prior is None or item.fetched_at >= prior.fetched_at:
+                latest[key] = item
+    yield from (latest[key] for key in sorted(latest))
+
+
 def store_document(connection: sqlite3.Connection, document: SourceDocument) -> bool:
     """Stage one received body; the acquisition caller owns the transaction."""
     if document.fetched_at.tzinfo is None or document.fetched_at.utcoffset() is None:
