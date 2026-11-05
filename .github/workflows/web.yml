@@ -1,14 +1,8 @@
 name: web
 
-# The path filter scopes automatic quality checks. GitHub diffs the pull request
-# three-dot or the push range, so a filtered run already means the web tree moved,
-# and no job has to re-derive that from git. The filter is exact here because it
-# only goes silent on diffs past 3,000 files, which a tree this size cannot reach
-# — tests/jobs/workflows/test_cloud_workflow_contracts.py holds that budget.
-#
-# This file is filtered on pull requests so its own edits are gated, and left out
-# of the push filter. Production deploy is explicitly dispatched after any
-# required read-model publication and readback.
+# Web入力の変更だけを自動検証する。GitHubのdiff上限を超える変更では
+# path filterが起動を見送る場合があるため、実際のrunを確認する。
+# 本番配備は必要なread-modelの公開・読戻し後にmainで明示dispatchする。
 on:
   pull_request:
     branches: [main]
@@ -89,12 +83,8 @@ jobs:
         working-directory: web/edge
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
 
-      # A queued run can hold a web tree that main has already moved past. Publishing it
-      # would roll production backwards, so the run compares its own tree against main
-      # and steps aside rather than deploying.
-      #
-      # PR/push runs check quality only. Only an explicit main dispatch can publish
-      # the UI, after the operator has verified any required serving update.
+      # 待機中にmainのbuild入力が変わったrunは配備しない。
+      # 表示コードだけでなくNode版とbuild/deploy手順も比較する。
       - name: Verify current production target
         id: deploy-target
         if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
@@ -104,7 +94,8 @@ jobs:
           git fetch --no-tags --depth=1 origin main
           current_sha="$(git rev-parse FETCH_HEAD)"
           current=false
-          if git diff --quiet "$TARGET_SHA" "$current_sha" -- web/frontend web/edge web/contracts; then
+          if git diff --quiet "$TARGET_SHA" "$current_sha" -- \
+            web/frontend web/edge web/contracts .node-version .github/workflows/web.yml; then
             current=true
           else
             diff_status=$?

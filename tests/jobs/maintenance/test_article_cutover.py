@@ -8,8 +8,8 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
+from baibai_engine.storage.objects.json import put_private
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.external_assessments.staging import put_private
 from baibai_jobs.maintenance import market_cutover
 
 

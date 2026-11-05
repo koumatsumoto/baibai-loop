@@ -34,13 +34,13 @@ MONTH = date(2026, 6, 1)
 def tsr_document(body):
     series = load_definitions().by_id()["jp.bankruptcies"]
     return SourceDocument(
-        series.source_id,
-        "history",
-        series.source_url,
-        "application/json",
-        WHEN,
-        body,
-        {"params": {"data": "data"}},
+        source_id=series.source_id,
+        request_key="history",
+        source_url=series.source_url,
+        content_type="application/json",
+        fetched_at=WHEN,
+        payload=body,
+        metadata={"params": {"data": "data"}},
     )
 
 
@@ -164,13 +164,13 @@ def test_pmi_rechecks_received_urls_in_ordinary_selected_range_refresh(
         "release_observed_at": "2026-05-01" if changed_metadata else MONTH.isoformat(),
     }
     old = SourceDocument(
-        source.source_id,
-        MONTH.isoformat(),
-        url + ("changed" if changed_url else ""),
-        "application/pdf",
-        WHEN,
-        b"%PDF old",
-        old_metadata,
+        source_id=source.source_id,
+        request_key=MONTH.isoformat(),
+        source_url=url + ("changed" if changed_url else ""),
+        content_type="application/pdf",
+        fetched_at=WHEN,
+        payload=b"%PDF old",
+        metadata=old_metadata,
     )
     monkeypatch.setattr(spglobal_pmi, "load_manifest", lambda _: {"jp_manufacturing": (release,)})
     fetched = []
@@ -216,13 +216,13 @@ def test_actual_pdf_bytes_recompute_pmi_without_a_network_request(tmp_path, monk
     series = load_definitions().by_id()["jp.pmi_manufacturing"]
     url = "https://www.pmi.spglobal.com/Public/Home/PressRelease/" + "a" * 32
     document = SourceDocument(
-        series.source_id,
-        MONTH.isoformat(),
-        url,
-        "application/pdf",
-        WHEN,
-        body,
-        {"observed_at": MONTH.isoformat(), "release_observed_at": MONTH.isoformat()},
+        source_id=series.source_id,
+        request_key=MONTH.isoformat(),
+        source_url=url,
+        content_type="application/pdf",
+        fetched_at=WHEN,
+        payload=body,
+        metadata={"observed_at": MONTH.isoformat(), "release_observed_at": MONTH.isoformat()},
     )
     path = tmp_path / "data.sqlite"
     with closing(db.initialize_database(path)) as conn, conn:

@@ -5,31 +5,20 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from baibai_engine.storage.sqlite.read import connect_read_only as connect_sqlite_read_only
+from baibai_engine.storage.sqlite.read import written_schema_version
 from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
 
 
 def connect_read_only(path: Path) -> sqlite3.Connection:
     """Open an unwritten or current market store without initializing it."""
 
-    resolved = path.resolve()
-    connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+    connection = connect_sqlite_read_only(path)
     try:
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
-        connection.execute("PRAGMA foreign_keys = ON")
-        version = int(connection.execute("PRAGMA user_version").fetchone()[0] or 0)
-        has_tables = (
-            connection.execute(
-                "SELECT 1 FROM sqlite_schema "
-                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-            ).fetchone()
-            is not None
-        )
-        if version == 0 and not has_tables:
-            return connection
-        validate_current_schema(connection)
+        if written_schema_version(connection) is not None:
+            validate_current_schema(connection)
         return connection
-    except Exception:
+    except BaseException:
         connection.close()
         raise
 

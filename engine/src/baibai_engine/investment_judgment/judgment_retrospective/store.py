@@ -9,6 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.investment_judgment.contracts import _datetime
+from baibai_engine.investment_judgment.judgment_retrospective.context import (
+    capture_ledger_snapshot,
+    retrospective_context,
+)
 from baibai_engine.investment_judgment.judgment_retrospective.document import (
     RetrospectiveDocument,
     RetrospectiveDraft,
@@ -104,11 +108,6 @@ class RetrospectiveStoreService:
     def _save(
         self, connection: sqlite3.Connection, draft: RetrospectiveDraft
     ) -> RetrospectiveRecord:
-        from baibai_engine.investment_judgment.judgment_retrospective.query import (
-            capture_ledger_snapshot,
-            retrospective_context,
-        )
-
         existing = connection.execute(
             "SELECT 1 FROM judgment_retrospective WHERE retrospective_id=?",
             (draft.retrospective_id,),
@@ -123,7 +122,11 @@ class RetrospectiveStoreService:
             return record
         now = _datetime(self._clock()).astimezone(UTC)
         ledger = capture_ledger_snapshot(
-            connection, draft.document, append_head=draft.ledger_append_head
+            connection,
+            origin=draft.document.origin,
+            ticker=draft.document.ticker,
+            as_of=draft.document.as_of,
+            append_head=draft.ledger_append_head,
         )
         payload = RetrospectivePayload(document=draft.document, ledger=ledger)
         record = RetrospectiveRecord(

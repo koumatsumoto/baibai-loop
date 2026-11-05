@@ -53,6 +53,8 @@ def receive_market_handoff(
     include_daily_prices: bool = True,
     include_master: bool = True,
     include_calendar: bool = True,
+    include_margin_alerts: bool = True,
+    include_short_sales: bool = True,
     provider_halted: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
@@ -115,6 +117,8 @@ def receive_market_handoff(
                 include_daily_prices=include_daily_prices,
                 include_master=include_master,
                 include_calendar=include_calendar,
+                include_margin_alerts=include_margin_alerts,
+                include_short_sales=include_short_sales,
             )
 
         unknown: set[str] = set(fixed.unavailable_stages)
@@ -142,14 +146,17 @@ def receive_market_handoff(
                 receive(
                     "margin_interest", ({"date": day.strftime("%Y%m%d")} for day in weekly.days)
                 )
-                alerts = plan().margin_alerts
-                receive("margin_alerts", ({"date": day.isoformat()} for day in alerts.days))
+                if include_margin_alerts:
+                    alerts = plan().margin_alerts
+                    receive("margin_alerts", ({"date": day.isoformat()} for day in alerts.days))
                 daily = plan().daily_margin
                 receive("margin_interest", ({"date": day.strftime("%Y%m%d")} for day in daily.days))
-                shorts = plan().short_sales
-                receive(
-                    "short_sale_reports", ({"disc_date": day.isoformat()} for day in shorts.days)
-                )
+                if include_short_sales:
+                    shorts = plan().short_sales
+                    receive(
+                        "short_sale_reports",
+                        ({"disc_date": day.isoformat()} for day in shorts.days),
+                    )
                 final = plan()
                 unknown = set(fixed.unavailable_stages)
                 for value in (

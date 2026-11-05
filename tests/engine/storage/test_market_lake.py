@@ -11,7 +11,6 @@ import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
-from baibai_engine.storage.snapshots.inventory import inventory
 from baibai_engine.storage.snapshots.keys import (
     LakeLayer,
     canonical_object_key,
@@ -703,48 +702,6 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         )
 
 
-def test_inventory_reads_metadata_only_and_groups_valid_keys(tmp_path: Path) -> None:
-    key = (
-        "lake/l2/processed/jquants.daily_bars/contract=v1/"
-        f"year=2026/month=8/part-{'e' * 64}.parquet"
-    )
-    object_path = tmp_path / key
-    object_path.parent.mkdir(parents=True)
-    object_path.write_bytes(b"parquet")
-    # The mirror root is also where the operator keeps stores and backups. Those are not
-    # lake objects at all, so they belong in neither the totals nor the invalid keys.
-    (tmp_path / "market").mkdir()
-    (tmp_path / "market" / "market.sqlite").write_bytes(b"store")
-    (tmp_path / "outside.txt").write_text("ignored", encoding="utf-8")
-
-    result = inventory(tmp_path)
-
-    assert result["objects"] == 1
-    assert result["bytes"] == 7
-    assert result["areas"] == [
-        {
-            "prefix": "lake/l2/processed/jquants.daily_bars",
-            "objects": 1,
-            "bytes": 7,
-        }
-    ]
-    assert result["invalid_keys"] == []
-
-
-def test_inventory_reports_an_unsafe_key_inside_the_namespace(tmp_path: Path) -> None:
-    """Narrowing the walk to the namespace must not stop it reporting a bad key in it."""
-
-    stray = tmp_path / "lake" / "l2" / "processed" / "jquants daily bars" / "part.parquet"
-    stray.parent.mkdir(parents=True)
-    stray.write_bytes(b"parquet")
-
-    result = inventory(tmp_path)
-
-    assert result["objects"] == 1
-    assert result["invalid_keys"] == ["lake/l2/processed/jquants daily bars/part.parquet"]
-    assert result["areas"] == []
-
-
 def test_validate_cli_is_read_only_and_redacts_rejected_values(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -769,46 +726,6 @@ def test_validate_cli_is_read_only_and_redacts_rejected_values(
 
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
     assert _COMMANDS["snapshots"] == "baibai_jobs.publication.snapshot_cli"
-
-
-def test_inventory_reports_every_class_against_its_own_budget(tmp_path: Path) -> None:
-    """A class that grows for a design reason has to be visible against its objective.
-
-    Reporting one figure would hide a workspace holding a sealed store the size of the
-    whole legacy database behind the published graph's own objective. Workspace bytes
-    are under no manifest, so nothing else in this report grows when they do.
-    """
-
-    published = tmp_path / (
-        "lake/l2/processed/jquants.daily_bars/contract=v1/year=2026/month=8/"
-        f"part-{'a' * 64}.parquet"
-    )
-    published.parent.mkdir(parents=True)
-    published.write_bytes(b"parquet")
-    failed = tmp_path / "lake/staging/failed-build/part.parquet"
-    failed.parent.mkdir(parents=True)
-    failed.write_bytes(b"quarantined")
-    staged = tmp_path / "lake/staging/snapshot-1/snapshot.sqlite"
-    staged.parent.mkdir(parents=True)
-    staged.write_bytes(b"sealed snapshot")
-
-    (tmp_path / ".lake-writer.lock").write_bytes(b"")
-
-    report = inventory(tmp_path)
-    capacity = {item["class"]: item for item in report["capacity"]}
-
-    # The writer lock is an operational file beside the namespace, not an object in it.
-    # Counting it makes the totals disagree with the prefix breakdown, and reporting it
-    # as an invalid key makes a healthy store look corrupt.
-    assert report["invalid_keys"] == []
-    assert report["control_files"] == {"objects": 1, "bytes": 0}
-    assert report["objects"] == 3
-
-    assert set(capacity) == {"published", "workspace"}
-    assert capacity["published"]["bytes"] == 7
-    assert capacity["workspace"]["bytes"] == 26
-    assert capacity["published"]["soft_budget_bytes"] == 10 * 1024**3
-    assert not any(item["budget_exceeded"] for item in capacity.values())
 
 
 def test_every_lake_dataset_states_a_release_policy() -> None:

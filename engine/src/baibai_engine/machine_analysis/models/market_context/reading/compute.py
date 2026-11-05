@@ -1,13 +1,6 @@
-"""Compute a reading snapshot from fixed observation values, deterministically.
+"""固定観測・規則・対象日からReadingを計算する。
 
-Pure with respect to its inputs: the same observations, rules and as-of date
-always produce the same snapshot. Nothing here fetches from a provider or writes
-to a store, so a reading can be recomputed for any past date without touching the
-outside world. Store readers clamp vintages only for providers whose spec
-declares publication-date vintages; this does not guarantee historical API
-availability or complete revision history. Bulk backfills usually
-carry acquisition timestamps, so clamping every provider would erase facts that
-were public before the store first acquired them.
+原本とvintageの選択は読取側の責務であり、この純計算はPITを保証しない。
 """
 
 from __future__ import annotations

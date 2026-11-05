@@ -11,15 +11,19 @@ from datetime import UTC, datetime
 from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_unchanged
 
 
-@dataclass(frozen=True, slots=True)
-class SourceDocument:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceDocumentMetadata:
     source_id: str
     request_key: str
     source_url: str
     content_type: str
     fetched_at: datetime
-    payload: bytes
     metadata: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceDocument(SourceDocumentMetadata):
+    payload: bytes
 
 
 def store_document(connection: sqlite3.Connection, document: SourceDocument) -> bool:
@@ -73,9 +77,6 @@ def read_documents(connection: sqlite3.Connection, source_id: str) -> Iterator[S
         (source_id,),
     )
     for source_id, key, fetched_at, url, content_type, payload, raw_metadata in rows:
-        metadata = json.loads(raw_metadata)
-        if not isinstance(metadata, dict):
-            raise ValueError("stored source document metadata must be a mapping")
         yield SourceDocument(
             source_id=source_id,
             request_key=key,
@@ -83,5 +84,36 @@ def read_documents(connection: sqlite3.Connection, source_id: str) -> Iterator[S
             content_type=content_type,
             fetched_at=datetime.fromisoformat(fetched_at),
             payload=payload,
-            metadata=metadata,
+            metadata=_decode_metadata(raw_metadata),
         )
+
+
+def read_document_metadata(
+    connection: sqlite3.Connection, source_id: str
+) -> Iterator[SourceDocumentMetadata]:
+    """Plan and reacquire from receipt scope without loading retained document bodies."""
+    rows = connection.execute(
+        "SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "
+        "c.content_type, c.metadata FROM economic_source_documents c "
+        "WHERE c.source_id = ? AND c.fetched_at = ("
+        "SELECT MAX(n.fetched_at) FROM economic_source_documents n "
+        "WHERE n.source_id = c.source_id AND n.request_key = c.request_key) "
+        "ORDER BY c.request_key",
+        (source_id,),
+    )
+    for source_id, key, fetched_at, url, content_type, raw_metadata in rows:
+        yield SourceDocumentMetadata(
+            source_id=source_id,
+            request_key=key,
+            source_url=url,
+            content_type=content_type,
+            fetched_at=datetime.fromisoformat(fetched_at),
+            metadata=_decode_metadata(raw_metadata),
+        )
+
+
+def _decode_metadata(raw: str) -> Mapping[str, object]:
+    metadata = json.loads(raw)
+    if not isinstance(metadata, dict):
+        raise ValueError("stored source document metadata must be a mapping")
+    return metadata
