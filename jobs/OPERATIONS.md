@@ -1018,7 +1018,9 @@ uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/cale
 <a id="edinet-list-native-l1"></a>
 ### EDINET一覧原本の独立取得・有限切替（#1820、既定は未切替）
 
-`BAIBAI_EDINET_LIST_NATIVE=true`では、通常`edinet-list`はmarket SQLite、source input、L2 release、共通公開leaseを読み書きせず、`l1/edinet/lists/v1/head.json`と不変gzip objectを使う。HTTP層が返した実bodyを日別GETの直後に保存・読戻しし、次の日のGETや解釈より先にheadをCASする。既存HTTP契約のまま、HTTPエラー/429でbodyが返らない場合の原本を捏造しない。新受領はUUIDと実UTC microsecond時刻を持ち、同値bodyでも別受領を保持する。同一gzip bytesは共有するが、旧gzipを再圧縮したり同一内容の受領を統合したりしない。
+`BAIBAI_EDINET_LIST_NATIVE` は有限移行後の通常既定 `true`。取得とdailyのActionsも明示 `true` に揃え、旧repository variableが `false` でも旧writerへ戻さない。旧入力の有限検証には明示 `false` を使えるが、本番のrollbackではない。配置は移行・全原本読戻し・比較の成功後とし、停止中のcronは初回native公開・次hydrate・source inputsの読戻しまで再開しない。
+
+通常`edinet-list`はmarket SQLite、source input、L2 release、共通公開leaseを読み書きせず、`l1/edinet/lists/v1/head.json`と不変gzip objectを使う。HTTP層が返した実bodyを日別GETの直後に保存・読戻しし、次の日のGETや解釈より先にheadをCASする。既存HTTP契約のまま、HTTPエラー/429でbodyが返らない場合の原本を捏造しない。新受領はUUIDと実UTC microsecond時刻を持ち、同値bodyでも別受領を保持する。同一gzip bytesは共有するが、旧gzipを再圧縮したり同一内容の受領を統合したりしない。
 
 取得範囲は既定540日前〜asofの両端込み541日、全保持履歴にある未再確認日（窓外を含む）、実JST当日である。過去asofでも実当日の正常一覧を先に受領し、その後の過去日受領で再確認proofを作る。L2のok/failed時計でGETを省略しない。通常初回541 GETでは日別head CASも541回行う。既に検証した不変bodyを同じowner内で使い回し、各日公開で全履歴objectをHEAD/GETし直さない。実ストレージの時間・費用・サイズは切替前に別途測定する。
 
