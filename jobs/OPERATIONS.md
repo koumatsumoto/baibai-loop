@@ -109,18 +109,31 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 FREDの同値応答は本文を追加せず、実際の確認時刻と採用した変更受領への参照を更新する。値の変更時刻と鮮度を混同しない。全CSVに含まれる期間と過去にnative行が存在した期間だけを比較し、旧schemaの人工空日をproviderが明示した欠測へ昇格させない。headerだけの全履歴応答や短い行は取得失敗として既存内容を保つ。
 
-通常open/dailyはschema 12を自動変換しない。この変更はまだ本番切替ではなく、12/13混在の通常merge・pushも拒否する。切替はwriterを止め、旧codeで旧handoffを有限drainし、fresh正本と世代/ETagを取得してから行う。別copyだけを次の入口で変換する。
+通常open/dailyはschema 12を自動変換せず、12/13混在の通常merge・pushも拒否する。次は一回限りの明示切替であり、通常`push-indicators`で代用しない。本番では未実行で、code/store/inputの読戻しと通常取得・統合の確認までを一組として扱う。
+
+1. 経済取得・共通統合と手動writerを停止し、実行中のwriterが終わったことを確認する。同じpublication leaseを保持し、旧codeで停止時の旧ready一覧を有限drainする。失敗・pendingは成功扱いせず、残る旧schema受領の処置を決める。旧stage/keyは上書き変換しない。
+2. freshな3 machine storeとETagを取得する。`machine-manifest.json`と3 HEADが一致する集合を使い、schema12原本を閉じたまま保持する。次の`prepare-copy`はその原本bytes・3 ETagと別schema13 copyを結び付け、旧本文・受領時刻・run・人工空行を保持する。過去の確認時刻は作らない。
+3. 新codeで別copyを明示FRED再取得する。受信は全CSVで、実受領時刻だけに確認を記録する。失敗sourceは失敗のまま既存内容を保つ。既存期間で確認stateがない場合、実再確認まで後着handoffを自動採用しない。FREDの一部が失敗しても保持済み原本を公開できるが、未確認の既存期間への後着受入は保留を維持し、そのsourceの回復・通常運用確認が終わるまで全体の切替完了としない。結果と不足を確認してから`freeze`する。これは全旧行保持と確認anchorを検証し、以後再送するSQLite snapshotを固定する。`unconfirmed_native_periods`はFRED以外も含む不足数で、ゼロだけを本番受入の判定には使わない。
 
 ```bash
-uv run python -m baibai_jobs.maintenance.migrate_economic_store \
-  --source <SCHEMA12_COPY> --output <SCHEMA13_COPY>
+uv run python -m baibai_jobs.maintenance.economic_cutover prepare-copy \
+  --source <SCHEMA12_COPY> --output <SCHEMA13_COPY> --receipt <CUTOVER_RECEIPT> \
+  --generation-directory <PULLED_GENERATION_DIRECTORY>
 uv run baibai-jobs acquire-economic refresh --group fred_csv --recent \
   --end <ACTUAL_DATE> --db <SCHEMA13_COPY>
+uv run python -m baibai_jobs.maintenance.economic_cutover freeze --receipt <CUTOVER_RECEIPT>
+jobs/scripts/r2_transfer.sh push-economic-cutover <CUTOVER_RECEIPT>
+uv run python -m baibai_jobs.maintenance.economic_cutover reissue-inputs \
+  --receipt <CUTOVER_RECEIPT> --lease-handle "$PUBLICATION_LEASE_HANDLE"
 ```
 
-converterは旧原本・受領時刻・run・人工空行をそのまま保ち、最終確認を推測しない。FREDの明示再取得で現時点の確認を確立し、失敗したsourceは失敗のまま扱う。変更receiptと確認anchorの整合、旧原本の保持、経済L2読戻しを検証する。確認stateを失った既存期間も同じ明示再取得で回復するまで、後着handoffを自動採用しない。確認参照が正本と食い違う作業copyを通常unionで押し込まず、fresh正本に対するhandoff受入を使う。
+4. 同じlease内でschema13 codeを反映し、専用`push-economic-cutover`を実行する。最初にfresh正本bytes・3 ETag・bundle manifestを照合し、固定uploadのintentを保存してから`indicators.sqlite`だけを旧ETag条件でPUTし、実bytesを全読戻しする。market/runsを更新せず、両HEADが未変更であることとleaseを再確認し、元manifest ETagを条件に新bundle manifestをPUT・全読戻しする。L2/modelの再生成や成功は前提にしない。
+5. `reissue-inputs`は公開済みの同一schema13 bytesを再照合し、全経済groupのsource inputだけを再発行・読戻しする。lake・前回L2・market DBを読まない。途中失敗ならwriterを停止したまま同じcommandを再実行し、全groupのschema・economic ETag一致を確認する。新inputの公開は、旧inputや旧stageの削除ではない。
+6. fresh pullでschema13正本を取得し、旧pendingが残っていないことと新inputを確認してからwriter/consumerを再開する。通常のFRED取得→handoff受入→同値時の本文不増加、変更/消失時の正本反映、経済L2再生成・読戻しを確認する。publisherの合成test成功を本番切替完了やL2同一性の実証とは扱わない。
 
-**残る切替作業**：本差分のconverterはローカルcopyだけを作る。旧世代を条件とするschema変更専用publisherとその再開/読戻しは未実装であり、通常`push-indicators`で代用しない。これを検証してから同じpublication leaseでcodeとstoreを反映し、schema 13の全経済source inputを再発行し、pendingを照合して取得を再開する。旧stage/keyを上書き変換しない。converterとこの一回手順は本番切替・残存旧stage確認後に撤去する。
+PUT応答不明やmanifest更新前の停止では、receipt・元schema12 copy・固定upload・manifest候補をそのまま保持する。同じ`push-economic-cutover`が現objectを全bytes照合し、元の世代なら同じcandidateだけを再送、candidateなら再送せず次へ進む。第三の値やpeer変更では停止し、通常pushやETagの手書き変更で解消しない。lease期限切れならwriter停止を維持し、正規手順でleaseを取り直して同じreceiptを使う。固定後の作業copy編集はuploadへ反映されない。`freeze`前に残った未登録uploadはremote未変更なので内容を確認し、新しいreceipt/outputで準備し直す。
+
+converter・専用publisherとこの一回手順は、本番切替・全input/通常経路の読戻し・残存旧stageの処置を確認した後に撤去する。確認参照が正本と食い違う作業copyを通常unionで押し込まず、fresh正本に対するhandoff受入を使う。
 
 この段階では経済原本のSQLite/handoff公開構造、L2成功に依存する共通公開、FRED以外の比較窓・人工空・確認方式は変更しない。FREDのHTTP bytes保存とsource別objectへの移行は #1820 の残作業である。
 
