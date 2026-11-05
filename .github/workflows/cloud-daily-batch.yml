@@ -85,19 +85,15 @@ jobs:
           created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
           printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
 
-      - name: Freeze currently ready source handoffs
+      - name: Fix the integration date
         id: source-plan
         env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
           RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
         run: |
           asof="$MANUAL_ASOF"
           if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
           echo "asof=$asof" >> "$GITHUB_OUTPUT"
-          uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
 
       - name: Acquire publication lease
         id: lease-acquire
@@ -106,6 +102,23 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.publication.lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Publish economic L1 and refresh acquisition inputs before L2
+        id: economic-l1
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_jobs.integration.economic_sources --asof "$ASOF" --directory "$RUNNER_TEMP/economic-integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Freeze currently ready market handoffs
+        id: market-plan
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
 
       # failure policy: 1 — the batch cannot compute without the canonical stores.
       - name: Pull stores
@@ -183,7 +196,7 @@ jobs:
           fi
           exit "$code"
 
-      - name: Verify economic accepted receipts and seal canonical handoffs
+      - name: Seal canonical market handoffs
         id: source-seal
         if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
         env:
@@ -191,8 +204,6 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          jobs/scripts/r2_transfer.sh pull-indicators
-          uv run python -m baibai_jobs.integration.sources verify --directory "$RUNNER_TEMP/integration"
           uv run python -m baibai_jobs.integration.sources seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
       - name: Refresh source-scoped inputs from this canonical generation
         id: source-inputs
@@ -204,6 +215,11 @@ jobs:
           ASOF: ${{ steps.source-plan.outputs.asof }}
           IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: uv run python -m baibai_jobs.integration.sources inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Report retained economic source failures
+        id: economic-check
+        if: ${{ always() && steps.economic-l1.outcome == 'success' }}
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/economic-integration"
+
       - name: Report integration failures and deferred source inputs
         id: source-check
         if: ${{ always() && steps.source-seal.outcome == 'success' }}
@@ -249,7 +265,7 @@ jobs:
       # fails the run: data/publication failures have their own step outcomes,
       # and a delivery failure must not overwrite them. A red job alone does not
       # prove publication never happened, since later steps can also fail.
-      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || 'unknown' }}"
+      - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}
         continue-on-error: true
@@ -261,11 +277,14 @@ jobs:
           python3 -m baibai_jobs.observability.discord \
             --notice-path "$RUNNER_TEMP/batch-notice.json" \
             --integration-report-path "$RUNNER_TEMP/integration/applied.json" \
+            --economic-report-path "$RUNNER_TEMP/economic-integration/applied.json" \
             --batch-exit-code "${{ steps.batch.outputs.exit_code }}" \
             --smoke-outcome "${{ steps.smoke.outcome }}" \
             --setup-outcome "${{ steps.setup.outcome }}" \
             --sync-outcome "${{ steps.sync.outcome }}" \
             --lease-acquire-outcome "${{ steps.lease-acquire.outcome }}" \
+            --economic-l1-outcome "${{ steps.economic-l1.outcome }}" \
+            --economic-check-outcome "${{ steps.economic-check.outcome }}" \
             --pull-outcome "${{ steps.pull.outcome }}" \
             --hydrate-outcome "${{ steps.hydrate.outcome }}" \
             --publish-lake-outcome "${{ steps.batch.outcome }}" \

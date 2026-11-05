@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import timedelta
 
 import pytest
+from tests.helpers.native_handoff import integrate_economic
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview_market import CLOCK, capture
 
@@ -17,7 +18,6 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
 from baibai_jobs.integration.native_source_merge import verify_stores
-from baibai_jobs.integration.sources import apply
 
 
 def packet(tmp_path, *, label="first", received=CLOCK):
@@ -116,7 +116,7 @@ def test_common_integration_preserves_exact_market_receipts_without_schema_migra
     work.mkdir()
     (work / "plan.json").write_text(json.dumps({"handoffs": entries}))
     monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **k: {})
-    result = apply(store, work, market=market, economic=economic, asof=CLOCK.date())
+    result = integrate_economic(store, work / "economic", economic, CLOCK.date())
     assert result["handoffs"][0]["applied"] is True
     assert result["handoffs"][0]["failed"] is False
     assert result["handoffs"][0]["result"]["accepted_receipts"] == 1
@@ -126,7 +126,8 @@ def test_common_integration_preserves_exact_market_receipts_without_schema_migra
         ]
         == value.digest()
     )
-    verify_stores(work / "receipt-00000" / "accepted.sqlite", economic)
+    accepted = next((work / "economic").glob("*/receipt-00000/accepted.sqlite"))
+    verify_stores(accepted, economic)
     assert market.read_bytes() == market_before
 
 

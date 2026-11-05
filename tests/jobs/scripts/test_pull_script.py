@@ -21,9 +21,10 @@ def test_pull_prepares_market_before_reporting_success(tmp_path: Path) -> None:
     transfer.chmod(0o755)
     calls = tmp_path / "calls.log"
     for failure, expected in (
-        ("", ["pull-machine", "hydrate-market"]),
+        ("", ["pull-machine", "pull-indicators", "hydrate-market"]),
         ("pull-machine", ["pull-machine"]),
-        ("hydrate-market", ["pull-machine", "hydrate-market"]),
+        ("pull-indicators", ["pull-machine", "pull-indicators"]),
+        ("hydrate-market", ["pull-machine", "pull-indicators", "hydrate-market"]),
     ):
         calls.write_text("", encoding="utf-8")
         result = subprocess.run(

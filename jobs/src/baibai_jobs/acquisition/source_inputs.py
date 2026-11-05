@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
@@ -24,11 +25,50 @@ from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
+    RemoteObject,
 )
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
+
+
+class GuardedInputStore:
+    """Check fixed canonical ownership immediately before every source-state PUT."""
+
+    def __init__(self, store: ObjectStore, before_put: Callable[[], None]) -> None:
+        self.store, self.before_put = store, before_put
+
+    def head(self, key: str) -> RemoteObject | None:
+        return self.store.head(key)
+
+    def get_bytes(self, key: str) -> bytes:
+        return self.store.get_bytes(key)
+
+    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+        self.store.download_file(key, path, expect_bytes=expect_bytes)
+
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        sha256: str,
+        content_md5: str,
+        content_type: str,
+        if_match: str | None = None,
+        if_none_match: bool = False,
+    ) -> RemoteObject:
+        self.before_put()
+        return self.store.put_file(
+            key,
+            path,
+            sha256=sha256,
+            content_md5=content_md5,
+            content_type=content_type,
+            if_match=if_match,
+            if_none_match=if_none_match,
+        )
 
 
 def input_key(group: str) -> str:

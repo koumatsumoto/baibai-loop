@@ -12,17 +12,6 @@ from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
-from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
-from baibai_engine.data_collection.receipts.native_sources.handoff import (
-    accept_rechecks as accept_economic_rechecks,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import (
-    DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
-)
-from baibai_engine.data_collection.receipts.native_sources.store import EconomicSchemaError
-from baibai_engine.data_collection.receipts.native_sources.store import (
-    validate_current_schema as validate_economic_schema,
-)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -51,7 +40,7 @@ from baibai_jobs.acquisition.article_planning import (
     pending_handoffs,
     publish_planning_input,
 )
-from baibai_jobs.acquisition.market_context import validate_packet as validate_market_packet
+from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.financial_cutover import financial_native_enabled
@@ -62,7 +51,6 @@ from baibai_jobs.integration.jquants_handoff import (
 )
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
-from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
 from baibai_jobs.integration.source_handoff import _replay
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
@@ -75,7 +63,6 @@ def apply(
     directory: Path,
     *,
     market: Path,
-    economic: Path,
     asof: date,
 ) -> dict[str, object]:
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
@@ -83,13 +70,11 @@ def apply(
         raise ValueError("financial cutover mode differs from the fixed integration plan")
     if bool(plan.get("price_native", False)) != price_native_enabled():
         raise ValueError("price cutover mode differs from the fixed integration plan")
-    # Canonical corruption is global and fatal, before any handoff is applied.
-    for database, validate in (
-        (market, validate_market_schema),
-        (economic, validate_economic_schema),
-    ):
-        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
-            validate(conn)
+    if any(not entry["market"] for entry in plan["handoffs"]):
+        raise ValueError("economic handoffs require the independent L1 integration")
+    # Only this owner's canonical corruption is global and fatal.
+    with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        validate_market_schema(conn)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
@@ -118,26 +103,12 @@ def apply(
                         elif entry["source"] == "jquants-market":
                             validate_source_handoff(raw, sources=JQUANTS_MARKET_SOURCES)
                         else:
-                            (
-                                validate_market_schema
-                                if entry["market"]
-                                else validate_economic_schema
-                            )(raw)
+                            validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
-                if entry["market"]:
-                    replay = _replay(entry["source"], market, packet)
-                    result = replay.report
-                    failed = recovery = not replay.complete
-                else:
-                    if entry["source"] == "economic-" + MARKET_GROUP:
-                        validate_market_packet(packet, canonical=economic)
-                    accepted = packet / "accepted.sqlite"
-                    result = accept_economic_rechecks(
-                        packet / "receipts.sqlite", economic, accepted
-                    )
-                    merge_stores(accepted, economic)
-                    failed = recovery = bool(result["late_recovery_required"])
+                replay = _replay(entry["source"], market, packet)
+                result = replay.report
+                failed = recovery = not replay.complete
                 applied = True
             except (R2Error, LakeCASConflict):
                 raise
@@ -146,7 +117,6 @@ def apply(
                 ValueError,
                 MergeError,
                 MarketSchemaError,
-                EconomicSchemaError,
                 JQuantsProviderError,
                 observations_owner.FetchError,
                 sqlite3.IntegrityError,
@@ -199,7 +169,7 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     keys = manifest.get("keys")
     if not isinstance(keys, dict):
         raise LakePublishError("published machine bundle receipt is invalid")
-    for key in ("market.sqlite", "runs.sqlite", "indicators.sqlite"):
+    for key in ("market.sqlite", "runs.sqlite"):
         recorded = keys.get(key)
         current = store.head(key)
         if (
@@ -212,16 +182,14 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     return {
         "lake_release_id": pointer.release_id,
         "lake_manifest_sha256": pointer.manifest_sha256,
-        "economic_etag": keys["indicators.sqlite"],
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("plan", "apply", "verify", "seal", "inputs", "check"))
+    parser.add_argument("command", choices=("plan", "apply", "seal", "inputs", "check"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--market", type=Path, default=MARKET_DB_PATH)
-    parser.add_argument("--economic", type=Path, default=DEFAULT_ECONOMIC_DB_PATH)
     parser.add_argument("--asof", type=date.fromisoformat)
     parser.add_argument("--identity")
     parser.add_argument("--group", help="Reissue only this scoped input group")
@@ -292,14 +260,6 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return int(integration_failed)
-        if args.command == "verify":
-            report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
-            for index, outcome in enumerate(report["handoffs"]):
-                if not outcome["entry"]["market"] and outcome["applied"]:
-                    verify_stores(
-                        directory / f"receipt-{index:05d}" / "accepted.sqlite", args.economic
-                    )
-            return 0
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
         directory.mkdir(parents=True, exist_ok=True)
         if args.command == "plan":
@@ -311,7 +271,10 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "handoffs": [
                         entry
-                        for entry in [*available_handoffs(store), *pending_handoffs(store)]
+                        for entry in [
+                            *available_handoffs(store, market=True),
+                            *pending_handoffs(store),
+                        ]
                         if not (
                             financial_native_enabled()
                             and entry.get("source") == "jquants-financial"
@@ -326,9 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "apply":
             if args.asof is None:
                 raise ValueError("--asof is required")
-            report = apply(
-                store, directory, market=args.market, economic=args.economic, asof=args.asof
-            )
+            report = apply(store, directory, market=args.market, asof=args.asof)
             public_report = dict(report)
             public_report["handoffs"] = [
                 {
@@ -354,22 +315,24 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
-                input_report: dict[str, Any] = (
-                    {"updated": [], "failed": []}
-                    if args.group in ARTICLE_SOURCES
-                    else cast(
-                        dict[str, Any],
-                        publish_inputs(
-                            store,
-                            market=args.market,
-                            economic=args.economic,
-                            identity=args.identity,
-                            asof=args.asof,
-                            generations=generations,
-                            only_group=args.group,
-                        ),
+                input_report: dict[str, Any] = {"updated": [], "failed": []}
+                groups = SOURCE_INPUT_GROUPS if args.group is None else (args.group,)
+                for group in groups:
+                    if group in ARTICLE_SOURCES:
+                        continue
+                    if group not in SOURCE_INPUT_GROUPS:
+                        raise ValueError("economic inputs are published by economic L1 integration")
+                    result = publish_inputs(
+                        store,
+                        market=args.market,
+                        economic=directory / "unused-market-input",
+                        identity=args.identity,
+                        asof=args.asof,
+                        generations=generations,
+                        only_group=group,
                     )
-                )
+                    input_report["updated"].extend(result["updated"])
+                    input_report["failed"].extend(result["failed"])
                 for source in (
                     ARTICLE_SOURCES
                     if args.group is None
@@ -396,6 +359,8 @@ def main(argv: list[str] | None = None) -> int:
                     directory=directory / "external-readback",
                 )
             for outcome in report["handoffs"]:
+                if not outcome["entry"]["market"]:
+                    raise ValueError("economic handoffs must be sealed by economic L1 integration")
                 if outcome["entry"].get("invalid"):
                     continue
                 if (

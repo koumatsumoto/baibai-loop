@@ -35,7 +35,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 既定読取は発行時刻よりas_ofの新しさを優先し、古い非空候補へ自動fallbackしない。過去日を後から再計算しても新しいas_ofの結果は置換しないため、その日を分析するときは対象のgeneration/selection IDを明示する。
 
-共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に開始時点のready受領一覧を固定する。全providerの完了を待たず、fresh canonicalのpull/hydrateを一回だけ行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
+共通統合の`cloud-daily-batch`は毎日13:43 UTC（22:43 JST）に実行する。最初に利用可能な経済受領を固定し、経済L1の単独公開・読戻し・seal・次回取得input発行を完了する。続いてmarket側のready受領を固定し、market/runsだけのpullとmarket hydrateを行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。全providerの完了は待たない。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
 ### 保存済み世代への候補政策の発行
 
@@ -114,7 +114,7 @@ FREDの同値応答は本文を追加せず、実際の確認時刻と採用し�
 通常open/dailyはschema 12を自動変換せず、12/13混在の通常merge・pushも拒否する。次は一回限りの明示切替であり、通常`push-indicators`で代用しない。本番では未実行で、code/store/inputの読戻しと通常取得・統合の確認までを一組として扱う。
 
 1. 経済取得・共通統合と手動writerを停止し、実行中のwriterが終わったことを確認する。同じpublication leaseを保持し、旧codeで停止時の旧ready一覧を有限drainする。失敗・pendingは成功扱いせず、残る旧schema受領の処置を決める。旧stage/keyは上書き変換しない。
-2. freshな3 machine storeとETagを取得する。`machine-manifest.json`と3 HEADが一致する集合を使い、schema12原本を閉じたまま保持する。次の`prepare-copy`はその原本bytes・3 ETagと別schema13 copyを結び付け、旧本文・受領時刻・run・人工空行を保持する。過去の確認時刻は作らない。
+2. 旧codeのpull-machineでfreshな3 storeとETagを取得する（新codeではpull-machineとpull-indicatorsを分ける）。`machine-manifest.json`と3 HEADが一致する集合を使い、schema12原本を閉じたまま保持する。次の`prepare-copy`はその原本bytes・3 ETagと別schema13 copyを結び付け、旧本文・受領時刻・run・人工空行を保持する。過去の確認時刻は作らない。
 3. 新codeで別copyを明示FRED再取得する。受信は全CSVで、実受領時刻だけに確認を記録する。失敗sourceは失敗のまま既存内容を保つ。既存期間で確認stateがない場合、実再確認まで後着handoffを自動採用しない。FREDの一部が失敗しても保持済み原本を公開できるが、未確認の既存期間への後着受入は保留を維持し、そのsourceの回復・通常運用確認が終わるまで全体の切替完了としない。結果と不足を確認してから`freeze`する。これは全旧行保持と確認anchorを検証し、以後再送するSQLite snapshotを固定する。`unconfirmed_native_periods`はFRED以外も含む不足数で、ゼロだけを本番受入の判定には使わない。
 
 ```bash
@@ -137,7 +137,17 @@ PUT応答不明やmanifest更新前の停止では、receipt・元schema12 copy�
 
 converter・専用publisherとこの一回手順は、本番切替・全input/通常経路の読戻し・残存旧stageの処置を確認した後に撤去する。通常`push-indicators`もfresh正本に対するhandoff受入を使う。正本・作業copyの原本を保ち、採用確認だけを受入結果へ揃える。FREDの遅着や確認欠落で受入できない場合はcopyを変えずに停止し、明示再取得してから再実行する。他sourceは従来の原本union・最新受領の読取を保つ。確認stateを失った正本へ任意の古いlocal確認を採用しない。回復時は`with_publication_lease jobs/scripts/r2_transfer.sh push-indicators --recheck-source <FRED_SOURCE_ID>`を明示実行する。fresh正本とETagを固定し、そのcopyへ実GETしてから対象sourceのlocal原本を保全し、同じETag条件で公開する。失敗時は両copyを変えず、現在の完全応答からのみ確認を作る。採用stateを全て失い、正本にも未採用原本が混在していた場合、回復が保証するのは現在値・完全集合・実確認時刻と原本保持であり、失われた過去の採用順やlast-change時刻ではない。`adopted_fetched_at`は実在原本への参照で、欠落区間の変更時計を復元した意味にはしない。
 
-この段階では経済原本のSQLite/handoff公開構造、L2成功に依存する共通公開、FRED以外の比較窓・人工空・確認方式は変更しない。FREDのHTTP bytes保存とsource別objectへの移行は #1820 の残作業である。
+### 経済L1の単独公開への切替
+
+経済正本は既存の`indicators.sqlite`一つで、market/runsのbundleから独立する。通常dailyの`economic_sources`はfresh正本と固定handoffだけを読み、採用・1世代backup・条件付きPUT・全bytes読戻しを終えてからsealと15取得groupのinputを発行する。TradingViewの明示MCP原本も経済namespaceの受入対象だが、定期取得inputには追加しない。各seal/input PUT直前に同じ経済ETagとleaseを再確認する。取得失敗runを保持できたことは取得成功ではなく、source失敗・明示history回復の必要はsource gapsとしてcheck/通知へ残す。モデルはこの読戻しcopyを固定して使い、後段L2失敗で経済L1を戻したり、経済を再PUTしたりしない。
+
+切替前に全旧writer（daily・手動push・待機中run）を停止し、実行中の終了を確認する。旧codeで未統合stageと部分machine pushを有限整理し、必要なschema12→13の上記cutover・input読戻しを完了してから、全writer/consumerを新codeへ同時に切り替える。旧writerと新writerを混在させない。新`pull-machine`/`push-machine`とmanifestはmarket/runsの2keyだけを扱う。旧manifestの余分なindicators欄は正本の根拠にせず、次の正常market公開で省かれる。経済の旧bytes・stage・1世代backupは削除しない。schema12 cutoverは旧3keyを照合する有限入口なので、この単独公開の再開後に再実行しない。未完の旧article cutover receiptも切替前に完了・整理し、新2keyのreceiptへ黙って読み替えない。
+
+PUTの応答不明は実bytes読戻しで確かめ、確認できなければsealしない。PUT後・seal前の中断は次のfresh runnerが未sealの不変stageを現正本へ再適用する。sealの書込失敗を飛ばして同sourceの後続watermarkを進めない。input途中の中断はstageが既にseal済みでも次cycleで新attempt identityを使い全groupを再発行する。新cycleは既存local出力を上書きせず、fresh実行copyを要求する。経済公開・読戻しの失敗では後段を止め、空の経済DBや古い値へ自動fallbackしない。L1公開後にseal/inputだけが失敗した到達点と、L2失敗は通知・`applied.json`で分ける。
+
+同じsourceのA→同値A→Bを一括公開し、seal前に中断した場合、差分保存で本文を省いた中間の同値stageは、再開時に未見の遅着と区別できず`needs_explicit_recovery`になることがある。完全な自動再開のための新しい監査stateは持たない。このstageを成功扱いにせずcheck/通知へ残すが、正本の最新Bと全groupの次inputは公開でき、次の通常取得も前進する。運用者は対象stage ID/hash・中断runの公開読戻し時report log・現正本と次inputの値を照合し、元stage/時刻/markerを変更せず要確認の記録を保つ。markerを手で成功へ変えたり、古いcopyをpushしたりしない。現在値が必要なら新inputからの通常取得で確かめる。FREDの確認state自体が欠落した場合だけ上記の明示再確認入口を使う。いずれも新しい取得成功を古いstageの採用証明へ読み替えない。
+
+FRED以外の比較窓・人工空・確認方式は変更しない。経済SQLite/handoffからsource別objectへの移行とFREDのHTTP bytes保存は #1820 の残作業である。
 
 ### source入力・市場原本の引渡し
 
@@ -236,7 +246,7 @@ jobs/scripts/r2_transfer.sh push-article-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
 ```
 
 専用pushは元bundleの全ETag、lease、公開済み新origin、対応モデル世代を照合し、各keyの条件付きPUTと通常machine receiptを使う。PUT直前のupload候補digestをprivate cutover receiptに保存する。空DBの再取得置換ではなく、旧原本/coverage/operator-owned値を残したadditive変換である。
-push後の`source-seal`/`source-inputs`は公開済み`machine-manifest.json`と3つのmachine HEADの一致を確認し、その`indicators.sqlite` ETagをeconomic世代として記録する。pull時の`.r2-generations/*.etag`はCAS baseとcutover再開の根拠なので、push結果へ手で書き換えない。
+push後のmarket `source-seal`/`source-inputs`は公開済み`machine-manifest.json`とmarket/runsのHEAD一致、固定lake releaseを確認する。経済のseal/inputは単独L1 ownerが読戻した経済ETagだけに結び付ける。pull時の`.r2-generations/*.etag`はCAS baseとcutover再開の根拠なので、push結果へ手で書き換えない。
 
 残存48 stageはimmutable原本を直接編集しない。`article-cutover prepare-copy --kind stage`で別pathへ変換し、stageのresult.jsonを同じ作業directoryへ保って`integration.source_handoff replay-copy --source <OLD_OWNER> --database <HYDRATED_SCHEMA49_COPY> --directory <CONVERTED_STAGE_DIRECTORY>`で旧ownerの限定再生を行う。変換済みcopyを原stage keyへ再uploadしない。切替中に旧writerが動いた場合も新旧stageを区別し、48作業copyの明示変換か旧owner再生で取り込む。取得時刻/receipt identityは変えず、再開前にpending一覧を照合する。旧source inputは現正本から全groupを再発行し、そのschemaを確認してから取得を再開する。
 
@@ -267,7 +277,7 @@ with_publication_lease() (
 
 失敗時もreleaseするため関数内でset -eを使わない。busyならowner・expiryとrun/processを確認し、blind retryしない。release失敗はhandleを保つ。GitHubのcloud-publish queueだけではlocal writerを排除しない。push-app/publish.shと初回seedはこのlease対象ではない。
 
-対象に合う一経路だけを使う。lake変更はpublish-lake→push-market、store-localだけならpush-market、経済原本だけならpush-indicators。直前のbundleからlocal daily全体を実行した時はpublish-lake→push-machineとし、3 storeを個別pullで組み替えない。
+対象に合う一経路だけを使う。lake変更はpublish-lake→push-market、store-localだけならpush-market、経済原本だけならpush-indicators。直前のbundleからlocal daily全体を実行した時はpublish-lake→push-machineとし、market/runsの2 storeを個別pullで組み替えない。経済の実行copyが必要なら別にpull-indicatorsを行い、L2用途で経済を再pushしない。
 
 ```bash
 with_publication_lease bash -c 'jobs/scripts/r2_transfer.sh publish-lake && jobs/scripts/r2_transfer.sh push-market'
@@ -502,13 +512,13 @@ immutable prefixのBucket Lockとmutable pointer/stagingを区別する。rollba
 
 ## R2 transferの安全境界
 
-machine pushは前世代をkey.bakに1世代保存し、次pushで置換する。applicationだけ日別backupを保持する。3 storeは原子的反映ではなく、全PUT後にmachine-manifest.json receiptを書く。schema修正でstore全体を古いcopyへ戻すと後続事実を失うため、sourceを限定した移行を使う。
+machine pushは前世代をkey.bakに1世代保存し、次pushで置換する。applicationだけ日別backupを保持する。market/runsの2 storeは原子的反映ではなく、全PUT後にmachine-manifest.json receiptを書く。経済L1は単独CASと読戻しで公開し、このreceiptへ含めない。schema修正でstore全体を古いcopyへ戻すと後続事実を失うため、sourceを限定した移行を使う。
 
 machine前世代を復元する場合はwriterを止め、対象bucketとexact key/key.bakを確認し、aws s3api copy-object --cli-read-timeout 300を使う。復元後はfresh pullし、receipt・generationの整合を確認する。盲目的なcopyやprefix削除は行わない。
 
 ### 部分 push からの復旧
 
-先行keyだけPUT成功すると旧receiptと不整合になりpullが停止する。同じpush/dailyを再送せず、到達点をlogで確認する。local成果を残す必要があり現行origin/merge条件を満たすならpush-market/push-indicatorsで反映してreceiptを更新する。runsだけの成果は取得世代条件を満たすpush-runsを使う。全storeの成果を反映する場合は元bundleの世代条件を満たすpush-machineを使う。
+先行keyだけPUT成功すると旧receiptと不整合になりpullが停止する。同じpush/dailyを再送せず、到達点をlogで確認する。local成果を残す必要があり現行origin/merge条件を満たすならpush-marketで反映してreceiptを更新する。経済のpush-indicatorsはmarket/runsの部分pushを修復も追認もしない。runsだけの成果は取得世代条件を満たすpush-runsを使う。全storeの成果を反映する場合は元bundleの世代条件を満たすpush-machineを使う。
 
 receipt再生成で復旧する場合だけ、対象がbucket直下のmutable machine-manifest.json一件であることを確認する。
 

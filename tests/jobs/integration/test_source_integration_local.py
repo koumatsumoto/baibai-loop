@@ -1,10 +1,8 @@
 import json
-from contextlib import closing
 
 import pytest
 
 import baibai_jobs.integration.sources as source_integration
-from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 
 pytestmark = pytest.mark.usefixtures("_no_r2")
 
@@ -84,23 +82,6 @@ def test_check_missing_report_does_not_create_a_directory(tmp_path, capsys):
     assert source_integration.main(["check", "--directory", str(missing)]) == 1
     assert "FileNotFoundError" in capsys.readouterr().err
     assert not missing.exists()
-
-
-def test_verify_without_r2_reads_local_accepted_receipts_without_changing_them(tmp_path):
-    economic = tmp_path / "economic.sqlite"
-    packet = tmp_path / "receipt-00000"
-    packet.mkdir()
-    accepted = packet / "accepted.sqlite"
-    for database in (economic, accepted):
-        with closing(initialize_database(database)):
-            pass
-    report = {"handoffs": [{"entry": {"market": False}, "applied": True}]}
-    path = tmp_path / "applied.json"
-    path.write_text(json.dumps(report))
-    before = {item: item.read_bytes() for item in (economic, accepted, path)}
-    arguments = ["verify", "--directory", str(tmp_path), "--economic", str(economic)]
-    assert source_integration.main(arguments) == 0
-    assert {item: item.read_bytes() for item in before} == before
 
 
 def test_deferred_input_is_reported_without_failing_successful_integration(tmp_path, capsys):

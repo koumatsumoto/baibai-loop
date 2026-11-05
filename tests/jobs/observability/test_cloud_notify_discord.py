@@ -624,7 +624,7 @@ def test_source_failure_notice_separates_acquisition_projection_and_extraction()
         ]
     }
     assert discord.render_source_failures(report) == [
-        "source不備: synthetic / 受領2・投影1・意味抽出1件"
+        "source不備: synthetic / 受領2・投影1・意味抽出1件 / 統合要確認"
     ]
 
 
@@ -670,3 +670,53 @@ def test_non_http_acquisition_issue_is_not_lost_after_successful_raw_integration
     assert discord.render_source_failures(report) == [
         "source不備: synthetic / 受領0・投影0・意味抽出0件 / document_redirect_cycle"
     ]
+
+
+def test_l1_success_and_fixed_date_survive_a_later_l2_failure(tmp_path, monkeypatch):
+    economic = tmp_path / "economic.json"
+    economic.write_text(json.dumps({"asof": "2026-11-05", "l1_published": True, "handoffs": []}))
+    _, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        "--economic-report-path",
+        str(economic),
+        "--economic-l1-outcome",
+        "success",
+        "--hydrate-outcome",
+        "failure",
+    )
+    message = _sent(transport)
+    assert "対象日: 2026-11-05" in message
+    assert "経済L1: 公開・読戻し済み" in message
+    assert "[FAILED]" in message
+    assert "モデル生成: 3686社" not in message
+
+
+@pytest.mark.parametrize(
+    ("source", "codes", "projection", "notified"),
+    [
+        ("economic-spglobal_pmi", [403], [], False),
+        ("economic-tradingeconomics_pmi", [403, 403], [], False),
+        ("economic-spglobal_pmi", [403, 500], [], True),
+        ("economic-spglobal_pmi", [429], [], True),
+        ("economic-spglobal_pmi", [None], [], True),
+        ("economic-fred_csv", [403], [], True),
+        ("economic-spglobal_pmi", [403], ["parse-failure"], True),
+    ],
+)
+def test_daily_keeps_expected_pmi_refusal_notice_policy(source, codes, projection, notified):
+    report = {
+        "handoffs": [
+            {
+                "entry": {"source": source},
+                "result": {
+                    "acquisition_failures": [{"http_status": code} for code in codes],
+                    "acquisition_issues": ["history_recovery_required"],
+                    "projection_failures": projection,
+                },
+            }
+        ]
+    }
+    before = json.dumps(report)
+    assert bool(discord.render_source_failures(report)) is notified
+    assert json.dumps(report) == before

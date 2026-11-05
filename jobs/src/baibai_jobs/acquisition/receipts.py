@@ -26,7 +26,11 @@ class ReceiptStore(ObjectStore, Protocol):
 
 
 def available_handoffs(
-    store: ReceiptStore, *, source: str | None = None, include_integrated: bool = False
+    store: ReceiptStore,
+    *,
+    source: str | None = None,
+    include_integrated: bool = False,
+    market: bool | None = None,
 ) -> list[dict[str, object]]:
     """Freeze available receipts and source ordering; isolate malformed handoffs."""
     ready: list[dict[str, object]] = []
@@ -121,7 +125,8 @@ def available_handoffs(
             )
 
     keys: list[tuple[bool, str]] = []
-    for market in (False, True):
+    selections = (False, True) if market is None else (market,)
+    for market in selections:
         namespace = "market-sources" if market else "economic-sources"
         if source is not None and source.startswith("economic-") == market:
             continue

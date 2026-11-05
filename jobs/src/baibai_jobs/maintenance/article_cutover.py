@@ -23,7 +23,7 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
 
-BUNDLE_KEYS = ("market.sqlite", "runs.sqlite", "indicators.sqlite")
+BUNDLE_KEYS = ("market.sqlite", "runs.sqlite")
 
 
 def pulled_generations(directory: Path) -> dict[str, str]:

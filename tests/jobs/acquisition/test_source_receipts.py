@@ -70,14 +70,14 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
 ):
     from datetime import UTC, date, datetime
 
+    from tests.helpers.native_handoff import integrate_economic
+
     from baibai_engine.data_collection.receipts.native_sources.handoff import accept_rechecks
     from baibai_engine.data_collection.receipts.native_sources.records import (
         read_snapshots,
         store_snapshot,
     )
-    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
     from baibai_jobs.integration.native_source_merge import merge_stores
-    from baibai_jobs.integration.sources import apply
 
     store = MemoryR2Store()
     canonical = tmp_path / "canonical.sqlite"
@@ -117,14 +117,7 @@ def test_noop_integration_advances_source_watermark_before_a_late_changed_stage(
     work = tmp_path / "integration"
     work.mkdir()
     (work / "plan.json").write_text(json.dumps({"handoffs": fixed}))
-    market = tmp_path / "market.sqlite"
-    with closing(open_connection(market)):
-        pass
-    monkeypatch.setattr(
-        "baibai_jobs.integration.sources.extract_saved_edinet",
-        lambda *args, **kwargs: {},
-    )
-    result = apply(store, work, market=market, economic=canonical, asof=date(2026, 10, 24))
+    result = integrate_economic(store, work / "economic", canonical, date(2026, 10, 24))
     assert result["handoffs"][0]["recovery"] is True
     with closing(initialize_database(canonical)) as conn:
         assert next(

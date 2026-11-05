@@ -74,7 +74,6 @@ def test_price_rollout_rejects_invalid_values_and_fixed_plan_mode_mismatch(tmp_p
             MemoryR2Store(),
             tmp_path,
             market=tmp_path / "never-open",
-            economic=tmp_path / "never-open-economic",
             asof=DAY,
         )
 

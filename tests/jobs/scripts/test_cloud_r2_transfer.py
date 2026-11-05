@@ -209,7 +209,7 @@ def test_initial_seed_ignores_a_kept_generation_of_an_absent_store(tmp_path: Pat
 
 
 @pytest.mark.parametrize("github_actions", [False, True])
-def test_machine_store_push_uploads_three_pulled_stores(
+def test_machine_store_push_uploads_only_market_and_runs(
     tmp_path: Path, github_actions: bool
 ) -> None:
     bin_dir, log = _fake_aws(tmp_path)
@@ -230,12 +230,13 @@ def test_machine_store_push_uploads_three_pulled_stores(
     commands = _transfer_commands(log)
     uploads = [command for command in commands if command.startswith("s3api put-object ")]
     stores = [command for command in uploads if "--key machine-manifest.json" not in command]
-    assert len(stores) == 3
+    assert len(stores) == 2
+    assert not any("indicators.sqlite" in command for command in commands)
     assert all('--if-match "etag-stable"' in command for command in stores)
     assert all(".bak" not in command for command in commands)
-    # The receipt is written last and unconditionally: it describes the set the three
+    # The receipt is written last and unconditionally: it describes the market/runs set the two
     # pushes just produced, so it cannot be bound to a generation any of them replaced.
-    assert uploads[-1] == uploads[3]
+    assert uploads[-1] == uploads[2]
     assert "--key machine-manifest.json" in uploads[-1]
     assert "--if-match" not in uploads[-1]
 
@@ -356,9 +357,9 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(
 
 
 @pytest.mark.parametrize(
-    ("indicator_key", "expected_exit"), [("macro.sqlite", 1), ("indicators.sqlite", 0)]
+    ("indicator_key", "expected_exit"), [("macro.sqlite", 0), ("indicators.sqlite", 0)]
 )
-def test_machine_receipt_requires_current_indicator_key(
+def test_machine_receipt_ignores_retired_economic_member(
     tmp_path: Path, indicator_key: str, expected_exit: int
 ) -> None:
     receipt = json.dumps(
@@ -561,7 +562,7 @@ def test_the_documented_recovery_puts_a_partially_pushed_bucket_back_in_step(
     # The generations moved: the recovery published a set, it did not restate the old one.
     assert '"market.sqlite": "etag-put-3"' in rewritten
     assert '"runs.sqlite": "etag-put-2"' in rewritten
-    assert '"indicators.sqlite": "etag-put-2"' in rewritten
+    assert "indicators.sqlite" not in rewritten
 
     # And the receipt the recovery wrote is one a later pull verifies against.
     verified = run("pull-machine")
@@ -621,7 +622,7 @@ def test_machine_store_push_reports_where_each_key_spends_its_time(tmp_path: Pat
     )
     # The staged snapshot is what gets uploaded, so its size is the transferred byte
     # count. The fake snapshot writes one byte.
-    assert reported == {"market.sqlite": "1", "runs.sqlite": "1", "indicators.sqlite": "1"}
+    assert reported == {"market.sqlite": "1", "runs.sqlite": "1"}
 
 
 def _push_app(
@@ -849,7 +850,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
     env["GITHUB_ACTIONS"] = "true"
-    env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
+    env["AWS_FAKE_EXISTING_KEY"] = "runs.sqlite"
 
     completed = subprocess.run(
         [TRANSFER_SCRIPT, "push-machine"],
@@ -866,7 +867,7 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     uploads = [
         index
         for index, command in enumerate(commands)
-        if command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
+        if command.startswith("s3api put-object ") and "--key runs.sqlite" in command
     ]
     assert len(backups) == 1
     assert len(uploads) == 1
@@ -874,8 +875,8 @@ def test_machine_store_push_keeps_one_generation_of_the_store_it_replaces(
     # CopyObject: `aws s3 cp` picks its S3-to-S3 implementation by object size and both
     # branches ask R2 for tagging operations it does not implement.
     assert commands[backups[0]].startswith("s3api copy-object ")
-    assert "--key indicators.sqlite.bak " in f"{commands[backups[0]]} "
-    assert "--copy-source baibai-stores/indicators.sqlite" in commands[backups[0]]
+    assert "--key runs.sqlite.bak " in f"{commands[backups[0]]} "
+    assert "--copy-source baibai-stores/runs.sqlite" in commands[backups[0]]
     assert '--copy-source-if-match "etag-stable"' in commands[backups[0]]
     assert backups[0] < uploads[0]
 
@@ -1138,7 +1139,6 @@ def _machine_stores(root: Path) -> dict[str, Path]:
     return {
         "market.sqlite": root / "stores/market/market.sqlite",
         "runs.sqlite": root / "stores/screening/runs.sqlite",
-        "indicators.sqlite": root / "stores/market_context/indicators.sqlite",
     }
 
 
@@ -1171,16 +1171,18 @@ def test_pull_machine_refuses_a_snapshot_that_straddles_a_push(tmp_path: Path) -
     # No store is replaced, so the local set stays one consistent generation.
     assert all(path.read_bytes() == b"local" for path in _machine_stores(root).values())
     generation_dir = Path(environment["R2_GENERATION_DIR"])
-    assert not any(generation_dir.glob("*.etag"))
+    assert not (generation_dir / "market.sqlite.etag").exists()
+    assert not (generation_dir / "runs.sqlite.etag").exists()
+    assert (generation_dir / "indicators.sqlite.etag").read_text().strip() == '"etag-stable"'
     assert not list(root.glob(".r2-transfer.*"))
     commands = _transfer_commands(log)
     versions = [index for index, line in enumerate(commands) if "--query ETag" in line]
     downloads = [index for index, line in enumerate(commands) if line.startswith("s3 cp s3://")]
     # Every store's version is read before any download and re-read after all of
     # them; a straddle is only visible from both sides.
-    assert len(downloads) == 3
-    assert versions[:3] == [0, 1, 2]
-    assert min(versions[3:]) > max(downloads)
+    assert len(downloads) == 2
+    assert versions[:2] == [0, 1]
+    assert min(versions[2:]) > max(downloads)
 
 
 def test_pull_machine_replaces_every_store_when_no_push_intervened(tmp_path: Path) -> None:

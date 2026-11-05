@@ -68,7 +68,6 @@ def test_native_integration_rejects_a_plan_from_the_old_writer_mode(tmp_path, mo
             object(),
             tmp_path,
             market=tmp_path / "not-opened",
-            economic=tmp_path / "not-opened-either",
             asof=date(2026, 11, 2),
         )
 

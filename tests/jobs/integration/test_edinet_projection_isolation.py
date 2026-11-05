@@ -76,7 +76,7 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     work = tmp_path / "integration"
     work.mkdir()
     (work / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
-    report = apply(store, work, market=market, economic=economic, asof=asof)
+    report = apply(store, work, market=market, asof=asof)
     outcomes = {item["entry"]["source"]: item for item in report["handoffs"]}
     assert outcomes["edinet-list"]["applied"] is True
     assert outcomes["edinet-list"]["failed"] is True
@@ -211,7 +211,7 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     resume = tmp_path / "no-new-handoff"
     resume.mkdir()
     (resume / "plan.json").write_text(json.dumps({"handoffs": []}))
-    resumed = apply(store, resume, market=restored, economic=economic, asof=asof)
+    resumed = apply(store, resume, market=restored, asof=asof)
     assert resumed["handoffs"] == []
     assert resumed["extractions"]["edinet-list"]["failed_days"] == [bad_day.isoformat()]
     assert (

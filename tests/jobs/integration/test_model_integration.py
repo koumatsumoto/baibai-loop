@@ -29,7 +29,8 @@ def integration(tmp_path, monkeypatch):
     prepared = SimpleNamespace(
         release=SimpleNamespace(release_id="new-release"),
         release_sha256="a" * 64,
-        source_snapshot=object(),
+        source_snapshot=SimpleNamespace(sealed_at=datetime(2026, 10, 25, tzinfo=UTC)),
+        price_identity=None,
     )
 
     @contextmanager
@@ -46,6 +47,8 @@ def integration(tmp_path, monkeypatch):
         events.append("generate")
         assert kwargs["growth_start"] == arguments["growth_start"]
         assert kwargs["market_snapshot"] is prepared.source_snapshot
+        assert kwargs["evaluation_time"] >= prepared.source_snapshot.sealed_at
+        assert kwargs["price_identity"] is prepared.price_identity
         assert kwargs["market_release"].release_id == "new-release"
         assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
         return ModelGenerationStream(

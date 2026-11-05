@@ -106,7 +106,7 @@ Operation完了、提案公開、人間の採用、注文、約定は別の状�
 | runs SQLite | 再生成可能なモデル世代・候補政策結果と、必要な旧run。 |
 | calibration directory | 再生成可能な歴史評価snapshot。runs DBとは別の保存単位。 |
 
-通常のsource取得は担当範囲のread-only inputから原受領handoffを作り、全体正本を直接更新しない。共通統合は開始時点で受入対象となるimmutable handoffを固定し、全sourceの完了を待たずに各ownerの投影を適用する。同じ入力からモデル生成・候補保存を終えてからreleaseを公開する。原本受領の成功とL2投影の成功を一つにしない。部分copyへ全体releaseの所属情報を付けない。
+通常のsource取得は担当範囲のread-only inputから原受領handoffを作り、全体正本を直接更新しない。経済L1は取得済みimmutable handoffとfreshな単独正本だけから公開し、読戻し・seal・次回取得inputまでをL2より先に完了する。market/runsのbundleや前回lake releaseを要求しない。market側の共通統合は受入対象handoffを別に固定し、全sourceの完了を待たず各ownerの投影を適用する。同じ入力からモデル生成・候補保存を終えてからmarket releaseを公開する。原本受領の成功とL2投影の成功を一つにしない。部分copyへ全体releaseの所属情報を付けない。
 
 取得の起動時刻、対象期間、実受領時刻、公開時刻は別である。再実行では原受領の充足とL2投影の充足を区別する。原本の再利用・再投影を分離する方針と、現在のsource別の再取得条件は同一ではない。具体的なcycle・再開単位・予算はsource ownerが持ち、[sourceの入口](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)から辿る。
 

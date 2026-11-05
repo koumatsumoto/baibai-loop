@@ -288,48 +288,10 @@ def publish(store: ObjectStore, receipt: Path, lease_handle: Path) -> dict[str, 
     return {**report, "readback_verified": True, "generations": value["completed"]}
 
 
-class _InputStore:
-    """Keep the existing input exporter, checking cutover ownership at every PUT."""
-
-    def __init__(self, store: ObjectStore, before_put: Callable[[], None]) -> None:
-        self.store, self.before_put = store, before_put
-
-    def head(self, key: str) -> RemoteObject | None:
-        return self.store.head(key)
-
-    def get_bytes(self, key: str) -> bytes:
-        return self.store.get_bytes(key)
-
-    def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
-        self.store.download_file(key, path, expect_bytes=expect_bytes)
-
-    def put_file(
-        self,
-        key: str,
-        path: Path,
-        *,
-        sha256: str,
-        content_md5: str,
-        content_type: str,
-        if_match: str | None = None,
-        if_none_match: bool = False,
-    ) -> RemoteObject:
-        self.before_put()
-        return self.store.put_file(
-            key,
-            path,
-            sha256=sha256,
-            content_md5=content_md5,
-            content_type=content_type,
-            if_match=if_match,
-            if_none_match=if_none_match,
-        )
-
-
 def reissue_inputs(store: ObjectStore, receipt: Path, lease_handle: Path) -> dict[str, object]:
     """Reissue every economic scoped input from verified L1, without a lake/L2 read."""
     from baibai_engine.data_collection.acquisition.policy import acquisition_groups
-    from baibai_jobs.acquisition.source_inputs import load_input, publish_inputs
+    from baibai_jobs.acquisition.source_inputs import GuardedInputStore, load_input, publish_inputs
 
     published = publish(store, receipt, lease_handle)
     value = _load(receipt)
@@ -344,7 +306,7 @@ def reissue_inputs(store: ObjectStore, receipt: Path, lease_handle: Path) -> dic
             raise ValueError("canonical economic generation changed before input publication")
         verify_held(store, handle)
 
-    input_store = _InputStore(store, before_put)
+    input_store = GuardedInputStore(store, before_put)
     updated = []
     # New attempt identities let an interrupted immutable handoff retry without
     # overwriting its earlier manifest. The existing input publisher reuses bytes.

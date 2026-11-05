@@ -314,12 +314,10 @@ def compare_projection(
     )
     old = {}
     if paths:
-        for row in session.connection.execute(
-            "SELECT "
-            + ",".join(column.name for column in JQUANTS_DAILY_BARS.columns)
-            + " FROM read_parquet(?)",
-            [[str(path) for path in paths]],
-        ).fetchall():
+        prices = session.connection.read_parquet([str(path) for path in paths]).project(
+            ",".join(column.name for column in JQUANTS_DAILY_BARS.columns)
+        )
+        for row in prices.fetchall():
             old[tuple(row[:2])] = hashlib.sha256(_encoded(row[2:])).hexdigest()
     fixed = owner.fixed()
     days = {date.fromisoformat(key[1]) for key in old} | {

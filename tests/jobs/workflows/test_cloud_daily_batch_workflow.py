@@ -132,3 +132,16 @@ def test_integration_date_uses_original_run_and_manual_clock():
     morning = datetime(2026, 10, 24, 0, 1, tzinfo=UTC)
     assert integration_target_date(morning, scheduled=False) == date(2026, 10, 24)
     assert integration_target_date(morning, scheduled=True) == date(2026, 10, 23)
+
+
+def test_economic_l1_finishes_before_any_market_or_l2_dependency(steps, by_id):
+    ids = [step.get("id") for step in steps]
+    assert ids.index("lease-acquire") < ids.index("economic-l1")
+    for later in ("market-plan", "pull", "hydrate", "source-integration", "batch"):
+        assert ids.index("economic-l1") < ids.index(later)
+    assert "economic_sources" in by_id["economic-l1"]["run"]
+    assert "--lease-handle" in by_id["economic-l1"]["run"]
+    assert "continue-on-error" not in by_id["economic-l1"]
+    assert "pull-indicators" not in by_id["source-seal"]["run"]
+    assert "--economic-report-path" in by_id["notify"]["run"]
+    assert "--economic-l1-outcome" in by_id["notify"]["run"]

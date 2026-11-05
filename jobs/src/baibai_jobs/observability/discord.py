@@ -34,6 +34,7 @@ from pathlib import Path
 
 WEBHOOK_ENV_VAR = "DISCORD_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 10.0
+EXPECTED_PMI_SOURCES = {"economic-spglobal_pmi", "economic-tradingeconomics_pmi"}
 MESSAGE_MAX_CHARS = 2000
 _SCALAR_MAX_CHARS = 120
 
@@ -54,6 +55,7 @@ STEP_ORDER = (
     "setup",
     "sync",
     "lease-acquire",
+    "economic-l1",
     "pull",
     "hydrate",
     "source-integration",
@@ -61,6 +63,7 @@ STEP_ORDER = (
     "upload-stores",
     "source-seal",
     "source-inputs",
+    "economic-check",
     "source-check",
     "portfolio-views",
     "lease-release",
@@ -268,14 +271,26 @@ def render_source_failures(report: Mapping[str, object]) -> list[str]:
             continue
         source = sanitize_one_line(entry.get("source", "不明"))
         counts = grouped.setdefault(source, [0, 0, 0])
+        if item.get("failed"):
+            issues.setdefault(source, set()).add("統合要確認")
+        acquisition_failures = result.get("acquisition_failures")
+        expected_unavailable = (
+            source in EXPECTED_PMI_SOURCES
+            and isinstance(acquisition_failures, list)
+            and bool(acquisition_failures)
+            and all(
+                isinstance(item, dict) and item.get("http_status") == 403
+                for item in acquisition_failures
+            )
+        )
         codes = result.get("acquisition_issues")
-        if isinstance(codes, list):
+        if isinstance(codes, list) and not expected_unavailable:
             issues.setdefault(source, set()).update(sanitize_one_line(code) for code in codes)
         for index, field in enumerate(
             ("acquisition_failures", "projection_failures", "extraction_failures")
         ):
             failures = result.get(field)
-            if isinstance(failures, list):
+            if isinstance(failures, list) and not (index == 0 and expected_unavailable):
                 counts[index] += len(failures)
     return [
         f"source不備: {source} / 受領{counts[0]}・投影{counts[1]}・意味抽出{counts[2]}件"
@@ -351,6 +366,8 @@ def render_message(
         if step_outcomes and step_outcomes.get("publish-lake") in {"failure", "cancelled"}:
             generation_notice = {"models_ready": False}
         details.extend(render_generation(generation_notice))
+    if (integration_report or {}).get("economic_l1_published") is True:
+        details.append("経済L1: 公開・読戻し済み（後段L2の成否とは独立）")
     source_failures = render_source_failures(integration_report or {})
     if outcome == OUTCOME_OK and source_failures:
         outcome = OUTCOME_DEGRADED
@@ -399,6 +416,17 @@ def deliver(
     return f"delivery failed: http {status}"
 
 
+def combined_integration_report(
+    market: dict[str, object], economic: dict[str, object]
+) -> dict[str, object]:
+    handoffs = []
+    for report in (economic, market):
+        entries = report.get("handoffs")
+        if isinstance(entries, list):
+            handoffs.extend(entries)
+    return {**market, "handoffs": handoffs, "economic_l1_published": economic.get("l1_published")}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="notify_discord",
@@ -406,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--notice-path", type=Path, default=None)
     parser.add_argument("--integration-report-path", type=Path, default=None)
+    parser.add_argument("--economic-report-path", type=Path, default=None)
     parser.add_argument("--batch-exit-code", type=str, default="")
     for step in STEP_ORDER:
         parser.add_argument(f"--{step}-outcome", type=str, default="skipped")
@@ -418,6 +447,8 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     args = build_parser().parse_args(argv)
     env = os.environ
     notice = load_notice(args.notice_path)
+    market_report = load_notice(args.integration_report_path)
+    economic_report = load_notice(args.economic_report_path)
     step_outcomes = {
         step: getattr(args, f"{step.replace('-', '_')}_outcome") for step in STEP_ORDER
     }
@@ -436,11 +467,13 @@ def main(argv: list[str] | None = None, *, transport: Transport = _urllib_transp
     )
     message = render_message(
         outcome=outcome,
-        asof=sanitize_one_line(notice.get("asof") or ""),
+        asof=sanitize_one_line(
+            notice.get("asof") or economic_report.get("asof") or market_report.get("asof") or ""
+        ),
         failed_steps=failed_steps,
         notice=notice if args.batch_exit_code == "0" or not notice else {"models_ready": False},
         url=run_url(env),
-        integration_report=load_notice(args.integration_report_path),
+        integration_report=combined_integration_report(market_report, economic_report),
         step_outcomes=step_outcomes,
     )
     print(message, flush=True)

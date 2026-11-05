@@ -10,12 +10,12 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # the mirror root is the directory the stores live in and not one of them.
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 copy_read_timeout=300
-# The three machine stores are pushed one after another, each conditional on the
-# generation the batch pulled, and three PUTs cannot be made one commit. A push that
+# The market/runs pair is pushed sequentially, each conditional on the pulled
+# generation. Economic L1 is a separate single-object authority. A pair push that
 # stops partway therefore leaves a set nothing ever wrote: the earlier keys at the new
 # generation, the rest at the old one. Per key that state is indistinguishable from a
 # healthy one — the pull's straddle check compares each object with itself — so the
-# receipt is what records which three generations were last seen together. It is
+# receipt is what records which two generations were last seen together. It is
 # rewritten by every push that changes a member and checked before a bundle pull
 # replaces the local stores.
 # The application store is the one object here nothing regenerates: it holds the
@@ -26,7 +26,7 @@ copy_read_timeout=300
 # of every application update.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
-machine_bundle_keys=(market.sqlite runs.sqlite indicators.sqlite)
+machine_bundle_keys=(market.sqlite runs.sqlite)
 transfer_staging=""
 
 cleanup_staging() {
@@ -793,7 +793,6 @@ case "${1:-}" in
     cleanup_staging
     transfer_staging=""
     push_key_if_version indicators.sqlite "${indicator_version}"
-    write_machine_manifest
     ;;
   push-app)
     case "${R2_APP_BACKUP_PRUNE:-retain}" in

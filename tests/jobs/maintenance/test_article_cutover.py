@@ -103,7 +103,7 @@ def test_partial_cutover_identifies_actual_uploaded_bytes_without_blind_resend(
     with pytest.raises(ValueError, match="remote bundle changed"):
         article_cutover.verify_cutover(remote, **kwargs)
     result = article_cutover.verify_cutover(remote, **kwargs, allow_partial=True)
-    assert result["pending_keys"] == ["runs.sqlite", "indicators.sqlite"]
+    assert result["pending_keys"] == ["runs.sqlite"]
     assert "market.sqlite" in remote.get_keys
     wrong_generation = generation.model_copy(
         update={

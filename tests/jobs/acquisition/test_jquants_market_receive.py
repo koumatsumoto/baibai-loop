@@ -98,7 +98,7 @@ def test_market_handoff_uses_only_originals_and_replays(tmp_path, monkeypatch):
     with closing(open_connection(market)), closing(initialize_database(economic)):
         pass
     monkeypatch.setattr("baibai_jobs.integration.sources.extract_saved_edinet", lambda *a, **kw: {})
-    report = apply(store, work, market=market, economic=economic, asof=ASOF)
+    report = apply(store, work, market=market, asof=ASOF)
     assert report["handoffs"][0]["applied"] is True
     assert report["handoffs"][0]["failed"] is False
 
