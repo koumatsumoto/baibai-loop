@@ -151,6 +151,21 @@ def retain_full_day_input(
     }
 
 
+def full_day_input_interval(
+    store: ObjectStore, descriptor: dict[str, JsonValue], *, contract: FullDayInputContract
+) -> tuple[date, date]:
+    """Read a compact immutable selection's bounds without loading its months."""
+    if descriptor.get("format") != contract.input_format:
+        raise ValueError("unsupported fixed full-day input format")
+    digest = descriptor.get("selection_sha256")
+    if not isinstance(digest, str):
+        raise ValueError("fixed full-day input requires its selection digest")
+    root = _Selection.model_validate(_read(store, _key("selections", digest, contract), digest))
+    if root.format != contract.selection_format:
+        raise ValueError("unsupported fixed selection format")
+    return root.start, root.end
+
+
 def _bounded_input(
     scopes: dict[str, Any],
     receipts: dict[str, Any],

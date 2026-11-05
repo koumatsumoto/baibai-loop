@@ -260,3 +260,44 @@ def test_market_command_uses_l1_and_stages_partial_on_failure(tmp_path, monkeypa
     )
     assert calls == [(date(2026, 11, 2), directory)]
     assert "stage_ready=true" in output.read_text()
+
+
+def test_native_short_reports_exclude_only_the_old_short_writer(tmp_path, monkeypatch):
+    from baibai_jobs.acquisition import jquants_market_plan as planning
+
+    for setting in (
+        "FINANCIAL_HISTORY_DAYS",
+        "CALENDAR_LOOKBACK_DAYS",
+        "CALENDAR_FORWARD_DAYS",
+        "WEEKLY_BALANCE_LOOKBACK_DAYS",
+        "MARKET_REVISION_OVERLAP_DAYS",
+    ):
+        monkeypatch.setattr(planning, setting, 0)
+    monkeypatch.setattr(planning, "ALL_ISSUES_DAILY_FIRST_BALANCE_DATE", ASOF)
+    names = ("master", "daily_bars", "market_calendar", "margin_interest", "margin_alerts")
+    fixed = FixedMarketIndexes(
+        "release",
+        "a" * 64,
+        "partial",
+        AT,
+        {name: index_market_originals([], source=name) for name in names},
+        (),
+        (),
+    )
+    calls = []
+
+    class RecordingClient(Client):
+        def pages(self, source, params):
+            calls.append(source)
+            yield from super().pages(source, params)
+
+    assert receive_market_handoff(
+        tmp_path / "stage",
+        fixed,
+        asof=ASOF,
+        client=RecordingClient(),
+        clock=lambda: AT,
+        include_short_sales=False,
+    )
+    assert "short_sale_reports" not in calls
+    assert {"master", "daily_bars", "market_calendar", "margin_alerts"} <= set(calls)

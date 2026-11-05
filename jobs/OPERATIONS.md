@@ -808,9 +808,9 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 移行や全期間再取得を通常dailyへ代行させない。旧release/stageには同値確認時のexact bytesもあるため、自動削除しない。合成testやcodeのmergeは本番切替の証拠ではない。
 
 <a id="margin-alerts-native-l1"></a>
-## 日々公表銘柄margin-alert native L1の明示取得・固定読取
+## 日々公表銘柄margin-alert native L1と通常経路
 
-`jquants-margin-alerts-native` は明示入口で、通常market writerには未接続。取得日とoverlapは[owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残のsource](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。休日skipを前提にせず、通常接続時に追加GETと保持範囲を確認する。
+`BAIBAI_MARGIN_ALERTS_NATIVE` は通常 `jquants-market` の取得とdailyの固定reader/公開を一組で選ぶ。既定は `false` で、本番切替は未実施。取得日とoverlapは[owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残のsource](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。native取得は旧market releaseを開く前に確定し、日々公表の原本取得はL2の成否・品質を使わない。既知休場でも8暦日の公表確認を行うため、切替前に追加GETとprovider予算を確認する。
 
 ```bash
 uv run baibai-jobs jquants-margin-alerts-native initialize \
@@ -826,7 +826,7 @@ uv run baibai-jobs rebuild-margin-alerts-native \
 
 `rebuild-margin-alerts-native` は新規 `margin-alerts.sqlite` と `input.json` を出力し、既存SQLiteを上書きしない。`--saved-input` で同じ有限範囲を再生する。正常空・partial・未取得の読取は[既存consumerへの投影](src/baibai_jobs/integration/margin_alerts_native.py)に従う。
 
-### 有限移行と残る本番接続
+### 有限移行と本番切替
 
 統合済みを含む全market stageを固定し、margin-alertの原本だけを移す。source別失敗や欠損はprepareの結果で確認する。
 
@@ -845,7 +845,76 @@ uv run baibai-jobs margin-alerts-native-cutover compare \
   --asof 2026-11-05
 ```
 
-compareは予定日までの全保持範囲を検査する。通常writerとconsumerの接続は別途必要で、明示CLIの成功を通常経路の切替完了とは扱わない。
+compareは予定日までの全保持範囲を検査する。移行中は旧writerを止め、最後の全stageを同じUTC境界で固定する。prepare/apply/verify/compare、prefixの権限・保持、取得予算を確認してから通常sourceとdailyの `BAIBAI_MARGIN_ALERTS_NATIVE` を同時に有効化する。code/Actionsの既定値変更や本番variable更新はこの接続変更に含めない。旧release/stageは削除しない。
+
+旧mixed stageでは移行済alerts原本の全page fingerprintを照合し、それ以外のsourceだけを従来どおり反映する。不一致・未移行は黙ってskipせず明示回復する。切替後の旧maintenance取得は拒否し、明示native取得と固定入力の再生成を使う。
+
+通常dailyは固定L1 selectionを一つだけ採り、同じ投影をモデルの `inputs.margin_alerts` と公開L2のnative lineageに渡す。前回のcompleteなnative L2はParquetとSQLiteの全行照合後に限ってcacheとして使い、変更された公表日だけをrawから投影する。cacheの欠損・改変・partial時は固定L1のみから再生成する。取得側はcacheを読まない。公開objectはyear/v2の中で月別に内容共有し、既存の共通seal以外に毎日の全履歴snapshotや専用cache namespaceを増やさない。
+
+初回通常source後に独立headの増分と旧stageからalertsが外れること、初回daily後にreaderのPubDate/AppDate・正常空訂正・partial、保存inputと公開lineage、次回hydrateを確認する。全履歴0行は固定readerでは正常空だが、現market releaseはdatasetの観測行を必須にしており公開できない。既存非空履歴の有限移行をこの切替の前提とし、空原本へ架空行を足さない。
+
+margin-alertのPubDate/AppDateを、[空売り残高報告](#short-sale-reports-native-l1)の `disc_date`・行順へ読み替えない。margin_interestの週次/全日次・公表lag・固定暦と、その通常接続は別途扱う。
+
+<a id="short-sale-reports-native-l1"></a>
+## 空売り残高報告native L1と通常経路
+
+`BAIBAI_SHORT_SALE_REPORTS_NATIVE` は通常sourceとdailyの固定reader/公開を一組で選び、既定は `false`。本番切替は未実施。`jquants-short-sale-reports-native` の `initialize / plan / acquire / resume / commit-work` は旧market releaseやL2を使わない。query・日付・順序の意味は[取得owner](src/baibai_jobs/acquisition/jquants_short_sale_reports_native.py)と[固定reader](src/baibai_jobs/integration/short_sale_reports_native.py)に置く。保存・中断再開・固定inputは[共通操作](#jquants-native-operations)に従う。
+
+```bash
+uv run baibai-jobs jquants-short-sale-reports-native plan \
+  --directory /secure-work/short-sale-plan --asof 2026-11-05
+uv run baibai-jobs jquants-short-sale-reports-native acquire \
+  --directory /secure-work/short-sale-cycle --asof 2026-11-05
+uv run baibai-jobs rebuild-short-sale-reports-native \
+  --work-directory /secure-work/short-sale-read --start 2026-10-29 --end 2026-11-05 \
+  --output /secure-work/short-sale-output
+```
+
+既存原本は `short-sale-reports-native-cutover prepare / apply / verify / compare` で有限移行する。引数と順序は上のmargin-alert手順と同じ。prepareは旧releaseと統合済みを含む全market stageを固定し、apply前に不明scope・欠損・未来の受領を解消する。compareは開示日と行順のidentityで旧投影を比較する。正常空・失敗・未取得を混同せず、旧release/stageは削除しない。
+
+固定読取は新規 `short-sale-reports.sqlite` と `input.json` を出力する。`--saved-input` は最新headなしで再生できる。通常取得は旧market releaseを開く前に独立L1へ確定し、直近7日前〜当日の8暦日と保持範囲の不足を再確認する。L2の成否・品質や市場休場を取得条件に戻さないため、切替前に追加GETとprovider予算を確認する。
+
+通常dailyは一つの固定selectionから投影し、同じsealをreader、モデルの `inputs.short_sale_reports`、公開native lineageに渡す。前回completeなnative L2はParquetとSQLiteの全行照合後だけcacheとして使い、同値確認ではrawを再読しない。cache消失・改変・partial時は固定L1から再生成する。開示日単位のcoverageと確認時計、DiscDate/CalcDate、ページ/行順・重複を維持する。共通seal/exportの走査は既存のままで、専用cache namespaceや毎日の全履歴copyは追加しない。
+
+有限移行後に通常sourceとdailyのflagを同時に有効化する。旧mixed stageでは移行したshort-sale全pageのfingerprintを照合して除外し、他sourceは従来どおり再生する。未移行・改変した原本を黙ってskipせず、切替後の旧maintenance writerは拒否する。初回dailyと次hydrateで保存input/native lineage、行順・重複、正常空・局所partialを読戻す。source_coverageはpaired machine SQLiteが保持する。
+
+本番variableやwriterの変更、旧release/stage削除はこの接続変更に含めない。全履歴0行は固定readerで正常空だが、既存共通manifestが観測行なしdatasetを許さないため公開できない。既存非空履歴の有限移行を切替前提とし、架空報告を補わない。margin_alertsとは別のflagとsource契約で運用する。
+
+<a id="margin-interest-native-l1"></a>
+## 週次・全銘柄日次信用残の独立L1
+
+`jquants-margin-interest-native` は明示CLIだけ。通常market writer、旧maintenance、historical readerの経路は変えない。`margin_alerts`（指定銘柄の別source）と混ぜない。取得・固定読取の前に、必要範囲を持つnative calendarを用意する。通常calendarの初回53日窓だけでは週次230日・日次2026-09-25以降の全範囲を満たさない。`plan` の `unknown_calendar_days` / `unknown_incomplete_requests` を無視したり、unknownを休場へ変えたりしない。
+
+```bash
+uv run baibai-jobs jquants-margin-interest-native initialize \
+  --directory /secure-work/margin-interest-init
+uv run baibai-jobs jquants-margin-interest-native plan \
+  --directory /secure-work/margin-interest-plan --asof 2026-11-05
+uv run baibai-jobs jquants-margin-interest-native acquire \
+  --directory /secure-work/margin-interest-cycle --asof 2026-11-05
+# 明示backfillは終端を含む。--force はこの有限区間の訂正再取得にだけ使う。
+uv run baibai-jobs jquants-margin-interest-native acquire \
+  --directory /secure-work/margin-interest-backfill --asof 2026-11-05 \
+  --start 2026-09-18 --end 2026-10-30
+uv run baibai-jobs rebuild-margin-interest-native \
+  --work-directory /secure-work/margin-interest-read \
+  --calendar-head /secure-work/margin-interest-cycle/calendar-fixed.json \
+  --start 2026-09-18 --end 2026-10-30 --output /secure-work/margin-interest-output
+```
+
+- 週次は従来の230日窓・各ISO週の最終取引日・2営業日公表lag。2026-09-18残高までを対象にし、公表日以前（JST）の空と最終週の空は再確認する。
+- 有限backfillでも週次空の充足には実確認JST日より前の後続2営業日の暦証拠が必要。証拠不足は再確認対象と不足暦を残すが、有限区間から現在asofまでの全暦は要求しない。最終週の空は公表日以降、終端後の暦がなくても再確認し、rebuild/compareも未充足として報告する。
+- 全銘柄日次は2026-09-25からasofまでの取引日を保ち、通常取得は後続1営業日を待つ。空は未充足。7日overlapや直近230日だけに狭めない。9月19〜24日をどちらの系列にも作り替えない。
+- 計画は固定calendarとnative原本の実確認時刻・raw件数だけを見る。正常な非空原本のL2変換がpartialでも、そのL2を取得条件に戻さない。旧maintenanceがL2 partialを再取得する挙動はそのまま残す。
+- 取得は新しいdirectoryを使い、`plan.json` と `calendar-fixed.json` を保存する。`commit-work` は両方と保存attemptを使い、最新暦に差し替えず、日次空・失敗・未試行を残したまま成功にしない。同値確認は実確認時刻を更新するが、元HTTP pageの時刻は変えない。
+- rebuildは新規 `margin-interest.sqlite` / `input.json` / `result.json` を出す。`--saved-input` では固定したmarginとcalendarのmetadata/packだけを読み、最新head・旧releaseを参照しない。週次9列・日次16列（PubDateを含む）の投影とcoverageを保存する。これは有限観測copyであり、歴史promptの完全再現を保証する入口ではない。
+- 歴史評価の公表時差fallbackは保存済み価格日のまま。native calendarへ置換しない。PubDate優先、同日引け除外、観測済み26週、35日鮮度、split/share基準を変えない。歴史評価比較を行う場合は価格入力も固定する。
+
+### 有限移行
+
+[共通手順](#jquants-native-operations)に従い、`margin-interest-native-cutover prepare` に `--release` / `--manifest-sha256` / `--known-at` と `--directory` / `--work-directory` を渡す。全source_pages partitionと統合済みを含む全market stageを調べ、対象sourceだけを移す。境界後の受領・filtered request・欠落page/宣言identity・未知の失敗scopeはblockedにする。`daily_margin_incomplete` は実在する空またはpartial原本が必要で、正常空へ昇格しない。
+
+blocked解消後の空targetに対して `apply` → `verify` → `compare`。compareは同じ固定旧releaseと保存した `--calendar-head`、比較終端 `--asof` を必須とし、元のUTC境界後のmargin/calendar確認を拒否する。週次・日次の全保持行を別々に照合する。取得範囲・coverage差分が残れば切替根拠にはしない。旧release/stage/原本は削除しない。通常writer接続と本番実行は別途の指示・検証が必要。
 
 <a id="price-native-l1"></a>
 ## 日足native L1の取得・固定読取・有限移行
