@@ -1100,3 +1100,25 @@ uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/cale
 runnerの強制kill、local disk故障、private stage保存も失敗した場合まで原本回復を保証しない。既存の期限前打切りとpartial stage保存を使い、通常publication失敗を成功通知へ変えない。新remote journalやreceipt複製層は追加しない。
 
 CSV/XBRL ZIP・facts scopeの保存/inputと一覧L2公開はmarket経路に残る。独立一覧L1だけでEDINET全取得の独立化や過去L3入力の一貫固定が完了したとは扱わない。後続設計は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)で扱う。
+
+#### EDINET ZIP/scope独立ownerの明示検証入口
+
+`edinet-archives-native`は新namespace `l1/edinet/archives/v1/`に初回保存ZIPと取得scopeを保持する最初のsliceで、通常workflow・market公開・既存SQL consumerは切り替えない。`--bucket`を明示し、原本を持たない隔離環境で検証する。同じbucketに固定可能なnative一覧headが必要。既存環境のZIP/scopeを移す有限移行は未実装であり、本番の空head作成で代用しない。
+
+```bash
+uv run baibai-jobs edinet-archives-native initialize --bucket <isolated-bucket> --directory <new-work-dir>
+uv run baibai-jobs edinet-archives-native acquire --bucket <isolated-bucket> --directory <work-dir> \
+  --group edinet-metrics --asof <date> --lookback-days 540
+uv run baibai-jobs edinet-archives-native acquire --bucket <isolated-bucket> --directory <work-dir> \
+  --group edinet-facts --asof <date> --initialize-facts
+uv run baibai-jobs edinet-archives-native freeze --bucket <isolated-bucket> --directory <read-dir>
+uv run baibai-jobs edinet-archives-native commit-work --bucket <isolated-bucket> --directory <same-work-dir>
+```
+
+CSVは既存540日planner、XBRLは既存annual scopeとholderの100件/10秒制限を使う。planner用SQLiteは固定一覧とscopeから作り、旧market・L2成功履歴・過去ZIP本文をhydrateしない。`input.json`はその取得計画に使った一覧/archive headを保存する。各GETのZIPを次のGETより先に確定するため、後続HTTPや抽出の失敗で既保存原本を取り消さない。
+
+`(doc_id, source_type)`の初回bytesと保存日を保持し、同値の後着で日付を更新しない。新取得だけ実受領UTC時刻を持ち、旧日付から時刻を創作しない。scopeは原本や抽出成功ではなく、`since`最小値とdoc IDs/legacy originsの和集合。未初期化の`since=null`、ticker限定、未公表/未取得の選択scopeは現行条件を維持する。`--initialize-facts`のscope有効化を抽出成功と解釈しない。
+
+`pending.json`があれば新HTTPを拒否し、同じworkの`commit-work`で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合を明示再試行する。scope/ZIPを上書きせず、失われたheadを部分workから再作成しない。ローカルworkを失った場合の回復やremote failure stageはこのsliceに含めない。
+
+固定readerは保存headだけを使い、未知doc・原本欠落・改変を最新headへのfallbackで補わない。有限移行、既存comparison/holder/TOB等のSQL consumerの接続、通常source input/publication切替、metricsのwarm baseline依存除去は後続作業。これだけでmarket全体や全EDINET L2を破棄可能とは扱わない。
