@@ -1,0 +1,803 @@
+name: cloud-market-cutover-recovery-once
+
+# 本人承認済みのmarket schema49→50限定操作。定期writerは再開しない。
+on:
+  push:
+    branches: [codex/issue1820-market-cutover-recovery-once]
+    paths: [.github/workflows/cloud-market-cutover-recovery-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-market-cutover-recovery-once' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: resume verified market cutover 2026-11-05' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      BAIBAI_FINANCIAL_NATIVE: 'false'
+      BAIBAI_PRICE_NATIVE: 'false'
+      BAIBAI_MASTER_NATIVE: 'false'
+      BAIBAI_CALENDAR_NATIVE: 'false'
+      BAIBAI_EDINET_LIST_NATIVE: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed merged code as this run's exact base
+        env:
+          EXPECTED_CODE_SHA: ef643ae3d8e274a64a19a5b671c34dc2d5abfe78
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+      - name: Read-only legacy checkout for schema49 hydration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 5f35da1f7d82e041f0e07895be8537658b0ab4eb
+          path: .legacy
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Preserve originals, migrate market49 and publish exact matching models and inputs
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          LEGACY_CHECKOUT: ${{ github.workspace }}/.legacy
+        run: |
+          uv run python - <<'PYCODE'
+          """一回限りのmarket 49→50。正規ownerを使い、各公開境界の再開材料を私有保存する。"""
+          
+          from __future__ import annotations
+          
+          import base64
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import shutil
+          import sqlite3
+          import subprocess
+          import sys
+          import traceback
+          from datetime import UTC, date, datetime
+          from pathlib import Path
+          
+          from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+          from baibai_engine.storage.json import write_json_atomic
+          from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
+          from baibai_engine.storage.snapshots.release import LakeReleasePointer
+          from baibai_engine.storage.snapshots.sources import sha256_file
+          from baibai_engine.storage.sqlite.snapshot import create_snapshot
+          from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
+          from baibai_engine.storage.sqlite.source_cache.schema import validate_current_schema
+          from baibai_jobs.acquisition.article_planning import (
+              ARTICLE_SOURCES,
+              load_planning,
+              publish_planning_input,
+          )
+          from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
+          from baibai_jobs.acquisition.source_inputs import GuardedInputStore, load_input, publish_inputs
+          from baibai_jobs.integration.sources import canonical_generations
+          from baibai_jobs.maintenance import market_cutover
+          from baibai_jobs.maintenance.economic_cutover import _publish_exact, _read
+          from baibai_jobs.publication import lease, snapshot_cli
+          
+          POINTER = "lake/pointers/market/current.json"
+          MANIFEST = "machine-manifest.json"
+          KEYS = market_cutover.BUNDLE_KEYS
+          FLAGS = ("FINANCIAL", "PRICE", "MASTER", "CALENDAR", "EDINET_LIST")
+          
+          
+          def schema(path):
+              with contextlib.closing(
+                  sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+              ) as conn:
+                  return conn.execute("PRAGMA user_version").fetchone()[0]
+          
+          
+          class Checkpoints:
+              """作業SQLiteはbackup snapshotで固定し、原本/再開材料はcreate-onlyで読戻す。"""
+          
+              def __init__(self, store, directory, prefix, handle):
+                  self.store, self.directory, self.prefix, self.handle = store, directory, prefix, handle
+                  self.files = {}
+                  self.sequence = 0
+                  self.verified = set()
+                  self.reuse = {}
+          
+              def preserve(self, path):
+                  digest = sha256_file(path)
+                  retained = self.reuse.get(digest)
+                  if retained is not None:
+                      remote = self.store.head(retained["key"])
+                      if (
+                          remote is None
+                          or remote.metadata.get("sha256") != digest
+                          or remote.metadata.get("integrity") != "content-md5-v1"
+                      ):
+                          raise ValueError("previously verified private original changed")
+                      return retained
+                  key = self.prefix + "objects/" + digest
+                  if key not in self.verified:
+                      remote = self.store.head(key)
+                      if remote is None:
+                          lease.verify_held(self.store, self.handle)
+                          with path.open("rb") as stream:
+                              checksum = hashlib.file_digest(
+                                  stream, lambda: hashlib.md5(usedforsecurity=False)
+                              ).digest()
+                          with contextlib.suppress(LakePublishError):
+                              self.store.put_file(
+                                  key,
+                                  path,
+                                  sha256=digest,
+                                  content_md5=base64.b64encode(checksum).decode(),
+                                  content_type="application/octet-stream",
+                                  if_none_match=True,
+                              )
+                      readback = self.directory / "private-readback"
+                      _read(self.store, key, readback)
+                      if sha256_file(readback) != digest:
+                          raise ValueError("private checkpoint readback differs")
+                      readback.unlink()
+                      self.verified.add(key)
+                  return {"key": key, "sha256": digest}
+          
+              def save(self, phase, *, files=(), databases=()):
+                  for path in files:
+                      self.files[str(path.resolve())] = self.preserve(path)
+                  scratch = self.directory / "checkpoint.sqlite"
+                  for path in databases:
+                      scratch.unlink(missing_ok=True)
+                      create_snapshot(path, scratch)
+                      self.files[str(path.resolve())] = self.preserve(scratch)
+                  scratch.unlink(missing_ok=True)
+                  index = self.directory / "checkpoint-index.json"
+                  write_json_atomic(
+                      index,
+                      {"format": "market49-50-private-checkpoint-v1", "phase": phase, "files": self.files},
+                  )
+                  content = self.preserve(index)
+                  # A small stable sequence index makes the latest complete checkpoint discoverable.
+                  key = self.prefix + f"checkpoints/{self.sequence:04d}-" + content["sha256"] + ".json"
+                  with index.open("rb") as stream:
+                      checksum = hashlib.file_digest(
+                          stream, lambda: hashlib.md5(usedforsecurity=False)
+                      ).digest()
+                  lease.verify_held(self.store, self.handle)
+                  with contextlib.suppress(LakePublishError):
+                      self.store.put_file(
+                          key,
+                          index,
+                          sha256=content["sha256"],
+                          content_md5=base64.b64encode(checksum).decode(),
+                          content_type="application/json",
+                          if_none_match=True,
+                      )
+                  readback = self.directory / "checkpoint-readback.json"
+                  _read(self.store, key, readback)
+                  if sha256_file(readback) != content["sha256"]:
+                      raise ValueError("checkpoint index readback differs")
+                  readback.unlink()
+                  self.sequence += 1
+          
+          
+          class PublicationStore:
+              """通常ownerのimmutable lakeとpointer以外へ書かない。削除APIは渡さない。"""
+          
+              def __init__(self, store, before_pointer):
+                  self.store, self.before_pointer = store, before_pointer
+          
+              def head(self, key):
+                  return self.store.head(key)
+          
+              def get_bytes(self, key):
+                  return self.store.get_bytes(key)
+          
+              def download_file(self, key, path, **kwargs):
+                  return self.store.download_file(key, path, **kwargs)
+          
+              def put_file(self, key, path, **kwargs):
+                  if not key.startswith("lake/"):
+                      raise ValueError("schema cutover publication write outside lake scope")
+                  if key == POINTER:
+                      self.before_pointer(path)
+                  elif not kwargs.get("if_none_match"):
+                      raise ValueError("only current pointer may replace a lake object")
+                  return self.store.put_file(key, path, **kwargs)
+          
+          
+          LEGACY_HYDRATE = (
+              '\nimport contextlib,json,os,shutil,sys,traceback\nfrom pathlib'
+              ' import Path\nfrom types import SimpleNamespace\nfrom baibai_j'
+              'obs.publication import snapshot_write_cli as owner\nfrom baib'
+              'ai_engine.storage.snapshots import hydrate\nbase=Path(os.envi'
+              "ron['DIAG_WORK'])\nstate=json.loads((base/'state.json').read_"
+              "text())\nptr=state['base_pointer']\nargs=SimpleNamespace(mirro"
+              "r=base/'mirror',bucket='baibai-stores',store=base/'schema49."
+              "sqlite',release=ptr['release_id'],manifest_sha256=ptr['manif"
+              "est_sha256'],release_ref=None)\ndef safe(**v): print('SAFE '+"
+              'json.dumps(v,sort_keys=True),flush=True)\nreal=hydrate.load_d'
+              "ataset_rows\ndef traced(*a,**kw):\n    name=kw['dataset'].name"
+              "\n    safe(phase='hydrate_dataset_start',dataset=name,disk_lo"
+              'w=shutil.disk_usage(base).free<3*1024**3)\n    result=real(*a'
+              ",**kw)\n    safe(phase='hydrate_dataset_done',dataset=name,di"
+              'sk_low=shutil.disk_usage(base).free<3*1024**3)\n    return re'
+              "sult\nhydrate.load_dataset_rows=traced\ntry:\n    safe(phase='r"
+              "esolve_legacy_release',disk_low=shutil.disk_usage(base).free"
+              '<3*1024**3)\n    with owner.open_lake(mirror=args.mirror,buck'
+              'et=args.bucket) as (session,cache):\n        release,still_cu'
+              'rrent=owner._resolve_release_target(args,cache.source)\n     '
+              "   names=release.dataset_names()\n        safe(phase='legacy_"
+              "release_resolved')\n        with owner.prefetching_hydration_"
+              'cache(cache,release=release,dataset_names=names,bucket=args.'
+              'bucket) as hc:\n            owner.hydrate_market_store(sessio'
+              'n,release=release,cache=hc,store=args.store,dataset_names=na'
+              'mes,still_current=still_current,catalog=owner.LAKE_DATASETS)'
+              '\n    safe(hydrate_success=True)\nexcept BaseException as e:\n '
+              '   traceback.print_exc()\n    text=str(e).lower()\n    chain=['
+              '];at=e\n    while at is not None:\n        chain.append(type(a'
+              't).__name__)\n        at=at.__cause__ or (None if at.__suppre'
+              "ss_context__ else at.__context__)\n    frames=[{'file':Path(f"
+              ".filename).name,'line':f.lineno,'function':f.name} for f in "
+              'traceback.extract_tb(e.__traceback__)]\n    categories={word:'
+              "word in text for word in ('space','memory','schema','missing"
+              "','columns','rows','origin','digest','size','permission','lo"
+              "cked','timeout','capacity','contract','integrity')}\n    safe"
+              '(hydrate_success=False,error_type=type(e).__name__,error_cha'
+              'in=chain,frames=frames,categories=categories,disk_low=shutil'
+              '.disk_usage(base).free<3*1024**3)\n    raise SystemExit(1)\n'
+          )
+          
+          
+          def hydrate_legacy(directory, legacy, pointer):
+              destination = directory / "schema49.sqlite"
+              shutil.copyfile(directory / "originals" / "market.sqlite", destination)
+              environment = dict(os.environ)
+              environment["PYTHONPATH"] = os.pathsep.join(
+                  str(legacy / item) for item in ("jobs/src", "engine/src")
+              )
+              environment["DIAG_WORK"] = str(directory)
+              with (directory / "hydrate-private.log").open("wb") as output:
+                  result = subprocess.run(
+                      [sys.executable, "-c", LEGACY_HYDRATE],
+                      env=environment,
+                      cwd=legacy,
+                      stdout=output,
+                      stderr=subprocess.STDOUT,
+                      timeout=35 * 60,
+                      check=False,
+                  )
+              write_json_atomic(directory / "hydrate-result.json", {"return_code": result.returncode})
+              if result.returncode:
+                  raise ValueError("legacy hydration failed; inspect preserved private diagnostic")
+          
+          
+          def source_asof(runs, pointer):
+              with contextlib.closing(
+                  sqlite3.connect(runs.resolve().as_uri() + "?mode=ro", uri=True)
+              ) as conn:
+                  row = conn.execute(
+                      "SELECT header FROM model_generation WHERE generation_id=?",
+                      ("models-" + pointer.release_id,),
+                  ).fetchone()
+              if row is None:
+                  raise ValueError("current release has no saved model date")
+              saved = json.loads(row[0])
+              source = saved["inputs"]["market"]
+              if source["reference"] != pointer.release_id or source["sha256"] != pointer.manifest_sha256:
+                  raise ValueError("current model input differs from current release")
+              return date.fromisoformat(saved["as_of"])
+          
+          
+          def generate(directory, store, handle, asof, before_publication):
+              from baibai_jobs.integration import models
+          
+              # Private one-off instrumentation; no replacement of model, policy or publication logic.
+              original = models.publish_prepared_market_lake
+          
+              def checkpointed(prepared, **kwargs):
+                  before_publication(prepared)
+                  return original(prepared, **kwargs)
+          
+              models.publish_prepared_market_lake = checkpointed
+              try:
+                  return models.integrate_models(
+                      store=store,
+                      market=directory / "schema50.sqlite",
+                      economic=directory / "originals" / "indicators.sqlite",
+                      runs=directory / "runs.sqlite",
+                      mirror=directory / "mirror",
+                      as_of=asof,
+                      lease_handle=handle,
+                      growth_start=None,
+                      policy=EconomicPathPolicy(candidate_limit=36),
+                  )
+              finally:
+                  models.publish_prepared_market_lake = original
+          
+          
+          def freeze_uploads(directory, receipt):
+              market = directory / "schema50.sqlite"
+              candidates = directory / "uploads"
+              candidates.mkdir()
+              for key, source in (("market.sqlite", market), ("runs.sqlite", directory / "runs.sqlite")):
+                  target = candidates / key
+                  create_snapshot(source, target)
+                  if key == "market.sqlite":
+                      if snapshot_cli.main(
+                          [
+                              "dehydrate",
+                              "--mirror",
+                              str(directory / "mirror"),
+                              "--store",
+                              str(target),
+                              "--bucket",
+                              "baibai-stores",
+                          ]
+                      ):
+                          raise ValueError("published market dehydration failed")
+                  expected = json.loads(receipt.read_bytes())["base_generations"][key]
+                  if market_cutover.main(
+                      [
+                          "record-upload",
+                          "--receipt",
+                          str(receipt),
+                          "--key",
+                          key,
+                          "--upload",
+                          str(target),
+                          "--expected-etag",
+                          expected,
+                      ]
+                  ):
+                      raise ValueError("failed to freeze market upload intent")
+              return {key: candidates / key for key in KEYS}
+          
+          
+          def publish_bundle(store, directory, receipt, handle_path, checkpoint, state, guard):
+              """各keyをbaseか同じ凍結候補として確認し、最後に2key manifestをCASする。"""
+              state_path = directory / "state.json"
+              candidates = {key: directory / "uploads" / key for key in KEYS}
+              saved = json.loads(receipt.read_bytes())["upload_candidates"]
+              for key, path in candidates.items():
+                  if sha256_file(path) != saved[key]["sha256"]:
+                      raise ValueError("frozen upload differs from cutover receipt")
+          
+              def verify():
+                  guard()
+                  current_manifest = store.head(MANIFEST)
+                  if current_manifest is None:
+                      raise ValueError("machine manifest missing")
+                  if current_manifest.etag != state["base_etags"][MANIFEST]:
+                      frozen_manifest = state.get("manifest_candidate")
+                      if frozen_manifest is None:
+                          raise ValueError("machine manifest changed before canonical publication")
+                      check = directory / "manifest-guard-readback.json"
+                      _read(store, MANIFEST, check)
+                      if sha256_file(check) != frozen_manifest["sha256"]:
+                          raise ValueError("machine manifest is neither base nor frozen candidate")
+                  return market_cutover.verify_cutover(
+                      store,
+                      receipt=receipt,
+                      market=directory / "schema50.sqlite",
+                      runs=directory / "runs.sqlite",
+                      generation_directory=directory / "generations",
+                      lease_handle=handle_path,
+                      allow_partial=True,
+                  )
+          
+              def before_put():
+                  checkpoint.save("before_machine_put", files=(receipt, state_path, *candidates.values()))
+                  verify()
+          
+              verify()
+              etags = {}
+              for key, candidate in candidates.items():
+                  etags[key] = _publish_exact(
+                      store,
+                      key,
+                      candidate,
+                      base_etag=state["base_etags"][key],
+                      base_sha256=state["base_sha256"][key],
+                      readback=directory / ("readback-" + key),
+                      content_type="application/vnd.sqlite3",
+                      before_put=before_put,
+                  )
+              if "manifest_candidate" not in state:
+                  manifest = directory / "machine-manifest-candidate.json"
+                  write_json_atomic(
+                      manifest,
+                      {
+                          "schema_version": 1,
+                          "written_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                          "keys": etags,
+                      },
+                  )
+                  state["manifest_candidate"] = {"path": str(manifest), "sha256": sha256_file(manifest)}
+                  write_json_atomic(state_path, state)
+              manifest = Path(state["manifest_candidate"]["path"])
+              if sha256_file(manifest) != state["manifest_candidate"]["sha256"]:
+                  raise ValueError("frozen manifest changed")
+              if json.loads(manifest.read_bytes())["keys"] != etags:
+                  raise ValueError("frozen manifest differs from readback bundle")
+              checkpoint.save(
+                  "before_manifest_put", files=(receipt, state_path, manifest, *candidates.values())
+              )
+          
+              def before_manifest():
+                  verify()
+                  if any(store.head(key).etag != etag for key, etag in etags.items()):
+                      raise ValueError("machine generation changed before manifest")
+          
+              _publish_exact(
+                  store,
+                  MANIFEST,
+                  manifest,
+                  base_etag=state["base_etags"][MANIFEST],
+                  base_sha256=state["base_sha256"][MANIFEST],
+                  readback=directory / "manifest-readback.json",
+                  content_type="application/json",
+                  before_put=before_manifest,
+              )
+              before_manifest()
+              return etags
+          
+          
+          def reissue_inputs(store, directory, identity, asof, guard):
+              generations = canonical_generations(store)
+              guarded = GuardedInputStore(store, guard)
+              for group in SOURCE_INPUT_GROUPS:
+                  result = publish_inputs(
+                      guarded,
+                      market=directory / "schema50.sqlite",
+                      economic=directory / "unused-economic",
+                      identity=identity,
+                      asof=asof,
+                      generations=generations,
+                      only_group=group,
+                  )
+                  if result["failed"] or result["updated"] != [group]:
+                      raise ValueError("market input publication failed")
+                  target = directory / "input-readback" / group
+                  target.mkdir(parents=True)
+                  database = target / "verified.sqlite"
+                  report = load_input(store, group, database, target / "handoff")
+                  with contextlib.closing(
+                      sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+                  ) as conn:
+                      validate_current_schema(conn)
+                  if report["canonical_generations"] != generations:
+                      raise ValueError("market input canonical binding differs")
+              for source in ARTICLE_SOURCES:
+                  publish_planning_input(guarded, source, generations)
+                  load_planning(store, source)
+              guard()
+              return generations
+          
+          
+          def execute(
+              store,
+              directory,
+              prefix,
+              *,
+              legacy,
+              hydrate=hydrate_legacy,
+              integrate=generate,
+              freeze=freeze_uploads,
+              inputs=reissue_inputs,
+              identity="market49-50",
+              recovery_from=None,
+              emit=lambda **_: None,
+          ):
+              if any(os.environ.get("BAIBAI_" + flag + "_NATIVE", "false") != "false" for flag in FLAGS):
+                  raise ValueError("schema cutover precedes every native-mode activation")
+              directory.mkdir(parents=True, exist_ok=False)
+              handle, _ = lease.acquire(store, "operator")
+              handle_path = directory / "lease.json"
+              checkpoint = Checkpoints(store, directory, prefix, handle)
+              phase = "pin_base"
+              report = {"cutover_completed": False, "lease_released": False}
+              state_path, receipt = directory / "state.json", directory / "cutover.json"
+              state = {}
+              try:
+                  lease._save_handle(handle_path, handle)
+                  originals = directory / "originals"
+                  originals.mkdir()
+                  tracked = (*KEYS, "indicators.sqlite", MANIFEST, POINTER)
+                  base_heads = {}
+                  paths = {}
+                  for key in tracked:
+                      path = originals / (key if "/" not in key else "current-pointer.json")
+                      base_heads[key] = _read(store, key, path)
+                      paths[key] = path
+                  state = {
+                      "base_etags": {key: item.etag for key, item in base_heads.items()},
+                      "base_sha256": {key: sha256_file(path) for key, path in paths.items()},
+                  }
+                  manifest = json.loads(paths[MANIFEST].read_bytes())
+                  expected = {key: state["base_etags"][key] for key in (*KEYS, "indicators.sqlite")}
+                  if manifest.get("schema_version") != 1 or manifest.get("keys") != expected:
+                      raise ValueError("market cutover requires the completed economic three-key bundle")
+                  if schema(paths["market.sqlite"]) != 49 or schema(paths["indicators.sqlite"]) != 13:
+                      raise ValueError("requires market49 and completed economic13")
+                  pointer = LakeReleasePointer.model_validate_json(paths[POINTER].read_bytes())
+                  asof = source_asof(paths["runs.sqlite"], pointer)
+                  state["asof"] = asof.isoformat()
+                  state["base_pointer"] = pointer.model_dump(mode="json")
+                  write_json_atomic(state_path, state)
+                  if recovery_from is not None:
+                      keys = sorted(key for key, _ in store.iter_objects(recovery_from + "checkpoints/"))
+                      previous_index = directory / "previous-checkpoint.json"
+                      _read(store, keys[-1], previous_index)
+                      if sha256_file(previous_index) != keys[-1].rsplit("-", 1)[-1].removesuffix(".json"):
+                          raise ValueError("previous checkpoint index changed")
+                      previous = json.loads(previous_index.read_bytes())
+                      previous_state_ref = next(
+                          ref for name, ref in previous["files"].items() if name.endswith("/state.json")
+                      )
+                      previous_state_path = directory / "previous-state.json"
+                      _read(store, previous_state_ref["key"], previous_state_path)
+                      if sha256_file(previous_state_path) != previous_state_ref["sha256"]:
+                          raise ValueError("previous cutover state differs")
+                      prior = json.loads(previous_state_path.read_bytes())
+                      if (
+                          prior["base_etags"] != state["base_etags"]
+                          or prior["base_sha256"] != state["base_sha256"]
+                      ):
+                          raise ValueError("recovery requires the unchanged original production bytes")
+                      checkpoint.reuse = {ref["sha256"]: ref for ref in previous["files"].values()}
+          
+                  def base_guard():
+                      lease.verify_held(store, handle)
+                      for key in tracked:
+                          current = store.head(key)
+                          if current is None or current.etag != state["base_etags"][key]:
+                              raise ValueError("pinned production base changed")
+          
+                  base_guard()
+                  phase = "preserve_originals"
+                  checkpoint.save(phase, files=(*paths.values(), state_path))
+                  emit(phase=phase, originals_readback_verified=True)
+                  phase = "hydrate_legacy"
+                  # Only local verified copies are removed; restore the exact private originals later.
+                  delayed = [paths["runs.sqlite"], paths["indicators.sqlite"]]
+                  for path in delayed:
+                      path.unlink()
+                  hydrate(directory, legacy, pointer)
+                  for path in delayed:
+                      retained = checkpoint.files[str(path.resolve())]
+                      _read(store, retained["key"], path)
+                      if sha256_file(path) != retained["sha256"]:
+                          raise ValueError("restored original differs from its preserved bytes")
+                  hydrated = directory / "schema49.sqlite"
+                  origin = read_lake_store_origin(hydrated)
+                  if (
+                      schema(hydrated) != 49
+                      or origin is None
+                      or origin.release_id != pointer.release_id
+                      or origin.release_manifest_sha256 != pointer.manifest_sha256
+                  ):
+                      raise ValueError("legacy hydrated copy differs from fixed current release")
+                  base_guard()
+                  # The raw49 object and fixed old lake graph are already retained originals.
+                  # Do not duplicate a reconstructible hydrated49 SQLite beside the new copy.
+                  state["legacy_hydrate_verified"] = True
+                  write_json_atomic(state_path, state)
+                  checkpoint.save(
+                      phase,
+                      files=tuple(
+                          path for path in (state_path, directory / "hydrate-result.json") if path.exists()
+                      ),
+                  )
+                  emit(phase=phase, legacy_hydrate_verified=True)
+                  generation_dir = directory / "generations"
+                  generation_dir.mkdir()
+                  for key in KEYS:
+                      (generation_dir / (key + ".etag")).write_text(state["base_etags"][key])
+                  phase = "prepare_copy"
+                  market_cutover.prepare_copy(
+                      hydrated,
+                      directory / "schema50.sqlite",
+                      receipt,
+                      kind="canonical",
+                      generation_directory=generation_dir,
+                  )
+                  # Converter completed on a separate copy; no later owner reads receipt.source.
+                  # The complete old release and raw49 operational state remain privately retained.
+                  hydrated.unlink()
+                  shutil.copyfile(paths["runs.sqlite"], directory / "runs.sqlite")
+                  checkpoint.save(
+                      phase,
+                      files=(receipt, *generation_dir.glob("*.etag")),
+                      databases=(directory / "schema50.sqlite", directory / "runs.sqlite"),
+                  )
+                  prepared_files = []
+          
+                  def before_publication(prepared):
+                      state["target_release"] = {
+                          "release_id": prepared.release.release_id,
+                          "manifest_sha256": prepared.release_sha256,
+                          "manifest_path": str(prepared.release_manifest_path),
+                          "source_snapshot_path": str(prepared.source_snapshot.path),
+                          "source_snapshot_sha256": sha256_file(prepared.source_snapshot.path),
+                      }
+                      write_json_atomic(state_path, state)
+                      prepared_files[:] = [prepared.source_snapshot.path, prepared.release_manifest_path]
+                      checkpoint.save(
+                          "before_lake_publication",
+                          files=(receipt, state_path, *prepared_files),
+                          databases=(directory / "schema50.sqlite", directory / "runs.sqlite"),
+                      )
+                      base_guard()
+          
+                  def before_pointer(path):
+                      target = LakeReleasePointer.model_validate_json(path.read_bytes())
+                      if (
+                          target.release_id != state["target_release"]["release_id"]
+                          or target.manifest_sha256 != state["target_release"]["manifest_sha256"]
+                      ):
+                          raise ValueError("pointer candidate differs from prepared model release")
+                      saved = directory / "current-pointer-candidate.json"
+                      shutil.copyfile(path, saved)
+                      checkpoint.save("before_pointer_put", files=(saved, state_path, receipt))
+                      base_guard()
+          
+                  phase = "generate_and_publish"
+                  result = integrate(
+                      directory,
+                      PublicationStore(store, before_pointer),
+                      handle_path,
+                      asof,
+                      before_publication,
+                  )
+                  if not result["models_ready"]:
+                      raise ValueError("model generation incomplete")
+                  notice = directory / "model-notice.json"
+                  write_json_atomic(notice, result)
+                  checkpoint.save(
+                      "lake_published",
+                      files=(state_path, receipt, notice),
+                      databases=(directory / "runs.sqlite",),
+                  )
+                  emit(
+                      phase=phase, fixed_release_and_models_published=True, original_model_date_retained=True
+                  )
+          
+                  def economic_guard():
+                      lease.verify_held(store, handle)
+                      current = store.head("indicators.sqlite")
+                      if current is None or current.etag != state["base_etags"]["indicators.sqlite"]:
+                          raise ValueError("economic L1 changed during market cutover")
+          
+                  phase = "freeze_uploads"
+                  candidates = freeze(directory, receipt)
+                  checkpoint.save(phase, files=(state_path, receipt, *candidates.values()))
+                  phase = "publish_machine"
+                  etags = publish_bundle(
+                      store, directory, receipt, handle_path, checkpoint, state, economic_guard
+                  )
+                  generations = canonical_generations(store)
+                  expected_origin = read_lake_store_origin(directory / "schema50.sqlite")
+                  if generations != {
+                      "lake_release_id": expected_origin.release_id,
+                      "lake_manifest_sha256": expected_origin.release_manifest_sha256,
+                  }:
+                      raise ValueError("published bundle release differs from working origin")
+          
+                  def input_guard():
+                      economic_guard()
+                      if canonical_generations(store) != generations or any(
+                          store.head(key).etag != etag for key, etag in etags.items()
+                      ):
+                          raise ValueError("published market generation changed during input refresh")
+          
+                  phase = "reissue_inputs"
+                  inputs(store, directory, identity, asof, input_guard)
+                  input_guard()
+                  state["completed"] = {
+                      "market_etags": etags,
+                      "generations": generations,
+                      "all_market_inputs_verified": True,
+                  }
+                  write_json_atomic(state_path, state)
+                  checkpoint.save("completed", files=(state_path, receipt))
+                  report.update(
+                      cutover_completed=True,
+                      schema=50,
+                      originals_preserved=True,
+                      canonical_bytes_readback_verified=True,
+                      all_market_inputs_verified=True,
+                      economic_unchanged=True,
+                      original_model_date_retained=True,
+                  )
+              except Exception as error:
+                  report.update(failed_phase=phase, error_type=type(error).__name__)
+                  report["error_frames"] = [
+                      {"file": Path(frame.filename).name, "line": frame.lineno, "function": frame.name}
+                      for frame in traceback.extract_tb(error.__traceback__)
+                  ]
+                  if phase == "hydrate_legacy":
+                      log = directory / "hydrate-private.log"
+                      if log.exists():
+                          for line in log.read_text(errors="replace").splitlines():
+                              if line.startswith("SAFE "):
+                                  emit(**json.loads(line[5:]))
+                      if (directory / "hydrate-result.json").exists():
+                          emit(**json.loads((directory / "hydrate-result.json").read_bytes()))
+                  error_path = directory / "error-private.txt"
+                  error_path.write_text(traceback.format_exc())
+                  with contextlib.suppress(Exception):
+                      checkpoint.save(
+                          "failed_" + phase,
+                          files=tuple(
+                              path
+                              for path in (
+                                  state_path,
+                                  receipt,
+                                  error_path,
+                                  directory / "hydrate-private.log",
+                                  directory / "hydrate-result.json",
+                              )
+                              if path.exists()
+                          ),
+                      )
+              finally:
+                  try:
+                      lease.release(store, handle)
+                      report["lease_released"] = True
+                  except Exception as error:
+                      report["lease_release_error_type"] = type(error).__name__
+              return report
+          
+          
+          def main():
+              run_id = os.environ.get("GITHUB_RUN_ID", "")
+              if not run_id.isdigit() or os.environ.get("GITHUB_RUN_ATTEMPT") != "1":
+                  print(json.dumps({"refused": True, "reason": "only_first_authorized_run_attempt"}))
+                  return 1
+              public = sys.stdout
+          
+              def emit(**value):
+                  print(json.dumps(value, sort_keys=True), file=public, flush=True)
+          
+              store = Boto3R2Store(bucket="baibai-stores")
+              try:
+                  with (
+                      Path("/tmp/market-cutover-private.log").open("w") as private,
+                      contextlib.redirect_stdout(private),
+                      contextlib.redirect_stderr(private),
+                  ):
+                      report = execute(
+                          store,
+                          Path("/tmp/baibai-market-cutover"),
+                          f"coordination/cutovers/market-49-50/{run_id}/",
+                          legacy=Path(os.environ["LEGACY_CHECKOUT"]),
+                          identity="cutover-" + run_id,
+                          recovery_from="coordination/cutovers/market-49-50/42032821827/",
+                          emit=emit,
+                      )
+              except Exception as error:
+                  report = {"cutover_completed": False, "error_type": type(error).__name__}
+              finally:
+                  store.close()
+              emit(**report)
+              return 0 if report.get("cutover_completed") and report.get("lease_released") else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PYCODE
