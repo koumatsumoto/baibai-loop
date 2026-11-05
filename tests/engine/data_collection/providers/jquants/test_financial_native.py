@@ -245,3 +245,18 @@ def test_same_clock_conflict_is_fixed_as_missing_and_planned_for_recheck(owner):
         start=DAY, end=DAY + timedelta(days=10), revision_overlap_days=0
     )
     assert len(list(owner.fixed().requests(owner.store, days=[DAY]))) == 1
+
+
+def test_migrated_receipt_preserves_unknown_start_without_fabrication(owner):
+    migrated = replace(attempt("old"), attempted_at=None)
+    raw = migrated.value()
+    assert raw["attempted_at"] is None
+    assert FinancialAttempt.from_value(raw) == migrated
+    assert owner.commit([migrated])["changed"] == ["old"]
+    fixed = owner.fixed()
+    assert fixed.value()["scopes"][DAY.isoformat()]["changed_at"] == AT.isoformat()
+    retained = next(fixed.requests(owner.store, days=[DAY]))
+    assert retained.request.received_at == AT
+    assert owner.commit([migrated])["retried"] == ["old"]
+    with pytest.raises(ValueError, match="without pages"):
+        replace(migrated, pages=())

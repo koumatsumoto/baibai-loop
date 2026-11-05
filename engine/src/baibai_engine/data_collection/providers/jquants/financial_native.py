@@ -71,20 +71,36 @@ def financial_content_id(request: JQuantsRequest) -> str:
 class FinancialAttempt:
     request_id: str
     day: date
-    attempted_at: datetime
+    attempted_at: datetime | None
     pages: tuple[JQuantsPage, ...]
     failure: str | None = None
 
-    def value(self) -> dict[str, Any]:
-        if self.attempted_at.utcoffset() is None or not self.request_id:
-            raise ValueError("attempt identity and timezone-aware time are required")
+    def __post_init__(self) -> None:
+        if not self.request_id:
+            raise ValueError("attempt identity is required")
+        if self.attempted_at is None:
+            if not self.pages:
+                raise ValueError("an attempt without pages requires its actual attempt time")
+        elif self.attempted_at.utcoffset() is None:
+            raise ValueError("attempt time must be timezone-aware")
         for page in self.pages:
             if page.source != "financial_summaries":
                 raise ValueError("unexpected source in financial attempt")
+
+    @property
+    def order_time(self) -> datetime:
+        """Use real page receipt time; a migrated start time may be unknown."""
+        if self.pages:
+            return self.pages[-1].received_at
+        if self.attempted_at is None:
+            raise ValueError("attempt time is unavailable")
+        return self.attempted_at
+
+    def value(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
             "day": self.day.isoformat(),
-            "attempted_at": self.attempted_at.isoformat(),
+            "attempted_at": self.attempted_at.isoformat() if self.attempted_at else None,
             "failure": self.failure,
             "pages": [
                 {
@@ -101,7 +117,9 @@ class FinancialAttempt:
         return cls(
             value["request_id"],
             date.fromisoformat(value["day"]),
-            datetime.fromisoformat(value["attempted_at"]),
+            datetime.fromisoformat(value["attempted_at"])
+            if value["attempted_at"] is not None
+            else None,
             tuple(
                 JQuantsPage(
                     "financial_summaries",
@@ -237,7 +255,7 @@ class FixedFinancialL1:
                     request,
                     None if request else item.failure or "incomplete request",
                     {"date": item.day.isoformat()},
-                    item.pages[-1].received_at if item.pages else item.attempted_at,
+                    item.order_time,
                 )
             if found != identities:
                 raise LakePublishError("financial pack lacks a fixed receipt")
@@ -343,7 +361,7 @@ class FinancialL1:
                     raise ValueError("financial request differs from its attempted day")
             except JQuantsAcquisitionError:
                 request = None
-            stamp = item.pages[-1].received_at if item.pages else item.attempted_at
+            stamp = item.order_time
             previous_at = scope.get("last_attempt_at")
             held = previous_at is not None and stamp <= datetime.fromisoformat(previous_at)
             content_id = financial_content_id(request) if request else None

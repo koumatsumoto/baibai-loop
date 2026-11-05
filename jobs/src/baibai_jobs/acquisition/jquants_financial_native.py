@@ -104,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
                     FinancialAttempt.from_value(json.loads(path.read_bytes()))
                     for path in args.directory.glob("attempt-*.json")
                 ]
-                attempts.sort(key=lambda item: (item.attempted_at, item.request_id))
+                attempts.sort(
+                    key=lambda item: (item.attempted_at or item.order_time, item.request_id)
+                )
                 result = owner.commit(attempts)
                 print(json.dumps(result, sort_keys=True))
                 return int(bool(result["failed"] or result["held"]))
