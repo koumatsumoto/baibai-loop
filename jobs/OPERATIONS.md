@@ -789,6 +789,54 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。
 
 
+<a id="margin-alerts-native-l1"></a>
+## 日々公表銘柄margin-alert native L1の明示取得・固定読取
+
+`jquants-margin-alerts-native` は旧market release・L2・共通公開に依存しない明示入口。通常のmarket writer・schedule・切替設定は変更しない。この段階だけで本番取得が独立経路へ切り替わったとは扱わない（refs #1820）。
+
+取得は `date=YYYY-MM-DD` のunfiltered公表日request。初回はasof−7日から当日までの8暦日、以後は同じ訂正確認に加えて最古保持日以降の欠落・失敗・保留を再取得する。正常空も保持の起点になる。`--start` は明示した有限範囲の取得用で、通常planの履歴起点を削除しない。母集団と日付の意味は[信用残のsource契約](../docs/reference/data-sources.md#信用残のsourceと日付)に従い、銘柄数やL2の正規化失敗でGET完了を取り消さない。休日を理由にGETを省略する経路ではないため、通常scheduleへの接続時に現在の休場skipとの違いを確認する。
+
+`l1/jquants/margin-alerts/v1/` は独立headと不変request packを保持する。既存full-day保存機構を共有し、変更原本だけ本文を追加する。同値paginationは本文を複写せず実確認時刻・fingerprintを残す。失敗・partialは旧採用原本を消さず、同時刻の異なる受領を恣意的に採用しない。429/期限超過時はそのpassを停止し、保存済み・失敗・未試行を区別する。取得directoryは毎回新しくし、中断した実受領の公開だけを `commit-work` で再開する。
+
+```bash
+uv run baibai-jobs jquants-margin-alerts-native initialize \
+  --directory /secure-work/margin-alerts-init
+uv run baibai-jobs jquants-margin-alerts-native plan \
+  --directory /secure-work/margin-alerts-plan --asof 2026-11-05
+uv run baibai-jobs jquants-margin-alerts-native acquire \
+  --directory /secure-work/margin-alerts-cycle --asof 2026-11-05
+uv run baibai-jobs rebuild-margin-alerts-native \
+  --work-directory /secure-work/margin-alerts-read \
+  --start 2026-10-29 --end 2026-11-05 --output /secure-work/margin-alerts-output
+```
+
+既存原本がある環境では空のinitializeを通常移行の代替にせず、次の有限移行で保持範囲を引き継ぐ。読取は新しい `margin-alerts.sqlite` を明示生成し、既存のmargin reader/coverage契約をそのまま使う。既存SQLiteへの上書き、L2の通常全履歴再構築、本番公開は行わない。`PubDate/Code/AppDate` のidentity、訂正、正規化のpartialを維持し、正常空は空list、未取得・失敗・partialは読取不能として区別する。
+
+読取結果の `input.json` は固定InputSnapshot。`--saved-input` に渡すと最新head・provider・以前のL2なしで同じ有限範囲を再生する。`fixed-inputs/jquants-margin-alerts/v1/` の月metadataは変更月だけ追加し、descriptorへ本文や全履歴scopeを複写しない。原本packと固定inputは再計算を必要とする間保持する。全head metadataの書換え、初回の原本読取・明示投影の費用は残り、実provider/R2受入・通常generation/publicationとの接続は未検証である。
+
+### 有限移行と残る本番接続
+
+`margin-alerts-native-cutover prepare` はexact旧release ID/SHA256、実UTC境界、統合済みを含む全market stageを固定し、日々公表の全page bytes・query・実受領時刻を有限保存する。他sourceの明示失敗は日々公表の失敗にしない。filtered request、原本欠損、未知scope、日々公表の失敗なのに失敗原本がないstageは `blocked` とし、空成功を捏造しない。
+
+```bash
+uv run baibai-jobs margin-alerts-native-cutover prepare \
+  --directory /secure-work/margin-alerts-migration \
+  --work-directory /secure-work/margin-alerts-mirror \
+  --release "$OLD_RELEASE" --manifest-sha256 "$OLD_MANIFEST_SHA256" \
+  --known-at "$CUTOVER_UTC"
+uv run baibai-jobs margin-alerts-native-cutover apply \
+  --directory /secure-work/margin-alerts-migration --work-directory /secure-work/margin-alerts-apply
+uv run baibai-jobs margin-alerts-native-cutover verify \
+  --directory /secure-work/margin-alerts-migration --work-directory /secure-work/margin-alerts-verify
+uv run baibai-jobs margin-alerts-native-cutover compare \
+  --directory /secure-work/margin-alerts-migration --work-directory /secure-work/margin-alerts-compare \
+  --asof 2026-11-05
+```
+
+applyは空または同じ移行だけを含む初期化済みtargetへ限定し、全prepared bytesを検証してから公開する。verifyは旧版・partialを含む全移行packをcold読戻しする。compareは旧L2との三列identity/値差分と、予定日までの全保持範囲の欠測・partialを報告する。正常空と過去の未取得を同一視せず、比較差分や欠測があれば非0で終了する。同値受領はfingerprintだけを保持するため、その時のexact page bytesが必要な間は旧release/stageも保持する。旧原本は自動削除しない。
+
+本番の独立切替には、旧margin-alert取得の停止と実行中jobのdrain、後着stageの境界固定、native取得から同じ固定inputを既存consumer/公開へ渡す接続を別途行う。通常dailyへ移行や過去全件再GETを代行させず、今回の明示入口の合成test成功を実切替完了としない。他sourceの進行中の切替をこの後続作業で止めない。
+
 <a id="price-native-l1"></a>
 ## 日足native L1の取得・固定読取・有限移行
 
