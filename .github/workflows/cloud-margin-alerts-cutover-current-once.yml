@@ -1,0 +1,655 @@
+name: cloud-margin-alerts-cutover-current-once
+
+# 一度限りの固定main移行。旧原本とcanonicalを保持し、通常flagはまだ変更しない。
+on:
+  push:
+    branches: [codex/margin-alerts-cutover-20261106]
+    paths: [.github/workflows/cloud-margin-alerts-cutover-current-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/margin-alerts-cutover-20261106' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: 日々公表の固定原本を一度だけ移行 (2026-11-06)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed merged code and only this temporary workflow change
+        env:
+          EXPECTED_CODE_SHA: 09beb976f014fe19565cc6089759b7fe9ccbfdaa
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/cloud-margin-alerts-cutover-current-once.yml'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Migrate only fixed margin alert originals and retain comparison differences
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          FIRST_DAILY_DATE: '2026-11-05'
+          INITIALIZE_NEW_TARGET: 'true'
+          RESUME_KNOWN_AT: ''
+          EXPECTED_PLAN_SHA256: ''
+        run: |
+          cat > "$RUNNER_TEMP/margin_alerts_preflight.py" <<'PY_PREFLIGHT'
+          """margin-alerts移行前の有限metadata確認。原本本文・lease・本番状態を書き換えない。"""
+          
+          from __future__ import annotations
+          
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          from datetime import UTC, datetime
+          from pathlib import Path
+          from threading import Lock
+          
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import HEAD_KEY, PREFIX
+          from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
+          from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
+              JQUANTS_MARGIN_ALERTS,
+          )
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_engine.storage.snapshots.reader import accepted_dataset, resolve_release
+          from baibai_engine.storage.snapshots.release import LakeReleasePointer
+          from baibai_jobs.acquisition.receipts import available_handoffs
+          from baibai_jobs.publication import lease
+          
+          POINTER = "lake/pointers/market/current.json"
+          MANIFEST = "machine-manifest.json"
+          CANONICAL = ("market.sqlite", "runs.sqlite", "indicators.sqlite", MANIFEST, POINTER)
+          STAGES = "coordination/market-sources/jquants-market-"
+          METADATA_LIMIT = 32 * 1024 * 1024
+          OBJECT_LIMIT = 4 * 1024 * 1024
+          LIST_LIMIT = 10_000
+          INPUT_LIMIT = 1024 * 1024 * 1024
+          
+          
+          class PreflightFailure(RuntimeError):
+              """公開してよい固定codeだけをmessageに持つ。"""
+          
+          
+          def require(condition, code):
+              if not condition:
+                  raise PreflightFailure(code)
+          
+          
+          class MetadataOnly:
+              """既存GET/HEAD/LISTだけを公開し、metadataの総読取量も制限する。"""
+          
+              def __init__(self, store):
+                  self.store = store
+                  self.read_bytes_total = 0
+                  self.lock = Lock()
+          
+              def head(self, key):
+                  require(
+                      key in {*CANONICAL, HEAD_KEY, lease.PUBLICATION_LEASE_KEY}
+                      or key.startswith(("lake/", STAGES, PREFIX)),
+                      "head_outside_scope",
+                  )
+                  return self.store.head(key)
+          
+              def get_bytes(self, key):
+                  require(
+                      key in {POINTER, MANIFEST, lease.PUBLICATION_LEASE_KEY}
+                      or (key.startswith("lake/manifests/") and key.endswith(".json"))
+                      or (key.startswith(STAGES) and key.endswith(("/handoff.json", "/integrated.json"))),
+                      "body_read_outside_metadata",
+                  )
+                  before = self.head(key)
+                  require(before is not None, "required_metadata_missing")
+                  require(before.size <= OBJECT_LIMIT, "metadata_object_limit")
+                  with self.lock:
+                      require(self.read_bytes_total + before.size <= METADATA_LIMIT, "metadata_total_limit")
+                      self.read_bytes_total += before.size
+                  response = self.store._client(before.size).get_object(
+                      Bucket=self.store.bucket, Key=key, IfMatch=before.etag
+                  )
+                  body = response["Body"]
+                  try:
+                      payload = body.read(before.size + 1)
+                  finally:
+                      body.close()
+                  require(len(payload) == before.size, "metadata_size_changed")
+                  require(self.head(key) == before, "metadata_changed_during_read")
+                  return payload
+          
+              def read_bytes(self, key):
+                  return self.get_bytes(key)
+          
+              def iter_objects(self, prefix):
+                  require(prefix in {STAGES, PREFIX}, "list_outside_scope")
+                  for index, entry in enumerate(self.store.iter_objects(prefix)):
+                      require(index < LIST_LIMIT, "metadata_listing_limit")
+                      yield entry
+          
+          
+          def inspect(store, *, input_limit=INPUT_LIMIT):
+              reader = MetadataOnly(store)
+              before = {key: reader.head(key) for key in CANONICAL}
+              require(all(item is not None for item in before.values()), "canonical_metadata_missing")
+              machine = json.loads(reader.get_bytes(MANIFEST))
+              require(
+                  machine.get("schema_version") == 1
+                  and set(machine.get("keys", {})) == {"market.sqlite", "runs.sqlite"}
+                  and all(machine["keys"][key] == before[key].etag for key in machine["keys"]),
+                  "canonical_pair_mismatch",
+              )
+              pointer = LakeReleasePointer.model_validate_json(reader.get_bytes(POINTER))
+              release = resolve_release(reader, pointer.release_id, manifest_sha256=pointer.manifest_sha256)
+              objects = {}
+              for dataset in (JQUANTS_SOURCE_PAGES, JQUANTS_MARGIN_ALERTS):
+                  accepted_dataset(release, dataset)
+                  for partition in release.dataset_manifest(dataset.name).partitions:
+                      for obj in partition.objects:
+                          require(
+                              obj.key not in objects or objects[obj.key] == obj.bytes,
+                              "physical_object_size_conflict",
+                          )
+                          objects[obj.key] = obj.bytes
+              handoffs = available_handoffs(reader, source="jquants-market", include_integrated=True)
+              valid_handoffs = not any(entry.get("invalid") for entry in handoffs)
+              receipt_bytes = 0
+              for entry in handoffs:
+                  if entry.get("invalid"):
+                      continue
+                  prefix = f"coordination/market-sources/{entry['stage_id']}/"
+                  payload = reader.get_bytes(prefix + "handoff.json")
+                  require(
+                      hashlib.sha256(payload).hexdigest() == entry["manifest_sha256"],
+                      "handoff_changed_during_preflight",
+                  )
+                  manifest = json.loads(payload)
+                  digest, size = manifest.get("receipt_sha256"), manifest.get("receipt_bytes")
+                  require(
+                      isinstance(digest, str)
+                      and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+                      and type(size) is int
+                      and size >= 0,
+                      "receipt_metadata_invalid",
+                  )
+                  key = prefix + f"receipts-{digest}.sqlite"
+                  require(manifest.get("receipt_key") == key, "receipt_key_mismatch")
+                  remote = reader.head(key)
+                  require(
+                      remote is not None and remote.size == size and remote.metadata.get("sha256") == digest,
+                      "receipt_metadata_mismatch",
+                  )
+                  # prepare downloads each stage into its own directory, even for equal content.
+                  receipt_bytes += size
+              target = dict(reader.iter_objects(PREFIX))
+              head = reader.head(HEAD_KEY)
+              current_lease = lease._generation(reader)
+              # An expired held lease still needs its previous owner checked, not automatic takeover.
+              lease_clear = current_lease is None or current_lease[0].state == "released"
+              require(before == {key: reader.head(key) for key in CANONICAL}, "canonical_changed")
+              require(
+                  handoffs == available_handoffs(reader, source="jquants-market", include_integrated=True),
+                  "handoffs_changed",
+              )
+              require(target == dict(reader.iter_objects(PREFIX)), "target_changed")
+              require(head == reader.head(HEAD_KEY), "target_head_changed")
+              require(current_lease == lease._generation(reader), "publication_lease_changed")
+              estimated = sum(objects.values()) + receipt_bytes
+              public = {
+                  "preflight_completed": True,
+                  "canonical_pair_consistent": True,
+                  "current_and_handoffs_stable": True,
+                  "native_target_empty": head is None and not target,
+                  "native_head_exists": head is not None,
+                  "native_orphans_present": head is None and bool(target),
+                  "publication_lease_clear": lease_clear,
+                  "handoff_metadata_resolved": valid_handoffs,
+                  "legacy_alert_rows_present": release.dataset_manifest(
+                      JQUANTS_MARGIN_ALERTS.name
+                  ).totals.rows
+                  > 0,
+                  "legacy_input_bytes_within_limit": estimated <= input_limit,
+                  "original_bytes_verified": False,
+                  "retention_verified": False,
+                  "remote_writes": False,
+                  "provider_requests": False,
+              }
+              private = {
+                  "checked_at": datetime.now(UTC).isoformat(),
+                  "release_id": release.release_id,
+                  "manifest_sha256": release.manifest_sha256,
+                  "release_data_as_of": release.data_as_of.isoformat(),
+                  "canonical_etags": {key: item.etag for key, item in before.items()},
+                  "handoffs": handoffs,
+                  "target_objects": target,
+                  "legacy_download_bytes": estimated,
+                  "legacy_download_limit": input_limit,
+                  "metadata_read_bytes": reader.read_bytes_total,
+                  "public": public,
+              }
+              return public, private
+          
+          
+          def main():
+              output = sys.stdout
+              try:
+                  directory = Path(os.environ["RUNNER_TEMP"])
+                  with (
+                      (directory / "margin-preflight-private.log").open("w") as private_log,
+                      contextlib.redirect_stdout(private_log),
+                      contextlib.redirect_stderr(private_log),
+                      contextlib.closing(Boto3R2Store(bucket="baibai-stores")) as store,
+                  ):
+                      public, private = inspect(store)
+                      path = directory / "margin-preflight-private.json"
+                      path.write_text(json.dumps(private, sort_keys=True), encoding="utf-8")
+                      path.chmod(0o600)
+              except Exception as error:
+                  public = {
+                      "preflight_completed": False,
+                      "error_type": type(error).__name__,
+                      "remote_writes": False,
+                      "provider_requests": False,
+                  }
+                  if isinstance(error, PreflightFailure):
+                      public["reason"] = str(error)
+              print(json.dumps(public, sort_keys=True), file=output)
+              return 0 if public.get("preflight_completed") else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY_PREFLIGHT
+          cat > "$RUNNER_TEMP/margin_alerts_cutover_once.py" <<'PYCODE'
+          """未起動の一回限りの運用案。固定旧原本だけをmargin_alerts独立L1へ移す。"""
+          
+          from __future__ import annotations
+          
+          import base64
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import sys
+          from datetime import UTC, date, datetime
+          from pathlib import Path
+          
+          from margin_alerts_preflight import inspect as inspect_margin_metadata
+          
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+              HEAD_KEY,
+              PREFIX,
+              MarginAlertsL1,
+              plan_margin_alert_days,
+          )
+          from baibai_engine.machine_analysis.generation.margin_alerts_inputs import INPUT_PREFIX
+          from baibai_engine.storage.json import write_json_atomic
+          from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
+          from baibai_engine.storage.snapshots.objects import open_lake
+          from baibai_engine.storage.snapshots.reader import resolve_release
+          from baibai_jobs.acquisition.receipts import available_handoffs
+          from baibai_jobs.maintenance import margin_alerts_native_cutover as cutover
+          from baibai_jobs.publication import lease
+          
+          POINTER = "lake/pointers/market/current.json"
+          CANONICAL_KEYS = (
+              "market.sqlite",
+              "runs.sqlite",
+              "indicators.sqlite",
+              "machine-manifest.json",
+              POINTER,
+          )
+          PRIVATE_PREFIX = "coordination/cutovers/margin-alerts-native/"
+          
+          
+          class NativeWrites:
+              """既存正本・stage・releaseを書かず、独立原本と固定metadataだけを許す。"""
+          
+              def __init__(self, store, guard):
+                  self.store, self.guard = store, guard
+                  self.write_attempted = False
+          
+              def head(self, key):
+                  return self.store.head(key)
+          
+              def get_bytes(self, key):
+                  return self.store.get_bytes(key)
+          
+              def iter_objects(self, prefix):
+                  return self.store.iter_objects(prefix)
+          
+              def download_file(self, key, path, **kwargs):
+                  return self.store.download_file(key, path, **kwargs)
+          
+              def put_file(self, key, path, **kwargs):
+                  is_head = key == HEAD_KEY
+                  immutable = (
+                      key.startswith(PREFIX + "packs/")
+                      or key.startswith(INPUT_PREFIX + "months/")
+                      or key.startswith(INPUT_PREFIX + "selections/")
+                  )
+                  if not (is_head or immutable):
+                      raise ValueError("write outside margin-alert native originals and fixed metadata")
+                  if is_head:
+                      if bool(kwargs.get("if_match")) == bool(kwargs.get("if_none_match")):
+                          raise ValueError("native head requires one conditional write")
+                  elif not kwargs.get("if_none_match") or kwargs.get("if_match"):
+                      raise ValueError("native originals and fixed metadata must be create-only")
+                  self.guard(is_head)
+                  self.write_attempted = True
+                  return self.store.put_file(key, path, **kwargs)
+          
+          
+          def preserve(store, path, prefix, guard):
+              """小さいplan/差分/結果のみ私有保全。原本本文を二重uploadしない。"""
+              payload = path.read_bytes()
+              digest = hashlib.sha256(payload).hexdigest()
+              key = prefix + path.name + "-" + digest
+              if store.head(key) is None:
+                  guard()
+                  try:
+                      store.put_file(
+                          key,
+                          path,
+                          sha256=digest,
+                          content_md5=base64.b64encode(
+                              hashlib.md5(payload, usedforsecurity=False).digest()
+                          ).decode(),
+                          content_type="application/json",
+                          if_none_match=True,
+                      )
+                  except LakePublishError:
+                      if store.head(key) is None:
+                          raise
+              if store.get_bytes(key) != payload:
+                  raise ValueError("private cutover evidence failed exact readback")
+              return key
+          
+          
+          def execute(
+              store,
+              directory,
+              *,
+              run_id,
+              release_id,
+              manifest_sha256,
+              asof,
+              allow_initialize=False,
+              expected_plan_sha256=None,
+              bucket="baibai-stores",
+              clock=lambda: datetime.now(UTC),
+              lake=open_lake,
+              prepare=cutover.prepare_migration,
+              emit=lambda **_: None,
+          ):
+              """旧原本の有限移行だけ。provider GET・machine pull/push・通常公開は呼ばない。"""
+              if not run_id.isdigit() or not release_id or len(manifest_sha256) != 64:
+                  raise ValueError("explicit run and fixed legacy release are required")
+              if any(char not in "0123456789abcdef" for char in manifest_sha256):
+                  raise ValueError("invalid fixed manifest digest")
+              directory.mkdir(parents=True, exist_ok=False)
+              base = {key: store.head(key) for key in CANONICAL_KEYS}
+              if base[POINTER] is None:
+                  raise ValueError("current market release is unavailable")
+              pointer = json.loads(store.get_bytes(POINTER))
+              if (pointer.get("release_id"), pointer.get("manifest_sha256")) != (release_id, manifest_sha256):
+                  raise ValueError("requested old release is no longer current")
+              handle, _ = lease.acquire(store, "operator")
+              report = {"migration_completed": False, "native_applied": False, "lease_released": False}
+              phase = "prepare"
+              expected_handoffs = None
+              expected_native_sha256 = None
+              native = None
+              prefix = PRIVATE_PREFIX + run_id + "/"
+          
+              def private_guard():
+                  lease.verify_held(store, handle)
+          
+              def guard(check_peers=True):
+                  private_guard()
+                  if check_peers:
+                      for key, before in base.items():
+                          after = store.head(key)
+                          if (before.etag if before else None) != (after.etag if after else None):
+                              raise ValueError("canonical generation changed during finite migration")
+                      if (
+                          expected_handoffs is not None
+                          and available_handoffs(store, source="jquants-market", include_integrated=True)
+                          != expected_handoffs
+                      ):
+                          raise ValueError("market handoffs changed after prepare")
+                      if expected_native_sha256 is not None:
+                          if hashlib.sha256(store.get_bytes(HEAD_KEY)).hexdigest() != expected_native_sha256:
+                              raise ValueError("native head changed after finite apply")
+          
+              def save(name, value):
+                  path = directory / name
+                  write_json_atomic(path, value)
+                  return preserve(store, path, prefix, private_guard)
+          
+              try:
+                  guard()
+                  boundary = clock()
+                  if boundary.utcoffset() is None:
+                      raise ValueError("actual migration clock requires a timezone")
+                  save(
+                      "state.json",
+                      {
+                          "format": "margin-alerts-cutover-once-v1",
+                          "release_id": release_id,
+                          "manifest_sha256": manifest_sha256,
+                          "known_at": boundary.isoformat(),
+                          "asof": asof.isoformat(),
+                          "base_etags": {key: value.etag if value else None for key, value in base.items()},
+                      },
+                  )
+                  with lake(mirror=directory / "mirror", bucket=bucket) as (session, cache):
+                      release = resolve_release(cache.source, release_id, manifest_sha256=manifest_sha256)
+                      plan = prepare(
+                          session,
+                          release=release,
+                          cache=cache,
+                          store=store,
+                          known_at=boundary,
+                          directory=directory / "plan",
+                      )
+                      if (
+                          expected_plan_sha256 is not None
+                          and hashlib.sha256((directory / "plan" / "plan.json").read_bytes()).hexdigest()
+                          != expected_plan_sha256
+                      ):
+                          raise ValueError("resume requires the exact preserved finite plan")
+                      expected_handoffs = plan["handoffs"]
+                      preserve(store, directory / "plan" / "plan.json", prefix, private_guard)
+                      report["prepared_requests"] = len(plan["attempts"])
+                      if plan["blocked"]:
+                          report.update(failed_phase=phase, blocked_count=len(plan["blocked"]))
+                      elif not plan["attempts"]:
+                          report.update(failed_phase=phase, reason="no_retained_margin_alert_originals")
+                      else:
+                          guard()
+                          phase = "apply"
+                          native = NativeWrites(store, guard)
+                          owner = MarginAlertsL1(native, directory / "native")
+                          if store.head(HEAD_KEY) is None:
+                              if not allow_initialize:
+                                  raise ValueError("new target initialization was not explicitly selected")
+                              owner.initialize()  # Owner refuses any nonempty/orphaned prefix.
+                          result = cutover.apply_migration(owner, directory=directory / "plan")
+                          report["native_applied"] = True
+                          fixed = owner.fixed()
+                          if {
+                              identity: receipt["fingerprint"]
+                              for identity, receipt in fixed.value()["receipts"].items()
+                          } != {item["request_id"]: item["sha256"] for item in plan["attempts"]}:
+                              raise ValueError("target changed outside the finite migration plan")
+                          expected_native_sha256 = fixed.content_id
+                          save("applied.json", {"head_sha256": fixed.content_id, **result})
+                          phase = "verify_compare"
+                          cold = MarginAlertsL1(native, directory / "cold-verify")
+                          # apply_migration already cold-reads every retained pack, including
+                          # superseded/partial originals. Do not repeat that full pass here.
+                          guard()
+                          comparison = cutover.compare_projection(
+                              session,
+                              release=release,
+                              cache=cache,
+                              owner=cold,
+                              directory=directory / "plan",
+                              as_of=asof,
+                          )
+                          if comparison["head_sha256"] != fixed.content_id:
+                              raise ValueError("comparison did not use the fixed applied native head")
+                          guard()
+                          save("comparison.json", comparison)
+                          days = plan_margin_alert_days(fixed, asof=asof)
+                          save(
+                              "next-acquisition-plan.json",
+                              {
+                                  "head_sha256": fixed.content_id,
+                                  "asof": asof.isoformat(),
+                                  "days": [day.isoformat() for day in days],
+                                  "provider_requests_performed": 0,
+                              },
+                          )
+                          guard()
+                          ready = (
+                              not comparison["differences"] and comparison["coverage_status"] == "complete"
+                          )
+                          report.update(
+                              migration_completed=ready,
+                              native_verified=True,
+                              comparison_equal=not comparison["differences"],
+                              coverage_complete=comparison["coverage_status"] == "complete",
+                              difference_count=len(comparison["differences"]),
+                              next_acquire_days=len(days),
+                              provider_requests_performed=0,
+                              canonical_unchanged=True,
+                          )
+                          if not ready:
+                              report.update(failed_phase=phase, reason="comparison_requires_resolution")
+                      save("outcome.json", report)
+                      guard()
+                      emit(**report)
+              except Exception as error:
+                  report.update(
+                      migration_completed=False, failed_phase=phase, error_type=type(error).__name__
+                  )
+                  if native is not None and native.write_attempted:
+                      report["native_state_requires_readback"] = True
+                  with contextlib.suppress(Exception):
+                      save(
+                          "error.json",
+                          {"phase": phase, "type": type(error).__name__, "message": str(error), **report},
+                      )
+              finally:
+                  report["native_write_attempted"] = native is not None and native.write_attempted
+                  try:
+                      lease.release(store, handle)
+                      report["lease_released"] = True
+                  except Exception as error:
+                      report["lease_release_error_type"] = type(error).__name__
+              return report
+          
+          
+          def public_summary(report):
+              """実件数・差分本文はprivate証拠に残し、公開logは判定と固定codeだけにする。"""
+              return {
+                  key: value
+                  for key, value in report.items()
+                  if isinstance(value, bool)
+                  or key in {"failed_phase", "reason", "error_type", "lease_release_error_type"}
+              }
+          
+          
+          def main():
+              public = sys.stdout
+              report = {"migration_completed": False, "metadata_preflight_passed": False}
+              try:
+                  root = Path(os.environ["RUNNER_TEMP"])
+                  with (
+                      (root / "margin-alerts-private.log").open("w") as private,
+                      contextlib.redirect_stdout(private),
+                      contextlib.redirect_stderr(private),
+                      contextlib.closing(Boto3R2Store(bucket="baibai-stores")) as store,
+                  ):
+                      if os.environ.get("GITHUB_RUN_ATTEMPT") != "1":
+                          raise ValueError("only the authorized first run attempt is allowed")
+                      resume_clock = os.environ.get("RESUME_KNOWN_AT", "")
+                      resume_plan = os.environ.get("EXPECTED_PLAN_SHA256", "")
+                      if bool(resume_clock) != bool(resume_plan):
+                          raise ValueError("resume requires both the preserved clock and plan digest")
+                      moment = datetime.fromisoformat(resume_clock) if resume_clock else None
+                      if moment and (moment.utcoffset() is None or moment > datetime.now(UTC)):
+                          raise ValueError("resume clock must be the real past migration boundary")
+                      allow_initialize = os.environ.get("INITIALIZE_NEW_TARGET") == "true"
+                      checks, fixed = inspect_margin_metadata(store)
+                      if not all(
+                          checks[key]
+                          for key in (
+                              "preflight_completed",
+                              "canonical_pair_consistent",
+                              "current_and_handoffs_stable",
+                              "publication_lease_clear",
+                              "handoff_metadata_resolved",
+                              "legacy_alert_rows_present",
+                              "legacy_input_bytes_within_limit",
+                          )
+                      ):
+                          raise ValueError("migration metadata requires resolution")
+                      if allow_initialize:
+                          if not checks["native_target_empty"]:
+                              raise ValueError("initial migration requires an empty native target")
+                      elif not checks["native_head_exists"] or checks["native_orphans_present"]:
+                          raise ValueError("resume requires an existing native head")
+                      elif not resume_clock:
+                          raise ValueError("resume requires the preserved clock and plan digest")
+                      report["metadata_preflight_passed"] = True
+                      report = execute(
+                          store,
+                          root / "margin-alerts-cutover",
+                          run_id=os.environ["GITHUB_RUN_ID"],
+                          release_id=fixed["release_id"],
+                          manifest_sha256=fixed["manifest_sha256"],
+                          asof=date.fromisoformat(os.environ["FIRST_DAILY_DATE"]),
+                          allow_initialize=allow_initialize,
+                          expected_plan_sha256=resume_plan or None,
+                          clock=(lambda: moment) if moment else (lambda: datetime.now(UTC)),
+                      )
+                      report.update(metadata_preflight_passed=True, retention_verified=False)
+                      if "next_acquire_days" in report:
+                          report["next_acquire_within_eight_days"] = report["next_acquire_days"] <= 8
+              except Exception as error:
+                  report.update(migration_completed=False, error_type=type(error).__name__)
+                  if report.get("native_write_attempted"):
+                      report["native_state_requires_readback"] = True
+              print(json.dumps(public_summary(report), sort_keys=True), file=public)
+              return 0 if report.get("migration_completed") and report.get("lease_released") else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PYCODE
+          uv run python "$RUNNER_TEMP/margin_alerts_cutover_once.py"
