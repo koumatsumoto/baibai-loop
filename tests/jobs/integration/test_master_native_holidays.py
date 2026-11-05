@@ -105,8 +105,9 @@ def test_unconfirmed_or_business_calendar_does_not_excuse_invalid_master(tmp_pat
 
 
 @pytest.mark.parametrize("response", ["empty", "prior-date", "matching-date"])
+@pytest.mark.parametrize("generation_day", [SUNDAY, SUNDAY + timedelta(days=1)])
 def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
-    tmp_path, monkeypatch, response
+    tmp_path, monkeypatch, response, generation_day
 ):
     import baibai_engine.machine_analysis.generation.inputs as generation
     import baibai_jobs.integration.models as job
@@ -131,6 +132,11 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
         tmp_path, [attempt("business", day=FRIDAY), attempt("holiday", day=SUNDAY, rows=raw)]
     )
     calendar(market)
+    if generation_day > SUNDAY:
+        with sqlite3.connect(market) as connection:
+            connection.execute(
+                "INSERT INTO jquants_market_calendar VALUES (?, '1')", (generation_day.isoformat(),)
+            )
     price = PriceL1(store, tmp_path / "price")
     price.initialize()
     price.commit(
@@ -155,6 +161,7 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
                 ),
             )
             for day in (FRIDAY, SATURDAY, SUNDAY)
+            + ((generation_day,) if generation_day > SUNDAY else ())
         ]
     )
     original = generation.read_master_snapshot
@@ -173,14 +180,32 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
         economic=economic,
         runs=tmp_path / "runs",
         mirror=tmp_path / "mirror",
-        as_of=SUNDAY,
+        as_of=generation_day,
         lease_handle=tmp_path / "lease",
         growth_start=None,
         policy=EconomicPathPolicy(candidate_limit=36),
     )
     saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
-    assert saved.as_of == SUNDAY
-    assert consumed == [FRIDAY]
-    assert saved.inputs["master"].descriptor["as_of"] == SUNDAY.isoformat()
-    assert saved.inputs["master"].descriptor["summary"]["master_basis_date"] == FRIDAY.isoformat()
+    expected = SUNDAY if generation_day > SUNDAY and response == "matching-date" else FRIDAY
+    assert saved.as_of == generation_day
+    assert consumed == [expected]
+    assert saved.inputs["master"].descriptor["as_of"] == generation_day.isoformat()
+    assert saved.inputs["master"].descriptor["summary"]["snapshot_date"] == expected.isoformat()
+    basis = FRIDAY if generation_day == SUNDAY else generation_day
+    assert saved.inputs["master"].descriptor["summary"]["master_basis_date"] == basis.isoformat()
     assert "lake/pointers/market/current.json" in store.values
+
+
+def test_closed_invalid_cannot_hide_a_previous_business_invalid_boundary(tmp_path):
+    monday = SUNDAY + timedelta(days=1)
+    store, owner, market = setup_native(
+        tmp_path,
+        [
+            attempt("older", day=FRIDAY - timedelta(days=1)),
+            attempt("bad-business", day=FRIDAY, rows=[]),
+            attempt("bad-closed", day=SUNDAY, rows=[]),
+        ],
+    )
+    calendar(market)
+    with pytest.raises(JQuantsProviderError, match="empty"):
+        model_input(store, owner.fixed(), as_of=monday, evaluated_at=AT, market=market)

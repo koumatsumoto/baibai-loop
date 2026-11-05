@@ -132,11 +132,27 @@ def _project(
         counts[day] = snapshot.persisted_count
     if set(counts) | set(invalid) != set(adopted.values()):
         raise ValueError("native master selection lacks an adopted request")
+    selected_snapshot = required_snapshot
+    if required_snapshot in invalid and scopes[required_snapshot].get("closed_basis"):
+        # A verified closed request is not a new usable universe. Preserve a
+        # valid holiday snapshot on later business days, but skip closed failures.
+        selected_snapshot = max(
+            (
+                day
+                for day in adopted.values()
+                if day <= required_snapshot
+                and not (day in invalid and scopes[day].get("closed_basis"))
+            ),
+            default=None,
+        )
+        if selected_snapshot in invalid:
+            raise JQuantsProviderError(invalid[selected_snapshot])
     invalid_dates = sorted(day for day in invalid if not scopes[day].get("closed_basis"))
     summary: dict[str, Any] = {
         "snapshot_days": len(scopes),
         "adopted_requests": len(adopted),
         "rows": sum(counts.values()),
+        "selected_snapshot_date": selected_snapshot,
         "unavailable_days": 0,
         "partial_days": 0,
         "failed_days": 0,
@@ -208,14 +224,7 @@ def fixed_input(
         if (identity := scope.get(field))
     }
     adopted = [day for day, scope in scopes.items() if scope.get("adopted")]
-    current = max(
-        (
-            day
-            for day in adopted
-            if day <= basis.isoformat() and not scopes[day].get("closed_basis")
-        ),
-        default=None,
-    )
+    current = max((day for day in adopted if day <= basis.isoformat()), default=None)
     summary: dict[str, Any] = {
         "selection_start": retained_days[0],
         "selection_end": retained_days[-1],
@@ -292,7 +301,17 @@ def model_input(
     descriptor = dict(_descriptor(saved))
     summary = descriptor["summary"]
     assert isinstance(summary, dict)
-    descriptor["summary"] = {**summary, **result}
+    selected = result.pop("selected_snapshot_date")
+    descriptor["summary"] = {
+        **summary,
+        **result,
+        "snapshot_date": selected,
+        "snapshot_status": "unavailable"
+        if selected is None
+        else "exact_date"
+        if selected == as_of.isoformat()
+        else "prior_snapshot",
+    }
     digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
     return InputSnapshot(
         kind="native_l1", reference="jquants-master-" + digest, sha256=digest, descriptor=descriptor
