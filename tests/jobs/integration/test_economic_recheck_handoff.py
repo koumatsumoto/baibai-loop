@@ -185,8 +185,14 @@ def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
         stamps = [
             row[0] for row in conn.execute(f"SELECT fetched_at FROM {table} ORDER BY fetched_at")
         ]
-        assert stamps[-1] == actual.isoformat(timespec="microseconds")
-        assert len(stamps) == (3 if cloud_changed else 2)
+        if kind == "record":
+            assert len(stamps) == (2 if cloud_changed else 1)
+            assert conn.execute(
+                "SELECT checked_at FROM economic_source_record_confirmations"
+            ).fetchone()[0] == actual.isoformat(timespec="microseconds")
+        else:
+            assert stamps[-1] == actual.isoformat(timespec="microseconds")
+            assert len(stamps) == (3 if cloud_changed else 2)
         if kind == "record":
             latest = next(read_snapshots(conn, DAY, DAY, source_id="test"))
             assert latest.records == ({"value": "A"},)

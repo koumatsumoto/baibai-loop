@@ -26,7 +26,9 @@ from baibai_engine.machine_analysis.observations.economic_indicators.service imp
 )
 
 
-def test_missing_cell_and_empty_replacement_do_not_restore_prior_values(tmp_path, monkeypatch):
+def test_missing_cell_is_retained_but_empty_full_history_does_not_erase_prior_values(
+    tmp_path, monkeypatch
+):
     path = tmp_path / "indicators.sqlite"
     series = load_definitions().by_id()["vix"]
     first, second = date(2026, 7, 24), date(2026, 7, 27)
@@ -64,25 +66,27 @@ def test_missing_cell_and_empty_replacement_do_not_restore_prior_values(tmp_path
     outcome = acquisition.refresh_sources(
         [series.source_id], db_path=path, start=first, end=second
     )[0]
-    assert isinstance(outcome, acquisition.SourceRefreshSuccess)
-    assert service.get_range("vix", start=first, end=second).observations == ()
+    assert isinstance(outcome, acquisition.SourceRefreshFailure)
+    assert [
+        (row.observed_at, row.value)
+        for row in service.get_range("vix", start=first, end=second).observations
+    ] == [(second, 21.0)]
 
 
 class NativeParserTests(TestCase):
-    def test_parse_fred_csv_filters_range_without_discarding_missing_cells(self) -> None:
+    def test_parse_fred_csv_keeps_all_received_periods_and_missing_cells(self) -> None:
         series = _source("fred_csv", "DGS10")
         text = "observation_date,DGS10\n2026-05-01,4.39\n2026-05-02,.\n2026-05-04,4.45\n"
 
         observations = parse_fred_csv(
             series,
             text,
-            start=date(2026, 5, 2),
-            end=date(2026, 5, 5),
         )
 
         self.assertEqual(
             observations,
             {
+                date(2026, 5, 1): [{"observation_date": "2026-05-01", "DGS10": "4.39"}],
                 date(2026, 5, 2): [{"observation_date": "2026-05-02", "DGS10": "."}],
                 date(2026, 5, 4): [{"observation_date": "2026-05-04", "DGS10": "4.45"}],
             },
@@ -94,8 +98,6 @@ class NativeParserTests(TestCase):
             parse_fred_csv(
                 series,
                 "date,DGS10\n2026-05-01,4.39\n",
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 2),
             )
 
     def test_fred_source_wraps_request_exception(self) -> None:
@@ -124,3 +126,70 @@ class NativeParserTests(TestCase):
                     )
                 ),
             )
+
+
+def test_recent_fetch_keeps_old_revision_and_replaces_only_real_periods(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
+
+    path = tmp_path / "source.sqlite"
+    old, recent, artificial = date(2001, 1, 1), date(2026, 11, 1), date(2001, 1, 2)
+    replies = iter(
+        [
+            "observation_date,VIXCLS\n2001-01-01,20\n2026-11-01,21\n",
+            "observation_date,VIXCLS\n2001-01-01,22\n2026-11-01,21\n",
+            "observation_date,VIXCLS\n2026-11-01,21\n",
+        ]
+    )
+    monkeypatch.setattr(fred, "fetch_text", lambda *args, **kwargs: next(replies))
+    with closing(db.initialize_database(path)) as conn, conn:
+        store_snapshot(
+            conn,
+            source_id="fred-vixcls",
+            observed_at=artificial,
+            fetched_at=datetime(2001, 1, 3, tzinfo=UTC),
+            records=[],
+        )
+    for value in ("20", "22", None):
+        result = acquisition.refresh_sources(
+            ["fred-vixcls"],
+            db_path=path,
+            start=None,
+            end=recent,
+            recent=True,
+        )[0]
+        assert isinstance(result, acquisition.SourceRefreshSuccess)
+        with closing(db.open_read_only_connection(path)) as conn:
+            snapshots = {
+                item.observed_at: item.records
+                for item in read_snapshots(conn, old, recent, source_id="fred-vixcls")
+            }
+            assert set(snapshots) == {old, recent, artificial}
+            assert snapshots[old] == (
+                () if value is None else ({"observation_date": str(old), "VIXCLS": value},)
+            )
+            assert (
+                conn.execute(
+                    "SELECT COUNT(*) FROM economic_source_records WHERE observed_at=?",
+                    (str(artificial),),
+                ).fetchone()[0]
+                == 1
+            )
+            assert {
+                row[0]
+                for row in conn.execute(
+                    "SELECT observed_at FROM economic_source_record_confirmations"
+                )
+            } == {str(old), str(recent)}
+            # The planned recent request is not relabelled a historical run.
+            assert conn.execute("SELECT MIN(range_start) FROM economic_source_runs").fetchone()[
+                0
+            ] > str(old)
+
+
+def test_short_csv_row_is_not_a_successful_period_deletion():
+    import pytest
+
+    with pytest.raises(IndicatorsProviderError, match="does not match"):
+        parse_fred_csv(_source("fred_csv", "DGS10"), "observation_date,DGS10\n2026-05-01\n")

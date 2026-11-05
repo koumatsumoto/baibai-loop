@@ -11,7 +11,7 @@ from baibai_engine.primitives.redaction import redact_credentials
 from baibai_engine.storage.paths import INDICATORS_DB_PATH
 from baibai_engine.storage.sqlite.read import connect_read_only
 
-SQLITE_SCHEMA_VERSION = 12
+SQLITE_SCHEMA_VERSION = 13
 SCHEMA_PATH = Path(__file__).with_suffix(".sql")
 DEFAULT_DB_PATH = INDICATORS_DB_PATH
 _TABLES = {
@@ -49,6 +49,10 @@ _TABLES = {
 
 
 RECEIPT_KEYS = {table: primary_key for table, (_, primary_key) in _TABLES.items()}
+_TABLES["economic_source_record_confirmations"] = (
+    ("source_id", "observed_at", "checked_at", "adopted_fetched_at", "content_sha256"),
+    ("source_id", "observed_at"),
+)
 
 
 class EconomicSchemaError(RuntimeError):

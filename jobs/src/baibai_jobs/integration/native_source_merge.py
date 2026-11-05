@@ -8,6 +8,7 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
+from baibai_engine.data_collection.receipts.native_sources.confirmations import save_confirmation
 from baibai_engine.data_collection.receipts.native_sources.store import (
     RECEIPT_KEYS as ECONOMIC_RECEIPT_KEYS,
 )
@@ -38,6 +39,20 @@ def verify_stores(source: Path, target: Path) -> None:
                 require_matching_payloads(conn, table, keys=keys)
                 if source_only_rows(conn, table, keys=keys):
                     raise MergeError("economic publication readback is missing received rows")
+            for row in conn.execute("SELECT * FROM source.economic_source_record_confirmations"):
+                actual = conn.execute(
+                    "SELECT * FROM economic_source_record_confirmations "
+                    "WHERE source_id=? AND observed_at=?",
+                    tuple(row[:2]),
+                ).fetchone()
+                if (
+                    actual is None
+                    or actual[2] < row[2]
+                    or (actual[2] == row[2] and tuple(actual) != tuple(row))
+                ):
+                    raise MergeError(
+                        "economic publication readback is missing its source confirmation"
+                    )
         finally:
             conn.execute("DETACH DATABASE source")
 
@@ -60,6 +75,13 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
                     tables = merge_fact_tables(connection, ECONOMIC_RECEIPT_KEYS)
+                    for row in connection.execute(
+                        "SELECT * FROM source.economic_source_record_confirmations"
+                    ):
+                        try:
+                            save_confirmation(connection, tuple(row))
+                        except ValueError as error:
+                            raise MergeError(str(error)) from error
                     connection.commit()
                     return MergeReport(tables=tables)
                 except BaseException:

@@ -94,7 +94,7 @@ uv run python -m tools.financials_identity_workspace --db <APP29> \
 
 `cloud-economic-sources`は日本株の営業日に関係なく毎日実行する。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。
 
-groupと取得範囲は `baibai-jobs acquire-economic groups` とData Collectionのsource catalogを正本とする。共有quota・取得方式ごとの制約を保ち、月次・四半期を一律「直前2か月」に縮めない。通常改訂や公表遅延を落とすためで、古い年次改訂は別の明示取得で扱う。全体ファイル配信では比較範囲を絞っても通信量は減らない。松井の現在ページから過去履歴を回復したとは扱わない。定時またはasof未指定の手動取得が日跨ぎで遅れた場合、current-only源だけは実取得日の範囲を記録する。他の期間取得源とhandoffの対象日は動かさず、source別の実範囲と区別する。明示された過去asofは現在値で埋めない。PMIの新配信元・速報採用は #1477 の未完了範囲。[公開記事adapterの検証状況](../docs/reference/data-sources.md#pmi-public-articles)を参照し、通常経路が403のままcatalogを切り替えない。
+groupと取得範囲は `baibai-jobs acquire-economic groups` とData Collectionのsource catalogを正本とする。共有quota・取得方式ごとの制約を保ち、月次・四半期を一律「直前2か月」に縮めない。通常改訂や公表遅延を落とすためである。FREDは要求窓に関係なく全CSVが配信されるため、受信した全期間を比較し、古い期間の改訂も残す。他sourceの古い年次改訂は従来どおり明示取得で扱う。全体ファイル配信では比較範囲を絞っても通信量は減らない。松井の現在ページから過去履歴を回復したとは扱わない。定時またはasof未指定の手動取得が日跨ぎで遅れた場合、current-only源だけは実取得日の範囲を記録する。他の期間取得源とhandoffの対象日は動かさず、source別の実範囲と区別する。明示された過去asofは現在値で埋めない。PMIの新配信元・速報採用は #1477 の未完了範囲。[公開記事adapterの検証状況](../docs/reference/data-sources.md#pmi-public-articles)を参照し、通常経路が403のままcatalogを切り替えない。
 
 `--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗はhandoffの`result.json`とrun logの`history_recovery_required`で確認し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
 
@@ -104,6 +104,25 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 ```
 
 限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。経済の取得開始は07:43 UTCで、土日も実行する。45分の取得期限と60分のjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入る。
+
+### FRED確認stateと経済schema 12→13の切替
+
+FREDの同値応答は本文を追加せず、実際の確認時刻と採用した変更受領への参照を更新する。値の変更時刻と鮮度を混同しない。全CSVに含まれる期間と過去にnative行が存在した期間だけを比較し、旧schemaの人工空日をproviderが明示した欠測へ昇格させない。headerだけの全履歴応答や短い行は取得失敗として既存内容を保つ。
+
+通常open/dailyはschema 12を自動変換しない。この変更はまだ本番切替ではなく、12/13混在の通常merge・pushも拒否する。切替はwriterを止め、旧codeで旧handoffを有限drainし、fresh正本と世代/ETagを取得してから行う。別copyだけを次の入口で変換する。
+
+```bash
+uv run python -m baibai_jobs.maintenance.migrate_economic_store \
+  --source <SCHEMA12_COPY> --output <SCHEMA13_COPY>
+uv run baibai-jobs acquire-economic refresh --group fred_csv --recent \
+  --end <ACTUAL_DATE> --db <SCHEMA13_COPY>
+```
+
+converterは旧原本・受領時刻・run・人工空行をそのまま保ち、最終確認を推測しない。FREDの明示再取得で現時点の確認を確立し、失敗したsourceは失敗のまま扱う。変更receiptと確認anchorの整合、旧原本の保持、経済L2読戻しを検証する。確認stateを失った既存期間も同じ明示再取得で回復するまで、後着handoffを自動採用しない。確認参照が正本と食い違う作業copyを通常unionで押し込まず、fresh正本に対するhandoff受入を使う。
+
+**残る切替作業**：本差分のconverterはローカルcopyだけを作る。旧世代を条件とするschema変更専用publisherとその再開/読戻しは未実装であり、通常`push-indicators`で代用しない。これを検証してから同じpublication leaseでcodeとstoreを反映し、schema 13の全経済source inputを再発行し、pendingを照合して取得を再開する。旧stage/keyを上書き変換しない。converterとこの一回手順は本番切替・残存旧stage確認後に撤去する。
+
+この段階では経済原本のSQLite/handoff公開構造、L2成功に依存する共通公開、FRED以外の比較窓・人工空・確認方式は変更しない。FREDのHTTP bytes保存とsource別objectへの移行は #1820 の残作業である。
 
 ### source入力・市場原本の引渡し
 
@@ -501,7 +520,7 @@ uv run baibai-engine market-context reading --asof <YYYY-MM-DD>
 uv run baibai-jobs validate-market-context-stores
 ```
 
-最後のcommandは原本storeのpayload・record count等を確認する。L2数式の証明やL3全履歴検査ではない。原本更新だけpush-indicatorsへ進み、式変更だけなら不要。明示CLI取得では作業copyと同値の実受領も保存・発行する。長い取得中に正本が更新された場合や古い受領が後から統合される場合も、実際の最新受領を失わないためである。全履歴取得では同値・空応答の行も増えるため、必要なsourceと期間へ限定し、通常dailyの変更時のみ保存とは区別する。取得失敗でcommit済み原本を取り消さず、L2欠測を直すため全取得を繰り返さない。
+最後のcommandは原本storeのpayload・record count等を確認する。L2数式の証明やL3全履歴検査ではない。原本更新だけpush-indicatorsへ進み、式変更だけなら不要。明示CLI取得では実際の最新受領を失わないようにする。FREDは同値確認を本文から分離し、fresh正本との比較で変更と確認を統合する。他sourceでは作業copyと同値の実受領も保存・発行し、全履歴取得では同値・空応答の行も増えるため必要なsourceと期間へ限定する。取得失敗でcommit済み原本を取り消さず、L2欠測を直すため全取得を繰り返さない。
 
 optionsのall-historyは保存済み古い日を再利用して直近と不足日を取得する。古い訂正は日付範囲を明示する。購読rolling境界の提供不能を示し、空応答と途中失敗を区別する。式変更だけでrawを再取得しない。
 

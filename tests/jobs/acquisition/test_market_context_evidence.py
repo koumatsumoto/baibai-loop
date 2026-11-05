@@ -110,7 +110,7 @@ def test_common_integration_preserves_exact_market_receipts_without_schema_migra
     with closing(open_connection(market)) as conn:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 49
     with closing(initialize_database(economic)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
     market_before = market.read_bytes()
     work = tmp_path / "work"
     work.mkdir()
@@ -186,7 +186,7 @@ def test_modified_local_copy_cannot_supply_retained_assessment_input(tmp_path, m
     evidence.main(["stage", "--directory", str(directory), "--stage-id", MARKET_GROUP + "-frozen"])
     capsys.readouterr()
     with closing(sqlite3.connect(directory / "receipts.sqlite")) as conn, conn:
-        conn.execute("PRAGMA user_version=12")
+        conn.execute("PRAGMA user_version=13")
         conn.execute("CREATE TABLE unrelated(note TEXT)")
     with pytest.raises(ValueError, match="differs from retained"):
         evidence.read_exact(directory / "receipts.sqlite", value.receipt_id, value.digest())

@@ -137,7 +137,11 @@ def validate_packet(directory: Path, *, canonical: Path | None = None) -> dict[s
         sqlite3.connect((directory / "receipts.sqlite").resolve().as_uri() + "?mode=ro", uri=True)
     ) as conn:
         validate_current_schema(conn)
-        for table in ("economic_source_records", "economic_source_runs"):
+        for table in (
+            "economic_source_records",
+            "economic_source_runs",
+            "economic_source_record_confirmations",
+        ):
             if conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:  # nosec B608
                 raise ValueError("market packet contains unrelated source rows")
         actual = set(conn.execute("SELECT source_id,request_key FROM economic_source_documents"))
