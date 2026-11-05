@@ -339,3 +339,37 @@ def test_native_input_summary_bounds_unresolved_ranges_and_separates_confirmed_c
     assert summary["latest_changed_at"] == AT.isoformat()
     assert summary["latest_confirmed_at"] == (AT + timedelta(hours=1)).isoformat()
     assert len(json.dumps(summary)) < 1500
+
+
+def test_native_input_summary_limits_disjoint_gaps_without_hiding_their_count(tmp_path):
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    start = DAY - timedelta(days=50)
+    days = tuple(start + timedelta(days=offset) for offset in range(0, 51, 2))
+    owner.commit(
+        [
+            FinancialAttempt(
+                f"empty-{day}",
+                day,
+                AT,
+                (
+                    JQuantsPage(
+                        "financial_summaries", {"date": day.isoformat()}, AT, b'{"data":[]}'
+                    ),
+                ),
+            )
+            for day in days
+        ]
+    )
+    observed = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT)
+    summary = observed.identity.descriptor["summary"]
+    assert summary["normal_empty_days"] == 26
+    assert summary["unavailable_days"] == 25
+    assert len(summary["unresolved_ranges"]) == 12
+    assert summary["additional_unresolved_ranges"] == 13
+    assert summary["unresolved_ranges"][0] == {
+        "start": (start + timedelta(days=1)).isoformat(),
+        "end": (start + timedelta(days=1)).isoformat(),
+    }
+    assert len(json.dumps(summary)) < 1800

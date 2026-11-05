@@ -110,7 +110,10 @@ def model_input(
             and not item.rows
             and not item.rejected_count
             and not item.excluded_count
-            for item in results.values()
+            and not item.incomplete_requests
+            and not scopes[day.isoformat()].get("failure")
+            and not scopes[day.isoformat()].get("held")
+            for day, item in results.items()
         ),
         "unavailable_days": sum(item.status == "unavailable" for item in results.values()),
         "partial_days": sum(item.status == "partial" for item in results.values()),

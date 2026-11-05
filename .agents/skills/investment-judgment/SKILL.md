@@ -70,6 +70,8 @@ Operationの固定入力を`domain-inputs.yaml`へ投影する。新しい資料
 
 企業成長の通常表示と完全結果の関係は[Investment Judgment投影](../../../docs/reference/company-growth.md#investment-judgmentへの接続)に従う。長期の問いにはprepareの `--company-growth-periods 24` または `all` で表示だけを広げ、`operation --db <APPLICATION_DB> --format json show <ID>` の `payload.artifacts` 内の `kind=research_selection` を読み、`full_result_ref` から完全結果を辿る。既存workspaceの切替は[再開手順](#完了と再開)の `--force` を使う。
 
+native L1の `analysis_source.inputs` はidentityと受領・不足のsummaryだけを表示し、`full_result_ref` は同じ保存Selection内の完全descriptorを指す。summaryに含まれない日別状態・原本pack参照はそこから確認する。runs cacheの整理や可変headの更新で参照先は変わらない。descriptor全文のgeneration・Selection保存は維持しており、この表示省略だけで日次保存の重複を解消したとは扱わない。
+
 産業動向・社会動向は固定Generation V2の `shared_subjects` から読む。初版の自動意味抽出はTSRの医薬品卸/情報サービス業績調査とBOJ調節方針であり、他sourceの索引取得を全ニュース抽出済みと扱わない。payloadのcoverage・抽出状態・省略数を読み、重要な観測の `exact_evidence` をprivateなJSONへ保存する。原文は次で固定読取し、公開logへ転載しない。
 
 ```bash
