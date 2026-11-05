@@ -1052,4 +1052,8 @@ CSVは既存540日planner、XBRLは既存annual scopeとholderの100件/10秒制
 
 `pending.json`があれば新HTTPを拒否し、同じworkの`commit-work`で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合を明示再試行する。scope/ZIPを上書きせず、失われたheadを部分workから再作成しない。ローカルworkを失った場合の回復やremote failure stageはこのsliceに含めない。
 
-固定readerは保存headだけを使い、未知doc・原本欠落・改変を最新headへのfallbackで補わない。有限移行、既存comparison/holder/TOB等のSQL consumerの接続、通常source input/publication切替、metricsのwarm baseline依存除去は後続作業。これだけでmarket全体や全EDINET L2を破棄可能とは扱わない。
+固定readerは保存headだけを使い、未知doc・原本欠落・改変を最新headへのfallbackで補わない。有限移行、通常source input/publication切替、metricsのwarm baseline依存除去は後続作業。これだけでmarket全体や全EDINET L2を破棄可能とは扱わない。
+
+固定consumerの接続準備は `integration.edinet_archive_native.rebuild_fixed_edinet_input` で検証する。渡された一覧/archive headだけから、新規SQLiteへ原ZIP bytes・stored_on・scopeを再構成し、既存EDINETReader・comparison・holder・TOBの読取に渡せる。既存出力は上書きせず、原本欠損/改変時は未完成DBを公開しない。新しい実受領時刻を旧SQLiteの日付列へ変換して精度が上がったとは扱わない。
+
+これは明示cold adapterで、通常CLI/workflowや旧marketへは未接続。全原ZIP本文を読むため、取得plannerに使わない。生成されるのは原本の使い捨てcopyと一覧投影であり、metrics/factsのL2値や成功履歴はコピーしない。全L2のcold再生成や過去のpoint-in-time入力を保証する入口ではない。
