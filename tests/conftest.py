@@ -34,6 +34,17 @@ def _isolate_databases(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BAIBAI_RUNS_DB", str(db_root / "runs.sqlite"))
 
 
+@pytest.fixture(autouse=True)
+def _legacy_jquants_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old SQLite fixtures request legacy mode explicitly; native tests opt in.
+
+    Production now defaults to migrated native L1. Default-mode tests remove these
+    test-only overrides, and native integration tests retain their explicit modes.
+    """
+    for source in ("FINANCIAL", "PRICE", "MASTER", "CALENDAR"):
+        monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", "false")
+
+
 def _database_fingerprint(path: Path) -> tuple[int, int] | None:
     try:
         stat = path.stat()

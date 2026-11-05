@@ -789,10 +789,16 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。
 
 
+### J-Quants native 4sourceの通常設定
+
+財務・日足・master・取引暦の有限移行と全原本読戻し・旧投影比較を完了してから、この通常設定を配置する。4sourceのruntime既定は `true`、market取得・daily・TradingView・外部評価のActionsは対象の `BAIBAI_*_NATIVE` を明示 `true` に揃える。旧repository variableが `false` でもActionsを旧writerへ戻さない。environment指定のない正規CLIも同じnative既定を使う。
+
+旧入力の有限検証だけは明示 `false` を使えるが、本番のrollbackではない。通常経路を戻すにはsource停止・最後の確定head/旧release/移行plan照合が必要である。cron停止はこの設定変更と別に維持し、初回native生成・公開・次hydrate・source inputsの読戻しが完了してから再開する。
+
 <a id="price-native-l1"></a>
 ## 日足native L1の取得・固定読取・有限移行
 
-`daily_bars` は `BAIBAI_PRICE_NATIVE=true` で取得側と通常consumerを同時に切り替える。既定値は `false`。この実装ではrepository variable・権限・本番storeを変更していない。通常 `jquants-market` は先に日足を独立L1へ確定し、その後master・取引暦・信用残・注意銘柄・空売りの従来取得とhandoffを続ける。日足だけを旧releaseから再取得・stage化しない。後段の市場release取得やL2が失敗しても確定済み日足を取り消さない。
+`daily_bars` は `BAIBAI_PRICE_NATIVE=true` で取得側と通常consumerを同時に切り替える。通常既定は `true`。通常 `jquants-market` は先に日足を独立L1へ確定し、その後master・取引暦・信用残・注意銘柄・空売りの従来取得とhandoffを続ける。日足だけを旧releaseから再取得・stage化しない。後段の市場release取得やL2が失敗しても確定済み日足を取り消さない。
 
 切替後の旧 `maintain-market bootstrap-cache` / `backfill-history` は日足の取得前に明示失敗し、`jquants-price-native acquire` と `rebuild-price-native` を案内する。旧SQLiteだけへの成功書込は次のnative再生成で原本ごと失われるため許可しない。明示範囲の取得は新入口で行い、他sourceの取得範囲・継続条件は変えない。
 
@@ -845,7 +851,7 @@ apply/verifyは旧版・partialを含む移行packをcold照合する。compare�
 `jquants-financial-native` はJ-Quants `financial_summaries` の新しい明示入口。
 L1だけで取得計画・差分確定を行い、`rebuild-financial-native` が固定headから既存の財務正規化を使ってParquetを生成する。
 日付範囲は明示する。正常空も完了requestであり、L2の成否で取得をやり直さない。
-通常source入口とdailyの財務consumerは共通設定 `BAIBAI_FINANCIAL_NATIVE` で一組として選択する。既定値は `false`。repository variableを `true` にする操作は本番切替であり、この変更では実施していない。他のJ-Quants sourceとL3は別の移行単位である。
+通常source入口とdailyの財務consumerは共通設定 `BAIBAI_FINANCIAL_NATIVE` で一組として選択する。通常既定は `true`。他のJ-Quants sourceとL3は別の移行単位である。
 
 切替後の旧 `maintain-market bootstrap-cache --source-group jquants-financial` / `backfill-history` は財務の取得前に明示失敗し、`jquants-financial-native acquire` と `rebuild-financial-native` を案内する。旧SQLiteだけへ追加した訂正はnativeの固定入力へ入らないため、旧経路で成功を返さない。必要な明示範囲は新入口で取得する。
 
@@ -923,7 +929,7 @@ uv run baibai-jobs financial-native-cutover compare --directory /secure-work/fin
 <a id="master-native-l1"></a>
 ## master native L1と取得依存の切替
 
-`BAIBAI_MASTER_NATIVE` は既定 `false`。masterの取得・通常モデル/公開・TradingView・外部評価を同じ設定で切り替える。この変更では本番variable・権限・storeを変更していない。master以外のcalendar/margin/short-saleの取得頻度・範囲・公表日の意味は維持する。
+`BAIBAI_MASTER_NATIVE` は通常既定 `true`。masterの取得・通常モデル/公開・TradingView・外部評価を同じ設定で切り替える。master以外のcalendar/margin/short-saleの取得頻度・範囲・公表日の意味は維持する。
 
 masterは全provider Code・全製品区分・secondary issue・未知fieldを原本に保持する。通常marketは当日だけを取得し、過去の保持日は疎な集合のまま残す。財務/日足の連続2,200日backfillや7日overlapを流用しない。非空で完了した当日を通常は再取得せず、空・partial・heldは未充足。HTTP完了の空や少数行もL1へ保存し、Date一致・Code一意・必須field・普通株2,500件floorのconsumer検証で原本を捨てない。明示訂正だけ `--force` で再確認できる。同値では本文を追加しない。
 
@@ -968,7 +974,7 @@ uv run baibai-jobs master-native-cutover compare --directory /secure-work/master
 <a id="calendar-native-l1"></a>
 ## market_calendar native L1と日別充足
 
-`BAIBAI_CALENDAR_NATIVE` は既定 `false`。standaloneのinitialize/plan/acquire/commit-workと固定入力再生成は他sourceのflag・L2・releaseを必要としない。通常モデル/公開を切り替える時だけ、旧財務/日足exporterのcalendar原本依存を残さないため `BAIBAI_FINANCIAL_NATIVE` / `BAIBAI_PRICE_NATIVE` / `BAIBAI_MASTER_NATIVE` も同時にtrueにする。既存workflowのcronは変更しない。通常marketはcalendarを旧release解決より前に確定し、同じ日別native indexをmarginの発表日計画とscheduled休場判定へ渡す。後段のrelease/モデル失敗は確定済みcalendar原本を巻き戻さない。final429・deadline・保存障害後に共有quotaの後続GETを始めない。
+`BAIBAI_CALENDAR_NATIVE` は通常既定 `true`。standaloneのinitialize/plan/acquire/commit-workと固定入力再生成は他sourceのflag・L2・releaseを必要としない。通常モデル/公開を切り替える時だけ、旧財務/日足exporterのcalendar原本依存を残さないため `BAIBAI_FINANCIAL_NATIVE` / `BAIBAI_PRICE_NATIVE` / `BAIBAI_MASTER_NATIVE` も同時にtrueにする。既存workflowのcronは変更しない。通常marketはcalendarを旧release解決より前に確定し、同じ日別native indexをmarginの発表日計画とscheduled休場判定へ渡す。後段のrelease/モデル失敗は確定済みcalendar原本を巻き戻さない。final429・deadline・保存障害後に共有quotaの後続GETを始めない。
 
 要求はunfiltered `from` / `to` の閉区間。開始は `min(asof−7日, 保持した全rangeの最古要求日)`、終了は `asof＋45日` で、未取得/欠落/duplicate/blank/partial/held日だけを連続rangeへまとめる。初期は53日、翌日の既取得日を再GETせず先端1日だけ取得する。これは既存の欠測補修計画を保つもので、priceの強制7日overlapをcalendarへ流用しない。既取得日の訂正確認は明示rangeと `--force` を使う。古い履歴・未来日・要求内の空日を捨てず、全履歴の不足を毎回の対象に残す。
 
