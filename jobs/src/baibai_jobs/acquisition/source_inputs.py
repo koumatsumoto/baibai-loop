@@ -15,6 +15,8 @@ from baibai_engine.data_collection.acquisition.policy import (
 )
 from baibai_engine.data_collection.acquisition.policy import source_policy as economic_source_policy
 from baibai_engine.data_collection.catalog import load_sources as load_economic_sources
+from baibai_engine.data_collection.receipts.native_sources.ecb_input import SOURCE as ECB_SOURCE
+from baibai_engine.data_collection.receipts.native_sources.ecb_input import export_ecb_input
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
@@ -134,7 +136,17 @@ def _publish_one(
     with tempfile.TemporaryDirectory(prefix="baibai-source-input-") as temporary:
         directory = Path(temporary)
         path = directory / "receipts.sqlite"
-        if group.startswith("economic-"):
+        report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
+        if group == "economic-ecb_fx":
+            members = {
+                source.source_id
+                for source in load_economic_sources().values()
+                if economic_source_policy(source).acquisition_group == "ecb_fx"
+            }
+            if members != {ECB_SOURCE}:
+                raise ValueError("ECB FX planning input requires its single ZIP source")
+            export_ecb_input(economic, path)
+        elif group.startswith("economic-"):
             export_economic_receipts(
                 economic,
                 path,
@@ -146,7 +158,6 @@ def _publish_one(
                 ),
                 since=datetime.min.replace(tzinfo=UTC),
             )
-            report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
         else:
             report = export_market_source_input(market, path, group=group, asof=asof)
         report["canonical_generations"] = generations

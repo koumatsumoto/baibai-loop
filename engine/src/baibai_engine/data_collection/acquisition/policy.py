@@ -13,6 +13,12 @@ from datetime import date, timedelta
 
 from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
 from baibai_engine.data_collection.receipts.native_sources.documents import read_documents
+from baibai_engine.data_collection.receipts.native_sources.ecb_input import (
+    SOURCE as ECB_SOURCE,
+)
+from baibai_engine.data_collection.receipts.native_sources.ecb_input import (
+    covered_input_days as ecb_input_days,
+)
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {"daily": 14, "weekly": 60, "monthly": 370, "quarterly": 370}
@@ -168,6 +174,8 @@ def _missing_ranges(
             covered.append(
                 (month, month.replace(day=calendar.monthrange(month.year, month.month)[1]))
             )
+    if source.source_id == ECB_SOURCE:
+        covered.extend((day, day) for day in ecb_input_days(connection, first, last))
     cursor = first
     missing: list[tuple[date, date]] = []
     for start, finish in sorted(covered):

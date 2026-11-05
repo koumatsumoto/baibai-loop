@@ -109,6 +109,12 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。取得期限とjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入る。
 
+### ECB FXの取得計画input
+
+ECB FXは単一の全履歴ZIPを取得し、前回の通貨値をrequest作成に使わない。`economic-ecb_fx`のinputは全改訂本文の代わりに、run/confirmation metadataとnative受領が存在した日の集合を保持する。既存の空受領日も同じ回復済み日として残し、metadataから原本・正常空receiptを合成しない。日次14日lookback、未確認区間の回復、広範囲失敗の明示回復、ZIP内CSV名/サイズ/圧縮率の検証は変えない。CSVの全通貨columnとN/Aをnative JSONとして保存し、同じ行の両legからL2でJPY crossを読む。通常窓外の改訂は従来どおり明示取得で、FREDの完全応答比較を広げない。
+
+`ecb-fx-acquisition-input-v1`/`planning_key`は旧readerがSQLite GET前に拒否する。新readerは旧fixed inputを読める。取得reader・input writer・手動CLIを揃え、旧実行中/待機中writerをdrainした後、次の通常経済統合でinputを発行する。新実受領を通常stageへ保存し、同値/訂正/遅着はfresh正本で判定する。L1原本、旧input/未統合stageを保ち、全期間再取得・schema変換・新R2 prefix・retention変更を伴わない。GET回数は減らず、日集合/run履歴は増える。取得input削減は本番publicationや既存定期運用の再開の前提にせず、後続のreader切替として扱う（refs #1820）。
+
 ### FRED確認stateと経済schema 12→13の切替
 
 FREDの同値応答は本文を追加せず、実際の確認時刻と採用した変更受領への参照を更新する。値の変更時刻と鮮度を混同しない。全CSVに含まれる期間と過去にnative行が存在した期間だけを比較し、旧schemaの人工空日をproviderが明示した欠測へ昇格させない。headerだけの全履歴応答や短い行は取得失敗として既存内容を保つ。完全応答の実受領時刻と、返却period・native本文hashの集合をsource単位の確認stateへ同時に記録する。本文は既存period原本を参照し、同値応答の全履歴を複製しない。scoped handoffにも全anchorを含め、fresh正本にだけある実在periodの消失とsource全体の遅着を判定する。旧runや人工空日から完全集合を推測しない。明示回復ではfresh正本を実再取得の比較基点とし、local本文の保全unionを取得後に行う。同じ実応答・同じ受領時計でlocalにだけある実在periodの不在を補い、GET・run・countを増やさない。
