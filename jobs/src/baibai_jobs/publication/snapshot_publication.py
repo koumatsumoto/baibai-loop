@@ -58,6 +58,7 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOriginError,
     advance_lake_store_origin,
 )
+from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
 from baibai_jobs.publication.l1_price_export import export_prices_from_l1
@@ -123,6 +124,7 @@ def prepare_market_lake(
     release_id: str | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
+    native_financial = financial_native_enabled()
     started = time.perf_counter()
     serving = _serving_pointer(store)
     previous = serving.pointer
@@ -132,12 +134,13 @@ def prepare_market_lake(
         published_coverage_start = {
             name: manifest.coverage_start
             for name, manifest in serving_release.dataset_manifests.items()
+            if not (native_financial and name == "jquants.fin_summaries")
         }
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         policy = release_policy_for_profile("production")
         policy_names = {item.dataset for item in policy.datasets}
-        finance_enabled = "jquants.fin_summaries" in policy_names
+        finance_enabled = "jquants.fin_summaries" in policy_names and not native_financial
         price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
         derived_names = {
             name
@@ -147,7 +150,12 @@ def prepare_market_lake(
             )
             if enabled
         }
-        catalog = {name: item for name, item in LAKE_DATASETS.items() if name not in derived_names}
+        catalog = {
+            name: item
+            for name, item in LAKE_DATASETS.items()
+            if name not in derived_names
+            and not (native_financial and name == "jquants.fin_summaries")
+        }
         git_commit = lake_verified_git_commit()
         export = export_market_snapshot(
             source_snapshot=snapshot,

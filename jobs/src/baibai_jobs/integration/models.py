@@ -5,11 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.jquants.financial_native import (
+    FinancialL1,
+    FinancialObjectStore,
+)
 from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
@@ -31,11 +36,12 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
-    ObjectStore,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.sqlite.snapshot import create_snapshot
+from baibai_jobs.financial_cutover import financial_native_enabled
+from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import (
@@ -46,7 +52,7 @@ from baibai_jobs.publication.snapshot_publication import (
 
 def integrate_models(
     *,
-    store: ObjectStore,
+    store: FinancialObjectStore,
     market: Path,
     economic: Path,
     runs: Path,
@@ -60,6 +66,21 @@ def integrate_models(
     handle = _load_handle(lease_handle)
     verify_held(store, handle)
     mirror.mkdir(parents=True, exist_ok=True)
+    evaluated_at = datetime.now(UTC)
+    financial_input = None
+    if financial_native_enabled():
+        # One head read fixes both source membership and confirmation/failure state.
+        fixed = FinancialL1(store, mirror / "financial-native").fixed()
+        evaluated_at = datetime.now(UTC)
+        financial_input = native_financial_model_input(
+            store, fixed, as_of=as_of, evaluated_at=evaluated_at
+        )
+        # This is the downloaded execution copy, not L1 or application data.
+        # It must not retain an unpublished old projection when push-machine
+        # later verifies/dehydrates the new release.
+        with sqlite3.connect(market) as connection:
+            connection.execute("DELETE FROM jquants_fin_summaries")
+            connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
     with (
         prepare_market_lake(sqlite_path=market, mirror_root=mirror, store=store) as prepared,
         tempfile.TemporaryDirectory(prefix=".model-economic-", dir=mirror) as directory,
@@ -79,9 +100,10 @@ def integrate_models(
                 kind="sqlite_snapshot", reference=f"economic-{digest[:24]}", sha256=digest
             ),
             as_of=as_of,
-            evaluation_time=datetime.now(UTC),
+            evaluation_time=evaluated_at,
             ttm_rules=DEFAULT_TTM_RULES,
             growth_start=growth_start,
+            financial_input=financial_input,
         )
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)

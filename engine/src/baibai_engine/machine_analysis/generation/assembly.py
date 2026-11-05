@@ -101,7 +101,12 @@ def generate_models(
     if len(tickers) != len(set(tickers)):
         raise ValueError("model generation requires unique companies")
     if not any(
-        item.kind == "lake_release"
+        item.kind
+        == (
+            "native_l1"
+            if financial_release.collection_boundary == "fixed_source_head"
+            else "lake_release"
+        )
         and item.reference == financial_release.release_id
         and item.sha256 == financial_release.manifest_sha256
         for item in inputs.values()
@@ -120,8 +125,12 @@ def generate_models(
     if trends is not None:
         for fixed in (trends.social, *(item.inputs for item in trends.industries)):
             if (
-                fixed.manifest.release_id != financial_release.release_id
-                or fixed.manifest.release_sha256 != financial_release.manifest_sha256
+                not any(
+                    item.kind == "lake_release"
+                    and item.reference == fixed.manifest.release_id
+                    and item.sha256 == fixed.manifest.release_sha256
+                    for item in inputs.values()
+                )
                 or fixed.manifest.cutoff != evaluation_time
             ):
                 raise ValueError("trend input manifest differs from the fixed generation inputs")

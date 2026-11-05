@@ -20,6 +20,7 @@ _COMMANDS = {
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "jquants-financial-native": "baibai_jobs.acquisition.jquants_financial_native",
     "rebuild-financial-native": "baibai_jobs.integration.financial_native",
+    "financial-native-cutover": "baibai_jobs.maintenance.financial_native_cutover",
     "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
     "market-evidence": "baibai_jobs.acquisition.market_context",
     "article-evidence": "baibai_jobs.acquisition.article_evidence",

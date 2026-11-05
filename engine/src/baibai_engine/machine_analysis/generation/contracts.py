@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -17,6 +18,8 @@ from pydantic import (
     model_validator,
 )
 
+from baibai_engine.primitives.json import canonical_json
+
 type Identifier = Annotated[str, Field(min_length=1)]
 type Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
@@ -26,9 +29,27 @@ class InputSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    kind: Literal["lake_release", "sqlite_snapshot"]
+    kind: Literal["lake_release", "sqlite_snapshot", "native_l1"]
     reference: Identifier
     sha256: Digest
+    # A native selection is small input metadata, not a copy of source bodies.
+    # Keep it with the saved generation so mutable heads are never reread on resume.
+    descriptor: dict[str, JsonValue] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def native_descriptor(self) -> Self:
+        if self.kind == "native_l1":
+            if (
+                self.descriptor is None
+                or hashlib.sha256(canonical_json(self.descriptor).encode()).hexdigest()
+                != self.sha256
+            ):
+                raise ValueError("native L1 input requires its digest-matching fixed descriptor")
+        elif self.descriptor is not None:
+            raise ValueError("legacy input identities do not carry a native descriptor")
+        return self
 
 
 class GeneratedModel(BaseModel):

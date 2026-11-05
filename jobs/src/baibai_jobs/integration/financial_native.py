@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -16,12 +19,85 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
     FixedFinancialL1,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.inputs import FinancialModelInput
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    normalize_financial_summary,
+)
 from baibai_engine.machine_analysis.observations.financials.from_l1 import (
     materialize_financial_days,
     rebuild_financial_days,
 )
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+
+
+def model_input(
+    store: ObjectStore, fixed: FixedFinancialL1, *, as_of: date, evaluated_at: datetime
+) -> FinancialModelInput:
+    """Use retained native documents, with exact membership and acquisition state saved together."""
+    if evaluated_at.utcoffset() is None:
+        raise ValueError("evaluation time requires a timezone")
+    head = fixed.value()
+    retained_days = [
+        date.fromisoformat(day) for day in head["scopes"] if date.fromisoformat(day) <= as_of
+    ]
+    if not retained_days:
+        raise ValueError("native financial L1 has no retained source days")
+    start = min(retained_days)
+    days = tuple(start + timedelta(days=i) for i in range((as_of - start).days + 1))
+    scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
+    for scope in scopes.values():
+        for field in ("confirmed_at", "last_attempt_at", "changed_at"):
+            stamp = scope.get(field)
+            if stamp is not None and datetime.fromisoformat(stamp) > evaluated_at:
+                raise ValueError("financial confirmation state is later than the evaluation clock")
+    identities = {
+        identity
+        for scope in scopes.values()
+        for key in ("adopted", "failure", "held")
+        if (identity := scope.get(key))
+    }
+    # History and equal-confirmation identities not used for this calculation are
+    # deliberately absent. Bodies remain in L1 packs, not in generation metadata.
+    selected: dict[str, Any] = {
+        "head_sha256": fixed.content_id,
+        "as_of": as_of.isoformat(),
+        "scopes": scopes,
+        "receipts": {identity: head["receipts"][identity] for identity in sorted(identities)},
+        "pending_days": [] if head["pending"] is None else head["pending"]["days"],
+    }
+    requests = tuple(fixed.requests(store, days=days))
+    if any(
+        item.last_received_at is not None and item.last_received_at > evaluated_at
+        for item in requests
+    ):
+        raise ValueError("financial input contains receipts later than the evaluation clock")
+    results = rebuild_financial_days(requests, days=days)
+    selected["receipt_status"] = {
+        day.isoformat(): {"status": item.status, "incomplete": item.incomplete_requests}
+        for day, item in results.items()
+    }
+    documents = []
+    for item in results.values():
+        for row in item.rows:
+            document = normalize_financial_summary(json.loads(row[3]))
+            if document is None:
+                raise ValueError("native financial projection contains an ineligible document")
+            documents.append(document)
+    payload = json.dumps(
+        selected, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode()
+    digest = hashlib.sha256(payload).hexdigest()
+    return FinancialModelInput(
+        InputSnapshot(
+            kind="native_l1",
+            reference="jquants-financial-" + digest,
+            sha256=digest,
+            descriptor=selected,
+        ),
+        tuple(documents),
+    )
 
 
 def rebuild(

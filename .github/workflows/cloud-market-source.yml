@@ -13,6 +13,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BAIBAI_FINANCIAL_NATIVE: ${{ vars.BAIBAI_FINANCIAL_NATIVE == 'true' && 'true' || 'false' }}
+
 # One source keeps its acquisition and private handoff ordered. A shared provider
 # quota additionally serializes its network jobs, without the publication lock.
 concurrency:
@@ -29,7 +32,7 @@ jobs:
       queue: max
       cancel-in-progress: false
     outputs:
-      handoff: ${{ steps.stage.outputs.handoff }}
+      handoff: ${{ steps.stage.outputs.handoff || steps.acquire.outputs.native_l1 }}
     steps:
       - name: Reject unsupported source before acquisition
         env:

@@ -7,6 +7,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import date, datetime
 from math import isfinite
 from pathlib import Path
@@ -75,6 +76,14 @@ from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
+@dataclass(frozen=True, slots=True)
+class FinancialModelInput:
+    """A fixed financial selection, independent of the market execution copy."""
+
+    identity: InputSnapshot
+    documents: Sequence[JQuantsFinancialSummary]
+
+
 def read_and_generate_models(
     *,
     generation_id: str,
@@ -87,6 +96,7 @@ def read_and_generate_models(
     ttm_rules: TTMRules,
     tickers: Sequence[str] | None = None,
     growth_start: date | None = None,
+    financial_input: FinancialModelInput | None = None,
 ) -> ModelGenerationStream:
     """callerは同じmarket sealからreleaseを作り、economic copyも固定する。
 
@@ -124,7 +134,12 @@ def read_and_generate_models(
     events: dict[str, list[JQuantsAdjustmentFactorEvent]] = defaultdict(list)
     with closing(connect_read_only(path)) as connection:
         connection.execute("BEGIN")
-        for row in read_financial_documents(connection, start=date.min, end=date.max):
+        financial_rows = (
+            financial_input.documents
+            if financial_input is not None
+            else read_financial_documents(connection, start=date.min, end=date.max)
+        )
+        for row in financial_rows:
             documents[row.ticker].append(row)
         comparisons = read_comparison_population(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
@@ -273,8 +288,15 @@ def read_and_generate_models(
                 sha256=market_release.manifest_sha256,
             ),
             **({"economic": economic_identity} if economic_identity is not None else {}),
+            **({"financial": financial_input.identity} if financial_input is not None else {}),
         },
-        financial_release=market_release,
+        financial_release=market_release
+        if financial_input is None
+        else InputRelease(
+            release_id=financial_input.identity.reference,
+            manifest_sha256=financial_input.identity.sha256,
+            collection_boundary="fixed_source_head",
+        ),
         companies=companies,
         trading_dates=path_calendar.trading_dates,
         expected_price_date=path_calendar.expected_price_date,

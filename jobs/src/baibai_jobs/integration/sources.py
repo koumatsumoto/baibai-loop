@@ -54,6 +54,7 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.market_context import validate_packet as validate_market_packet
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
+from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.jquants_handoff import (
@@ -77,6 +78,8 @@ def apply(
     asof: date,
 ) -> dict[str, object]:
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
+    if bool(plan.get("financial_native", False)) != financial_native_enabled():
+        raise ValueError("financial cutover mode differs from the fixed integration plan")
     # Canonical corruption is global and fatal, before any handoff is applied.
     for database, validate in (
         (market, validate_market_schema),
@@ -303,7 +306,15 @@ def main(argv: list[str] | None = None) -> int:
             write_json_atomic(
                 directory / "plan.json",
                 {
-                    "handoffs": [*available_handoffs(store), *pending_handoffs(store)],
+                    "handoffs": [
+                        entry
+                        for entry in [*available_handoffs(store), *pending_handoffs(store)]
+                        if not (
+                            financial_native_enabled()
+                            and entry.get("source") == "jquants-financial"
+                        )
+                    ],
+                    "financial_native": financial_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },

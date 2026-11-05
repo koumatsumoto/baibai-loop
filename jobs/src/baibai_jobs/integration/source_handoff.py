@@ -9,7 +9,7 @@ import subprocess  # nosec B404
 import sys
 import tempfile
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.edinet.archives import (
@@ -177,6 +177,24 @@ def _acquire_financial_l1(asof: date, directory: Path) -> bool:
     from baibai_jobs.publication.policy import release_policy_for_profile
 
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
+    from baibai_jobs.financial_cutover import financial_native_enabled
+
+    if financial_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.financial_native import FinancialL1
+        from baibai_jobs.acquisition.jquants_financial_native import acquire_financial_native
+
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
+        ):
+            result = acquire_financial_native(
+                FinancialL1(store, directory),
+                start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
+                end=asof,
+                revision_overlap_days=FINANCIAL_REVISION_OVERLAP_DAYS,
+                client=client,
+            )
+        return not bool(result["failed"] or result["held"])
     with (
         tempfile.TemporaryDirectory(prefix="financial-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -322,7 +340,12 @@ def main(argv: list[str] | None = None) -> int:
                 ok = acquire(args.asof, directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
-                        print("stage_ready=true", file=stream)
+                        from baibai_jobs.financial_cutover import financial_native_enabled
+
+                        native = args.source == "jquants-financial" and financial_native_enabled()
+                        print("stage_ready=" + str(not native).lower(), file=stream)
+                        if native:
+                            print("native_l1=true", file=stream)
                 return int(not ok)
             since = args.since or datetime.now(UTC)
             before = (

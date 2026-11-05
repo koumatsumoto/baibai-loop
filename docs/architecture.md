@@ -112,7 +112,7 @@ Operation完了、提案公開、人間の採用、注文、約定は別の状�
 
 現行のhandoff契約は全source共通ではない。J-Quants財務・市場の取得計画は固定L1と未統合原本を使う。他の取得系には投影coverageを使う計画が残り、順次L1起点へ移す。財務と日足の通常公開経路はL1原本からDuckDBで再生成する。その他のL2の通常公開経路は移行中である。記事は未処理workと未統合stage、TradingViewは当日要求の充足、公開HTML外部評価は固定planとconfirmed readyをそれぞれ保持する。外部評価の通常readyは保全済みの累積stage集合を固定し、集合単位の反映ackと取得planの終了を分ける。後着した小集合で既存原本を巻き戻さず、未試行pairは継続できる。旧来の明示partial terminalはそのplanを閉じる元の意味で保持する。全sourceが同じ更新粒度や再試行規則を持つという保証ではない。未実装の共通化は企画Issueへ分け、実装済みの正本・再開条件を上書きしない。
 
-財務には独立headと不変request packを使う明示取得・再生成入口を追加している。これはL2 releaseやSQLite sealなしで動くが、既存dailyからの切替と旧原本移行は未実施である。新旧を並行する恒久契約ではなく、移行の前提と撤去対象は[財務native L1の運用](../jobs/OPERATIONS.md#financial-native-l1)で区別する。
+財務は独立headと不変request packを使い、L2 releaseやSQLite sealなしで取得する。切替後の通常generationは開始時に一度固定したheadから財務観測を作り、本文を複写せず採用request・確認/失敗状態と不足をgenerationへ保存する。market releaseは財務L2を含めず、成長モデルの財務入力identityもnative集合を指す。他の観測・補完のmarket releaseは別identityとして残す。移行中の共通設定は既定で旧経路を選び、本番切替は未実施。新旧を恒久並行せず、有限移行・比較・独立readerの切替条件と撤去対象を[財務native L1の運用](../jobs/OPERATIONS.md#financial-native-l1)に示す。
 
 L3は必要なモデル断面・政策結果をapplication DBへ複写し、再開時に可変storeから再計算しない。生成cacheと政策結果の整理はJobsが参照順とtransactionを束ね、生成側に候補政策の削除責務を持たせない。原本・判断・取引履歴はcache整理の対象ではない。
 

@@ -18,6 +18,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BAIBAI_FINANCIAL_NATIVE: ${{ vars.BAIBAI_FINANCIAL_NATIVE == 'true' && 'true' || 'false' }}
+
 concurrency:
   group: common-source-integration
   queue: max

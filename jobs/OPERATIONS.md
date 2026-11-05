@@ -767,12 +767,12 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 `jquants-financial-native` はJ-Quants `financial_summaries` の新しい明示入口。
 L1だけで取得計画・差分確定を行い、`rebuild-financial-native` が固定headから既存の財務正規化を使ってParquetを生成する。
 日付範囲は明示する。正常空も完了requestであり、L2の成否で取得をやり直さない。
-新しい通常dailyへの切替、旧L1からの移行、他のJ-Quants source、モデル・候補・L3の接続はまだ含まない。
+通常source入口とdailyの財務consumerは共通設定 `BAIBAI_FINANCIAL_NATIVE` で一組として選択する。既定値は `false`。repository variableを `true` にする操作は本番切替であり、この変更では実施していない。他のJ-Quants sourceとL3は別の移行単位である。
 
 初期化は新しい空namespaceだけで行う。既存原本を無視した空からの本番再取得や、head消失時の初期化で代替しない。
 本番切替には、旧財務原本と未統合stageの有限な移行・読戻し、原本保持条件の確認、同じsourceの旧writer停止が先に必要。
 その後dailyとL2 consumerを新入口へ移し、財務の旧release依存plan・handoff・source seal・取得用旧readerを撤去する（refs #1820）。
-現在の定期workflowは切り替えていない。
+切替後は通常source入口がnative L1へ直接確定し、旧financial handoffを作らない。dailyの固定planは旧financial stageを受け入れず、plan作成とapplyの設定不一致も拒否する。native generationはheadを一度だけ固定して財務観測を再生成し、確認・不足を含む小さなdescriptorを保存する。本文はL1に残し、財務L2の毎日Parquet公開とSQLite parityは行わない。価格など他のrelease入力は引き続き固定market releaseを使う。
 
 認可済みの切替先・検証先で、同じsourceのwriterを直列に実行する。
 通常取得は新しい作業directoryを指定し、PUT結果が不明な場合はそのdirectoryを保ったまま `resume`、
@@ -793,3 +793,31 @@ uv run baibai-jobs rebuild-financial-native --work-directory /secure-work/financ
 結果不明のpackが未uploadのまま作業directoryを失った場合は自動復旧できず、sourceを止めて原本の復旧を判断する。
 大きすぎる単独request・順序不明の受領も無言で切り捨てない。保留結果と保存済み作業を確認する。
 head再送量・cold読取・実R2・全履歴容量は本番切替前の確認事項であり、fixture成功で代替しない。
+
+
+### 旧財務L1からの有限移行と切替条件
+
+通常dailyへ移行を代行させない。以下は認可された切替先で別途行う手順であり、codeのmergeだけでは完了しない。
+
+1. 旧財務writerとdailyを止め、実行中・queued・再実行可能な旧jobをdrainする。同じsourceの新旧writerを並行させない。旧current release ID/manifest SHA256、実UTC境界、未統合を含む全financial stageを有限集合として固定する。prepareの後に到着したstageがないことを再確認し、あれば境界を作り直す。
+2. `financial-native-cutover prepare` で固定旧L1とstageをread-onlyで読む。本文は旧gzipから戻した実在bytes、受領は各pageの実時刻、request開始不明はnullで保持する。原本不在・日付scope不明・欠けたpage位置・衝突identity・取得失敗なのに失敗request原本が無いstageは `blocked` として保留する。移行時刻や投影値から原本/時刻を作らない。正常空と失敗を入れ替えない。
+3. planの出所・件数・保留を確認し、新しい空namespaceを明示初期化してからapplyする。applyは計画外取得があるtargetを拒否し、途中結果が不明なら同じplanと作業directoryで再開する。verifyで採用前の旧版・partialを含む全移行packをcold readbackする。原本や旧stageは削除しない。
+4. compareは同じexact旧releaseの財務投影と固定native headからの再生成を有限比較する。`comparison.json` の旧のみ・新のみ・内容差のkey/hash、日別不足を確認する。旧投影を正解として残すのではなく、復元不能な期間/対象、許容する意味差を明示して人が受け入れる。未解決の原本・stage・generation境界がある間は切り替えない。
+5. 財務を読む独立callerを列挙する。通常generation以外のlake財務query/明示maintenance/historical readerは自動でnativeへ移らない。必要なcallerを固定native inputへ移すか未対応を明示し、旧releaseの財務L2不在を正常空と解釈させない。market release自体の読取policyは財務を任意とし、財務datasetを明示要求する旧readerは欠落errorにする。
+6. 同じcodeをwriter/dailyへ配置し、共通repository variableを `true` にして通常経路を切り替える。初回dailyはnative入力を読めた後、download済み実行copyの旧財務tableとそのcoverageだけを空にし、財務なしの新releaseへ整合させる。L1・旧immutable release・application DBの削除ではない。upload copyのdehydrate/次hydrateとモデル入力identityを読戻す。
+7. L2失敗中もL1の次取得が進むこと、同値確認で本文を複写しないこと、L2を捨てて同じ固定headから再生成できることを確認する。実R2のCAS・cold読取・容量/転送量・実在旧データはfixtureと別の受入で確認する。
+
+```bash
+uv run baibai-jobs financial-native-cutover prepare --directory /secure-work/financial-migration \
+  --work-directory /secure-work/financial-mirror --release <FIXED_OLD_RELEASE> \
+  --manifest-sha256 <FIXED_OLD_SHA256> --known-at <REAL_UTC_BOUNDARY>
+# plan.jsonのblockedと全stage/出所を確認後、空targetへ一度だけinitialize
+uv run baibai-jobs financial-native-cutover apply --directory /secure-work/financial-migration \
+  --work-directory /secure-work/financial-mirror
+uv run baibai-jobs financial-native-cutover verify --directory /secure-work/financial-migration \
+  --work-directory /secure-work/financial-cold-read
+uv run baibai-jobs financial-native-cutover compare --directory /secure-work/financial-migration \
+  --work-directory /secure-work/financial-compare
+```
+
+設定をfalseへ戻すだけでは旧投影やwriterの境界を戻せない。異常時はwriter/dailyを止め、最後の確定head・旧release・移行planを使って到達点と再開先を判断する。切替後の正常運転と独立callerの移行を確認したら、共通設定と旧財務plan/handoff・受領copy・source seal依存・財務L2 export/parity・取得用旧readerを削除する。旧immutable原本の保持/削除は別の認可事項であり、この撤去に含めない。
