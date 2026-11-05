@@ -30,6 +30,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_jobs.acquisition.edinet_archives import metric_archive_candidates
 
 
 class EdinetMetricAcquisition(Protocol):
@@ -63,18 +64,12 @@ def refresh_edinet_metrics_command(
     ) as exc:
         print(f"EDINET source preparation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
-    plan = prepare_edinet_metric_plan(
-        asof_date=asof_date,
-        lookback_days=lookback_days,
-        reader=reader,
-        sqlite_path=sqlite_path,
-        stdout=out,
-    )
-    if plan is None:
-        return 1
     try:
-        for candidate in plan.archive_candidates:
-            acquisition.download_csv_zip(candidate.doc_id)
+        candidates, _ = metric_archive_candidates(
+            sqlite_path, asof=asof_date, lookback_days=lookback_days
+        )
+        for doc_id in candidates:
+            acquisition.download_csv_zip(doc_id)
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
@@ -84,6 +79,15 @@ def refresh_edinet_metrics_command(
         ValueError,
     ) as exc:
         print(f"EDINET archive acquisition failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    plan = prepare_edinet_metric_plan(
+        asof_date=asof_date,
+        lookback_days=lookback_days,
+        reader=reader,
+        sqlite_path=sqlite_path,
+        stdout=out,
+    )
+    if plan is None:
         return 1
     return extract_edinet_metrics_from_plan(
         asof_date=asof_date,

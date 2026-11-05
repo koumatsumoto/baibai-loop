@@ -68,13 +68,15 @@ def holder_archive_candidates(
     return ordered, len(quarantined)
 
 
-def metric_archive_candidates(database: Path, *, asof: date) -> tuple[list[str], int]:
+def metric_archive_candidates(
+    database: Path, *, asof: date, lookback_days: int = 540
+) -> tuple[list[str], int]:
     """Plan CSV originals from complete saved lists, never extracted metrics.
 
-    The existing 540-day origin window and native event selection stay fixed.
+    The requested origin window and native event selection stay fixed.
     Older origins resolve edits/withdrawals but cannot become new candidates.
     """
-    start = asof - timedelta(days=540)
+    start = asof - timedelta(days=lookback_days)
     with closing(connect_read_only(database)) as connection:
         connection.execute("BEGIN")
         day = start
