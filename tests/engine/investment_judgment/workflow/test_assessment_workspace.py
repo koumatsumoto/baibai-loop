@@ -1,5 +1,6 @@
 """固定選定、企業評価と独立Review、immutable公開・再開のworkspace結合。"""
 
+import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta
@@ -8,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 from tests.helpers.assessment_v1 import (
     assessment_id,
     pair_payload,
@@ -18,11 +20,10 @@ from tests.helpers.generated_selection import generated_draft_for, seed_generate
 from tests.helpers.ledger import load_portfolio_ledger
 
 from baibai_engine.cli.investment_judgment import main
-from baibai_engine.investment_judgment.contracts import (
-    AssessmentError,
-)
+from baibai_engine.investment_judgment.contracts import AssessmentError
+from baibai_engine.investment_judgment.draft_files import load_draft
 from baibai_engine.investment_judgment.stock_assessment.document import (
-    load_assessment,
+    StockAssessmentDocument,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
@@ -101,8 +102,8 @@ def test_initial_scaffold_has_new_contract_and_stable_writer_identity(case):
     assert raw["valuation"]["required_annual_return_pct"] is None
     assert "judgment" not in raw
     assert first["assessment_id"].startswith("stock-assessment-")
-    with pytest.raises(AssessmentError):
-        load_assessment(Path(first["assessment_draft"]))
+    with pytest.raises(ValidationError):
+        StockAssessmentDocument.model_validate(raw)
     with pytest.raises(ResearchWorkspaceConflictError, match="exists"):
         scaffold(case)
     assert scaffold(case, force=True)["assessment_id"] == first["assessment_id"]
@@ -216,11 +217,11 @@ def test_review_scaffold_has_exact_hash_new_uuid_and_independent_empty_slots(cas
     (workspace / "1234/assessment-review.yaml").unlink()
     reads = []
 
-    def read_once(path):
+    def read_once(path, model, *, label):
         reads.append(path)
-        return load_assessment(path)
+        return load_draft(path, model, label=label)
 
-    monkeypatch.setattr(scaffold_module, "load_assessment", read_once)
+    monkeypatch.setattr(scaffold_module, "load_draft", read_once)
     result = scaffold_review(workspace=workspace, ticker="1234", db_path=db)
     assert reads == [workspace / "1234/assessment-draft.yaml"]
     raw = yaml.safe_load(Path(result["review_draft"]).read_text())
@@ -581,6 +582,32 @@ def test_review_scaffold_rejects_an_incomplete_assessment_without_writing_review
     scaffold(case)
     with pytest.raises(AssessmentError):
         scaffold_review(workspace=workspace, ticker="1234", db_path=db)
+    assert not (workspace / "1234/assessment-review.yaml").exists()
+
+
+def test_review_scaffold_cli_keeps_invalid_source_output(case, capsys):
+    db, workspace, _ = case
+    scaffold(case)
+    assert (
+        main(
+            [
+                "independent-review-scaffold",
+                "--workspace",
+                str(workspace),
+                "--db",
+                str(db),
+                "--ticker",
+                "1234",
+            ],
+            now=NOW,
+        )
+        == 3
+    )
+    output = capsys.readouterr()
+    assert output.err == ""
+    payload = json.loads(output.out)
+    assert payload["status"] == "invalid_source"
+    assert "validation errors for StockAssessmentDocument" in payload["reason"]
     assert not (workspace / "1234/assessment-review.yaml").exists()
 
 

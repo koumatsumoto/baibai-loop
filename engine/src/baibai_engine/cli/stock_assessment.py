@@ -13,15 +13,16 @@ import yaml
 from baibai_engine.investment_judgment.contracts import (
     AssessmentError,
 )
+from baibai_engine.investment_judgment.draft_files import load_draft
 from baibai_engine.investment_judgment.independent_review.contracts import (
-    load_assessment_review,
+    AssessmentReview,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
+    StockAssessmentDocument,
     UnpublishedAssessment,
     assessment_valuation_context,
     evaluate_assessment,
     evaluation_to_payload,
-    load_assessment,
 )
 from baibai_engine.primitives.time import JST
 
@@ -44,12 +45,12 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
     """
     args = build_parser().parse_args(argv)
     try:
-        assessment = load_assessment(args.assessment)
+        assessment = load_draft(args.assessment, StockAssessmentDocument, label="assessment")
         review_path = args.review
         # Evaluate authored content before an independent review file is available.
         # Publication still requires that review; a missing path is not an approval.
         review = (
-            load_assessment_review(review_path)
+            load_draft(review_path, AssessmentReview, label="Assessment Review")
             if review_path is not None and review_path.is_file()
             else None
         )
