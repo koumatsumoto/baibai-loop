@@ -1074,7 +1074,7 @@ def test_sealed_snapshot_cleans_capture_failures_without_touching_source(
             raise KeyboardInterrupt("synthetic interruption")
         return writer_module.SQLITE_SCHEMA_VERSION - 1
 
-    monkeypatch.setattr(writer_module, "create_snapshot", capture)
+    monkeypatch.setattr(writer_module, "backup_to_new_file", capture)
     if failure == "space":
         monkeypatch.setattr(writer_module.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
     error = KeyboardInterrupt if failure == "interrupted" else LakeBuildError

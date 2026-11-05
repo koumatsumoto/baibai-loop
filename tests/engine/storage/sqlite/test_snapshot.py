@@ -7,10 +7,63 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.storage.sqlite.snapshot import (
+    backup_to_new_file,
     create_snapshot,
     database_schema_version,
+    main,
     validate_database,
+    validate_snapshot,
 )
+
+
+def test_new_backup_returns_schema_and_includes_wal_rows(tmp_path: Path) -> None:
+    source = tmp_path / "source #1?.sqlite"
+    output = tmp_path / "snapshot #1?.sqlite"
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA user_version=42")
+        connection.execute("CREATE TABLE kept (value TEXT)")
+        connection.execute("INSERT INTO kept VALUES ('from WAL')")
+        connection.commit()
+        assert backup_to_new_file(source, output) == 42
+
+    assert validate_snapshot(output) == 42
+    with closing(sqlite3.connect(output)) as connection:
+        assert connection.execute("SELECT value FROM kept").fetchone() == ("from WAL",)
+
+
+def test_new_backup_does_not_replace_an_existing_output(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite"
+    output = tmp_path / "snapshot.sqlite"
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute("CREATE TABLE kept (value)")
+    source_before = source.read_bytes()
+    output.write_bytes(b"keep existing snapshot")
+
+    with pytest.raises(FileExistsError, match="output already exists"):
+        backup_to_new_file(source, output)
+
+    assert output.read_bytes() == b"keep existing snapshot"
+    assert source.read_bytes() == source_before
+
+
+def test_new_backup_removes_an_unvalidated_output(tmp_path, monkeypatch):
+    from baibai_engine.storage.sqlite import snapshot
+
+    source = tmp_path / "source.sqlite"
+    output = tmp_path / "snapshot.sqlite"
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute("CREATE TABLE kept (value)")
+    before = source.read_bytes()
+
+    def fail_validation(path):
+        raise sqlite3.DatabaseError("validation failed")
+
+    monkeypatch.setattr(snapshot, "validate_snapshot", fail_validation)
+    with pytest.raises(sqlite3.DatabaseError, match="validation failed"):
+        backup_to_new_file(source, output)
+    assert not output.exists()
+    assert source.read_bytes() == before
 
 
 def test_snapshot_includes_uncheckpointed_wal_rows(tmp_path: Path) -> None:
@@ -78,7 +131,7 @@ def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("failure", ["missing", "invalid", "backup", "validation"])
 def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, failure):
-    from baibai_engine.storage.sqlite.source_cache import snapshot
+    from baibai_engine.storage.sqlite import snapshot
 
     source = tmp_path / "source.sqlite"
     output = tmp_path / "output.sqlite"
@@ -97,9 +150,7 @@ def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, fail
             output.write_bytes(b"partial")
             raise sqlite3.DatabaseError("backup failed")
 
-        monkeypatch.setattr(
-            "baibai_engine.storage.sqlite.snapshot.create_market_snapshot", fail_backup
-        )
+        monkeypatch.setattr("baibai_engine.storage.sqlite.snapshot.backup_to_new_file", fail_backup)
     elif failure == "validation":
 
         def fail_validation(path):
@@ -113,9 +164,22 @@ def test_snapshot_failure_preserves_output(tmp_path, monkeypatch, existing, fail
     assert set(tmp_path.iterdir()) == paths_before
 
 
+def test_snapshot_cli_keeps_create_check_and_version(tmp_path, capsys):
+    source = tmp_path / "source.sqlite"
+    output = tmp_path / "snapshot.sqlite"
+    with closing(sqlite3.connect(source)) as connection, connection:
+        connection.execute("PRAGMA user_version=42")
+    assert main(["create", "--source", str(source), "--output", str(output)]) == 0
+    assert main(["check", "--path", str(output), "--schema-version", "42"]) == 0
+    assert main(["version", "--path", str(output)]) == 0
+    assert capsys.readouterr().out == "42\n"
+    with pytest.raises(sqlite3.DatabaseError, match="expected=43 actual=42"):
+        main(["check", "--path", str(output), "--schema-version", "43"])
+
+
 @pytest.mark.parametrize("failure", [False, True])
 def test_snapshot_closes_owned_connections(tmp_path, monkeypatch, failure):
-    from baibai_engine.storage.sqlite.source_cache import snapshot
+    from baibai_engine.storage.sqlite import snapshot
 
     source = tmp_path / "source.sqlite"
     with closing(sqlite3.connect(source)) as db, db:

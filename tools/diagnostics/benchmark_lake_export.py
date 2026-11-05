@@ -22,8 +22,8 @@ from baibai_engine.storage.filesystem import write_bytes_atomic
 from baibai_engine.storage.snapshots.identity import verified_git_commit
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import LakeExportReport, export_market_store
+from baibai_engine.storage.sqlite.snapshot import backup_to_new_file
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
-from baibai_engine.storage.sqlite.source_cache.snapshot import create_snapshot
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
@@ -75,7 +75,7 @@ def benchmark(*, sqlite_path: Path, report_path: Path, producer_commit: str) -> 
         root = Path(temporary)
         working_sqlite = root / "market.sqlite"
         mirror = root / "mirror"
-        create_snapshot(sqlite_path, working_sqlite)
+        backup_to_new_file(sqlite_path, working_sqlite)
         source_sha256 = sha256_file(working_sqlite)
         source_bytes = working_sqlite.stat().st_size
         store_origin = read_lake_store_origin(working_sqlite)

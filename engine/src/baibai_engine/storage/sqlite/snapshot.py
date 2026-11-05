@@ -1,4 +1,4 @@
-"""Create or validate a consistent SQLite file for R2 transfer."""
+"""SQLite snapshotの作成・整合検査と転送用のCLI。"""
 
 from __future__ import annotations
 
@@ -8,9 +8,39 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
-from baibai_engine.storage.sqlite.source_cache.snapshot import (
-    create_snapshot as create_market_snapshot,
-)
+
+def backup_to_new_file(source: Path, output: Path) -> int:
+    """Use SQLite backup so committed WAL pages belong to the captured generation."""
+    if not source.is_file():
+        raise FileNotFoundError(f"SQLite source does not exist: {source}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        raise FileExistsError(f"SQLite snapshot output already exists: {output}")
+    source_uri = f"{source.resolve().as_uri()}?mode=ro"
+    try:
+        with (
+            closing(sqlite3.connect(source_uri, uri=True, timeout=30)) as source_db,
+            closing(sqlite3.connect(output, timeout=30)) as target_db,
+            target_db,
+        ):
+            source_db.backup(target_db, pages=1024, sleep=0.05)
+        return validate_snapshot(output)
+    except Exception:
+        output.unlink(missing_ok=True)
+        raise
+
+
+def validate_snapshot(path: Path) -> int:
+    """Return schema version after integrity validation of a sealed snapshot."""
+    uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
+    with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
+        row = connection.execute("PRAGMA quick_check").fetchone()
+        if row is None or row[0] != "ok":
+            raise sqlite3.DatabaseError(f"SQLite quick_check failed: {path}")
+        version = connection.execute("PRAGMA user_version").fetchone()
+    if version is None:
+        raise sqlite3.DatabaseError(f"SQLite user_version is unavailable: {path}")
+    return int(version[0])
 
 
 def validate_database(path: Path) -> None:
@@ -46,7 +76,7 @@ def create_snapshot(source: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=output.parent) as directory:
         temporary = Path(directory) / "snapshot.sqlite"
-        create_market_snapshot(source, temporary)
+        backup_to_new_file(source, temporary)
         temporary.replace(output)
 
 
