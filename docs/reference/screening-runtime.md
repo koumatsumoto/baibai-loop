@@ -32,4 +32,4 @@ as_ofが新しくても株価観測日を当日へ書き換えず、保存原本
 
 ModelGenerationとScreeningSelectionは別identityであり、同じモデルからの政策変更をモデル再生成と混同しない。候補0件も正常な公開結果で、過去の非空候補へ戻さない。保存・時点選択の詳細は[selection store](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)と[selection query](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)が所有する。
 
-L3再開と生成cacheの寿命は[保存責務](../architecture.md#store-authority)、取得・retry・発行順は[OPERATIONS](../../jobs/OPERATIONS.md)に従う。政策を変更しても既存世代・Selectionのidentity・hash・再開入力は書き換えない。
+L3再開と生成cacheの寿命は[保存責務](../architecture.md#store-authority)、取得・retry・発行と整理の順序は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)に従う。政策を変更しても既存世代・Selectionのidentity・hash・再開入力は書き換えない。
