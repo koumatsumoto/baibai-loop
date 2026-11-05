@@ -1,0 +1,541 @@
+name: cloud-edinet-list-cutover-inspect-once
+
+# Authorized metadata diagnosis after the fixed migration has terminated.
+on:
+  push:
+    branches: [codex/issue1820-edinet-list-cutover-inspect-once]
+    paths: [.github/workflows/cloud-edinet-list-cutover-inspect-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-edinet-list-cutover-inspect-once' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: inspect EDINET migration 42067961003 once' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the exact reviewed code base
+        env:
+          EXPECTED_CODE_SHA: f965a8f5c54d0512079199a9e2a495e61f12d815
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Read fixed EDINET migration evidence and current metadata only
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python - <<'PYCODE'
+          """Read-only metadata diagnosis of terminated EDINET migration run 42067961003.
+          
+          No original body, canonical bytes, error text, identifier, hash or ETag is emitted.
+          Metadata observations are never promoted to full migration verification.
+          """
+          
+          from __future__ import annotations
+          
+          import contextlib
+          import hashlib
+          import json
+          import re
+          from dataclasses import dataclass
+          from datetime import UTC, datetime, timedelta
+          
+          BUCKET = "baibai-stores"
+          RUN = "42067961003"
+          PREFIX = "coordination/cutovers/edinet-list-native/" + RUN + "/"
+          HEAD = "l1/edinet/lists/v1/head.json"
+          LEASE = "coordination/publication-lease.json"
+          BASE = (
+              "market.sqlite",
+              "runs.sqlite",
+              "indicators.sqlite",
+              "machine-manifest.json",
+              "lake/pointers/market/current.json",
+          )
+          NAMES = (
+              "state.json",
+              "plan.json",
+              "plan.sha256",
+              "applied.json",
+              "comparison.json",
+              "completed.json",
+              "error-private.txt",
+          )
+          PHASES = ("state", "plan", "applied", "comparison", "completed")
+          SMALL_LIMIT = 1024 * 1024
+          LARGE_LIMIT = 64 * 1024 * 1024
+          TOTAL_LIMIT = 192 * 1024 * 1024
+          DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+          
+          
+          class DiagnosisError(Exception):
+              def __init__(self, code):
+                  self.code = code
+                  super().__init__(code)
+          
+          
+          def require(value, code="invalid"):
+              if not value:
+                  raise DiagnosisError(code)
+          
+          
+          def timestamp(value):
+              try:
+                  parsed = datetime.fromisoformat(value)
+                  require(parsed.utcoffset() == timedelta(0))
+                  return parsed.astimezone(UTC)
+              except (TypeError, ValueError):
+                  raise DiagnosisError("invalid") from None
+          
+          
+          @dataclass(frozen=True)
+          class Head:
+              etag: str
+              size: int
+              sha: str | None
+          
+          
+          class Metadata:
+              """One exact bounded LIST; canonical keys and error text are HEAD-only."""
+          
+              def __init__(self, client):
+                  self.client = client
+                  self.allowed = {HEAD, LEASE}
+                  self.head_only = set(BASE)
+                  self.total = 0
+                  self.listed = False
+          
+              def call(self, method, **kwargs):
+                  require(
+                      method in {"head_object", "get_object", "list_objects_v2"}, "out_of_scope"
+                  )
+                  if method == "get_object":
+                      require(kwargs.get("Key") in self.allowed, "out_of_scope")
+                  elif method == "head_object":
+                      require(kwargs.get("Key") in self.allowed | self.head_only, "out_of_scope")
+                  else:
+                      require(
+                          not self.listed and kwargs == {"Prefix": PREFIX, "MaxKeys": 64},
+                          "out_of_scope",
+                      )
+                      self.listed = True
+                  try:
+                      return getattr(self.client, method)(Bucket=BUCKET, **kwargs)
+                  except Exception as exc:
+                      code = getattr(exc, "response", {}).get("Error", {}).get("Code")
+                      if method == "head_object" and code in {"404", "NoSuchKey", "NotFound"}:
+                          return None
+                      raise DiagnosisError("unavailable") from None
+          
+              def head(self, key):
+                  value = self.call("head_object", Key=key)
+                  if value is None:
+                      return None
+                  size, etag = value.get("ContentLength"), value.get("ETag")
+                  require(type(size) is int and size >= 0)
+                  require(isinstance(etag, str) and bool(etag.strip('"')))
+                  return Head(etag.strip('"'), size, value.get("Metadata", {}).get("sha256"))
+          
+              def read(self, key, *, expected=None, limit=LARGE_LIMIT, native=False, raw=False):
+                  require(key in self.allowed, "out_of_scope")
+                  before = self.head(key)
+                  require(before is not None, "missing")
+                  require(
+                      before.size <= limit and self.total + before.size <= TOTAL_LIMIT,
+                      "limit_exceeded",
+                  )
+                  self.total += before.size
+                  response = self.call("get_object", Key=key, IfMatch=before.etag)
+                  try:
+                      payload = response["Body"].read(before.size + 1)
+                  finally:
+                      response["Body"].close()
+                  require(len(payload) == before.size and self.head(key) == before, "changed")
+                  digest = hashlib.sha256(payload).hexdigest()
+                  if expected is not None:
+                      require(digest == expected, "digest_mismatch")
+                  if native:
+                      require(digest == before.sha, "digest_mismatch")
+                  if raw:
+                      return payload, digest
+                  try:
+                      value = json.loads(payload)
+                  except (ValueError, UnicodeDecodeError):
+                      raise DiagnosisError("invalid") from None
+                  require(isinstance(value, dict))
+                  return value, digest
+          
+              def evidence_keys(self):
+                  page = self.call("list_objects_v2", Prefix=PREFIX, MaxKeys=64)
+                  require(not page.get("IsTruncated"), "listing_truncated")
+                  entries = page.get("Contents", [])
+                  require(isinstance(entries, list) and len(entries) <= 64)
+                  require(bool(entries), "missing")
+                  result = {}
+                  pattern = (
+                      re.escape(PREFIX)
+                      + "("
+                      + "|".join(re.escape(x) for x in NAMES)
+                      + r")-([0-9a-f]{64})"
+                  )
+                  for item in entries:
+                      require(isinstance(item, dict))
+                      key = item.get("Key")
+                      match = re.fullmatch(pattern, key) if isinstance(key, str) else None
+                      require(match is not None, "out_of_scope")
+                      name, digest = match.groups()
+                      require(name not in result, "evidence_conflict")
+                      size = item.get("Size")
+                      require(type(size) is int and size >= 0)
+                      if name == "error-private.txt":
+                          self.head_only.add(key)
+                          head = self.head(key)
+                          require(
+                              head is not None and head.size == size and head.sha == digest,
+                              "changed",
+                          )
+                      else:
+                          require(
+                              size <= (LARGE_LIMIT if name == "plan.json" else SMALL_LIMIT),
+                              "limit_exceeded",
+                          )
+                          self.allowed.add(key)
+                      result[name] = (key, digest)
+                  return result
+          
+          
+          def receipt_map(receipts):
+              # This constructor validates UUID/date/UTC/hash metadata without reading bodies.
+              from baibai_engine.data_collection.providers.edinet.list_native import (
+                  FixedEdinetLists,
+              )
+          
+              require(isinstance(receipts, list))
+              entries = []
+              for item in receipts:
+                  require(isinstance(item, dict))
+                  entries.append(
+                      {
+                          key: item.get(key)
+                          for key in ("receipt_id", "doc_date", "received_at_utc", "sha256")
+                      }
+                  )
+              fixed = FixedEdinetLists(
+                  None, {"format": "edinet-list-native-v1", "receipts": entries}
+              )
+              return {entry["receipt_id"]: entry for entry in fixed.value()["receipts"]}
+          
+          
+          def evidence_state(meta):
+              keys = meta.evidence_keys()
+              presence = {
+                  name.removesuffix(".json").replace(".", "_").replace("-", "_")
+                  + "_present": name in keys
+                  for name in NAMES
+              }
+              evidence, digests = {}, {}
+              for name, (key, digest) in keys.items():
+                  if name == "error-private.txt":
+                      continue
+                  value, actual = meta.read(
+                      key,
+                      expected=digest,
+                      limit=LARGE_LIMIT if name == "plan.json" else SMALL_LIMIT,
+                      raw=name == "plan.sha256",
+                  )
+                  evidence[name], digests[name] = value, actual
+              require("state.json" in evidence, "no_context")
+              state = evidence["state.json"]
+              require(state.get("format") == "edinet-list-cutover-once-v1")
+              timestamp(state.get("known_at"))
+              require(
+                  isinstance(state.get("base_etags"), dict)
+                  and set(state["base_etags"]) == set(BASE)
+              )
+              require(all(isinstance(v, str) and bool(v) for v in state["base_etags"].values()))
+              generations = state.get("generations")
+              require(
+                  isinstance(generations, dict)
+                  and set(generations) == {"lake_release_id", "lake_manifest_sha256"}
+              )
+              require(
+                  isinstance(generations["lake_release_id"], str)
+                  and bool(generations["lake_release_id"])
+              )
+              require(
+                  isinstance(generations["lake_manifest_sha256"], str)
+                  and DIGEST.fullmatch(generations["lake_manifest_sha256"])
+              )
+              if "plan.json" in evidence:
+                  require("plan.sha256" in evidence, "incomplete_plan")
+                  require(
+                      evidence["plan.sha256"].decode().strip() == digests["plan.json"],
+                      "digest_mismatch",
+                  )
+                  plan = evidence["plan.json"]
+                  require(plan.get("format") == "edinet-list-cutover-v1")
+                  require(
+                      plan.get("release_id") == generations["lake_release_id"]
+                      and plan.get("manifest_sha256") == generations["lake_manifest_sha256"]
+                      and plan.get("known_at") == state["known_at"],
+                      "context_mismatch",
+                  )
+                  for field in (
+                      "blocked",
+                      "missing_raw_days",
+                      "receipts",
+                      "inputs",
+                      "handoffs",
+                      "projected_days",
+                  ):
+                      require(isinstance(plan.get(field), list))
+                  for item in plan["inputs"]:
+                      require(isinstance(item, dict) and isinstance(item.get("file"), str))
+                      require(
+                          isinstance(item.get("sha256"), str) and DIGEST.fullmatch(item["sha256"])
+                      )
+                  expected = receipt_map(plan["receipts"])
+                  require(
+                      all(
+                          timestamp(x["received_at_utc"]) <= timestamp(state["known_at"])
+                          for x in expected.values()
+                      ),
+                      "context_mismatch",
+                  )
+              elif "plan.sha256" in evidence:
+                  raise DiagnosisError("incomplete_plan")
+              last = next(
+                  (phase for phase in reversed(PHASES) if phase + ".json" in evidence), "unknown"
+              )
+              return (
+                  state,
+                  evidence,
+                  {
+                      "status": "observed",
+                      "evidence_hashes_verified": True,
+                      "private_error_body_not_read": True,
+                      **presence,
+                  },
+                  last,
+              )
+          
+          
+          def native_state(meta, evidence):
+              from baibai_engine.data_collection.providers.edinet.list_native import (
+                  FixedEdinetLists,
+              )
+          
+              if meta.head(HEAD) is None:
+                  return {"status": "missing", "plan_present": "plan.json" in evidence}
+              payload, _ = meta.read(HEAD, native=True, raw=True)
+              fixed = FixedEdinetLists(None, payload)
+              actual = receipt_map(fixed.value()["receipts"])
+              result = {
+                  "status": "observed",
+                  "head_integrity_verified": True,
+                  "receipts_present": bool(actual),
+                  "plan_present": "plan.json" in evidence,
+              }
+              if "plan.json" in evidence:
+                  plan = evidence["plan.json"]
+                  expected = receipt_map(plan["receipts"])
+                  result.update(
+                      plan_blocked=bool(plan["blocked"] or plan["missing_raw_days"]),
+                      plan_has_originals=bool(expected),
+                      receipts_subset_of_plan=all(
+                          expected.get(k) == v for k, v in actual.items()
+                      ),
+                      all_plan_receipts_present=all(
+                          actual.get(k) == v for k, v in expected.items()
+                      ),
+                      receipt_maps_equal=actual == expected,
+                      outside_plan_receipts_present=bool(set(actual) - set(expected)),
+                      overlapping_receipts_match=all(
+                          actual[k] == expected[k] for k in set(actual) & set(expected)
+                      ),
+                  )
+              applied = evidence.get("applied.json")
+              result["applied_evidence_present"] = applied is not None
+              if applied is not None:
+                  require(
+                      isinstance(applied.get("head_sha256"), str)
+                      and DIGEST.fullmatch(applied["head_sha256"])
+                  )
+                  result["head_matches_applied"] = fixed.identity == applied["head_sha256"]
+              comparison = evidence.get("comparison.json")
+              result["comparison_evidence_present"] = comparison is not None
+              if comparison is not None:
+                  require(isinstance(comparison.get("failed_days"), list))
+                  result["comparison_claims_equal"] = all(
+                      comparison.get(k) is True
+                      for k in (
+                          "cold_warm_equal",
+                          "facts_scope_unchanged",
+                          "legacy_projection_evidence_verified",
+                      )
+                  )
+                  result["projection_failures_present"] = bool(comparison["failed_days"])
+              completed = evidence.get("completed.json")
+              result["completed_evidence_present"] = completed is not None
+              if completed is not None:
+                  result["completion_record_claims_success"] = all(
+                      completed.get(k) is True
+                      for k in (
+                          "migration_completed",
+                          "native_readback_verified",
+                          "cold_warm_equal",
+                          "legacy_projection_evidence_verified",
+                          "facts_scope_unchanged",
+                          "canonical_unchanged",
+                          "legacy_release_stage_preserved",
+                          "shared_flags_unchanged",
+                      )
+                  )
+                  # completed.json predates finally/release, so its lease flag is not evidence.
+              return result
+          
+          
+          def lease_state(meta, now):
+              value, _ = meta.read(LEASE, limit=SMALL_LIMIT)
+              require(
+                  set(value) == {"state", "owner", "purpose", "acquired_at_utc", "expires_at_utc"}
+              )
+              require(value["state"] in {"held", "released"})
+              require(
+                  isinstance(value["owner"], str)
+                  and re.fullmatch(r"(?:github:[0-9]+:[0-9]+|local:[0-9a-f]{32})", value["owner"])
+              )
+              require(value["purpose"] in {"daily", "tradingview", "materialize", "operator"})
+              acquired, expiry = (
+                  timestamp(value["acquired_at_utc"]),
+                  timestamp(value["expires_at_utc"]),
+              )
+              require(expiry - acquired == timedelta(minutes=120))
+              return {
+                  "status": "observed",
+                  "held": value["state"] == "held",
+                  "released": value["state"] == "released",
+                  "expired": expiry <= now,
+                  "owner_matches_run": value["owner"] == "github:" + RUN + ":1",
+              }
+          
+          
+          def observed_heads(meta):
+              values, failed = {}, False
+              for key in (*BASE, HEAD, LEASE):
+                  try:
+                      values[key] = meta.head(key)
+                  except Exception:
+                      failed = True
+              return values, failed
+          
+          
+          def inspect(client, *, now=None):
+              moment = now or datetime.now(UTC)
+              require(moment.utcoffset() == timedelta(0))
+              meta = Metadata(client)
+              initial, initial_failed = observed_heads(meta)
+              report = {
+                  "read_only": True,
+                  "metadata_only": True,
+                  "migration_verified": False,
+                  "phase": "metadata_diagnosis",
+                  "last_saved_phase": "unknown",
+              }
+              state, evidence = None, {}
+              try:
+                  state, evidence, report["checkpoints"], report["last_saved_phase"] = (
+                      evidence_state(meta)
+                  )
+              except DiagnosisError as exc:
+                  report["checkpoints"] = {"status": exc.code}
+              except Exception:
+                  report["checkpoints"] = {"status": "invalid"}
+              report["canonical"] = {"status": "no_context"}
+              if state is not None:
+                  report["canonical"] = {
+                      "status": "unavailable" if initial_failed else "observed",
+                      "all_present": all(initial.get(k) is not None for k in BASE),
+                      "matches_context": all(
+                          initial.get(k) is not None and initial[k].etag == state["base_etags"][k]
+                          for k in BASE
+                      ),
+                  }
+              for name, function in (
+                  ("native", lambda: native_state(meta, evidence)),
+                  ("lease", lambda: lease_state(meta, moment)),
+              ):
+                  try:
+                      report[name] = function()
+                  except DiagnosisError as exc:
+                      report[name] = {"status": exc.code}
+                  except Exception:
+                      report[name] = {"status": "invalid"}
+              final, final_failed = observed_heads(meta)
+              stable = not initial_failed and not final_failed and initial == final
+              report["observations_stable"] = stable
+              report["diagnostic_completed"] = (
+                  stable
+                  and state is not None
+                  and all(
+                      report[k]["status"] in {"observed", "missing"}
+                      for k in ("checkpoints", "canonical", "native", "lease")
+                  )
+              )
+              return report
+          
+          
+          def main():
+              import sys
+              import tempfile
+              from pathlib import Path
+          
+              from baibai_engine.storage.objects.r2 import Boto3R2Store
+          
+              public = sys.stdout
+              with tempfile.TemporaryDirectory(prefix="edinet-metadata-diagnosis-") as directory:
+                  try:
+                      with (
+                          (Path(directory) / "private.log").open("w") as private,
+                          contextlib.redirect_stdout(private),
+                          contextlib.redirect_stderr(private),
+                          contextlib.closing(Boto3R2Store(bucket=BUCKET)) as store,
+                      ):
+                          report = inspect(store._client())
+                  except Exception:
+                      report = {
+                          "read_only": True,
+                          "metadata_only": True,
+                          "migration_verified": False,
+                          "diagnostic_completed": False,
+                          "phase": "metadata_diagnosis",
+                          "last_saved_phase": "unknown",
+                          "status": "unavailable",
+                      }
+              print(json.dumps(report, sort_keys=True), file=public, flush=True)
+              return 0 if report["diagnostic_completed"] else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PYCODE
