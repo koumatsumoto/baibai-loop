@@ -109,6 +109,12 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。取得期限とjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入る。
 
+### UMichの取得計画input
+
+UMich SCAは単一CSVのURLを毎回取得し、前回本文をrequest作成に使わない。`economic-umich_sca`のinputは全改訂本文の代わりに、既存run/確認metadataとnative受領が存在した日の集合だけを保持する。空受領日も従来と同じ回復済み日として残し、値・本文・新しい正常空receiptを合成しない。370日の通常窓、広範囲失敗の明示回復、初期の疎な公表期間、CSVの未使用column/空cell・不正行の拒否は変えない。通常窓外の古い改訂は引き続き明示取得の対象で、FREDの完全応答比較をUMichへ広げない。新規実受領は従来のnative JSONと実時刻をstageに保存し、同値・訂正・遅着はfresh正本と比較する。L1原本とL2再生成入力は削らない。
+
+本文を持たないinputは`umich-acquisition-input-v1`/`planning_key`で区別する。旧readerはSQLite取得前に拒否するため、取得・input発行・手動CLIを新readerへ揃え、実行中/待機中の旧writerをdrainしてから次の通常経済統合で発行する。新readerは固定済み旧inputも読める。旧input/未統合stageは保持し、再発行のための全期間再取得・schema変換・旧cutover command再利用はしない。GET回数は減らず、日集合とrun履歴は増え続ける。既存staging namespaceの保持条件を変えた意味ではなく、本文転送/複写の削減とretentionは分けて扱う（refs #1820）。
+
 ### FRED確認stateと経済schema 12→13の切替
 
 FREDの同値応答は本文を追加せず、実際の確認時刻と採用した変更受領への参照を更新する。値の変更時刻と鮮度を混同しない。全CSVに含まれる期間と過去にnative行が存在した期間だけを比較し、旧schemaの人工空日をproviderが明示した欠測へ昇格させない。headerだけの全履歴応答や短い行は取得失敗として既存内容を保つ。完全応答の実受領時刻と、返却period・native本文hashの集合をsource単位の確認stateへ同時に記録する。本文は既存period原本を参照し、同値応答の全履歴を複製しない。scoped handoffにも全anchorを含め、fresh正本にだけある実在periodの消失とsource全体の遅着を判定する。旧runや人工空日から完全集合を推測しない。明示回復ではfresh正本を実再取得の比較基点とし、local本文の保全unionを取得後に行う。同じ実応答・同じ受領時計でlocalにだけある実在periodの不在を補い、GET・run・countを増やさない。

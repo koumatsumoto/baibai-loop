@@ -18,6 +18,8 @@ from baibai_engine.data_collection.catalog import load_sources as load_economic_
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
+from baibai_engine.data_collection.receipts.native_sources.umich_input import SOURCE as UMICH_SOURCE
+from baibai_engine.data_collection.receipts.native_sources.umich_input import export_umich_input
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -134,7 +136,17 @@ def _publish_one(
     with tempfile.TemporaryDirectory(prefix="baibai-source-input-") as temporary:
         directory = Path(temporary)
         path = directory / "receipts.sqlite"
-        if group.startswith("economic-"):
+        report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
+        if group == "economic-umich_sca":
+            members = {
+                source.source_id
+                for source in load_economic_sources().values()
+                if economic_source_policy(source).acquisition_group == "umich_sca"
+            }
+            if members != {UMICH_SOURCE}:
+                raise ValueError("UMich planning input requires its single CSV source")
+            export_umich_input(economic, path)
+        elif group.startswith("economic-"):
             export_economic_receipts(
                 economic,
                 path,
@@ -146,7 +158,6 @@ def _publish_one(
                 ),
                 since=datetime.min.replace(tzinfo=UTC),
             )
-            report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
         else:
             report = export_market_source_input(market, path, group=group, asof=asof)
         report["canonical_generations"] = generations

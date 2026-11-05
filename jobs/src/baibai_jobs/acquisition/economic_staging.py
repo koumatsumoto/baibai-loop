@@ -8,12 +8,15 @@ import json
 import re
 from pathlib import Path
 
+from baibai_engine.data_collection.receipts.native_sources.umich_input import validate_umich_input
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
 from baibai_jobs.acquisition.dependencies import save_dependencies
 from baibai_jobs.acquisition.external_assessments.staging import put_private, read_private
+
+_UMICH_INPUT_FORMAT = "umich-acquisition-input-v1"
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
@@ -37,6 +40,10 @@ def save_handoff(
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
+    umich_input = namespace == "source-inputs" and input_group == "economic-umich_sca"
+    receipt_field = "planning_key" if umich_input else "receipt_key"
+    if umich_input:
+        validate_umich_input(path)
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -47,7 +54,7 @@ def save_handoff(
     if reusable_receipt is not None and reusable_receipt.get("receipt_sha256") == digest:
         if namespace != "source-inputs" or input_group is None:
             raise ValueError("receipt reuse is limited to scoped source inputs")
-        reusable_receipt_key = reusable_receipt.get("receipt_key")
+        reusable_receipt_key = reusable_receipt.get(receipt_field)
         pattern = (
             rf"coordination/source-inputs/{re.escape(input_group)}-"
             rf"[A-Za-z0-9_-]+/receipts-{digest}\.sqlite"
@@ -79,10 +86,13 @@ def save_handoff(
         raise LakePublishError("source private receipt write mismatch")
     value: dict[str, object] = {
         "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
-        "receipt_key": key,
+        receipt_field: key,
         "receipt_sha256": digest,
         "receipt_bytes": size,
     }
+    if umich_input:
+        # A legacy reader must not silently broaden recovery when bodies vanish.
+        value["receipt_format"] = _UMICH_INPUT_FORMAT
     if market:
         value["dependencies"] = save_dependencies(store, prefix, directory)
     manifest = json.dumps(value, sort_keys=True).encode()
@@ -109,6 +119,17 @@ def load_handoff(
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
+    umich_input = (
+        isinstance(manifest, dict) and manifest.get("receipt_format") == _UMICH_INPUT_FORMAT
+    )
+    if umich_input:
+        if (
+            namespace != "source-inputs"
+            or input_group != "economic-umich_sca"
+            or "receipt_key" in manifest
+        ):
+            raise ValueError("UMich planning input is not a source receipt handoff")
+        manifest["receipt_key"] = manifest.get("planning_key")
     if (
         not isinstance(manifest, dict)
         or not isinstance(manifest.get("receipt_sha256"), str)
@@ -140,5 +161,7 @@ def load_handoff(
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
         raise LakePublishError("source handoff receipt content differs")
+    if umich_input:
+        validate_umich_input(path)
     path.chmod(0o600)
     (directory / "result.json").write_text(json.dumps(manifest["result"]), encoding="utf-8")
