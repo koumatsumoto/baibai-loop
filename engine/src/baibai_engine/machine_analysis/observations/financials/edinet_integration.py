@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from collections import Counter
 from contextlib import closing
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.edinet.archives import archive_keys
+from baibai_engine.data_collection.providers.edinet.facts_scope import read_scope
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_observed_documents,
@@ -174,10 +174,13 @@ def _extract_saved_facts(
         "input_asof": available.isoformat() if available else None,
         "deferred_inputs": [],
     }
-    if "initialized" not in statuses:
+    with closing(connect_read_only(database)) as connection:
+        scope = read_scope(connection)
+    if scope.since is None:
         return result
-    since = json.loads(statuses["initialized"][1] or "{}").get("since")
-    selected = annual_documents(documents, retained=set(statuses), since=since)
+    selected = annual_documents(
+        documents, retained=set(scope.doc_ids), since=scope.since.isoformat()
+    )
     counts: Counter[str] = Counter(selected=len(selected))
     reasons: Counter[str] = Counter()
     missing = 0
@@ -198,10 +201,6 @@ def _extract_saved_facts(
         result.update(status="deferred_input", deferred_inputs=["no_selected_filings"])
     else:
         code = finish_edinet_facts(
-            asof=asof,
-            sqlite_path=database,
-            initialize=False,
-            tickers=(),
             counts=counts,
             reasons=reasons,
             stdout=sys.stdout,

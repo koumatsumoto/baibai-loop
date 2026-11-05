@@ -31,6 +31,11 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_jobs.acquisition.edinet_archives import metric_archive_candidates
+from baibai_jobs.acquisition.edinet_fact_plan import (
+    enable_fact_acquisition,
+    needs_archive,
+    prepare_fact_acquisition,
+)
 
 
 class EdinetMetricAcquisition(Protocol):
@@ -113,6 +118,30 @@ def refresh_edinet_facts_command(
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
+    selected = prepare_fact_acquisition(
+        sqlite_path, asof=asof, initialize=initialize, tickers=tickers
+    )
+    if selected is None:
+        print(
+            "EDINET research facts: skipped=not_initialized; run refresh-edinet-facts --initialize",
+            file=out,
+        )
+        return 0
+    failed: dict[str, str] = {}
+    rate_limited: str | None = None
+    for document in selected:
+        if not needs_archive(document, asof=asof):
+            continue
+        try:
+            acquisition.download_xbrl_zip(str(document["docID"]))
+        except (EdinetAcquisitionError, EDINETProviderError, ValueError, OSError) as exc:
+            doc_id = str(document["docID"])
+            failed[doc_id] = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, EdinetRateLimitError):
+                rate_limited = doc_id
+                break
+    if initialize and not tickers and selected and not failed:
+        enable_fact_acquisition(sqlite_path, asof=asof)
     inputs = prepare_edinet_facts(
         asof=asof, sqlite_path=sqlite_path, initialize=initialize, tickers=tickers, stdout=out
     )
@@ -122,22 +151,20 @@ def refresh_edinet_facts_command(
     reasons: Counter[str] = Counter()
     for document in inputs.documents:
         item = plan_fact_item(document, statuses=inputs.statuses, asof=asof)
-        if item.action == "extract":
-            try:
-                acquisition.download_xbrl_zip(item.doc_id)
-            except (EdinetAcquisitionError, EDINETProviderError, ValueError, OSError) as exc:
-                assert item.identity is not None
+        if item.doc_id in failed:
+            assert item.identity is not None
+            if item.action != "reused":
                 record_failure(
                     sqlite_path,
                     doc_id=item.doc_id,
                     disclosed_on=item.identity.disclosed_on,
-                    reason=f"{type(exc).__name__}: {exc}",
+                    reason=failed[item.doc_id],
                 )
-                counts["failed"] += 1
-                if isinstance(exc, EdinetRateLimitError):
-                    counts["rate_limited"] += 1
-                    break
-                continue
+            counts["failed"] += 1
+            if item.doc_id == rate_limited:
+                counts["rate_limited"] += 1
+                break
+            continue
         process_edinet_fact_item(
             item=item,
             reader=reader,
@@ -147,10 +174,6 @@ def refresh_edinet_facts_command(
             stdout=out,
         )
     return finish_edinet_facts(
-        asof=asof,
-        sqlite_path=sqlite_path,
-        initialize=initialize,
-        tickers=tickers,
         counts=counts,
         reasons=reasons,
         stdout=out,

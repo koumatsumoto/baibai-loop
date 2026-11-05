@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.facts_scope import merge_scope, read_scope
 from baibai_engine.storage.sqlite.merge import (
     MergeError,
     MergeReport,
@@ -54,7 +55,11 @@ LOCAL_METADATA_KEYS: Mapping[str, tuple[str, ...]] = {
 # release, so a row removed by a later derivation is not reinstated by store merge.
 
 TARGET_RETAINED_KEYS: Mapping[str, tuple[str, ...]] = LOCAL_METADATA_KEYS
-ALL_TABLES: Mapping[str, tuple[str, ...]] = {**FACT_KEYS, **TARGET_RETAINED_KEYS}
+ALL_TABLES: Mapping[str, tuple[str, ...]] = {
+    **FACT_KEYS,
+    **TARGET_RETAINED_KEYS,
+    "edinet_facts_scope": ("singleton",),
+}
 
 # When a store read the source, not what the source said. Two stores that read the same
 # range at different moments differ here by construction, so comparing fetch times
@@ -119,6 +124,18 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                 _require_no_overclaimed_coverage(connection)
                 _merge_short_sale_coverage(connection)
                 _merge_edinet_fact_coverage(connection)
+                scope_before = count(connection, "SELECT count(*) FROM main.edinet_facts_scope")
+                scope_source = count(connection, "SELECT count(*) FROM source.edinet_facts_scope")
+                merge_scope(connection, read_scope(connection, schema="source"))
+                scope_after = count(connection, "SELECT count(*) FROM main.edinet_facts_scope")
+                scope_merge = TableMerge(
+                    table="edinet_facts_scope",
+                    source_rows=scope_source,
+                    target_rows_before=scope_before,
+                    inserted=scope_after - scope_before,
+                    skipped=max(0, scope_source - (scope_after - scope_before)),
+                    target_rows_after=scope_after,
+                )
                 merge_fact_tables(
                     connection,
                     {"source_coverage": FACT_KEYS["source_coverage"]},
@@ -138,7 +155,7 @@ def merge_stores(source: Path, target: Path) -> MergeReport:
                     skipped=max(0, source_rows - (after - before)),
                     target_rows_after=after,
                 )
-                by_name = {item.table: item for item in (coverage, *retained)}
+                by_name = {item.table: item for item in (coverage, scope_merge, *retained)}
                 return MergeReport(tables=tuple(by_name[table] for table in ALL_TABLES))
             except BaseException:
                 connection.rollback()
@@ -257,18 +274,16 @@ def _merge_edinet_fact_coverage(connection: sqlite3.Connection) -> None:
     can fail on the same day. The source may be dehydrated, so its success/revision
     cannot prove which facts the target holds. Preserve target claims (including
     failures and newer extractor revisions); import missing IDs as retry work instead
-    of borrowing a success claim. The global initialization marker is transferable.
+    of borrowing a success claim. Acquisition scope is reconciled by its source owner.
     """
     connection.execute(
         "INSERT OR IGNORE INTO main.source_coverage "
         "(source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
         "record_count, status, error) "
         "SELECT source, coverage_key, coverage_start, coverage_end, fetched_at_utc, "
-        "CASE WHEN coverage_key = 'initialized' THEN record_count ELSE 0 END, "
-        "CASE WHEN coverage_key = 'initialized' THEN status ELSE 'failed' END, "
-        "CASE WHEN coverage_key = 'initialized' THEN error "
-        "ELSE 'imported_document_requires_recheck' END "
-        "FROM source.source_coverage WHERE source = 'edinet_research_facts'"
+        "0, 'failed', 'imported_document_requires_recheck' "
+        "FROM source.source_coverage WHERE source = 'edinet_research_facts' "
+        "AND coverage_key <> 'initialized'"
     )
 
 

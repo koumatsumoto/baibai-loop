@@ -2574,3 +2574,30 @@ def test_hydration_retains_fixed_metadata_for_offline_research(session, lake, tm
     )
     assert offline.manifest_sha256 == release.manifest_sha256
     assert offline.dataset_manifest_sha256 == release.dataset_manifest_sha256
+
+
+def test_edinet_acquisition_scope_survives_dehydrate_and_hydrate(session, lake, tmp_path):
+    from datetime import date
+
+    from baibai_engine.data_collection.providers.edinet.facts_scope import (
+        FactsScope,
+        merge_scope,
+        read_scope,
+    )
+
+    path = tmp_path / "market.sqlite"
+    shutil.copyfile(lake.sqlite_path, path)
+    requested = FactsScope(
+        date(2025, 1, 1), frozenset({"S100FAILED", "S100KEPT"}), frozenset({"a" * 64})
+    )
+    with sqlite3.connect(path) as connection:
+        merge_scope(connection, requested)
+    release = resolve_current_release(
+        _cache(lake).source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
+    )
+    dehydrate_market_store(path, release=release, catalog=LAKE_DATASETS)
+    with sqlite3.connect(path) as connection:
+        assert read_scope(connection) == requested
+    _hydrate(session, lake, path)
+    with sqlite3.connect(path) as connection:
+        assert read_scope(connection) == requested

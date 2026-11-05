@@ -871,7 +871,6 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
     from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
         extraction_status,
         record_failure,
-        record_initialized,
         store_facts,
     )
 
@@ -889,13 +888,25 @@ def test_edinet_document_coverage_partial_retry_and_revision_merge(tmp_path):
         identity=filing_identity("1873", "S100YJ24", "2026-07-22 10:00"),
         facts=facts("S100YJ24"),
     )
-    record_initialized(source, date(2026, 9, 18))
+    from baibai_engine.data_collection.providers.edinet.facts_scope import (
+        FactsScope,
+        merge_scope,
+        read_scope,
+    )
+
+    with closing(sqlite3.connect(source)) as connection, connection:
+        merge_scope(
+            connection, FactsScope(since=date(2026, 9, 18), doc_ids=frozenset({"S100YJ24"}))
+        )
     merge_stores(source, target)
     statuses = extraction_status(target)
     assert statuses["S100YR5P"][0] == "ok"
     assert statuses["S100FAIL"][0] == "failed"
     assert statuses["S100YJ24"] == ("failed", "imported_document_requires_recheck")
-    assert json.loads(statuses["initialized"][1]) == {"since": "2026-09-18"}
+    assert "initialized" not in statuses
+    with closing(sqlite3.connect(target)) as connection:
+        assert read_scope(connection).since == date(2026, 9, 18)
+        assert read_scope(connection).doc_ids == frozenset({"S100YJ24"})
     # Different extractor revisions retain the target claim attached to its facts.
     store_facts(
         source, identity=filing_identity("1873", "S100YR5P", "2026-07-22 10:00"), facts=facts()

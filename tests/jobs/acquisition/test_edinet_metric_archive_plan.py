@@ -10,6 +10,11 @@ import pytest
 from tests.helpers.edinet_csv_zip import _edinet_csv_zip
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.facts_scope import (
+    FactsScope,
+    merge_scope,
+    read_scope,
+)
 from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
@@ -243,6 +248,7 @@ def test_new_input_excludes_metric_l2_and_keeps_native_identity_and_facts_covera
                 coverage_end=str(ASOF),
                 record_count=1,
             )
+        merge_scope(connection, FactsScope(since=START, doc_ids=frozenset({"S100CURRENT"})))
         connection.commit()
     report = export_source_input(canonical, scoped, group="edinet-metrics", asof=ASOF)
     assert "edinet_metrics" not in report["rows"]
@@ -260,9 +266,13 @@ def test_new_input_excludes_metric_l2_and_keeps_native_identity_and_facts_covera
     facts = tmp_path / "facts.sqlite"
     export_source_input(canonical, facts, group="edinet-facts", asof=ASOF)
     with sqlite3.connect(facts) as connection:
-        assert connection.execute(
-            "SELECT coverage_key FROM source_coverage WHERE source='edinet_research_facts'"
-        ).fetchall() == [("initialized",)]
+        assert (
+            connection.execute(
+                "SELECT coverage_key FROM source_coverage WHERE source='edinet_research_facts'"
+            ).fetchall()
+            == []
+        )
+        assert read_scope(connection) == FactsScope(since=START, doc_ids=frozenset({"S100CURRENT"}))
 
 
 def test_old_parent_withdrawal_excludes_current_correction_without_losing_saved_zip(tmp_path):

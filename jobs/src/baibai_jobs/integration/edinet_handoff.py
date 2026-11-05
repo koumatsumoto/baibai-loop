@@ -7,6 +7,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.facts_scope import merge_scope, read_scope
 from baibai_engine.data_collection.receipts.merge import copy_originals
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_unrechecked_edinet_document_dates,
@@ -49,6 +50,7 @@ def export_handoff(
             raw, target, "edinet_list_responses", [(key,) for key in lists], selection="receipt_id"
         )
         copy_originals(raw, target, "edinet_source_archives", sorted(archives), selection="doc_id")
+        merge_scope(target, read_scope(raw))
     return {"list_receipts": lists, "archives": sorted(archives)}
 
 
@@ -65,6 +67,7 @@ def import_handoff(source: Path, target: Path) -> ReplayResult:
         }
         conflicts = []
         with conn:
+            merge_scope(conn, read_scope(raw))
             added = copy_originals(
                 raw, conn, "edinet_list_responses", lists, selection="receipt_id"
             )

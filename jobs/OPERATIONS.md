@@ -68,7 +68,7 @@ metricsのlookbackは取得coverageと抽出候補の範囲であり、archive�
 
 通常`edinet-metrics`のCSV取得計画は、保存一覧の540日前〜asof（両端込み）の充足、nativeの訂正/取消・ticker選択とarchiveのdocID/typeだけを使う。L2 metricの成功・失敗・revision・破損でGET対象を減らさず、選択文書の原ZIPが無ければ取得する。受領済みのtype5 ZIPは再取得しない。一覧不足/失敗・候補0は取得失敗として報告するが、取得plannerがL2 failure coverageを書き込むことはない。nativeでtickerを特定できる未解決eventは隔離する。originとtickerを失ったeventの関連企業をL2 baselineから推測せず、baselineだけに残る対応の隔離は既存のL2抽出ownerが維持する。原本を取得できたことをL2への採用成功と扱わない。
 
-取得inputからmetric本文/coverageを外すため、code更新後の次の通常input発行で小さい形へ置き換える。旧inputの余分なL2欄は読まず、既存schema・原本・受領時刻・stage形式を変換しない。未統合stageの原ZIPと一覧は従来通りresumeで保全する。明示`maintain-market refresh-edinet-metrics`も、要求lookbackの一覧を保存→同じsource-only計画でCSV原本を確保→L2計画/抽出の順にする。既定540日と明示lookbackは変えず、L2が再利用可能でも欠けた原ZIPは取得し、L2破損/抽出失敗や後続archive失敗でも先に保存した原ZIPを保つ。原本取得に失敗した場合はL2計画/抽出へ進まず失敗終了する。schema/stage移行は不要で、保持済みtype5 ZIPは既存の同一性で再利用する。一覧投影/coverageとmarket共通公開への依存、factsのinitialized/sinceによる取得範囲は残る（refs #1820）。後続で取得開始範囲のsource所有化、一覧原本からの計画、L1公開を分離する。今回の切替でfacts未初期化を迂回したり過去全件GETを増やしたりしない。
+取得inputからmetric本文/coverageを外すため、code更新後の次の通常input発行で小さい形へ置き換える。旧inputの余分なL2欄は読まず、既存schema・原本・受領時刻・stage形式を変換しない。未統合stageの原ZIPと一覧は従来通りresumeで保全する。明示`maintain-market refresh-edinet-metrics`も、要求lookbackの一覧を保存→同じsource-only計画でCSV原本を確保→L2計画/抽出の順にする。既定540日と明示lookbackは変えず、L2が再利用可能でも欠けた原ZIPは取得し、L2破損/抽出失敗や後続archive失敗でも先に保存した原ZIPを保つ。原本取得に失敗した場合はL2計画/抽出へ進まず失敗終了する。CSV取得計画の置換だけならschema/stage移行は不要で、保持済みtype5 ZIPは既存の同一性で再利用する。factsの取得範囲は後述のschema50でsource所有へ移し、その切替には全sourceのinputと未統合stageをschema50へ揃える。一覧投影/coverageとmarket共通公開への依存は残り、一覧原本からの計画とL1公開の分離は別段階とする（refs #1820）。今回の切替でfacts未初期化を迂回したり過去全件GETを増やしたりしない。
 
 一覧の不正再受領では既存のok日の投影・受領時計を保つ。未適格日の不正受領は、選択できた正常原典由来の証拠とfailed coverageを保存し、`edinet.documents`だけはpartialでも公開して正常な別sourceと原本保存を止めない。partial公開は日別取得の完了認定ではなく、厳密な日付読取はfailed日を拒否する。正常な別日の訂正・取下げは反映し、不正日は新しいhandoffがなくても失敗報告を続け、正常受領で回復するまで`source-check`は成功にしない。
 
@@ -235,34 +235,46 @@ uv run python -m baibai_jobs.integration.sources apply --asof <YYYY-MM-DD> \
 
 BOJ/MOFの保存済み文書からリンク発見をやり直す場合は、同じ[回復owner](src/baibai_jobs/maintenance/article_recovery.py)の`register-discovery`へexact stage/hashと`--receipt-id`を指定する。これは元原本を保持した別stageを作り、現在のplanningへCAS登録する書込である。HTTPは行わず、元受領時刻・既存未処理work・validator・slotを保つ。同じ要求はno-opとなり、登録後は通常取得が未処理のリンクを処理する。原本統合だけの`prepare`と取り違えない。
 
-### schema 48→49の限定cutover
+### EDINET factsの取得範囲（schema 50）
 
-通常daily/open_connectionは旧schemaを移行しない。通常`push-market`のremote/local current-schema検査も緩めない。writer（source/daily/materialize/運用CLI）を停止し、待機中runも確認して旧stageを有限drainする。旧codeでfresh machine bundleとETagをpullし、旧releaseからhydrateした48正本の作業copyを保全する。codeを49対応へ切り替え、同じpublication leaseで以下を実施する。旧source inputsは再使用せず、seal後に全groupを再発行してから取得を再開する。
+annual XBRLの取得範囲はsource所有の`edinet_facts_scope`が持つ。global開始日と保持docID集合、旧scopeの出所digestだけを保存し、L2 facts/revision/成功状態をGET計画へ使わない。通常取得とL2再生成は同じ範囲を読む。対象familyのIDはGET前に保持するため、取得失敗・現在のXBRL未提供・後続familyへの交代で消えない。実際のGET可否、訂正/取消・orphanの扱いは既存native一覧の選択規則に従い、type1 ZIPは既存identityで再利用する。stale input/stageはIDと出所をunionし、既存開始日を狭めない。
+
+global未初期化は開始日NULLで表し、通常annual取得を開始しない（独立したholder取得は従来通り）。新規有効化は明示`refresh-edinet-facts --initialize`が取得可能な対象原本を確保した時だけ行い、その後のL2失敗でも戻さない。途中GET失敗ではglobalを有効化せず、対象IDと既存ZIPを保ち、同じ明示refreshで再開する。`--ticker`限定はglobalを有効化せず他社の範囲も置換しない。offline`extract-edinet-facts --initialize`は保存入力の局所再計算であり、将来のGETを有効化しない。
+
+有限converterだけが旧`edinet_research_facts`の`initialized.since`と全docID key（failed/現在origin不在を含む）と保持type1原本のdocIDを一度読み、scopeの出所digestを付ける。L2値/revision/error本文はsource stateへ複写しない。旧initializedのsince欠落/型違い/不正日は推測で補わず変換を止める。未初期化・ticker限定由来の旧keyだけならglobal無効を維持する。canonical/stageとも原ZIP受領後にL2が中断したfamilyを保持するが、全一覧を対象集合にはしない。stageの旧initializedからglobalを有効化しない。旧table/原本bytes/時刻は別copyに完全保持し、旧coverageは通常取得で読まない。移行済みL2を消してもsource範囲は変わらず、L2だけを再生成できる。
+
+これは取得範囲の責務分離であり、EDINET L1公開独立化の完了ではない。scopeはprovider原本datasetではなくmarket SQLiteのoperational stateとしてhydrate/dehydrateで残り、source input/handoffと通常mergeが保持する。通常input発行はまだmarket正本・一覧投影/coverage・共通公開へ依存する。独立scope objectだけを先に増やしても一覧依存が残るため、一覧原本/ZIPと一緒に独立source storeへ移す段階を別件として残す（refs #1820）。
+
+### market schema 48/49→50の限定cutover
+
+通常daily/open_connectionは旧schemaを移行しない。通常`push-market`のremote/local current-schema検査も緩めない。writer（source/daily/materialize/運用CLI）を停止し、待機中runも確認して旧stageを有限drainする。旧codeでfresh machine bundleとETagをpullし、旧releaseからhydrateした48/49正本の作業copyを保全する。codeを50対応へ切り替え、同じpublication leaseで以下を実施する。旧source inputsは再使用せず、seal後に全groupを再発行してから取得を再開する。
 
 ```bash
-uv run baibai-jobs article-cutover prepare-copy \
-  --source <PRESERVED_HYDRATED_SCHEMA48_COPY> --output stores/market/market.sqlite \
+uv run baibai-jobs market-cutover prepare-copy \
+  --source <PRESERVED_HYDRATED_SCHEMA48_OR_49_COPY> --output stores/market/market.sqlite \
   --receipt <PRIVATE_CUTOVER_RECEIPT_JSON> --kind canonical
 # outputは不存在が条件。元copy・元ETag・receiptを反映完了まで保持する。
 uv run baibai-jobs model-integration --asof <YYYY-MM-DD> \
   --lease-handle "$PUBLICATION_LEASE_HANDLE" --notice-output <PRIVATE_NOTICE_JSON>
-jobs/scripts/r2_transfer.sh push-article-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
+jobs/scripts/r2_transfer.sh push-market-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
 ```
+
+48は既存記事48→49変換を中間copyへ行ってから49→50へ進み、49はscope変換だけを行う。旧`article-cutover`command/receiptは新形式へ黙って読み替えない。旧形式の部分公開は対応旧codeと元receiptで先に完了し、fresh copyから新cutoverを開始する。
 
 専用pushは元bundleの全ETag、lease、公開済み新origin、対応モデル世代を照合し、各keyの条件付きPUTと通常machine receiptを使う。PUT直前のupload候補digestをprivate cutover receiptに保存する。空DBの再取得置換ではなく、旧原本/coverage/operator-owned値を残したadditive変換である。
 push後のmarket `source-seal`/`source-inputs`は公開済み`machine-manifest.json`とmarket/runsのHEAD一致、固定lake releaseを確認する。経済のseal/inputは単独L1 ownerが読戻した経済ETagだけに結び付ける。pull時の`.r2-generations/*.etag`はCAS baseとcutover再開の根拠なので、push結果へ手で書き換えない。
 
-残存48 stageはimmutable原本を直接編集しない。`article-cutover prepare-copy --kind stage`で別pathへ変換し、stageのresult.jsonを同じ作業directoryへ保って`integration.source_handoff replay-copy --source <OLD_OWNER> --database <HYDRATED_SCHEMA49_COPY> --directory <CONVERTED_STAGE_DIRECTORY>`で旧ownerの限定再生を行う。変換済みcopyを原stage keyへ再uploadしない。切替中に旧writerが動いた場合も新旧stageを区別し、48作業copyの明示変換か旧owner再生で取り込む。取得時刻/receipt identityは変えず、再開前にpending一覧を照合する。旧source inputは現正本から全groupを再発行し、そのschemaを確認してから取得を再開する。
+残存48/49 stageはimmutable原本を直接編集しない。`market-cutover prepare-copy --kind stage`で別pathへ変換し、stageのresult.jsonを同じ作業directoryへ保って`integration.source_handoff replay-copy --source <OLD_OWNER> --database <HYDRATED_SCHEMA50_COPY> --directory <CONVERTED_STAGE_DIRECTORY>`で旧ownerの限定再生を行う。変換済みcopyを原stage keyへ再uploadしない。切替中に旧writerが動いた場合も新旧stageを区別し、48/49作業copyの明示変換か旧owner再生で取り込む。取得時刻/receipt identityは変えず、再開前にpending一覧を照合する。旧source inputは現正本から全groupを再発行し、そのschemaを確認してから取得を再開する。
 
 | 失敗地点 | 継続方法 |
 | --- | --- |
 | pointer前 | 旧公開を維持。元ETag・originと作業copyを再確認し、未公開処理だけをやり直す。 |
 | pointer後/store前 | 新releaseとlocal origin・モデル世代を照合。元ETagが一致する間に専用cutoverで対応store反映を完了。旧codeへ戻さない。 |
-| machine部分PUT/PUT応答不明 | 同じcutover receiptと成果を保全。`r2_transfer.sh resume-article-cutover <RECEIPT>`は現ETagを読み、変化したkeyを実downloadして記録済み候補digestと照合し、未到達keyだけCAS反映。候補不一致なら停止して新writerの差分を調査する。古いbundleを盲再送・machine receipt削除で代替しない。 |
+| machine部分PUT/PUT応答不明 | 同じcutover receiptと成果を保全。`r2_transfer.sh resume-market-cutover <RECEIPT>`は現ETagを読み、変化したkeyを実downloadして記録済み候補digestと照合し、未到達keyだけCAS反映。候補不一致なら停止して新writerの差分を調査する。古いbundleを盲再送・machine receipt削除で代替しない。 |
 | machine成功/seal失敗 | 既に保存した原本と公開releaseを読戻し、同じapplied.jsonからsealを完了する。再取得しない。 |
 | seal成功/input失敗 | 正本・公開世代を保ち、`integration.sources inputs --group <GROUP> --identity <NEW_EXECUTION_ID>`で対象groupのinputだけ再発行。取得再開は該当input発行後。 |
 
-新datasetはoptionalでも旧reader/catalogが拒否する。新公開後は49/catalogを保った前向き修正を基本とし、新モデルを止める場合も保持記事datasetを落とさない。通常pushと専用cutoverを混ぜず、実行済みの停止/drain/変換/公開/machine/seal/inputを個別に記録する。本実装に本番GC・削除・追加課金は含めない。
+新datasetはoptionalでも旧reader/catalogが拒否する。新公開後は50/catalogを保った前向き修正を基本とし、新モデルを止める場合も保持記事datasetを落とさない。通常pushと専用cutoverを混ぜず、実行済みの停止/drain/変換/公開/machine/seal/inputを個別に記録する。本実装に本番GC・削除・追加課金は含めない。
 
 ## ローカルからクラウドを更新する
 

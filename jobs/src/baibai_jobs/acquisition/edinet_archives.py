@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-import sys
 import time
 from contextlib import closing
 from datetime import date, timedelta
@@ -28,16 +27,11 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_selection im
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     is_usable_filing_status,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
-    plan_fact_item,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
-    prepare_edinet_facts,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
+from baibai_jobs.acquisition.edinet_fact_plan import needs_archive, prepare_fact_acquisition
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 # Spread the backfill across existing daily runs; the retained IDs are the queue.
@@ -125,20 +119,12 @@ def acquire_archives(
             return {"status": "failed", "failed": ["selection"]}
         documents = [(doc_id, 5) for doc_id in candidates]
     else:
-        inputs = prepare_edinet_facts(
-            asof=asof,
-            sqlite_path=database,
-            initialize=False,
-            tickers=(),
-            stdout=sys.stdout,
-        )
-        facts_initialized = inputs is not None
+        selected = prepare_fact_acquisition(database, asof=asof)
+        facts_initialized = selected is not None
         documents = [
-            (item.doc_id, 1)
-            for document in (() if inputs is None else inputs.documents)
-            if inputs is not None
-            and (item := plan_fact_item(document, statuses=inputs.statuses, asof=asof)).action
-            == "extract"
+            (str(document["docID"]), 1)
+            for document in (selected or [])
+            if needs_archive(document, asof=asof)
         ]
     holder_pending: list[str] = []
     holder_quarantined = 0

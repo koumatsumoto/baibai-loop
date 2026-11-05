@@ -108,7 +108,7 @@ def test_common_integration_preserves_exact_market_receipts_without_schema_migra
     assert len(entries) == 1
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     with closing(open_connection(market)) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 49
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 50
     with closing(initialize_database(economic)) as conn:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
     market_before = market.read_bytes()

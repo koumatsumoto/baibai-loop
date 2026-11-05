@@ -1,10 +1,11 @@
-"""One-time schema48 article working-copy migration and guarded machine cutover."""
+"""Finite schema48/49 working-copy conversion and guarded market cutover."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 from contextlib import closing
@@ -18,6 +19,9 @@ from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
 from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.sqlite.source_cache.article_upgrade import upgrade_article_working_copy
+from baibai_engine.storage.sqlite.source_cache.facts_scope_upgrade import (
+    upgrade_facts_scope_working_copy,
+)
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.lease import _load_handle, verify_held
@@ -40,18 +44,26 @@ def prepare_copy(
     source: Path, output: Path, receipt: Path, *, kind: str, generation_directory: Path
 ) -> None:
     if receipt.exists():
-        raise FileExistsError("article cutover receipt already exists")
+        raise FileExistsError("market cutover receipt already exists")
     if kind not in {"canonical", "stage"}:
-        raise ValueError("unsupported article migration copy kind")
+        raise ValueError("unsupported market migration copy kind")
     generations = pulled_generations(generation_directory) if kind == "canonical" else {}
     origin = read_lake_store_origin(source)
     if kind == "canonical" and origin is None:
-        raise ValueError("hydrate schema48 canonical before migrating its working copy")
-    upgrade_article_working_copy(source, output)
+        raise ValueError("hydrate the legacy canonical before migrating its working copy")
+    with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as legacy:
+        version = legacy.execute("PRAGMA user_version").fetchone()[0]
+    if version == 48:
+        with tempfile.TemporaryDirectory(prefix="market-cutover-chain-") as directory:
+            intermediate = Path(directory) / "schema49.sqlite"
+            upgrade_article_working_copy(source, intermediate)
+            upgrade_facts_scope_working_copy(intermediate, output, stage=kind == "stage")
+    else:
+        upgrade_facts_scope_working_copy(source, output, stage=kind == "stage")
     write_json_atomic(
         receipt,
         {
-            "format": "article-cutover-48-49-v1",
+            "format": "market-cutover-48-49-to-50-v1",
             "kind": kind,
             "source": str(source.resolve()),
             "output": str(output.resolve()),
@@ -74,7 +86,7 @@ def verify_cutover(
     """Keep the ordinary current/current merge strict; bind this one-time exception."""
     value = json.loads(receipt.read_text())
     if (
-        value["format"] != "article-cutover-48-49-v1"
+        value["format"] != "market-cutover-48-49-to-50-v1"
         or value["kind"] != "canonical"
         or value["output"] != str(market.resolve())
     ):
@@ -96,7 +108,7 @@ def verify_cutover(
             raise ValueError("cutover remote bundle changed; inspect partial PUT before recovery")
         # A timed-out PUT is uncertain until the actual current object is read.
         # Metadata/ETag alone cannot identify bytes uploaded by the shell transfer.
-        with tempfile.TemporaryDirectory(prefix="article-cutover-readback-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="market-cutover-readback-") as temporary:
             path = Path(temporary) / key
             store.download_file(key, path, expect_bytes=remote.size)
             after = store.head(key)
@@ -195,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                 else json.dumps(report, sort_keys=True)
             )
     except Exception as error:
-        print(f"article cutover failed: {type(error).__name__}", file=sys.stderr)
+        print(f"market cutover failed: {type(error).__name__}", file=sys.stderr)
         return 1
     return 0
 

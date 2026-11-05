@@ -20,13 +20,13 @@ def test_archive_deadline_exports_successful_keys_and_stages_failed_acquisition(
     )
     monkeypatch.setattr(
         edinet_archives,
-        "prepare_edinet_facts",
-        lambda **_: SimpleNamespace(documents=documents, statuses={}),
+        "prepare_fact_acquisition",
+        lambda *_, **__: [{"docID": doc.doc_id} for doc in documents],
     )
     monkeypatch.setattr(
         edinet_archives,
-        "plan_fact_item",
-        lambda document, **_: SimpleNamespace(doc_id=document.doc_id, action="extract"),
+        "needs_archive",
+        lambda document, **_: True,
     )
     retained = set()
     calls = []

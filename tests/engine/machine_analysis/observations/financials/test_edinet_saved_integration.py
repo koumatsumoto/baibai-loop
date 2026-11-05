@@ -11,9 +11,7 @@ from tests.helpers.edinet_research_sources import source_zip
 from tests.helpers.edinet_saved_inputs import BASE, TARGET, _next_listing, _seed
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
-    record_initialized,
-)
+from baibai_engine.data_collection.providers.edinet.facts_scope import FactsScope, merge_scope
 from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
     extract_saved_edinet,
 )
@@ -108,7 +106,8 @@ def test_present_but_invalid_csv_remains_extraction_failure(tmp_path):
 def test_facts_extract_known_ready_document_despite_failed_later_list(tmp_path):
     path = tmp_path / "market.sqlite"
     documents = _seed(path)
-    record_initialized(path, BASE)
+    with closing(open_connection(path)) as connection, connection:
+        merge_scope(connection, FactsScope(since=BASE))
     with closing(open_connection(path)) as conn:
         retain_source_archive(conn, str(documents[0]["docID"]), 1, source_zip(), stored_on=BASE)
     result = extract_saved_edinet(path, asof=TARGET, lookback_days=0)

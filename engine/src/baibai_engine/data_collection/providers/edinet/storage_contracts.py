@@ -20,3 +20,13 @@ CREATE TABLE IF NOT EXISTS edinet_list_responses(
 CREATE INDEX IF NOT EXISTS idx_edinet_list_responses_date_received
   ON edinet_list_responses(doc_date, received_at_utc);
 """
+
+# Operational request scope; not a provider response or an L2 success ledger.
+EDINET_FACTS_SCOPE_DDL = """CREATE TABLE IF NOT EXISTS edinet_facts_scope(
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  enabled_since TEXT,
+  doc_ids_json TEXT NOT NULL,
+  legacy_origins_json TEXT NOT NULL
+);
+
+"""

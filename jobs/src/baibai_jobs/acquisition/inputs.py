@@ -25,7 +25,7 @@ _LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
     "edinet-list": _LISTS,
     "edinet-metrics": _LISTS,
-    "edinet-facts": _LISTS,
+    "edinet-facts": (*_LISTS, "edinet_facts_scope"),
     "jpx-earnings": (),
     "jpx-regulations": (),
     "tradingview": (
@@ -82,12 +82,11 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             if table
             not in {
                 "edinet_list_responses",
+                "edinet_facts_scope",
                 "tradingview_forecast_snapshots",
                 "tradingview_source_receipts",
             }
         )
-        if group == "edinet-facts":
-            coverage += ("edinet_research_facts",)
         for name in coverage:
             rows = raw.execute(
                 "SELECT * FROM source_coverage WHERE source = ? "

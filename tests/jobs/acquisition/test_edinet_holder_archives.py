@@ -43,7 +43,7 @@ def test_candidate_plan_keeps_all_issuers_and_skips_only_retained_or_unavailable
 def test_holder_access_denial_stops_without_repeating_or_affecting_old_receipts(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(subject, "prepare_edinet_facts", lambda **_: None)
+    monkeypatch.setattr(subject, "prepare_fact_acquisition", lambda *_, **__: None)
     monkeypatch.setattr(
         subject, "holder_archive_candidates", lambda *_args, **_kw: (["S100FIRST", "S100NEXT"], 0)
     )
@@ -75,17 +75,15 @@ def test_holder_access_denial_stops_without_repeating_or_affecting_old_receipts(
 
 
 def test_holder_planning_failure_does_not_prevent_independent_annual_capture(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-
     monkeypatch.setattr(
         subject,
-        "prepare_edinet_facts",
-        lambda **_: SimpleNamespace(documents=[SimpleNamespace(doc_id="S100ANNUAL")], statuses={}),
+        "prepare_fact_acquisition",
+        lambda *_, **__: [{"docID": "S100ANNUAL"}],
     )
     monkeypatch.setattr(
         subject,
-        "plan_fact_item",
-        lambda document, **_: SimpleNamespace(doc_id=document.doc_id, action="extract"),
+        "needs_archive",
+        lambda document, **_: True,
     )
 
     def fail(*_args, **_kwargs):
@@ -119,7 +117,7 @@ def test_holder_planning_failure_does_not_prevent_independent_annual_capture(tmp
 
 
 def test_holder_batch_is_bounded_and_unprocessed_originals_remain_pending(tmp_path, monkeypatch):
-    monkeypatch.setattr(subject, "prepare_edinet_facts", lambda **_: None)
+    monkeypatch.setattr(subject, "prepare_fact_acquisition", lambda *_, **__: None)
     docs = [f"S100{n:04d}" for n in range(102)]
     monkeypatch.setattr(subject, "holder_archive_candidates", lambda *_args, **_kw: (docs, 0))
     calls = []

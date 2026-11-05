@@ -45,7 +45,8 @@ def extraction_status(path: Path) -> dict[str, tuple[str, str | None]]:
         return {
             str(doc): (str(status), str(error) if error else None)
             for doc, status, error in connection.execute(
-                "SELECT coverage_key, status, error FROM source_coverage WHERE source = ?",
+                "SELECT coverage_key, status, error FROM source_coverage WHERE source = ? "
+                "AND coverage_key <> 'initialized'",
                 (COVERAGE_SOURCE,),
             )
         }
@@ -96,24 +97,6 @@ def record_failure(path: Path, *, doc_id: str, disclosed_on: str, reason: str) -
                 record_count=0,
                 status="failed",
                 error=reason,
-            )
-    finally:
-        connection.close()
-
-
-def record_initialized(path: Path, asof: date) -> None:
-    connection = open_connection(path)
-    try:
-        with connection:
-            record_source_coverage(
-                connection,
-                source=COVERAGE_SOURCE,
-                coverage_key="initialized",
-                coverage_start=asof.isoformat(),
-                coverage_end=asof.isoformat(),
-                record_count=0,
-                status="ok",
-                error=json.dumps({"since": asof.isoformat()}),
             )
     finally:
         connection.close()
