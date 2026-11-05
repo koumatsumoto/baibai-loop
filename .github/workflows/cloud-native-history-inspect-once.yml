@@ -1,0 +1,683 @@
+name: cloud-native-history-inspect-once
+
+# Authorized metadata diagnosis after the fixed migration has terminated.
+on:
+  push:
+    branches: [codex/issue1820-native-history-inspect-once]
+    paths: [.github/workflows/cloud-native-history-inspect-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-native-history-inspect-once' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: classify native history guard 42091891439 once' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the exact reviewed code base
+        env:
+          EXPECTED_CODE_SHA: 20f0ecb5d18c45de558c37359b568f0a14174917
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Read fixed publication evidence and current metadata only
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python - <<'PY'
+          """停止した初回native公開のmetadata診断。原本/DB本文と書込は禁止する。"""
+          
+          from __future__ import annotations
+          
+          import ast
+          import contextlib
+          import hashlib
+          import json
+          import re
+          from dataclasses import dataclass
+          from datetime import UTC, datetime, timedelta
+          from pathlib import Path, PurePosixPath
+          
+          BUCKET = "baibai-stores"
+          RUN = "42091891439"
+          PREFIX = "coordination/cutovers/native-publication/" + RUN + "/"
+          CHECKPOINTS = PREFIX + "checkpoints/"
+          POINTER = "lake/pointers/market/current.json"
+          MANIFEST = "machine-manifest.json"
+          LEASE = "coordination/publication-lease.json"
+          CANONICAL = ("market.sqlite", "runs.sqlite", "indicators.sqlite")
+          HEADS = (
+              "l1/jquants/market-calendar/v1/head.json",
+              "l1/jquants/financial-summaries/v1/head.json",
+              "l1/jquants/master/v1/head.json",
+              "l1/jquants/daily-bars/v1/head.json",
+              "l1/edinet/lists/v1/head.json",
+          )
+          TRACKED = (*CANONICAL, MANIFEST, POINTER, *HEADS)
+          PHASES = {
+              "preserve_originals",
+              "before_lake_publication",
+              "before_pointer_put",
+              "lake_published",
+              "before_machine_put",
+              "before_manifest_put",
+              "completed",
+              *(
+                  "failed_" + name
+                  for name in (
+                      "pin_base",
+                      "preserve_originals",
+                      "hydrate",
+                      "materialize_edinet",
+                      "generate_and_publish",
+                      "freeze_uploads",
+                      "publish_machine",
+                      "cold_readback",
+                      "reissue_inputs",
+                      "retire_old_stages",
+                  )
+              ),
+          }
+          BUDGET_KEYS = {
+              "inspection_completed",
+              "price_native_lineage",
+              "object_budget_proven_within_limit",
+              "object_budget_proven_exceeded",
+              "exact_date_count_needed",
+              "object_upper_uses_less_than_three_quarters",
+              "current_manifest_within_limit",
+              "current_manifest_uses_less_than_one_quarter",
+              "post_split_manifest_bytes_measured",
+              "parquet_or_sqlite_read",
+              "remote_writes_performed",
+          }
+          SMALL_LIMIT = 64 * 1024
+          INDEX_LIMIT = 1024 * 1024
+          STATE_LIMIT = 2 * 1024 * 1024
+          ERROR_LIMIT = 256 * 1024
+          TOTAL_LIMIT = 8 * 1024 * 1024
+          ONEOFF_FUNCTIONS = {
+              "<module>",
+              "<lambda>",
+              "<genexpr>",
+              "<dictcomp>",
+              "<listcomp>",
+              "main",
+              "execute",
+              "generate",
+              "before_publication",
+              "before_pointer",
+              "base_guard",
+              "guard",
+              "cold_readback",
+              "reissue_inputs",
+              "verify_model_inputs",
+              "source_asof",
+              "freeze",
+              "hydrate",
+              "snapshot_action",
+              "project_edinet",
+              "retire_old_stages",
+              "before_put",
+              "pin_old_stages",
+              "sqlite_header_schema",
+              "inspect_budget",
+              "assess_manifests",
+              "schema",
+              "__init__",
+              "preserve",
+              "save",
+              "head",
+              "get_bytes",
+              "download_file",
+              "put_file",
+              "emit",
+              "checkpointed",
+          }
+          DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+          
+          
+          class DiagnosisError(Exception):
+              def __init__(self, code):
+                  self.code = code
+                  super().__init__(code)
+          
+          
+          def require(value, code="invalid"):
+              if not value:
+                  raise DiagnosisError(code)
+          
+          
+          def is_digest(value):
+              return isinstance(value, str) and DIGEST.fullmatch(value) is not None
+          
+          
+          @dataclass(frozen=True)
+          class Head:
+              etag: str
+              size: int
+              sha: str | None
+          
+          
+          class Metadata:
+              """固定prefixの1 LISTと、許可した小JSONのIfMatch GET、HEADだけ。"""
+          
+              def __init__(self, client):
+                  self.client = client
+                  self.readable = {POINTER, MANIFEST, LEASE}
+                  self.headable = {*TRACKED, LEASE}
+                  self.seen = {}
+                  self.unstable = False
+                  self.total = 0
+                  self.listed = False
+          
+              def call(self, method, **kwargs):
+                  if method == "head_object":
+                      require(kwargs.get("Key") in self.headable, "out_of_scope")
+                  elif method == "get_object":
+                      require(
+                          kwargs.get("Key") in self.readable and "IfMatch" in kwargs,
+                          "out_of_scope",
+                      )
+                  elif method == "list_objects_v2":
+                      require(
+                          not self.listed and kwargs == {"Prefix": CHECKPOINTS, "MaxKeys": 64},
+                          "out_of_scope",
+                      )
+                      self.listed = True
+                  else:
+                      raise DiagnosisError("out_of_scope")
+                  try:
+                      return getattr(self.client, method)(Bucket=BUCKET, **kwargs)
+                  except Exception as exc:
+                      code = getattr(exc, "response", {}).get("Error", {}).get("Code")
+                      if method == "head_object" and code in {"404", "NoSuchKey", "NotFound"}:
+                          return None
+                      raise DiagnosisError("unavailable") from None
+          
+              def head(self, key):
+                  value = self.call("head_object", Key=key)
+                  result = None
+                  if value is not None:
+                      size, etag = value.get("ContentLength"), value.get("ETag")
+                      require(type(size) is int and size >= 0)
+                      require(isinstance(etag, str) and bool(etag.strip('"')))
+                      result = Head(
+                          etag.strip('"'), size, value.get("Metadata", {}).get("sha256")
+                      )
+                  if key in self.seen and self.seen[key] != result:
+                      self.unstable = True
+                  self.seen.setdefault(key, result)
+                  return result
+          
+              def read(self, key, *, limit=SMALL_LIMIT, expected=None, raw=False):
+                  require(key in self.readable, "out_of_scope")
+                  before = self.head(key)
+                  require(before is not None, "missing")
+                  require(
+                      before.size <= limit and self.total + before.size <= TOTAL_LIMIT,
+                      "limit_exceeded",
+                  )
+                  self.total += before.size
+                  response = self.call("get_object", Key=key, IfMatch=before.etag)
+                  with contextlib.closing(response["Body"]) as body:
+                      payload = body.read(before.size + 1)
+                  require(len(payload) == before.size and self.head(key) == before, "changed")
+                  digest = hashlib.sha256(payload).hexdigest()
+                  require(expected is None or digest == expected, "digest_mismatch")
+                  if raw:
+                      return payload, digest
+                  try:
+                      value = json.loads(payload)
+                  except (ValueError, UnicodeDecodeError):
+                      raise DiagnosisError("invalid") from None
+                  require(isinstance(value, dict))
+                  return value, digest
+          
+              def latest_index(self):
+                  page = self.call("list_objects_v2", Prefix=CHECKPOINTS, MaxKeys=64)
+                  require(not page.get("IsTruncated"), "listing_truncated")
+                  entries = page.get("Contents", [])
+                  require(isinstance(entries, list) and len(entries) <= 64)
+                  require(entries, "missing")
+                  selected = {}
+                  for entry in entries:
+                      require(isinstance(entry, dict))
+                      key, size = entry.get("Key"), entry.get("Size")
+                      match = (
+                          re.fullmatch(
+                              re.escape(CHECKPOINTS) + r"([0-9]{4})-([0-9a-f]{64})\.json", key
+                          )
+                          if isinstance(key, str)
+                          else None
+                      )
+                      require(match is not None, "out_of_scope")
+                      require(type(size) is int and 0 <= size <= INDEX_LIMIT, "limit_exceeded")
+                      sequence, digest = match.groups()
+                      require(sequence not in selected, "evidence_conflict")
+                      selected[sequence] = (key, digest)
+                  key, digest = selected[max(selected)]
+                  self.headable.add(key)
+                  self.readable.add(key)
+                  index, _ = self.read(key, limit=INDEX_LIMIT, expected=digest)
+                  require(index.get("format") == "native-publication-private-checkpoint-v1")
+                  require(index.get("phase") in PHASES)
+                  files = index.get("files")
+                  require(isinstance(files, dict) and 0 < len(files) <= 128)
+                  for path, ref in files.items():
+                      require(isinstance(path, str) and PurePosixPath(path).is_absolute())
+                      require(isinstance(ref, dict) and set(ref) == {"key", "sha256"})
+                      require(is_digest(ref["sha256"]))
+                      require(ref["key"] == PREFIX + "objects/" + ref["sha256"], "out_of_scope")
+                      self.headable.add(ref["key"])
+                  states = [p for p in files if PurePosixPath(p).name == "state.json"]
+                  require(len(states) == 1, "evidence_conflict")
+                  state_path = states[0]
+                  ref = files[state_path]
+                  self.readable.add(ref["key"])
+                  state, _ = self.read(ref["key"], expected=ref["sha256"], limit=STATE_LIMIT)
+                  return index, state, str(PurePosixPath(state_path).parent)
+          
+              def stable(self):
+                  try:
+                      for key in tuple(self.seen):
+                          self.head(key)
+                  except Exception:
+                      return False
+                  return not self.unstable
+          
+          
+          def pointer_identity(value):
+              from baibai_engine.storage.snapshots.release import LakeReleasePointer
+          
+              pointer = LakeReleasePointer.model_validate(value)
+              require(is_digest(pointer.manifest_sha256))
+              return pointer.release_id, pointer.manifest_sha256
+          
+          
+          def validate_state(state):
+              base = state.get("base")
+              require(isinstance(base, dict) and set(base) == set(TRACKED))
+              for value in base.values():
+                  require(isinstance(value, dict) and set(value) == {"etag", "sha256"})
+                  require(
+                      isinstance(value["etag"], str)
+                      and bool(value["etag"])
+                      and is_digest(value["sha256"])
+                  )
+              pointer_identity(state.get("base_pointer"))
+              if "target" in state:
+                  target = state["target"]
+                  require(
+                      isinstance(target, dict)
+                      and set(target) == {"release_id", "manifest_sha256"}
+                  )
+                  require(
+                      isinstance(target["release_id"], str)
+                      and bool(target["release_id"])
+                      and is_digest(target["manifest_sha256"])
+                  )
+              if "candidates" in state:
+                  candidates = state["candidates"]
+                  require(
+                      isinstance(candidates, dict)
+                      and set(candidates) == {"market.sqlite", "runs.sqlite"}
+                  )
+                  for item in candidates.values():
+                      require(isinstance(item, dict) and set(item) == {"path", "sha256"})
+                      require(isinstance(item["path"], str) and is_digest(item["sha256"]))
+              if "price_budget" in state:
+                  value = state["price_budget"]
+                  require(isinstance(value, dict) and set(value) == BUDGET_KEYS)
+                  require(all(type(item) is bool for item in value.values()))
+          
+          
+          def retained(meta, files, path, expected):
+              ref = files.get(path)
+              if ref is None:
+                  return False
+              require(ref["sha256"] == expected, "evidence_conflict")
+              head = meta.head(ref["key"])
+              return head is not None and head.sha == expected
+          
+          
+          def publication_state(meta, index, state, root, initial):
+              validate_state(state)
+              base, files = state["base"], index["files"]
+              originals = []
+              # Match the actual publisher's tracked path order; these bodies remain HEAD-only.
+              for position, key in enumerate(TRACKED):
+                  path = (
+                      root + "/originals/" + (key if "/" not in key else f"fixed-{position}.json")
+                  )
+                  originals.append(retained(meta, files, path, base[key]["sha256"]))
+              result = {
+                  "status": "observed",
+                  "original_objects_metadata_retained": all(originals),
+                  "candidate_bytes_verified": False,
+                  "saved_candidates_present": "candidates" in state,
+                  "error_reference_present": any(
+                      PurePosixPath(p).name == "error-private.txt" for p in files
+                  ),
+                  "completion_record_present": "completed" in state,
+              }
+              pointer, pointer_sha = meta.read(POINTER)
+              live_identity = pointer_identity(pointer)
+              result["pointer_matches_base"] = live_identity == pointer_identity(
+                  state["base_pointer"]
+              )
+              result["pointer_bytes_match_base"] = pointer_sha == base[POINTER]["sha256"]
+              result["pointer_matches_target"] = "target" in state and live_identity == (
+                  state["target"]["release_id"],
+                  state["target"]["manifest_sha256"],
+              )
+              manifest, manifest_sha = meta.read(MANIFEST)
+              require(
+                  manifest.get("schema_version") == 1 and isinstance(manifest.get("keys"), dict)
+              )
+              require(set(manifest["keys"]) == {"market.sqlite", "runs.sqlite"})
+              require(all(isinstance(x, str) and x for x in manifest["keys"].values()))
+              result["manifest_matches_current_key_etags"] = all(
+                  initial[k] is not None and manifest["keys"][k] == initial[k].etag
+                  for k in manifest["keys"]
+              )
+              result["manifest_bytes_match_base"] = manifest_sha == base[MANIFEST]["sha256"]
+              manifest_ref = files.get(root + "/machine-manifest-candidate.json")
+              result["manifest_bytes_match_saved_candidate"] = bool(
+                  manifest_ref and manifest_sha == manifest_ref["sha256"]
+              )
+              result["manifest_candidate_metadata_retained"] = bool(
+                  manifest_ref
+                  and retained(
+                      meta,
+                      files,
+                      root + "/machine-manifest-candidate.json",
+                      manifest_ref["sha256"],
+                  )
+              )
+              candidates = state.get("candidates", {})
+              key_results = {}
+              for key in ("market.sqlite", "runs.sqlite"):
+                  head, candidate = initial.get(key), candidates.get(key)
+                  kept = False
+                  if candidate:
+                      require(candidate["path"] == root + "/uploads/" + key, "out_of_scope")
+                      kept = retained(meta, files, candidate["path"], candidate["sha256"])
+                  key_results[key.split(".")[0]] = {
+                      "present": head is not None,
+                      "matches_base_etag": head is not None and head.etag == base[key]["etag"],
+                      "saved_candidate_metadata_retained": kept,
+                      "matches_candidate_sha_metadata": bool(
+                          head and candidate and head.sha == candidate["sha256"]
+                      ),
+                  }
+              result["canonical"] = key_results
+              result["native_heads_match_base_etags"] = all(
+                  initial.get(k) is not None and initial[k].etag == base[k]["etag"] for k in HEADS
+              )
+              result["economic_matches_base_etag"] = (
+                  initial.get("indicators.sqlite") is not None
+                  and initial["indicators.sqlite"].etag == base["indicators.sqlite"]["etag"]
+              )
+              all_base = all(row["matches_base_etag"] for row in key_results.values())
+              all_candidate = all(
+                  row["matches_candidate_sha_metadata"] for row in key_results.values()
+              )
+              any_candidate = any(
+                  row["matches_candidate_sha_metadata"] for row in key_results.values()
+              )
+              if (
+                  result["pointer_matches_base"]
+                  and all_base
+                  and result["manifest_bytes_match_base"]
+              ):
+                  result["layout"] = "base_unchanged"
+              elif result["pointer_matches_target"]:
+                  if (
+                      all_candidate
+                      and result["manifest_matches_current_key_etags"]
+                      and result["manifest_bytes_match_saved_candidate"]
+                  ):
+                      result["layout"] = "target_bundle_metadata"
+                  elif all_base:
+                      result["layout"] = "pointer_ahead"
+                  elif all_candidate:
+                      result["layout"] = "machine_manifest_pending_or_unknown"
+                  elif any_candidate:
+                      result["layout"] = "machine_partial"
+                  else:
+                      result["layout"] = "changed_unclassified"
+              else:
+                  result["layout"] = "changed_unclassified"
+              if "price_budget" in state:
+                  result["price_budget"] = state["price_budget"]
+              return result
+          
+          
+          def lease_state(meta, now):
+              from baibai_jobs.publication.lease import _decode
+          
+              value, _ = meta.read(LEASE)
+              lease = _decode(json.dumps(value).encode())
+              return {
+                  "status": "observed",
+                  "held": lease.state == "held",
+                  "released": lease.state == "released",
+                  "expired": lease.expires_at_utc <= now,
+                  "owner_matches_run": lease.owner == "github:" + RUN + ":1",
+              }
+          
+          
+          def history_guard(text, frames):
+              """Private exception text yields only a fixed policy dataset identifier."""
+              from baibai_jobs.publication.policy import PRODUCTION_RELEASE_POLICY
+          
+              if not frames or frames[-1] != {
+                  "file": "engine/src/baibai_engine/storage/snapshots/models.py",
+                  "function": "validate_release_policy",
+                  "line": 656,
+              }:
+                  return {"status": "unclassified"}
+              lines = text.splitlines()
+              match = re.fullmatch(
+                  r"ValueError: ([a-z_]+\.[a-z_]+): coverage starts [0-9]{4}-[0-9]{2}-[0-9]{2}, "
+                  r"later than the [0-9]{4}-[0-9]{2}-[0-9]{2} "
+                  r"the serving release already covers; "
+                  r"restore the history in the store, or set carries_history=False "
+                  r"if this source "
+                  r"stopped accumulating",
+                  lines[-1] if lines else "",
+              )
+              if match is None:
+                  return {"status": "unclassified"}
+              dataset = match.group(1)
+              allowed = {item.dataset for item in PRODUCTION_RELEASE_POLICY.datasets}
+              if dataset not in allowed:
+                  return {"status": "unclassified"}
+              return {"status": "matched", "dataset": dataset}
+          
+          
+          def error_frames(meta, files):
+              names = [path for path in files if PurePosixPath(path).name == "error-private.txt"]
+              if not names:
+                  return {"status": "absent"}
+              require(len(names) == 1, "evidence_conflict")
+              ref = files[names[0]]
+              meta.readable.add(ref["key"])
+              payload, _ = meta.read(
+                  ref["key"], expected=ref["sha256"], limit=ERROR_LIMIT, raw=True
+              )
+              text = payload.decode("utf-8")
+              prefix = "/home/runner/work/baibai-loop/baibai-loop/"
+              frames = []
+              for path, number, function in re.findall(
+                  r'^\s*File "([^"\n]+)", line ([0-9]+), in ([A-Za-z0-9_<>.]+)\s*$',
+                  text,
+                  re.MULTILINE,
+              ):
+                  line = int(number)
+                  if path == "<stdin>" and function in ONEOFF_FUNCTIONS and 0 < line <= 10000:
+                      frames.append({"file": "oneoff", "line": line, "function": function})
+                  elif path.startswith(prefix):
+                      relative = path[len(prefix) :]
+                      if (
+                          re.fullmatch(r"(?:engine|jobs)/src/[A-Za-z0-9_/]+\.py", relative)
+                          and ".." not in PurePosixPath(relative).parts
+                      ):
+                          local = Path(relative)
+                          if not local.is_file():
+                              continue
+                          source = local.read_bytes()
+                          names = {
+                              node.name
+                              for node in ast.walk(ast.parse(source))
+                              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                          }
+                          names.update(
+                              {
+                                  "<module>",
+                                  "<lambda>",
+                                  "<genexpr>",
+                                  "<listcomp>",
+                                  "<dictcomp>",
+                                  "<setcomp>",
+                              }
+                          )
+                          if function in names and 0 < line <= len(source.splitlines()):
+                              frames.append(
+                                  {"file": relative, "line": line, "function": function}
+                              )
+              require(len(frames) <= 64, "limit_exceeded")
+              return {
+                  "status": "observed",
+                  "traceback_hash_verified": True,
+                  "code_frames": frames,
+                  "history_guard": history_guard(text, frames),
+              }
+          
+          
+          def inspect(client, *, now=None):
+              moment = now or datetime.now(UTC)
+              require(moment.utcoffset() == timedelta(0))
+              meta = Metadata(client)
+              report = {
+                  "read_only": True,
+                  "metadata_only": True,
+                  "publication_verified": False,
+                  "raw_bytes_verified": False,
+                  "cold_hydration_verified": False,
+                  "phase": "metadata_diagnosis",
+                  "last_saved_phase": "unknown",
+              }
+              initial, failed = {}, False
+              for key in (*TRACKED, LEASE):
+                  try:
+                      initial[key] = meta.head(key)
+                  except Exception:
+                      failed = True
+              index = state = root = None
+              try:
+                  index, state, root = meta.latest_index()
+                  validate_state(state)
+                  report["last_saved_phase"] = index["phase"]
+                  report["checkpoint"] = {
+                      "status": "observed",
+                      "index_and_state_hashes_verified": True,
+                  }
+              except DiagnosisError as exc:
+                  report["checkpoint"] = {"status": exc.code}
+                  state = None
+              except Exception:
+                  report["checkpoint"] = {"status": "invalid"}
+                  state = None
+              report["publication"] = {"status": "no_context"}
+              report["error"] = {"status": "no_context"}
+              if state is not None:
+                  for label, operation in (
+                      (
+                          "publication",
+                          lambda: publication_state(meta, index, state, root, initial),
+                      ),
+                      ("error", lambda: error_frames(meta, index["files"])),
+                  ):
+                      try:
+                          report[label] = operation()
+                      except DiagnosisError as exc:
+                          report[label] = {"status": exc.code}
+                      except Exception:
+                          report[label] = {"status": "invalid"}
+              try:
+                  report["lease"] = lease_state(meta, moment)
+              except DiagnosisError as exc:
+                  report["lease"] = {"status": exc.code}
+              except Exception:
+                  report["lease"] = {"status": "invalid"}
+              stable = meta.stable()
+              report["observations_stable"] = not failed and stable
+              report["diagnostic_completed"] = (
+                  report["observations_stable"]
+                  and all(
+                      report[k]["status"] == "observed"
+                      for k in ("checkpoint", "publication", "lease")
+                  )
+                  and report["error"]["status"] in {"observed", "absent"}
+              )
+              return report
+          
+          
+          def main():
+              import sys
+              import tempfile
+              from pathlib import Path
+          
+              from baibai_engine.storage.objects.r2 import Boto3R2Store
+          
+              public = sys.stdout
+              with tempfile.TemporaryDirectory(
+                  prefix="native-publication-metadata-"
+              ) as directory:
+                  try:
+                      with (
+                          (Path(directory) / "private.log").open("w") as private,
+                          contextlib.redirect_stdout(private),
+                          contextlib.redirect_stderr(private),
+                          contextlib.closing(Boto3R2Store(bucket=BUCKET)) as store,
+                      ):
+                          report = inspect(store._client())
+                  except Exception:
+                      report = {
+                          "read_only": True,
+                          "metadata_only": True,
+                          "publication_verified": False,
+                          "raw_bytes_verified": False,
+                          "cold_hydration_verified": False,
+                          "diagnostic_completed": False,
+                          "status": "unavailable",
+                      }
+              print(json.dumps(report, sort_keys=True), file=public, flush=True)
+              return 0 if report["diagnostic_completed"] else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY
