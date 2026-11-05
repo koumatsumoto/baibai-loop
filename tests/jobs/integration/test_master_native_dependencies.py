@@ -185,6 +185,50 @@ def test_unresolved_native_master_clears_only_exact_stale_preflight_projection(t
         assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 1
 
 
+def test_master_recovery_preflight_keeps_existing_tradingview_receipts(tmp_path):
+    from tests.jobs.acquisition.test_jquants_master_native import Client
+
+    from baibai_jobs.acquisition.tradingview.collector import preflight_snapshot
+    from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
+    from baibai_jobs.observability.tradingview import SourceDataError, TimeGuardError
+
+    store, owner, market, directory = context(tmp_path)
+    assert prepare_tradingview_master(
+        store, directory=directory, market=market, observation_date=DAY
+    )
+    receipt = retain_result(
+        market,
+        _sdk(payload(["TSE:1301"])),
+        day=DAY,
+        master=DAY,
+        received=NOW,
+        symbols=("TSE:1301",),
+    )
+    rebuild_from_receipts(market, DAY, [receipt])
+    owner.commit([attempt("failure", day=DAY, at=NOW + timedelta(minutes=1), partial=True)])
+    assert not prepare_tradingview_master(
+        store, directory=directory, market=market, observation_date=DAY
+    )
+    state = preflight_snapshot(market, DAY, now=NOW, master_unavailable=True)
+    assert state["needs_master"] is True
+    assert state["rows"] == 1
+    assert (
+        preflight_snapshot(market, DAY, now=AT - timedelta(hours=2), master_unavailable=True)[
+            "status"
+        ]
+        == "before_close"
+    )
+    with pytest.raises(TimeGuardError, match="current acquisition cycle"):
+        preflight_snapshot(market, DAY, now=NOW + timedelta(days=1), master_unavailable=True)
+    with pytest.raises(SourceDataError, match="calendar-required exact-date master"):
+        preflight_snapshot(market, DAY, now=NOW, master_asof=DAY, master_unavailable=True)
+    client = Client(records(DAY), AT + timedelta(hours=6))
+    assert prepare_tradingview_master(
+        store, directory=directory, market=market, observation_date=DAY, acquire=True, client=client
+    )
+    assert preflight_snapshot(market, DAY, now=NOW)["status"] == "already_saved"
+
+
 def test_old_mixed_stage_master_is_verified_but_does_not_block_other_source_projection(tmp_path):
     from tests.helpers.r2_store import MemoryR2Store
 

@@ -168,6 +168,10 @@ jobs:
                   MARKET_DB_PATH, date.fromisoformat(os.environ["TARGET_DATE"]),
                   master_asof=date.fromisoformat(basis) if basis else None,
                   now=datetime.now(UTC),
+                  master_unavailable=(
+                      os.environ.get("BAIBAI_MASTER_NATIVE") == "true"
+                      and not json.loads(Path(os.environ["RUNNER_TEMP"], "source-input", "result.json").read_text()).get("master_native_input")
+                  ),
               )
           except Exception as exc:
               print(failure_line(exc), file=sys.stderr)

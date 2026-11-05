@@ -114,6 +114,7 @@ def _snapshot_state(
     *,
     master_asof: date | None = None,
     now: datetime | None = None,
+    master_unavailable: bool = False,
 ) -> tuple[list[str] | None, dict[str, object]]:
     basis, business = calendar_context(conn, day)
     if master_asof is not None and master_asof != basis:
@@ -151,12 +152,12 @@ def _snapshot_state(
         ).fetchone()
         is not None
     )
-    if not has_master:
+    if not has_master or master_unavailable:
         if not business or master_asof is not None:
             raise SourceDataError(
                 "Observation requires a saved calendar-required exact-date master"
             )
-        if stored:
+        if stored and not master_unavailable:
             raise SourceDataError("Stored TradingView rows lack exact-date master")
         return None, {
             **context,
@@ -164,7 +165,7 @@ def _snapshot_state(
             "status": "needs_fetch",
             "snapshot_date": day.isoformat(),
             "needs_master": True,
-            "rows": 0,
+            "rows": len(stored),
         }
     symbols = universe(conn, basis)
     expected = {symbol.removeprefix("TSE:") for symbol in symbols}
@@ -208,7 +209,12 @@ def _snapshot_state(
 
 
 def preflight_snapshot(
-    path: Path, day: date, *, master_asof: date | None = None, now: datetime | None = None
+    path: Path,
+    day: date,
+    *,
+    master_asof: date | None = None,
+    now: datetime | None = None,
+    master_unavailable: bool = False,
 ) -> dict[str, object]:
     """Check exact-date completeness without creating or changing the market store."""
     try:
@@ -216,7 +222,9 @@ def preflight_snapshot(
         try:
             conn.execute("PRAGMA query_only = ON")
             validate_current_schema(conn)
-            _, result = _snapshot_state(conn, day, master_asof=master_asof, now=now)
+            _, result = _snapshot_state(
+                conn, day, master_asof=master_asof, now=now, master_unavailable=master_unavailable
+            )
             return result
         finally:
             conn.close()
