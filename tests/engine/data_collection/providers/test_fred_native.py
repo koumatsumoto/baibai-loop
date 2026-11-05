@@ -193,3 +193,71 @@ def test_short_csv_row_is_not_a_successful_period_deletion():
 
     with pytest.raises(IndicatorsProviderError, match="does not match"):
         parse_fred_csv(_source("fred_csv", "DGS10"), "observation_date,DGS10\n2026-05-01\n")
+
+
+def test_recent_full_series_is_not_replayed_through_cached_gap_recovery(tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from baibai_engine.data_collection.catalog import SourceDefinition
+    from baibai_engine.data_collection.transport.context import FetchContext
+
+    source = SourceDefinition(
+        "fred-test", "fred_csv", "https://example.test/full.csv", "daily", "TEST"
+    )
+    body = b"observation_date,TEST\n2026-01-01,1\n2026-10-31,2\n"
+
+    class Session(_StaticSession):
+        calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            return super().get(*args, **kwargs)
+
+        def close(self):
+            pass
+
+    session = Session(_FakeResponse(body))
+
+    class Context(FetchContext):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.session.close()
+            self.session = session
+
+    class Clock(datetime):
+        calls = 0
+
+        @classmethod
+        def now(cls, tz=None):
+            cls.calls += 1
+            return (datetime(2026, 11, 1, tzinfo=UTC) + timedelta(minutes=cls.calls)).astimezone(tz)
+
+    path = tmp_path / "source.sqlite"
+    with closing(db.initialize_database(path)) as connection, connection:
+        db.record_source_run(
+            connection,
+            source_id=source.source_id,
+            start=date(2026, 1, 1),
+            end=date(2026, 1, 14),
+            started_at=datetime(2026, 1, 14, tzinfo=UTC),
+            status="ok",
+            record_count=1,
+        )
+    monkeypatch.setattr(acquisition, "load_sources", lambda: {source.source_id: source})
+    monkeypatch.setattr(acquisition, "FetchContext", Context)
+    monkeypatch.setattr(acquisition, "datetime", Clock)
+    result = acquisition.refresh_sources(
+        [source.source_id], db_path=path, start=None, end=date(2026, 11, 1), recent=True
+    )[0]
+    assert isinstance(result, acquisition.SourceRefreshSuccess)
+    assert result.record_count == 2
+    assert session.calls == 1
+    stamp = datetime(2026, 11, 1, 0, 2, tzinfo=UTC).isoformat(timespec="microseconds")
+    with closing(db.open_read_only_connection(path)) as connection:
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT checked_at, adopted_fetched_at FROM economic_source_record_confirmations"
+            )
+        ] == [(stamp, stamp), (stamp, stamp)]
+        assert connection.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 2

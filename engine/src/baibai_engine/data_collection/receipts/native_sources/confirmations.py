@@ -7,12 +7,16 @@ state, not a new source payload or a claim of historical publication availabilit
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 
 from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_unchanged
-from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
+from baibai_engine.data_collection.receipts.native_sources.records import (
+    NativeRecords,
+    store_snapshot,
+)
 
 TABLE = "economic_source_record_confirmations"
 COLUMNS = ("source_id", "observed_at", "checked_at", "adopted_fetched_at", "content_sha256")
@@ -85,6 +89,8 @@ def save_confirmation(connection: sqlite3.Connection, row: tuple[str, ...]) -> N
     ).fetchone()
     if previous is not None:
         if row[2] < previous[2]:
+            if row[2] > previous[3] and row[4] != previous[4]:
+                raise ValueError("native confirmation requires fresh-canonical handoff acceptance")
             return
         if row[2] == previous[2] and tuple(row) != tuple(previous):
             raise ValueError("conflicting native confirmation at the same received time")
@@ -103,3 +109,100 @@ def save_confirmation(connection: sqlite3.Connection, row: tuple[str, ...]) -> N
         "adopted_fetched_at=excluded.adopted_fetched_at,content_sha256=excluded.content_sha256",
         row,
     )
+
+
+def collection_digest(connection: sqlite3.Connection, source_id: str, checked_at: str) -> str:
+    """Validate a complete native response using its self-contained period anchors."""
+    if connection.execute(
+        "SELECT observed_at FROM economic_source_records WHERE source_id=? AND record_count>0 "
+        "EXCEPT SELECT observed_at FROM economic_source_record_confirmations WHERE source_id=?",
+        (source_id, source_id),
+    ).fetchone():
+        raise ValueError("complete source confirmation is missing a known native period")
+    periods = []
+    for day, checked, adopted, digest in connection.execute(
+        "SELECT observed_at,checked_at,adopted_fetched_at,content_sha256 "
+        "FROM economic_source_record_confirmations WHERE source_id=? ORDER BY observed_at",
+        (source_id,),
+    ):
+        anchor = connection.execute(
+            "SELECT record_count,payload FROM economic_source_records "
+            "WHERE source_id=? AND observed_at=? AND fetched_at=?",
+            (source_id, day, adopted),
+        ).fetchone()
+        if (
+            checked != checked_at
+            or adopted > checked
+            or anchor is None
+            or hashlib.sha256(anchor[1]).hexdigest() != digest
+        ):
+            raise ValueError("complete source confirmation lost its period anchor")
+        if anchor[0] > 0:
+            periods.append((day, digest))
+    if not periods:
+        raise ValueError("complete FRED response has no native periods")
+    return hashlib.sha256(json.dumps(periods, separators=(",", ":")).encode()).hexdigest()
+
+
+def save_collection_confirmation(connection: sqlite3.Connection, row: tuple[str, ...]) -> None:
+    previous = connection.execute(
+        "SELECT * FROM economic_source_collection_confirmations WHERE source_id=?", row[:1]
+    ).fetchone()
+    if previous is not None:
+        if row[1] < previous[1]:
+            return
+        if row[1] == previous[1] and tuple(row) != tuple(previous):
+            raise ValueError("conflicting complete source confirmation at the same received time")
+    if collection_digest(connection, row[0], row[1]) != row[2]:
+        raise ValueError("complete source confirmation differs from its period set")
+    connection.execute(
+        "INSERT INTO economic_source_collection_confirmations VALUES (?,?,?) "
+        "ON CONFLICT(source_id) DO UPDATE SET checked_at=excluded.checked_at, "
+        "content_sha256=excluded.content_sha256",
+        row,
+    )
+
+
+def confirm_source_response(
+    connection: sqlite3.Connection,
+    *,
+    source_id: str,
+    fetched_at: datetime,
+    records_by_day: NativeRecords,
+) -> None:
+    """Confirm one actual complete FRED response, never a range/run reconstruction."""
+    if not records_by_day or any(not rows for rows in records_by_day.values()):
+        raise ValueError("complete FRED response requires its native nonempty periods")
+    periods = set(records_by_day) | {
+        date.fromisoformat(row[0])
+        for row in connection.execute(
+            "SELECT DISTINCT observed_at FROM economic_source_records "
+            "WHERE source_id=? AND record_count>0",
+            (source_id,),
+        )
+    }
+    for day in sorted(periods):
+        confirm_snapshot(
+            connection,
+            source_id=source_id,
+            observed_at=day,
+            fetched_at=fetched_at,
+            records=records_by_day.get(day, ()),
+        )
+    checked = fetched_at.astimezone(UTC).isoformat(timespec="microseconds")
+    save_collection_confirmation(
+        connection, (source_id, checked, collection_digest(connection, source_id, checked))
+    )
+
+
+def validate_collection_confirmations(connection: sqlite3.Connection) -> None:
+    if connection.execute(
+        "SELECT DISTINCT source_id FROM economic_source_record_confirmations "
+        "EXCEPT SELECT source_id FROM economic_source_collection_confirmations"
+    ).fetchone():
+        raise ValueError("period confirmation requires an explicit complete source recheck")
+    for source_id, checked, digest in connection.execute(
+        "SELECT * FROM economic_source_collection_confirmations"
+    ):
+        if collection_digest(connection, source_id, checked) != digest:
+            raise ValueError("complete source confirmation differs from its period set")

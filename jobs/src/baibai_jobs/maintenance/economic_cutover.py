@@ -17,6 +17,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.receipts.native_sources.confirmations import (
+    validate_collection_confirmations,
+)
 from baibai_engine.data_collection.receipts.native_sources.store import (
     RECEIPT_KEYS,
     validate_current_schema,
@@ -97,20 +100,7 @@ def verify_copy(base: Path, candidate: Path) -> dict[str, int]:
                 f"EXCEPT SELECT * FROM main.{table}) LIMIT 1"  # nosec B608
             ).fetchone():
                 raise ValueError(f"cutover candidate lost or changed historical facts: {table}")
-        for source_id, day, checked, adopted, digest in conn.execute(
-            "SELECT * FROM economic_source_record_confirmations"
-        ):
-            anchor = conn.execute(
-                "SELECT payload FROM economic_source_records "
-                "WHERE source_id=? AND observed_at=? AND fetched_at=?",
-                (source_id, day, adopted),
-            ).fetchone()
-            if (
-                checked < adopted
-                or anchor is None
-                or hashlib.sha256(anchor[0]).hexdigest() != digest
-            ):
-                raise ValueError("cutover confirmation differs from its adopted receipt")
+        validate_collection_confirmations(conn)
         missing = conn.execute(
             "SELECT COUNT(*) FROM (SELECT DISTINCT source_id,observed_at "
             "FROM economic_source_records WHERE record_count>0 EXCEPT "

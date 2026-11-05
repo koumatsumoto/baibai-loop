@@ -54,6 +54,15 @@ _TABLES["economic_source_record_confirmations"] = (
     ("source_id", "observed_at"),
 )
 
+_TABLES["economic_source_collection_confirmations"] = (
+    ("source_id", "checked_at", "content_sha256"),
+    ("source_id",),
+)
+CONFIRMATION_TABLES = (
+    "economic_source_record_confirmations",
+    "economic_source_collection_confirmations",
+)
+
 
 class EconomicSchemaError(RuntimeError):
     """The source store is missing or uses a different storage contract."""

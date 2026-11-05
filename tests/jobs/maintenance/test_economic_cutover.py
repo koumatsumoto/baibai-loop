@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.receipts.native_sources.confirmations import confirm_snapshot
+from baibai_engine.data_collection.receipts.native_sources.confirmations import (
+    confirm_source_response,
+)
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.storage.objects.r2 import R2Error
@@ -33,6 +35,7 @@ def prepared(tmp_path):
             records=[],
         )
         conn.execute("DROP TABLE economic_source_record_confirmations")
+        conn.execute("DROP TABLE economic_source_collection_confirmations")
         conn.execute("PRAGMA user_version=12")
     store = MemoryR2Store()
     for key in cutover.BUNDLE_KEYS:
@@ -54,12 +57,11 @@ def prepared(tmp_path):
     receipt = tmp_path / "cutover.json"
     cutover.prepare_copy(base, output, receipt, tmp_path)
     with closing(initialize_database(output)) as conn, conn:
-        confirm_snapshot(
+        confirm_source_response(
             conn,
             source_id="fred-payems",
-            observed_at=DAY,
             fetched_at=AT + timedelta(hours=1),
-            records=[{"value": "A"}],
+            records_by_day={DAY: [{"value": "A"}]},
         )
     return store, base, output, receipt, handle_path
 
@@ -206,7 +208,7 @@ def test_freeze_rejects_lost_history_or_false_anchor(prepared, damage):
             conn.execute("DELETE FROM economic_source_records WHERE record_count=0")
         else:
             conn.execute("UPDATE economic_source_record_confirmations SET content_sha256='false'")
-    with pytest.raises(ValueError, match=r"historical facts|adopted receipt"):
+    with pytest.raises(ValueError, match=r"historical facts|period anchor"):
         cutover.freeze(receipt)
     assert "candidate" not in json.loads(receipt.read_bytes())
 
@@ -342,3 +344,20 @@ def test_input_handoff_cannot_continue_after_lease_lost_during_body_put(prepared
     new_handle_path = receipt.parent / "resumed-lease.json"
     _save_handle(new_handle_path, new_handle)
     assert cutover.reissue_inputs(store, receipt, new_handle_path)["readback_verified"]
+
+
+@pytest.mark.parametrize("damage", ["missing", "digest"])
+def test_freeze_requires_self_contained_complete_source_confirmation(prepared, damage):
+    store, _, output, receipt, _ = prepared
+    with closing(initialize_database(output)) as connection, connection:
+        if damage == "missing":
+            connection.execute("DELETE FROM economic_source_collection_confirmations")
+        else:
+            connection.execute(
+                "UPDATE economic_source_collection_confirmations SET content_sha256='wrong'"
+            )
+    store.put_keys.clear()
+    with pytest.raises(ValueError, match="complete source"):
+        cutover.freeze(receipt)
+    assert not store.put_keys
+    assert "candidate" not in json.loads(receipt.read_bytes())

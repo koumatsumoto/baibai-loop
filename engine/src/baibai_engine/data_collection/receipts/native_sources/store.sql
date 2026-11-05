@@ -41,4 +41,10 @@ CREATE TABLE economic_source_record_confirmations(
   PRIMARY KEY(source_id, observed_at)
 );
 
+CREATE TABLE economic_source_collection_confirmations(
+  source_id TEXT PRIMARY KEY,
+  checked_at TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL
+);
+
 PRAGMA user_version = 13;

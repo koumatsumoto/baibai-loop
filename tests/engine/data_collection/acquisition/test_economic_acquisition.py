@@ -50,6 +50,7 @@ def test_native_acquisition_is_source_scoped_and_does_not_require_a_numeric_read
             "economic_source_documents",
             "economic_source_runs",
             "economic_source_record_confirmations",
+            "economic_source_collection_confirmations",
         }
 
 

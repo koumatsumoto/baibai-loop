@@ -938,6 +938,8 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     assert len(uploads) == 1
     assert downloads[0] < merges[0] < uploads[0]
     assert "--target" in commands[merges[0]]
+    assert "--canonical" in commands[merges[0]]
+    assert "--source" not in commands[merges[0]]
     assert "stores/market_context/indicators.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
     # Only the indicator store is published; market and runs stay owned by the batch.
@@ -1610,3 +1612,109 @@ def test_application_pull_installs_complete_copy_and_generation(tmp_path):
     assert (root / "stores/application/baibai.sqlite").read_bytes() == b"x"
     assert (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").read_text() == '"etag-stable"\n'
     assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize("cloud_changed", [False, True])
+def test_indicator_push_publishes_reconciled_receipt_vintage(tmp_path, cloud_changed):
+    import sys
+    from contextlib import closing
+    from datetime import UTC, date, timedelta
+
+    from baibai_engine.data_collection.receipts.native_sources.confirmations import (
+        confirm_source_response,
+    )
+    from baibai_engine.data_collection.receipts.native_sources.records import read_snapshots
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+
+    root = _fake_repo(tmp_path)
+    bin_dir, log = _fake_aws(tmp_path)
+    environment = _environment(bin_dir, log)
+    environment["SNAPSHOT_FAKE_COPY"] = "1"
+    # Exercise the production CLI rather than the usual shell-only merge stub.
+    uv = bin_dir / "uv"
+    uv.write_text(
+        uv.read_text().replace(
+            "#!/usr/bin/env bash\n",
+            "#!/usr/bin/env bash\n"
+            'if [[ "$*" == *"baibai_jobs.integration.native_source_merge"* ]]; then\n'
+            "  shift 2\n"
+            f'  exec "{sys.executable}" "$@"\n'
+            "fi\n",
+            1,
+        )
+    )
+    environment["PYTHONPATH"] = ":".join(
+        str(REPO_ROOT / item) for item in ("engine/src", "jobs/src")
+    )
+    local = root / "stores/market_context/indicators.sqlite"
+    local.parent.mkdir(parents=True)
+    remote = Path(environment["AWS_FAKE_STATE"]) / "put-indicators.sqlite"
+    day = date(2025, 1, 1)
+    stamp = datetime(2026, 11, 1, tzinfo=UTC)
+
+    def received(path, value, hour):
+        with closing(initialize_database(path)) as connection, connection:
+            confirm_source_response(
+                connection,
+                source_id="fred-test",
+                fetched_at=stamp + timedelta(hours=hour),
+                records_by_day={day: [{"value": value}]},
+            )
+
+    for path in (local, remote):
+        received(path, "A", 1)
+    if cloud_changed:
+        received(remote, "B", 2)
+    received(local, "A", 3)
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "push-indicators"],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    with closing(initialize_database(remote)) as connection:
+        snapshot = next(read_snapshots(connection, day, day, source_id="fred-test"))
+        assert snapshot.records == ({"value": "A"},)
+        assert snapshot.fetched_at == stamp + timedelta(hours=3 if cloud_changed else 1)
+        assert connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == (
+            3 if cloud_changed else 1
+        )
+
+
+def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_put(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    completed = subprocess.run(
+        [
+            TRANSFER_SCRIPT,
+            "push-indicators",
+            "--recheck-source",
+            "fred-vixcls",
+            "--recheck-source",
+            "fred-payems",
+        ],
+        cwd=REPO_ROOT,
+        env=_environment(bin_dir, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    commands = _transfer_commands(log)
+    download = next(
+        i
+        for i, command in enumerate(commands)
+        if command.startswith("s3 cp s3://baibai-stores/indicators.sqlite ")
+    )
+    recheck = next(i for i, command in enumerate(commands) if command.startswith("merge "))
+    upload = next(
+        i
+        for i, command in enumerate(commands)
+        if command.startswith("s3api put-object ") and "--key indicators.sqlite" in command
+    )
+    assert download < recheck < upload
+    assert "--canonical" in commands[recheck]
+    assert "--recheck-source fred-vixcls --recheck-source fred-payems" in commands[recheck]
+    assert '--if-match "etag-stable"' in commands[upload]

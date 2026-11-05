@@ -120,7 +120,12 @@ merge_store() {
 }
 
 merge_economic_store() {
-  merge_store baibai_jobs.integration.native_source_merge "$1" "$2"
+  (
+    cd "${repo_root}" || exit 1
+    UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -m baibai_jobs.integration.native_source_merge \
+        --canonical "$1" --target "$2" "${@:3}"
+  )
 }
 
 merge_market_store() {
@@ -675,7 +680,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-article-cutover RECEIPT|resume-article-cutover RECEIPT|push-runs|push-market|push-indicators|push-economic-cutover RECEIPT|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-article-cutover RECEIPT|resume-article-cutover RECEIPT|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-economic-cutover RECEIPT|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -767,16 +772,24 @@ case "${1:-}" in
       --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")
     ;;
   push-indicators)
-    # Deep history is fetched locally with `collection economic refresh --all-history`, which the
-    # cloud's rolling-window refresh never reaches, while the daily batch keeps adding
-    # recent observations the local store has never seen. So the local store is only
-    # publishable once it contains the cloud copy: pull it, merge it in, and let the
-    # merge refuse the upload if any cloud row would be left behind.
+    shift
+    recheck_args=("$@")
+    while [[ $# -gt 0 ]]; do
+      if [[ $# -lt 2 || "$1" != "--recheck-source" || -z "$2" ]]; then
+        usage
+        exit 2
+      fi
+      shift 2
+    done
+    set -- "${recheck_args[@]}"
+    # Compare local receipts with fresh canonical before combining original rows.
+    # A local same-value recheck may be a real A→B→A change against the cloud.
+    # A late or unconfirmed receipt remains local for explicit source recovery.
     transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
     indicator_version="$(remote_version indicators.sqlite)"
     aws_s3 cp "s3://${stores_bucket}/indicators.sqlite" "${transfer_staging}/indicators.sqlite"
     check_sqlite "${transfer_staging}/indicators.sqlite"
-    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)"
+    merge_economic_store "${transfer_staging}/indicators.sqlite" "$(store_path indicators.sqlite)" "$@"
     cleanup_staging
     transfer_staging=""
     push_key_if_version indicators.sqlite "${indicator_version}"

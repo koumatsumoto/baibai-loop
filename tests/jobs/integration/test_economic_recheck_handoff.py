@@ -6,6 +6,9 @@ import pytest
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_jobs.acquisition.economic_cli as cli
 from baibai_engine.data_collection.catalog import SourceDefinition
+from baibai_engine.data_collection.receipts.native_sources.confirmations import (
+    confirm_source_response,
+)
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     read_documents,
@@ -21,15 +24,23 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
     store_snapshot,
 )
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_jobs.integration.native_source_merge import merge_stores, verify_stores
+from baibai_jobs.integration.native_source_merge import (
+    merge_stores,
+    reconcile_stores,
+    verify_stores,
+)
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
 
 
-def received(path, value, at, kind):
+def received(path, value, at, kind, *, confirmed=False):
     with closing(initialize_database(path)) as conn, conn:
         if kind == "record":
+            if confirmed:
+                return confirm_source_response(
+                    conn, source_id="test", fetched_at=at, records_by_day={DAY: [{"value": value}]}
+                )
             return store_snapshot(
                 conn, source_id="test", observed_at=DAY, fetched_at=at, records=[{"value": value}]
             )
@@ -124,14 +135,14 @@ def test_unintegrated_old_receipt_requires_explicit_recovery(tmp_path):
 
 @pytest.mark.parametrize("kind", ["record", "document"])
 @pytest.mark.parametrize("cloud_changed", [False, True])
-def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
+def test_explicit_cli_recheck_survives_publication_and_pending_older_stage(
     tmp_path, monkeypatch, kind, cloud_changed
 ):
     local, canonical = tmp_path / "local.sqlite", tmp_path / "canonical.sqlite"
-    received(local, "A", STAMP, kind)
-    received(canonical, "A", STAMP, kind)
+    received(local, "A", STAMP, kind, confirmed=kind == "record")
+    received(canonical, "A", STAMP, kind, confirmed=kind == "record")
     if cloud_changed:
-        received(canonical, "B", STAMP + timedelta(hours=1), kind)
+        received(canonical, "B", STAMP + timedelta(hours=1), kind, confirmed=kind == "record")
     actual = STAMP + timedelta(hours=2)
 
     class Clock(datetime):
@@ -177,8 +188,8 @@ def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
         )
         == 0
     )
-    # The existing push-indicators direction: fresh cloud history joins local acquisition.
-    merge_stores(canonical, local)
+    # The actual push-indicators path accepts local receipts against fresh canonical.
+    reconcile_stores(canonical, local)
     verify_stores(canonical, local)
     table = "economic_source_records" if kind == "record" else "economic_source_documents"
     with closing(initialize_database(local)) as conn:
@@ -186,7 +197,7 @@ def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
             row[0] for row in conn.execute(f"SELECT fetched_at FROM {table} ORDER BY fetched_at")
         ]
         if kind == "record":
-            assert len(stamps) == (2 if cloud_changed else 1)
+            assert len(stamps) == (3 if cloud_changed else 1)
             assert conn.execute(
                 "SELECT checked_at FROM economic_source_record_confirmations"
             ).fetchone()[0] == actual.isoformat(timespec="microseconds")
@@ -196,6 +207,7 @@ def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
         if kind == "record":
             latest = next(read_snapshots(conn, DAY, DAY, source_id="test"))
             assert latest.records == ({"value": "A"},)
+            assert latest.fetched_at == (actual if cloud_changed else STAMP)
         else:
             assert next(read_documents(conn, "test")).payload == b"A"
     if not cloud_changed:
@@ -207,3 +219,38 @@ def test_explicit_cli_recheck_survives_cloud_union_and_pending_older_stage(
         assert len(report["late_recovery_required"]) == 1
         assert report["accepted_receipts"] == 0
         assert local.read_bytes() == before
+
+
+@pytest.mark.parametrize("kind", ["record", "document"])
+@pytest.mark.parametrize("fresh_recheck", [False, True])
+def test_publication_keeps_non_fred_union_and_does_not_require_confirmation_state(
+    tmp_path, kind, fresh_recheck
+):
+    local, canonical = tmp_path / "local.sqlite", tmp_path / "canonical.sqlite"
+    received(local, "A", STAMP, kind)
+    received(canonical, "B", STAMP + timedelta(hours=1), kind)
+    if fresh_recheck:
+        received(local, "B", STAMP + timedelta(hours=2), kind)
+    canonical_before = canonical.read_bytes()
+    reconcile_stores(canonical, local)
+    assert canonical.read_bytes() == canonical_before
+    table = "economic_source_records" if kind == "record" else "economic_source_documents"
+    with closing(initialize_database(local)) as connection:
+        assert connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == (
+            3 if fresh_recheck else 2
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM economic_source_record_confirmations"
+            ).fetchone()[0]
+            == 0
+        )
+        actual = (
+            next(read_snapshots(connection, DAY, DAY, source_id="test"))
+            if kind == "record"
+            else next(read_documents(connection, "test"))
+        )
+        assert actual.fetched_at == STAMP + timedelta(hours=2 if fresh_recheck else 1)
+    # Repeating publication must not ask this provider to create FRED state.
+    reconcile_stores(canonical, local)
+    verify_stores(canonical, local)

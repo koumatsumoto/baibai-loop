@@ -23,6 +23,7 @@ def test_offline_migration_preserves_receipts_without_inventing_confirmations(tm
             records=[],
         )
         conn.execute("DROP TABLE economic_source_record_confirmations")
+        conn.execute("DROP TABLE economic_source_collection_confirmations")
         conn.execute("PRAGMA user_version=12")
         originals = list(conn.execute("SELECT * FROM economic_source_records"))
     before = source.read_bytes()
@@ -38,3 +39,13 @@ def test_offline_migration_preserves_receipts_without_inventing_confirmations(tm
         )
     with pytest.raises(FileExistsError):
         migrate(source, output)
+
+
+def test_unreleased_old_schema13_definition_is_not_silently_repaired(tmp_path):
+    path = tmp_path / "old-draft.sqlite"
+    with closing(initialize_database(path)) as connection, connection:
+        connection.execute("DROP TABLE economic_source_collection_confirmations")
+    before = path.read_bytes()
+    with pytest.raises(EconomicSchemaError, match="table contract mismatch"):
+        open_connection(path)
+    assert path.read_bytes() == before

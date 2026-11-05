@@ -141,6 +141,7 @@ def validate_packet(directory: Path, *, canonical: Path | None = None) -> dict[s
             "economic_source_records",
             "economic_source_runs",
             "economic_source_record_confirmations",
+            "economic_source_collection_confirmations",
         ):
             if conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:  # nosec B608
                 raise ValueError("market packet contains unrelated source rows")

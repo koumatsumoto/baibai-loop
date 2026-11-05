@@ -145,7 +145,11 @@ def receive(directory: Path, database: Path, group: str, source_id: str, *, veri
     source = directory / "receipts.sqlite"
     with closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_economic_schema(conn)
-        for table in (*ECONOMIC_RECEIPT_KEYS, "economic_source_record_confirmations"):
+        for table in (
+            *ECONOMIC_RECEIPT_KEYS,
+            "economic_source_record_confirmations",
+            "economic_source_collection_confirmations",
+        ):
             actual = {row[0] for row in conn.execute(f"SELECT DISTINCT source_id FROM {table}")}  # nosec B608
             if not actual <= set(expected):
                 raise ValueError("economic handoff contains another acquisition group's receipts")
