@@ -29,6 +29,7 @@ from baibai_engine.storage.snapshots.keys import dataset_manifest_key as lake_da
 from baibai_engine.storage.snapshots.keys import release_manifest_key as lake_release_manifest_key
 from baibai_engine.storage.snapshots.models import DatasetManifest as LakeDatasetManifest
 from baibai_engine.storage.snapshots.models import L1DatasetSourceRef as LakeL1DatasetSourceRef
+from baibai_engine.storage.snapshots.models import NativeL1SourceRef as LakeNativeL1SourceRef
 from baibai_engine.storage.snapshots.models import ReleaseManifest as LakeReleaseManifest
 from baibai_engine.storage.snapshots.models import (
     SQLiteSnapshotSourceRef as LakeSQLiteSnapshotSourceRef,
@@ -384,7 +385,10 @@ def publish_release(
         manifests[dataset_name] = manifest
         for partition in manifest.partitions:
             for source in partition.sources:
-                if not isinstance(source, (LakeSQLiteSnapshotSourceRef, LakeL1DatasetSourceRef)):
+                if not isinstance(
+                    source,
+                    (LakeSQLiteSnapshotSourceRef, LakeL1DatasetSourceRef, LakeNativeL1SourceRef),
+                ):
                     raise LakePublishError("lake graph contains an unsupported source reference")
             for item in partition.objects:
                 object_path = _mirror_path(mirror_root, item.key)

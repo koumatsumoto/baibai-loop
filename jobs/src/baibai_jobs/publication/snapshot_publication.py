@@ -22,9 +22,12 @@ import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import cast
 
+from baibai_engine.data_collection.providers.jquants.price_native import PriceL1, PriceObjectStore
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
@@ -59,9 +62,14 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     advance_lake_store_origin,
 )
 from baibai_jobs.financial_cutover import financial_native_enabled
+from baibai_jobs.integration.price_native import model_input as native_price_model_input
+from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
-from baibai_jobs.publication.l1_price_export import export_prices_from_l1
+from baibai_jobs.publication.l1_price_export import (
+    export_prices_from_l1,
+    export_prices_from_native_input,
+)
 from baibai_jobs.publication.lease import LeaseError, _load_handle, verify_held
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.snapshot_release import (
@@ -113,6 +121,7 @@ class PreparedMarketLake:
     base_resolve_seconds: float
     seal_export_seconds: float
     release_create_seconds: float
+    price_identity: InputSnapshot | None = None
 
 
 @contextmanager
@@ -122,9 +131,22 @@ def prepare_market_lake(
     mirror_root: Path,
     store: ObjectStore,
     release_id: str | None = None,
+    as_of: date | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
     native_financial = financial_native_enabled()
+    native_price = price_native_enabled()
+    price_identity = None
+    if native_price:
+        fixed = PriceL1(cast(PriceObjectStore, store), mirror_root / "price-native").fixed()
+        evaluated_at = datetime.now(UTC)
+        price_identity = native_price_model_input(
+            store,
+            fixed,
+            as_of=as_of or evaluated_at.date(),
+            evaluated_at=evaluated_at,
+            market=sqlite_path,
+        )
     started = time.perf_counter()
     serving = _serving_pointer(store)
     previous = serving.pointer
@@ -135,6 +157,7 @@ def prepare_market_lake(
             name: manifest.coverage_start
             for name, manifest in serving_release.dataset_manifests.items()
             if not (native_financial and name == "jquants.fin_summaries")
+            and not (native_price and name == "jquants.daily_bars")
         }
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
@@ -142,11 +165,12 @@ def prepare_market_lake(
         policy_names = {item.dataset for item in policy.datasets}
         finance_enabled = "jquants.fin_summaries" in policy_names and not native_financial
         price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
+        native_price_enabled = native_price and "jquants.daily_bars" in policy_names
         derived_names = {
             name
             for name, enabled in (
                 ("jquants.fin_summaries", finance_enabled),
-                ("jquants.daily_bars", price_enabled),
+                ("jquants.daily_bars", price_enabled or native_price_enabled),
             )
             if enabled
         }
@@ -166,19 +190,30 @@ def prepare_market_lake(
         )
         if derived_names:
             source = export.datasets.get("jquants.source_pages")
-            if source is None:
+            if source is None and (finance_enabled or (price_enabled and not native_price)):
                 raise LakePublishError("J-Quants L2 requires retained L1 originals")
             datasets = dict(export.datasets)
             if finance_enabled:
+                assert source is not None
                 datasets["jquants.fin_summaries"] = export_financial_from_l1(
                     source=source,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                     known_at=snapshot.sealed_at,
                 ).build
-            if price_enabled:
+            if price_enabled and not native_price:
+                assert source is not None
                 datasets["jquants.daily_bars"] = export_prices_from_l1(
                     source=source,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                    known_at=snapshot.sealed_at,
+                ).build
+            if native_price_enabled:
+                assert price_identity is not None
+                datasets["jquants.daily_bars"] = export_prices_from_native_input(
+                    store=store,
+                    saved=price_identity,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                     known_at=snapshot.sealed_at,
@@ -215,6 +250,7 @@ def prepare_market_lake(
                 base_resolve_seconds=base_finished - started,
                 seal_export_seconds=export_finished - base_finished,
                 release_create_seconds=time.perf_counter() - export_finished,
+                price_identity=price_identity,
             )
 
 

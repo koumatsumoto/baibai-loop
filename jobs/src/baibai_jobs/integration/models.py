@@ -82,7 +82,9 @@ def integrate_models(
             connection.execute("DELETE FROM jquants_fin_summaries")
             connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
     with (
-        prepare_market_lake(sqlite_path=market, mirror_root=mirror, store=store) as prepared,
+        prepare_market_lake(
+            sqlite_path=market, mirror_root=mirror, store=store, as_of=as_of
+        ) as prepared,
         tempfile.TemporaryDirectory(prefix=".model-economic-", dir=mirror) as directory,
     ):
         economic_copy = Path(directory) / "economic.sqlite"
@@ -100,10 +102,11 @@ def integrate_models(
                 kind="sqlite_snapshot", reference=f"economic-{digest[:24]}", sha256=digest
             ),
             as_of=as_of,
-            evaluation_time=evaluated_at,
+            evaluation_time=max(evaluated_at, prepared.source_snapshot.sealed_at),
             ttm_rules=DEFAULT_TTM_RULES,
             growth_start=growth_start,
             financial_input=financial_input,
+            price_identity=prepared.price_identity,
         )
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)

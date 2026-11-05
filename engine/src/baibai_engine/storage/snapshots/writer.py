@@ -45,6 +45,7 @@ from baibai_engine.storage.snapshots.models import (
     L1DatasetSourceRef,
     LakeObject,
     ManifestTotals,
+    NativeL1SourceRef,
     PartitionManifest,
     SourceRef,
     SQLiteSnapshotSourceRef,
@@ -296,10 +297,6 @@ def export_l1_derived_dataset(
         != source_manifest_sha256
     ):
         raise ValueError("L1 source manifest digest differs")
-    if not table.isidentifier() or any(
-        not column.name.isidentifier() for column in dataset.columns
-    ):
-        raise ValueError("derived table and columns must be plain identifiers")
     source = L1DatasetSourceRef(
         kind="l1_dataset",
         source_id=f"l1-{source_manifest_sha256[:24]}",
@@ -310,6 +307,40 @@ def export_l1_derived_dataset(
             dataset=source_manifest.dataset, build_id=source_manifest.build_id
         ),
     )
+    return export_native_l1_derived_dataset(
+        dataset=dataset,
+        source=source,
+        source_created_at=source_manifest.created_at,
+        connection=connection,
+        table=table,
+        coverage_status=coverage_status,
+        mirror_root=mirror_root,
+        producer_git_commit=producer_git_commit,
+        build_id=build_id,
+        created_at=created_at,
+    )
+
+
+def export_native_l1_derived_dataset(
+    *,
+    dataset: LakeDataset,
+    source: L1DatasetSourceRef | NativeL1SourceRef,
+    source_created_at: datetime,
+    connection: duckdb.DuckDBPyConnection,
+    table: str,
+    coverage_status: CoverageStatus,
+    mirror_root: Path,
+    producer_git_commit: str,
+    build_id: str | None = None,
+    created_at: datetime | None = None,
+) -> LakeBuildReport:
+    """Export a fresh projection with its immutable L1 selection as lineage."""
+    if dataset.layer != "l2_processed":
+        raise ValueError("native derivation requires an L2 dataset")
+    if not table.isidentifier() or any(
+        not column.name.isidentifier() for column in dataset.columns
+    ):
+        raise ValueError("derived table and columns must be plain identifiers")
     names = tuple(column.name for column in dataset.columns)
     projection = ", ".join(f'"{name}"' for name in names)
     order = ", ".join(f'"{name}"' for name in dataset.primary_key)
@@ -338,7 +369,7 @@ def export_l1_derived_dataset(
         ).fetchall()
     )
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
-    if now < source_manifest.created_at:
+    if now < source_created_at:
         raise ValueError("derived dataset cannot predate its L1 source")
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-l1-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
@@ -520,7 +551,9 @@ def validate_snapshot_parity(
                 expected_object=partition.objects[0],
                 source_kind=(
                     "l1_derived"
-                    if any(source.kind == "l1_dataset" for source in partition.sources)
+                    if any(
+                        source.kind in {"l1_dataset", "native_l1"} for source in partition.sources
+                    )
                     else "legacy_sqlite_import"
                 ),
             )
@@ -550,7 +583,7 @@ def _build_period(
     max_key: tuple[str, ...] | None = None
     source_kind: Literal["legacy_sqlite_import", "l1_derived"] = (
         "l1_derived"
-        if any(source.kind == "l1_dataset" for source in sources)
+        if any(source.kind in {"l1_dataset", "native_l1"} for source in sources)
         else "legacy_sqlite_import"
     )
     schema = dataset.arrow_schema_for(source_kind)

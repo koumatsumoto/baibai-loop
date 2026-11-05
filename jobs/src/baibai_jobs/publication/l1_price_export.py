@@ -17,11 +17,13 @@ from baibai_engine.data_collection.providers.jquants.native_index import (
     plan_required_days,
 )
 from baibai_engine.data_collection.providers.jquants.snapshot_contracts import JQUANTS_SOURCE_PAGES
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
     materialize_price_days,
     rebuild_price_days,
 )
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import JQUANTS_DAILY_BARS
+from baibai_engine.storage.objects.r2 import ObjectStore
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.models import CoverageStatus, validate_dataset_contract
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -147,4 +149,51 @@ def export_prices_from_l1(
         len(gaps.days),
         partial_days,
         len(gaps.unknown_incomplete_requests) + int(future_rows[0]),
+    )
+
+
+def export_prices_from_native_input(
+    *,
+    store: ObjectStore,
+    saved: InputSnapshot,
+    mirror_root: Path,
+    producer_git_commit: str,
+    known_at: datetime,
+    build_id: str | None = None,
+    created_at: datetime | None = None,
+) -> PriceExport:
+    """Publish the exact independent native selection used by the model execution copy."""
+    from baibai_engine.machine_analysis.generation.price_inputs import INPUT_PREFIX
+    from baibai_engine.storage.snapshots.models import NativeL1SourceRef
+    from baibai_engine.storage.snapshots.writer import export_native_l1_derived_dataset
+    from baibai_jobs.integration.price_native import materialize_saved_input, saved_days
+
+    days = saved_days(saved)
+    assert saved.descriptor is not None
+    digest = saved.descriptor["selection_sha256"]
+    if not isinstance(digest, str):
+        raise ValueError("native price selection requires its digest")
+    source = NativeL1SourceRef(
+        kind="native_l1",
+        source_id=f"native-l1-{digest[:24]}",
+        sha256=digest,
+        namespace="jquants-price",
+        key=INPUT_PREFIX + "selections/" + digest + ".json",
+    )
+    with lake_session() as session:
+        counts = materialize_saved_input(store, saved, session.connection, days=days)
+        build = export_native_l1_derived_dataset(
+            dataset=JQUANTS_DAILY_BARS,
+            source=source,
+            source_created_at=known_at,
+            connection=session.connection,
+            table="daily_bars",
+            coverage_status=counts["coverage_status"],
+            mirror_root=mirror_root,
+            producer_git_commit=producer_git_commit,
+            build_id=build_id,
+            created_at=created_at,
+        )
+    return PriceExport(
+        build, len(days), counts["unavailable"], counts["partial"], counts["incomplete"]
     )

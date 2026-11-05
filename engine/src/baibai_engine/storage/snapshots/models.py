@@ -122,9 +122,26 @@ class L1DatasetSourceRef(_SourceRefBase):
         return self
 
 
+class NativeL1SourceRef(_SourceRefBase):
+    """Immutable native selection, retained outside the disposable lake graph."""
+
+    kind: Literal["native_l1"]
+    namespace: str
+    key: str
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> NativeL1SourceRef:
+        validate_identifier(self.namespace, label="native namespace")
+        if self.source_id != f"native-l1-{self.sha256[:24]}":
+            raise ValueError("native source identity does not match its digest")
+        if self.key != f"fixed-inputs/{self.namespace}/v1/selections/{self.sha256}.json":
+            raise ValueError("native source key does not match its namespace and digest")
+        return self
+
+
 # Existing L1/legacy L2 snapshots use SQLite; rebuilt L2 names its exact L1 dataset.
 type SourceRef = Annotated[
-    SQLiteSnapshotSourceRef | L1DatasetSourceRef, Field(discriminator="kind")
+    SQLiteSnapshotSourceRef | L1DatasetSourceRef | NativeL1SourceRef, Field(discriminator="kind")
 ]
 
 
@@ -649,7 +666,10 @@ def validate_source_generations(
             source for source in sources if isinstance(source, SQLiteSnapshotSourceRef)
         }
         l1_sources = {source for source in sources if isinstance(source, L1DatasetSourceRef)}
-        if sqlite_sources and l1_sources:
+        native_sources = {source for source in sources if isinstance(source, NativeL1SourceRef)}
+        if native_sources and (manifest.layer != "l2_processed" or len(native_sources) != 1):
+            raise ValueError("native L2 must reference exactly one fixed selection")
+        if sum(bool(group) for group in (sqlite_sources, l1_sources, native_sources)) > 1:
             raise ValueError(f"{manifest.dataset} mixes SQLite and L1 source generations")
         if sqlite_sources:
             if len(sqlite_sources) != 1:
