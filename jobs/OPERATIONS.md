@@ -774,7 +774,7 @@ L1だけで取得計画・差分確定を行い、`rebuild-financial-native` が
 初期化は新しい空namespaceだけで行う。既存原本を無視した空からの本番再取得や、head消失時の初期化で代替しない。
 本番切替には、旧財務原本と未統合stageの有限な移行・読戻し、原本保持条件の確認、同じsourceの旧writer停止が先に必要。
 その後dailyとL2 consumerを新入口へ移し、財務の旧release依存plan・handoff・source seal・取得用旧readerを撤去する（refs #1820）。
-切替後は通常source入口がnative L1へ直接確定し、旧financial handoffを作らない。dailyの固定planは旧financial stageを受け入れず、plan作成とapplyの設定不一致も拒否する。native generationはheadを一度だけ固定して保持済み全開示から財務観測を再生成し、採用集合・確認・不足をdescriptorに保存する。開示日のas-of制限は各model ownerへ任せ、company_growthの保持済み後続訂正を使うretrospective契約を維持する。本文はL1に残し、財務L2の毎日Parquet公開とSQLite parityは行わない。価格など他のrelease入力は引き続き固定market releaseを使う。
+切替後は通常source入口がnative L1へ直接確定し、旧financial handoffを作らない。dailyの固定planは旧financial stageを受け入れず、plan作成とapplyの設定不一致も拒否する。native generationはheadを一度だけ固定して保持済み全開示から財務観測を再生成し、採用集合・確認/失敗状態を月別の共有固定入力へ保存し、descriptorにはその不変参照と不足summaryを持つ。開示日のas-of制限は各model ownerへ任せ、company_growthの保持済み後続訂正を使うretrospective契約を維持する。本文はL1に残し、財務L2の毎日Parquet公開とSQLite parityは行わない。価格など他のrelease入力は引き続き固定market releaseを使う。
 
 認可済みの切替先・検証先で、同じsourceのwriterを直列に実行する。
 通常取得は新しい作業directoryを指定する。不変packのPUT・読戻しを終えてからheadを一回CASし、headが参照する本文はすでに保全済みとする。PUT結果が不明なら `resume` で最後の確定headを確認する。保存したattemptファイルがある場合は `commit-work` で同じidentityを再比較できる。新runnerに旧runnerの一時directoryを要求しない。head確定前の停止で残ったpackは未採用であり、固定入力に混ぜない。次runnerで別の受領を取得した事実と区別する。
@@ -788,13 +788,19 @@ uv run baibai-jobs rebuild-financial-native --work-directory /secure-work/financ
 ```
 
 再生成の `head.json` と `input.json` は使用したL1集合・確認時刻・不足を固定する。後から成功した取得状態を混ぜない。
-過去のgeneration/Operationから再生成する場合は、保存済みJSONの `inputs.generation.inputs.financial`（generation headerなら `inputs.financial`）にある完全なInputSnapshotを取り出し、`rebuild-financial-native --saved-input <SAVED_INPUT_JSON>` へ渡す。表示用summaryではなくdescriptorを含む正確なJSONを使う。snapshotのdigestと各packのfingerprintを検証し、latest headやruns cacheへfallbackしない。head更新後・runs削除後も同じrowsと不足/失敗statusを再生成できる。保存選択の外の期間は拒否する。出力は元head参照と完全な保存InputSnapshotを `input.json` に残し、存在しないfull head bytesを `head.json` として作らない。
+過去のgeneration/Operationから再生成する場合は、保存済みJSONの `inputs.generation.inputs.financial`（generation headerなら `inputs.financial`）にあるInputSnapshotを取り出し、`rebuild-financial-native --saved-input <SAVED_INPUT_JSON>` へ渡す。表示用summaryではなくdescriptorを含む正確なJSONを使う。新descriptorは固定selectionのdigestとsummaryで、共有rootが選択の閉区間と月別objectのdigestを固定する。日別scopeと採用/失敗/保留のpack locatorは変更された月だけ保存し、正常空と未取得を同一にしない。日別L2 statusは原本から再生成する。snapshot・root・月object・各packのdigest/fingerprintを検証し、latest headやruns cacheへfallbackしない。保持物の欠損は明示失敗とする。旧inline descriptorも同じ入口で読み、既存Selectionのhash・内容を書き換えない。出力は元head参照・保存InputSnapshotと、要求範囲だけの `acquisition`（確認/失敗/保留状態）・必要な `receipts`（pack locator）を `input.json` に残す。本文や存在しないfull head bytesを `head.json` として作らない。
 
 ```bash
 uv run baibai-jobs rebuild-financial-native --saved-input /secure-work/saved-financial-input.json \
   --work-directory /secure-work/financial-cold-read --start 2026-11-01 --end 2026-11-05 \
   --output /secure-work/saved-financial-observations
 ```
+
+共有固定入力のownerはGenerationで、保管先は `fixed-inputs/jquants-financial/v1/`。日次integrationがモデル公開前に不変月objectと小さいrootを確定する。同じ固定入力の再実行ではPUTせず、as-ofの不足範囲だけが延びればrootだけ追加する。同値再確認は本文を追加しないが、確認時計の変化を失わないため該当月の入力metadataは新しくなる。overlapが複数月へ跨がれば複数月を保存する。全履歴cold読取は月数分のGETを要し、期間指定では必要月だけ読む。mutable L1 headの書換えとモデルの全履歴正規化はこの共有化ではなくならない。
+
+固定入力は再生成可能なL2 cacheではなく保存世代・Selectionの共有入力であり、runs pruning・L2清掃・短期lifecycleの対象にしない。通常Operation再開は保存済みモデルとidentityだけを使い、共有objectやheadを読まない。cold再計算は共有root/月objectと原本packの保持が条件で、保存Operationの再計算が必要な間は期限を設けない。自動GCは追加しない。途中失敗で未参照metadataが残っても通常dailyで削除・全体再構築しない。
+
+本番切替前に既存bucketでこのprefixのwrite/read権限と期限削除対象外を確認し、同じ固定headで新形式の保存・cold読戻しを有限に照合する。確認や権限/lifecycle変更はこの実装では未実施。旧inline保存はそのまま維持し、新generationから新形式へ一方向に切り替える。古いcodeは新descriptorをcold読取できないため、再生成CLIも新readerへ揃える。権限・保持条件を満たせなければ公開前に失敗させ、full descriptorへの暗黙fallbackをしない。
 
 出力Parquetは削除して再生成でき、原本やheadの削除とは別。取得済み本文は同値なら追加せず、
 確認identityのみ保持する。原本bytesを保持する変更requestはpackにまとめ、rawとnative同値を区別する。
@@ -832,4 +838,4 @@ uv run baibai-jobs financial-native-cutover compare --directory /secure-work/fin
 設定をfalseへ戻すだけでは旧投影やwriterの境界を戻せない。異常時はwriter/dailyを止め、最後の確定head・旧release・移行planを使って到達点と再開先を判断する。切替後の正常運転と独立callerの移行を確認したら、共通設定と旧財務plan/handoff・受領copy・source seal依存・財務L2 export/parity・取得用旧readerを削除する。旧immutable原本の保持/削除は別の認可事項であり、この撤去に含めない。
 
 
-財務入力の表示はidentity・鮮度/不足summaryと、保存済みdescriptorのexact JSON参照を渡す。全社generationに一度固定した採用集合と、applicationの個社Selectionに保存する全descriptorはまだ重複する。この永続保存の薄型化は残件であり、表示縮小だけで完了としない。後続ではapplication側に不変の共有source入力を一度保存し、個社sliceは実際に使った文書のreceipt/content参照と関連失敗範囲だけを固定する。runs削除後も参照を取得できること、Selectionのhash・再開・モデルの意味を維持することが境界である。毎日のfull head archiveを別storeへ増設する方法では解消しない。
+財務入力の表示はidentity・鮮度/不足summaryと保存descriptorへのexact JSON参照を渡す。新しいgeneration・Selectionは共有固定入力の参照だけを持ち、全社の採用集合を個社へ複写しない。旧保存のinline本文は書き換えず、読取とcold再生成の入口・保持条件は[財務native L1](#financial-native-l1)に従う。

@@ -23,6 +23,10 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     read_financial_requests,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.financial_inputs import (
+    read_financial_input,
+    retain_financial_input,
+)
 from baibai_engine.machine_analysis.generation.inputs import FinancialModelInput
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,
@@ -77,10 +81,6 @@ def model_input(
     ):
         raise ValueError("financial input contains receipts later than the evaluation clock")
     results = rebuild_financial_days(requests, days=days)
-    selected["receipt_status"] = {
-        day.isoformat(): {"status": item.status, "incomplete": item.incomplete_requests}
-        for day, item in results.items()
-    }
     unresolved = [
         day
         for day, item in results.items()
@@ -133,8 +133,9 @@ def model_input(
             if document is None:
                 raise ValueError("native financial projection contains an ineligible document")
             documents.append(document)
+    descriptor = retain_financial_input(store, selected)
     payload = json.dumps(
-        selected, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        descriptor, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     ).encode()
     digest = hashlib.sha256(payload).hexdigest()
     return FinancialModelInput(
@@ -142,7 +143,7 @@ def model_input(
             kind="native_l1",
             reference="jquants-financial-" + digest,
             sha256=digest,
-            descriptor=selected,
+            descriptor=descriptor,
         ),
         tuple(documents),
     )
@@ -180,11 +181,8 @@ def rebuild_saved_input(
     if start > end:
         raise ValueError("invalid financial rebuild interval")
     days = tuple(start + timedelta(days=i) for i in range((end - start).days + 1))
-    scopes, receipts = descriptor["scopes"], descriptor["receipts"]
-    if not isinstance(scopes, dict) or not isinstance(receipts, dict):
-        raise ValueError("saved financial input lacks its fixed selection")
-    if any(day.isoformat() not in scopes for day in days):
-        raise ValueError("requested interval is outside the saved financial selection")
+    selected = read_financial_input(store, descriptor, days=days)
+    scopes, receipts = selected["scopes"], selected["receipts"]
     result = _write_observations(
         read_financial_requests(store, scopes=scopes, receipts=receipts, days=days),
         days=days,
@@ -198,6 +196,8 @@ def rebuild_saved_input(
             "source_head_sha256": descriptor["head_sha256"],
             "start": start.isoformat(),
             "end": end.isoformat(),
+            "acquisition": scopes,
+            "receipts": receipts,
         },
     )
     return result

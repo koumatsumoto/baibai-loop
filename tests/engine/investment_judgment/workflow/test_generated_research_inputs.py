@@ -666,8 +666,9 @@ def test_old_full_market_workspace_requires_explicit_display_repair_and_keeps_au
 
 
 @pytest.mark.parametrize("schema_version", [1, 2])
+@pytest.mark.parametrize("shared_input", [False, True])
 def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
-    tmp_path, schema_version
+    tmp_path, schema_version, shared_input
 ):
     import hashlib
     import json
@@ -705,6 +706,24 @@ def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
         },
     }
     assert len(canonical_json(descriptor)) > 800_000
+    if shared_input:
+        from tests.helpers.r2_store import MemoryR2Store
+
+        from baibai_engine.machine_analysis.generation.financial_inputs import (
+            read_financial_input,
+            retain_financial_input,
+        )
+
+        store = MemoryR2Store()
+        original_descriptor = descriptor
+        descriptor = retain_financial_input(store, {**descriptor, "as_of": AS_OF.isoformat()})
+        assert len(canonical_json(descriptor)) < 1000
+        assert (
+            read_financial_input(store, descriptor, days=(date.fromisoformat(days[0]),))["scopes"][
+                days[0]
+            ]
+            == original_descriptor["scopes"][days[0]]
+        )
     financial = InputSnapshot(
         kind="native_l1",
         reference="fixed-financial",
@@ -746,6 +765,17 @@ def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
     )
     saved = selection_binding(OperationService(app).get(prepared.operation_id).payload)
     digest = selection_sha256(saved)
+    if shared_input:
+        import sqlite3
+
+        with sqlite3.connect(app) as connection:
+            stored_payload = connection.execute("SELECT payload FROM operation_session").fetchone()[
+                0
+            ]
+        assert '"scopes"' not in stored_payload
+        assert '"receipts"' not in stored_payload
+        # Resume needs saved models and identity only, not the retained input tree.
+        store.values.clear()
     projection = project_research_inputs(saved)
     entry = projection["analysis_source"]["inputs"]["financial"]
     assert "descriptor" not in entry

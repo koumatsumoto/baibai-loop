@@ -16,6 +16,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.financial_inputs import read_financial_input
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.objects.r2 import LakePublishError
 
@@ -120,6 +121,11 @@ def test_saved_input_verifies_pack_fingerprint_and_does_not_expand_its_scope(tmp
             store, saved, start=DAY - timedelta(days=1), end=DAY, output=tmp_path / "outside"
         )
     raw = saved.model_dump(mode="json")
+    # Historical inline descriptors remain independently rebuildable and verified.
+    raw["descriptor"] = {
+        **read_financial_input(store, saved.descriptor, days=(DAY,)),
+        "head_sha256": saved.descriptor["head_sha256"],
+    }
     raw["descriptor"]["receipts"]["first"]["fingerprint"] = "f" * 64
     raw["sha256"] = hashlib.sha256(canonical_json(raw["descriptor"]).encode()).hexdigest()
     altered = InputSnapshot.model_validate(raw)

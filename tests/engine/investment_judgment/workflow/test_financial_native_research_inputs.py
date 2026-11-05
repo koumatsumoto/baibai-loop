@@ -44,6 +44,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
     DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+from baibai_engine.machine_analysis.observations.financials.from_l1 import rebuild_financial_days
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.financial_native import model_input, rebuild_saved_input
@@ -109,6 +110,11 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     fixed = owner.fixed()
     evaluated_at = AT + timedelta(hours=2)
     financial = model_input(store, fixed, as_of=AS_OF, evaluated_at=evaluated_at)
+    days = tuple(START + timedelta(days=offset) for offset in range(4))
+    expected_status = {
+        day.isoformat(): {"status": item.status, "incomplete": item.incomplete_requests}
+        for day, item in rebuild_financial_days(fixed.requests(store, days=days), days=days).items()
+    }
     expected_summary = financial.identity.descriptor["summary"]
     assert expected_summary["normal_empty_days"] == 0  # old empty receipt now has a held attempt
     assert expected_summary["unavailable_days"] == 1
@@ -199,7 +205,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     del store.values[HEAD_KEY]
 
     # The exact InputSnapshot exposed by the ordinary Operation CLI remains a
-    # usable cold-rebuild input. Only its retained raw packs are needed here.
+    # usable cold-rebuild input. Retained shared root/months and raw packs suffice.
     saved_input = InputSnapshot.model_validate(saved["inputs"]["generation"]["inputs"]["financial"])
     reads_before = len(store.get_keys)
     cold = tmp_path / "cold"
@@ -213,7 +219,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
             "incomplete": row["incomplete_requests"],
         }
         for row in receipt_rows
-    } == exact["receipt_status"]
+    } == expected_status
     assert all(row["l1_coverage_status"] == "partial" for row in receipt_rows)
     assert [
         json.loads(row["document_payload"])["Sales"]

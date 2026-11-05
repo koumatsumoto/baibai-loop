@@ -32,8 +32,8 @@ class InputSnapshot(BaseModel):
     kind: Literal["lake_release", "sqlite_snapshot", "native_l1"]
     reference: Identifier
     sha256: Digest
-    # A native selection is small input metadata, not a copy of source bodies.
-    # Keep it with the saved generation so mutable heads are never reread on resume.
+    # Native inputs retain either a legacy inline selection or a compact exact
+    # selection locator and summary. Mutable heads are never reread on resume.
     descriptor: dict[str, JsonValue] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )

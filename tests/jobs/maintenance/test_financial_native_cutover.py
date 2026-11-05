@@ -112,7 +112,7 @@ def test_old_l1_and_pending_stage_keep_bytes_times_partial_and_idempotency(tmp_p
     fixed = owner.fixed()
     assert fixed.value()["scopes"][DAY.isoformat()]["failure"] == "partial"
     observed = model_input(store, fixed, as_of=DAY, evaluated_at=AT + timedelta(days=3))
-    assert observed.identity.descriptor["receipt_status"][DAY.isoformat()]["incomplete"] == 1
+    assert observed.identity.descriptor["summary"]["incomplete_days"] == 1
     assert cutover.apply_migration(owner, directory=tmp_path / "plan")["retried"] == 3
 
 

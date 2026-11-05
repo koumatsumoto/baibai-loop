@@ -14,6 +14,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialAttempt,
     FinancialL1,
 )
+from baibai_engine.machine_analysis.generation.financial_inputs import read_financial_input
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -92,10 +93,11 @@ def test_fixed_head_survives_new_acquisition_and_missing_days_are_explicit(tmp_p
     second = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT + timedelta(hours=1))
     assert first.documents[0].sales == 1
     assert second.documents[0].sales == 2
-    assert first.identity.descriptor["receipt_status"][(DAY + timedelta(days=1)).isoformat()] == {
-        "status": "unavailable",
-        "incomplete": 0,
-    }
+    selected = read_financial_input(
+        store, first.identity.descriptor, days=(DAY, DAY + timedelta(days=1))
+    )
+    assert selected["scopes"][(DAY + timedelta(days=1)).isoformat()] == {}
+    assert first.identity.descriptor["summary"]["unavailable_days"] == 1
 
 
 def test_same_value_confirmation_after_evaluation_clock_is_not_used(tmp_path):
