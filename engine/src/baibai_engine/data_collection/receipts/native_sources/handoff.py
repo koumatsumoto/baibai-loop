@@ -32,6 +32,33 @@ def export_receipts(
     Create a new SQLite file rather than deleting unrelated rows from a backup:
     deleted pages must not carry other source history into the handoff artifact.
     """
+    _export_receipts(source, output, source_ids=source_ids, since=since, documents=True)
+
+
+def export_tsr_input(source: Path, output: Path) -> None:
+    """TSR requests its complete JSON without using previous document bodies.
+
+    Keep the existing run ranges/status and any native coverage rows verbatim;
+    the collector's recovery plan must not change when its documents disappear.
+    Canonical acceptance, not this disposable seed, compares received bodies.
+    """
+    _export_receipts(
+        source,
+        output,
+        source_ids=("tsr-bankruptcies",),
+        since=datetime.min.replace(tzinfo=UTC),
+        documents=False,
+    )
+
+
+def _export_receipts(
+    source: Path,
+    output: Path,
+    *,
+    source_ids: Sequence[str],
+    since: datetime,
+    documents: bool,
+) -> None:
     if output.exists():
         raise FileExistsError(output)
     if since.tzinfo is None:
@@ -40,6 +67,8 @@ def export_receipts(
         store.validate_current_schema(received)
         with closing(store.initialize_database(output)) as target, target:
             for table, clock in _RECEIPT_CLOCKS.items():
+                if table == "economic_source_documents" and not documents:
+                    continue
                 for source_id in dict.fromkeys(source_ids):
                     # Table/clock are fixed identifiers in this module, values are bound.
                     rows = received.execute(

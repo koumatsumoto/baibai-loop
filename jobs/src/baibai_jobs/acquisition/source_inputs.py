@@ -18,6 +18,7 @@ from baibai_engine.data_collection.catalog import load_sources as load_economic_
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
+from baibai_engine.data_collection.receipts.native_sources.handoff import export_tsr_input
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -134,7 +135,10 @@ def _publish_one(
     with tempfile.TemporaryDirectory(prefix="baibai-source-input-") as temporary:
         directory = Path(temporary)
         path = directory / "receipts.sqlite"
-        if group.startswith("economic-"):
+        report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
+        if group == "economic-tsr_bankruptcies":
+            export_tsr_input(economic, path)
+        elif group.startswith("economic-"):
             export_economic_receipts(
                 economic,
                 path,
@@ -146,7 +150,6 @@ def _publish_one(
                 ),
                 since=datetime.min.replace(tzinfo=UTC),
             )
-            report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
         else:
             report = export_market_source_input(market, path, group=group, asof=asof)
         report["canonical_generations"] = generations
