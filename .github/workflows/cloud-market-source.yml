@@ -14,11 +14,11 @@ permissions:
   contents: read
 
 env:
-  BAIBAI_MASTER_NATIVE: ${{ vars.BAIBAI_MASTER_NATIVE == 'true' && 'true' || 'false' }}
-  BAIBAI_CALENDAR_NATIVE: ${{ vars.BAIBAI_CALENDAR_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_MASTER_NATIVE: "true"
+  BAIBAI_CALENDAR_NATIVE: "true"
   BAIBAI_EDINET_LIST_NATIVE: ${{ vars.BAIBAI_EDINET_LIST_NATIVE == 'true' && 'true' || 'false' }}
-  BAIBAI_PRICE_NATIVE: ${{ vars.BAIBAI_PRICE_NATIVE == 'true' && 'true' || 'false' }}
-  BAIBAI_FINANCIAL_NATIVE: ${{ vars.BAIBAI_FINANCIAL_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_PRICE_NATIVE: "true"
+  BAIBAI_FINANCIAL_NATIVE: "true"
 
 # One source keeps its acquisition and private handoff ordered. A shared provider
 # quota additionally serializes its network jobs, without the publication lock.

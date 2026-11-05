@@ -4,7 +4,7 @@ import os
 
 
 def price_native_enabled() -> bool:
-    value = os.environ.get("BAIBAI_PRICE_NATIVE", "false")
+    value = os.environ.get("BAIBAI_PRICE_NATIVE", "true")
     if value not in {"true", "false"}:
         raise ValueError("BAIBAI_PRICE_NATIVE must be true or false")
     return value == "true"
