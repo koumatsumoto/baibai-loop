@@ -12,12 +12,13 @@ from pydantic import BaseModel
 
 from baibai_engine.investment_judgment.company_research.document import ResearchRecord
 from baibai_engine.investment_judgment.company_research.store import load_research
+from baibai_engine.investment_judgment.draft_files import load_draft
 from baibai_engine.investment_judgment.independent_review.contracts import (
     AssessmentReview,
 )
 from baibai_engine.investment_judgment.stock_assessment.document import (
+    StockAssessmentDocument,
     assessment_core_hash,
-    load_assessment,
 )
 from baibai_engine.investment_judgment.stock_assessment.refresh import scaffold_assessment_refresh
 from baibai_engine.investment_judgment.stock_assessment.store import (
@@ -314,7 +315,7 @@ def scaffold_review(
             f"assessment draft not found for {ticker}: {assessment_path}"
         )
 
-    assessment = load_assessment(assessment_path)
+    assessment = load_draft(assessment_path, StockAssessmentDocument, label="assessment")
     core_hash = assessment_core_hash(assessment)
     review_path = _review_draft_path(workspace, ticker)
     if (review_path.exists() or review_path.is_symlink()) and not force:
