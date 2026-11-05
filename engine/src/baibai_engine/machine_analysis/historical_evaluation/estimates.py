@@ -1,8 +1,4 @@
-"""旧runの倍率・自己価格レンジとcarryによる機械期待収益推計。
-
-意味・単位・入力basisは docs/reference/estimate-calibration.md が所有する。
-候補選抜と企業固有の調査 Projection は扱わない。
-"""
+"""旧run向けの年率prior。企業scenarioや保有期間を与える推計ではない。"""
 
 from __future__ import annotations
 
@@ -12,19 +8,14 @@ from math import isfinite
 from statistics import fmean
 from typing import Literal
 
-# 旧機械推計 MODEL_V1 の policy parameters。実証的な変更は long-horizon authority を満たす
-# artifact と人間レビューを経て code で明示的に変更し、自動更新はしない。
-# Researchの条件付き評価・購入要求率とは別の推計仮定である。
-# docs/reference/estimate-calibration.md
+# 旧機械推計の仮定。L3の案件別要求率や、較正のforward比較期間へ連動させない。
 REALIZATION_RATE_ANNUAL = 0.10
 UPSIDE_CAP = 0.50
 SHARE_COUNT_CLIP = 0.05
 EXPECTED_RETURN_MODEL_VERSION = "expected-return-v1"
 EXPECTED_RETURN_UNIT = "annual_ratio"
 
-# anchor に使う倍率軸。資産 (pbr) と収益 (per_forward → per_trailing fallback) の
-# 2 系統を blend する。ただし両軸とも自己レンジ側で binding した銘柄では 2 つの upside が
-# 同じ値になり (自己レンジは価格の履歴なので軸に依存しない)、平均はノイズを薄めない。
+# 自己レンジが両軸のanchorならupsideは同じ価格比になる。二軸の平均を独立な裏付けとしない。
 _EARNINGS_METRICS = ("per_forward", "per_trailing")
 
 
