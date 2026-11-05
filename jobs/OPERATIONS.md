@@ -1126,3 +1126,7 @@ CSVは既存540日planner、XBRLは既存annual scopeとholderの100件/10秒制
 固定consumerの接続準備は `integration.edinet_archive_native.rebuild_fixed_edinet_input` で検証する。渡された一覧/archive headだけから、新規SQLiteへ原ZIP bytes・stored_on・scopeを再構成し、既存EDINETReader・comparison・holder・TOBの読取に渡せる。既存出力は上書きせず、原本欠損/改変時は未完成DBを公開しない。新しい実受領時刻を旧SQLiteの日付列へ変換して精度が上がったとは扱わない。
 
 これは明示cold adapterで、通常CLI/workflowや旧marketへは未接続。全原ZIP本文を読むため、取得plannerに使わない。生成されるのは原本の使い捨てcopyと一覧投影であり、metrics/factsのL2値や成功履歴はコピーしない。全L2のcold再生成や過去のpoint-in-time入力を保証する入口ではない。
+
+metricsのcold比較は `integration.edinet_metric_rebuild.rebuild_fixed_edinet_metrics(lists, archives, output, asof=..., lookback_days=540)` を使う。固定一覧から新規DBを投影し、選択したCSV ZIPだけを固定ownerから読む。旧metrics・facts scope・全ZIPの複写は入力にしない。旧公開DBは受け取らず、完成・部分完成の候補だけを新規outputへ置く。全原本未取得・一覧不足は延期、解析失敗は失敗としてoutputを作らず、保持済みと宣言した原本の欠損/改変は例外で止める。既存outputは上書きしない。
+
+返却値の `edinet-list` と `edinet-metrics` を両方確認する。不正一覧の前に正常受領があれば候補を作れるが、一覧の失敗報告は残る。未解決操作は `quarantined_events` にidentityを残し、旧metricsだけにあった銘柄対応は推測しない。部分欠損の採用日や匿名操作の隔離は従来warm計算と異なり得るため、候補生成を通常公開への採用と扱わない。比較は業務値・欠測・文書とsource日を対象にし、再計算時刻を過去の保存時刻へ偽装しない。この入口は通常daily・共有固定input・publicationを切り替えず、既存L2の廃棄許可を意味しない。
