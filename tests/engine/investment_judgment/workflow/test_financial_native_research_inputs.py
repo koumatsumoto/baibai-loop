@@ -6,6 +6,7 @@ import shutil
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 
+import pyarrow.parquet as pq
 import pytest
 import yaml
 from pydantic import ValidationError
@@ -16,6 +17,7 @@ from tests.helpers.research_selection import selected_target
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.financial_native import (
+    HEAD_KEY,
     FinancialAttempt,
     FinancialL1,
 )
@@ -41,7 +43,7 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
-from baibai_jobs.integration.financial_native import model_input
+from baibai_jobs.integration.financial_native import model_input, rebuild_saved_input
 
 START = date(2026, 10, 30)
 AS_OF = START + timedelta(days=3)
@@ -167,6 +169,33 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     shutil.rmtree(native)
     shutil.rmtree(tmp_path / "mirror")
     (workspace / "domain-inputs.yaml").unlink()
+    del store.values[HEAD_KEY]
+
+    # The exact InputSnapshot exposed by the ordinary Operation CLI remains a
+    # usable cold-rebuild input. Only its retained raw packs are needed here.
+    saved_input = InputSnapshot.model_validate(saved["inputs"]["generation"]["inputs"]["financial"])
+    reads_before = len(store.get_keys)
+    cold = tmp_path / "cold"
+    result = rebuild_saved_input(store, saved_input, start=START, end=AS_OF, output=cold)
+    assert result == {"days": 4, "rows": 2, "unavailable": 1, "partial": 1, "incomplete": 2}
+    assert HEAD_KEY not in store.get_keys[reads_before:]
+    receipt_rows = pq.read_table(cold / "financial_receipt_status.parquet").to_pylist()
+    assert {
+        row["day"].isoformat(): {
+            "status": row["projection_status"],
+            "incomplete": row["incomplete_requests"],
+        }
+        for row in receipt_rows
+    } == exact["receipt_status"]
+    assert all(row["l1_coverage_status"] == "partial" for row in receipt_rows)
+    assert [
+        json.loads(row["document_payload"])["Sales"]
+        for row in pq.read_table(cold / "financial_summaries.parquet").to_pylist()
+    ] == [100, 100]
+    assert json.loads((cold / "input.json").read_text())["saved_input"] == saved_input.model_dump(
+        mode="json"
+    )
+    assert not (cold / "head.json").exists()
 
     def forbidden(*args, **kwargs):
         pytest.fail("saved Research must not reread source or generation caches")
