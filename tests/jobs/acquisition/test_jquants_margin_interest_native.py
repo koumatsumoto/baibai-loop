@@ -128,6 +128,56 @@ def test_early_weekly_empty_uses_real_equal_confirmation_and_final_week_exceptio
     )
 
 
+def test_finite_final_week_empty_remains_pending_with_endpoint_only_calendar(tmp_path):
+    final = date(2026, 9, 18)
+    _, owner, cal = setup(tmp_path, start=final, end=final)
+    owner.commit([attempt("final-empty", day=final, rows=[])])
+    plan = plan_margin_interest_days(owner.fixed(), cal, asof=AT.date(), start=final, end=final)
+    assert plan.days == (final,)
+    assert plan.unknown_calendar_days == ()  # Its final publication date is already known.
+
+
+def test_finite_early_empty_does_not_hide_missing_publication_calendar(tmp_path):
+    week = date(2026, 9, 11)
+    _, owner, cal = setup(tmp_path, start=week, end=week)
+    owner.commit([attempt("early-empty", day=week, at=AT.replace(day=14, month=9), rows=[])])
+    plan = plan_margin_interest_days(owner.fixed(), cal, asof=AT.date(), start=week, end=week)
+    assert plan.days == (week,)
+    assert plan.unknown_calendar_days == (date(2026, 9, 12), date(2026, 9, 13))
+
+
+def test_finite_empty_needs_only_two_proven_sessions_before_jst_confirmation(tmp_path):
+    week, publication = date(2017, 5, 5), date(2017, 5, 9)
+    _, owner, cal = setup(
+        tmp_path,
+        start=week,
+        end=publication,
+        omit=(date(2017, 5, 6),),
+    )
+    # Two later known sessions prove publication before this check even though
+    # an intervening day and the years after this finite backfill are absent.
+    owner.commit(
+        [
+            attempt(
+                "skipped-week", day=week, at=AT.replace(year=2017, month=5, day=9, hour=15), rows=[]
+            )
+        ]
+    )
+    plan = plan_margin_interest_days(owner.fixed(), cal, asof=AT.date(), start=week, end=week)
+    assert plan.days == plan.unknown_calendar_days == ()
+
+
+def test_explicit_backfill_keeps_prepublication_empty_pending(tmp_path):
+    week = date(2026, 9, 11)
+    _, owner, cal = setup(tmp_path, start=week, end=date(2026, 9, 14))
+    owner.commit([attempt("early-empty", day=week, at=AT.replace(day=14, month=9), rows=[])])
+    plan = plan_margin_interest_days(
+        owner.fixed(), cal, asof=date(2026, 9, 14), start=week, end=week
+    )
+    assert plan.days == (week,)
+    assert plan.unknown_calendar_days == ()
+
+
 def test_daily_empty_retries_and_nonempty_malformed_l2_is_not_refetched(tmp_path):
     store, owner, cal = setup(tmp_path)
     owner.commit([attempt("empty", rows=[])])
@@ -217,6 +267,35 @@ def test_cold_rebuild_keeps_weekly_daily_fields_without_newest_heads_or_prices(t
         materialize_saved_input(store, saved, output=output)
 
 
+def test_cold_final_week_empty_keeps_native_fulfillment_separate_from_l2_coverage(tmp_path):
+    week = date(2026, 9, 18)
+    store, owner, cal = setup(tmp_path, start=week, end=AT.date())
+    owner.commit([attempt("empty", day=week, rows=[])])
+    saved = fixed_input(store, owner.fixed(), cal, start=week, end=week, evaluated_at=AT)
+    store.values.pop(HEAD_KEY)
+    store.values.pop(CALENDAR_HEAD)
+    output = tmp_path / "cold-empty.sqlite"
+    result = materialize_saved_input(store, saved, output=output)
+    assert result["coverage_status"] == "partial"
+    assert result["unresolved_days"] == [week.isoformat()]
+    with sqlite3.connect(output) as conn:
+        assert conn.execute(
+            "SELECT status,record_count FROM source_coverage WHERE source='jquants_weekly_margin'"
+        ).fetchone() == ("ok", 0)
+
+
+def test_cold_subset_does_not_inherit_another_weeks_unresolved_empty(tmp_path):
+    final = date(2026, 9, 18)
+    store, owner, cal = setup(tmp_path, start=final, end=AT.date())
+    owner.commit([attempt("final-empty", day=final, rows=[]), attempt("daily")])
+    saved = fixed_input(store, owner.fixed(), cal, start=final, end=DAY, evaluated_at=AT)
+    result = materialize_saved_input(
+        store, saved, output=tmp_path / "subset.sqlite", start=DAY, end=DAY
+    )
+    assert result["coverage_status"] == "complete"
+    assert result["unresolved_days"] == []
+
+
 def test_saved_input_future_time_and_corrupt_pack_fail_closed(tmp_path):
     store, owner, cal = setup(tmp_path)
     owner.commit([attempt("one")])
@@ -235,8 +314,9 @@ def test_saved_input_future_time_and_corrupt_pack_fail_closed(tmp_path):
     assert not (tmp_path / "bad.sqlite").exists()
 
 
-def test_commit_work_never_calls_empty_daily_success_and_uses_saved_calendar(
-    tmp_path, monkeypatch, capsys
+@pytest.mark.parametrize("day", [DAY, date(2026, 9, 18)])
+def test_commit_work_never_calls_empty_balance_success_and_uses_saved_calendar(
+    tmp_path, monkeypatch, capsys, day
 ):
     from baibai_jobs.acquisition import jquants_margin_interest_native as module
 
@@ -247,16 +327,16 @@ def test_commit_work_never_calls_empty_daily_success_and_uses_saved_calendar(
     store = Store()
     owner = MarginInterestL1(store, tmp_path / "work")
     owner.initialize()
-    cal = calendar(store, tmp_path / "cal", DAY, DAY)
+    cal = calendar(store, tmp_path / "cal", day, day)
     report = acquire_margin_interest_native(
-        owner, cal, asof=DAY, start=DAY, end=DAY, client=Client(rows=[]), clock=lambda: AT
+        owner, cal, asof=AT.date(), start=day, end=day, client=Client(rows=[]), clock=lambda: AT
     )
     assert report["incomplete"] == 1
     store.values.pop(CALENDAR_HEAD)
     monkeypatch.setattr(module, "Boto3R2Store", lambda **_: store)
     assert module.main(["commit-work", "--directory", str(owner.directory)]) == 1
-    assert json.loads(capsys.readouterr().out)["remaining"]["days"] == [DAY.isoformat()]
-    owner.commit([attempt("recovered", at=AT + timedelta(hours=1))])
+    assert json.loads(capsys.readouterr().out)["remaining"]["days"] == [day.isoformat()]
+    owner.commit([attempt("recovered", day=day, at=AT + timedelta(hours=1))])
     assert module.main(["commit-work", "--directory", str(owner.directory)]) == 0
 
 

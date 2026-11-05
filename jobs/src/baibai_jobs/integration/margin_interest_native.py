@@ -8,7 +8,7 @@ import json
 import os
 import sys
 from contextlib import closing
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from baibai_engine.data_collection.providers.jquants.margin_interest_native impo
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
+    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
@@ -176,6 +177,10 @@ def materialize_saved_input(
     if not all(isinstance(day, str) for day in raw_expected):
         raise ValueError("invalid expected margin dates")
     evaluated_at = datetime.fromisoformat(stamp)
+    final_week_due = (
+        evaluated_at.astimezone(timezone(timedelta(hours=9))).date()
+        >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
+    )
     calendar = InputSnapshot.model_validate(summary["calendar_input"])
     selected = read_margin_interest_input(store, descriptor, days=days)
     scopes = selected["scopes"]
@@ -273,6 +278,11 @@ def materialize_saved_input(
                     row is None
                     or row[0] != "ok"
                     or (source == ALL_ISSUES_DAILY_MARGIN_SOURCE and not row[1])
+                    or (
+                        day == LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()
+                        and final_week_due
+                        and not scope.get("record_count")
+                    )
                 ):
                     unresolved.append(day)
             result = {

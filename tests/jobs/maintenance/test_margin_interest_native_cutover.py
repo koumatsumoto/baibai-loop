@@ -302,3 +302,35 @@ def test_compare_two_fixed_l2_datasets_and_calendar_boundary(tmp_path, monkeypat
             directory=tmp_path / "plan",
             as_of=DAY,
         )
+
+
+def test_compare_matching_empty_final_week_is_not_cutover_complete(tmp_path, monkeypatch):
+    from tests.helpers.margin_interest_native import calendar
+
+    final = date(2026, 9, 18)
+    empty = list(row("final-empty", query={"date": final.isoformat()}))
+    empty[-1] = gzip.compress(b'{"data":[]}', mtime=0)
+    store, _ = prepare(tmp_path, monkeypatch, [tuple(empty)])
+    owner = MarginInterestL1(store, tmp_path / "target")
+    owner.initialize()
+    cutover.apply_migration(owner, directory=tmp_path / "plan")
+    cal = calendar(store, tmp_path / "calendar", final, AT.date())
+    monkeypatch.setattr(cutover, "materialize_partitions", lambda *_, **__: ())
+    release = SimpleNamespace(
+        release_id="fixed",
+        manifest_sha256="a" * 64,
+        manifest=SimpleNamespace(datasets={cutover.JQUANTS_WEEKLY_MARGIN.name: object()}),
+    )
+    with lake_session() as session:
+        result = cutover.compare_projection(
+            session,
+            release=release,
+            cache=object(),
+            owner=owner,
+            calendar=cal,
+            directory=tmp_path / "plan",
+            as_of=final,
+        )
+    assert result["differences"] == []
+    assert result["coverage_status"] == "partial"
+    assert result["unresolved_days"] == [final.isoformat()]

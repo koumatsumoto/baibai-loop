@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +116,52 @@ def balance_days(
     )
 
 
+def _weekly_empty_rechecks(
+    index: NativeMarketIndex,
+    calendar: FixedCalendarL1,
+    *,
+    days: Sequence[date],
+    asof: date,
+) -> MarginAcquisitionPlan:
+    """An explicit backfill may not certify an empty fetched before publication.
+
+    Two known later sessions strictly before the actual JST confirmation prove
+    that a skipped week's empty is final. Missing days cannot move publication
+    later than that proof. If proof is unavailable, keep the balance unresolved
+    and report the first calendar gaps needed to establish those two sessions,
+    rather than requiring every date between an old backfill and today's asof.
+    """
+    receipts = {item.start: item for item in index.receipts}
+    calendar_index = calendar.index()
+    rechecks: set[date] = set()
+    missing: set[date] = set()
+    unknown: set[str] = set()
+    jst = timezone(timedelta(hours=9))
+    for day in days:
+        receipt = receipts.get(day)
+        if receipt is None or receipt.records:
+            continue
+        if day == LEGACY_WEEKLY_LAST_BALANCE_DATE and asof >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE:
+            rechecks.add(day)
+            continue
+        confirmed = receipt.received_at.astimezone(jst).date()
+        last = min(asof, confirmed - timedelta(days=1))
+        sessions, incomplete = (
+            calendar_sessions(calendar_index, start=day + timedelta(days=1), end=last)
+            if last > day
+            else ({}, ())
+        )
+        known = sum(opened is True for opened in sessions.values())
+        if known >= 2:
+            continue
+        rechecks.add(day)
+        missing.update([day for day, opened in sessions.items() if opened is None][: 2 - known])
+        unknown.update(incomplete)
+    return MarginAcquisitionPlan(
+        tuple(sorted(rechecks)), tuple(sorted(missing)), tuple(sorted(unknown))
+    )
+
+
 def plan_margin_interest_days(
     fixed: FixedMarginInterestL1,
     calendar: FixedCalendarL1,
@@ -136,19 +182,12 @@ def plan_margin_interest_days(
     if end is not None and (start is None or start > end or end > asof):
         raise ValueError("invalid historical margin interval")
     index = NativeMarketIndex("margin_interest", (), ()) if force else fixed.index()
-    weekly = plan_weekly_margin(
-        index,
-        calendar.index(),
-        start=start or asof - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS),
-        asof=asof,
-        final_balance_date=LEGACY_WEEKLY_LAST_BALANCE_DATE,
-        final_publication_date=LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
-    )
     if start is not None and end is not None:
         candidates, missing, unknown = balance_days(calendar, start=start, end=end)
+        weekly_days = [day for day in candidates if day <= LEGACY_WEEKLY_LAST_BALANCE_DATE]
         old = plan_required_days(
             index,
-            days=[day for day in candidates if day <= LEGACY_WEEKLY_LAST_BALANCE_DATE],
+            days=weekly_days,
             require_nonempty=False,
         )
         new = plan_required_days(
@@ -156,17 +195,27 @@ def plan_margin_interest_days(
             days=[day for day in candidates if day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE],
             require_nonempty=True,
         )
+        empty = _weekly_empty_rechecks(index, calendar, days=weekly_days, asof=asof)
         return MarginAcquisitionPlan(
-            tuple(sorted(set(old.days) | set(new.days) | {d for d in weekly.days if d <= end})),
-            missing,
+            tuple(sorted(set(old.days) | set(new.days) | set(empty.days))),
+            tuple(sorted(set(missing) | set(empty.unknown_calendar_days))),
             tuple(
                 sorted(
                     set(unknown)
                     | set(old.unknown_incomplete_requests)
                     | set(new.unknown_incomplete_requests)
+                    | set(empty.unknown_incomplete_requests)
                 )
             ),
         )
+    weekly = plan_weekly_margin(
+        index,
+        calendar.index(),
+        start=asof - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS),
+        asof=asof,
+        final_balance_date=LEGACY_WEEKLY_LAST_BALANCE_DATE,
+        final_publication_date=LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+    )
     daily = plan_daily_margin(
         index,
         calendar.index(),
