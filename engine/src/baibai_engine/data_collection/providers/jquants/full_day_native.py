@@ -1,7 +1,8 @@
 """Unfiltered full-day J-Quants receipt persistence, independent of L2.
 
-Only full-day summaries and daily bars share this request boundary. Interval
-calendars, master snapshots and delayed margin publications keep their owners.
+Financial summaries, daily bars and master snapshots share only this unfiltered
+explicit-date persistence boundary. Their acquisition and projection rules stay
+with each source. Interval calendars and delayed margin publications differ.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, 
 
 @dataclass(frozen=True, slots=True)
 class FullDayContract:
-    source: Literal["financial_summaries", "daily_bars"]
+    source: Literal["financial_summaries", "daily_bars", "master"]
     prefix: str
     format: str
 
@@ -75,7 +76,7 @@ def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> s
 
 @dataclass(frozen=True, slots=True)
 class FullDayAttempt:
-    source: ClassVar[Literal["financial_summaries", "daily_bars"]]
+    source: ClassVar[Literal["financial_summaries", "daily_bars", "master"]]
 
     request_id: str
     day: date

@@ -8,7 +8,7 @@ import os
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -36,10 +36,15 @@ def acquire_full_day_native(
     client: JQuantsHTTP,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
+    planned_days: Sequence[date] | None = None,
 ) -> dict[str, int]:
     """Commit bounded groups; preserve a partial response and stop on provider failure."""
     fixed = owner.resume()
-    days = fixed.plan(start=start, end=end, revision_overlap_days=revision_overlap_days)
+    days = (
+        fixed.plan(start=start, end=end, revision_overlap_days=revision_overlap_days)
+        if planned_days is None
+        else planned_days
+    )
     if any(owner.directory.glob("attempt-*.json")):
         raise ValueError("use a fresh work directory or commit-work for saved attempts")
     totals = dict.fromkeys(("changed", "equal", "failed", "held", "retried"), 0)
