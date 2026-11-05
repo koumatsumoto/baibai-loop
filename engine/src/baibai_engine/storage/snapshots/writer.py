@@ -11,7 +11,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from itertools import islice
+from itertools import groupby, islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
@@ -181,6 +181,7 @@ def export_dataset_snapshot(
     created_at: datetime | None = None,
     native_source: NativeL1SourceRef | None = None,
     native_coverage_status: CoverageStatus | None = None,
+    split_objects_by_date: bool = False,
 ) -> LakeBuildReport:
     """Derive every partition of one dataset from the sealed snapshot.
 
@@ -199,6 +200,8 @@ def export_dataset_snapshot(
         raise ValueError("native lineage and its coverage must be provided together")
     if native_source is not None and dataset.layer != "l2_processed":
         raise ValueError("native lineage requires a derived L2 dataset")
+    if split_objects_by_date and dataset.primary_key[:1] != (dataset.date_column,):
+        raise ValueError("date-split objects require the date as the first primary key")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
     actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-sqlite-{uuid.uuid4().hex[:8]}"
     validate_identifier(actual_build_id, label="build_id")
@@ -214,21 +217,39 @@ def export_dataset_snapshot(
             periods = _selected_periods(connection, dataset)
             if not periods:
                 raise LakeBuildError("dataset holds no rows")
-            built = [
-                _build_period(
-                    dataset=dataset,
-                    period=period,
-                    staging_root=staging_root,
-                    rows=_period_rows(connection, dataset, period),
-                    sources=(native_source or snapshot.ref,),
+            built = []
+            date_index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
+            for period in periods:
+                rows = _period_rows(connection, dataset, period)
+                groups = (
+                    groupby(rows, key=lambda row: str(row[date_index]))
+                    if split_objects_by_date
+                    else ((None, rows),)
                 )
-                for period in periods
-            ]
+                for day, group in groups:
+                    built.append(
+                        _build_period(
+                            dataset=dataset,
+                            period=period,
+                            staging_root=staging_root,
+                            rows=group,
+                            sources=(native_source or snapshot.ref,),
+                            object_label=day,
+                        )
+                    )
             coverage_status, coverage_start, data_as_of, population_count = _coverage_assessment(
                 connection, dataset
             )
 
-        ordered = tuple(item.manifest for item in built)
+        ordered = tuple(
+            PartitionManifest(
+                values=period_values(dataset, period),
+                objects=tuple(obj for item in items for obj in item.manifest.objects),
+                sources=items[0].manifest.sources,
+            )
+            for period, group in groupby(built, key=lambda item: item.period)
+            if (items := list(group))
+        )
         totals = ManifestTotals(
             objects=sum(len(item.objects) for item in ordered),
             bytes=sum(obj.bytes for item in ordered for obj in item.objects),
@@ -267,7 +288,7 @@ def export_dataset_snapshot(
         return LakeBuildReport(
             manifest_path=manifest_path,
             manifest=manifest,
-            partitions=len(built),
+            partitions=len(ordered),
             new_objects=new_objects,
         )
     except Exception as exc:
@@ -519,22 +540,24 @@ def validate_snapshot_parity(
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
             rows = _period_rows(connection, dataset, period)
-            if len(partition.objects) != 1:
-                raise LakeBuildError("a canonical partition must contain exactly one object")
-            _validate_parquet(
-                mirror_root / partition.objects[0].key,
-                dataset=dataset,
-                period=period,
-                expected_rows=rows,
-                expected_object=partition.objects[0],
-                source_kind=(
-                    "l1_derived"
-                    if any(
-                        source.kind in {"l1_dataset", "native_l1"} for source in partition.sources
-                    )
-                    else "legacy_sqlite_import"
-                ),
-            )
+            for obj in sorted(partition.objects, key=lambda item: item.min_key):
+                _validate_parquet(
+                    mirror_root / obj.key,
+                    dataset=dataset,
+                    period=period,
+                    expected_rows=islice(rows, obj.rows),
+                    expected_object=obj,
+                    source_kind=(
+                        "l1_derived"
+                        if any(
+                            source.kind in {"l1_dataset", "native_l1"}
+                            for source in partition.sources
+                        )
+                        else "legacy_sqlite_import"
+                    ),
+                )
+            if next(rows, None) is not None:
+                raise LakeBuildError("manifest objects omit SQLite partition rows")
 
 
 def _row_batch_size(dataset: LakeDataset) -> int:
@@ -550,8 +573,10 @@ def _build_period(
     staging_root: Path,
     rows: Iterable[tuple[object, ...]],
     sources: tuple[SourceRef, ...],
+    object_label: str | None = None,
 ) -> _BuiltPartition:
-    provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}.parquet"
+    label = "-" + object_label if object_label else ""
+    provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}{label}.parquet"
     names = tuple(column.name for column in dataset.columns)
     pk_indexes = _pk_indexes(dataset)
     batch_size = _row_batch_size(dataset)

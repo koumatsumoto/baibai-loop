@@ -49,6 +49,7 @@ def export_master_from_native_input(
             key=INPUT_PREFIX + "selections/" + digest + ".json",
         ),
         native_coverage_status=cast(CoverageStatus, coverage),
+        split_objects_by_date=True,
         mirror_root=mirror_root,
         producer_git_commit=producer_git_commit,
         build_id=build_id,
