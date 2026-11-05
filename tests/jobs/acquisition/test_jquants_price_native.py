@@ -199,3 +199,33 @@ def test_price_cli_acquisition_replay_and_fixed_head_rebuild(tmp_path, monkeypat
     assert (tmp_path / "output" / "head.json").read_bytes() == PriceL1(
         store, tmp_path / "cold"
     ).fixed().payload
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_native_storage_or_writer_failure_stops_before_legacy_acquisition(
+    tmp_path, monkeypatch, conflict
+):
+    import baibai_engine.data_collection.providers.jquants.http as http
+    import baibai_engine.storage.snapshots.objects as objects
+    import baibai_jobs.acquisition.jquants_price_native as acquisition
+    import baibai_jobs.integration.source_handoff as handoff
+    from baibai_engine.storage.objects.r2 import LakeCASConflict, R2Error
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
+    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: Store())
+    monkeypatch.setattr(http, "JQuantsHTTP", lambda _: Client())
+    failure = LakeCASConflict if conflict else R2Error
+
+    def failed(*args, **kwargs):
+        raise failure("storage failed")
+
+    monkeypatch.setattr(acquisition, "acquire_price_native", failed)
+    monkeypatch.setattr(
+        objects, "open_lake", lambda **_: pytest.fail("legacy started after global storage failure")
+    )
+    with pytest.raises(failure, match="storage failed"):
+        handoff._acquire_market_l1(DAY, tmp_path / "work")

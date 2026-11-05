@@ -24,6 +24,8 @@ from baibai_engine.machine_analysis.observations.prices.calendar_context import 
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
+    LakeCASConflict,
+    R2Error,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
@@ -259,6 +261,8 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             provider_halted = bool(result.get("halted", 0))
             native_result = dict(result)
             price_ok = not bool(result["failed"] or result["held"])
+        except (R2Error, LakeCASConflict):
+            raise
         except Exception as error:
             price_ok = False
             native_result = {"error": type(error).__name__}
