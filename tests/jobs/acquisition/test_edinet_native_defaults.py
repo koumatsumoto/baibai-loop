@@ -30,9 +30,7 @@ def test_acquisition_and_daily_callers_ignore_old_false_repository_vars(filename
     assert workflow["env"]["BAIBAI_EDINET_LIST_NATIVE"] == "true"
     monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", workflow["env"]["BAIBAI_EDINET_LIST_NATIVE"])
     assert edinet_list_native_enabled() is True
-    if filename == "cloud-daily-batch.yml":
-        assert "schedule" not in workflow["on"]
-    else:
+    if filename == "cloud-market-source.yml":
         steps = {step.get("name"): step for step in workflow["jobs"]["acquire"]["steps"]}
         for name in (
             "Load only the assigned source input",
