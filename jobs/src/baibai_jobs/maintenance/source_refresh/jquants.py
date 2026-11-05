@@ -265,10 +265,12 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_all_issues_daily_margin(day))
 
     def ensure_margin_alerts(self, start: date, end: date) -> int:
+        _require_legacy_margin_alerts()
         self._fetch_days("margin_alerts", self._missing("jquants_margin_alerts", start, end))
         return len(self._reader.get_mkt_margin_alert_range(start, end))
 
     def refresh_margin_alerts(self, start: date, end: date) -> int:
+        _require_legacy_margin_alerts()
         planned = merge_date_ranges(
             [*self._missing_since_first_coverage("jquants_margin_alerts", start, end), (start, end)]
         )
@@ -288,6 +290,16 @@ class JQuantsRefresh:
         )
         self._fetch_days("short_sale_reports", planned)
         return len(self._reader.get_mkt_short_sale_report_range(start, end))
+
+
+def _require_legacy_margin_alerts() -> None:
+    from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
+
+    if margin_alerts_native_enabled():
+        raise JQuantsProviderError(
+            "legacy margin alerts writer is disabled; use jquants-margin-alerts-native acquire "
+            "and rebuild-margin-alerts-native with its fixed input"
+        )
 
 
 def final_legacy_week_requires_refresh(sqlite_path: Path) -> bool:

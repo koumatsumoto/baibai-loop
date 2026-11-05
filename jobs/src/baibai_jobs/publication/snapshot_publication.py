@@ -31,6 +31,8 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
     CalendarL1,
     CalendarObjectStore,
 )
+from baibai_engine.data_collection.providers.jquants.full_day_native import FullDayObjectStore
+from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
 from baibai_engine.data_collection.providers.jquants.master_native import (
     MasterL1,
     MasterObjectStore,
@@ -69,18 +71,22 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     LakeStoreOriginError,
     advance_lake_store_origin,
+    read_lake_store_origin,
 )
 from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.calendar_native import model_input as native_calendar_model_input
+from baibai_jobs.integration.margin_alerts_native import model_input as native_alerts_model_input
 from baibai_jobs.integration.master_native import model_input as native_master_model_input
 from baibai_jobs.integration.price_native import model_input as native_price_model_input
+from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_calendar_export import export_calendar_from_native_input
 from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
+from baibai_jobs.publication.l1_margin_alerts_export import export_margin_alerts_from_native_input
 from baibai_jobs.publication.l1_master_export import export_master_from_native_input
 from baibai_jobs.publication.l1_price_export import (
     export_prices_from_l1,
@@ -140,6 +146,7 @@ class PreparedMarketLake:
     price_identity: InputSnapshot | None = None
     master_identity: InputSnapshot | None = None
     calendar_identity: InputSnapshot | None = None
+    margin_alerts_identity: InputSnapshot | None = None
 
 
 @contextmanager
@@ -157,6 +164,7 @@ def prepare_market_lake(
     native_price = price_native_enabled()
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
+    native_alerts = margin_alerts_native_enabled()
     if native_calendar and not (native_financial and native_price and native_master):
         raise ValueError(
             "native calendar publication requires financial, price and master native modes"
@@ -203,6 +211,7 @@ def prepare_market_lake(
     serving = _serving_pointer(store)
     previous = serving.pointer
     published_coverage_start: Mapping[str, date] = {}
+    serving_release = None
     if previous is not None:
         serving_release = _resolve_serving_release(store, mirror_root, previous)
         published_coverage_start = {
@@ -213,7 +222,28 @@ def prepare_market_lake(
             and not (native_master and name == "jquants.master_snapshots")
             and not (native_calendar and name == "jquants.market_calendar")
             and not (native_lists and name == "edinet.list_responses")
+            and not (native_alerts and name == "jquants.margin_alerts")
         }
+    alerts_identity = None
+    if native_alerts:
+        previous_alerts = None
+        if serving_release is not None and read_lake_store_origin(sqlite_path) == _pointer_origin(
+            previous
+        ):
+            previous_alerts = serving_release.dataset_manifests.get("jquants.margin_alerts")
+        fixed_alerts = MarginAlertsL1(
+            cast(FullDayObjectStore, store), mirror_root / "margin-alerts-native"
+        ).fixed()
+        evaluated_at = datetime.now(UTC)
+        alerts_identity = native_alerts_model_input(
+            store,
+            fixed_alerts,
+            as_of=as_of or evaluated_at.date(),
+            evaluated_at=evaluated_at,
+            market=sqlite_path,
+            mirror_root=mirror_root,
+            previous=previous_alerts,
+        )
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         policy = release_policy_for_profile("production")
@@ -223,10 +253,12 @@ def prepare_market_lake(
         native_calendar_enabled = native_calendar and "jquants.market_calendar" in policy_names
         native_master_enabled = native_master and "jquants.master_snapshots" in policy_names
         native_price_enabled = native_price and "jquants.daily_bars" in policy_names
+        native_alerts_enabled = native_alerts and "jquants.margin_alerts" in policy_names
         derived_names = {
             name
             for name, enabled in (
                 ("jquants.market_calendar", native_calendar_enabled),
+                ("jquants.margin_alerts", native_alerts_enabled),
                 ("jquants.master_snapshots", native_master_enabled),
                 ("jquants.fin_summaries", finance_enabled),
                 ("jquants.daily_bars", price_enabled or native_price_enabled),
@@ -247,7 +279,10 @@ def prepare_market_lake(
             producer_git_commit=git_commit,
             expected_store_origin=_pointer_origin(previous),
             catalog=catalog,
-            allow_empty=native_calendar_enabled or native_master_enabled or native_price_enabled,
+            allow_empty=native_calendar_enabled
+            or native_master_enabled
+            or native_price_enabled
+            or native_alerts_enabled,
         )
         if derived_names:
             source = export.datasets.get("jquants.source_pages")
@@ -294,6 +329,14 @@ def prepare_market_lake(
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
                 )
+            if native_alerts_enabled:
+                assert alerts_identity is not None
+                datasets["jquants.margin_alerts"] = export_margin_alerts_from_native_input(
+                    source_snapshot=snapshot,
+                    saved=alerts_identity,
+                    mirror_root=mirror_root,
+                    producer_git_commit=git_commit,
+                )
             export = replace(export, datasets=datasets)
         export_finished = time.perf_counter()
         with _export_manifest_snapshot(export.datasets, mirror_root) as manifest_paths:
@@ -329,6 +372,7 @@ def prepare_market_lake(
                 price_identity=price_identity,
                 master_identity=master_identity,
                 calendar_identity=calendar_identity,
+                margin_alerts_identity=alerts_identity,
             )
 
 

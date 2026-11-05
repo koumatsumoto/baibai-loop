@@ -54,6 +54,7 @@ from baibai_jobs.integration.jquants_handoff import (
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
@@ -79,6 +80,23 @@ def apply(
         raise ValueError("calendar cutover mode differs from the fixed integration plan")
     if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
         raise ValueError("EDINET list mode differs from the fixed integration plan")
+    if bool(plan.get("margin_alerts_native", False)) != margin_alerts_native_enabled():
+        raise ValueError("margin alerts mode differs from the fixed integration plan")
+    margin_alerts_fingerprints = None
+    if margin_alerts_native_enabled() and any(
+        entry["source"] == "jquants-market" for entry in plan["handoffs"]
+    ):
+        from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+            MarginAlertsL1,
+        )
+
+        margin_alerts_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in MarginAlertsL1(store, directory / "margin-alerts-native")
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
     calendar_input = None
     calendar_fingerprints = None
     if calendar_native_enabled():
@@ -176,6 +194,7 @@ def apply(
                     if master_input is None
                     and calendar_input is None
                     and price_fingerprints is None
+                    and margin_alerts_fingerprints is None
                     else _replay(
                         entry["source"],
                         market,
@@ -186,6 +205,7 @@ def apply(
                         calendar_input=calendar_input,
                         calendar_fingerprints=calendar_fingerprints,
                         price_fingerprints=price_fingerprints,
+                        margin_alerts_fingerprints=margin_alerts_fingerprints,
                     )
                 )
                 result = replay.report
@@ -380,6 +400,7 @@ def main(argv: list[str] | None = None) -> int:
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
                     "calendar_native": calendar_native_enabled(),
+                    "margin_alerts_native": margin_alerts_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },

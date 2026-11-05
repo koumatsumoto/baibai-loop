@@ -47,6 +47,7 @@ from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
+from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
 
 SOURCES = (
     "tradingview",
@@ -174,6 +175,7 @@ def _replay(
     calendar_input: InputSnapshot | None = None,
     calendar_fingerprints: Mapping[str, str] | None = None,
     price_fingerprints: Mapping[str, str] | None = None,
+    margin_alerts_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
@@ -260,6 +262,12 @@ def _replay(
             and calendar_fingerprints is None
         ):
             raise ValueError("native calendar replay requires retained cutover fingerprints")
+        if (
+            source == "jquants-market"
+            and margin_alerts_native_enabled()
+            and margin_alerts_fingerprints is None
+        ):
+            raise ValueError("native margin alerts replay requires retained cutover fingerprints")
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
@@ -267,6 +275,7 @@ def _replay(
             master_fingerprints is not None
             or calendar_fingerprints is not None
             or price_fingerprints is not None
+            or margin_alerts_fingerprints is not None
         ):
             return import_jquants_handoff(
                 path,
@@ -276,6 +285,7 @@ def _replay(
                 master_fingerprints=master_fingerprints,
                 calendar_fingerprints=calendar_fingerprints,
                 price_fingerprints=price_fingerprints,
+                margin_alerts_fingerprints=margin_alerts_fingerprints,
             )
         return import_jquants_handoff(
             path, database, _handoff_ids(report, "request_ids"), sources=selected
@@ -389,6 +399,9 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     native_prices = price_native_enabled()
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
+    native_alerts = margin_alerts_native_enabled()
+    alerts_result = None
+    alerts_ok = True
     calendar_result = None
     calendar_fixed = None
     calendar_ok = True
@@ -488,6 +501,33 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
         directory.mkdir(parents=True, exist_ok=True)
         assert master_result is not None
         write_json_atomic(directory / "master-native-result.json", master_result)
+    if native_alerts:
+        from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+            MarginAlertsL1,
+        )
+        from baibai_jobs.acquisition.jquants_margin_alerts_native import (
+            acquire_margin_alerts_native,
+        )
+
+        if provider_halted:
+            alerts_result = {"halted": 1, "status": "provider_halted"}
+            alerts_ok = False
+        else:
+            # This source commits before the remaining market release is opened.
+            # A later legacy or L2 failure cannot undo its received originals.
+            with (
+                closing(Boto3R2Store(bucket=bucket)) as alerts_store,
+                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as alerts_client,
+            ):
+                acquired_alerts = acquire_margin_alerts_native(
+                    MarginAlertsL1(alerts_store, directory / "margin-alerts-native"),
+                    asof=asof,
+                    client=alerts_client,
+                )
+            alerts_result = dict(acquired_alerts)
+            provider_halted = bool(acquired_alerts.get("halted"))
+            alerts_ok = not bool(acquired_alerts["failed"] or acquired_alerts["held"])
+        write_json_atomic(directory / "margin-alerts-native-result.json", alerts_result)
     with (
         tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
         open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
@@ -506,6 +546,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             include_daily_prices=not native_prices,
             include_master=not native_master,
             include_calendar=not native_calendar,
+            include_margin_alerts=not native_alerts,
         )
         if calendar_fixed is not None:
             from dataclasses import replace
@@ -522,10 +563,14 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             include_daily_prices=not native_prices,
             include_master=not native_master,
             include_calendar=not native_calendar,
+            include_margin_alerts=not native_alerts,
             provider_halted=provider_halted,
         )
 
-    if native_result is not None or master_result is not None or calendar_result is not None:
+    if any(
+        result is not None
+        for result in (native_result, master_result, calendar_result, alerts_result)
+    ):
         path = directory / "result.json"
         report = json.loads(path.read_bytes())
         if (
@@ -562,9 +607,10 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             **({"daily_bars": native_result} if native_result is not None else {}),
             **({"master": master_result} if master_result is not None else {}),
             **({"market_calendar": calendar_result} if calendar_result is not None else {}),
+            **({"margin_alerts": alerts_result} if alerts_result is not None else {}),
         }
         write_json_atomic(path, report)
-    return legacy_ok and price_ok and master_ok and calendar_ok
+    return legacy_ok and price_ok and master_ok and calendar_ok and alerts_ok
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -589,6 +635,7 @@ class _ReplayContext(TypedDict, total=False):
     master_fingerprints: Mapping[str, str]
     calendar_fingerprints: Mapping[str, str]
     price_fingerprints: Mapping[str, str]
+    margin_alerts_fingerprints: Mapping[str, str]
 
 
 def _replay_context(
@@ -600,6 +647,7 @@ def _replay_context(
     master_input: InputSnapshot | None = None,
     calendar_input: InputSnapshot | None = None,
     price_fingerprints: Mapping[str, str] | None = None,
+    margin_alerts_fingerprints: Mapping[str, str] | None = None,
 ) -> _ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
     from baibai_jobs.master_cutover import master_native_enabled
@@ -618,6 +666,20 @@ def _replay_context(
         }
     if price_fingerprints is not None:
         context["price_fingerprints"] = price_fingerprints
+    if source == "jquants-market" and margin_alerts_native_enabled():
+        from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+            MarginAlertsL1,
+        )
+
+        if margin_alerts_fingerprints is None:
+            margin_alerts_fingerprints = {
+                identity: receipt["fingerprint"]
+                for identity, receipt in MarginAlertsL1(store, directory / "margin-alerts-native")
+                .fixed()
+                .value()["receipts"]
+                .items()
+            }
+        context["margin_alerts_fingerprints"] = margin_alerts_fingerprints
     day = date.fromisoformat(str(packet["asof"]))
     if source == "tradingview":
         if master_input is None and packet.get("master_native_input") is not None:
@@ -675,7 +737,10 @@ def main(argv: list[str] | None = None) -> int:
             native = args.source in {"tradingview", "jquants-market"} and (
                 master_native_enabled()
                 or calendar_native_enabled()
-                or (args.source == "jquants-market" and price_native_enabled())
+                or (
+                    args.source == "jquants-market"
+                    and (price_native_enabled() or margin_alerts_native_enabled())
+                )
                 or packet.get("master_native_input") is not None
                 or packet.get("calendar_native_input") is not None
             )
@@ -784,6 +849,7 @@ def main(argv: list[str] | None = None) -> int:
                         and calendar_input is None
                         and not master_native_enabled()
                         and not calendar_native_enabled()
+                        and not margin_alerts_native_enabled()
                         and price_fingerprints is None
                     ):
                         _replay(source, args.database, packet)
