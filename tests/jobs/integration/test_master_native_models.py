@@ -282,7 +282,10 @@ def test_publication_uses_same_immutable_seal_without_second_raw_decode(tmp_path
     assert sum(len(pq.read_table(path)) for path in paths) == 2503
 
 
-def test_normal_models_and_publication_share_native_master_and_price(tmp_path, monkeypatch):
+@pytest.mark.parametrize("historical_invalid", [False, True])
+def test_normal_models_and_publication_share_native_master_and_price(
+    tmp_path, monkeypatch, historical_invalid
+):
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
@@ -300,7 +303,10 @@ def test_normal_models_and_publication_share_native_master_and_price(tmp_path, m
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
     monkeypatch.setattr(job, "_load_handle", lambda _path: None)
     monkeypatch.setattr(job, "verify_held", lambda *_args: None)
-    store, owner, market = setup_native(tmp_path, [attempt("native-master")])
+    attempts = [attempt("native-master")]
+    if historical_invalid:
+        attempts.insert(0, attempt("old-empty", day=DAY - timedelta(days=1), rows=[]))
+    store, owner, market = setup_native(tmp_path, attempts)
     price = PriceL1(store, tmp_path / "price")
     price.initialize()
     body = json.dumps({"data": [{"Code": "13010", "Date": DAY.isoformat(), "C": 100}]}).encode()
@@ -345,6 +351,9 @@ def test_normal_models_and_publication_share_native_master_and_price(tmp_path, m
     master = release.dataset_manifest("jquants.master_snapshots")
     assert master.partitions[0].sources[0].namespace == "jquants-master"
     assert master.totals.rows == 2503
+    assert master.coverage_status == ("partial" if historical_invalid else "complete")
+    assert saved.inputs["master"].descriptor["summary"]["invalid_days"] == int(historical_invalid)
+    assert saved.inputs["master"].descriptor["summary"]["coverage_status"] == master.coverage_status
 
 
 def test_unavailable_requested_snapshot_does_not_reuse_old_projection(tmp_path):
@@ -400,3 +409,60 @@ def test_base_export_still_rejects_empty_without_native_composition(tmp_path):
             producer_git_commit="a" * 40,
             expected_store_origin=None,
         )
+
+
+@pytest.mark.parametrize("invalid_kind", ["empty", "truncated", "wrong-date"])
+def test_historical_invalid_is_unavailable_boundary_but_newer_valid_recovers(
+    tmp_path, invalid_kind
+):
+    prior = DAY - timedelta(days=30)
+    invalid = (
+        []
+        if invalid_kind == "empty"
+        else records()[:2499]
+        if invalid_kind == "truncated"
+        else records(NEXT)
+    )
+    store, owner, market = setup_native(
+        tmp_path,
+        [
+            attempt("prior", day=prior),
+            attempt("invalid", rows=invalid),
+            attempt("current", day=NEXT),
+        ],
+    )
+    saved = model_input(store, owner.fixed(), as_of=NEXT, evaluated_at=AT, market=market)
+    summary = saved.descriptor["summary"]
+    assert summary["coverage_status"] == "partial"
+    assert summary["invalid_days"] == summary["unavailable_days"] == 1
+    assert summary["invalid_snapshot_dates"] == [DAY.isoformat()]
+    assert summary["snapshot_date"] == NEXT.isoformat()
+    assert read_eq_master_asof(market, DAY - timedelta(days=1)).status == "prior_snapshot"
+    assert read_eq_master_asof(market, prior - timedelta(days=1)).status == "future_snapshot"
+    for day in (DAY, DAY + timedelta(days=1), NEXT - timedelta(days=1)):
+        assert read_master_snapshot(market, as_of=day) is None
+        assert read_eq_master_asof(market, day).status == "unavailable"
+        assert read_eq_master_exact(market, day) is None
+    assert read_master_snapshot(market, as_of=NEXT).as_of == NEXT
+    assert read_eq_master_exact(market, NEXT) is not None
+    old = stored_rows(market)
+    with pytest.raises(JQuantsProviderError):
+        model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
+    assert stored_rows(market) == old
+    del store.values[HEAD_KEY]
+    market.unlink()
+    store.get_keys.clear()
+    cold = rebuild_saved_input(store, saved, start=prior, end=NEXT, output=tmp_path / "cold")
+    assert cold["invalid_days"] == 1
+    assert cold["coverage_status"] == "partial"
+    statuses = pq.read_table(tmp_path / "cold/master_receipt_status.parquet").to_pylist()
+    invalid_status = next(row for row in statuses if row["day"] == DAY.isoformat())
+    assert invalid_status["status"] == "unavailable"
+    assert invalid_status["error"].startswith("invalid master snapshot: ")
+    assert invalid_status["row_count"] == 0
+    assert HEAD_KEY not in store.get_keys
+    # A historical slice reproduces its known invalid state, not a fabricated prior universe.
+    subset = rebuild_saved_input(store, saved, start=DAY, end=DAY, output=tmp_path / "subset")
+    assert subset["rows"] == 0
+    assert subset["invalid_days"] == 1
+    assert subset["coverage_status"] == "partial"

@@ -31,8 +31,10 @@ from baibai_engine.machine_analysis.generation.master_inputs import (
     read_master_input,
     retain_master_input,
 )
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     MASTER_SOURCE,
+    MASTER_VALIDATION_ERROR_PREFIX,
     master_coverage_key,
     validate_master_snapshot,
 )
@@ -77,16 +79,19 @@ def _project(
     *,
     scopes: dict[str, Any],
     evaluated_at: datetime | None = None,
+    required_snapshot: str | None = None,
 ) -> dict[str, Any]:
     """Validate each adopted whole snapshot before exposing any replacement rows."""
     projection.executescript(JQUANTS_MASTER_SNAPSHOTS_DDL)
     projection.execute(
         "CREATE TABLE master_receipt_status("
         "day TEXT PRIMARY KEY, request_id TEXT, status TEXT NOT NULL, row_count INTEGER NOT NULL,"
-        "failed INTEGER NOT NULL, held INTEGER NOT NULL, confirmed_at TEXT, last_attempt_at TEXT)"
+        "failed INTEGER NOT NULL, held INTEGER NOT NULL, confirmed_at TEXT, last_attempt_at TEXT,"
+        "error TEXT)"
     )
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     counts: dict[str, int] = {}
+    invalid: dict[str, str] = {}
     for item in requests:
         if (
             evaluated_at is not None
@@ -105,10 +110,18 @@ def _project(
             or date.fromisoformat(item.request.params["date"]) != date.fromisoformat(day)
         ):
             raise ValueError("adopted master request differs from its fixed date")
-        snapshot = validate_master_snapshot(item.request.records(), date.fromisoformat(day))
+        try:
+            snapshot = validate_master_snapshot(item.request.records(), date.fromisoformat(day))
+        except JQuantsProviderError as error:
+            # An old bad receipt must not poison all later current-date acquisitions.
+            # It remains an explicit unavailable boundary, never a valid empty snapshot.
+            if day == required_snapshot:
+                raise
+            invalid[day] = MASTER_VALIDATION_ERROR_PREFIX + str(error)
+            continue
         projection.executemany("INSERT INTO jquants_master_snapshots VALUES (?,?,?)", snapshot.rows)
         counts[day] = snapshot.persisted_count
-    if set(counts) != set(adopted.values()):
+    if set(counts) | set(invalid) != set(adopted.values()):
         raise ValueError("native master selection lacks an adopted request")
     summary: dict[str, Any] = {
         "snapshot_days": len(scopes),
@@ -118,12 +131,15 @@ def _project(
         "partial_days": 0,
         "failed_days": 0,
         "held_days": 0,
+        "invalid_days": len(invalid),
+        "invalid_snapshot_dates": sorted(invalid)[:12],
+        "additional_invalid_snapshot_dates": max(0, len(invalid) - 12),
     }
     for day, scope in sorted(scopes.items()):
         failed, held = bool(scope.get("failure")), bool(scope.get("held"))
         status = "unavailable" if day not in counts else "partial" if failed or held else "ok"
         projection.execute(
-            "INSERT INTO master_receipt_status VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO master_receipt_status VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 day,
                 scope.get("adopted"),
@@ -133,6 +149,7 @@ def _project(
                 int(held),
                 scope.get("confirmed_at"),
                 scope.get("last_attempt_at"),
+                invalid.get(day),
             ),
         )
         summary["unavailable_days"] += int(status == "unavailable")
@@ -230,8 +247,15 @@ def model_input(
     """Replace disposable master history, preserving all native records and sparse dates."""
     saved = fixed_input(store, fixed, as_of=as_of, evaluated_at=evaluated_at)
     days = tuple(date.fromisoformat(day) for day in sorted(fixed.value()["scopes"]))
-    materialize_saved_input(store, saved, market=market, days=days, replace_all=True)
-    return saved
+    result = materialize_saved_input(store, saved, market=market, days=days, replace_all=True)
+    descriptor = dict(_descriptor(saved))
+    summary = descriptor["summary"]
+    assert isinstance(summary, dict)
+    descriptor["summary"] = {**summary, **result}
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    return InputSnapshot(
+        kind="native_l1", reference="jquants-master-" + digest, sha256=digest, descriptor=descriptor
+    )
 
 
 def materialize_saved_input(
@@ -261,6 +285,7 @@ def materialize_saved_input(
             read_master_requests(store, scopes=scopes, receipts=selected["receipts"], days=days),
             scopes=scopes,
             evaluated_at=evaluated_at,
+            required_snapshot=_required_snapshot(saved),
         )
         # All selected snapshots must validate before any old execution row changes.
         with sqlite3.connect(market) as connection:
@@ -283,9 +308,17 @@ def materialize_saved_input(
             )
             while batch := rows.fetchmany(10000):
                 connection.executemany("INSERT INTO jquants_master_snapshots VALUES (?,?,?)", batch)
-            for day, _, status, count, failed, held, confirmed, attempted in projection.execute(
-                "SELECT * FROM master_receipt_status ORDER BY day"
-            ):
+            for (
+                day,
+                _,
+                status,
+                count,
+                failed,
+                held,
+                confirmed,
+                attempted,
+                error,
+            ) in projection.execute("SELECT * FROM master_receipt_status ORDER BY day"):
                 record_source_coverage(
                     connection,
                     source=MASTER_SOURCE,
@@ -295,7 +328,7 @@ def materialize_saved_input(
                     record_count=count,
                     status=status,
                     fetched_at_utc=confirmed or attempted or evaluated_at.isoformat(),
-                    error="native acquisition unresolved" if failed or held else None,
+                    error=error or ("native acquisition unresolved" if failed or held else None),
                 )
     return result
 
@@ -324,6 +357,15 @@ def saved_interval(saved: InputSnapshot) -> tuple[date, date]:
     return first, last
 
 
+def _required_snapshot(saved: InputSnapshot) -> str | None:
+    summary = _descriptor(saved)["summary"]
+    assert isinstance(summary, dict)
+    value = summary.get("snapshot_date")
+    if value is not None and not isinstance(value, str):
+        raise ValueError("native master selection has an invalid as-of snapshot date")
+    return value
+
+
 def _write_projection(projection: sqlite3.Connection, output: Path) -> None:
     schemas = {
         "jquants_master_snapshots": pa.schema(
@@ -343,6 +385,7 @@ def _write_projection(projection: sqlite3.Connection, output: Path) -> None:
                 ("held", pa.int64()),
                 ("confirmed_at", pa.string()),
                 ("last_attempt_at", pa.string()),
+                ("error", pa.string()),
             ]
         ),
     }
@@ -382,6 +425,7 @@ def rebuild_saved_input(
             read_master_requests(store, scopes=scopes, receipts=selected["receipts"], days=days),
             scopes=scopes,
             evaluated_at=evaluated_at,
+            required_snapshot=_required_snapshot(saved),
         )
         _write_projection(projection, output)
     write_json_atomic(
@@ -409,7 +453,14 @@ def rebuild(
     days = tuple(date.fromisoformat(day) for day in sorted(scopes))
     output.mkdir(parents=True, exist_ok=False)
     with _projection() as projection:
-        result = _project(projection, fixed.requests(store, days=days), scopes=scopes)
+        result = _project(
+            projection,
+            fixed.requests(store, days=days),
+            scopes=scopes,
+            required_snapshot=max(
+                (day for day, scope in scopes.items() if scope.get("adopted")), default=None
+            ),
+        )
         _write_projection(projection, output)
     (output / "head.json").write_bytes(fixed.payload)
     write_json_atomic(
