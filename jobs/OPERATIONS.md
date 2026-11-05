@@ -816,6 +816,8 @@ uv run baibai-jobs rebuild-price-native --work-directory /secure-work/price-read
 
 過去generationの `inputs.price` の正確なInputSnapshot JSONを `rebuild-price-native --saved-input <JSON>` へ渡すと、最新head・前回L2・provider取得なしで要求範囲を再生成する。`fixed-inputs/jquants-price/v1/` の共有root/月metadataと `l1/jquants/daily-bars/v1/` の原本packを再計算が必要な間保持する。descriptorへ本文・全履歴scopeを毎日複写せず、変更された月だけ追加する。確認時刻・失敗・保留も固定する。全保持期間が0行でも再生成は成功するが、価格必須の現行release政策は0行公開を拒否する。原本取得の失敗とは別である。全履歴headの書換え・月数分のcold GET・全履歴正規化は残り、実R2の速度・転送量・権限/lifecycleは未検証である。
 
+取引暦もnativeへ切り替えた通常生成では、同じ固定暦がknown `0/3` と証明する価格未試行日だけ、価格観測の公開coverageから除外する。旧scheduleが取得しなかった休場日は正常空受領へ書き換えず、raw coverage・未取得件数に残す。未知/不正/欠落/failed/held暦、営業日、価格側に失敗・partial・heldがある日は除外しない。価格InputSnapshot v2の月metadataは、同じ固定暦から当該月の休場証明日だけを選んだ不変selection digestを保持する。無関係な暦月の更新で過去の価格月を保存し直さない。その証明root/月metadataと暦原本packも価格入力と同じ期間保持する。cold再生成は固定暦と原本packを照合し、欠損・破損時は停止する。最新暦や旧L2を使わない。旧v1入力は当時の欠測意味で読み、新しい休場除外を遡及しない。暦native無効のprice-only生成は休場証明を補わない。
+
 ### 旧日足原本と混在market stageからの切替
 
 通常dailyへ移行を代行させない。旧市場writer・dailyを停止して実行中/queued jobをdrainし、exact旧release ID/SHA256、実UTC境界、未統合を含む全market stageを固定する。`price-native-cutover prepare` はmarket stageの全宣言request IDを原本と照合したうえで、日足だけを移す。他sourceの明示失敗を日足失敗へ変換しない。filteredな日足・原本欠損・未知scope・日足失敗なのに失敗原本が無いstageは `blocked` とし、空成功を作らない。
@@ -830,10 +832,10 @@ uv run baibai-jobs price-native-cutover apply --directory /secure-work/price-mig
 uv run baibai-jobs price-native-cutover verify --directory /secure-work/price-migration \
   --work-directory /secure-work/price-cold-read
 uv run baibai-jobs price-native-cutover compare --directory /secure-work/price-migration \
-  --work-directory /secure-work/price-compare
+  --work-directory /secure-work/price-compare --asof <FIRST_DAILY_DATE>
 ```
 
-apply/verifyは旧版・partialを含む移行packをcold照合し、compareは同じ旧releaseのL2とnative再生成の値・不足を比べる。旧投影を原本として埋めない。同値確認はfingerprintだけを持つため、その確認時のexact page bytesの全履歴には旧release/stageの保持も必要である。移行完了だけで旧物を削除しない。prepare後の後着stageがあれば境界を作り直す。
+apply/verifyは旧版・partialを含む移行packをcold照合する。compareは予定する初回daily日までの全暦日を検査し、行差分または公開coverage未充足なら非0で終了する。予定する暦native設定も同じshellへ渡す。有効時はnative暦headを一度固定し、休場未試行の除外とraw未取得を分けて報告する。通常2200日取得窓より古い欠測も隠さず、dailyへ全履歴再取得を代行させない。旧投影を原本として埋めない。同値確認はfingerprintだけを持つため、その確認時のexact page bytesの全履歴には旧release/stageの保持も必要である。移行完了だけで旧物を削除しない。prepare後の後着stageがあれば境界を作り直す。
 
 保留・差分の受入と新旧writer境界、保存先のwrite/read権限と期限削除対象外を確認してから、同じcodeで共通variableを切り替える。初回dailyのモデルprice identity、価格値・補正係数・coverage、公開L2のnative lineage、次hydrateを読戻す。fixture成功を実store受入としない。設定をfalseへ戻すだけでは新旧境界や旧投影を復元できない。異常時はsource/dailyを止め、確定head・移行plan・旧releaseから再開先を決める。安定後に旧price plan/stage依存と移行設定を撤去する。その他のJ-Quants移行と原本削除は別である（refs #1820）。
 

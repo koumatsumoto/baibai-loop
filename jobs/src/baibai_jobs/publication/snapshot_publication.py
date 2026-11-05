@@ -197,6 +197,7 @@ def prepare_market_lake(
             as_of=as_of or evaluated_at.date(),
             evaluated_at=evaluated_at,
             market=sqlite_path,
+            calendar_input=calendar_identity,
         )
     started = time.perf_counter()
     serving = _serving_pointer(store)

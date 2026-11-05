@@ -16,10 +16,14 @@ import sys
 import zlib
 from collections.abc import Iterable, Iterator
 from contextlib import closing
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    CalendarL1,
+    FixedCalendarL1,
+)
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
@@ -31,6 +35,7 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     PriceAttempt,
     PriceL1,
 )
+from baibai_engine.machine_analysis.generation.calendar_inputs import calendar_day_closed
 from baibai_engine.machine_analysis.observations.prices.from_l1 import rebuild_price_days
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_DAILY_BARS,
@@ -47,6 +52,8 @@ from baibai_engine.storage.snapshots.reader import (
     selected_partitions,
 )
 from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs, download_fixed
+from baibai_jobs.calendar_cutover import calendar_native_enabled
+from baibai_jobs.integration.price_native import price_day_unresolved
 
 
 def _encoded(value: Any) -> bytes:
@@ -300,6 +307,8 @@ def compare_projection(
     cache: LakeObjectCache,
     owner: PriceL1,
     directory: Path,
+    as_of: date | None = None,
+    calendar: FixedCalendarL1 | None = None,
 ) -> dict[str, Any]:
     """Compare finite old projection with native rebuild, without treating either as an original."""
     plan = json.loads((directory / "plan.json").read_bytes())
@@ -320,10 +329,30 @@ def compare_projection(
         for row in prices.fetchall():
             old[tuple(row[:2])] = hashlib.sha256(_encoded(row[2:])).hexdigest()
     fixed = owner.fixed()
-    days = {date.fromisoformat(key[1]) for key in old} | {
-        date.fromisoformat(day) for day in fixed.value()["scopes"]
+    scopes = fixed.value()["scopes"]
+    retained_days = {date.fromisoformat(key[1]) for key in old} | {
+        date.fromisoformat(day) for day in scopes
     }
+    if not retained_days:
+        raise ValueError("price comparison requires retained source days")
+    first, last = min(retained_days), max(*retained_days, as_of or max(retained_days))
+    days = tuple(first + timedelta(days=i) for i in range((last - first).days + 1))
     rebuilt = rebuild_price_days(fixed.requests(owner.store, days=sorted(days)), days=days)
+    calendar_days = {} if calendar is None else calendar.value()["days"]
+    closed = {
+        day
+        for day in days
+        if not scopes.get(day.isoformat())
+        and calendar_day_closed(calendar_days.get(day.isoformat(), {}))
+    }
+    if calendar is not None and closed:
+        for attempt in calendar.requests(owner.store, days=tuple(sorted(closed))):
+            complete_request(attempt.pages)
+    unresolved = {
+        day
+        for day, item in rebuilt.items()
+        if price_day_unresolved(item, scopes.get(day.isoformat(), {}))
+    }
     new = {
         tuple(row[:2]): hashlib.sha256(_encoded(row[2:])).hexdigest()
         for item in rebuilt.values()
@@ -333,6 +362,11 @@ def compare_projection(
         "release_id": release.release_id,
         "manifest_sha256": release.manifest_sha256,
         "head_sha256": fixed.content_id,
+        "calendar_head_sha256": None if calendar is None else calendar.content_id,
+        "as_of": (as_of or last).isoformat(),
+        "raw_coverage_status": "partial" if unresolved else "complete",
+        "coverage_status": "partial" if unresolved - closed else "complete",
+        "closed_unrequested_days": [day.isoformat() for day in sorted(closed)],
         "legacy_rows": len(old),
         "native_rows": len(new),
         "matched_rows": sum(old[key] == new[key] for key in old.keys() & new.keys()),
@@ -342,7 +376,11 @@ def compare_projection(
             if old.get(key) != new.get(key)
         ],
         "days": {
-            day.isoformat(): {"status": item.status, "incomplete": item.incomplete_requests}
+            day.isoformat(): {
+                "status": item.status,
+                "incomplete": item.incomplete_requests,
+                "price_required": day not in closed,
+            }
             for day, item in rebuilt.items()
         },
     }
@@ -358,6 +396,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--release")
     parser.add_argument("--manifest-sha256")
     parser.add_argument("--known-at", type=datetime.fromisoformat)
+    parser.add_argument(
+        "--asof", type=date.fromisoformat, help="first normal publication date for compare"
+    )
     return parser
 
 
@@ -376,7 +417,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(result, sort_keys=True))
                 return int(bool(result["held"]))
             if args.command == "compare":
+                if args.asof is None:
+                    raise ValueError("compare requires --asof for the intended daily publication")
                 plan = json.loads((args.directory / "plan.json").read_bytes())
+                calendar = (
+                    CalendarL1(store, args.work_directory / "calendar-native").fixed()
+                    if calendar_native_enabled()
+                    else None
+                )
                 with open_lake(mirror=args.work_directory, bucket=bucket) as (session, cache):
                     release = resolve_release(
                         cache.source, plan["release_id"], manifest_sha256=plan["manifest_sha256"]
@@ -387,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
                         cache=cache,
                         owner=PriceL1(store, args.work_directory),
                         directory=args.directory,
+                        as_of=args.asof,
+                        calendar=calendar,
                     )
                 print(
                     json.dumps(
@@ -394,11 +444,14 @@ def main(argv: list[str] | None = None) -> int:
                             "legacy_rows": report["legacy_rows"],
                             "native_rows": report["native_rows"],
                             "differences": len(report["differences"]),
+                            "coverage_status": report["coverage_status"],
+                            "raw_coverage_status": report["raw_coverage_status"],
+                            "closed_unrequested_days": len(report["closed_unrequested_days"]),
                         },
                         sort_keys=True,
                     )
                 )
-                return 0
+                return int(bool(report["differences"]) or report["coverage_status"] != "complete")
             if not args.release or not args.manifest_sha256 or args.known_at is None:
                 raise ValueError(
                     "prepare requires the exact release, digest and migration boundary"

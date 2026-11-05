@@ -27,6 +27,7 @@ from baibai_engine.data_collection.providers.jquants.calendar_native import (
 from baibai_engine.data_collection.providers.jquants.contracts import complete_request
 from baibai_engine.machine_analysis.generation.calendar_inputs import (
     INPUT_FORMAT,
+    calendar_day_usable,
     read_calendar_input,
     retain_calendar_input,
 )
@@ -56,21 +57,8 @@ def _validate_clock(scopes: Mapping[str, Any], evaluated_at: datetime) -> None:
                     )
 
 
-def _usable(scope: Mapping[str, Any]) -> bool:
-    # Unknown nonblank source categories can satisfy acquisition without proving
-    # either an open or a closed cash-equity session. Failed/held newer evidence
-    # also prevents the retained old row from being used as holiday proof.
-    return bool(
-        scope.get("adopted")
-        and scope.get("valid")
-        and scope.get("division") in {"0", "1", "2", "3"}
-        and not scope.get("failure")
-        and not scope.get("held")
-    )
-
-
 def _summary(scopes: Mapping[str, Any]) -> dict[str, Any]:
-    usable = sum(_usable(scope) for scope in scopes.values())
+    usable = sum(calendar_day_usable(scope) for scope in scopes.values())
     raw_complete = sum(
         bool(scope.get("adopted") and scope.get("valid"))
         and not scope.get("failure")
@@ -247,7 +235,7 @@ def materialize_saved_input(
                     (CALENDAR_SOURCE, day, day),
                 )
         for day, scope in sorted(scopes.items()):
-            usable = _usable(scope)
+            usable = calendar_day_usable(scope)
             if usable:
                 connection.execute(
                     "INSERT INTO jquants_market_calendar VALUES (?,?)", (day, scope["division"])

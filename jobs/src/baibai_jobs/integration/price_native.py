@@ -26,8 +26,10 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import (
+    read_closed_price_days,
     read_price_input,
     retain_price_input,
+    with_calendar_closures,
 )
 from baibai_engine.machine_analysis.observations.prices.from_l1 import (
     PriceDay,
@@ -53,7 +55,7 @@ def _months(days: Sequence[date]) -> Iterator[tuple[date, ...]]:
     yield from (tuple(group) for group in months.values())
 
 
-def _unresolved(item: PriceDay, scope: dict[str, Any]) -> bool:
+def price_day_unresolved(item: PriceDay, scope: dict[str, Any]) -> bool:
     return bool(
         item.status in {"unavailable", "partial"}
         or item.incomplete_requests
@@ -69,6 +71,7 @@ def model_input(
     as_of: date,
     evaluated_at: datetime,
     market: Path,
+    calendar_input: InputSnapshot | None = None,
 ) -> InputSnapshot:
     """Replace the disposable SQLite projection and retain its exact native identity."""
     if evaluated_at.utcoffset() is None:
@@ -83,6 +86,10 @@ def model_input(
         for field in ("confirmed_at", "last_attempt_at", "changed_at"):
             if (stamp := scope.get(field)) and datetime.fromisoformat(stamp) > evaluated_at:
                 raise ValueError("price confirmation state is later than the evaluation clock")
+    scopes = with_calendar_closures(store, scopes, calendar_input, evaluated_at=evaluated_at)
+    closed = {
+        date.fromisoformat(day) for day, scope in scopes.items() if "closed_calendar" in scope
+    }
     identities = {
         identity
         for scope in scopes.values()
@@ -111,8 +118,10 @@ def model_input(
         "incomplete_days": 0,
         "failed_days": sum(bool(s.get("failure")) for s in scopes.values()),
         "held_days": sum(bool(s.get("held")) for s in scopes.values()),
+        "closed_unrequested_days": len(closed),
     }
     ranges: list[dict[str, str]] = []
+    required_unresolved = False
     with duckdb.connect(":memory:") as projection:
         for index, month in enumerate(_months(days)):
             requests = tuple(fixed.requests(store, days=month))
@@ -126,7 +135,8 @@ def model_input(
                 projection, results.values(), l1_coverage_status="partial", append=index > 0
             )
             for day, item in results.items():
-                unresolved = _unresolved(item, scopes[day.isoformat()])
+                unresolved = price_day_unresolved(item, scopes[day.isoformat()])
+                required_unresolved = required_unresolved or (unresolved and day not in closed)
                 summary["normal_empty_days"] += int(
                     not unresolved
                     and not item.rows
@@ -151,7 +161,8 @@ def model_input(
             summary[name] = operation(stamps) if stamps else None
         summary["unresolved_ranges"] = ranges[:12]
         summary["additional_unresolved_ranges"] = max(0, len(ranges) - 12)
-        summary["coverage_status"] = "partial" if ranges else "complete"
+        summary["raw_coverage_status"] = "partial" if ranges else "complete"
+        summary["coverage_status"] = "partial" if required_unresolved else "complete"
         selected["summary"] = summary
         descriptor = retain_price_input(store, selected)
         digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
@@ -230,11 +241,13 @@ def materialize_saved_input(
         "incomplete": 0,
         "failed": 0,
         "held": 0,
+        "closed_unrequested": 0,
     }
-    complete = True
+    complete = raw_complete = True
     for index, month in enumerate(_months(days)):
         selected = read_price_input(store, _descriptor(saved), days=month)
         scopes = selected["scopes"]
+        closed = read_closed_price_days(store, scopes)
         requests = read_price_requests(
             store, scopes=scopes, receipts=selected["receipts"], days=month
         )
@@ -244,16 +257,20 @@ def materialize_saved_input(
         )
         for day, item in results.items():
             scope = scopes[day.isoformat()]
-            complete = complete and not _unresolved(item, scope)
+            unresolved = price_day_unresolved(item, scope)
+            raw_complete = raw_complete and not unresolved
+            complete = complete and (not unresolved or day in closed)
             counts["rows"] += len(item.rows)
             counts["unavailable"] += int(item.status == "unavailable")
             counts["partial"] += int(item.status == "partial")
             counts["incomplete"] += int(bool(item.incomplete_requests))
             counts["failed"] += int(bool(scope.get("failure")))
             counts["held"] += int(bool(scope.get("held")))
+            counts["closed_unrequested"] += int(day in closed)
     counts["coverage_status"] = "complete" if complete else "partial"
+    counts["raw_coverage_status"] = "complete" if raw_complete else "partial"
     connection.execute(
-        "UPDATE price_receipt_status SET l1_coverage_status=?", [counts["coverage_status"]]
+        "UPDATE price_receipt_status SET l1_coverage_status=?", [counts["raw_coverage_status"]]
     )
     return counts
 
@@ -305,7 +322,9 @@ def rebuild(
                 connection, results.values(), l1_coverage_status="partial", append=index > 0
             )
             for day, item in results.items():
-                complete = complete and not _unresolved(item, scopes.get(day.isoformat(), {}))
+                complete = complete and not price_day_unresolved(
+                    item, scopes.get(day.isoformat(), {})
+                )
                 counts["rows"] += len(item.rows)
                 counts["unavailable"] += int(item.status == "unavailable")
                 counts["partial"] += int(item.status == "partial")
