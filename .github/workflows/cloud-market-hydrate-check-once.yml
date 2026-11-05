@@ -1,0 +1,167 @@
+name: cloud-market-hydrate-check-once
+
+# 本人承認済みのmarket schema49→50限定操作。定期writerは再開しない。
+on:
+  push:
+    branches: [codex/issue1820-market-hydrate-check-once]
+    paths: [.github/workflows/cloud-market-hydrate-check-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/issue1820-market-hydrate-check-once' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: inspect old market hydration 2026-11-05' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      BAIBAI_FINANCIAL_NATIVE: 'false'
+      BAIBAI_PRICE_NATIVE: 'false'
+      BAIBAI_MASTER_NATIVE: 'false'
+      BAIBAI_CALENDAR_NATIVE: 'false'
+      BAIBAI_EDINET_LIST_NATIVE: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed merged code as this run's exact base
+        env:
+          EXPECTED_CODE_SHA: ef643ae3d8e274a64a19a5b671c34dc2d5abfe78
+        run: test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+      - name: Read-only legacy checkout for schema49 hydration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 5f35da1f7d82e041f0e07895be8537658b0ab4eb
+          path: .legacy
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Read-only hydration diagnosis from preserved originals
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          LEGACY_CHECKOUT: ${{ github.workspace }}/.legacy
+        run: |
+          uv run python - <<'PYCODE'
+          """確定原本から旧hydrateだけを再現。canonical/pointer/inputは書かない。"""
+          import base64
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          import sys
+          from pathlib import Path
+          
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_engine.storage.snapshots.sources import sha256_file
+          from baibai_jobs.acquisition.external_assessments.staging import put_private
+          from baibai_jobs.maintenance.economic_cutover import _read
+          from baibai_jobs.publication import lease
+          
+          CHILD = r'''
+          import contextlib,json,os,shutil,sys,traceback
+          from pathlib import Path
+          from types import SimpleNamespace
+          from baibai_jobs.publication import snapshot_write_cli as owner
+          from baibai_engine.storage.snapshots import hydrate
+          base=Path(os.environ['DIAG_WORK'])
+          state=json.loads((base/'state.json').read_text())
+          ptr=state['base_pointer']
+          args=SimpleNamespace(mirror=base/'mirror',bucket='baibai-stores',store=base/'schema49.sqlite',release=ptr['release_id'],manifest_sha256=ptr['manifest_sha256'],release_ref=None)
+          def safe(**v): print('SAFE '+json.dumps(v,sort_keys=True),flush=True)
+          real=hydrate.load_dataset_rows
+          def traced(*a,**kw):
+              name=kw['dataset'].name
+              safe(phase='hydrate_dataset_start',dataset=name,disk_low=shutil.disk_usage(base).free<3*1024**3)
+              result=real(*a,**kw)
+              safe(phase='hydrate_dataset_done',dataset=name,disk_low=shutil.disk_usage(base).free<3*1024**3)
+              return result
+          hydrate.load_dataset_rows=traced
+          try:
+              safe(phase='resolve_legacy_release',disk_low=shutil.disk_usage(base).free<3*1024**3)
+              with owner.open_lake(mirror=args.mirror,bucket=args.bucket) as (session,cache):
+                  release,still_current=owner._resolve_release_target(args,cache.source)
+                  names=release.dataset_names()
+                  safe(phase='legacy_release_resolved')
+                  with owner.prefetching_hydration_cache(cache,release=release,dataset_names=names,bucket=args.bucket) as hc:
+                      owner.hydrate_market_store(session,release=release,cache=hc,store=args.store,dataset_names=names,still_current=still_current,catalog=owner.LAKE_DATASETS)
+              safe(hydrate_success=True)
+          except BaseException as e:
+              traceback.print_exc()
+              text=str(e).lower()
+              chain=[];at=e
+              while at is not None:
+                  chain.append(type(at).__name__)
+                  at=at.__cause__ or (None if at.__suppress_context__ else at.__context__)
+              frames=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(e.__traceback__)]
+              categories={word:word in text for word in ('space','memory','schema','missing','columns','rows','origin','digest','size','permission','locked','timeout','capacity','contract','integrity')}
+              safe(hydrate_success=False,error_type=type(e).__name__,error_chain=chain,frames=frames,categories=categories,disk_low=shutil.disk_usage(base).free<3*1024**3)
+              raise SystemExit(1)
+          '''
+          
+          
+          def main():
+              if os.environ.get('GITHUB_RUN_ATTEMPT')!='1':
+                  raise ValueError('first attempt only')
+              store=Boto3R2Store(bucket='baibai-stores')
+              directory=Path('/tmp/market-hydrate-diagnostic');directory.mkdir()
+              prefix='coordination/cutovers/market-49-50/42032821827/'
+              handle=None
+              try:
+                  indices=sorted(key for key,_ in store.iter_objects(prefix+'checkpoints/'))
+                  latest=directory/'index.json';_read(store,indices[-1],latest)
+                  value=json.loads(latest.read_bytes())
+                  if sha256_file(latest)!=indices[-1].rsplit('-',1)[-1].removesuffix('.json'):
+                      raise ValueError('checkpoint index digest differs')
+                  for suffix,name in (('/state.json','state.json'),('/originals/market.sqlite','schema49.sqlite')):
+                      ref=next(ref for path,ref in value['files'].items() if path.endswith(suffix))
+                      path=directory/name;_read(store,ref['key'],path)
+                      if sha256_file(path)!=ref['sha256']:raise ValueError('preserved source differs')
+                  state=json.loads((directory/'state.json').read_bytes())
+                  def unchanged():
+                      return all(store.head(key).etag==etag for key,etag in state['base_etags'].items())
+                  if not unchanged():raise ValueError('pinned source changed')
+                  handle,_=lease.acquire(store,'operator')
+                  environment=dict(os.environ)
+                  legacy=Path(os.environ['LEGACY_CHECKOUT'])
+                  environment['PYTHONPATH']=os.pathsep.join(str(legacy/item) for item in ('jobs/src','engine/src'))
+                  environment['DIAG_WORK']=str(directory)
+                  log=directory/'hydrate-private.log'
+                  with log.open('wb') as output:
+                      result=subprocess.run([sys.executable,'-c',CHILD],cwd=legacy,env=environment,stdout=output,stderr=subprocess.STDOUT,timeout=40*60,check=False)
+                  for line in log.read_text(errors='replace').splitlines():
+                      if line.startswith('SAFE '):print(line[5:],flush=True)
+                  lease.verify_held(store,handle)
+                  data=log.read_bytes();key=prefix+'diagnostics/'+os.environ['GITHUB_RUN_ID']+'-'+hashlib.sha256(data).hexdigest()+'.log'
+                  put_private(store,key,data,previous_etag=None)
+                  if store.get_bytes(key)!=data:raise ValueError('private diagnostic readback differs')
+                  print(json.dumps({'diagnostic_completed':True,'return_code':result.returncode,'canonical_unchanged':unchanged(),'private_log_preserved':True}),flush=True)
+                  return result.returncode
+              except Exception as error:
+                  print(json.dumps({'diagnostic_completed':False,'error_type':type(error).__name__}),flush=True)
+                  return 1
+              finally:
+                  if handle is not None:
+                      lease.release(store,handle)
+                      print(json.dumps({'lease_released':True}),flush=True)
+                  store.close()
+          
+          if __name__=='__main__':raise SystemExit(main())
+          PYCODE
