@@ -801,6 +801,7 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 - `initialize` は新規の空namespaceだけ。既存原本の移行失敗や消失headを空初期化で迂回しない。
 - 取得は毎回新しいdirectoryを使う。応答不明なら `resume` で確定headを確認し、保存済みattemptは `commit-work` で同じidentityのまま再開する。failed/heldや未試行を正常空へ変えない。
 - `--saved-input` は保存generation/Selectionの正確なInputSnapshot JSONを渡す。表示summaryや最新headで代用せず、保持条件は[保存責務](../docs/architecture.md#store-authority)に従う。
+- 切替前に、実bucketで原本・共有固定入力のprefixへの必要なread/write権限と、期限削除対象外であることを確認する。設定を読めない場合は未確認とし、初回読戻し成功を保持条件の確認に代えない。
 - 本番切替は旧writerとdaily・queued jobを止め、旧release ID/SHA256、UTC境界、全対象stageを固定する。prepareの `blocked` を解消してからapply→全packのcold verify→旧投影compareを行う。後着stageがあれば境界を固定し直す。
 - writerと全consumerのcode・設定を揃え、初回公開の入力identity・coverage・次hydrateを読戻した後に定期起動を再開する。異常時はwriterを止め、確定head・移行plan・旧releaseから再開先を決める。flagだけを戻して旧writerを並行稼働させない。
 
