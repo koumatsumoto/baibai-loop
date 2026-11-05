@@ -31,8 +31,18 @@ _COMMANDS = {
     "master-native-cutover": "baibai_jobs.maintenance.master_native_cutover",
     "jquants-price-native": "baibai_jobs.acquisition.jquants_price_native",
     "jquants-margin-alerts-native": "baibai_jobs.acquisition.jquants_margin_alerts_native",
+    "jquants-short-sale-reports-native": (
+        "baibai_jobs.acquisition.jquants_short_sale_reports_native"
+    ),
     "rebuild-margin-alerts-native": "baibai_jobs.integration.margin_alerts_native",
+    "rebuild-short-sale-reports-native": "baibai_jobs.integration.short_sale_reports_native",
     "margin-alerts-native-cutover": "baibai_jobs.maintenance.margin_alerts_native_cutover",
+    "short-sale-reports-native-cutover": (
+        "baibai_jobs.maintenance.short_sale_reports_native_cutover"
+    ),
+    "jquants-margin-interest-native": "baibai_jobs.acquisition.jquants_margin_interest_native",
+    "rebuild-margin-interest-native": "baibai_jobs.integration.margin_interest_native",
+    "margin-interest-native-cutover": "baibai_jobs.maintenance.margin_interest_native_cutover",
     "rebuild-price-native": "baibai_jobs.integration.price_native",
     "price-native-cutover": "baibai_jobs.maintenance.price_native_cutover",
     "rebuild-financial-native": "baibai_jobs.integration.financial_native",
