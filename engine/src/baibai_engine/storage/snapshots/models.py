@@ -236,6 +236,8 @@ class DatasetManifest(BaseModel):
     question, so the absence is `None`.
     """
     coverage_status: CoverageStatus
+    unavailable_dates: tuple[date, ...] = Field(default=(), exclude_if=lambda value: not value)
+    """Owner-declared unavailable boundaries, distinct from unrequested sparse dates."""
     partition_by: tuple[str, ...] = Field(min_length=1)
     partitions: tuple[PartitionManifest, ...] = Field(min_length=1)
     totals: ManifestTotals

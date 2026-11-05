@@ -117,7 +117,19 @@ def read_and_generate_models(
     ):
         raise ValueError("economic snapshot differs from its fixed identity")
     path = market_snapshot.path
-    master = read_master_snapshot(path, as_of=as_of)
+    master_as_of: date | None = as_of
+    if master_identity is not None and master_identity.descriptor is not None:
+        summary = master_identity.descriptor.get("summary")
+        basis = summary.get("master_basis_date") if isinstance(summary, dict) else None
+        if isinstance(basis, str):
+            assert isinstance(summary, dict)
+            selected = summary.get("snapshot_date")
+            master_as_of = date.fromisoformat(selected) if isinstance(selected, str) else None
+            if date.fromisoformat(basis) > as_of or (
+                master_as_of is not None and master_as_of > date.fromisoformat(basis)
+            ):
+                raise ValueError("master basis cannot be later than generation as-of")
+    master = None if master_as_of is None else read_master_snapshot(path, as_of=master_as_of)
     if tickers is None:
         if master is None:
             raise ValueError("all-company generation requires a master snapshot")

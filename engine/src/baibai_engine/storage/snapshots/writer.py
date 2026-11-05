@@ -182,6 +182,7 @@ def export_dataset_snapshot(
     native_source: NativeL1SourceRef | None = None,
     native_coverage_status: CoverageStatus | None = None,
     split_objects_by_date: bool = False,
+    unavailable_dates: tuple[date, ...] = (),
 ) -> LakeBuildReport:
     """Derive every partition of one dataset from the sealed snapshot.
 
@@ -268,6 +269,7 @@ def export_dataset_snapshot(
             data_as_of=data_as_of,
             population_count=population_count,
             coverage_status=native_coverage_status or coverage_status,
+            unavailable_dates=unavailable_dates,
             partition_by=dataset.partition_by,
             partitions=ordered,
             totals=totals,

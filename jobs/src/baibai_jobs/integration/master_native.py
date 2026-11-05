@@ -9,7 +9,7 @@ import os
 import sqlite3
 import sys
 import tempfile
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -32,6 +32,9 @@ from baibai_engine.machine_analysis.generation.master_inputs import (
     retain_master_input,
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.prices.calendar_context import (
+    confirmed_closed_master_bases,
+)
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     MASTER_SOURCE,
     MASTER_VALIDATION_ERROR_PREFIX,
@@ -44,7 +47,11 @@ from baibai_engine.machine_analysis.observations.stocks.storage_contracts import
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
-from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
+from baibai_engine.storage.sqlite.source_cache.coverage import (
+    covered_intervals,
+    record_source_coverage,
+)
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 @contextmanager
@@ -115,14 +122,17 @@ def _project(
         except JQuantsProviderError as error:
             # An old bad receipt must not poison all later current-date acquisitions.
             # It remains an explicit unavailable boundary, never a valid empty snapshot.
-            if day == required_snapshot:
+            closed = scopes[day].get("closed_basis")
+            if day == required_snapshot and not closed:
                 raise
-            invalid[day] = MASTER_VALIDATION_ERROR_PREFIX + str(error)
+            prefix = "closed master request: " if closed else MASTER_VALIDATION_ERROR_PREFIX
+            invalid[day] = prefix + str(error)
             continue
         projection.executemany("INSERT INTO jquants_master_snapshots VALUES (?,?,?)", snapshot.rows)
         counts[day] = snapshot.persisted_count
     if set(counts) | set(invalid) != set(adopted.values()):
         raise ValueError("native master selection lacks an adopted request")
+    invalid_dates = sorted(day for day in invalid if not scopes[day].get("closed_basis"))
     summary: dict[str, Any] = {
         "snapshot_days": len(scopes),
         "adopted_requests": len(adopted),
@@ -131,9 +141,10 @@ def _project(
         "partial_days": 0,
         "failed_days": 0,
         "held_days": 0,
-        "invalid_days": len(invalid),
-        "invalid_snapshot_dates": sorted(invalid)[:12],
-        "additional_invalid_snapshot_dates": max(0, len(invalid) - 12),
+        "invalid_days": len(invalid_dates),
+        "invalid_snapshot_dates": invalid_dates[:12],
+        "additional_invalid_snapshot_dates": max(0, len(invalid_dates) - 12),
+        "closed_snapshot_days": sum(bool(scope.get("closed_basis")) for scope in scopes.values()),
     }
     for day, scope in sorted(scopes.items()):
         failed, held = bool(scope.get("failure")), bool(scope.get("held"))
@@ -169,6 +180,7 @@ def fixed_input(
     as_of: date,
     evaluated_at: datetime,
     days: Sequence[date] | None = None,
+    closed_bases: Mapping[date, date] | None = None,
 ) -> InputSnapshot:
     """Retain acquisition membership and state without decoding any source pack."""
     head = fixed.value()
@@ -179,7 +191,15 @@ def fixed_input(
         scopes = {day.isoformat(): scopes[day.isoformat()] for day in days}
     if not scopes:
         raise ValueError("native master L1 has no retained snapshot dates")
+    closed_bases = closed_bases or {}
+    scopes = {
+        day: {**scope, "closed_basis": closed_bases[date.fromisoformat(day)].isoformat()}
+        if date.fromisoformat(day) in closed_bases
+        else dict(scope)
+        for day, scope in scopes.items()
+    }
     _validate_clock(scopes, evaluated_at)
+    basis = closed_bases.get(as_of, as_of)
     retained_days = sorted(scopes)
     identities = {
         identity
@@ -188,12 +208,20 @@ def fixed_input(
         if (identity := scope.get(field))
     }
     adopted = [day for day, scope in scopes.items() if scope.get("adopted")]
-    current = max((day for day in adopted if day <= as_of.isoformat()), default=None)
+    current = max(
+        (
+            day
+            for day in adopted
+            if day <= basis.isoformat() and not scopes[day].get("closed_basis")
+        ),
+        default=None,
+    )
     summary: dict[str, Any] = {
         "selection_start": retained_days[0],
         "selection_end": retained_days[-1],
         "as_of": as_of.isoformat(),
         "evaluated_at": evaluated_at.isoformat(),
+        "master_basis_date": basis.isoformat(),
         "snapshot_days": len(scopes),
         "adopted_requests": len(adopted),
         "snapshot_date": current,
@@ -245,7 +273,20 @@ def model_input(
     market: Path,
 ) -> InputSnapshot:
     """Replace disposable master history, preserving all native records and sparse dates."""
-    saved = fixed_input(store, fixed, as_of=as_of, evaluated_at=evaluated_at)
+    with closing(connect_read_only(market)) as connection:
+        connection.execute("BEGIN")
+        closed_bases = confirmed_closed_master_bases(
+            {
+                date.fromisoformat(str(day)): str(division)
+                for day, division in connection.execute(
+                    "SELECT day,holiday_division FROM jquants_market_calendar"
+                )
+            },
+            coverage=covered_intervals(connection, "jquants_market_calendar"),
+        )
+    saved = fixed_input(
+        store, fixed, as_of=as_of, evaluated_at=evaluated_at, closed_bases=closed_bases
+    )
     days = tuple(date.fromisoformat(day) for day in sorted(fixed.value()["scopes"]))
     result = materialize_saved_input(store, saved, market=market, days=days, replace_all=True)
     descriptor = dict(_descriptor(saved))
