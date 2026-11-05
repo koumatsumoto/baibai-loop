@@ -1,0 +1,220 @@
+name: cloud-cutover-inventory
+
+# #1820: one explicit read-only check while scheduled writers are paused.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cutover-readonly-inventory
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Inspect current metadata without modifying R2
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from collections import Counter
+          from datetime import UTC, datetime
+
+          import boto3
+          from botocore.config import Config
+          from botocore.exceptions import BotoCoreError, ClientError
+
+          bucket = 'baibai-stores'
+          account = os.environ['R2_ACCOUNT_ID']
+          if not re.fullmatch(r'[0-9a-f]{32}', account):
+              raise SystemExit('R2 account configuration is invalid')
+          client = boto3.client(
+              's3',
+              endpoint_url=f'https://{account}.r2.cloudflarestorage.com',
+              region_name='auto',
+              aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],
+              config=Config(connect_timeout=15, read_timeout=30,
+                            retries={'mode': 'standard', 'total_max_attempts': 2}),
+          )
+          counts = Counter()
+          report = {'checked_at_utc': datetime.now(UTC).isoformat(), 'read_only': True}
+          heads = {}
+
+          def call(operation, **kwargs):
+              counts[operation] += 1
+              try:
+                  return getattr(client, operation)(Bucket=bucket, **kwargs), None
+              except ClientError as error:
+                  code = str(error.response.get('Error', {}).get('Code', 'ClientError'))
+                  return None, code if re.fullmatch(r'[A-Za-z0-9_-]{1,60}', code) else 'ClientError'
+              except BotoCoreError:
+                  return None, 'ConnectionError'
+
+          def head(key):
+              value, error = call('head_object', Key=key)
+              if error:
+                  return {'status': 'missing' if error in ('404', 'NoSuchKey', 'NotFound') else 'unavailable',
+                          'error': error}
+              heads[key] = value
+              return {'status': 'present', 'bytes': value['ContentLength'],
+                      'etag': value['ETag'].strip('"')}
+
+          def small_json(key):
+              meta = heads.get(key)
+              if meta is None:
+                  result = head(key)
+                  if result['status'] != 'present':
+                      return None, result['status']
+                  meta = heads[key]
+              if meta['ContentLength'] > 1024 * 1024:
+                  return None, 'over_1MiB_metadata_limit'
+              value, error = call('get_object', Key=key, IfMatch=meta['ETag'])
+              if error:
+                  return None, error
+              try:
+                  body = value['Body'].read(1024 * 1024 + 1)
+              finally:
+                  value['Body'].close()
+              if len(body) != meta['ContentLength']:
+                  return None, 'metadata_size_mismatch'
+              try:
+                  parsed = json.loads(body)
+              except (ValueError, UnicodeDecodeError):
+                  return None, 'invalid_json'
+              return parsed if isinstance(parsed, dict) else None, None
+
+          keys = ('market.sqlite', 'runs.sqlite', 'indicators.sqlite',
+                  'machine-manifest.json', 'lake/pointers/market/current.json',
+                  'coordination/publication-lease.json')
+          report['objects'] = {key: head(key) for key in keys}
+          schemas = {}
+          for key in keys[:3]:
+              if key not in heads:
+                  continue
+              # SQLite's 100-byte format header contains versions, not stored records.
+              value, error = call('get_object', Key=key, Range='bytes=0-99', IfMatch=heads[key]['ETag'])
+              if error:
+                  schemas[key] = {'error': error}
+                  continue
+              try:
+                  header = value['Body'].read(101)
+              finally:
+                  value['Body'].close()
+              if value.get('ContentRange', '').startswith('bytes 0-99/') and len(header) == 100 and header[:16] == b'SQLite format 3\x00':
+                  schemas[key] = {'user_version': int.from_bytes(header[60:64], 'big')}
+              else:
+                  schemas[key] = {'error': 'invalid_or_unbounded_sqlite_header'}
+          report['sqlite_headers'] = schemas
+          manifest, error = small_json('machine-manifest.json')
+          if manifest:
+              saved = manifest.get('keys', {})
+              report['machine_manifest'] = {'schema_version': manifest.get('schema_version'),
+                  'recorded_keys': sorted(key for key in saved if key in keys[:3]),
+                  'matches_current_heads': {key: saved.get(key) == heads[key]['ETag'].strip('"')
+                      for key in keys[:3] if key in heads}}
+          else:
+              report['machine_manifest'] = {'error': error or 'invalid_manifest'}
+          pointer, error = small_json('lake/pointers/market/current.json')
+          if pointer:
+              # No source payload, credentials, arbitrary user text or signed URLs are logged.
+              report['current_release'] = {key: pointer.get(key) for key in ('release_id', 'manifest_sha256')}
+          else:
+              report['current_release'] = {'error': error or 'invalid_pointer'}
+          lease, error = small_json('coordination/publication-lease.json')
+          report['lease'] = {key: lease.get(key) for key in ('state', 'purpose', 'expires_at_utc')} if lease else {'error': error}
+          native = ('l1/jquants/financial-summaries/v1/', 'l1/jquants/daily-bars/v1/',
+                    'l1/jquants/master/v1/', 'l1/jquants/market-calendar/v1/', 'l1/edinet/lists/v1/')
+          report['native_heads'] = {}
+          for prefix in native:
+              key = prefix + 'head.json'
+              state = head(key)
+              if state['status'] == 'present':
+                  value, error = small_json(key)
+                  if value is not None:
+                      state['pending_present'] = bool(value.get('pending'))
+                      state['receipt_count'] = len(value.get('receipts', {}))
+                  else:
+                      state['metadata_error'] = error
+              report['native_heads'][prefix] = state
+          prefixes = (*native, 'fixed-inputs/', 'coordination/market-sources/',
+                      'coordination/economic-sources/', 'coordination/article-sources/',
+                      'coordination/source-inputs/', 'coordination/external-assessment/',
+                      'external-assessment/raw/', 'external-assessment/retained/')
+          report['prefixes'] = {}
+          for prefix in prefixes:
+              total = size = 0
+              token = None
+              stages = {}
+              error = None
+              truncated = False
+              for _ in range(20):
+                  kwargs = {'Prefix': prefix, 'MaxKeys': 1000}
+                  if token:
+                      kwargs['ContinuationToken'] = token
+                  page, error = call('list_objects_v2', **kwargs)
+                  if error:
+                      break
+                  for item in page.get('Contents', []):
+                      total += 1
+                      size += item['Size']
+                      if prefix.startswith('coordination/'):
+                          suffix = item['Key'][len(prefix):]
+                          if '/' in suffix:
+                              stage, name = suffix.split('/', 1)
+                              stages.setdefault(stage, set()).add(name)
+                  truncated = bool(page.get('IsTruncated'))
+                  token = page.get('NextContinuationToken')
+                  if not truncated:
+                      break
+                  if not token:
+                      error = 'missing_continuation_token'
+                      break
+              summary = {'objects': total, 'bytes': size, 'complete': not error and not truncated}
+              if error:
+                  summary['error'] = error
+              if stages:
+                  summary['stages'] = len(stages)
+                  summary['handoffs'] = sum('handoff.json' in names for names in stages.values())
+                  summary['without_integrated_marker'] = sum('handoff.json' in names and 'integrated.json' not in names for names in stages.values())
+                  summary['objects_without_handoff'] = sum('handoff.json' not in names for names in stages.values())
+              report['prefixes'][prefix] = summary
+          lifecycle, error = call('get_bucket_lifecycle_configuration')
+          if error:
+              report['lifecycle'] = {'error': error, 'verified': False}
+          else:
+              rules = []
+              for rule in lifecycle.get('Rules', []):
+                  filt = rule.get('Filter', {})
+                  rules.append({'status': rule.get('Status'),
+                      'prefix': rule.get('Prefix', filt.get('Prefix', filt.get('And', {}).get('Prefix', ''))),
+                      'has_expiration': bool(rule.get('Expiration')),
+                      'has_noncurrent_expiration': bool(rule.get('NoncurrentVersionExpiration'))})
+              report['lifecycle'] = {'verified': True, 'rules': rules}
+          report['api_calls'] = dict(counts)
+          report['limits'] = ['Metadata inventory only; no original payload downloaded.',
+              'No write-permission or original-integrity verification.',
+              'Each prefix listing is limited to 20 pages; incomplete means unknown.',
+              'Missing integrated marker is not an automatic failure or data-loss conclusion.']
+          print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+          client.close()
+          PY
