@@ -6,8 +6,10 @@ import base64
 import hashlib
 import json
 import re
+import tempfile
 from pathlib import Path
 
+from baibai_engine.data_collection.receipts.native_sources import fred_transport
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
@@ -37,6 +39,69 @@ def save_handoff(
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
+    report = json.loads((directory / "result.json").read_text(encoding="utf-8"))
+    if not market and report.get("group") in {"fred_csv", "economic-fred_csv"}:
+        if namespace not in {None, "economic-sources", "source-inputs"}:
+            raise ValueError("FRED packs require the economic receipt namespace")
+        expected_group = "economic-fred_csv" if namespace == "source-inputs" else "fred_csv"
+        if report["group"] != expected_group or (
+            namespace == "source-inputs" and input_group != expected_group
+        ):
+            raise ValueError("FRED receipt differs from its acquisition scope")
+        rows = fred_transport.snapshot(path)
+        manifest_key = prefix + "/handoff.json"
+        prior = read_private(store, manifest_key)
+        if prior is not None:
+            previous = json.loads(prior.payload)
+            if (
+                isinstance(previous, dict)
+                and isinstance(previous.get("receipt"), dict)
+                and previous.get("format") == fred_transport.FORMAT
+                and previous.get("result") == report
+                and previous["receipt"].get("content_sha256")
+                == fred_transport.snapshot_digest(rows)
+            ):
+                with tempfile.TemporaryDirectory(prefix="fred-fixed-retry-") as temporary:
+                    fred_transport.load(
+                        store, previous["receipt"], Path(temporary) / "receipts.sqlite"
+                    )
+                return stage_id
+            # Retry an already-published old stage without rewriting its immutable
+            # contract. The old loader still verifies the original SQLite bytes.
+            if isinstance(previous, dict) and "format" not in previous:
+                with path.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                if (
+                    previous.get("result") == report
+                    and previous.get("receipt_sha256") == digest
+                    and previous.get("receipt_bytes") == path.stat().st_size
+                ):
+                    with tempfile.TemporaryDirectory(prefix="fred-legacy-retry-") as temporary:
+                        load_handoff(
+                            store,
+                            stage_id,
+                            Path(temporary),
+                            namespace=namespace,
+                            input_group=input_group,
+                        )
+                    return stage_id
+            raise LakePublishError("source handoff identity already has different receipts")
+        packed = {
+            "format": fred_transport.FORMAT,
+            "result": report,
+            "receipt": fred_transport.save(store, rows),
+        }
+        payload = json.dumps(packed, sort_keys=True).encode()
+        try:
+            put_private(store, manifest_key, payload, previous_etag=None)
+        except LakePublishError:
+            saved = read_private(store, manifest_key)
+            if saved is None or saved.payload != payload:
+                raise
+        saved = read_private(store, manifest_key)
+        if saved is None or saved.payload != payload:
+            raise LakePublishError("packed source handoff PUT is not confirmed")
+        return stage_id
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -109,6 +174,21 @@ def load_handoff(
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
+    if isinstance(manifest, dict) and manifest.get("format") == fred_transport.FORMAT:
+        result = manifest.get("result")
+        expected_group = "economic-fred_csv" if namespace == "source-inputs" else "fred_csv"
+        if (
+            market
+            or namespace not in {None, "economic-sources", "source-inputs"}
+            or not isinstance(result, dict)
+            or result.get("group") != expected_group
+            or (namespace == "source-inputs" and input_group != expected_group)
+        ):
+            raise ValueError("FRED receipt differs from its acquisition scope")
+        directory.mkdir(parents=True, exist_ok=True)
+        fred_transport.load(store, manifest.get("receipt"), directory / "receipts.sqlite")
+        (directory / "result.json").write_text(json.dumps(result), encoding="utf-8")
+        return
     if (
         not isinstance(manifest, dict)
         or not isinstance(manifest.get("receipt_sha256"), str)
