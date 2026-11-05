@@ -1,8 +1,8 @@
 """Unfiltered full-day J-Quants receipt persistence, independent of L2.
 
-Financial summaries, daily bars, master snapshots and margin alerts share this unfiltered
-explicit-date persistence boundary. Their acquisition and projection rules stay
-with each source. Interval calendars and delayed all-issues margin publications differ.
+Financial summaries, daily bars, master snapshots and margin sources share this
+unfiltered explicit-date persistence boundary. Acquisition and projection rules
+stay with each source. Interval calendars use another storage contract.
 """
 
 from __future__ import annotations
@@ -37,7 +37,9 @@ from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 
 @dataclass(frozen=True, slots=True)
 class FullDayContract:
-    source: Literal["financial_summaries", "daily_bars", "master", "margin_alerts"]
+    source: Literal[
+        "financial_summaries", "daily_bars", "master", "margin_alerts", "margin_interest"
+    ]
     prefix: str
     format: str
     query_date_format: str = "%Y%m%d"
@@ -74,7 +76,9 @@ def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> s
 
 @dataclass(frozen=True, slots=True)
 class FullDayAttempt:
-    source: ClassVar[Literal["financial_summaries", "daily_bars", "master", "margin_alerts"]]
+    source: ClassVar[
+        Literal["financial_summaries", "daily_bars", "master", "margin_alerts", "margin_interest"]
+    ]
 
     request_id: str
     day: date
@@ -404,6 +408,10 @@ class FullDayL1[Attempt: FullDayAttempt, Fixed: FixedFullDayL1]:
                         "held": None,
                     }
                 )
+                if self.contract.source == "margin_interest":
+                    # Raw envelope count is needed for weekly/daily empty fulfillment.
+                    # Existing source head formats and their empty rules stay unchanged.
+                    scope["record_count"] = len(request.records())
                 if not equal:
                     scope["changed_at"] = stamp.isoformat()
             value["scopes"][day] = scope
