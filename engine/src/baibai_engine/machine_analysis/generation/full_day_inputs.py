@@ -111,10 +111,9 @@ def _retain(
 def retain_full_day_input(
     store: ObjectStore, selected: dict[str, Any], *, contract: FullDayInputContract
 ) -> dict[str, JsonValue]:
-    """Write only changed monthly metadata; the saved identity has bounded size.
+    """月別metadataを共有し、日々の全履歴複写を避ける。
 
-    These objects are reconstruction inputs retained independently of runs cache.
-    No latest pointer or automatic expiry is created here.
+    保存判断の再計算に使うためruns cacheとは別寿命で保持し、自動失効させない。
     """
     scopes, receipts = selected["scopes"], selected["receipts"]
     days = sorted(scopes)

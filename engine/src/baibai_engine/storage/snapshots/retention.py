@@ -1,23 +1,7 @@
-"""What the lake keeps and what it may delete.
+"""ローカルlake mirrorのcurrent releaseを起点に、到達不能なobjectだけを整理する。
 
-Retention is decided by reachability, never by age alone. The root is the current market
-release. Everything the closure of that root does
-not reach is a deletion candidate; everything it reaches is kept regardless of how old
-it is.
-
-There is no rollback root. Repair here means publishing forward from a local mirror that
-holds the whole graph, not stepping backwards to a generation the store was asked to
-stop serving — and a pointer that names a generation as restorable is a promise someone
-has to keep verifying on every publication.
-
-There is no mechanism to keep a generation reachable indefinitely. Reproducing a
-published study from the exact bytes it read is not a capability this store offers:
-the report is the record, and holding every generation a report ever named is how a
-store stops being able to say what it currently serves.
-
-Deletion is planned before it is performed. ``plan_gc`` produces a plan and a hash of
-that plan; applying requires the same hash back, so a plan computed against one state
-of the store cannot be applied against another.
+過去releaseを一律に保持する仕組みではない。native L1・共有固定入力は別寿命であり、
+このGCの対象外。R2を削除する処理でもない。
 """
 
 from __future__ import annotations
@@ -134,11 +118,7 @@ def plan_gc(
     *,
     now: datetime | None = None,
 ) -> GcPlan:
-    """Walk the current market release; unresolved content prevents GC apply.
-
-    Partition sources identify temporary SQLite inputs, not retained objects.
-    Only the current pointer, its manifests and their Parquet objects are roots.
-    """
+    """currentのmanifest・Parquetを辿る。未解決の参照があれば削除できない。"""
     moment = (now or datetime.now(UTC)).astimezone(UTC)
     roots: list[str] = []
     reachable: set[str] = set()
@@ -313,6 +293,7 @@ def _has_objects_under(mirror_root: Path, prefix: str) -> bool:
 
 
 def _candidate_reason(key: str) -> str | None:
+    # native L1と共有固定入力は保存判断からも参照され、current lakeの寿命に従わない。
     if key.startswith("lake/staging/"):
         return "abandoned_staging"
     if key.startswith(("lake/l1/source/", "lake/l2/processed/")):
@@ -332,22 +313,9 @@ def _reachable_identity(mirror_root: Path, key: str) -> tuple[int, str] | None:
 
 
 def apply_gc(mirror_root: Path, plan: GcPlan, *, plan_hash: str) -> tuple[str, ...]:
-    """Delete a plan's candidates under the writer lock, after recomputing it.
+    """承認したplanと現在のroot・候補が一致する場合だけ削除する。
 
-    Everything that could change between planning and deleting is checked here rather
-    than waited out. The plan hash binds this call to the plan the operator read; the
-    lock means nothing else can publish while it runs; the plan is recomputed inside the
-    lock against the store's actual roots; an unresolved root refuses the whole sweep;
-    and each candidate's bytes are verified immediately before unlinking. A candidate
-    that became reachable in between changes the recomputed plan, so it never reaches
-    the loop.
-
-    Nothing is gained by writing marks and returning to delete a week later. The race is
-    already excluded, and a planner that is wrong about reachability computes the same
-    wrong answer on the second run — the delay would only make a single-operator store
-    need two scheduled runs to finish collecting, which is how a retention policy stops
-    being run at all. The 30 day grace before an object becomes a candidate is where the
-    waiting belongs.
+    公開と同じlock内で再計画し、計画後に採用されたobjectを消さない。
     """
 
     if plan_hash != plan.plan_hash:
