@@ -29,6 +29,7 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ReservationInput,
     SecurityClassification,
 )
+from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.workflow.operation.models import OperationSession
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     proposal_scope,
@@ -103,10 +104,6 @@ def _original_assessment(
         if row is not None and row[0] != ticker:
             raise ProposalError("recorded initial buy binding ticker differs from holding")
         if row is not None and row[1] == "proposal" and row[2] is not None:
-            from baibai_engine.investment_judgment.trade_proposal.query import (
-                load_investment_proposal,
-            )
-
             proposal = load_investment_proposal(connection, str(row[2]))
             item = next(
                 (item for item in proposal.items if item.ticker == ticker and item.action == "buy"),

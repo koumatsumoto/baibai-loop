@@ -275,7 +275,7 @@ def test_source_reads_exact_saved_pair_without_market_or_current_writers(tmp_pat
     case.runs.unlink()
     before = case.app.read_bytes()
     preview = mocker.patch(
-        "baibai_engine.investment_judgment.trade_proposal.query.preview_current_terms"
+        "baibai_engine.investment_judgment.trade_proposal.preview.preview_current_terms"
     )
     writer = mocker.patch.object(TradeProposalService, "publish")
     current_inputs = mocker.patch(
