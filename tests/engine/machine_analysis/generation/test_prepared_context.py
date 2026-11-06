@@ -184,7 +184,7 @@ def test_shared_unwritten_store_keeps_unknown_and_null(tmp_path: Path, create_em
         self_range_window_bars=750,
         prepared=prepared,
         price_bars_by_ticker=bars,
-    )["AAAA"] == {"master": None, "price": None, "relative": None, "benchmark_trend": None}
+    )["AAAA"] == {"master": None, "price": None, "relative": None}
     snapshot = build_market_snapshot(sqlite_path=path, asof_date=ASOF, prepared=prepared)
     assert snapshot["sectors"] == []
     assert all(point["benchmark_trend"] == "unknown" for point in snapshot["points"])

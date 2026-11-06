@@ -7,7 +7,6 @@ import statistics
 from collections.abc import Mapping, Sequence
 from datetime import date
 
-from baibai_engine.machine_analysis.models.market_context.benchmark import BenchmarkTrendSnapshot
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.observations.stocks.contracts import (
@@ -101,7 +100,6 @@ def calculate_security_market_context(
     ticker: str,
     bars: Sequence[PriceBar],
     master: MasterSnapshot | None,
-    benchmark: BenchmarkTrendSnapshot | None,
     benchmark_ticker: str,
     benchmark_prices: Mapping[date, float],
     peer_prices: Sequence[Mapping[date, float]],
@@ -128,7 +126,6 @@ def calculate_security_market_context(
             benchmark_prices=benchmark_prices,
             peer_prices=peer_prices,
         ),
-        "benchmark_trend": None if benchmark is None else benchmark.to_dict(),
     }
 
 
