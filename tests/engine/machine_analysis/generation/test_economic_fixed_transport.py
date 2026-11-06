@@ -1,4 +1,4 @@
-"""Monthly metadata transport is bounded; selection and failure semantics are unchanged."""
+"""Metadata transport is bounded; selection and failure semantics are unchanged."""
 
 import json
 import time
@@ -68,13 +68,13 @@ class ConcurrentStore(MemoryR2Store):
             return super().get_bytes(key)
 
 
-def test_month_requests_overlap_with_bounded_workers_and_exact_warm_results(tmp_path):
+def test_block_requests_overlap_with_bounded_workers_and_exact_warm_results(tmp_path):
     path = tmp_path / "economic.sqlite"
     seed_months(path)
     original = path.read_bytes()
     store = ConcurrentStore()
     saved = freeze(store, path)
-    assert len(root(store, saved)["months"]) == 36
+    assert len(root(store, saved)["months"]) == 3
     assert 2 <= store.peak <= 8
     expected = current(path)
     store.peak = 0
@@ -89,22 +89,22 @@ def test_month_requests_overlap_with_bounded_workers_and_exact_warm_results(tmp_
     assert path.read_bytes() == original
 
 
-def test_failed_month_does_not_publish_root_and_same_input_reuses_partial_objects(tmp_path):
+def test_failed_block_does_not_publish_root_and_same_input_reuses_partial_objects(tmp_path):
     path = tmp_path / "economic.sqlite"
     seed_months(path)
     original = path.read_bytes()
 
-    class FailedMonth(MemoryR2Store):
+    class FailedBlock(MemoryR2Store):
         failed = True
 
         def put_file(self, key, path, **kwargs):
             body = json.loads(path.read_bytes())
-            if self.failed and body.get("records") and body["records"][0]["key"][1] == "2023-04-01":
-                raise LakePublishError("one monthly write failed")
+            if self.failed and body.get("records") and body["records"][0]["key"][1] == "2024-01-01":
+                raise LakePublishError("one block write failed")
             return super().put_file(key, path, **kwargs)
 
-    store = FailedMonth()
-    with pytest.raises(LakePublishError, match="monthly write"):
+    store = FailedBlock()
+    with pytest.raises(LakePublishError, match="block write"):
         freeze(store, path)
     assert store.values
     assert not any(json.loads(value.body).get("format") for value in store.values.values())
@@ -121,12 +121,12 @@ def test_failed_month_does_not_publish_root_and_same_input_reuses_partial_object
     assert path.read_bytes() == original
 
 
-def test_prefetched_corrupt_month_still_stops_cold_rebuild(tmp_path):
+def test_prefetched_corrupt_block_still_stops_cold_rebuild(tmp_path):
     path = tmp_path / "economic.sqlite"
     seed_months(path)
     store = MemoryR2Store()
     saved = freeze(store, path)
-    digest = list(root(store, saved)["months"].values())[17]
+    digest = list(root(store, saved)["months"].values())[1]
     store.store_object("fixed-inputs/economic/v1/" + digest + ".json", b"{}")
     original = path.read_bytes()
     with pytest.raises(LakePublishError, match="missing or changed"):
