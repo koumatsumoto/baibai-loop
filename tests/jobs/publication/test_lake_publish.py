@@ -946,6 +946,11 @@ def test_success_response_with_missing_remote_object_stops_before_pointer(
             self.values.pop(key)
             return result
 
+        def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
+            if key not in self.values:
+                raise R2Error("remote object is missing")
+            super().download_file(key, path, expect_bytes=expect_bytes)
+
     store = DroppingStore()
     with pytest.raises(LakePublishError, match="remote object is missing"):
         publish_release(
