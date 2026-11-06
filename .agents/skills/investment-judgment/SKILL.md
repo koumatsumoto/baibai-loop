@@ -19,7 +19,7 @@ uv run baibai-engine investment-judgment selection-context \
   --db <APP_DB> --runs-path stores/screening/runs.sqlite
 ```
 
-銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず、[調査価値](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)で選ぶ。候補外対照は返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を同commandへ渡し、比較後に採る対象をdraftへ選ぶ。[候補入り・表示省略・未生成・欠測](../../../docs/reference/screening-runtime.md#candidate-discovery)を同一視しない。
+銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず、[調査価値](../../../docs/reference/stock-assessment.md#経済性から問いを選ぶ)で選ぶ。候補外対照は返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を同commandへ渡す。比較は依頼scopeを変えず、比較後に採る対象をdraftへ選ぶ。[候補入り・表示省略・未生成・欠測](../../../docs/reference/screening-runtime.md#candidate-discovery)を同一視しない。
 
 再訪は`investment-judgment company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きは返されたknown_atを固定しnext_after_tickerを使う。未review Researchと過去のreview済みpair、空とunreadableを分け、全履歴読取を前提にしない。
 
@@ -75,6 +75,11 @@ as_ofは情報境界で全内容の再検証日ではない。元source/fact時�
 ```bash
 uv run baibai-engine operation --db <APP_DB> record-unfinished \
   <OPERATION_ID> --ticker <TICKER> --reason '<REASON>' --ref <REF>
+```
+
+通常の提案作成はcontextから進める。
+
+```bash
 uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --db <APP_DB> --sqlite-path stores/market/market.sqlite
 ```

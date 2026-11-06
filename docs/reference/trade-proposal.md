@@ -7,8 +7,10 @@
 | 行動 | 意味 |
 | --- | --- |
 | buy | 作者の上限で買う指値提案。単なる監視価格ではない。 |
-| hold / sell | 今回の仮説維持/十分な残存見返り、または重大な不成立/確認済み見返り不足による全量回収。 |
-| no_action / defer | 完成した経済比較による見送り、または調査/入力/判断の不足。 |
+| hold | 今回確認した仮説維持、または十分な残存見返り。 |
+| sell | 重大な仮説不成立、または確認済み見返り不足による全量回収。 |
+| no_action | 完成した経済比較による見送り。 |
+| defer | 調査・入力・判断条件の不足。 |
 
 固定Operation全対象を被覆しnew/holdingを混ぜない。未調査は理由/参照付きunfinishedに対応する評価参照なしdefer、review済みuncertain/unresolvedは参照付きdeferにできる。0対象に空提案を作らない。
 
@@ -62,7 +64,7 @@ sell limitは作者が受け入れる一株回収下限。実quoteの上下と�
 <a id="publication-review"></a>
 ## Review・保存・preview
 
-別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛する。valid/file hashは内容Reviewではない。価格・数量・cash・scope・warning等の内容/入力事実変更は再snapshot・再Reviewし、読取時刻だけの差は事実変更としない。検証は実時刻、公開時計はエンジンの初回発行値を使い、付替えて順序を作らない。
+別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛する。valid/file hashは内容Reviewではない。価格・数量・cash・scope・warning等の内容を変えたら再Reviewする。入力事実が変わる場合はsnapshotも取り直し、読取時刻だけの差は事実変更としない。検証は実時刻、公開時計はエンジンの初回発行値を使い、付替えて順序を作らない。
 
 公開時に固定scope・exact評価pair・現入力を照合する。過去本文/hashへ現在条件を適用せず、旧保存を新しい下限比較済みにしない。previewは保存案と現在再試算を別表示し、保存limit/数量が現在上限超でも縮小せず、利用不能を当時の誤りと即断しない。
 
