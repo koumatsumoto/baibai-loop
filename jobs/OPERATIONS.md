@@ -296,7 +296,7 @@ uv run baibai-jobs acquire-economic refresh <SOURCE_ID> --all-history --end <YYY
 
 通常窓は[policy](../engine/src/baibai_engine/data_collection/acquisition/policy.py)に従い、一律2か月へ縮めない。FREDは全CSV比較で窓を狭めても通信は減らない。他sourceの旧年改訂/history seedは明示取得。recentは通常窓と未確認区間を補い、広範囲失敗の残りはhistory_recovery_requiredを見て別の期間指定/all-historyで回復する。
 
-FREDは全CSV本文が同じなら確認時計だけを進める。本文変更・実確認・公表時計を分け、完全応答の期間集合と原本hashを保つ。headerだけ/短い行を成功とせず、人工空日をprovider欠測に変えない。[confirmation owner](../engine/src/baibai_engine/data_collection/receipts/native_sources/confirmations.py)が比較を行う。確認欠落/遅着で通常pushを拒否されたときだけ、fresh正本を比較基点に実GETする。
+FREDは全CSV比較で同値なら確認時計だけを進める。本文変更・実確認・公表時計を分け、完全応答の期間集合と原本hashを保つ。headerだけ/短い行を成功とせず、人工空日をprovider欠測に変えない。[confirmation owner](../engine/src/baibai_engine/data_collection/receipts/native_sources/confirmations.py)が比較を行う。確認欠落/遅着で通常pushを拒否されたときだけ、fresh正本を比較基点に実GETする。
 
 ```bash
 with_publication_lease jobs/scripts/r2_transfer.sh push-indicators --recheck-source <FRED_SOURCE_ID>
@@ -333,7 +333,7 @@ v3 planning保存・L1受領・全取得完了・L2統合は別である。conti
 
 案内/転送/添付は親子の別受領。トウシル同hostの公開301/308はLocationを保持して既存予算内で取得し、一般redirect/認証URL/未許可hostへ拡大しない。財務省rolling一覧から過去全PDFへ巡回しない。未保存Locationは推定せず、本文増加を理由にgroup予算を増やさない。sealは固定releaseの今回receiptと投影/抽出artifactを読戻してから行い、原本受領の成功とは別にする。metadataの列挙費用は履歴に比例し、上限や部分logを無料の実証にしない。
 
-統合前の原本はexact stage/receiptをprivateに読む。再GET/planning変更は行わず、引用packetも保つ。
+統合前の原本はexact stage/receiptをprivateに読む。再GET/planning変更は行わず、引用packetも保つ。旧market schemaのstageもArticle専用shapeとreceipt/body digestで検証し、原SQLiteの版数・bytesを変換しない。
 
 ```bash
 uv run baibai-jobs article-evidence --source <SOURCE> --stage-id <STAGE_ID> --manifest-sha256 <HASH> \
@@ -359,7 +359,7 @@ BOJ/MOFのoffline再発見は同ownerのregister-discoveryへstage/hashと--rece
 
 JPX決算予定/規制は過去factを取得計画に使わず、fresh source DBから部分受領をprivate stageへ残す。明示PDFは既知URLで取得済みの原本だけを使い、daily自動取得へ追加しない。
 
-`baibai-jobs financial-pdf-source`へ`--receipts <JSON>`と`--directory <NEW_PRIVATE_DIRECTORY>`を渡す。HTTPは行わない。JSONは1〜8件、requested_url・file（相対path）・sha256・request_started_at/captured_at（実UTC）・http_status:200・content_type:application/pdfを照合する。mtime/公表日から時計を作らない。stageは`uv run python -m baibai_jobs.integration.source_handoff stage --source jpx-financial-pdfs --directory <DIRECTORY> --stage-id <NEW_ID>`、完了転換は--collection capital_actions/--source jpx-capital-actionsを使う。不対応も原本を保ち、株数/自己株を推定しない。
+`baibai-jobs financial-pdf-source`へ`--receipts <JSON>`と`--directory <NEW_PRIVATE_DIRECTORY>`を渡す。HTTPは行わない。JSONは1〜8件、requested_url・file（相対path）・sha256・request_started_at/captured_at（実UTC）・http_status:200・content_type:application/pdfを照合する。captured_atは本文保存・hash計算を含み得る完了時刻。mtime/公表日から時計を作らない。stageは`uv run python -m baibai_jobs.integration.source_handoff stage --source jpx-financial-pdfs --directory <DIRECTORY> --stage-id <NEW_ID>`、完了転換は--collection capital_actions/--source jpx-capital-actionsを使う。不対応も原本を保ち、株数/自己株を推定しない。
 
 PDFの選択/近似/訂正basisは[観測reference](../docs/reference/model-observations.md#reported-comparisons)と[選択owner](../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_selection.py)に従い、新generationで反映する。fixture、実PDF、母集団、固定readbackを別に確認する。
 
@@ -432,7 +432,7 @@ uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TI
 <a id="jquants-native-operations"></a>
 ## J-Quants native L1
 
-7sourceは取得・原本保持とL2再生成を分ける。財務・日足・master・calendarは既定/Actionsともtrue、alerts/short-saleは既定falseで本番切替未実施、margin-interestは明示CLIだけである。現在の設定は各cutover ownerとActionsを確認し、flagやmergeを移行完了としない。falseは旧入力の有限検証用で本番rollbackには使わない。
+7sourceは取得・原本保持とL2再生成を分ける。財務・日足・master・calendarは既定/Actionsともtrue、alerts/short-saleは既定falseで本番切替未実施、margin-interestは明示CLIだけである。現在の設定は各cutover ownerとActionsを確認し、flagやmergeを移行完了としない。切替済み4sourceのfalseは旧入力の有限検証用で本番rollbackには使わない。
 
 `jquants-<source>-native initialize`は新規の空namespaceだけに一度行う。plan/acquireは新directory、応答不明はresume、保存済みattemptは同じdirectoryのcommit-workを使う。head消失や移行失敗を空初期化で迂回しない。
 
@@ -507,7 +507,7 @@ uv run baibai-jobs edinet-list-native commit-stage --stage-id <ID> --directory <
 
 ### ZIP/scopeの明示検証
 
-通常workflow・共有input・market公開・既存SQL consumerには未接続で、有限移行も未実装。原本を持たない隔離環境と同bucketの固定native一覧headだけで実施し、本番空headで代用しない。
+通常workflow・共有input・market公開・既存SQL consumerには未接続。新規取得の検証は原本を持たない隔離環境と同bucketの固定native一覧headで実施する。既存原本には下記の有限移行を使い、本番の空head作成だけで移行完了としない。
 
 ```bash
 uv run baibai-jobs edinet-archives-native initialize --bucket <ISOLATED_BUCKET> --directory <NEW_WORK>
@@ -520,6 +520,20 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 ```
 
 [planner](src/baibai_jobs/acquisition/edinet_archive_native.py)は固定一覧/scopeを使い、旧market/L2成功/全ZIP本文を要求しない。input.jsonの両headを保持し、各ZIPを次GET前に確定する。[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は初回bytes/stored_onを保ち、新取得だけ実UTCを持つ。pendingがあれば新HTTPを止め、同workのcommit-workへ戻る。CASは最新headとのunionで明示再試行し、部分workから失ったheadを再作成しない。work消失/remote stage回復は未対応。
+
+有限移行では旧EDINET archive取得・手動更新・market統合と移行先archive writerをdrainし、schema50 canonicalとrelease ID/digestを固定する。canonicalはそのreleaseの全EDINET archiveをhydrate済みにする。移行入口はorigin一致と期待行数で脱水・部分hydrateを拒否するが、同数の別bytesまでreleaseと照合するものではない。source inputのinventoryやL2断面を全原本の代わりに渡さない。
+
+```bash
+uv run baibai-jobs edinet-archives-native prepare-import --bucket <bucket> --directory <new-import-dir> \
+  --legacy-database <hydrated-market.sqlite> --release <fixed-release> --manifest-sha256 <digest>
+uv run baibai-jobs edinet-archives-native initialize --bucket <bucket> --directory <import-dir>
+uv run baibai-jobs edinet-archives-native apply-import --bucket <bucket> --directory <import-dir>
+uv run baibai-jobs edinet-archives-native verify-import --bucket <bucket> --directory <import-dir>
+```
+
+`prepare-import`はremoteを書かず、canonicalと全edinet-list/metrics/facts handoff（統合済み・late・要回復を含む）の原本/scopeを固定する。旧schema48/49 stageはdownload原本を保持したまま既存converterでlocal copyだけをschema50へ変換し、旧stageのinitialized開始日はglobal scopeへ昇格させない。同identityの異なるbytesは停止し、同bytesの重複は最早stored_onを採り、受領UTCは不明のまま保つ。現在のmetrics採用・lookbackで原本を削らない。
+
+移行先は未作成から明示initializeした空head、または同じ計画の部分/完了headを使う。別取得・異なるmetadata/scopeを混ぜず、停止後は入力とworkを保って同じ`apply-import`で再開する。既存nativeの保存日を修復しない。`verify-import`は全移行原本のbytesとmetadata/scopeを読戻す。旧canonical/release/stageと準備fileを保持し、この成功を通常writer切替や旧原本削除の許可にしない。本文はhashで共有し、通常dailyへ移行やDB全体copyを追加しない。
 
 固定consumerは保存両headと新規outputだけを使い、原本欠落/改変なら公開しない。
 

@@ -6,7 +6,7 @@ import base64
 import hashlib
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -226,23 +226,25 @@ class EdinetArchiveL1:
         return self._start((), FactsScope(), create=True)
 
     def publish(
-        self, archives: Sequence[NativeArchive], *, scope: FactsScope | None = None
+        self, archives: Iterable[NativeArchive], *, scope: FactsScope | None = None
     ) -> FixedEdinetArchives:
         self.require_clean_work()
         self.freeze()
         return self._start(archives, scope or FactsScope(), create=False)
 
     def _start(
-        self, archives: Sequence[NativeArchive], scope: FactsScope, *, create: bool
+        self, archives: Iterable[NativeArchive], scope: FactsScope, *, create: bool
     ) -> FixedEdinetArchives:
-        additions = _Head(
-            format=_FORMAT,
-            archives=tuple(item.metadata for item in archives),
-            acquisition_scope=_Scope.from_scope(scope),
-        )
         self.directory.mkdir(parents=True, exist_ok=True)
+        metadata = []
         for item in archives:
             write_bytes_atomic(self.directory / (item.metadata.sha256 + ".object"), item.content)
+            metadata.append(item.metadata)
+        additions = _Head(
+            format=_FORMAT,
+            archives=tuple(metadata),
+            acquisition_scope=_Scope.from_scope(scope),
+        )
         write_json_atomic(
             self.directory / "pending.json",
             {"create": create, "head": additions.model_dump(mode="json")},
