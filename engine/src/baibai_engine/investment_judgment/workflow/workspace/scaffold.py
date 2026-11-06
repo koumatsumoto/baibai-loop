@@ -53,7 +53,7 @@ _ASSESSMENT_DRAFT_HEADER = (
     "# model・期間・要求率・Base/Downside: "
     "docs/reference/stock-assessment.md#scenario-arithmetic\n"
     "# 原典の期間・単位を確認し、旧保存入力へ追補しない。\n"
-    "# 追加の公開企業レポート: docs/reference/data-sources.md#public-research-reports\n"
+    "# 追加の公開企業レポート: docs/reference/model-observations.md#public-research-reports\n"
 )
 
 _REVIEW_DRAFT_HEADER = (

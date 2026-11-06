@@ -23,8 +23,8 @@ class JQuantsFinancialSummary:
     `cumulative_eps`は開示期間の累計EPSであり、TTM合成済みの値ではない。
     このEPS自体を足し引きしてTTM合成しない。
     `shares_outstanding`は自己株式を含む発行済株式総数である。
-    計算基準はdocs/reference/company-financials.mdの
-    「会社予想と実績期間」「資本と株式単位」に従う。
+    計算基準はdocs/reference/model-observations.mdの
+    「開示と会計比較」「資本・価格・配当の単位」に従う。
     """
 
     ticker: str
