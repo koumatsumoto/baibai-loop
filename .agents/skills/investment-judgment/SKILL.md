@@ -31,9 +31,9 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareが開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment sourcesでReviewし、Selectionを改変しない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactのfull_result_refから読む。成長表示は`--company-growth-periods 24`または`all`で広げられるが[保存範囲を増やさない](../../../docs/reference/company-growth.md#investment-judgmentへの接続)。既存表示は再開のforceを使う。
+prepareが開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment sourcesでReviewし、Selectionを改変しない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactのfull_result_refから読む。成長表示は`--company-growth-periods 24`または`all`で広げられるが[保存範囲を増やさない](../../../docs/reference/model-observations.md#judgment-use)。既存表示は再開のforceを使う。
 
-native入力はanalysis_source.inputs、詳細は完全結果のInputSnapshot descriptorと[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)を使い、summary/latestで代用しない。[時点](../../../docs/reference/data-sources.md)と[Reading](../../../docs/reference/market-context.md#reading)を保つ。
+native入力はanalysis_source.inputs、詳細は完全結果のInputSnapshot descriptorと[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)を使い、summary/latestで代用しない。[時点](../../../docs/reference/model-observations.md#source-owners)と[Reading](../../../docs/reference/model-observations.md#reading)を保つ。
 
 ### 記事の原文へ戻る
 
@@ -45,7 +45,7 @@ uv run baibai-engine articles exact-evidence \
   --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
 ```
 
-探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡し、private index.jsonから選ぶ。複数月は月ごと、続きは同条件のnext_after。公表日時不明は日時検索に入らない。原文を公開logへ転載せず、[本文範囲](../../../docs/reference/data-sources.md#public-articles)を保つ。
+探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡し、private index.jsonから選ぶ。複数月は月ごと、続きは同条件のnext_after。公表日時不明は日時検索に入らない。原文を公開logへ転載せず、[本文範囲](../../../docs/reference/model-observations.md#public-articles)を保つ。
 
 lookupと元lineageは別で、旧release全体の再読ではない。Research source.refへ原典URL、used_forへexact descriptorを残す。保存時の自動exact照合は保証されない。Assessment/Review/再開へ日付/限定も引継ぎ、再受領を独立票、旧feedを本日の変化、予定日を発生確認にしない。
 
@@ -84,7 +84,7 @@ uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --db <APP_DB> --sqlite-path stores/market/market.sqlite
 ```
 
-contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を被覆して[指値/数量/待機](../../../docs/reference/trade-proposal.md#limit-selection)または[保有/回収](../../../docs/reference/trade-proposal.md#holding)を比較する。`trade-proposal-check <DRAFT> --db <APP_DB>`の正規draft_sha256へ別作業者の内容Reviewを束縛し、`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。validは内容Reviewでなく、変更時は[再snapshot/再Review](../../../docs/reference/trade-proposal.md#publication-review)する。
+contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を被覆して[指値/数量/待機](../../../docs/reference/trade-proposal.md#limit-selection)または[保有/回収](../../../docs/reference/trade-proposal.md#holding)を比較する。`trade-proposal-check <DRAFT> --db <APP_DB>`後、[内容Review](../../../docs/reference/trade-proposal.md#publication-review)を経て`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
 
 全対象が理由/参照付きunfinishedで、公開済みProposalも束縛参照もない場合だけProposal工程を省いて完了できる。resultへ確認範囲/評価未完、nextへ未解決の問い/再調査条件を記す。reviewedや公開済み未束縛Proposalがあれば通常経路を使い、経済的見送り/保有判断をunfinishedにしない。0対象は選定理由を残し空Proposalなしで終える。
 
@@ -117,7 +117,7 @@ uv run baibai-engine investment-judgment prepare \
 
 record-proposalは公開済み提案の束縛。buy完了には具体termsが必要で、sell terms不足の理由付き調査終了を具体提案完成と呼ばない。completedは有限作業終了で採否/注文/約定ではなく、評価/提案完成とも限らない。正本は`operation --db <APP_DB> show <ID>`で読み、workspaceのincompleteと区別する。
 
-再開は保存入力から投影を復元し、元generation/旧run/latest storeへ付替えない。forceは執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開し、別active workspaceを上書きしない。already_completedを戻さず、後日の再依頼は新workspace/Operationを使う。取引/資金は報告事実だけを[Ledger](../ledger-record/SKILL.md)へ、monitoringは同じ問いの既存taskを確認して記録する。認可されたapplication反映へ進む。
+再開は保存入力から投影を復元し、元generation/旧run/latest storeへ付替えない。forceは執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開し、別active workspaceを上書きしない。already_completedを戻さず、後日の再依頼は新workspace/Operationを使う。取引/資金は報告事実だけを[Ledger](../ledger-record/SKILL.md)へ記録する。認可されたapplication反映へ進む。
 
 ## 提案訂正・人間の非購入報告
 

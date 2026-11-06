@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService, _event_values
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
-from baibai_engine.tasks.models import Task
 
 
 def seed_ledger(path: Path, document: PortfolioLedgerDocument) -> None:
@@ -56,33 +54,6 @@ def seed_ledger(path: Path, document: PortfolioLedgerDocument) -> None:
         expected_document=initial,
         replacement=document,
     )
-
-
-def seed_tasks(path: Path, tasks: Iterable[Task]) -> None:
-    initialize_database(path)
-    with closing(connect_rw(path)) as connection:
-        connection.executemany(
-            """
-            INSERT INTO task(
-                task_id, status, kind, ticker, due_date, event_date,
-                created_at, closed_at, payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    task.task_id,
-                    task.status,
-                    task.kind,
-                    task.ticker,
-                    task.due_date.isoformat(),
-                    None if task.event_date is None else task.event_date.isoformat(),
-                    task.created_at.isoformat(),
-                    None if task.closed_at is None else task.closed_at.isoformat(),
-                    canonical_json(task.payload()),
-                )
-                for task in tasks
-            ],
-        )
 
 
 def seed_historical_operation(path: Path, operation: OperationSession) -> None:

@@ -24,7 +24,7 @@
 
 PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)からの上限で、期待値/勝率/最適指値ではない。魅力的な上振れがあってもlimitのBase年率が要求率未達なら現行gateを通さず、その制約をBase/率/期間の通過用変更で迂回しない。quoteがPmax超でも低いlimitで待てるが、購入判断未了の監視はbuyにしない。
 
-[受容理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedから、見返り・主要損失経路・今引き受ける理由を示す。企業仮説の棄却とquote/cash等の不足を分け、未完はdefer、完成した見送りはno_actionとする。既保有・active買予約への追加、別評価IDによる迂回、約定済み提案の全売却後再利用はしない。
+[受容理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedを使う。既保有・active買予約への追加、別評価IDによる迂回、約定済み提案の全売却後再利用はしない。
 
 <a id="limit-selection"></a>
 ### 指値と待機案の選択
@@ -34,6 +34,8 @@ PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)から�
 比較は[同context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)と[購入算術](../../engine/src/baibai_engine/investment_judgment/trade_proposal/conditions.py)を使う。鮮度は実quote、支出/利回りは作者limitで計算し、価格/株数basisを同一snapshotへ揃える。入力変更時は比較を取り直す。
 
 数量は[資本方針](../doctrine.md#required-return-policy)に従う。小口・上限量・現金維持を比べ、同じ一株returnでも損益金額・残cash・集中・ADVとno-addによる放棄利益が異なることを示す。
+
+context/check/previewの金額比較は、同じ未拘束cashから指定数量が指値で全量成立した条件例である。数量未指定なら上限量の試算で、採用数量ではない。Base/Downsideの期間内分配を一度だけ含め、残cashと現金維持は無利息、税費用前とする。既保有・予約を含む全体NAVや約定予測ではなく、待機後の買付やcash利回り・費用が採否を変える場合は同一終期の別案へ反映する。
 
 待機は逃す利益だけでなく、保持cash・他機会・回避損失・追加情報を比較する。悪材料時だけ約定する逆選択/event gapも考え、約定率×Base利益だけで選ばない。価値に織込んだ毀損をpenaltyへ重ねず、機会損失を事後最高値で定義しない。ADV/日足から板・queue・impact・精密約定率を創作せず、`low <= limit`を約定保証にしない。確率推定は[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
@@ -68,7 +70,7 @@ sell limitは作者が受け入れる一株回収下限。実quoteの上下と�
 
 公開時に固定scope・exact評価pair・現入力を照合する。過去本文/hashへ現在条件を適用せず、旧保存を新しい下限比較済みにしない。previewは保存案と現在再試算を別表示し、保存limit/数量が現在上限超でも縮小せず、利用不能を当時の誤りと即断しない。
 
-saved/current warningを分け、人間へ示す。保有quote/権利basis不足でNAVを作らず、既知factor比率が下限ならcoverageを示す。取引は[Ledger](portfolio-ledger.md)へ別記録する。
+saved/current warningを分け、人間へ示す。保有quote/権利basis不足でNAVを作らず、既知factor比率が下限ならcoverageを示す。取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)へ別記録する。
 
 ## 提案の訂正と人間の報告
 

@@ -5,16 +5,17 @@ description: 人間の明示開始から市場入力を固定し、重要な環�
 
 # 市場環境判断（Market Assessment）
 
-明示依頼で共通の市場判断を作る。日次更新やstaleだけでAI執筆を起動しない。[市場環境](../../../docs/reference/market-context.md#assessment)が意味を所有する。
+明示依頼で、固定入力/基準時点の重要な水準・変化・反証/不確実性を個社の耐性・仮定・支払価格へつなぐ。L2の[Reading](../../../docs/reference/model-observations.md#reading)とは別で、日次更新/staleだけでAI執筆を起動せず、L2値の第二正本を作らない。章数・確率格子・scenario件数を課さず、不足や小さな変化も扱う。
 
-クラウド正本へ反映する作業は、開始前に[application作業コピーの準備](../../../jobs/OPERATIONS.md#application-db-を反映する)を行い、DBと取得ETagを揃える。既存作業の再開ではその組を保持する。
+独自risk点・指数連動要求率・自動配分・一律業種除外/売却は増分価値と費用・誤除外の[方式比較](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-20-macro-risk-strategy/report.md)で未採用。集約指数一般の無効や現在の市場状態を認定するものではない。
 
-1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個別状態と一次資料を読む。取得が必要なら[運用](../../../jobs/OPERATIONS.md)へ進む。
-判断直前の市場補助観測が必要なら[多市場補助観測](../../../jobs/OPERATIONS.md#判断直前の多市場補助観測)の有限captureを固定する。`read`が返すAssessment入力と同じsource-handoff参照をreviewerへ渡す。日次TV充足、遅延quote、bar時刻、正式な提案終値を混同しない。
+## 入力・作成・発行
 
-2. [市場環境判断の契約](../../../docs/reference/market-context.md#assessment)に沿って重要な水準・変化、反証/不確実性と個社への含意をまとめる。
-3. 作者と別sessionのreviewerがsource・因果・反証・含意を確認する。数値・単位・日付・限定を保って編集し、新たな根拠や判断を採用したら再Reviewする。最大3巡で未解決なら発行せず人間へ上げる。
-4. Review PASSまたは人間のdraft承認後、known_atを保ち、初回発行直前の実時刻をpublished_atへ設定してcheckする。headを読んでCAS発行する。
+クラウドへ反映するときは[application作業コピー](../../../jobs/OPERATIONS.md#application-db-を反映する)と取得ETagを揃え、再開でも同じ組を保持する。
+
+1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個社状態と一次資料を読む。取得は[運用](../../../jobs/OPERATIONS.md)へ。判断直前の[多市場補助観測](../../../jobs/OPERATIONS.md#判断直前の多市場補助観測)を使う場合も、readが返す同じsource-handoffをreviewerへ渡す。日次TV充足・遅延quote・bar時刻・正式提案終値を混同しない。
+2. 重要な変化と個社への含意を記し、別sessionのreviewerがsource・因果・反証を確認する。数値・単位・日付・限定を保ち、新根拠/判断を採ったら再Review。最大3巡で未解決なら発行せず人間へ上げる。
+3. Review PASSまたは人間のdraft承認後、known_atを保ち、初回発行直前の実時刻をpublished_atとしてcheckし、headを読んでCAS発行する。
 
 ```bash
 uv run baibai-engine investment-judgment market-context publish <DRAFT> --check
@@ -29,4 +30,10 @@ uv run baibai-engine investment-judgment market-context show --context-id <CONTE
 uv run baibai-engine investment-judgment market-context latest --asof <YYYY-MM-DD> --known-at <AWARE_DATETIME>
 ```
 
-発行IDの本文を読戻す。[保存履歴](../../../docs/reference/market-context.md#保存履歴)を保ち、本番反映は[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。push-indicatorsだけではL3判断は反映されない。
+発行IDの本文を読み返して[application反映](../../../jobs/OPERATIONS.md#application-db-を反映する)へ進む。push-indicatorsだけではL3判断は反映されない。
+
+## 選択と履歴
+
+対象日以下かつknown_atまでに実発行された一件を選ぶ。週末発行を対象日末cutoffで落とさず、available_atに提供者の公表時刻を捏造しない。新判断は実発行後のSelectionへ固定する。
+
+exact ID/historyは保存本文・入力・引用・supersedesを検証し、新writer/cutoff/projectionで旧構造を書き換えない。保存判断の抽出を新判断の必須構造にせず、旧runner入力がなければ本文から得た範囲だけを示す。latestは選んだ一件の不整合を旧正常値へfallbackせず、未選択のL3全履歴検査を先行条件にしない。

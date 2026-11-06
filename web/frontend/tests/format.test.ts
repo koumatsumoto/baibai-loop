@@ -2,14 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   EMPTY,
-  daysUntilJstDate,
   formatJstDate,
-  formatJstDateShort,
   formatJstDateTime,
   formatPct,
   formatUnitPriceYen,
   formatYen,
-  jstCalendarDate,
 } from '../src/lib/format'
 
 describe('formatJstDateTime', () => {
@@ -41,21 +38,6 @@ describe('formatJstDate', () => {
 
   it('returns a placeholder for a missing date', () => {
     expect(formatJstDate(null)).toBe('日時なし')
-  })
-})
-
-describe('formatJstDateShort', () => {
-  it('drops the year and keeps the weekday', () => {
-    expect(formatJstDateShort('2026-07-19')).toBe('7/19 (日)')
-  })
-
-  it('leaves the month and day unpadded', () => {
-    expect(formatJstDateShort('2026-01-05')).toBe('1/5 (月)')
-  })
-
-  it('reads an instant in JST rather than the viewer timezone', () => {
-    // 20:00 UTC on new year's eve is already the next year in Tokyo.
-    expect(formatJstDateShort('2026-12-31T20:00:00Z')).toBe('1/1 (金)')
   })
 })
 
@@ -96,7 +78,7 @@ describe('EMPTY', () => {
 })
 
 
-describe('unit prices and current JST dates', () => {
+describe('unit prices', () => {
   it('keeps per-share fractions without changing whole-yen totals', () => {
     expect(formatUnitPriceYen(1052.5)).toBe('￥1,052.5')
     expect(formatUnitPriceYen(1052.1234)).toBe('￥1,052.1234')
@@ -104,10 +86,4 @@ describe('unit prices and current JST dates', () => {
     expect(formatYen(1052.5)).toBe('￥1,053')
   })
 
-  it('uses the current JST day across midnight and calendar boundaries', () => {
-    expect(jstCalendarDate('2026-12-31T15:00:00Z')).toBe('2027-01-01')
-    expect(daysUntilJstDate('2027-01-01', '2026-12-31')).toBe(1)
-    expect(daysUntilJstDate('2026-12-31', '2027-01-01')).toBe(-1)
-    expect(daysUntilJstDate('2027-01-01', '2027-01-01')).toBe(0)
-  })
 })

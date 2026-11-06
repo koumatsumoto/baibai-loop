@@ -305,6 +305,10 @@ def test_saved_quantity_is_revalidated_without_resizing_when_cash_changes(
     assert check.valid
     assert check.calculations["1234"]["quantity"] == selected
     assert check.calculations["1234"]["maximum_quantity"] == 300
+    checked_capital = check.calculations["1234"]["capital_comparison"]
+    assert checked_capital["quantity_basis"] == "author_selected"
+    assert Decimal(checked_capital["notional_yen"]) == selected * 1000
+    assert Decimal(checked_capital["unspent_cash_yen"]) == 500000 - selected * 1000
     published = service.publish(proposal)
     store = LedgerStoreService(case.app)
     values = dict(
@@ -331,5 +335,14 @@ def test_saved_quantity_is_revalidated_without_resizing_when_cash_changes(
     assert row["saved_limit_revalidation"]["quantity"] == (0 if blocked else selected)
     assert row["saved_limit_revalidation"]["maximum_quantity"] == maximum
     assert bool(row["saved_limit_revalidation"]["hard_blockers"]) is blocked
+    capital = row["saved_limit_revalidation"]["capital_comparison"]
+    if blocked:
+        assert capital is None
+    else:
+        assert capital["quantity_basis"] == "author_selected"
+        assert Decimal(capital["notional_yen"]) == selected * 1000
+        assert Decimal(capital["unspent_cash_yen"]) == current_cash - selected * 1000
+        assert Decimal(capital["cash_only_terminal_value_yen"]) == current_cash
+        assert Decimal(capital["base"]["profit_loss_yen"]) == selected * 100
     assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
     assert _snapshot(case.app) == before

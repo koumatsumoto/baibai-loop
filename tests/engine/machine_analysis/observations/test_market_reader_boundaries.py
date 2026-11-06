@@ -13,11 +13,6 @@ from tests.helpers.screening_sqlite import insert_financial_record
 import baibai_engine.machine_analysis.observations.disclosures.jpx_reader as jpx_reader
 import baibai_engine.machine_analysis.observations.prices.price_reader as price_reader
 import baibai_engine.machine_analysis.observations.trading_activity.margin_reader as margin_reader
-from baibai_engine.machine_analysis.historical_evaluation.grid import (
-    days_with_bars,
-    month_end_asof_grid,
-)
-from baibai_engine.machine_analysis.historical_evaluation.panel import _coverage_floors
 from baibai_engine.machine_analysis.observations.disclosures import edinet_document_store
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_next_earnings_dates,
@@ -39,6 +34,7 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
 )
 from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
+from baibai_jobs.maintenance.market.grid import days_with_bars, month_end_asof_grid
 
 
 @pytest.mark.parametrize(
@@ -69,7 +65,6 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
 
     assert month_end_asof_grid(path, start=start, end=end, min_tickers=1) == [date(2026, 1, 30)]
     assert days_with_bars(path, [end], min_tickers=1) == {end}
-    assert _coverage_floors(path, end) == (date(2026, 1, 30), date(2026, 1, 30))
     assert read_next_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
     assert unreadable_store_reason(path) is None
     assert path.read_bytes() == before

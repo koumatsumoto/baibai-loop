@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -23,12 +23,20 @@ from tests.helpers.ledger import load_portfolio_ledger
 from baibai_engine.cli.app import main as engine_main
 from baibai_engine.cli.operation import main as operation_main
 from baibai_engine.cli.portfolio import main as position_main
-from baibai_engine.cli.tasks import main as task_main
 from baibai_engine.primitives.yaml import safe_load
 
 ROOT = Path(__file__).resolve().parents[3]
 LEDGER = ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"
 OPERATION_NOW = datetime.fromisoformat("2026-07-19T12:00:00+09:00")
+
+
+def test_removed_task_command_is_not_an_operation_alias(tmp_path, capsys):
+    db = tmp_path / "app.sqlite"
+    with pytest.raises(SystemExit) as error:
+        engine_main(["task", "--db", str(db), "list"])
+    assert error.value.code == 2
+    assert "invalid choice: 'task'" in capsys.readouterr().err
+    assert not db.exists()
 
 
 def _ledger_db(tmp_path: Path) -> Path:
@@ -181,41 +189,6 @@ def test_operation_checkpoint_cli_replaces_the_active_payload(
             (operation_id,),
         ).fetchone()
     assert tuple(row) == ("active", "fixed research checkpoint")
-
-
-def test_task_drop_cli_closes_the_row_on_the_operation_date(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    db = tmp_path / "app.sqlite"
-    today = date(2026, 7, 19)
-    assert (
-        task_main(
-            [
-                "--db",
-                str(db),
-                "add",
-                "--title",
-                "運用点検",
-                "--kind",
-                "ops",
-                "--due",
-                "2026-07-31",
-            ],
-            today=today,
-        )
-        == 0
-    )
-    task_id = _emitted(capsys)["task_id"]
-
-    code = task_main(["--db", str(db), "drop", str(task_id)], today=today)
-
-    assert code == 0
-    assert _emitted(capsys)["status"] == "dropped"
-    with closing(sqlite3.connect(db)) as connection, connection:
-        row = connection.execute(
-            "SELECT status, closed_at FROM task WHERE task_id = ?", (task_id,)
-        ).fetchone()
-    assert tuple(row) == ("dropped", "2026-07-19")
 
 
 def test_db_init_cli_creates_the_application_database_at_the_current_schema(

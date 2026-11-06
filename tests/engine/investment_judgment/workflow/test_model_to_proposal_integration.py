@@ -6,6 +6,7 @@
 
 import hashlib
 import importlib
+import json
 import socket
 import sqlite3
 from contextlib import closing
@@ -1047,11 +1048,19 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
                 connection,
                 source_id="fred-payems",
                 fetched_at=at,
-                records_by_day={START.date().replace(day=1): [{"PAYEMS": value}]},
+                records_by_day={
+                    START.date().replace(month=9, day=1): [{"PAYEMS": "99000"}],
+                    START.date().replace(day=1): [{"PAYEMS": value}],
+                },
             )
 
     receive("100000", received)
     saved = retain_economic_input(store, source, as_of=START.date(), evaluation_time=START)
+    prefix = "fixed-inputs/economic/v1/"
+    selection = json.loads(store.get_bytes(prefix + saved.descriptor["selection_sha256"] + ".json"))
+    assert set(selection["months"]) == {"fred-payems/2026"}
+    block = json.loads(store.get_bytes(prefix + selection["months"]["fred-payems/2026"] + ".json"))
+    assert {row["key"][1] for row in block["records"]} == {"2026-09-01", "2026-10-01"}
     original = rebuild_economic_input(store, source, saved)
     assert (
         next(
@@ -1061,8 +1070,19 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
         )
         == 100000
     )
-    case = _prepare_case(tmp_path, monkeypatch, economic_input=original, ledger_age=30)
+    case = _prepare_case(
+        tmp_path, monkeypatch, shared_trends=True, economic_input=original, ledger_age=30
+    )
     generation = case.selected.inputs.generation
+    assert {model.model_id for model in generation.models} == {
+        "company_financials",
+        "company_growth",
+        "market_context",
+        "external_assessment",
+        "technical_analysis",
+        "industry_trends",
+        "social_trends",
+    }
     assert generation.inputs["economic"] == saved
     market = next(model for model in generation.models if model.subject == "market")
     assert market.payload["reading"] == original.context["reading"]
@@ -1071,6 +1091,17 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
     assert proposal.items[0].action == "buy"
     assert proposal.items[0].terms.quantity == 300
     assert context.assessments[assessment_id()].document.valuation.base is not None
+    assert context.inputs.ledger_as_of == case.ledger.as_of == START - timedelta(days=30)
+    # A conditional full fill at the limit is not permission to buy at today's quote.
+    calculations = context.calculations["1234"]
+    assert calculations["buy_at_actual_quote"]["capital_comparison"] is None
+    capital = calculations["calculation_at_maximum_price"]["capital_comparison"]
+    assert capital["quantity_basis"] == "quantity_ceiling"
+    assert Decimal(capital["notional_yen"]) == 300000
+    assert Decimal(capital["unspent_cash_yen"]) == 0
+    assert Decimal(capital["cash_only_terminal_value_yen"]) == 300000
+    assert Decimal(capital["base"]["profit_loss_yen"]) == 30000
+    assert Decimal(capital["downside"]["profit_loss_yen"]) == -90000
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     published = service.publish(proposal)
     projected = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
@@ -1090,8 +1121,11 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
     # Raw loss makes cold calculation unavailable, not the saved L3 result unreadable.
     with closing(sqlite3.connect(source)) as connection, connection:
         removed = connection.execute(
-            "DELETE FROM economic_source_records WHERE fetched_at=?",
-            (received.astimezone(UTC).isoformat(timespec="microseconds"),),
+            "DELETE FROM economic_source_records WHERE observed_at=? AND fetched_at=?",
+            (
+                "2026-10-01",
+                received.astimezone(UTC).isoformat(timespec="microseconds"),
+            ),
         )
         assert removed.rowcount == 1
     with pytest.raises(ValueError, match="fixed economic original"):

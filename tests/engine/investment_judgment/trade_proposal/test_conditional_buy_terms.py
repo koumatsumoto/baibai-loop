@@ -134,6 +134,7 @@ def test_discount_limit_cannot_bypass_any_hard_gate(overrides, blocker):
     )
     assert blocker in codes(result)
     assert result.quantity == 0
+    assert result.capital_comparison is None
 
 
 @pytest.mark.parametrize("price_day", [date(2026, 10, 6), date(2026, 10, 15)])
@@ -242,6 +243,7 @@ def test_selected_quantity_over_ceiling_is_blocked_without_silent_resizing():
         result = evaluate(**overrides)
         assert "selected_quantity_above_maximum" in codes(result)
         assert result.quantity == 0
+        assert result.capital_comparison is None
         assert result.maximum_quantity < overrides["selected_quantity"]
 
 
@@ -256,3 +258,82 @@ def test_author_quantity_preserves_one_lot_guide_exception_and_exact_cash_bounda
     )
     assert result.quantity == result.maximum_quantity == 0
     assert "available_cash_below_board_lot" in codes(result)
+
+
+@pytest.mark.parametrize("quantity", [100, 200, 300])
+def test_capital_comparison_uses_author_quantity_and_limit_not_quote(quantity):
+    result = evaluate(selected_quantity=quantity, available_cash_yen=Decimal(500000))
+    capital = result.capital_comparison
+    assert capital["scope"] == "available_cash_only"
+    assert capital["execution_assumption"] == "full_fill_at_limit"
+    assert capital["quantity_basis"] == "author_selected"
+    assert capital["quantity"] == quantity
+    assert capital["notional_yen"] == str(1000 * quantity)
+    assert capital["unspent_cash_yen"] == str(500000 - 1000 * quantity)
+    assert capital["cash_only_terminal_value_yen"] == "500000"
+    assert capital["base"] == {
+        "investment_total_value_yen": str(1100 * quantity),
+        "profit_loss_yen": str(100 * quantity),
+        "capital_total_value_yen": str(500000 + 100 * quantity),
+    }
+    assert capital["downside"] == {
+        "investment_total_value_yen": str(700 * quantity),
+        "profit_loss_yen": str(-300 * quantity),
+        "capital_total_value_yen": str(500000 - 300 * quantity),
+    }
+    assert result.limit_price_projection["base"]["total_return_pct"] == 10
+
+
+def test_quantity_ceiling_is_not_an_author_selection():
+    capital = evaluate().capital_comparison
+    assert capital["quantity_basis"] == "quantity_ceiling"
+    assert capital["quantity"] == 300
+    assert capital["unspent_cash_yen"] == "0"
+
+
+def test_capital_comparison_preserves_distribution_once_and_exact_decimal_amounts():
+    payload, _ = pair_payload()
+    payload["valuation"]["base"].update(
+        terminal_value_per_share_yen="1000.125", cash_distribution_per_share_yen="100.875"
+    )
+    result = evaluate(
+        StockAssessmentDocument.model_validate(payload),
+        proposed_limit_yen=Decimal("999.999"),
+        available_cash_yen=Decimal("300000.015"),
+        selected_quantity=100,
+    )
+    capital = result.capital_comparison
+    assert Decimal(capital["notional_yen"]) == Decimal("99999.9")
+    assert Decimal(capital["unspent_cash_yen"]) == Decimal("200000.115")
+    assert Decimal(capital["base"]["investment_total_value_yen"]) == Decimal("110100")
+    assert Decimal(capital["base"]["profit_loss_yen"]) == Decimal("10100.1")
+    assert Decimal(capital["base"]["capital_total_value_yen"]) == Decimal("310100.115")
+
+
+def test_cash_reference_does_not_earn_the_required_return_or_include_costs():
+    payload, _ = pair_payload()
+    payload["valuation"]["required_annual_return_pct"] = "3"
+    cheaper_requirement = evaluate(StockAssessmentDocument.model_validate(payload))
+    original = evaluate()
+    assert cheaper_requirement.maximum_price_yen > original.maximum_price_yen
+    assert cheaper_requirement.capital_comparison == original.capital_comparison
+    capital = original.capital_comparison
+    assert capital["cash_basis"] == "constant_nominal_without_interest"
+    assert capital["return_basis"] == "conditional_pretax_without_reinvestment"
+    assert capital["investor_taxes_and_fees_included"] is False
+    assert capital["horizon_months"] == 12
+
+
+def test_downside_total_loss_does_not_destroy_uninvested_cash():
+    payload, _ = pair_payload()
+    payload["valuation"]["downside"].update(
+        terminal_value_per_share_yen="0", cash_distribution_per_share_yen="0"
+    )
+    capital = evaluate(
+        StockAssessmentDocument.model_validate(payload), selected_quantity=100
+    ).capital_comparison
+    assert capital["downside"] == {
+        "investment_total_value_yen": "0",
+        "profit_loss_yen": "-100000",
+        "capital_total_value_yen": "200000",
+    }

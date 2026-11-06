@@ -13,7 +13,6 @@ EXPECTED_TABLES = (
     "selection_identity_migration",
     "proposal_correction",
     "proposal_human_report",
-    "task",
     "company_research",
     "judgment_retrospective",
     "market_context_assessment",

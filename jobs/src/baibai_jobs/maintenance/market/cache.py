@@ -20,11 +20,6 @@ from baibai_engine.data_collection.providers.jquants.market_rules import (
     MARKET_REVISION_OVERLAP_DAYS,
     WEEKLY_BALANCE_LOOKBACK_DAYS,
 )
-from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
-    BARS_INPUT_WINDOW_DAYS,
-    FIN_INPUT_WINDOW_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
@@ -36,7 +31,10 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_publica
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
-from baibai_engine.primitives.market_windows import FINANCIAL_REVISION_OVERLAP_DAYS
+from baibai_engine.primitives.market_windows import (
+    FINANCIAL_HISTORY_DAYS,
+    FINANCIAL_REVISION_OVERLAP_DAYS,
+)
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     count_overlapping_source_coverage,
     count_source_coverage,
@@ -53,6 +51,11 @@ from baibai_jobs.maintenance.source_refresh.jquants import (
     weekly_margin_candidate_dates,
     weekly_margin_empty_requires_refresh,
 )
+
+# 明示bootstrapで使う既存入力窓。通常生成の必要窓とは独立に維持する。
+BARS_INPUT_WINDOW_DAYS = 1200
+FIN_INPUT_WINDOW_DAYS = 730
+NORMALIZED_EPS_HISTORY_WINDOW_DAYS = FINANCIAL_HISTORY_DAYS
 
 
 def _maintenance(providers: ProviderBundle) -> JQuantsMaintenance:

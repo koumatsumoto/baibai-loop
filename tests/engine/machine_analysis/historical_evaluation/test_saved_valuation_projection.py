@@ -14,22 +14,8 @@ from tests.helpers.screening_run import screening_run_payload, seed_saved_run, s
 
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
 from baibai_engine.investment_judgment.workflow.selection import AnalysisInputSnapshot, InputGap
-from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
-    build_candidate_contexts,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
-    DerivedMetrics,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.stock_analysis_builder import (
-    build_stock_analysis_metrics,
-    expected_return_inputs,
 )
 from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import (
     balance_sheet_from_analysis,
@@ -37,9 +23,6 @@ from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import 
     forecast_sources_from_analysis,
     machine_valuation_from_analysis,
     valuation_metrics_from_analysis,
-)
-from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
-    FinancialSnapshot,
 )
 
 CUTOFF = date(2026, 9, 19)
@@ -91,12 +74,6 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
         ttm_quality={"ocf_yield": "exact", "fcf_yield": "approximated"},
     )
     original = copy.deepcopy(row)
-    rules = load_screening_rules()
-    selection = build_candidate_contexts(
-        [row],
-        rules=rules.candidate_discovery,
-        required_jpx_flags=rules.universe.required_jpx_flags,
-    )
     path = tmp_path / "runs.sqlite"
     seed_saved_run(
         path,
@@ -177,13 +154,6 @@ def test_saved_cf_sources_reach_research_without_recomputing_or_changing_selecti
     assert bs["edinet"]["document_metadata"] == security["cash_flow"]["edinet"]["document_metadata"]
     assert inputs["securities"]["9999"]["balance_sheet"] is None
     assert row == original
-    assert (
-        build_candidate_contexts(
-            [row],
-            rules=rules.candidate_discovery,
-            required_jpx_flags=rules.universe.required_jpx_flags,
-        )
-    ) == selection
     assert path.read_bytes() == before
 
 
@@ -195,77 +165,6 @@ def test_absent_cf_and_document_metadata_stay_missing():
         assert cf["edinet"]["edinet_ocf_ttm"] is None
         assert cf["edinet"]["capex_ttm"] is None
         assert cf["edinet"]["fcf_ttm"] is None
-
-
-def test_financial_forecast_sources_survive_stock_analysis_serialization():
-    financial = FinancialSnapshot(
-        latest_financial_disclosure_date=CUTOFF,
-        per_forward=10.0,
-        per_trailing=None,
-        pbr=0.8,
-        ev_ebitda=None,
-        p_s=None,
-        pcfr=None,
-        eps=None,
-        sales_ttm=None,
-        ocf_ttm=None,
-        market_price_yen=1000.0,
-        dps_actual_annual=40.0,
-        dps_forecast_annual=170.0,
-        dividend_yield=0.04,
-        dividend_basis="actual_reported",
-        earnings_forecast_source={
-            "status": "partially_unresolved",
-            "disclosure_number": "income-unknown",
-            "period_start": "2026-04-01",
-            "period_end": "2027-03-31",
-            "basis": "consolidated",
-            "target_basis": "consolidated",
-            "candidate_disclosure_numbers": "income-known,income-unknown",
-            "forecast_eps_source_records": "income-known,income-unknown",
-            "forecast_profit_source_records": None,
-        },
-        dividend_forecast_source={
-            "status": "confirmed",
-            "disclosure_number": "dividend-revision",
-            "period_start": "2027-04-01",
-            "period_end": "2028-03-31",
-            "basis": "issuer_dividend",
-            "target_basis": "issuer_dividend",
-            "dps_forecast_annual_source_records": "dividend-revision",
-        },
-    )
-    row = stock_analysis(
-        "1234",
-        metrics=build_stock_analysis_metrics(financial, derived=DerivedMetrics()),
-    )
-    assert forecast_sources_from_analysis(row) == {
-        "earnings_forecast_source": {
-            "status": "partially_unresolved",
-            "disclosure_number": "income-unknown",
-            "period_start": "2026-04-01",
-            "period_end": "2027-03-31",
-            "basis": "consolidated",
-            "target_basis": "consolidated",
-            "candidate_disclosure_numbers": "income-known,income-unknown",
-            "forecast_eps_source_records": "income-known,income-unknown",
-            "forecast_profit_source_records": None,
-        },
-        "dividend_forecast_source": {
-            "status": "confirmed",
-            "disclosure_number": "dividend-revision",
-            "period_start": "2027-04-01",
-            "period_end": "2028-03-31",
-            "basis": "issuer_dividend",
-            "target_basis": "issuer_dividend",
-            "dps_forecast_annual_source_records": "dividend-revision",
-        },
-    }
-    valuation = machine_valuation_from_analysis(row)
-    assert valuation.dps_actual_annual == 40.0
-    assert valuation.dps_forecast_annual == 170.0
-    assert valuation.dividend_yield == 0.04
-    assert valuation.dividend_basis == "actual_reported"
 
 
 @pytest.mark.parametrize(
@@ -323,36 +222,20 @@ def test_balance_sheet_projection_keeps_unknowns_and_never_derives_dates(bad):
 def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_changing_er(
     tmp_path, dividend, share_change, basis, carry
 ):
-    financial = FinancialSnapshot(
-        latest_financial_disclosure_date=CUTOFF,
-        per_forward=10.0,
-        per_trailing=None,
-        pbr=0.8,
-        ev_ebitda=None,
-        p_s=None,
-        pcfr=None,
-        eps=None,
-        sales_ttm=None,
-        ocf_ttm=None,
-        market_price_yen=100.0,
-        dividend_yield=dividend,
-        net_share_change_yoy=share_change,
-        dividend_basis=basis,
-    )
-    derived = DerivedMetrics(
-        sector_median_value={"pbr": 1.2, "per_forward": 15.0},
-        self_range_median={"pbr": 1.0},
-        sector_median_gap={"per_forward": -0.5},
-    )
-    estimate = estimate_expected_return(expected_return_inputs(financial, derived))
-    assert estimate is not None
-    assert estimate.carry_annual == pytest.approx(carry)
-    assert estimate.er_annual == pytest.approx(0.0375 + carry)
     row = stock_analysis(
         "1234",
-        per_forward=financial.per_forward,
-        pbr=financial.pbr,
-        metrics=build_stock_analysis_metrics(financial, derived=derived, estimate=estimate),
+        per_forward=10.0,
+        pbr=0.8,
+        metrics={
+            "dividend_yield": dividend,
+            "net_share_change_yoy": share_change,
+            "dividend_basis": basis,
+            "er_model_version": "expected-return-v1",
+            "er_unit": "annual_ratio",
+            "er_assumptions": "retained fixture assumptions",
+            "er_annual": 0.0375 + carry,
+            "er_carry_annual": carry,
+        },
     )
     path = tmp_path / "runs.sqlite"
     seed_saved_run(
@@ -367,7 +250,7 @@ def test_saved_carry_inputs_reach_valuation_candidates_and_research_without_chan
     assert valuation.net_share_change_yoy == share_change
     assert valuation.dividend_basis == basis
     assert "not observed zero" in valuation.carry_missing_assumption
-    assert valuation.assumptions == estimate.assumptions
+    assert valuation.assumptions == "retained fixture assumptions"
     now = datetime.fromisoformat("2026-09-19T18:00:00+09:00")
     research = _project_saved_legacy_inputs(
         tickers=("1234",),
@@ -411,17 +294,9 @@ def test_saved_dps_reaches_research_without_changing_candidates_or_raw_values(
             "er_carry_annual": 0.01,
         },
     )
-    rules = load_screening_rules()
-    kwargs = {
-        "rules": rules.candidate_discovery,
-        "required_jpx_flags": rules.universe.required_jpx_flags,
-    }
-    before = build_candidate_contexts([row], **kwargs)
     row_without_dps = copy.deepcopy(row)
     del row_without_dps["metrics"]["dps_actual_annual"]
     del row_without_dps["metrics"]["dps_forecast_annual"]
-    without_dps = build_candidate_contexts([row_without_dps], **kwargs)
-    assert before == without_dps
     assert row["metrics"]["dps_actual_annual"] == actual
     assert row["metrics"]["dps_forecast_annual"] == forecast
     assert row["metrics"]["dividend_basis"] == basis
@@ -557,7 +432,6 @@ def test_valuation_import_does_not_start_research_or_aggregate_read_api():
             "-c",
             """
 import sys
-from baibai_engine.machine_analysis.historical_evaluation.estimates import estimate_expected_return
 from baibai_engine.machine_analysis.historical_evaluation.saved_analysis import machine_valuation_from_analysis
 assert not any(name.startswith(("baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening")) for name in sys.modules)
 """,
@@ -624,3 +498,20 @@ def test_valuation_metrics_project_saved_coordinates_without_reconstructing_earn
     assert projected["ttm_quality"]["per_trailing"] == "exact"
     assert "forecast_eps" not in projected
     assert saved == original
+
+
+@pytest.mark.parametrize("model", [None, "expected-return-v1", "unknown-retained-version"])
+@pytest.mark.parametrize("value", [None, 0.0, 0.1234567])
+def test_saved_estimate_retains_missing_zero_precision_and_unknown_identity(model, value):
+    row = {"metrics": {"er_model_version": model, "er_annual": value, "dividend_yield": value}}
+    original = copy.deepcopy(row)
+    projected = machine_valuation_from_analysis(row)
+    assert projected.er_annual == value
+    assert projected.dividend_yield == value
+    assert projected.model_version == model
+    assert projected.carry_annual is None
+    assert projected.reversion_annual is None
+    assert projected.sector_median_anchor_yen is None
+    assert projected.unit is None
+    assert (projected.carry_missing_assumption is not None) == (model == "expected-return-v1")
+    assert row == original

@@ -5,15 +5,15 @@ from datetime import date
 from io import BytesIO
 
 import pytest
-from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+from tests.helpers.financial_metrics import (
     _summary,
 )
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
     parse_csv_zip_metric_record,
@@ -298,7 +298,7 @@ def test_1375_supported_assets_do_not_adopt_individual_cash_or_debt():
             )
         ],
         edinet=record,
-        ttm_rules=load_screening_rules().ttm,
+        ttm_rules=DEFAULT_TTM_RULES,
         adjustment_events=(),
         asof_date=date(2026, 7, 1),
     )

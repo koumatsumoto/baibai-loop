@@ -9,7 +9,7 @@ function activeLabels(pathname: string): string[] {
 describe('NAV_TABS active matching', () => {
   it.each<[string, string[]]>([
     ['/', ['Dashboard']],
-    ['/tasks', ['Tasks']],
+    ['/tasks', []],
     ['/proposal', ['売買提案']],
     ['/proposal/unknown', []],
     ['/nowhere', []],

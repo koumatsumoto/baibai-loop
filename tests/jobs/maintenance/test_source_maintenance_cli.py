@@ -36,10 +36,6 @@ from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bar
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
-from baibai_engine.machine_analysis.historical_evaluation.input_windows import (
-    FIN_INPUT_WINDOW_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     read_edinet_metrics,
 )
@@ -49,7 +45,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
 from baibai_jobs.maintenance.market.cache import (
+    FIN_INPUT_WINDOW_DAYS,
     FIN_SUMMARY_REVISION_OVERLAP_DAYS,
+    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
     refresh_edinet_documents_command,
 )
 from baibai_jobs.maintenance.market.disclosures_cli import backfill_edinet_identity_command
