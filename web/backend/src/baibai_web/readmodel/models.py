@@ -1,4 +1,4 @@
-"""保有・運用成績・タスクの表示契約。"""
+"""保有・運用成績の表示契約。"""
 
 from datetime import date, datetime
 from typing import Literal
@@ -41,29 +41,6 @@ class WarningView(BaseModel):
     overridden: bool
 
 
-class TaskView(BaseModel):
-    task_id: str
-    title: str
-    kind: str
-    status: str
-    ticker: str | None
-    # When to act. This is what fires the trigger and what the task list orders by.
-    due_date: date
-    # What the task is waiting on — a distinct concept from the deadline, kept even
-    # where the two happen to hold the same date. The Tasks view renders the deadline
-    # alone today; the event stays in the projection because it answers "why is this
-    # dated" and is the task's own context, not a display leftover.
-    event_label: str | None
-    event_date: date | None
-
-
-class UpcomingEventView(BaseModel):
-    event_date: date
-    kind: Literal["earnings", "reservation_expiry"]
-    ticker: str | None
-    label: str
-
-
 class DashboardView(BaseModel):
     generated_at: datetime
     ledger_exists: bool
@@ -87,23 +64,6 @@ class DashboardView(BaseModel):
     holdings: list[HoldingView]
     reservations: list[ReservationView]
     warnings: list[WarningView]
-
-
-class TasksView(BaseModel):
-    """Task/event workflow projection, separate from portfolio presentation."""
-
-    generated_at: datetime
-    tasks_exist: bool
-    open_tasks: list[TaskView]
-    next_task: TaskView | None
-    upcoming_events: list[UpcomingEventView]
-    earnings_calendar_available: bool | None = Field(
-        default=None, description="保有決算予定の確認可否。保有なし/台帳不明はnull。"
-    )
-    earnings_calendar_error: str | None = Field(
-        default=None, description="決算カレンダーの読取失敗。欠測だけの場合はnull。"
-    )
-    ledger_error: str | None
 
 
 class PortfolioOutcomeView(BaseModel):

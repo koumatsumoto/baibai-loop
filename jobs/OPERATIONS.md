@@ -113,7 +113,10 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 
 `--recent`は通常窓と、既存成功範囲/通常窓失敗からの未確認区間を回復する。広範囲失敗は通常runの起点にせず、実受領の成功分を除いた残りを `result.json` / logの `history_recovery_required` で確認し、期間指定refreshまたは `--all-history` で別に回復する。全改訂・完全な当時PITは保証しない。
 
-定時/asof空欄の遅延ではcurrent-onlyだけ実取得日を記録し、他sourceとhandoff対象日は動かさない。松井の現在ページや明示過去asofを現在値で埋めて履歴回復としない。PMIの配信元変更/速報採用は[別途受入](../docs/reference/data-sources.md#pmi-public-articles)で扱う。
+定時/asof空欄の遅延ではcurrent-onlyだけ実取得日を記録し、他sourceとhandoff対象日は動かさない。松井の現在ページや明示過去asofを現在値で埋めて履歴回復としない。
+
+<a id="pmi-public-articles"></a>
+PMIはS&P公式PDFの日本/米国製造業headline・サービスBusiness Activity Indexを使う。TE公開記事adapterは未接続で同じ測定の別配信にすぎず、取得・coverage・利用範囲の受入なしに切り替えない。ISM/Output/Composite、旧値/snippet、拒否後fallbackへ代用せず、原文受領/抽出と速報/確報・対象月・公表/配信時刻を分ける。[採否 #1477](https://github.com/koumatsumoto/baibai-loop/issues/1477)。完全PITは保証しない。
 
 取得成功と正本反映は別に確認する。保存L3を書き換えたり投資判断を自動作成したりしない。
 
@@ -215,7 +218,7 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 
 planning CAS失敗で残った原本も不変handoffから次回統合で発見する。原本の統合と最新cursorの復元は別で、全sourceのcursorを自動修復できる保証ではない。後続取得が進めた計画を古いcursorで巻き戻さない。参照worksetの不足と、validatorの200 body不足も別である。後者では通常予算内の新しい無条件GETを行う場合があるが、過去原本を復元したとは扱わない。
 
-原本の表現・添付・リンク範囲は[記事sourceの意味](../docs/reference/data-sources.md#public-articles)を参照する。トウシルの同一host内の公開記事移転（301/308）はLocationを保持し、既存予算内で転送先を別受領として取得する。一般のHTTP redirect、認証付きURL、未許可hostへ巡回を広げない。旧受領に未保存のLocationは推測して補わない。HTTP失敗を含むL1の保存成功と、取得成功・本文投影成功を区別する。受領失敗はsource不備としてDEGRADED通知に残し、本文を受領した後のparser失敗だけを投影失敗として扱う。財務省の許可された案内は親子の別受領を保ち、rolling一覧から過去全PDFへ巡回しない。応答の種類別上限は契約に従い、本文が大きいからfeed・source・groupの総予算まで増やさない。
+原本の表現・添付・リンク範囲は[記事sourceの意味](../docs/reference/model-observations.md#public-articles)を参照する。トウシルの同一host内の公開記事移転（301/308）はLocationを保持し、既存予算内で転送先を別受領として取得する。一般のHTTP redirect、認証付きURL、未許可hostへ巡回を広げない。旧受領に未保存のLocationは推測して補わない。HTTP失敗を含むL1の保存成功と、取得成功・本文投影成功を区別する。受領失敗はsource不備としてDEGRADED通知に残し、本文を受領した後のparser失敗だけを投影失敗として扱う。財務省の許可された案内は親子の別受領を保ち、rolling一覧から過去全PDFへ巡回しない。応答の種類別上限は契約に従い、本文が大きいからfeed・source・groupの総予算まで増やさない。
 
 結果の`partial`には未処理本文の継続も含む。原本・cursor保存が完了した`continuation_only=true`だけは正常な継続終了であり、全取得完了ではない。HTTP・parse・deadline・cursor省略・保存/CAS失敗を成功扱いせず、保存済み原本と失敗理由を分ける。source Aの失敗でも正常なBは進め、共通統合は開始時に到着済みのstageを固定する。
 
@@ -569,7 +572,7 @@ provider別jobは、失敗が確認済みHTTP 403だけでprivate受領保存に
 <a id="edinet-metrics-revision"></a>
 ## EDINET metricsの意味変更
 
-[抽出意味revision](../docs/reference/data-sources.md#edinet-metric-revision)変更時だけ実施し、Company Research facts revisionと区別する。隔離コピーで保持CSV ZIPを再抽出し、期待差分・quality/failure・coverageを確認する。
+EDINET_METRIC_REVISIONは抽出/選択の意味変更時だけ更新し、Company Research facts revisionと区別する。配置・import・retryでは変えず、旧値・時刻・release/hashを付け替えない。producer commitを各行の元抽出commitと同一視しない。隔離コピーで保持CSV ZIPを再抽出し、期待差分・quality/failure・coverageを確認する。
 
 main反映とwriter非競合を確認し、同じlease内でfresh pull/hydrate→比較元backup→extract-edinet-metrics→publish-lake→push-market→固定release読戻しを行う。原本取得が必要な時だけrefresh-edinet-metricsを使う。対象as-ofと保存値・revision・store-local情報を照合する。
 
@@ -678,7 +681,7 @@ uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_COPY> --aso
 uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
 ```
 
-欠測・通貨・対象期・cutoffの解釈は[取得元](../docs/reference/data-sources.md#tradingview)へ。L1保存・L2成功・公開を区別し、取得成功・省略・部分・原受領のみ・統合未達を確認する。保存判断と旧除外履歴を改変せず、新生成へ旧除外を流用しない。
+欠測・通貨・対象期・cutoffの解釈は[取得元](../docs/reference/model-observations.md#tradingview)へ。L1保存・L2成功・公開を区別し、取得成功・省略・部分・原受領のみ・統合未達を確認する。保存判断と旧除外履歴を改変せず、新生成へ旧除外を流用しない。
 
 ## Storeをseedする
 
@@ -695,8 +698,6 @@ uv run baibai-engine historical-evaluation candidates show --run-revision-id <RU
 
 ## 定期maintenance
 
-既存due taskを完了して必要な次回分だけ作り、同じ期限・対象・問いを重複登録しない。開発変更はIssueで扱う。
-
 PMIは公表翌週、TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な公開を行う。全履歴監査を定例化しない。依頼された注文結果は `measure_limit_outcomes` で測り、価格差を逸失利益や指値規律の因果効果としない。
 
 通知webhook rotationはDiscord新規/再生成→secret `DISCORD_WEBHOOK_URL` 更新→通常通知確認。旧webhookはDiscord側で消すまで有効で、過去Screeningの再実行は不要。
@@ -704,18 +705,20 @@ PMIは公表翌週、TSE資本政策/JPX廃止は翌月15日以降に既存refre
 <a id="web-serving"></a>
 ## 保有・運用Webの表示更新
 
-表示はdashboard・outcomes・tasks・latest-proposalの4 view。旧候補・macro・調査一覧・L1公開取得APIを復活させない。coreの日次統合が保存した後にapplicationを取得し、同じローカルmarketと合わせて生成・配信する。application取得・表示失敗で生成モデルやsource封印を止めたり巻き戻したりしない。台帳・taskの明示更新後は既存のpublish.shがapplication条件付き反映後にcloud-materializeを起動する。
+表示はdashboard・outcomes・latest-proposalの3 view。旧候補・macro・調査一覧・L1公開取得APIを復活させない。coreの日次統合が保存した後にapplicationを取得し、同じローカルmarketと合わせて生成・配信する。application取得・表示失敗で生成モデルやsource封印を止めたり巻き戻したりしない。台帳の明示更新後は既存のpublish.shがapplication条件付き反映後にcloud-materializeを起動する。
 
-手動再生成はmain上のcloud-materializeを実行する。検証済みapplicationを必須とし、marketをpullして固定releaseからhydrateする。market取得・hydrateの失敗はrunの失敗として残すが、未検証marketを読ませず、時価等を未評価にして最新の台帳fact・task・保存済み運用成績・保存済み提案を配信する。赤いrunでもview公開が完了している場合があるため、marketの復旧と公開結果を分けて確認する。旧run・economic storeは不要。新dashboardは`views/portfolio-dashboard.json`へ保存し、旧UIが読む`views/dashboard.json`を上書きしない。公開処理は4 viewをR2から読戻し、生成したJSONとの全bytes一致を同じlease内で確認する。Web切替前にはこの読戻しまで成功したrunを確認する（切替前のWorkerは新しいrouteを読めない）。過去のuploadだけで読戻し未実施なら、mainのcloud-materializeで再生成・公開・照合する。その後UIの対象HEADを確認し、web workflowをmainで明示dispatchする。切替後に認証付きAPIと画面を確認する。PRのCI成功は本番更新ではない。旧object・Worker secretは削除しない。
+Task管理とその決算予定・予約期限イベント一覧は廃止した。新規application DBにはtask表を作らず、既存schema 29のtask表・行と旧views/tasks.jsonは未参照のまま保持する。通常初期化・公開で削除や移行は行わず、Operation、台帳の予約/期限判定、JPX原本取得は継続する。
+
+手動再生成はmain上のcloud-materializeを実行する。検証済みapplicationを必須とし、marketをpullして固定releaseからhydrateする。market取得・hydrateの失敗はrunの失敗として残すが、未検証marketを読ませず、時価等を未評価にして最新の台帳fact・保存済み運用成績・保存済み提案を配信する。赤いrunでもview公開が完了している場合があるため、marketの復旧と公開結果を分けて確認する。旧run・economic storeは不要。新dashboardは`views/portfolio-dashboard.json`へ保存し、旧UIが読む`views/dashboard.json`を上書きしない。公開処理は3 viewをR2から読戻し、生成したJSONとの全bytes一致を同じlease内で確認する。Web切替前にはこの読戻しまで成功したrunを確認する（切替前のWorkerは新しいrouteを読めない）。過去のuploadだけで読戻し未実施なら、mainのcloud-materializeで再生成・公開・照合する。その後UIの対象HEADを確認し、web workflowをmainで明示dispatchする。切替後に認証付きAPIと画面を確認する。PRのCI成功は本番更新ではない。旧object・Worker secretは削除しない。
 
 ```bash
 uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 ```
 
-これはローカル生成だけであり公開しない。cloud workflow内だけが `jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving` で4 viewを公開する。資本・損益・保有の欠測とエラー、タスク、運用成績、提案のready/empty/unavailableを読戻しで照合する。提案0件のempty表示成功と、実際の保存ID・基準日・発行時刻を持つ本文カードの受入は区別する。
+これはローカル生成だけであり公開しない。cloud workflow内だけが `jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving` で3 viewを公開する。資本・損益・保有の欠測とエラー、運用成績、提案のready/empty/unavailableを読戻しで照合する。提案0件のempty表示成功と、実際の保存ID・基準日・発行時刻を持つ本文カードの受入は区別する。
 
 <a id="web-authentication"></a>
-Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有用Bearerまたは`?share=`で、どちらも同じ4 viewを読める独立credentialである。新しい表示もこの既存認証で保護し、追加のpasswordや権限区分を設けない。R2転送credentialとは別で、owner passwordの変更やUI再配備だけでは共有tokenを失効できない。共有の失効は配備先Workerの`READ_ACCESS_TOKEN`自体を更新、または削除／空値で無効化し、旧tokenが拒否され、必要な新tokenとownerの読取が維持されることを確認する。owner側も`VIEW_PASSWORD`自体を更新して旧値の拒否を確認する。実環境の変更は別の明示依頼に従い、秘密値や共有URLを本文・shell引数・logへ残さない。
+Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有用Bearerまたは`?share=`で、どちらも同じ3 viewを読める独立credentialである。新しい表示もこの既存認証で保護し、追加のpasswordや権限区分を設けない。R2転送credentialとは別で、owner passwordの変更やUI再配備だけでは共有tokenを失効できない。共有の失効は配備先Workerの`READ_ACCESS_TOKEN`自体を更新、または削除／空値で無効化し、旧tokenが拒否され、必要な新tokenとownerの読取が維持されることを確認する。owner側も`VIEW_PASSWORD`自体を更新して旧値の拒否を確認する。実環境の変更は別の明示依頼に従い、秘密値や共有URLを本文・shell引数・logへ残さない。
 
 
 ## 判断直前の多市場補助観測
@@ -771,7 +774,7 @@ uv run baibai-jobs price-native-cutover verify --directory <PLAN_DIR> --work-dir
 <a id="margin-alerts-native-l1"></a>
 ## 日々公表銘柄margin-alert native L1と通常経路
 
-`BAIBAI_MARGIN_ALERTS_NATIVE` は通常 `jquants-market` とdailyの固定reader/公開を一組で選ぶ。既定 `false`、本番切替は未実施。取得日/overlapは[取得owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。旧market releaseを開く前に原本を確定し、L2成否・品質を取得条件にしない。休場も8暦日の公表確認を行うため、追加GETとprovider予算を切替前に確認する。
+`BAIBAI_MARGIN_ALERTS_NATIVE` は通常 `jquants-market` とdailyの固定reader/公開を一組で選ぶ。既定 `false`、本番切替は未実施。取得日/overlapは[取得owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残](../docs/reference/model-observations.md#margin)に従う。旧market releaseを開く前に原本を確定し、L2成否・品質を取得条件にしない。休場も8暦日の公表確認を行うため、追加GETとprovider予算を切替前に確認する。
 
 ### 有限移行と本番切替
 

@@ -6,14 +6,14 @@ import sqlite3
 import subprocess
 import sys
 from contextlib import closing
-from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.outcome_publication import _publication
 
+from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_engine.tasks.service import TaskService
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -122,24 +122,24 @@ def test_command_output_stays_private_and_failure_stops_later_commands(
         assert f"synthetic-private-stderr-{command}" in log.read_text()
 
 
-@pytest.mark.parametrize("invalid_task", [False, True])
+@pytest.mark.parametrize("invalid_outcome", [False, True])
 def test_real_materialize_protects_private_validation_and_preserves_success(
-    tmp_path, application_workflow, invalid_task
+    tmp_path, application_workflow, invalid_outcome
 ):
     name, steps, logs = application_workflow
-    canary = "SYNTHETIC_PRIVATE_TASK_PAYLOAD_12345"
+    canary = "SYNTHETIC_PRIVATE_OUTCOME_PAYLOAD_12345"
     (tmp_path / "pyproject.toml").write_text("")
     (tmp_path / "engine/src/baibai_engine").mkdir(parents=True)
     app = tmp_path / "stores/application/baibai.sqlite"
     app.parent.mkdir(parents=True)
-    TaskService(app).add(
-        title=canary, kind="ops", due_date=date(2026, 11, 5), created_at=date(2026, 11, 5)
-    )
-    if invalid_task:
+    PortfolioOutcomeStore(app).publish(_publication())
+    if invalid_outcome:
         with closing(sqlite3.connect(app)) as connection, connection:
-            payload = json.loads(connection.execute("SELECT payload FROM task").fetchone()[0])
-            payload["ticker"] = canary
-            connection.execute("UPDATE task SET payload=?", (json.dumps(payload),))
+            payload = json.loads(
+                connection.execute("SELECT payload FROM portfolio_outcome").fetchone()[0]
+            )
+            payload["portfolio_twr_pct"] = canary
+            connection.execute("UPDATE portfolio_outcome SET payload=?", (json.dumps(payload),))
     market = tmp_path / "stores/market/market.sqlite"
     market.parent.mkdir(parents=True)
     with closing(open_connection(market)):
@@ -154,7 +154,7 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
         text=True,
         check=False,
     )
-    if invalid_task:
+    if invalid_outcome:
         assert direct.returncode != 0
         assert "ValidationError" in direct.stderr
         assert canary in direct.stderr  # Synthetic reproduction, not a production leak.
@@ -168,7 +168,7 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
     )
     assert all(item.stderr == "" for item in results)
     commands = ["pull-app", "materialize"]
-    if not invalid_task:
+    if not invalid_outcome:
         commands.append("upload-portfolio-views")
         for source in (tmp_path / "direct/views").iterdir():
             expected = json.loads(source.read_text())
@@ -181,6 +181,6 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
     assert (tmp_path / "calls").read_text().splitlines() == commands
     assert app.read_bytes() == before
     log = tmp_path / logs["materialize"]
-    if invalid_task:
+    if invalid_outcome:
         assert canary in log.read_text()
     assert log.stat().st_mode & 0o777 == 0o600

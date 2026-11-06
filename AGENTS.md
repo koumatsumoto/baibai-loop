@@ -12,4 +12,4 @@
 
 明示された全体監査だけは基準commitの全追跡fileをIssueへ列挙し、一件ずつ本文・責務・caller・test・説明、変更不要の理由と追加/削除/移動/再変更を追跡する。L1→L2→L3→人間報告→台帳→表示のidentity・時点・単位・欠測・再開・部分失敗・公開を最終HEADで横断し、未読/未解決を完了にしない。所見/test数・変更量を品質認定に使わない。
 
-開発はGitHub Issue、運用taskはapplication DBで管理する。未完Issueをcloseせず、段階提出はrefs #Nと残作業/引継先を示す。人間向け記録は日本語、identifierは正準名を保つ。
+開発はGitHub Issueで管理する。未完Issueをcloseせず、段階提出はrefs #Nと残作業/引継先を示す。人間向け記録は日本語、identifierは正準名を保つ。

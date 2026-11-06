@@ -78,10 +78,6 @@ DOMAINS: Mapping[str, Domain] = {
             "Independent Review, Trade Proposal"
         ),
     ),
-    "task": Domain(
-        module="baibai_engine.cli.tasks",
-        summary="dated operation tasks — the canonical record of what is waiting on a date",
-    ),
     "db": Domain(
         module="baibai_engine.cli.database",
         summary="application database maintenance: init, backup, and schema/row inspection",

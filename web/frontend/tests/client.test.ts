@@ -167,7 +167,7 @@ describe('shared read session', () => {
     setViewPassword('owner-secret')
     bootstrap()
     fetchMock.mockResolvedValue(jsonResponse({}, 401))
-    await Promise.allSettled([fetchJson('/api/dashboard'), fetchJson('/api/tasks'), fetchJson('/api/proposal/latest')])
+    await Promise.allSettled([fetchJson('/api/dashboard'), fetchJson('/api/outcomes'), fetchJson('/api/proposal/latest')])
     expect(getSharedToken()).toBeNull()
     expect(getViewPassword()).toBe('owner-secret')
   })

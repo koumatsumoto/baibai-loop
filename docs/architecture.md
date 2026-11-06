@@ -39,7 +39,6 @@ Baibai Loopは日本個別株の機会を調べ、価値・価格・リスク・
 | `machine_analysis/historical_evaluation/` | 保存旧run・旧Selectionの投影と凍結context読取。旧ER/FVの再推計・再選抜・較正再生成はしない。 |
 | `investment_judgment/` | 調査・評価・Review・提案・市場判断。workflowは固定/進行/再開、retrospectiveは後日照合と学び。 |
 | `portfolio/` | 確認済み取引のledger、保有holdings、資産全体のperformance。採否/調査完了は持たない。 |
-| `tasks/` | 人間が明示した作業と進行。 |
 | `storage/` | SQLite・固定snapshot・object転送/条件付き書込。業務上の意味は決めない。 |
 | `primitives/`・`cli/` | 小さな共通値/変換、引数/表示/終了コード。汎用業務箱にしない。 |
 
@@ -47,7 +46,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 保存契約は原本/観測owner、Storageは保存・検証機構、Jobsは公開対象とsource別受入を持つ。全体hydrate/dehydrateには完全なcatalog/policy、個別固定読取には必要なowner契約を渡す。
 
-`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。`tools/`は開発/診断用で、通常運用を隠さない。[Web](../web/README.md)は資産・成果・task・保存提案/exact pairの読取に限り、判断作成・現在preview・台帳更新やcore成功条件を持たない。
+`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。`tools/`は開発/診断用で、通常運用を隠さない。[Web](../web/README.md)は資産・成果・保存提案/exact pairの読取に限り、判断作成・現在preview・台帳更新やcore成功条件を持たない。
 
 ## 現在の解析モデル
 
@@ -72,7 +71,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 | 保存単位 | 正本/寿命 |
 | --- | --- |
-| application DB | Research・評価/Review・提案・Selection/Operation・task・台帳。再生成cacheではない。 |
+| application DB | Research・評価/Review・提案・Selection/Operation・台帳。再生成cacheではない。 |
 | native L1 | 可変headと不変body/request pack、またはsource SQLiteの原本/受領。body共有と受領記録を分ける。 |
 | 共有固定入力 | 採用原本/確認/失敗のmetadata。本文はL1へ参照し、保存入力再計算に必要な間は保持する。 |
 | 固定lake | L2と未移行L1のimmutable object/manifest。一つのreleaseへ固定して読む。 |
@@ -81,7 +80,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 原本受領・原本公開・L2公開は別の成功。独立L1をL2成功待ちにせず、生成/公開は開始時の入力を固定する。未生成と結果内欠測を分け、再開で現在のモデル一覧/既定field/latest headを補わない。L3は必要断面をapplicationへ保存し、元runの存続や可変storeからの再計算に依存しない。整理/GCは原本・判断・取引履歴・R2全体の削除許可ではない。
 
-原本や全履歴を毎日複写せず、必要投影と不変objectを再利用する。実装済みcold再生成と旧release依存を分け、source固有の取得/保持/再開は[取得元](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)で確認する。
+原本や全履歴を毎日複写せず、必要投影と不変objectを再利用する。実装済みcold再生成と旧release依存を分け、source固有の取得/保持/再開は[取得元](reference/model-observations.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)で確認する。
 
 [経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)も当時採用した原本と確認/失敗を固定し、後日の訂正や採用へ差替えない。冷再計算は保持原本と当時のengine/config/runtimeを要する。原本欠落は当時の欠測ではなく失敗であり、旧hash-only世代から失われたDBを復元できない。全generationのexact再生・過去市場PIT・一律のI/O上限は保証しない。実データの保持/容量/時間受入は#1820に残る。
 

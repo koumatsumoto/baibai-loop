@@ -1,6 +1,6 @@
 # 保有・運用のWeb
 
-資産・損益・保有、運用成績、タスク、最新の保存済み売買提案を表示する。台帳・保存成績・正式提案を正本とし、未評価をゼロへ置換しない。候補抽出や投資判断を行う画面ではない。
+資産・損益・保有、運用成績、最新の保存済み売買提案を表示する。台帳・保存成績・正式提案を正本とし、未評価をゼロへ置換しない。候補抽出や投資判断を行う画面ではない。
 
 ## 表示の意味
 
@@ -10,7 +10,7 @@
 
 ## 実装の入口
 
-- [materialize](backend/src/baibai_web/materialize.py)：applicationとmarketから4 viewを生成する入口。生成は公開ではない。
+- [materialize](backend/src/baibai_web/materialize.py)：applicationとmarketから3 viewを生成する入口。生成は公開ではない。
 - [sources](backend/src/baibai_web/sources/)・[readmodel](backend/src/baibai_web/readmodel/)：正本の読取と表示への投影。提案の選択規則はエンジンの[query](../engine/src/baibai_engine/investment_judgment/trade_proposal/query.py)を使う。
 - [contracts_export](backend/src/baibai_web/contracts_export.py)：Python表示modelからschema・TypeScriptを生成する。変更時はこの入口で更新し、生成物を別仕様として手編集しない。
 - [frontend](frontend/)・[edge](edge/)：表示と認証付き配信。全viewに既存の共通認証を適用する。
