@@ -910,7 +910,7 @@ CSV/XBRL ZIP・facts scopeの保存/inputと一覧L2公開はmarket経路に残�
 
 #### EDINET ZIP/scope独立ownerの明示検証入口
 
-以下は通常workflow・共有固定input・market公開・既存SQL consumerへ未接続の明示検証用。既存ZIP/scopeの有限移行は未実装で、本番の空head作成で代用しない。旧market/L2の廃棄、全EDINET L2のcold再生成、過去PIT入力の保証にもならない。
+以下は通常workflow・共有固定input・market公開・既存SQL consumerへ未接続の明示入口。既存原本がある場合は後述の有限移行を使い、空head作成だけで移行完了にしない。旧market/L2の廃棄、全EDINET L2のcold再生成、過去PIT入力の保証にもならない。
 
 `edinet-archives-native`は初回ZIPと取得scopeを `l1/edinet/archives/v1/` へ保持する。原本を持たない隔離環境と、同じbucketの固定可能なnative一覧headを用意し、`--bucket`を明示する。
 
@@ -927,6 +927,20 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <isolated-bucket>
 選択・取得予算は[取得owner](src/baibai_jobs/acquisition/edinet_archive_native.py)、scopeの未初期化・ticker限定は[取得範囲](#edinet-factsの取得範囲schema-50)に従う。計画は固定一覧/scopeを使い、旧market・L2成功・全ZIP本文を入力にしない。`input.json`の一覧/archive headを保持し、各ZIPを次のGET前に確定する。後続失敗で保存済み原本を取り消さず、scope有効化を抽出成功としない。
 
 [保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は `(doc_id, source_type)` の初回bytes/保存日を保つ。新取得だけ実受領UTCを持ち、旧日付から時計を作らない。`pending.json`があれば新HTTPを始めず、同じworkの `commit-work` で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合として明示再試行する。失ったheadを部分workから再作成しない。work消失やremote failure stageからの回復は未対応。
+
+有限移行では旧EDINET archive取得・手動更新・market統合と移行先archive writerをdrainし、schema50 canonicalとrelease ID/digestを固定する。canonicalはそのreleaseの全EDINET archiveをhydrate済みにする。移行入口はorigin一致と期待行数で脱水・部分hydrateを拒否するが、同数の別bytesまでreleaseと照合するものではない。source inputのinventoryやL2断面を全原本の代わりに渡さない。
+
+```bash
+uv run baibai-jobs edinet-archives-native prepare-import --bucket <bucket> --directory <new-import-dir> \
+  --legacy-database <hydrated-market.sqlite> --release <fixed-release> --manifest-sha256 <digest>
+uv run baibai-jobs edinet-archives-native initialize --bucket <bucket> --directory <import-dir>
+uv run baibai-jobs edinet-archives-native apply-import --bucket <bucket> --directory <import-dir>
+uv run baibai-jobs edinet-archives-native verify-import --bucket <bucket> --directory <import-dir>
+```
+
+`prepare-import`はremoteを書かず、canonicalと全edinet-list/metrics/facts handoff（統合済み・late・要回復を含む）の原本/scopeを固定する。旧schema48/49 stageはdownload原本を保持したまま既存converterでlocal copyだけをschema50へ変換し、旧stageのinitialized開始日はglobal scopeへ昇格させない。同identityの異なるbytesは停止し、同bytesの重複は最早stored_onを採り、受領UTCは不明のまま保つ。現在のmetrics採用・lookbackで原本を削らない。
+
+移行先は未作成から明示initializeした空head、または同じ計画の部分/完了headを使う。別取得・異なるmetadata/scopeを混ぜず、停止後は入力とworkを保って同じ`apply-import`で再開する。既存nativeの保存日を修復しない。`verify-import`は全移行原本のbytesとmetadata/scopeを読戻す。旧canonical/release/stageと準備fileを保持し、この成功を通常writer切替や旧原本削除の許可にしない。本文はhashで共有し、通常dailyへ移行やDB全体copyを追加しない。
 
 固定consumerの検証は、保存した一覧/archive headと新規outputだけを渡す。最新headで未知doc・原本欠落/改変を補わず、原本欠落/改変時は途中DBを公開しない。既存outputは上書きしない。
 
