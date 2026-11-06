@@ -73,6 +73,7 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.primitives.stocks import normalize_ticker
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
@@ -185,8 +186,9 @@ def read_and_generate_models(
                 tickers=subjects,
                 known_at=evaluation_time,
                 snapshot_sealed_at=market_snapshot.sealed_at,
+                archives=edinet_input.archives if edinet_input is not None else None,
             )
-        except (sqlite3.Error, EDINETProviderError, ValueError, OSError) as error:
+        except (sqlite3.Error, EDINETProviderError, LakePublishError, ValueError, OSError) as error:
             # A failed supplemental read must not erase independent market/financial data.
             logging.getLogger(__name__).warning(
                 "holder-capital unavailable: %s", type(error).__name__
