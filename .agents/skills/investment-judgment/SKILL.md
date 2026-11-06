@@ -31,9 +31,9 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareが開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment sourcesでReviewし、Selectionを改変しない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactのfull_result_refから読む。成長表示は`--company-growth-periods 24`または`all`で広げられるが[保存範囲を増やさない](../../../docs/reference/company-growth.md#investment-judgmentへの接続)。既存表示は再開のforceを使う。
+prepareが開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment sourcesでReviewし、Selectionを改変しない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactのfull_result_refから読む。成長表示は`--company-growth-periods 24`または`all`で広げられるが[保存範囲を増やさない](../../../docs/reference/model-observations.md#judgment-use)。既存表示は再開のforceを使う。
 
-native入力はanalysis_source.inputs、詳細は完全結果のInputSnapshot descriptorと[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)を使い、summary/latestで代用しない。[時点](../../../docs/reference/data-sources.md)と[Reading](../../../docs/reference/market-context.md#reading)を保つ。
+native入力はanalysis_source.inputs、詳細は完全結果のInputSnapshot descriptorと[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)を使い、summary/latestで代用しない。[時点](../../../docs/reference/model-observations.md#source-owners)と[Reading](../../../docs/reference/model-observations.md#reading)を保つ。
 
 ### 記事の原文へ戻る
 
@@ -45,7 +45,7 @@ uv run baibai-engine articles exact-evidence \
   --reference-file <EXACT_DESCRIPTOR_JSON> --cache <PRIVATE_CACHE> --output-dir <NEW_PRIVATE_DIR>
 ```
 
-探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡し、private index.jsonから選ぶ。複数月は月ごと、続きは同条件のnext_after。公表日時不明は日時検索に入らない。原文を公開logへ転載せず、[本文範囲](../../../docs/reference/data-sources.md#public-articles)を保つ。
+探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡し、private index.jsonから選ぶ。複数月は月ごと、続きは同条件のnext_after。公表日時不明は日時検索に入らない。原文を公開logへ転載せず、[本文範囲](../../../docs/reference/model-observations.md#public-articles)を保つ。
 
 lookupと元lineageは別で、旧release全体の再読ではない。Research source.refへ原典URL、used_forへexact descriptorを残す。保存時の自動exact照合は保証されない。Assessment/Review/再開へ日付/限定も引継ぎ、再受領を独立票、旧feedを本日の変化、予定日を発生確認にしない。
 

@@ -81,7 +81,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 原本受領・原本公開・L2公開は別の成功。独立L1をL2成功待ちにせず、生成/公開は開始時の入力を固定する。未生成と結果内欠測を分け、再開で現在のモデル一覧/既定field/latest headを補わない。L3は必要断面をapplicationへ保存し、元runの存続や可変storeからの再計算に依存しない。整理/GCは原本・判断・取引履歴・R2全体の削除許可ではない。
 
-原本や全履歴を毎日複写せず、必要投影と不変objectを再利用する。実装済みcold再生成と旧release依存を分け、source固有の取得/保持/再開は[取得元](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)で確認する。
+原本や全履歴を毎日複写せず、必要投影と不変objectを再利用する。実装済みcold再生成と旧release依存を分け、source固有の取得/保持/再開は[取得元](reference/model-observations.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)で確認する。
 
 [経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)も当時採用した原本と確認/失敗を固定し、後日の訂正や採用へ差替えない。冷再計算は保持原本と当時のengine/config/runtimeを要する。原本欠落は当時の欠測ではなく失敗であり、旧hash-only世代から失われたDBを復元できない。全generationのexact再生・過去市場PIT・一律のI/O上限は保証しない。実データの保持/容量/時間受入は#1820に残る。
 
