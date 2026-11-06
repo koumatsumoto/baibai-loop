@@ -6,6 +6,7 @@ import hashlib
 import shutil
 import sqlite3
 import sys
+import time
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
@@ -74,6 +75,13 @@ class LakeBuildError(RuntimeError):
     pass
 
 
+def _phase_progress(phase: str, started: float | None = None) -> float:
+    now = time.perf_counter()
+    state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
+    print(f"lake snapshot: phase={phase} state={state}", file=sys.stderr, flush=True)
+    return now
+
+
 @dataclass(frozen=True)
 class LakeBuildReport:
     manifest_path: Path
@@ -131,6 +139,7 @@ def sealed_sqlite_snapshot(
     re-sealing the store and comparing digests.
     """
 
+    started = _phase_progress("seal")
     captured_at = datetime.now(UTC)
     actual_id = snapshot_id or f"snapshot-{uuid.uuid4().hex}"
     validate_identifier(actual_id, label="snapshot_id")
@@ -149,6 +158,7 @@ def sealed_sqlite_snapshot(
                 f"required_bytes={required} free_bytes={free_bytes} "
                 f"sufficient={str(free_bytes >= required).lower()}",
                 file=sys.stderr,
+                flush=True,
             )
             if free_bytes < required:
                 raise LakeBuildError("insufficient disk space for a sealed SQLite snapshot")
@@ -167,6 +177,7 @@ def sealed_sqlite_snapshot(
             )
         except (OSError, sqlite3.Error, ValueError) as exc:
             raise LakeBuildError(f"SQLite snapshot capture failed: {exc}") from exc
+        _phase_progress("seal", started)
         yield SealedSQLiteSnapshot(path=sealed, ref=ref, sealed_at=datetime.now(UTC))
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
@@ -198,6 +209,7 @@ def export_dataset_snapshot(
     generation could disagree with this one.
     """
 
+    started = _phase_progress(f"export.{dataset.name}")
     if (native_source is None) != (native_coverage_status is None):
         raise ValueError("native lineage and its coverage must be provided together")
     if native_source is not None and dataset.layer != "l2_processed":
@@ -299,6 +311,7 @@ def export_dataset_snapshot(
         )
         _write_immutable(manifest_path, canonical_lake_model_bytes(manifest))
         shutil.rmtree(staging_root)
+        _phase_progress(f"export.{dataset.name}", started)
         return LakeBuildReport(
             manifest_path=manifest_path,
             manifest=manifest,
@@ -332,6 +345,7 @@ def export_l1_derived_dataset(
     The caller must establish source receipt completeness before marking coverage
     complete. This function never reads a prior L2 dataset or a SQLite store.
     """
+    started = _phase_progress(f"export.{dataset.name}")
     if dataset.layer != "l2_processed" or source_manifest.layer != "l1_source":
         raise ValueError("derived L2 requires a native L1 source dataset")
     if (
@@ -446,6 +460,7 @@ def export_l1_derived_dataset(
             mirror_root, dataset_manifest_key(dataset=dataset.name, build_id=actual_build_id)
         )
         _write_immutable(manifest_path, canonical_lake_model_bytes(manifest))
+        _phase_progress(f"export.{dataset.name}", started)
         return LakeBuildReport(
             manifest_path=manifest_path,
             manifest=manifest,
