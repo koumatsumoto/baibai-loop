@@ -4,10 +4,13 @@ import os
 import re
 import subprocess
 import tomllib
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 import yaml
+
+from baibai_jobs.publication.lease import DAILY_LEASE_TTL, LEASE_TTL
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -63,7 +66,8 @@ def test_publication_lease_surrounds_every_cloud_writer(
 ) -> None:
     workflow = _workflow(workflow_name)
     selected = workflow["jobs"][job]
-    assert int(selected["timeout-minutes"]) < 120
+    ttl = DAILY_LEASE_TTL if purpose == "daily" else LEASE_TTL
+    assert timedelta(minutes=int(selected["timeout-minutes"])) <= ttl - timedelta(minutes=10)
     steps = _steps(workflow, job)
     names = [step.get("id", step.get("name")) for step in steps]
     assert names.index("lease-acquire") < names.index(first_read)

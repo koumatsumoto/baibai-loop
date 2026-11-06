@@ -29,6 +29,7 @@ from baibai_engine.storage.objects.r2 import (
 PUBLICATION_LEASE_KEY = "coordination/publication-lease.json"
 DEFAULT_STORES_BUCKET = "baibai-stores"
 LEASE_TTL = timedelta(minutes=120)
+DAILY_LEASE_TTL = timedelta(minutes=180)
 _PURPOSES = ("daily", "tradingview", "materialize", "operator")
 _OWNER = re.compile(r"(?:github:[0-9]+:[0-9]+|local:[0-9a-f]{32})\Z")
 _WIRE_KEYS = {"state", "owner", "purpose", "acquired_at_utc", "expires_at_utc"}
@@ -82,7 +83,9 @@ def _validate(lease: PublicationLease) -> PublicationLease:
         raise LeaseError("invalid publication lease owner")
     if lease.purpose not in _PURPOSES:
         raise LeaseError("invalid publication lease purpose")
-    if lease.expires_at_utc - lease.acquired_at_utc != LEASE_TTL:
+    duration = lease.expires_at_utc - lease.acquired_at_utc
+    # Existing 120-minute leases/handles must remain releasable after deployment.
+    if duration != LEASE_TTL and not (lease.purpose == "daily" and duration == DAILY_LEASE_TTL):
         raise LeaseError("invalid publication lease TTL")
     return lease
 
@@ -182,7 +185,8 @@ def acquire(
         expired_previous = previous.state == "held"
     else:
         etag = None
-    lease = _validate(PublicationLease("held", owner, purpose, moment, moment + LEASE_TTL))
+    ttl = DAILY_LEASE_TTL if purpose == "daily" else LEASE_TTL
+    lease = _validate(PublicationLease("held", owner, purpose, moment, moment + ttl))
     payload = _encode(lease)
     try:
         acquired_etag = _put(store, payload, etag=etag)
