@@ -2,7 +2,7 @@
 
 名称の区別は[用語集](../glossary.md)。旧機械ER/FVの意味と採否は[歴史評価](estimate-calibration.md#machine-valuation)へ分け、現行の企業財務と混同しない。
 
-財務・会計期間・株式basisを揃え、実績利益・価格と財務状態の観測を作る。同じmarket sealに適格なEDINET metricsがあれば、既存の文書・訂正・抽出revisionの適格性を保って財務観測へ任意入力として渡す。未取得を補完せず、取得・抽出の成功を全社候補の前提にはしない。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は実装で、本書は同じ値に見える異なる経済的意味を区別する。
+財務・会計期間・株式basisを揃え、実績利益・価格と財務状態の観測を作る。同じmarket sealに適格なEDINET metricsがあれば、既存の文書・訂正・抽出revisionの適格性を保って財務観測へ任意入力として渡す。未取得を補完せず、取得・抽出の成功を全社候補の前提にはしない。候補抽出は保存モデルを読むだけで、機械ER/FVを生成しない。算式・field・欠損分岐の正本は[所有実装](../../engine/src/baibai_engine/machine_analysis/models/company_financials/)で、本書は同じ値に見える異なる経済的意味を区別する。
 
 価格がない場合も財務観測・EDINET金額と出典を保持し、価格・時価総額に依存する倍率や利回りだけを欠測にする。過去の正価格や0で補完しない。
 
@@ -22,17 +22,11 @@ Yは報告された年間利益総額を現在の普通株時価総額で割る�
 
 決算短信`DocType`の会計基準JP・US・JMIS・IFRSは連結/単体区分と別に解決する。対象期間と最新訂正候補を固定してから、YoY、TTM、利益率、複数FYの平均で同じ基準か確認する。Foreign・REITなど基準未確定の書類は比較を成立させず、報告額と独立した価格・株数・配当は残す。異基準の旧FYへ候補政策を迂回させない。
 
-EDINETの同一文書current/comparativeは、[企業成長の出典付き比較](company-growth.md#edinet同一文書の比較)と同じ`reported_comparisons`を追加保存する。J-Quantsの報告値・TTM・価格倍率のoperandへ横結合せず、組替値を取得できない企業や既存の独立した財務経路を除外しない。
-
-保存PDFの同一基準組替比較は、保持開示一覧の最新期・訂正IDを照合した`pdf_selection`だけをTTMへ採用する。
-企業成長と同じ選択で、円総額を合成してから株数で割る。表示額からの合成は`approximated`であり、
-精密XBRL値と呼ばない。日本基準の遡及変更は、当期決算の修正済み前年欄と同日公表の明示的な前期連結実績を組にし、変更前の年度額で埋めない。参考実績の端数処理が不明なら、その不明も合成結果へ残す。原本hashと各operandを保持する。訂正/期間選択と受入手順は[運用](../../jobs/OPERATIONS.md)を参照。
-
+EDINETの[同一文書比較](company-growth.md#edinet同一文書の比較)と、保存PDFの[組替比較・TTM](company-growth.md#pdf組替比較の選択)は企業成長と同じ選択・出典を使う。組替値の未取得だけで既存の独立した財務経路を除外しない。
 
 利益価格の内訳は保持したsource内の最新公表された期間別金額と開示日・時刻・文書番号を保持するが、訂正同士の経済的整合まで照合済みとはしない。前年累計の数値配信が通期より後でも、通期公表日までに訂正内容が別資料で公表されている場合があるため、配信順だけで誤額と認定したり一律に除外したりしない。L3は重要な訂正について原典の対応を確認する。企業成長の保守的な累計訂正制約と、最新公表額の算術を同じ契約と扱わない。
 
 利益の合成に用いたnative文書と最新実績の会計方針・見積り・修正再表示flagは、原文字列と文書identityを保持する。L3候補要約は明示的な有の文書だけを示すが、空の一覧を比較可能性の認定にしない。修正再表示が無でも会計方針変更が遡及適用される場合があり、flagだけで金額を組み替えたり企業を除外したりしない。
-
 
 合成は円総額で行い、1株換算は最後に一度だけ行う。各期EPSは異なる平均株数で割られており、EPSの和差では株式数が変わった企業を誤る。FinancialSnapshotのEPSは時価総額と同じ自己株控除後分母で組み直した値で、会社開示の期中平均株数EPSとは別である。
 
@@ -68,11 +62,9 @@ OCFとcapexは同じcontext・scopeを使い、合算と内訳を二重計上せ
 
 exact/approximated/unavailableは取得フローと期間の品質。年次metadataの12か月確認と、半期等を完全TTMへ合成できることは別で、半期CFを機械年率化しない。net cashは時点残高で12か月フローではない。品質は経済的持続性・株主回収可能性・倍率全体の正しさの認定ではない。
 
-現行 generation の `financial.edinet_reported_flows` は報告額を `amounts` に一度だけ保持し、年次・半期・累計の種類、連結basis、出所、既存抽出ownerの `annual_quality` を一緒に渡す。旧物理列の `*_ttm` は改名・再保存せず、新規モデルでは同値のTTM aliasを出さない。半期・変則年度・期間不明を単純年率化せず、年間額として成立しないFCF yield・EV/EBITDAは出さない。年次exactの報告額と利回りは維持するが、最新終端のTTMを意味しない。規模照合で倍率へ不適格な場合も報告額自体は消さず、`edinet_failure_reasons` を併記する。
+報告フローの保存表現と年間倍率への採用は[報告フローowner](../../engine/src/baibai_engine/machine_analysis/models/company_financials/reported_flows.py)が所有する。半期・変則年度・期間不明を年率化せず、倍率へ不適格でも報告額と不足理由は残す。年次exactは最新終端のTTMやnative factの実測期間が観測済みという意味ではない。
 
-`filing_fiscal_period` は既知の書類年度を保持する。現行metric storeはnative contextの日付を保存していないため、`measurement_period` は理由付き不明のままにし、年度metadataや提出日から推定しない。年次exactの既存認定もnative fact durationの観測済みを意味しない。一方、短信の `ocf_ttm_period` は値と同じ構成要素の実期間・金額・開示identityと合成方法を示す。March annualの報告FCFとJune trailing CFOなどを、同じ期間の差引きに使わない。短信提供値とEDINET原典の精度差も元値のまま残す。
-
-この意味変更は新しい企業財務generation revisionに限り、旧generation・判断hash・再開payloadへ既定値を補わない。EDINETの全年代TTM化やFY＋当期YTD−前年YTDの新規合成は行っていない。
+書類年度と実測期間を区別する。既存EDINET metric storeはcontext日付を保持しておらず、年度metadataや提出日から推定しない。一方、短信のOCF TTMは構成要素の実期間と出典を持つ。異なる期間のFCFとCFOを差し引かず、source間の精度差も元値のまま残す。保存済み世代・判断・再開payloadを新しい表現へ書き換えない。
 
 Investment JudgmentのBS文脈で測定日やdebt scopeが未保存なら、最新開示日・書類期末・最大carry lagから推定しない。金額と品質だけでなく原典の時点・連結・単位・内訳を必要な範囲で確認する。
 
