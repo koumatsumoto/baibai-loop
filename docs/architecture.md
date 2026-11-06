@@ -62,7 +62,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 個社モデルと市場共有subjectを分け、産業/社会の不変抽出artifactも原受領から独立させる。主張の帰属・範囲・否定・条件・精度・原文座標と記事の有限選択はObservations、比較はモデル、入力と銘柄の関連づけはGenerationが持つ。業界対応を推測せず、version付き業界・母集団・除外・出典を残す。元引用のlineage releaseと本文を探すlookup releaseを分ける。
 
-モデル追加・生成接続・政策変更は別の変更。現政策は財務/成長/業種から経済経路を選び、他モデルを比較材料にする。モデル数や同じ価格を独立票へ増やさない。具体的な意味は[Screening](reference/screening-runtime.md)へ進む。
+モデル追加・生成接続・政策変更は別の変更。具体的な意味は[Screening](reference/screening-runtime.md)へ進む。
 
 <a id="store-authority"></a>
 ## 正本と再開
@@ -84,6 +84,6 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 [経済固定入力](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)も当時採用した原本と確認/失敗を固定し、後日の訂正や採用へ差替えない。冷再計算は保持原本と当時のengine/config/runtimeを要する。原本欠落は当時の欠測ではなく失敗であり、旧hash-only世代から失われたDBを復元できない。全generationのexact再生・過去市場PIT・一律のI/O上限は保証しない。実データの保持/容量/時間受入は#1820に残る。
 
-名前・module配置と保存identityは別契約。配置変更でkey・ID・hash・意味revisionを変えず、原本bytes・受領時刻・source identityを保つ。価格日/対象期/公表日/cutoff、株式basis、訂正、null/0を混同しない。Company Financialsの現行IDは`company_financials`。移行済み公開判断の旧Selection canonicalは元hashの根拠として残し、通常readerに旧aliasを復活させない。[旧出典の読取](../jobs/OPERATIONS.md#financials-identity-cutover)を使う。
+名前・module配置と保存identityは別契約。配置変更でkey・ID・hash・意味revisionを変えず、原本bytes・受領時刻・source identityを保つ。政策変更でも保存済みのidentity・hash・再開入力は保つ。Company Financialsの移行済み公開判断の旧Selection canonicalは元hashの根拠として残し、通常readerに旧aliasを復活させない。[旧出典の読取](../jobs/OPERATIONS.md#financials-identity-cutover)を使う。
 
-資産・運用の全体（Portfolio）はcash・取引・保有・成果、保有状態（Position/Holdings）はその一部、取引台帳（Ledger）は確認済み取引、運用成績（Portfolio Performance/Outcome）は資産全体の成績。株式の基本情報（Stocks）は保有依存ではない。ジョブ（Job）は実行/成功失敗/再開の単位、ワークフロー（Workflow）はその組立て、バッチ処理（Batch Processing）は非対話方式、スナップショット公開（Snapshot Publication）はL1/L2を含み得る固定保存物の公開。解析モデルや情報層と一対一ではない。
+株式の基本情報（Stocks）は保有依存ではない。ジョブ（Job）は実行/成功失敗/再開の単位、ワークフロー（Workflow）はその組立て、バッチ処理（Batch Processing）は非対話方式、スナップショット公開（Snapshot Publication）はL1/L2を含み得る固定保存物の公開。解析モデルや情報層と一対一ではない。

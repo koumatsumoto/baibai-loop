@@ -70,7 +70,7 @@ sell limitは作者が受け入れる一株回収下限。実quoteの上下と�
 
 公開時に固定scope・exact評価pair・現入力を照合する。過去本文/hashへ現在条件を適用せず、旧保存を新しい下限比較済みにしない。previewは保存案と現在再試算を別表示し、保存limit/数量が現在上限超でも縮小せず、利用不能を当時の誤りと即断しない。
 
-saved/current warningを分け、人間へ示す。保有quote/権利basis不足でNAVを作らず、既知factor比率が下限ならcoverageを示す。取引は[Ledger](portfolio-ledger.md)へ別記録する。
+saved/current warningを分け、人間へ示す。保有quote/権利basis不足でNAVを作らず、既知factor比率が下限ならcoverageを示す。取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)へ別記録する。
 
 ## 提案の訂正と人間の報告
 
