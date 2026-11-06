@@ -1,9 +1,10 @@
-"""五領域の合成入力から、既存の評価pairと行動理由を保存・再読する。
+"""個社五領域と共有原典から、評価pairと行動理由を保存・再読する。
 
 文章は手書きの合成goldenであり、独立した人間/AIによる意味のReview成功を表さない。
 取得・L2算術の網羅検証や、価格指標の予測力の検証は既存owner/別受入へ残す。
 """
 
+import hashlib
 import importlib
 import socket
 import sqlite3
@@ -11,6 +12,7 @@ from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
@@ -111,7 +113,60 @@ def _external_observations(at, *, missing=False, target=1500):
     ]
 
 
-def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
+def _retain_shared_articles(path, *, at=START, revision="original"):
+    from tests.helpers.trends import BOJ, PHARMA
+
+    from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
+    from baibai_engine.data_collection.receipts.articles.store import retain_receipt
+    from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
+    from baibai_engine.machine_analysis.observations.trends.extraction import extract_observations
+    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+
+    # Raw bodies are entirely synthetic. The same ordinary retention, native
+    # projection and semantic extraction owners used by generation consume them.
+    policy = BOJ.replace("2026年9月18日", "2026年10月14日").replace("9月24日", "10月15日")
+    survey = PHARMA
+    if revision != "original":
+        policy = policy.replace("１．７５", "１．９０")
+        survey = survey.replace("黒字が400社", "黒字が359社").replace("78.1", "70.1")
+    with closing(open_connection(path)) as connection, connection:
+        for source, url, body in (
+            (
+                "tsr_data",
+                "https://example.invalid/synthetic-pharma-survey",
+                f'<div class="entry"><h1>合成・医薬品調査</h1><p>{survey}</p></div>',
+            ),
+            (
+                "boj_news",
+                "https://www.boj.or.jp/mopo/mpmdeci/mpr_2026/k261014a.htm",
+                f"<main><h1>合成・金融市場調節方針</h1><p>{policy}</p></main>",
+            ),
+        ):
+            payload = body.encode()
+            identity = f"synthetic-{source}-{revision}"
+            receipt = ArticleReceipt(
+                receipt_id=identity,
+                source=source,
+                requested_url=url,
+                received_at=at,
+                status="ok",
+                http_status=200,
+                encoding="utf-8",
+                body_ref=BodyRef(receipt_id=identity, sha256=hashlib.sha256(payload).hexdigest()),
+            )
+            retain_receipt(connection, receipt, body=payload)
+            run, observations = project_receipt(
+                connection, identity, kind="document", generated_at=at
+            )
+            assert run.status == "parsed"
+            assert len(observations) == 1
+            extracted = extract_observations(
+                connection, (observations[0].observation_id,), generated_at=at
+            )
+            assert len(extracted) == 1
+
+
+def _prepare_case(tmp_path, monkeypatch, scenario="wait", *, shared_trends=False):
     # urllib3 probes local IPv6 support at import (socket + bind, no remote IO).
     # Initialize it before the strict workflow guard, independent of test order.
     importlib.import_module("urllib3.util.connection")
@@ -177,6 +232,20 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
                         "NP": operating_profit / 2,
                     },
                 )
+    if shared_trends:
+        from baibai_engine.machine_analysis.generation.runners.trend_inputs import (
+            DEFAULT_INDUSTRIES,
+            read_trend_inputs,
+        )
+
+        _retain_shared_articles(market)
+        # Only this fictional company's business-scope membership is supplied by
+        # the fixture. Do not infer production ticker membership from JPX33.
+        industry = DEFAULT_INDUSTRIES[0].model_copy(update={"related_tickers": ("1234",)})
+        monkeypatch.setattr(
+            "baibai_engine.machine_analysis.generation.inputs.read_trend_inputs",
+            partial(read_trend_inputs, industries=(industry,)),
+        )
     publish_market_fixture(market, "five-domain-fixed-input", created_at=START)
     save_observations(
         market, _external_observations(START - timedelta(minutes=1), missing=scenario == "gaps")
@@ -249,6 +318,8 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
         quote=quote,
     )
     case.document, case.review = _assessment_payload(case)
+    if shared_trends:
+        _include_shared_research(case)
     directory = prepared.workspace / "1234"
     directory.mkdir(exist_ok=True)
     for name, payload in (
@@ -258,6 +329,78 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait"):
     ):
         (directory / name).write_text(yaml.safe_dump(payload, allow_unicode=True))
     return case
+
+
+def _include_shared_research(case):
+    shared = project_research_inputs(case.selected)["shared_subjects"]
+    sources = case.document["input_snapshot"]["sources"]
+    facts = case.document["input_snapshot"]["facts"]
+    hypotheses = case.document["findings"]["hypotheses"]
+    for source_id, subject, model, predicate, meaning in (
+        (
+            "industry-shared",
+            "industry:jp-pharmaceutical-wholesale",
+            "industry_trends",
+            "profitable_company_share",
+            "黒字企業割合は利益率でも個社利益の成長予想でもない。",
+        ),
+        (
+            "social-shared",
+            "market:global",
+            "social_trends",
+            "policy_implementation",
+            "将来の適用予定を実施確認と扱わず、個社への金利伝達は別に検討する。",
+        ),
+    ):
+        rows = shared[subject]["models"][model]["observations"]
+        matching = [
+            row
+            for row in rows
+            if (
+                row["claim"]["kind"] == "announced_plan"
+                if source_id == "social-shared"
+                else row["claim"]["predicate"] == predicate
+            )
+        ]
+        row = max(matching, key=lambda row: row["claim"]["scope"]["period_end"] or "")
+        sources.append(
+            {
+                "source_id": source_id,
+                "ticker": "1234",
+                "source_tier": "primary",
+                "ref": row["evidence"]["source_url"],
+                "as_of": START.date().isoformat(),
+                "retrieved_at": START.isoformat(),
+                "used_for": canonical_json(row["exact_evidence"]),
+            }
+        )
+        facts.append(
+            {
+                "fact_id": source_id,
+                "fact_kind": "other",
+                "value": canonical_json(row["claim"]),
+                "unit": "reported_claim_with_scope",
+                # The fact is what was announced/reported today, not a future
+                # implementation date fabricated into an observed fact date.
+                "as_of": START.date().isoformat(),
+                "source_ids": [source_id],
+            }
+        )
+        hypotheses.append(
+            {
+                "statement": meaning,
+                "origin": "research",
+                "result": "supported",
+                "reason": "合成原典の母集団・主張種類・日付の限定を保存して比較する。",
+                "source_ids": [source_id],
+            }
+        )
+        case.document["findings"]["source_ids"].append(source_id)
+        case.review["checked_source_ids"].append(source_id)
+    case.review["review_scope"] += " 共有二領域の原典参照と限定も合成の検証対象。"
+    update_review_hash(case.document, case.review)
+    case.document = StockAssessmentDocument.model_validate(case.document).model_dump(mode="json")
+    case.review = AssessmentReview.model_validate(case.review).model_dump(mode="json")
 
 
 def _assessment_payload(case):
@@ -735,3 +878,141 @@ def test_changed_action_reason_cannot_publish_with_original_content_review(
             "position_decision_reference",
         ):
             assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+
+
+def test_seven_domains_retain_shared_raw_evidence_through_review_proposal_and_resume(
+    tmp_path, monkeypatch
+):
+    from baibai_engine.data_collection.receipts.articles.contracts import ArticleEvidenceRef
+    from baibai_engine.data_collection.receipts.articles.store import read_body, read_receipt
+    from baibai_engine.machine_analysis.generation.runners.trend_inputs import read_trend_inputs
+    from baibai_engine.machine_analysis.models.industry_trends.calculations import (
+        calculate_industry_trends,
+    )
+
+    case = _prepare_case(tmp_path, monkeypatch, shared_trends=True)
+    fixed = project_research_inputs(case.selected)
+    assert {model.model_id for model in case.selected.inputs.generation.models} == {
+        "company_financials",
+        "company_growth",
+        "market_context",
+        "external_assessment",
+        "technical_analysis",
+        "industry_trends",
+        "social_trends",
+    }
+    shared = fixed["shared_subjects"]
+    industry = shared["industry:jp-pharmaceutical-wholesale"]["models"]["industry_trends"]
+    social = shared["market:global"]["models"]["social_trends"]
+    percent = max(
+        (
+            row
+            for row in industry["observations"]
+            if row["claim"]["predicate"] == "profitable_company_share"
+        ),
+        key=lambda row: row["claim"]["scope"]["period_end"],
+    )
+    assert percent["claim"]["scope"]["population_size"] == 512
+    assert percent["claim"]["quantity"]["basis"] == "companies_with_positive_reported_profit"
+    plan = next(row for row in social["observations"] if row["claim"]["kind"] == "announced_plan")
+    assert plan["claim"]["scheduled_for"] == "2026-10-15"
+    assert plan["claim"]["occurred_on"] == "2026-10-14"
+    refs = [ArticleEvidenceRef.model_validate(row["exact_evidence"]) for row in (percent, plan)]
+    assert {ref.lineage_release_id for ref in refs} == {"synthetic-fixed-release"}
+    assert all(ref.artifact_id and ref.body_ref.sha256 for ref in refs)
+
+    context, proposal = _promote_and_propose(case)
+    pair = context.assessments[assessment_id()]
+    assert {"industry-shared", "social-shared"} <= set(pair.review.checked_source_ids)
+    saved_sources = {source.source_id: source for source in pair.document.input_snapshot.sources}
+    for identity, ref in zip(("industry-shared", "social-shared"), refs, strict=True):
+        assert saved_sources[identity].used_for == canonical_json(ref.model_dump(mode="json"))
+    assert pair.document.valuation.base.terminal_value_per_share_yen == Decimal(1100)
+    assert proposal.items[0].terms.maximum_entry_price_yen == Decimal(1000)
+    # More models are not extra votes or an automatic terminal/Pmax increase.
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    published = service.publish(proposal)
+    saved_view = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
+
+    _retain_shared_articles(case.market, at=PUBLISHED + timedelta(minutes=1), revision="correction")
+    current = read_trend_inputs(
+        case.market,
+        release_id="later-release",
+        release_sha256="b" * 64,
+        cutoff=PUBLISHED + timedelta(minutes=2),
+        as_of=START.date(),
+    )
+    assert current.social.manifest.selected[0].artifact_id != refs[1].artifact_id
+    corrected = calculate_industry_trends(current.industries[0])
+    revised_percent = next(
+        row
+        for row in corrected["observations"]
+        if row["claim"]["claim_id"] == percent["claim"]["claim_id"]
+    )
+    assert revised_percent["claim"]["quantity"]["value"] == "70.1"
+    assert percent["claim"]["quantity"]["value"] == "78.1"
+    assert revised_percent["claim"]["scope"]["period"] == percent["claim"]["scope"]["period"]
+    # A within-survey prior year may still provide a valid period comparison.
+    # The change between these two same-period receipts is not another year.
+    for row in corrected["comparisons"]:
+        if row["kind"] == "period_change":
+            assert (
+                row["current"]["claim"]["scope"]["period"]
+                != row["baseline"]["claim"]["scope"]["period"]
+            )
+    with closing(sqlite3.connect(case.market)) as connection:
+        for ref in refs:
+            assert read_receipt(connection, ref.receipt_id).sha256 == ref.receipt_sha256
+            assert (
+                hashlib.sha256(read_body(connection, ref.body_ref)).hexdigest()
+                == ref.body_ref.sha256
+            )
+    case.runs.unlink()
+    monkeypatch.setattr(
+        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        lambda *_a, **_kw: pytest.fail("resume replaced the saved seven-domain inputs"),
+    )
+    (case.prepared.workspace / "domain-inputs.yaml").unlink()
+    resume_selected_workspace(
+        operation_id=case.prepared.operation_id,
+        db_path=case.app,
+        workspace=case.prepared.workspace,
+        now=PUBLISHED + timedelta(minutes=2),
+        force=True,
+    )
+    assert (case.prepared.workspace / "domain-inputs.yaml").read_bytes() == saved_view
+    assert (
+        project_research_inputs(
+            selection_binding(case.operations.get(case.prepared.operation_id).payload)
+        )
+        == fixed
+    )
+    assert get_investment_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    assert LedgerStoreService(case.app).load() == case.ledger
+
+
+@pytest.mark.parametrize("change", ["source_descriptor", "industry_scope", "social_plan"])
+def test_shared_evidence_changes_need_a_new_assessment_review(tmp_path, monkeypatch, change):
+    case = _prepare_case(tmp_path, monkeypatch, shared_trends=True)
+    changed = deepcopy(case.document)
+    if change == "source_descriptor":
+        source = next(
+            s for s in changed["input_snapshot"]["sources"] if s["source_id"] == "social-shared"
+        )
+        source["used_for"] += "; a different original was selected"
+    else:
+        identity = "industry-shared" if change == "industry_scope" else "social-shared"
+        fact = next(f for f in changed["input_snapshot"]["facts"] if f["fact_id"] == identity)
+        fact["value"] = (
+            "a changed population" if change == "industry_scope" else "implementation asserted"
+        )
+    assert (
+        assessment_core_hash(StockAssessmentDocument.model_validate(changed))
+        != case.review["reviewed_assessment_sha256"]
+    )
+    (case.prepared.workspace / "1234/assessment-draft.yaml").write_text(yaml.safe_dump(changed))
+    with pytest.raises(ResearchWorkspaceDataError, match=r"stale|hash"):
+        promote(workspace=case.prepared.workspace, ticker="1234", db_path=case.app, now=PROMOTED)
+    with closing(connect_read_only(case.app)) as connection:
+        assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
