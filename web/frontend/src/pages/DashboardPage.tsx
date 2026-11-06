@@ -33,7 +33,7 @@ import { cn } from '../lib/utils'
 // repeats what the numbers already say.
 const HINT = {
   allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
-  holdings: '保有中の各銘柄の取得原価・現値・評価損益。未評価とゼロを区別して示す。',
+  holdings: '保有中の各銘柄の取得原価・保存終値・評価損益。未評価とゼロを区別して示す。',
   reservations: '報告済みの未約定注文。買付だけ資金を予約し、売付の見込代金は現金に加えません。約定・取消・失効は次の明示報告で更新します。',
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
@@ -246,7 +246,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
             <TableHead className="pl-5 sm:pl-6">銘柄</TableHead>
             <TableHead>sector</TableHead>
             <TableHead className="text-right">数量</TableHead>
-            <TableHead className="text-right">取得 / 現在</TableHead>
+            <TableHead className="text-right">取得 / 保存終値</TableHead>
             <TableHead className="text-right">評価額 / 損益</TableHead>
             <TableHead className="w-12 pr-5 text-right sm:pr-6"><span className="sr-only">チャート</span></TableHead>
           </TableRow>
@@ -264,7 +264,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
                 <TableCell className="text-right font-mono tabular-nums">{holding.quantity.toLocaleString('ja-JP')}</TableCell>
                 <TableCell className="text-right">
                   <span className="flex items-baseline justify-end gap-2 font-mono text-sm tabular-nums text-muted-foreground"><span className="text-[10px] font-medium">取得</span>{averageCostYen === null ? EMPTY : formatUnitPriceYen(averageCostYen)}</span>
-                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">現在</span>{holding.market_price_yen === null ? '未評価' : formatUnitPriceYen(Number(holding.market_price_yen))}</span>
+                  <span className="mt-1 flex items-baseline justify-end gap-2 font-mono text-sm font-medium tabular-nums"><span className="text-[10px] font-medium text-muted-foreground">保存終値</span>{holding.market_price_yen === null ? '未評価' : formatUnitPriceYen(Number(holding.market_price_yen))}</span>
                   {marketPriceAsOf === null && holding.market_price_as_of !== null && (
                     <span className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">株価基準 <time dateTime={holding.market_price_as_of}>{holding.market_price_as_of.slice(0, 10)}</time></span>
                   )}
@@ -388,7 +388,7 @@ export function DashboardPage() {
   if (error !== null) return <PageState message={error} title="Dashboard read error" />
   if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
   return (
-    <PageShell meta={(
+    <PageShell lead="株価・評価額は表示の基準日の保存終値に基づきます。リアルタイム価格ではありません。" meta={(
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>
         {data.ledger_as_of !== null && <span>台帳最終記録 <time dateTime={data.ledger_as_of}>{formatJstDateTime(data.ledger_as_of)} JST</time></span>}
