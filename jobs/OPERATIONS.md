@@ -535,6 +535,17 @@ uv run baibai-jobs edinet-archives-native verify-import --bucket <bucket> --dire
 
 移行先は未作成から明示initializeした空head、または同じ計画の部分/完了headを使う。別取得・異なるmetadata/scopeを混ぜず、停止後は入力とworkを保って同じ`apply-import`で再開する。既存nativeの保存日を修復しない。`verify-import`は全移行原本のbytesとmetadata/scopeを読戻す。旧canonical/release/stageと準備fileを保持し、この成功を通常writer切替や旧原本削除の許可にしない。本文はhashで共有し、通常dailyへ移行やDB全体copyを追加しない。
 
+一時的なActions実行先には [import-edinet-archives-once](../.github/workflows/import-edinet-archives-once.yml) を使う。provider取得・通常公開・削除・切替は行わず、既存bucketとmainの固定commitに限定する。通常ZIP経路の切替前に次を終える。
+
+1. `inspect` はmetadataだけを読む。releaseとmanifest、canonicalのmetadata SHA（存在時）、一覧/archive headのwire SHA、全3sourceのstage件数/bytes、空き容量を確認する。これはraw完全性・drainの証明ではない。
+2. 旧EDINET定期/手動writerと日次統合を停止し、既存runをdrainする。`cloud-market-sources` と `cloud-daily-batch` は手動無効化を維持する。入口はこの状態とqueued等の残runをGET確認し、既存の共通統合・EDINET取得concurrencyとoperator publication leaseを使う。別run間と切替後受入までの連続停止は実施者が維持する。
+3. `plan` に固定code/release/manifest/一覧headと、観測したarchive head SHAまたは`absent`を渡す。canonical SHAは既知なら指定する。脱水canonicalのEDINET原本が0行の場合だけ、同originのreleaseからarchive datasetを補完する。非空canonical、invalid handoff、未参照receiptや件数不一致は個別確認へ戻し、原本を無視して進まない。出力の実canonical SHAとplan SHAを保持する。
+4. 同じ入力・codeの `apply` にその二つのSHAを指定する。headが本当に未作成の初回だけ `initialize_archive_head=true`。既存/消失したheadの再作成に使わず、GitHub rerunの2回目以降もinitializeを拒否する。全原本を既存ownerへ移し、同じ実行内で全bytes/metadata/scopeをverifyする。`verified_not_cut_over` は通常経路の切替完了ではない。
+5. runner消失後は旧原本を保持したまま `inspect` し、現在のarchive head SHAを取り直す。新しい手動runでinitialize=false、**前回と同じplan SHA**を渡す。固定絶対pathへ再download・変換・prepareしたplan bytesが一致する場合だけ再開する。stageの消失/追加・入力変更で一致しなければ停止し、SHAを新しいplanへ黙って置換しない。独立 `verify` も同じplanと現在headを指定し、nativeを書かない。
+6. 移送verify後も停止を維持したまま通常経路を切り替え、固定head consumer、初回native取得・公開、次hydrate/source inputを確認してから定期writerを戻す。新native受領後は旧writerへ単純rollbackしない。移送前なら旧入力を保持して旧経路を再開できるが、その場合はこの移送の固定境界を破棄して改めて計画する。
+
+容量は圧縮Parquet bytesだけで見積もらない。canonical＋hydrate copy、Parquet cache、旧48→49→50の変換copyに加え、prepare後の全unique ZIP＋最大1ZIPのatomic書換分と1GiBの余裕を確認する。これは時間・RAM・展開量の完全な保証ではない。110分job/既存120分leaseを延長せず、途中失敗は旧原本と同planから回復する。公開ログはphase・件数・bytes・digest・結果だけとし、raw/plan本文・ETag・例外本文は0600の一時captureへ隔離し、artifactや通知へ送らない。native write直前のphaseが出た後に中断したrunは、書込結果未確定としてheadを読み直す。この入口は移送と受入後に撤去し、通常dailyへ残さない。
+
 固定consumerは保存両headと新規outputだけを使い、原本欠落/改変なら公開しない。
 
 - [SQL adapter](src/baibai_jobs/integration/edinet_archive_native.py)のrebuild_fixed_edinet_inputは全ZIP・stored_on・scopeと一覧を再構成し、EDINETReader/comparison/holder/TOBへ渡す。全ZIPを読むためplannerには使わない。L2/成功履歴を複写せず、日付変換を時計精度向上としない。
