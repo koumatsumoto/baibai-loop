@@ -470,34 +470,7 @@ uv run baibai-jobs snapshots hydrate \
 
 通常の完全ローカルmirrorはbucketなしで読む。EDINET一覧nativeのcache除去検証を伴う場合は[専用条件](#edinet-list-native-l1)に従い `--bucket` も指定する。不足・破損・容量不足なら停止し、途中でreleaseを替えない。hydrateは対象tableを置換するが、store-local coverageの取得記録は生成しない。旧contractのreleaseは元commitのcodeで読み、runtime互換を増やさない。
 
-完全mirrorからParquetを読む最小例:
-
-```python
-from pathlib import Path
-from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts import (
-    EDINET_DOCUMENTS,
-)
-from baibai_engine.storage.snapshots.duck import lake_session
-from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
-from baibai_engine.storage.snapshots.reader import (
-    accepted_dataset,
-    materialize_partitions,
-    resolve_release,
-    selected_partitions,
-)
-
-mirror = Path("<COMPLETE_LOCAL_MIRROR>")
-source = LocalMirrorSource(mirror)
-release = resolve_release(source, "<RELEASE_ID>", manifest_sha256="<MANIFEST_SHA256>")
-name = EDINET_DOCUMENTS.name
-paths = materialize_partitions(
-    LakeObjectCache(root=mirror, source=source),
-    dataset=accepted_dataset(release, EDINET_DOCUMENTS),
-    partitions=selected_partitions(release, name),
-)
-with lake_session() as session:
-    rows = session.connection.read_parquet([str(path) for path in paths]).fetchall()
-```
+Parquetを直接読む場合も[固定reader](../engine/src/baibai_engine/storage/snapshots/reader.py)の `resolve_release` → owner datasetの `accepted_dataset` → `selected_partitions` → `materialize_partitions` を使い、返された検証済みpathだけを `lake_session` へ渡す。globや別releaseのobjectを混ぜない。通常のSQLite利用は上のhydrateを使う。
 
 <a id="edinet-research-query"></a>
 ### EDINET factsの書類選択
@@ -943,7 +916,9 @@ CSV/XBRL ZIP・facts scopeの保存/inputと一覧L2公開はmarket経路に残�
 
 #### EDINET ZIP/scope独立ownerの明示検証入口
 
-`edinet-archives-native`は新namespace `l1/edinet/archives/v1/`に初回保存ZIPと取得scopeを保持する最初のsliceで、通常workflow・market公開・既存SQL consumerは切り替えない。`--bucket`を明示し、原本を持たない隔離環境で検証する。同じbucketに固定可能なnative一覧headが必要。既存環境のZIP/scopeを移す有限移行は未実装であり、本番の空head作成で代用しない。
+以下は通常workflow・共有固定input・market公開・既存SQL consumerへ未接続の明示検証用。既存ZIP/scopeの有限移行は未実装で、本番の空head作成で代用しない。旧market/L2の廃棄、全EDINET L2のcold再生成、過去PIT入力の保証にもならない。
+
+`edinet-archives-native`は初回ZIPと取得scopeを `l1/edinet/archives/v1/` へ保持する。原本を持たない隔離環境と、同じbucketの固定可能なnative一覧headを用意し、`--bucket`を明示する。
 
 ```bash
 uv run baibai-jobs edinet-archives-native initialize --bucket <isolated-bucket> --directory <new-work-dir>
@@ -955,18 +930,13 @@ uv run baibai-jobs edinet-archives-native freeze --bucket <isolated-bucket> --di
 uv run baibai-jobs edinet-archives-native commit-work --bucket <isolated-bucket> --directory <same-work-dir>
 ```
 
-CSVは既存540日planner、XBRLは既存annual scopeとholderの100件/10秒制限を使う。planner用SQLiteは固定一覧とscopeから作り、旧market・L2成功履歴・過去ZIP本文をhydrateしない。`input.json`はその取得計画に使った一覧/archive headを保存する。各GETのZIPを次のGETより先に確定するため、後続HTTPや抽出の失敗で既保存原本を取り消さない。
+選択・取得予算は[取得owner](src/baibai_jobs/acquisition/edinet_archive_native.py)、scopeの未初期化・ticker限定は[取得範囲](#edinet-factsの取得範囲schema-50)に従う。計画は固定一覧/scopeを使い、旧market・L2成功・全ZIP本文を入力にしない。`input.json`の一覧/archive headを保持し、各ZIPを次のGET前に確定する。後続失敗で保存済み原本を取り消さず、scope有効化を抽出成功としない。
 
-`(doc_id, source_type)`の初回bytesと保存日を保持し、同値の後着で日付を更新しない。新取得だけ実受領UTC時刻を持ち、旧日付から時刻を創作しない。scopeは原本や抽出成功ではなく、`since`最小値とdoc IDs/legacy originsの和集合。未初期化の`since=null`、ticker限定、未公表/未取得の選択scopeは現行条件を維持する。`--initialize-facts`のscope有効化を抽出成功と解釈しない。
+[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は `(doc_id, source_type)` の初回bytes/保存日を保つ。新取得だけ実受領UTCを持ち、旧日付から時計を作らない。`pending.json`があれば新HTTPを始めず、同じworkの `commit-work` で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合として明示再試行する。失ったheadを部分workから再作成しない。work消失やremote failure stageからの回復は未対応。
 
-`pending.json`があれば新HTTPを拒否し、同じworkの`commit-work`で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合を明示再試行する。scope/ZIPを上書きせず、失われたheadを部分workから再作成しない。ローカルworkを失った場合の回復やremote failure stageはこのsliceに含めない。
+固定consumerの検証は、保存した一覧/archive headと新規outputだけを渡す。最新headで未知doc・原本欠落/改変を補わず、原本欠落/改変時は途中DBを公開しない。既存outputは上書きしない。
 
-固定readerは保存headだけを使い、未知doc・原本欠落・改変を最新headへのfallbackで補わない。有限移行、通常source input/publication切替、metricsのwarm baseline依存除去は後続作業。これだけでmarket全体や全EDINET L2を破棄可能とは扱わない。
+- [SQL consumer用adapter](src/baibai_jobs/integration/edinet_archive_native.py)の `rebuild_fixed_edinet_input(lists, archives, output)` は原ZIP・stored_on・scopeと一覧投影を再構成し、EDINETReader・comparison・holder・TOBへ渡す。全ZIP本文を読むので取得plannerには使わない。L2値・成功履歴はコピーせず、日付列への変換で時刻精度が上がったとは扱わない。
+- [metrics比較](src/baibai_jobs/integration/edinet_metric_rebuild.py)の `rebuild_fixed_edinet_metrics(lists, archives, output, asof=..., lookback_days=540)` は選択CSVだけを読み、旧metrics・facts scope・全ZIP複写を入力にしない。`completed`/`partial`だけoutputを作り、全未取得・一覧不足は延期、parse失敗は失敗、宣言済み原本の欠損/改変は例外として区別する。
 
-固定consumerの接続準備は `integration.edinet_archive_native.rebuild_fixed_edinet_input` で検証する。渡された一覧/archive headだけから、新規SQLiteへ原ZIP bytes・stored_on・scopeを再構成し、既存EDINETReader・comparison・holder・TOBの読取に渡せる。既存出力は上書きせず、原本欠損/改変時は未完成DBを公開しない。新しい実受領時刻を旧SQLiteの日付列へ変換して精度が上がったとは扱わない。
-
-これは明示cold adapterで、通常CLI/workflowや旧marketへは未接続。全原ZIP本文を読むため、取得plannerに使わない。生成されるのは原本の使い捨てcopyと一覧投影であり、metrics/factsのL2値や成功履歴はコピーしない。全L2のcold再生成や過去のpoint-in-time入力を保証する入口ではない。
-
-metricsのcold比較は `integration.edinet_metric_rebuild.rebuild_fixed_edinet_metrics(lists, archives, output, asof=..., lookback_days=540)` を使う。固定一覧から新規DBを投影し、選択したCSV ZIPだけを固定ownerから読む。旧metrics・facts scope・全ZIPの複写は入力にしない。旧公開DBは受け取らず、完成・部分完成の候補だけを新規outputへ置く。全原本未取得・一覧不足は延期、解析失敗は失敗としてoutputを作らず、保持済みと宣言した原本の欠損/改変は例外で止める。既存outputは上書きしない。
-
-返却値の `edinet-list` と `edinet-metrics` を両方確認する。不正一覧の前に正常受領があれば候補を作れるが、一覧の失敗報告は残る。未解決操作は `quarantined_events` にidentityを残し、旧metricsだけにあった銘柄対応は推測しない。部分欠損の採用日や匿名操作の隔離は従来warm計算と異なり得るため、候補生成を通常公開への採用と扱わない。比較は業務値・欠測・文書とsource日を対象にし、再計算時刻を過去の保存時刻へ偽装しない。この入口は通常daily・共有固定input・publicationを切り替えず、既存L2の廃棄許可を意味しない。
+metrics候補ができても `edinet-list` と `edinet-metrics` を両方確認する。不正一覧の前の正常受領で計算できても一覧失敗は残る。`quarantined_events`のidentityを保ち、旧metricsだけの銘柄対応は推測しない。部分欠損の採用日・匿名操作の隔離はwarm計算と異なり得る。業務値・欠測・文書/source日を比較し、再計算時計を過去時刻へ変えず、候補生成を通常公開への採用としない。
