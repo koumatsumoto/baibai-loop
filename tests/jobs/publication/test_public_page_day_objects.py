@@ -32,7 +32,12 @@ from baibai_engine.storage.snapshots.writer import (
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses
+from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+    LakeStoreOrigin,
+    advance_lake_store_origin,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.publication import snapshot_publication as publication
 from baibai_jobs.publication.policy import release_policy_for_profile
 from baibai_jobs.publication.public_page_verification import (
     history_digests,
@@ -59,7 +64,7 @@ def response(number, day, *, body=b"original", parent=None):
     )
 
 
-def build(database, mirror, identity, *, dataset=DATASET):
+def build(database, mirror, identity, *, dataset=DATASET, previous=None):
     report = export_market_store(
         catalog={DATASET.name: dataset},
         sqlite_path=database,
@@ -67,6 +72,7 @@ def build(database, mirror, identity, *, dataset=DATASET):
         producer_git_commit="a" * 40,
         expected_store_origin=None,
         created_at=AT + timedelta(days=40),
+        previous=previous.dataset_manifests if previous is not None else None,
     )
     path, _ = create_release(
         dataset_manifest_paths=[report.datasets[DATASET.name].manifest_path],
@@ -218,3 +224,80 @@ def test_parity_accepts_shuffled_daily_objects_and_rejects_missing_or_corrupt_by
         validate_snapshot_parity(
             dataset=DATASET, sqlite_path=database, mirror_root=mirror, manifest=manifest
         )
+
+
+def test_publication_keeps_exact_old_months_and_splits_only_changed_periods(tmp_path, monkeypatch):
+    database, mirror = tmp_path / "market.sqlite", tmp_path / "legacy"
+    open_connection(database).close()
+    import_responses(
+        database,
+        (response(90, 0), response(10, 1), response(80, 31), response(20, 32)),
+    )
+    path, original = build(
+        database, mirror, "legacy-months", dataset=replace(DATASET, object_date_grain=None)
+    )
+    store = MemoryR2Store()
+    publish_release(mirror_root=mirror, release_manifest_path=path, store=store)
+    original_rows = read_rows(mirror, original)
+    old_objects = {
+        obj.key: store.values[obj.key].body
+        for part in original.dataset_manifest(DATASET.name).partitions
+        for obj in part.objects
+    }
+    advance_lake_store_origin(
+        database,
+        expected=None,
+        target=LakeStoreOrigin(original.release_id, hashlib.sha256(path.read_bytes()).hexdigest()),
+    )
+    monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
+    create = publication.create_lake_release
+    monkeypatch.setattr(
+        publication,
+        "create_lake_release",
+        lambda **kwargs: create(created_at=AT + timedelta(days=41), **kwargs),
+    )
+    # A cold mirror proves that prior body files are not the source of these rows.
+    for index, (added, expected_puts, sizes) in enumerate(
+        (
+            (None, 0, (1, 1)),
+            (response(30, 33), 3, (1, 3)),
+            (response(40, 34), 1, (1, 4)),
+            (response(50, 1), 2, (2, 4)),
+        )
+    ):
+        if added is not None:
+            import_responses(database, (added,))
+        current_mirror = tmp_path / f"fresh-{index}"
+        store.put_keys.clear()
+        with publication.prepare_market_lake(
+            sqlite_path=database,
+            mirror_root=current_mirror,
+            store=store,
+            release_id=f"retained-{index}",
+        ) as prepared:
+            manifest = prepared.export.datasets[DATASET.name].manifest
+            assert tuple(len(part.objects) for part in manifest.partitions) == sizes
+            if index < 3:
+                assert (
+                    manifest.partitions[0].objects
+                    == original.dataset_manifest(DATASET.name).partitions[0].objects
+                )
+            assert all(
+                part.sources == (prepared.source_snapshot.ref,) for part in manifest.partitions
+            )
+            publication.publish_prepared_market_lake(prepared, store=store)
+            current = resolve_release(
+                LocalMirrorSource(current_mirror),
+                prepared.release.release_id,
+                manifest_sha256=prepared.release_sha256,
+            )
+        assert len([key for key in store.put_keys if key.endswith(".parquet")]) == expected_puts
+        with closing(sqlite3.connect(database)) as conn:
+            assert (
+                read_rows(current_mirror, current)
+                == conn.execute(
+                    "SELECT * FROM equity_web_source_responses ORDER BY receipt_id"
+                ).fetchall()
+            )
+        assert read_rows(mirror, original) == original_rows
+        assert all(store.values[key].body == body for key, body in old_objects.items())
