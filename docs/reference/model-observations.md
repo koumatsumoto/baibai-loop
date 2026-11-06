@@ -1,6 +1,6 @@
 # 観測と原典の読み方
 
-L2は報告値と規則から調査材料を作る。企業価値・将来成長・反転確率・買付採否は認定しない。領域名と保存責務は[architecture](../architecture.md)、機械候補は[Screening](screening-runtime.md)、仮定付き価値は[Stock Assessment](stock-assessment.md)、開始・再開は[OPERATIONS](../../jobs/OPERATIONS.md)を使う。
+情報層・領域名・保存責務は[architecture](../architecture.md)、機械候補は[Screening](screening-runtime.md)、仮定付き価値は[Stock Assessment](stock-assessment.md)、開始・再開は[OPERATIONS](../../jobs/OPERATIONS.md)を使う。
 
 <a id="source-owners"></a>
 ## 原典・時点・不足
@@ -9,9 +9,9 @@ L2は報告値と規則から調査材料を作る。企業価値・将来成長
 
 対象日・会計期、発表/訂正、実受領、入力cutoff、評価時刻は別である。未知日を受領日で埋めず、Web Archiveのcapture/closestも当時公表の証明にせず、原URL/captureを保つ。保存Generationの入力identityを使い、同じas-ofやlatest headで代用しない。固定snapshotは再開入力を保つが、未保持vintage・intradayを含む完全PITではない。後日訂正・収録範囲と当時既知の範囲を分ける。
 
-未取得・取得失敗・取得済み空・partial・正常null・比較不能・0を区別する。新しい期や訂正の欠測を古い正常値で埋めず、不足は依存する値へ局所化する。tool障害を原資料の不存在とせず、失敗やL2定義退役で原本を消さない。保存済み判断の形式・入力・hashも書き換えない。
+未取得・取得失敗・取得済み空・partial・正常null・比較不能・0を区別する。新しい期や訂正の欠測を古い正常値で埋めず、不足は依存する値へ局所化する。tool障害を原資料の不存在としない。
 
-一次API/CSV/索引にも継続障害があり、同じ期間・定義・値を複数経路で確認できた場合だけ、一次未確認を明示して二次配信を採る。単一値・不一致・一時障害で代用せず、AIの転記で観測storeを埋めない。実装・取得・公開・本番切替・計算可能を区別し、L2未検証を理由に許可済みL1の取得/保持を縮小しない。
+一次API/CSV/索引にも継続障害があり、同じ期間・定義・値を複数経路で確認できた場合だけ、一次未確認を明示して二次配信を採る。単一値・不一致・一時障害で代用せず、AIの転記で観測storeを埋めない。実装・取得・公開・本番切替・計算可能を区別する。
 
 source別取得範囲は[経済catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)・[取得owner](../../engine/src/baibai_engine/data_collection/acquisition/)へ。経済catalogは全L1の一覧ではない。算式・fieldは各モデル実装が正本である。
 
@@ -117,7 +117,7 @@ IVの満期/30日補間は[計算owner](../../engine/src/baibai_engine/machine_a
 TradingViewの受領JST日/master日を公表日、休日同値を独立sample、部分公開を市場代表としない。metric別の通貨・単位・FY/next FY・人数を確認し、一括流用しない。実受領cutoff/次取引機会を守り、参考closeを株価の第二正本にしない。
 
 <a id="public-articles"></a>
-索引・本文受領・投影・主張抽出は別進捗。見出し/概要/全文/部分の範囲・欠落を残す。BBC World/Business、Fed/ECB通常取得はRSS見出し/概要までで、重複feedを独立source、発言を政策決定としない。本文実読/判断接続の受入は[#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705)に残る。案内/転送先/添付は親子の別受領。金利CSVの文字表現は経済系列の独立測定でなく、XLSXセル投影は図表/書式/計算結果の復元ではない。[exact回復](../../jobs/OPERATIONS.md#article-acquisition)は保存原本を使う。
+索引・本文受領・投影・主張抽出は別進捗。見出し/概要/全文/部分の範囲・欠落を残す。BBC World/Business、Fed/ECB通常取得はRSS見出し/概要までで、重複feedを独立source、発言を政策決定としない。本文実読/判断接続の受入は[#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705)に残る。金利CSVの文字表現は経済系列の独立測定でなく、XLSXセル投影は図表/書式/計算結果の復元ではない。[exact回復](../../jobs/OPERATIONS.md#article-acquisition)は保存原本を使う。
 
 <a id="judgment-use"></a>
 ## 判断への受渡し
