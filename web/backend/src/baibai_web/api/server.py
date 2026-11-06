@@ -1,4 +1,4 @@
-"""Loopback-only read-only portfolio, task and saved proposal views."""
+"""Loopback-only read-only portfolio and saved proposal views."""
 
 from __future__ import annotations
 
@@ -14,10 +14,9 @@ from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.readmodel.builders.outcomes import build_outcomes
 from baibai_web.readmodel.builders.proposal import build_latest_proposal
-from baibai_web.readmodel.builders.tasks import build_tasks
-from baibai_web.readmodel.models import DashboardView, OutcomesView, TasksView
+from baibai_web.readmodel.models import DashboardView, OutcomesView
 from baibai_web.readmodel.proposal_models import LatestProposalView
-from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource, DbTaskSource
+from baibai_web.sources.db_sources import DbLedgerSource, DbMarketSource
 from baibai_web.sources.proposal import DbProposalSource
 
 PUBLIC_ASSETS = (
@@ -45,14 +44,6 @@ def create_app(root: Path, *, db_path: Path | None = None) -> FastAPI:
     def dashboard() -> DashboardView:
         return build_dashboard(
             DbLedgerSource(application, market_path), DbMarketSource(market_path)
-        )
-
-    @app.get("/api/tasks", response_model=TasksView)
-    def tasks() -> TasksView:
-        return build_tasks(
-            DbTaskSource(application),
-            DbLedgerSource(application, market_path),
-            DbMarketSource(market_path),
         )
 
     @app.get("/api/outcomes", response_model=OutcomesView)

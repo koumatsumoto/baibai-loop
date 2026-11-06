@@ -38,13 +38,12 @@ L2はL1と明示設定から再生成し、前回L2を正本/必須入力にし�
 | `machine_analysis/historical_evaluation/` | 機械手法の歴史評価と必要な旧run。旧ER/FV・Screening規則を現行政策へ混ぜない。 |
 | `investment_judgment/` | 調査・評価・独立検証・提案・市場判断。`workflow/`は対象固定・進行・再開。 |
 | `portfolio/` | `ledger/`の確認済み取引/資本、`holdings/`の保有、`performance/`の成果。採否/調査完了は所有しない。 |
-| `tasks/` | 人間が明示した作業と進行。 |
 | `storage/` | `sqlite/`の実行DB、`snapshots/`の固定manifest/release、`objects/`の転送/条件付き書込。領域の意味は決めない。 |
 | `primitives/`・`cli/` | 小さな共通値/純粋変換と、引数/表示/終了コードの入口。業務規則の汎用箱にしない。 |
 
 保存契約は原本/観測ownerが持ち、Storageは保存・検証機構、Jobsは公開対象とsource別受入の合成を担う。全体hydrate/dehydrateには完全なcatalog/policy、個別固定読取には必要なowner契約を渡す。
 
-`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成し、算術/保存条件を複製しない。`tools/`は開発・診断用で通常運用を隠さない。[Web](../web/README.md)は資産・成果・task・保存提案/exact評価pairの読取に限り、判断作成・現在再試算・台帳更新や候補抽出の成功条件を持たない。
+`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成し、算術/保存条件を複製しない。`tools/`は開発・診断用で通常運用を隠さない。[Web](../web/README.md)は資産・成果・保存提案/exact評価pairの読取に限り、判断作成・現在再試算・台帳更新や候補抽出の成功条件を持たない。
 
 CollectionはL2、観測はモデル、生成は候補政策、PortfolioはL3へ逆依存しない。モデル内算術と工程間の保存/再開を分ける。具体的な許可importは[依存契約](../pyproject.toml)を正本とする。
 
@@ -71,7 +70,7 @@ Operation完了・提案公開・人間の採用・注文・約定は別状態�
 
 | 保存単位 | 役割 |
 | --- | --- |
-| application DB | 部分調査・判断・Review・提案・Selection・Operation・task・台帳の正本。 |
+| application DB | 部分調査・判断・Review・提案・Selection・Operation・台帳の正本。 |
 | native L1 | source別の可変headと不変body/request pack。受領記録と同値body共有を区別する。 |
 | 共有固定入力 | 採用原本と確認/失敗状態のmetadata。generation/Selectionが参照し本文は複写しない。 |
 | 固定lake snapshot | L2と未移行L1のimmutable object/manifest。読取releaseは一つに固定する。 |

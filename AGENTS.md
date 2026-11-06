@@ -10,4 +10,4 @@
 
 検証は対象HEADのCIで確認し、実行済み・失敗・未実行を区別する。必要な実データ確認はfixtureの成功と分け、文書変更だけで本番データを再生成しない。
 
-開発作業はGitHub Issue、運用taskはapplication DBで管理する。未完了のIssueをcloseせず、段階的な提出は`refs #N`と残作業・引継先を示す。人間向けの記録は日本語とし、identifierは正準名を保つ。
+開発作業はGitHub Issueで管理する。未完了のIssueをcloseせず、段階的な提出は`refs #N`と残作業・引継先を示す。人間向けの記録は日本語とし、identifierは正準名を保つ。

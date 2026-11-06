@@ -11,6 +11,5 @@ export interface NavTab {
 
 export const NAV_TABS: readonly NavTab[] = [
   { to: '/', label: 'Dashboard', match: (pathname) => pathname === '/' },
-  { to: '/tasks', label: 'Tasks', match: (pathname) => pathname === '/tasks' },
   { to: '/proposal', label: '売買提案', match: (pathname) => pathname === '/proposal' },
 ]

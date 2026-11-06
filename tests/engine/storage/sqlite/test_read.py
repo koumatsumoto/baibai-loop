@@ -91,7 +91,7 @@ def test_owner_readers_keep_their_current_schema_and_clock(tmp_path):
     machine_analysis.initialize_run_store(runs)
 
     with closing(application_read.connect_read_only(application)) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM task").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM operation_session").fetchone()[0] == 0
     with closing(market_read.connect_read_only(market)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
     with closing(machine_analysis.connect_read_only(runs)) as connection:

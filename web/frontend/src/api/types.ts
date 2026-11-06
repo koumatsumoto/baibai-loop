@@ -271,47 +271,9 @@ export interface SavedSellItemView {
   terms_unavailable_reasons: SavedReasonView[]
 }
 
-export interface TaskView {
-  task_id: string
-  title: string
-  kind: string
-  status: string
-  ticker: string | null
-  due_date: string
-  event_label: string | null
-  event_date: string | null
-}
-
-/**
- * Task/event workflow projection, separate from portfolio presentation.
- */
-export interface TasksView {
-  generated_at: string
-  tasks_exist: boolean
-  open_tasks: TaskView[]
-  next_task: TaskView | null
-  upcoming_events: UpcomingEventView[]
-  /**
-   * 保有決算予定の確認可否。保有なし/台帳不明はnull。
-   */
-  earnings_calendar_available: boolean | null
-  /**
-   * 決算カレンダーの読取失敗。欠測だけの場合はnull。
-   */
-  earnings_calendar_error: string | null
-  ledger_error: string | null
-}
-
 export interface UnfinishedResearchView {
   reason: string
   references: string[]
-}
-
-export interface UpcomingEventView {
-  event_date: string
-  kind: 'earnings' | 'reservation_expiry'
-  ticker: string | null
-  label: string
 }
 
 export interface WarningView {

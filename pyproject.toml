@@ -230,7 +230,6 @@ forbidden_modules = [
   "baibai_engine.machine_analysis",
   "baibai_engine.investment_judgment",
   "baibai_engine.portfolio",
-  "baibai_engine.tasks",
   "baibai_engine.storage",
   "baibai_engine.cli",
 ]
@@ -239,19 +238,6 @@ forbidden_modules = [
 name = "application database infrastructure only depends on primitives"
 type = "forbidden"
 source_modules = ["baibai_engine.storage.sqlite.application"]
-forbidden_modules = [
-  "baibai_engine.data_collection",
-  "baibai_engine.machine_analysis",
-  "baibai_engine.investment_judgment",
-  "baibai_engine.portfolio",
-  "baibai_engine.tasks",
-  "baibai_engine.cli",
-]
-
-[[tool.importlinter.contracts]]
-name = "tasks only depends on application database and primitives"
-type = "forbidden"
-source_modules = ["baibai_engine.tasks"]
 forbidden_modules = [
   "baibai_engine.data_collection",
   "baibai_engine.machine_analysis",
@@ -267,7 +253,7 @@ source_modules = ["baibai_engine.machine_analysis.observations"]
 forbidden_modules = [
   "baibai_engine.machine_analysis.models", "baibai_engine.machine_analysis.generation",
   "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment",
-  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_jobs", "baibai_web",
+  "baibai_engine.portfolio", "baibai_jobs", "baibai_web",
   "baibai_engine.data_collection.acquisition",
   "baibai_engine.data_collection.providers.jquants.http",
   "baibai_engine.data_collection.providers.edinet.http",
@@ -308,7 +294,6 @@ source_modules = ["baibai_engine.investment_judgment"]
 forbidden_modules = [
 
   "baibai_engine.machine_analysis.screening",
-  "baibai_engine.tasks",
 ]
 
 allow_indirect_imports = true
@@ -455,7 +440,6 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.observations.financials.edinet_facts",
   "baibai_engine.portfolio",
   "baibai_engine.storage",
-  "baibai_engine.tasks",
 ]
 
 [[tool.importlinter.contracts]]
@@ -473,7 +457,7 @@ source_modules = [
 forbidden_modules = [
   "baibai_engine.machine_analysis.models.company_growth",
   "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment",
-  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.storage.sqlite.application.write", "baibai_engine.cli.market_reading",
+  "baibai_engine.portfolio", "baibai_engine.storage.sqlite.application.write", "baibai_engine.cli.market_reading",
   "baibai_engine.machine_analysis.observations.economic_indicators.service", "baibai_engine.data_collection.acquisition", "baibai_engine.data_collection.transport", "baibai_engine.data_collection.providers.jquants.http", "baibai_engine.data_collection.providers.edinet.http", "baibai_engine.data_collection.providers.jpx.http",
 ]
 
@@ -488,7 +472,7 @@ forbidden_modules = [
   "baibai_engine.machine_analysis.generation.runners.market_reading", "baibai_engine.machine_analysis.models.market_context.benchmark",
   "baibai_engine.machine_analysis.models.market_context.snapshot", "baibai_engine.machine_analysis.models.market_context.security",
   "baibai_engine.machine_analysis.screening", "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment",
-  "baibai_engine.machine_analysis.models.external_assessment", "baibai_engine.portfolio", "baibai_engine.tasks",
+  "baibai_engine.machine_analysis.models.external_assessment", "baibai_engine.portfolio",
   "baibai_engine.storage.sqlite.application.write",
 ]
 
@@ -511,7 +495,7 @@ source_modules = ["baibai_engine.machine_analysis.historical_evaluation.legacy_s
 forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.machine_analysis.observations",
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis", "baibai_engine.machine_analysis.models.company_growth", "baibai_engine.machine_analysis.models.external_assessment",
-  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates", "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder",
+  "baibai_engine.portfolio", "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates", "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.metric_builder",
   "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config", "baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store", "baibai_engine.cli.historical_evaluation",
   "baibai_engine.investment_judgment.workflow.workspace", "baibai_engine.investment_judgment.workflow.operation", "baibai_engine.investment_judgment.stock_assessment.store",
 ]
@@ -531,7 +515,6 @@ forbidden_modules = [
   "baibai_engine.investment_judgment",
   "baibai_engine.machine_analysis.screening",
   "baibai_engine.portfolio",
-  "baibai_engine.tasks",
   "baibai_engine.machine_analysis.observations.financials.edinet_metrics",
   "baibai_engine.machine_analysis.observations.external_assessments.store",
   "baibai_engine.machine_analysis.observations.external_assessments.reader",
@@ -650,7 +633,7 @@ forbidden_modules = [
 name = "source transports and receipts do not depend on observations or execution"
 type = "forbidden"
 source_modules = ["baibai_engine.data_collection"]
-forbidden_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web"]
+forbidden_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.portfolio", "baibai_engine.cli", "baibai_jobs", "baibai_web"]
 
 [[tool.importlinter.contracts]]
 name = "company growth reads inputs without decisions or writes"
@@ -658,7 +641,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.models.company_growth"]
 forbidden_modules = [
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment",
-  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis",
+  "baibai_engine.portfolio", "baibai_engine.machine_analysis.models.market_context", "baibai_engine.machine_analysis.models.technical_analysis",
   "baibai_engine.machine_analysis.models.external_assessment.analysis", "baibai_engine.machine_analysis.observations.external_assessments.reader",
   "baibai_engine.machine_analysis.generation.runners.external_assessment", "baibai_jobs.acquisition.external_assessments",
   "baibai_engine.machine_analysis.observations.external_assessments.store", "baibai_engine.storage.sqlite.application.write",
@@ -718,7 +701,7 @@ forbidden_modules = [
   "baibai_engine.storage", "baibai_engine.data_collection",
   "baibai_engine.machine_analysis.generation", "baibai_engine.machine_analysis.screening",
   "baibai_engine.machine_analysis.historical_evaluation", "baibai_engine.investment_judgment",
-  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web",
+  "baibai_engine.portfolio", "baibai_engine.cli", "baibai_jobs", "baibai_web",
 ]
 
 [[tool.importlinter.contracts]]
@@ -727,7 +710,7 @@ type = "forbidden"
 source_modules = ["baibai_engine.machine_analysis.generation"]
 forbidden_modules = [
   "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment",
-  "baibai_engine.portfolio", "baibai_engine.tasks", "baibai_engine.cli", "baibai_jobs", "baibai_web",
+  "baibai_engine.portfolio", "baibai_engine.cli", "baibai_jobs", "baibai_web",
 ]
 
 [[tool.importlinter.contracts]]
