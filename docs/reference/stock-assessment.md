@@ -1,6 +1,6 @@
 # Stock Assessment
 
-企業理解・価値・反証と独立検証を保存する。採否方針は[doctrine](../doctrine.md)、現在価格/cashへの適用は[Trade Proposal](trade-proposal.md)、取引は[Ledger](portfolio-ledger.md)、操作は[skill](../../.agents/skills/investment-judgment/SKILL.md)が所有する。
+企業理解・価値・反証と独立検証を保存する。採否方針は[doctrine](../doctrine.md)、現在価格/cashへの適用は[Trade Proposal](trade-proposal.md)、取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)、操作は[skill](../../.agents/skills/investment-judgment/SKILL.md)が所有する。
 
 ## 観測と根拠
 

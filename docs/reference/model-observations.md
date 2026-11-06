@@ -13,13 +13,7 @@ L2は報告値と規則から調査材料を作る。企業価値・将来成長
 
 一次API/CSV/索引にも継続障害があり、同じ期間・定義・値を複数経路で確認できた場合だけ、一次未確認を明示して二次配信を採る。単一値・不一致・一時障害で代用せず、AIの転記で観測storeを埋めない。実装・取得・公開・本番切替・計算可能を区別し、L2未検証を理由に許可済みL1の取得/保持を縮小しない。
 
-| 所有実装 | 読む対象 |
-| --- | --- |
-| [経済catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)・[取得](../../engine/src/baibai_engine/data_collection/acquisition/) | source別取得範囲。経済catalogは全L1の一覧ではない。 |
-| [財務観測](../../engine/src/baibai_engine/machine_analysis/observations/financials/) | 開示・訂正・会計basis・原文からの選択/投影。 |
-| [Company Financials](../../engine/src/baibai_engine/machine_analysis/models/company_financials/)・[Company Growth](../../engine/src/baibai_engine/machine_analysis/models/company_growth/) | 報告金額・価格/資本の比較／実績の状態・変化。算式・fieldはここが正本。 |
-| [Market Context](../../engine/src/baibai_engine/machine_analysis/models/market_context/)・[Technical Analysis](../../engine/src/baibai_engine/machine_analysis/models/technical_analysis/) | 市場/業種/個社の相対状態／価格位置・勢い・変動。 |
-| [外部評価](../../engine/src/baibai_engine/machine_analysis/observations/external_assessments/)・[記事](../../engine/src/baibai_engine/machine_analysis/observations/articles/) | 出所・単位・範囲を保つ投影/抽出。原本そのものではない。 |
+source別取得範囲は[経済catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)・[取得owner](../../engine/src/baibai_engine/data_collection/acquisition/)へ。経済catalogは全L1の一覧ではない。算式・fieldは各モデル実装が正本である。
 
 <a id="financial-periods"></a>
 ## 開示と会計比較
@@ -118,7 +112,7 @@ IVの満期/30日補間は[計算owner](../../engine/src/baibai_engine/machine_a
 モデル価格・予想/rating・Quants scoreを分け、origin・対象期・単位・株式basis/尺度を揃えた差だけ読む。初回・欠測回復・人数変更・再受領を改善とせず、転載を独立票にしない。保存最新値は現在値/最新試行成功ではなく、受領間比較は自己評価との比較を保証しない。投稿/総合診断をアナリスト予想にせず、人数・年表示・過去列から未記載の期末/EPS/履歴を作らない。銘柄同一性がない404/「情報なし」を正常欠測にしない。
 
 <a id="tradingview"></a>
-公開HTMLのbody/encodingとTradingView SDK応答は保存可能なnative表現でwire bytesではない。L2前に保持し、再試行で元受領時計を変えない。楽天outer/iframeは同試行、403/429は迂回しない。公開/読戻し前の短期handoffは長期L1でなく、未保存本文は復元不能。
+公開HTMLのbody/encodingとTradingView SDK応答は保存可能なnative表現でwire bytesではない。楽天outer/iframeは同試行、403/429は迂回しない。
 
 TradingViewの受領JST日/master日を公表日、休日同値を独立sample、部分公開を市場代表としない。metric別の通貨・単位・FY/next FY・人数を確認し、一括流用しない。実受領cutoff/次取引機会を守り、参考closeを株価の第二正本にしない。
 
@@ -128,11 +122,11 @@ TradingViewの受領JST日/master日を公表日、休日同値を独立sample�
 <a id="judgment-use"></a>
 ## 判断への受渡し
 
-Selectionは固定Generationの必要結果を持ち、決算予定・規制・現在台帳まで含むとは限らない。表示の拡大は原本保持/生成範囲/入力hashを増やさず、保存モデルの範囲不足を補わない。固定旧入力から別Generationを保存する専用CLIは未提供で、現在marketの公開jobを代用しない。受入fixture/有限標本を全市場の原典照合や収益優位へ一般化しない。保存済み旧run/Selectionの読取は[旧成果reader](estimate-calibration.md)に従い、旧推計/較正の再生成を要求しない。
+Selectionは固定Generationの必要結果を持ち、決算予定・規制・現在台帳まで含むとは限らない。表示の拡大は原本保持/生成範囲/入力hashを増やさず、保存モデルの範囲不足を補わない。固定旧入力から別Generationを保存する専用CLIは未提供で、現在marketの公開jobを代用しない。受入fixture/有限標本を全市場の原典照合や収益優位へ一般化しない。
 
 外部評価は利益・倍率・資本・期の重要差だけ原典確認し、銀行のEBITDA/FCF等を全社必須にしない。rating加点・coverage別laneは設けない。[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は将来効果の否定でない。Investing.comは変更の補助参照で、第二の日次consensusにしない。
 
 <a id="public-research-reports"></a>
 [SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)は選定企業の理由/仮説の補助。毎回取得/coverageや日次crawlerを要求しない。独自予想と会社計画、sponsor調査と独立根拠を分け、銘柄・発行/訂正・対象期・実読ページ・採用HTTPS原本を確認する。snippetを本文実読とせず、届かなければ一次資料へ戻る。
 
-保有quoteはJ-Quantsを使い、公開quoteを台帳転記して埋めない。補助値には時点/basisを示す。Portfolio Outcomeのbenchmarkは同期間/公表時点のJPX TOPIX gross total returnで、ETF価格やprice-onlyと別。税費用basisは[Portfolio Ledger](portfolio-ledger.md#historical-outcome)へ、世界経済の解釈・発行履歴は[市場判断skill](../../.agents/skills/market-context-assessment/SKILL.md)へ進む。
+保有quoteはJ-Quantsを使い、公開quoteを台帳転記して埋めない。補助値には時点/basisを示す。Outcomeの比較は[Portfolio Ledger](../../.agents/skills/ledger-record/SKILL.md#historical-outcome)へ、世界経済の解釈・発行履歴は[市場判断skill](../../.agents/skills/market-context-assessment/SKILL.md)へ進む。
