@@ -37,6 +37,7 @@ def load_generated_selection_context(
     runs_path: Path,
     db_path: Path | None,
     comparison_tickers: tuple[str, ...] = (),
+    include_pricing_gaps: bool = False,
 ) -> dict[str, Any]:
     """保存された政策結果と同じ生成を読む。contextの取得で再選定しない。"""
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -83,6 +84,8 @@ def load_generated_selection_context(
         generation_id = screening.generation_id
     if generation_id is None:
         raise ValueError("an explicit generation is required")
+    if include_pricing_gaps and screening is None:
+        raise ValueError("pricing gaps require a saved screening selection")
     held: tuple[str, ...] = ()
     app_path = database_path(db_path)
     if app_path.exists():
@@ -148,7 +151,7 @@ def load_generated_selection_context(
             detail = security if models.subject_plan is None else security["models"]
             detail["company_growth"] = deepcopy(model.payload)
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
-    return {
+    result = {
         "schema_version": 3,
         "status": "ready",
         "request": request.model_dump(mode="json"),
@@ -182,6 +185,14 @@ def load_generated_selection_context(
         if context is None
         else assessment_projection(context, as_of=as_of),
     }
+    if include_pricing_gaps:
+        from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
+            read_pricing_gaps,
+        )
+
+        assert screening is not None
+        result["pricing_gaps"] = read_pricing_gaps(screening, path=runs_path)
+    return result
 
 
 def _project_screening(result: ScreeningResult) -> dict[str, Any]:

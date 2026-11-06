@@ -121,3 +121,38 @@ def test_subject_stream_closes_when_consumer_stops_before_the_next_company(tmp_p
     assert next(streams[0], None) is None
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         connection.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("model_ids", [("company_financials",), ()])
+def test_subject_stream_filters_model_keys_before_decoding(tmp_path, model_ids):
+    path = tmp_path / "runs.sqlite"
+    fixed = generation()
+    ModelGenerationStore(path).publish(fixed)
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "UPDATE generated_model SET payload_gzip=? WHERE model_id!='company_financials'",
+            (b"not-gzip",),
+        )
+    before = path.read_bytes()
+    with query.stream_generation_subjects(
+        fixed.generation_id, subjects=("1234", "market"), model_ids=model_ids, path=path
+    ) as saved:
+        _, companies = saved
+        assert tuple(companies) == (
+            (("1234", (fixed.result("company_financials", "1234"),)),) if model_ids else ()
+        )
+    assert path.read_bytes() == before
+
+
+def test_subject_stream_freezes_requested_scope_before_lazy_consumption(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    fixed = generation()
+    ModelGenerationStore(path).publish(fixed)
+    subjects, model_ids = ["1234"], ["company_financials"]
+    with query.stream_generation_subjects(
+        fixed.generation_id, subjects=subjects, model_ids=model_ids, path=path
+    ) as saved:
+        subjects.append("market")
+        model_ids.append("technical_analysis")
+        _, companies = saved
+        assert tuple(companies) == (("1234", (fixed.result("company_financials", "1234"),)),)
