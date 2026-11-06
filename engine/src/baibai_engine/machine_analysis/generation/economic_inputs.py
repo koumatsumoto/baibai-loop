@@ -7,6 +7,7 @@ import importlib.metadata
 import sqlite3
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -286,16 +287,22 @@ def retain_economic_input(
         ):
             remember("documents", _row(connection, "documents", tuple(key)))
 
+    def retain_month(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
+        name, rows = item
+        return name, _retain(store, _Month(**rows).model_dump(mode="json"))
+
+    # Independent immutable month objects otherwise serialize thousands of
+    # network round trips. Keep their order and all per-object integrity checks.
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        months = dict(workers.map(retain_month, sorted(blocks.items()), buffersize=8))
+
     selection = _Selection(
         as_of=as_of,
         evaluation_time=evaluation_time,
         recipe_sha256=recipe,
         sources=sources,
         record_ranges=record_ranges,
-        months={
-            name: _retain(store, _Month(**rows).model_dump(mode="json"))
-            for name, rows in sorted(blocks.items())
-        },
+        months=months,
         confirmations=confirmations,
         runs=runs,
     )
@@ -342,7 +349,11 @@ def rebuild_economic_input(
         original.execute("BEGIN")
         validate_current_schema(original)
         path = Path(directory) / "calculation.sqlite"
-        with closing(initialize_database(path)) as projection, projection:
+        with (
+            closing(initialize_database(path)) as projection,
+            projection,
+            ThreadPoolExecutor(max_workers=8) as workers,
+        ):
 
             def copy(kind: str, reference: _Receipt) -> tuple[Any, ...]:
                 row = _row(original, kind, reference.key)
@@ -356,8 +367,12 @@ def rebuild_economic_input(
                 )
                 return row
 
-            for month_digest in selection.months.values():
-                block = _Month.model_validate_json(_read(store, month_digest))
+            def read_month(month_digest: str) -> _Month:
+                return _Month.model_validate_json(_read(store, month_digest))
+
+            # Only metadata transport runs concurrently. SQLite reads/writes
+            # and fixed receipt checks stay on this transaction's owning thread.
+            for block in workers.map(read_month, selection.months.values(), buffersize=8):
                 for reference in block.records:
                     row = copy("records", reference)
                     if reference.confirmed:
