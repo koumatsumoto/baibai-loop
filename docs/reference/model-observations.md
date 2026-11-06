@@ -25,7 +25,7 @@
 累計・単独四半期・TTM・期末残高は別。EPS/平均株数/営業CFを四半期差分にせず、金額合成後に普通株分母で換算する。異分母EPSの加減算や丸め/basis不明EPS×株数の総額復元はしない。
 
 - **財務/成長の違い**: 財務TTMの最新額合成と成長の累計訂正制約は別契約。配当/予想文書で実績を消さず、予想混入/単一四半期の年率化はしない。前年累計の配信がFYより後でも原資料は先行し得る。
-- **成長の窓**: 表示窓外の比較元/訂正も使い、窓変更で共通期の意味を変えず読取から取得しない。売却/M&A/為替/会計方針を組替済みの有機成長とは呼ばない。組替値の遡及供給は保証されず、重要差はL3が原典で評価し原観測を保つ。
+- **成長の窓**: 会計期末の表示窓外の比較元/訂正も使い、窓変更で共通期の意味を変えず読取から取得しない。売却/M&A/為替/会計方針を組替済みの有機成長とは呼ばない。組替値の遡及供給は保証されず、重要差はL3が原典で評価し原観測を保つ。
 - **利益/倍率**: 報告利益のYは分配可能利益/期待収益率でない。連結は親会社帰属、単体は当期純利益で優先配当等は推定しない。FinancialSnapshot EPSと会社平均株数EPS、会社予想とconsensusを分け、予想純利益/経常利益の大小や赤字注記だけで持続性を決めない。
 - **変化**: 赤字縮小/黒字化は額と符号で読み、負/0基準の率で改善を決めない。営業利益の経常利益代用、金融業への非金融利益率適用、未検証basisの変化率を避け、成長モデルが持たないPER/peer比較で補わない。
 
@@ -124,7 +124,7 @@ TradingViewの受領JST日/master日を公表日、部分公開を市場代表�
 
 Selectionは決算予定/規制/現在台帳を網羅するとは限らず、表示拡大では保存入力/生成範囲も増えない。固定旧入力から別Generationを保存する専用CLIは未提供で、現在market公開jobを代用しない。
 
-外部評価は利益/倍率/資本/期の重要差を原典確認し、銀行のEBITDA/FCF等を全社必須にしない。rating加点/coverage別laneの[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は将来効果の否定でない。Investing.comは変更の補助で第二の日次consensusにしない。
+外部評価は利益/倍率/資本/期の重要差を原典確認し、銀行のEBITDA/FCF等を全社必須にしない。現行ではrating加点/coverage別laneを設けない。[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は将来効果の否定でない。Investing.comは変更の補助で第二の日次consensusにしない。
 
 <a id="public-research-reports"></a>
 [SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)は仮説の補助で毎回取得/日次crawlerを要求しない。[根拠の確認](stock-assessment.md#観測と根拠)に従い、独自予想/会社計画、sponsor調査/独立根拠を分け、実読ページと採用HTTPS原本を残す。届かなければ一次資料へ戻る。
