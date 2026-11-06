@@ -47,6 +47,7 @@ def load_generated_selection_context(
         read_research_model_inputs,
     )
     from baibai_engine.machine_analysis.screening.selection_query import (
+        read_pricing_gaps,
         read_publication,
     )
 
@@ -186,10 +187,6 @@ def load_generated_selection_context(
         else assessment_projection(context, as_of=as_of),
     }
     if include_pricing_gaps:
-        from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-            read_pricing_gaps,
-        )
-
         assert screening is not None
         result["pricing_gaps"] = read_pricing_gaps(screening, path=runs_path)
     return result
