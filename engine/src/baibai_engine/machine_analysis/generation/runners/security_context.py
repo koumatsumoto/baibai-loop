@@ -56,7 +56,6 @@ def build_security_market_contexts(
             ticker=ticker,
             bars=bars,
             master=prepared.master,
-            benchmark=prepared.benchmark_trend,
             benchmark_ticker=benchmark_ticker,
             benchmark_prices=benchmark_prices,
             peer_prices=peer_prices,
