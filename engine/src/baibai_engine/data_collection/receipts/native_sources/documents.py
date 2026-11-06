@@ -67,6 +67,30 @@ def store_document(connection: sqlite3.Connection, document: SourceDocument) -> 
 
 def read_documents(connection: sqlite3.Connection, source_id: str) -> Iterator[SourceDocument]:
     """Read the latest received body of each request, not a prior usable extraction."""
+    for (
+        stored_source,
+        key,
+        fetched_at,
+        url,
+        content_type,
+        payload,
+        raw_metadata,
+    ) in read_document_rows(connection, source_id):
+        yield SourceDocument(
+            source_id=stored_source,
+            request_key=key,
+            source_url=url,
+            content_type=content_type,
+            fetched_at=datetime.fromisoformat(fetched_at),
+            payload=payload,
+            metadata=_decode_metadata(raw_metadata),
+        )
+
+
+def read_document_rows(
+    connection: sqlite3.Connection, source_id: str
+) -> Iterator[tuple[str, str, str, str, str, bytes, str]]:
+    """The same latest documents, preserving raw receipt identity and metadata."""
     rows = connection.execute(
         "SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "
         "c.content_type, c.payload, c.metadata FROM economic_source_documents c "
@@ -76,16 +100,9 @@ def read_documents(connection: sqlite3.Connection, source_id: str) -> Iterator[S
         "ORDER BY c.request_key",
         (source_id,),
     )
-    for source_id, key, fetched_at, url, content_type, payload, raw_metadata in rows:
-        yield SourceDocument(
-            source_id=source_id,
-            request_key=key,
-            source_url=url,
-            content_type=content_type,
-            fetched_at=datetime.fromisoformat(fetched_at),
-            payload=payload,
-            metadata=_decode_metadata(raw_metadata),
-        )
+    # Do not delegate Cursor.close after a consumer has already closed the DB.
+    for row in rows:  # noqa: UP028
+        yield row
 
 
 def read_document_metadata(
