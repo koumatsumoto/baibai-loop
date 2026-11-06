@@ -21,6 +21,11 @@ from baibai_engine.machine_analysis.observations.economic_indicators.validation 
 )
 
 
+def retained_publication_range(cutoff: date) -> tuple[date, date]:
+    """Native responses are indexed by publication day, not their aggregation period."""
+    return date.min, cutoff
+
+
 def read_flow_series(
     connection: sqlite3.Connection,
     series: SeriesDefinition,
@@ -35,7 +40,7 @@ def read_flow_series(
     # Source snapshots are publication-day responses, not aggregation-week snapshots.
     # A later correction may describe a period earlier than the requested range end.
     for snapshot in read_snapshots(
-        connection, date.min, publication_cutoff, source_id=series.source_id
+        connection, *retained_publication_range(publication_cutoff), source_id=series.source_id
     ):
         for row in snapshot.records:
             period_end = _date(row.get("EnDate"), "EnDate")

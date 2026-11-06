@@ -111,9 +111,21 @@ def read_snapshots(
     Acquisition time orders revisions; it does not establish historical publication
     availability. Decode one day at a time rather than retaining a full history's JSON.
     """
+    for _, observed_at, fetched_at, _, payload in read_snapshot_rows(
+        connection, start, end, source_id=source_id
+    ):
+        yield SourceSnapshot(
+            date.fromisoformat(observed_at), datetime.fromisoformat(fetched_at), payload
+        )
+
+
+def read_snapshot_rows(
+    connection: sqlite3.Connection, start: date, end: date, *, source_id: str
+) -> Iterator[tuple[str, str, str, int, bytes]]:
+    """The same adopted records, preserving stored PK spelling and native columns."""
     rows = connection.execute(
         """
-        SELECT c.observed_at, c.fetched_at, c.payload
+        SELECT c.source_id, c.observed_at, c.fetched_at, c.record_count, c.payload
         FROM economic_source_records c
         WHERE c.source_id = ? AND c.observed_at BETWEEN ? AND ?
           AND c.fetched_at = COALESCE(
@@ -126,9 +138,6 @@ def read_snapshots(
         """,
         (source_id, start.isoformat(), end.isoformat()),
     )
-    for observed_at, fetched_at, payload in rows:
-        yield SourceSnapshot(
-            date.fromisoformat(observed_at),
-            datetime.fromisoformat(fetched_at),
-            payload,
-        )
+    # Do not delegate Cursor.close after a consumer has already closed the DB.
+    for row in rows:  # noqa: UP028
+        yield row

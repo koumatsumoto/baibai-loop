@@ -161,9 +161,11 @@ FRED以外の比較窓・人工空・確認方式は変更しない。経済SQLi
 
 ### source入力・市場原本の引渡し
 
-共通統合だけが `cloud-publish` と共通leaseを使う。独立取得は固定L1/read-only input→private stagingを担当し、market/application全体のhydrate・統合をしない。同source/groupは取得〜stageを直列化し、J-Quantsは市場/財務/経済の共有quotaを守る。TradingViewも毎日独立取得し、[取得運用](#tradingview-expectations)に従う。
+共通統合だけが `cloud-publish` と共通leaseを使う。独立取得はsourceごとの原本受領とprivate stagingを担当し、market/application全体のhydrate・統合をしない。同source/groupは取得〜stageを直列化し、J-Quantsは市場/財務/経済の共有quotaを守る。TradingViewも毎日独立取得し、[取得運用](#tradingview-expectations)に従う。
 
 [source input](src/baibai_jobs/acquisition/source_inputs.py)は正本generation/原本hashに結び付く再生成物で、正本ではない。計画に必要なsource履歴/coverage（正常空を含む）を保持し、部分storeにfull lake originを付けない。初回は共通統合から発行し、`coordination/source-inputs/` 不足を全DB取得・空seedで迂回しない。J-Quantsはこれを使わず、未移行sourceは固定L1 release/未統合原本、nativeは独立headから計画する。
+
+JPX決算予定・規制は過去のfactを取得計画に使わないため、scoped inputや取得前resumeを要求しない。fresh source DBで受領し、失敗前の部分原本も従来のprivate stageへ保存する。共通統合でのcollection別replayは変えず、旧input・stageは削除しない。
 
 Matsui/TSRは原document全履歴をinputへ複写しない。schema13 envelopeと旧全履歴inputとの双方向reader互換を保ち、次の通常input発行で更新する。schema移行・再GETは不要で、同値inputは再利用する。
 

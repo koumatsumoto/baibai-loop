@@ -37,8 +37,7 @@ def test_acquisition_and_daily_callers_ignore_old_false_repository_vars(filename
             "Read own confirmed originals and required EDINET list receipts",
         ):
             assert steps[name]["if"] == (
-                '${{ !contains(fromJSON(\'["jquants-market","jquants-financial",'
-                '"edinet-list"]\'), inputs.source) }}'
+                '${{ contains(fromJSON(\'["edinet-metrics","edinet-facts"]\'), inputs.source) }}'
             )
 
 
