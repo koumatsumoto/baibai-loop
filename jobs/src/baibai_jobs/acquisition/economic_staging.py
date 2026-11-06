@@ -22,6 +22,7 @@ _PLANNING_INPUT_GROUPS = {
     "pmi-acquisition-input-v1": "economic-spglobal_pmi",
     "umich-acquisition-input-v1": "economic-umich_sca",
     "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
+    "frb-h15-acquisition-input-v1": "economic-frb_h15",
 }
 _PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 

@@ -235,7 +235,7 @@ def test_failed_group_retains_pointer_while_other_groups_progress(tmp_path, monk
     )
     result = inputs.publish_inputs(remote, **args, identity="partial")
     assert result == {
-        "updated": [CASES[0][0], CASES[2][0]],
+        "updated": [case[0] for case in CASES if case != CASES[1]],
         "failed": [{"group": CASES[1][0], "reason": "ValueError"}],
     }
     assert remote.values[inputs.input_key(CASES[1][0])].body == previous

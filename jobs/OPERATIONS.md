@@ -279,7 +279,7 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 
 独立取得はsource固有の原本/publicationとprivate stageを持ち、全market/applicationをhydrateしない。同source/groupは取得〜stageを直列化し、J-Quants共有quotaも守る。共有source inputや記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。不足を全DB取得/空seedで迂回しない。J-Quantsはこれを使わず、独立headまたは未移行sourceの固定L1から計画する。[source input](src/baibai_jobs/acquisition/source_inputs.py)は正本でなく、必要な原本履歴/coverageを持つ再生成物である。部分storeにfull lake originを付けない。
 
-入力移管後も元bindingで再開する。J-Quantsはnative head、未移行sourceは固定L1/未統合原本を使う。経済planning inputは取得計画に必要な範囲/成功失敗/確認だけを持ち、原文/URL/実時計はhandoff、同値/訂正/遅着の受入はcanonical原本が担う。Matsuiは現在pageの明示空seed、TSRはrun/coverage（latest成功日だけへ縮めない）、PMIはURL/月/phase、UMich/ECBは受領日集合を使う。空seedは原本不在やinput欠落の自動初期化でない。
+入力移管後も元bindingで再開する。J-Quantsはnative head、未移行sourceは固定L1/未統合原本を使う。経済planning inputは取得計画に必要な範囲/成功失敗/確認だけを持ち、原文/URL/実時計はhandoff、同値/訂正/遅着の受入はcanonical原本が担う。Matsuiは現在pageの明示空seed、TSRはrun/coverage（latest成功日だけへ縮めない）、PMIはURL/月/phase、UMich/ECB/FRB H.15は受領日集合を使う。空seedは原本不在やinput欠落の自動初期化でない。
 
 新形式inputの配布は両形式readerを先行させ、非対応の実行中/queued runを終えてから行う。旧SHAで再実行しない。全15経済groupは受領なしでも再発行し、group失敗は旧pointerを保って次cycleへ。旧input/stageを削除せず、形式移管をFRED schema切替と一括にしない。
 
