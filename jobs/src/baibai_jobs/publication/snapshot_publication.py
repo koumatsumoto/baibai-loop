@@ -292,15 +292,22 @@ def prepare_market_lake(
         native_price_enabled = native_price and "jquants.daily_bars" in policy_names
         native_alerts_enabled = native_alerts and "jquants.margin_alerts" in policy_names
         native_shorts_enabled = native_shorts and "jquants.short_sale_reports" in policy_names
-        derived_names = {
+        independently_derived_names = {
+            name
+            for name, enabled in (
+                ("jquants.fin_summaries", finance_enabled),
+                ("jquants.daily_bars", price_enabled and not native_price),
+            )
+            if enabled
+        }
+        derived_names = independently_derived_names | {
             name
             for name, enabled in (
                 ("jquants.market_calendar", native_calendar_enabled),
                 ("jquants.margin_alerts", native_alerts_enabled),
                 ("jquants.short_sale_reports", native_shorts_enabled),
                 ("jquants.master_snapshots", native_master_enabled),
-                ("jquants.fin_summaries", finance_enabled),
-                ("jquants.daily_bars", price_enabled or native_price_enabled),
+                ("jquants.daily_bars", native_price_enabled),
             )
             if enabled
         }
@@ -426,9 +433,10 @@ def prepare_market_lake(
                 catalog=LAKE_DATASETS,
                 policy=release_policy_for_profile("production"),
             )
-            # Models still read this fixed SQLite snapshot. Refuse to publish a
-            # release if its newly L1-derived inputs differ from the model view.
-            for name in sorted(derived_names):
+            # Native projections were exported from this same seal and checked
+            # in full by export_dataset_snapshot. Only independent L1 rebuilds
+            # still need comparison with the SQLite model view here.
+            for name in sorted(independently_derived_names):
                 validate_snapshot_parity(
                     dataset=LAKE_DATASETS[name],
                     sqlite_path=snapshot.path,
