@@ -50,7 +50,7 @@ jobs:
           jobs/scripts/r2_transfer.sh pull-app > "$RUNNER_TEMP/materialize-pull-app-private.log" 2>&1
 
       # Market data enriches application facts but must be fully hydrated before use.
-      # Keep acquisition failure visible while still publishing independent ledger/tasks.
+      # Keep acquisition failure visible while still publishing independent portfolio views.
       - name: Pull and hydrate market store from the lake release
         id: market
         env:

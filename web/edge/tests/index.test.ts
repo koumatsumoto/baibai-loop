@@ -103,7 +103,7 @@ describe('view routing', () => {
     expect(await response.json()).toMatchObject(payload)
   })
 
-  it.each(['/api/screening/latest', '/api/market-context', '/api/operations', '/api/daily-delta', '/api/lake/current', '/api/lake/object?key=x', '/api/stock-assessments', '/api/investment-proposals', '/api/securities/7203'])('retires %s without reading R2', async path => {
+  it.each(['/api/tasks', '/api/screening/latest', '/api/market-context', '/api/operations', '/api/daily-delta', '/api/lake/current', '/api/lake/object?key=x', '/api/stock-assessments', '/api/investment-proposals', '/api/securities/7203'])('retires %s without reading R2', async path => {
     const get = vi.fn()
     const response = await handleRequest(request(path), environment(get))
     expect(response.status).toBe(404)

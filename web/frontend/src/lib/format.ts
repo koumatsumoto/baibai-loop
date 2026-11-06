@@ -43,17 +43,6 @@ function jstParts(value: string) {
   }
 }
 
-/** JST calendar date as `YYYY-MM-DD`, independent of the viewer's timezone. */
-export function jstCalendarDate(value: string): string {
-  const parts = jstParts(value)
-  return `${parts.year}-${parts.month}-${parts.day}`
-}
-
-/** Days from one JST calendar date to another, without browser timezone arithmetic. */
-export function daysUntilJstDate(value: string, today: string): number {
-  return (Date.parse(`${jstCalendarDate(value)}T00:00:00+09:00`) - Date.parse(`${today}T00:00:00+09:00`)) / 86_400_000
-}
-
 /** JST timestamp as `YYYY-MM-DD HH:mm`, preserving date-only input as `YYYY-MM-DD`. */
 export function formatJstDateTime(value: string): string {
   const parts = jstParts(value)
@@ -73,23 +62,6 @@ const dateFormatter = new Intl.DateTimeFormat('ja-JP', {
 export function formatJstDate(value: string | null): string {
   if (value === null) return '日時なし'
   return dateFormatter.format(toInstant(value))
-}
-
-const shortDateFormatter = new Intl.DateTimeFormat('ja-JP', {
-  timeZone: JST,
-  month: 'numeric',
-  day: 'numeric',
-  weekday: 'short',
-})
-
-/**
- * Compact JST calendar date, e.g. `7/19 (日)`. For lists whose own window already
- * fixes the year — dropping it there costs nothing and keeps the column narrow.
- */
-export function formatJstDateShort(value: string): string {
-  const parts = shortDateFormatter.formatToParts(toInstant(value))
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
-  return `${get('month')}/${get('day')} (${get('weekday')})`
 }
 
 const yenFormatter = new Intl.NumberFormat('ja-JP', {

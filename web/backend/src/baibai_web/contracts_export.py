@@ -28,7 +28,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from pydantic.json_schema import models_json_schema
 
-from baibai_web.readmodel.models import DashboardView, OutcomesView, TasksView
+from baibai_web.readmodel.models import DashboardView, OutcomesView
 from baibai_web.readmodel.proposal_models import LatestProposalView
 
 SCHEMA_PATH = Path("web/contracts/read-model.schema.json")
@@ -41,7 +41,6 @@ CONTRACT_SCHEMA_VERSION = 8
 ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/portfolio-dashboard.json": DashboardView,
     "views/outcomes.json": OutcomesView,
-    "views/tasks.json": TasksView,
     "views/latest-proposal.json": LatestProposalView,
 }
 COMPUTED_VIEWS: Mapping[str, type[BaseModel]] = {}

@@ -231,7 +231,7 @@ jobs:
         run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
 
       # Presentation follows core persistence; it never gates model generation or sealing.
-      - name: Publish retained portfolio and task views
+      - name: Publish retained portfolio views
         id: portfolio-views
         if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
         env:

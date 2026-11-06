@@ -40,7 +40,7 @@ def test_proposal_empty_or_unavailable_does_not_stop_other_views(tmp_path, state
     assert view["status"] == expected
     assert view["proposal"] is None
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        for path in ("/api/dashboard", "/api/tasks", "/api/outcomes", "/api/proposal/latest"):
+        for path in ("/api/dashboard", "/api/outcomes", "/api/proposal/latest"):
             response = client.get(path)
             assert response.status_code == 200
             if path == "/api/proposal/latest":
@@ -77,7 +77,7 @@ def test_export_replaces_old_ready_with_unavailable_when_latest_is_corrupt(tmp_p
         )
     before = app.read_bytes()
     paths = export_read_models(tmp_path, output)
-    assert len(paths) == 4
+    assert len(paths) == 3
     damaged = json.loads(proposal_path.read_text())
     assert damaged["status"] == "unavailable"
     assert damaged["proposal"] is None
@@ -86,7 +86,6 @@ def test_export_replaces_old_ready_with_unavailable_when_latest_is_corrupt(tmp_p
     dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
     assert dashboard["ledger_exists"] is True
     assert dashboard["ledger_error"] is None
-    assert json.loads((output / "views/tasks.json").read_text())["ledger_error"] is None
     assert json.loads((output / "views/outcomes.json").read_text())["outcomes"] == []
     assert app.read_bytes() == before
     assert not (tmp_path / MARKET_DB_PATH).exists()

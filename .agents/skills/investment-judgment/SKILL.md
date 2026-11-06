@@ -117,7 +117,7 @@ uv run baibai-engine investment-judgment prepare \
 
 record-proposalは公開済み提案の束縛。buy完了には具体termsが必要で、sell terms不足の理由付き調査終了を具体提案完成と呼ばない。completedは有限作業終了で採否/注文/約定ではなく、評価/提案完成とも限らない。正本は`operation --db <APP_DB> show <ID>`で読み、workspaceのincompleteと区別する。
 
-再開は保存入力から投影を復元し、元generation/旧run/latest storeへ付替えない。forceは執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開し、別active workspaceを上書きしない。already_completedを戻さず、後日の再依頼は新workspace/Operationを使う。取引/資金は報告事実だけを[Ledger](../ledger-record/SKILL.md)へ、monitoringは同じ問いの既存taskを確認して記録する。認可されたapplication反映へ進む。
+再開は保存入力から投影を復元し、元generation/旧run/latest storeへ付替えない。forceは執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開し、別active workspaceを上書きしない。already_completedを戻さず、後日の再依頼は新workspace/Operationを使う。取引/資金は報告事実だけを[Ledger](../ledger-record/SKILL.md)へ記録する。認可されたapplication反映へ進む。
 
 ## 提案訂正・人間の非購入報告
 

@@ -39,7 +39,6 @@ Baibai Loopは日本個別株の機会を調べ、価値・価格・リスク・
 | `machine_analysis/historical_evaluation/` | 保存旧run・旧Selectionの投影と凍結context読取。旧ER/FVの再推計・再選抜・較正再生成はしない。 |
 | `investment_judgment/` | 調査・評価・Review・提案・市場判断。workflowは固定/進行/再開、retrospectiveは後日照合と学び。 |
 | `portfolio/` | 確認済み取引のledger、保有holdings、資産全体のperformance。採否/調査完了は持たない。 |
-| `tasks/` | 人間が明示した作業と進行。 |
 | `storage/` | SQLite・固定snapshot・object転送/条件付き書込。業務上の意味は決めない。 |
 | `primitives/`・`cli/` | 小さな共通値/変換、引数/表示/終了コード。汎用業務箱にしない。 |
 
@@ -47,7 +46,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 保存契約は原本/観測owner、Storageは保存・検証機構、Jobsは公開対象とsource別受入を持つ。全体hydrate/dehydrateには完全なcatalog/policy、個別固定読取には必要なowner契約を渡す。
 
-`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。`tools/`は開発/診断用で、通常運用を隠さない。[Web](../web/README.md)は資産・成果・task・保存提案/exact pairの読取に限り、判断作成・現在preview・台帳更新やcore成功条件を持たない。
+`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。`tools/`は開発/診断用で、通常運用を隠さない。[Web](../web/README.md)は資産・成果・保存提案/exact pairの読取に限り、判断作成・現在preview・台帳更新やcore成功条件を持たない。
 
 ## 現在の解析モデル
 
@@ -72,7 +71,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 
 | 保存単位 | 正本/寿命 |
 | --- | --- |
-| application DB | Research・評価/Review・提案・Selection/Operation・task・台帳。再生成cacheではない。 |
+| application DB | Research・評価/Review・提案・Selection/Operation・台帳。再生成cacheではない。 |
 | native L1 | 可変headと不変body/request pack、またはsource SQLiteの原本/受領。body共有と受領記録を分ける。 |
 | 共有固定入力 | 採用原本/確認/失敗のmetadata。本文はL1へ参照し、保存入力再計算に必要な間は保持する。 |
 | 固定lake | L2と未移行L1のimmutable object/manifest。一つのreleaseへ固定して読む。 |

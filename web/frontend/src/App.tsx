@@ -7,7 +7,6 @@ import { TooltipProvider } from './components/ui/tooltip'
 import './styles.css'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
-const TasksPage = lazy(() => import('./pages/TasksPage').then((module) => ({ default: module.TasksPage })))
 const ProposalPage = lazy(() => import('./pages/ProposalPage').then((module) => ({ default: module.ProposalPage })))
 
 function App() {
@@ -18,7 +17,6 @@ function App() {
           <Routes>
             <Route element={<AppLayout />}>
               <Route path="/" element={<DashboardPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
               <Route path="/proposal" element={<ProposalPage />} />
               <Route path="*" element={<p className="p-6">この画面は廃止しました。上のナビゲーションをご利用ください。</p>} />
             </Route>
