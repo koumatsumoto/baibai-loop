@@ -229,7 +229,7 @@ def test_cli_private_output_is_create_only_and_missing_db_is_not_created(tmp_pat
     missing = tmp_path / "missing.sqlite"
     assert main(["--db", str(missing), "--operation-id", "research-op-" + "0" * 32]) == 2
     assert not missing.exists()
-    assert "unknown operation_id" in capsys.readouterr().err
+    assert "OperationNotFoundError" in capsys.readouterr().err
     db, _runs, service, operation = _start(tmp_path, tickers=())
     completed = _finish(service, operation)
     output = tmp_path / "private.json"
@@ -240,4 +240,36 @@ def test_cli_private_output_is_create_only_and_missing_db_is_not_created(tmp_pat
     assert json.loads(saved)["baseline"]["operation_id"] == completed.operation_id
     assert main(argv) == 2
     assert output.read_bytes() == saved
-    assert "output already exists" in capsys.readouterr().err
+    assert "FileExistsError" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fault", ["private_payload", "obsolete_schema"])
+def test_cli_expected_failures_do_not_log_private_values(tmp_path, capsys, fault):
+    db, _runs, service, operation = _start(tmp_path, tickers=())
+    completed = _finish(service, operation)
+    with closing(sqlite3.connect(db)) as connection, connection:
+        if fault == "private_payload":
+            # 合成DBだけの破損。Pydanticの例外本文に私有値が入るcaseを再現する。
+            connection.execute("DROP TRIGGER operation_session_completed_no_update")
+            payload = completed.payload.model_dump(mode="json")
+            payload["checkpoint"] = {"private": "PRIVATECANARY"}
+            connection.execute(
+                "UPDATE operation_session SET payload=? WHERE operation_id=?",
+                (json.dumps(payload), completed.operation_id),
+            )
+        else:
+            connection.execute("PRAGMA user_version=1000000")
+    before = db.read_bytes()
+    output = tmp_path / "private.json"
+    assert (
+        main(["--db", str(db), "--operation-id", completed.operation_id, "--out", str(output)]) == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "PRIVATECANARY" not in captured.err
+    assert completed.operation_id not in captured.err
+    assert str(db) not in captured.err
+    expected_class = "ValidationError" if fault == "private_payload" else "RuntimeError"
+    assert captured.err == f"error: decision cohort inspection failed ({expected_class})\n"
+    assert not output.exists()
+    assert db.read_bytes() == before

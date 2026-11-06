@@ -187,8 +187,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             write_text_new(args.out, content)
         return 0
-    except (OSError, ValueError, sqlite3.Error) as error:
-        print(f"error: {error}", file=sys.stderr)
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as error:
+        # Validation errors may embed private judgment values; never log their body.
+        print(f"error: decision cohort inspection failed ({type(error).__name__})", file=sys.stderr)
         return 2
 
 
