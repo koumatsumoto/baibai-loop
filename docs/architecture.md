@@ -57,10 +57,10 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 | 市場環境 / Market Context | 経済・市場・業種・個社の相対状態。市場判断とは別。 |
 | 外部評価 / External Assessment | 外部の予想/rating/評価の比較。自分の判断に置換しない。 |
 | テクニカル分析 / Technical Analysis | 価格位置・勢い・変動。急落だけを固定入口にしない。 |
-| 産業動向 / Industry Trends | 母集団・期・利益basisを保つ業界比較。利益/供給能力への推測はL3。 |
-| 社会動向 / Social Trends | 制度・政策・災害等の帰属/範囲を持つ主張・予定・変更。重要性/因果はL3。 |
+| 産業動向 / Industry Trends | 母集団・期・利益basisを保つ業界比較。通常生成はTSRの医薬品・医療用品卸売業/情報サービス業の業績調査が対象。利益/供給能力への推測はL3。 |
+| 社会動向 / Social Trends | 制度・政策・災害等の帰属/範囲を持つ主張・予定・変更。通常生成の意味抽出は日銀の金融市場調節方針決定が対象。重要性/因果はL3。 |
 
-個社モデルと市場共有subjectを分け、産業/社会の不変抽出artifactも原受領から独立させる。主張の帰属・範囲・否定・条件・精度・原文座標と記事の有限選択はObservations、比較はモデル、入力と銘柄の関連づけはGenerationが持つ。業界対応を推測せず、version付き業界・母集団・除外・出典を残す。元引用のlineage releaseと本文を探すlookup releaseを分ける。
+通常生成の接続範囲は原本の取得・保持範囲とは別で、未抽出・未対応を事象なしとしない。個社・業種共有・市場共有subjectを分け、産業/社会の不変抽出artifactも原受領から独立させる。主張の帰属・範囲・否定・条件・精度・原文座標と記事の有限選択はObservations、比較はモデル、入力と銘柄の関連づけはGenerationが持つ。業界対応を推測せず、version付き業界・母集団・除外・出典を残す。元引用のlineage releaseと本文を探すlookup releaseを分ける。
 
 モデル追加・生成接続・政策変更は別の変更。具体的な意味は[Screening](reference/screening-runtime.md)へ進む。
 
