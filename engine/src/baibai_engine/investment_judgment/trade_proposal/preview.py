@@ -158,7 +158,11 @@ def _preview_holding(
         as_of=now.astimezone(JST).date(),
         quote=quote,
         price_basis_confirmed=assessment_quote_basis(
-            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+            pair.document,
+            quote,
+            sqlite_path=sqlite_path,
+            now=now,
+            market_connection=market_connection,
         ),
         remaining_reward=item.remaining_reward,
         case_reassessment_reason=item.case_reassessment_reason,
@@ -316,6 +320,7 @@ def preview_current_terms(
                             pair.document,
                             quote,
                             sqlite_path=sqlite_path,
+                            now=now,
                             market_connection=market_connection,
                         ),
                         max_quote_age_days=PORTFOLIO_POLICY["valuation"][

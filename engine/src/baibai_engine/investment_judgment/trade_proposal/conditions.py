@@ -45,8 +45,10 @@ def assessment_quote_basis(
     quote: QuoteInput | None,
     *,
     sqlite_path: Path,
+    now: datetime,
     market_connection: sqlite3.Connection | None,
 ) -> bool:
+    """Compare quote units, including received actions through the judgment day."""
     price_fact = next(
         (
             fact
@@ -65,6 +67,7 @@ def assessment_quote_basis(
             ticker=quote.ticker,
             from_date=price_fact.as_of,
             through_date=quote.price_as_of,
+            known_actions_through=now.astimezone(JST).date(),
             connection=market_connection,
         )
     )
@@ -92,7 +95,11 @@ def buy_evaluation(
         proposed_limit_yen=proposed_limit_yen,
         selected_quantity=selected_quantity,
         basis_confirmed=assessment_quote_basis(
-            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+            pair.document,
+            quote,
+            sqlite_path=sqlite_path,
+            now=now,
+            market_connection=market_connection,
         ),
         market_price_max_age_days=PORTFOLIO_POLICY["valuation"]["market_price_max_age_days"],
         held_quantity=sum(
