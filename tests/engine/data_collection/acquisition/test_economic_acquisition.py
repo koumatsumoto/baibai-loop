@@ -47,6 +47,10 @@ def test_document_refresh_passes_receipt_scope_without_loading_old_bodies(
 
     def fetch(definition, *, existing, **kwargs):
         assert definition == source
+        if provider == "matsui_margin":
+            assert existing == {}
+            inspected.append(existing)
+            return ()
         assert list(existing) == [latest.request_key]
         stored = existing[latest.request_key]
         for field in (
@@ -76,7 +80,7 @@ def test_document_refresh_passes_receipt_scope_without_loading_old_bodies(
                 sqlite3.SQLITE_DENY
                 if action == sqlite3.SQLITE_READ
                 and table == "economic_source_documents"
-                and column == "payload"
+                and (provider == "matsui_margin" or column == "payload")
                 else sqlite3.SQLITE_OK
             )
         )

@@ -251,6 +251,7 @@ def project_company(
                 },
             )
         )
+    # 簿価のsource・scope・測定日は未保存のため、資本経路ではFY利益へ切り替えない。
     pbr = _positive(financial.get("pbr"))
     financial_cap = _positive(financial.get("market_cap"))
     capital_pricing_aligned = (
@@ -452,7 +453,8 @@ def _can_use_full_fy(
         or annual.accounting_standard != full_fy.accounting_standard
     ):
         return False
-    # Legacy models have no interval status: never infer one from missing metric operands.
+    # 既知の悪化や科目欠測を古い好業績で埋めない。TTMの期間自体の未観測だけを補う。
+    # 旧モデルの科目欠測から、保存されていない期間statusを推定しない。
     if annual.period_status != "matching_period_not_observed":
         return False
     current_start = full_fy.period_end + timedelta(days=1)

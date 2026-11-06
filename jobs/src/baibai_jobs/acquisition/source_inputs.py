@@ -139,15 +139,21 @@ def _publish_one(
         if group == "economic-tsr_bankruptcies":
             export_tsr_input(economic, path)
         elif group.startswith("economic-"):
+            source_ids = sorted(
+                source.source_id
+                for source in load_economic_sources().values()
+                if economic_source_policy(source).acquisition_group
+                == group.removeprefix("economic-")
+            )
+            if group == "economic-matsui_margin":
+                # One current-page GET needs no prior documents or coverage. Keep
+                # the generation-bound SQLite envelope, not a second L1 history.
+                # Fresh canonical acceptance still owns same-body/late comparison.
+                source_ids = []
             export_economic_receipts(
                 economic,
                 path,
-                source_ids=sorted(
-                    source.source_id
-                    for source in load_economic_sources().values()
-                    if economic_source_policy(source).acquisition_group
-                    == group.removeprefix("economic-")
-                ),
+                source_ids=source_ids,
                 since=datetime.min.replace(tzinfo=UTC),
             )
         else:

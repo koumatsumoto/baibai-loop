@@ -51,7 +51,7 @@ def generate_company_growth(
     pdf_statements: Sequence[PdfStatement] = (),
     pdf_input_reason: str | None = None,
 ) -> CompanyGrowth:
-    """期間端で表示を限定し、固定releaseに残る訂正履歴は入力に維持する。"""
+    """固定入力から成長観測を作り、表示だけを会計期末で絞る。"""
     ticker = normalize_ticker(ticker)
     end = end or as_of
     if end > as_of or (start is not None and start > end):
@@ -60,6 +60,7 @@ def generate_company_growth(
         ticker=ticker, status="unavailable", requested_start=start, requested_end=end
     )
     selected_pdf = select_pdf_financials(documents, pdf_statements, as_of=as_of)
+    # 窓外の前年値や後日訂正を先に落とすと、同じ期の値が表示範囲で変わる。
     states = apply_pdf_periods(
         build_period_states(documents, sector=sector), selected_pdf, sector=sector
     )

@@ -192,6 +192,7 @@ def export_prices_from_native_input(
         source_snapshot=source_snapshot,
         native_source=source,
         native_coverage_status=cast(CoverageStatus, coverage),
+        object_date_grain="day",
         mirror_root=mirror_root,
         producer_git_commit=producer_git_commit,
         build_id=build_id,

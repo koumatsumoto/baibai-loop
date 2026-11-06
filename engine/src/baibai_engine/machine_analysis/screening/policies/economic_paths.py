@@ -146,6 +146,7 @@ def select_economic_paths(
             business = populations[(path.path_id, "business", path.business_group)]
             price_percentile = _midrank(prices, path.price_value)
             business_percentile = _midrank(business, path.business_value)
+            # 一軸の極値だけで調査容量を占めないよう、調和平均で弱い座標も順位へ効かせる。
             ranked_path = RankedPath(
                 path_id=path.path_id,
                 variant=path.variant,
@@ -167,6 +168,7 @@ def select_economic_paths(
             path_scores.setdefault(path.path_id, []).append(ranked_path.score)
         if paths:
             ranked.append((row, tuple(paths)))
+    # Hの分布は経路ごとに異なる。経路内順位へ揃え、最良経路で比較して経路数は加点しない。
     distributions = {path_id: sorted(values) for path_id, values in path_scores.items()}
     normalized: list[tuple[CompanyCoordinates, tuple[RankedPath, ...]]] = []
     for row, ranked_paths in ranked:

@@ -8,10 +8,8 @@ from decimal import Decimal
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
 
-from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
-    preview_current_terms,
-)
+from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 
 

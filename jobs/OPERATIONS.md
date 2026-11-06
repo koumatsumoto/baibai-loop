@@ -35,7 +35,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 既定読取は発行時刻よりas_ofの新しさを優先し、古い非空候補へ自動fallbackしない。過去日を後から再計算しても新しいas_ofの結果は置換しないため、その日を分析するときは対象のgeneration/selection IDを明示する。
 
-共通統合の`cloud-daily-batch`は取得workflowから独立して起動する。最初に利用可能な経済受領を固定し、経済L1の単独公開・読戻し・seal・次回取得input発行を完了する。続いてmarket側のready受領を固定し、market/runsだけのpullとmarket hydrateを行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。全providerの完了は待たない。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
+共通統合の`cloud-daily-batch`は取得workflowから独立して起動する。最初に利用可能な経済受領を固定し、経済L1の単独公開・読戻し・seal・次回取得input発行を完了する。続いてmarket側のready受領を固定し、market/runsだけのpullとmarket hydrateを行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。全providerの完了は待たない。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。生成cacheと候補政策結果の整理は、そのreleaseの公開成功後に限る。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
 ### 保存済み世代への候補政策の発行
 
@@ -157,7 +157,11 @@ FRED以外の比較窓・人工空・確認方式は変更しない。経済SQLi
 
 日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側は固定L1またはsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewも独立sourceとして毎日取得し、[取得運用](#tradingview-expectations)に従う。
 
-inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。source自身の履歴とcoverage（正常な空も含む）を一緒に保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・経済取得は共有quotaを守る。
+inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。取得計画に必要なsource自身の履歴とcoverage（正常な空も含む）を保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・経済取得は共有quotaを守る。
+
+Matsuiは実取得日のcurrent pageを1回GETし、過去日を回復しないため、取得inputへdocument本文・受領履歴・runを複写しない。共通統合が正本schemaを確認して空のschema13 SQLiteを発行し、既存のgroup・generation・hash検証と同値input再利用を使う。これは取得用の明示的な空seedで、input不足時の自動初期化や、正本に原本がないという主張ではない。同値・訂正・遅着の比較はfresh経済正本への受入が行い、L2は取得seedではなく保持正本を固定して再生成する。
+
+切替は新codeの通常input発行1回で完了し、旧全履歴SQLite inputも同じreaderで読める。旧readerも新seedを取得に使えるため、format変換やprovider再取得による移行は不要。旧input／stage／正本の削除やretention変更は伴わない。旧stageが再利用可能な間はその参照先も保持する。通常発行後にgeneration一致・空seed再利用・次のMatsui原受領とfresh正本での受入を確認する。日次の全履歴input複写はここで終わるが、経済正本全体の転送とL1本文のsource別object化は残作業である（refs #1820）。
 
 TSR倒産件数の取得inputは、毎回取得するcomplete JSONの過去document本文を含めない。旧schema13 envelopeのままrunの範囲・成功/失敗と既存native coverageを保持し、recent・outage回復・未完了の広範囲取得の判定を変えない。取得成功の最新日だけへ縮約せず、failed runや部分成功を捨てない。新受領の全文・URL・params・実受領時刻は通常handoffに残り、同値・訂正・遅着はfresh正本への受入で比較する。L2は取得inputではなく保持正本から再生成する。
 
@@ -934,6 +938,8 @@ uv run baibai-jobs rebuild-price-native --work-directory /secure-work/price-read
 ```
 
 過去generationの `inputs.price` を `--saved-input` へ渡すと同じ固定入力を再生成する。正常空のL1と、価格必須の公開policyによる0行拒否は別。取引暦もnativeなら、固定暦で休場と証明できる未試行日だけ公開coverageから除き、raw未取得は残す。旧v1入力へ新しい休場除外を遡及しない。理由と判定は[価格入力](src/baibai_jobs/integration/price_native.py)に置く。
+
+日足L2は月契約を保った日別objectを再利用する。初回公開では全releaseのobject数・manifest容量の既存上限を確認し、旧月object/releaseは削除しない。
 
 ### 旧日足原本と混在market stageからの切替
 
