@@ -10,7 +10,7 @@ import socket
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from functools import partial
 from types import SimpleNamespace
@@ -166,7 +166,15 @@ def _retain_shared_articles(path, *, at=START, revision="original"):
             assert len(extracted) == 1
 
 
-def _prepare_case(tmp_path, monkeypatch, scenario="wait", *, shared_trends=False):
+def _prepare_case(
+    tmp_path,
+    monkeypatch,
+    scenario="wait",
+    *,
+    shared_trends=False,
+    economic_input=None,
+    ledger_age=0,
+):
     # urllib3 probes local IPv6 support at import (socket + bind, no remote IO).
     # Initialize it before the strict workflow guard, independent of test order.
     importlib.import_module("urllib3.util.connection")
@@ -176,12 +184,12 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait", *, shared_trends=False
         {
             "schema_version": 3,
             "portfolio_scope": "repository_only",
-            "as_of": START.isoformat(),
+            "as_of": (START - timedelta(days=ledger_age)).isoformat(),
             "events": [
                 {
                     "type": "opening_balance",
                     "event_id": "synthetic-opening",
-                    "occurred_at": (START - timedelta(hours=6)).isoformat(),
+                    "occurred_at": (START - timedelta(days=ledger_age, hours=6)).isoformat(),
                     "amount_yen": 300000,
                 }
             ],
@@ -278,7 +286,7 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait", *, shared_trends=False
             market_release=InputRelease(
                 release_id="synthetic-fixed-release", manifest_sha256="a" * 64
             ),
-            economic_input=None,
+            economic_input=economic_input,
             as_of=START.date(),
             evaluation_time=START,
             ttm_rules=DEFAULT_TTM_RULES,
@@ -1015,3 +1023,94 @@ def test_shared_evidence_changes_need_a_new_assessment_review(tmp_path, monkeypa
     with closing(connect_read_only(case.app)) as connection:
         assert connection.execute("SELECT count(*) FROM stock_assessment").fetchone()[0] == 0
         assert connection.execute("SELECT count(*) FROM stock_assessment_review").fetchone()[0] == 0
+
+
+def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_path, monkeypatch):
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_engine.data_collection.receipts.native_sources.confirmations import (
+        confirm_source_response,
+    )
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.machine_analysis.generation.economic_inputs import (
+        rebuild_economic_input,
+        retain_economic_input,
+    )
+
+    source = tmp_path / "economic.sqlite"
+    store = MemoryR2Store()
+    received = START - timedelta(minutes=5)
+
+    def receive(value, at):
+        with closing(initialize_database(source)) as connection, connection:
+            confirm_source_response(
+                connection,
+                source_id="fred-payems",
+                fetched_at=at,
+                records_by_day={START.date().replace(day=1): [{"PAYEMS": value}]},
+            )
+
+    receive("100000", received)
+    saved = retain_economic_input(store, source, as_of=START.date(), evaluation_time=START)
+    original = rebuild_economic_input(store, source, saved)
+    assert (
+        next(
+            row["latest_value"]
+            for row in original.context["reading"]["series"]
+            if row["series_id"] == "us.nonfarm_payrolls"
+        )
+        == 100000
+    )
+    case = _prepare_case(tmp_path, monkeypatch, economic_input=original, ledger_age=30)
+    generation = case.selected.inputs.generation
+    assert generation.inputs["economic"] == saved
+    market = next(model for model in generation.models if model.subject == "market")
+    assert market.payload["reading"] == original.context["reading"]
+    context, proposal = _promote_and_propose(case)
+    # An unchanged ledger is still the capital record. Its event date is not a quote TTL.
+    assert proposal.items[0].action == "buy"
+    assert proposal.items[0].terms.quantity == 300
+    assert context.assessments[assessment_id()].document.valuation.base is not None
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    published = service.publish(proposal)
+    projected = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
+
+    later = PUBLISHED + timedelta(minutes=1)
+    receive("200000", later)
+    current = retain_economic_input(store, source, as_of=START.date(), evaluation_time=later)
+    assert (
+        next(
+            row["latest_value"]
+            for row in rebuild_economic_input(store, source, current).context["reading"]["series"]
+            if row["series_id"] == "us.nonfarm_payrolls"
+        )
+        == 200000
+    )
+    assert rebuild_economic_input(store, source, saved).context == original.context
+    # Raw loss makes cold calculation unavailable, not the saved L3 result unreadable.
+    with closing(sqlite3.connect(source)) as connection, connection:
+        removed = connection.execute(
+            "DELETE FROM economic_source_records WHERE fetched_at=?",
+            (received.astimezone(UTC).isoformat(timespec="microseconds"),),
+        )
+        assert removed.rowcount == 1
+    with pytest.raises(ValueError, match="fixed economic original"):
+        rebuild_economic_input(store, source, saved)
+    case.runs.unlink()
+    monkeypatch.setattr(
+        "baibai_engine.investment_judgment.workflow.workspace.selected_prepare.read_research_model_inputs",
+        lambda *_a, **_kw: pytest.fail("resume replaced the saved economic inputs"),
+    )
+    (case.prepared.workspace / "domain-inputs.yaml").unlink()
+    resume_selected_workspace(
+        operation_id=case.prepared.operation_id,
+        db_path=case.app,
+        workspace=case.prepared.workspace,
+        now=later,
+        force=True,
+    )
+    restored = selection_binding(case.operations.get(case.prepared.operation_id).payload)
+    assert restored.inputs.generation == generation
+    assert (case.prepared.workspace / "domain-inputs.yaml").read_bytes() == projected
+    assert get_investment_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    assert LedgerStoreService(case.app).load() == case.ledger
