@@ -7,7 +7,7 @@ description: 人間が確認した注文・約定・資金の事実をdraftで�
 
 確認済み取引・資本をapplication DBのeventとして保存し、cash・予約・保有をreplayする。Reviewや提案から人間の採用・発注・約定・cashを推測せず、broker残高の自動取得・推定・完全照合もしない。価格は評価時にmarketから読み、台帳へ第二の価格正本を置かない。
 
-クラウド正本へ反映する作業は、開始前に[application作業コピーの準備](../../../jobs/OPERATIONS.md#application-db-を反映する)を行い、DBと取得ETagを揃える。既存作業の再開ではその組を保持する。
+クラウドへ反映する場合は、開始・再開とも[application作業コピーの手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
 ## 事実からdraftを作る
 
