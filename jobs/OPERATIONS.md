@@ -41,6 +41,8 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 source失敗は前回適格投影を保って他sourceを進め、モデル生成/公開失敗は後続machine反映を止める。model-integrationは外部取得/Web生成を呼ばず、後続のWeb表示もcore成功条件ではない。workflowの成否と公開済みrelease/storeの到達点を分けて確認する。
 
+model-integrationの`phase`ログは開始時にflushし、成功した処理だけ`done`と所要秒を出す。停止時は最後の未完了phaseから調べるが、ログだけを原本・正本の反映成功の証拠にしない。
+
 ### 保存済み世代への候補政策の発行
 
 モデルを再生成せず保存V2 generationへ現行政策だけを適用する場合は、main反映後、[公開lease](#ローカルからクラウドを更新する)内でfresh runsを取得する。exact generationを指定し、通常経路と同じ政策/Selection IDを使う。同ID・同内容はno-op、異内容は競合で止め、旧IDを改名しない。
