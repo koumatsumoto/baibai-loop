@@ -60,7 +60,7 @@ class ReturnProjection:
 def project_return(
     projection: Projection, *, price_yen: Decimal, horizon_months: int
 ) -> ReturnProjection:
-    """Use identical unrounded arithmetic for Base and Downside, including total loss."""
+    """表示丸めをBaseとDownsideの年率比較へ持ち込まない。"""
     with localcontext() as context:
         context.prec = 50
         price = _positive(price_yen, "price_yen")
@@ -127,6 +127,7 @@ def valuation_conditions(
             required_annual_return_pct=required_annual_return_pct,
         )
         returns = project_return(projection, price_yen=price_yen, horizon_months=horizon_months)
+        # 価値固定の時間感応度であり、遅延による利益・資金の悪化は仮定しない。
         delayed = project_return(
             projection, price_yen=price_yen, horizon_months=horizon_months + 12
         )
