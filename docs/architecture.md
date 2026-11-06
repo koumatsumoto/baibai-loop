@@ -1,118 +1,88 @@
 # Architecture
 
-Baibai Loopは、外部から受領した事実と複数の分析観点を統合し、企業の価値と支払価格、リスクと機会損失を比較する。AIは根拠付きの売買提案を作り、最終採否・注文・約定確認は人間が行う。投資・開発の採否基準は[doctrine](doctrine.md)、名称の意味は[用語集](glossary.md)が所有する。
+Baibai Loopは受領事実と複数の分析観点から、企業価値・価格・リスク・機会損失を比較し、根拠付きの売買提案を作る。最終採否・注文・約定確認は人間が行う。採否基準は[doctrine](doctrine.md)、名称は[用語集](glossary.md)、操作は[OPERATIONS](../jobs/OPERATIONS.md)を参照する。
 
 ## 情報の流れ
 
 ```mermaid
 flowchart LR
-    X[外部source] --> C[L1 Data Collection]
+    X[外部source] --> C[L1 原本・受領]
     C --> O[L2 共通観測]
     O --> M[L2 解析モデル]
-    M --> G[生成世代として固定]
+    M --> G[固定生成世代]
     G --> S[候補政策]
     G --> J[L3 統合判断]
-    S -->|候補と抽出理由| J
+    S --> J
     C -->|一次資料| J
-    O -->|共通観測| J
+    O --> J
     P[Portfolio] --> J
     J --> H[人間の採否・注文]
     H -->|確認済み取引| P
 ```
 
-L1は原本またはsource契約で明示したprovider-native表現と受領事実。L2は再現可能な観測・モデル計算・候補抽出。L3は仮定を伴う解釈・評価・判断である。型付き観測は原本の代用品ではなく、仮定を決定的な式で計算してもL2の事実にはならない。
+L1は原本または明示したprovider-native表現と受領事実、L2は再現可能な観測・計算・候補抽出、L3は仮定を伴う解釈・評価・判断である。typed観測は原本を代替せず、仮定の決定的な算術もL2の事実にはならない。情報層をJobs/エンジン/AI/人間という実行主体やsnapshotと混ぜず、L4や工程数に合わせたagent群を設けない。
 
-L1〜L3は情報の性質であり、Jobs・エンジン・AI・人間は実行主体の区分である。保存snapshotも情報層ではない。L4や、工程数に合わせた自律agent群は設けない。
-
-依存方向は原本から観測・解析、判断への一方向を基本とする。L2はL1と明示した設定から再生成し、前回L2を正本や必須入力にしない。L1取得はL2の結果に依存させない。取得のcursor・進捗は原本ともL2とも区別する運用状態であり、失われた場合の再取得条件を明示する。過去時点のDB復元や監査のためだけに中間DBを蓄積しない。現行実装に残る逆依存は移行対象であり、原本や現在の判断・取引データの削除を意味しない。
+L2はL1と明示設定から再生成し、前回L2を正本/必須入力にしない。取得をL2結果へ従属させず、cursor・進捗は原本と別の運用状態として、消失時の再取得条件を持つ。過去DB復元/監査だけの中間DB蓄積はしない。残る逆依存は移行対象であり、未移行原本・判断・取引を削除可能と扱わない。
 
 ## 責務と配置
 
-engineの業務責務は`engine/src/baibai_engine/`に置く。フォルダは「何が変わると一緒に変更するか」で分け、旧名のimport facadeで関係を隠さない。同じ規則をJobs・CLI・表示へ複写せず、所有者の入口へ集める。局所的な理由は所有実装の近くへ残す。[実装と文書の整理方針](documentation.md)を変更時にも適用する。
+業務ownerは `engine/src/baibai_engine/` に置き、一緒に変わる規則・型・理由・testを近づける。CLI/Jobs/Webや旧import facadeへ規則を複写せず、[整理方針](documentation.md)に従う。
 
-| 配置 | 所有する責務・境界 |
+| 配置 | 責務 |
 | --- | --- |
-| `data_collection/providers/` | 提供元別の通信とnative契約。分析分野をprovider名と混在させない。 |
-| `data_collection/receipts/`・`transport/`・`acquisition/` | 原受領の識別・受渡し、通信手段、L1取得の合成。L2の導出や投資判断は行わない。 |
-| `machine_analysis/observations/` | 原本を分析材料へ投影・正規化する。株式、価格、財務、開示、信用・空売り等の取引状況、経済指標、外部評価を区別する。複数分野を含むsource応答の投影は共通入口で束ねる。 |
-| `machine_analysis/models/` | 企業財務・企業成長・市場環境・外部評価・テクニカル分析・産業動向・社会動向。特定の問いに答える計算と結果を所有し、候補政策を知らない。 |
-| `machine_analysis/generation/` | 入力の固定、モデルに必要な観測の読取、モデル実行、生成世代の保存・読取。計算の途中で別のsourceを取得しない。 |
-| `machine_analysis/screening/policies/` | 保存モデルから候補と理由を選ぶ政策。モデル追加と政策変更は別の変更である。政策結果の保存・読取はScreeningが所有する。 |
-| `machine_analysis/historical_evaluation/` | 機械モデル・候補政策の歴史評価と必要な旧run読取。過去の機械ER/FV・旧Screening規則を現行モデルや候補政策へ混ぜない。 |
-| `investment_judgment/` | 企業調査、銘柄評価、独立検証、売買提案、市場環境判断。`workflow/`は対象固定・進行・再開を所有する。 |
-| `portfolio/` | `ledger/`は確認済み取引・資本、`holdings/`は保有状態、`performance/`は運用成果。買付採否や調査の完了条件を所有しない。 |
-| `tasks/` | 人間が明示した作業項目と進行状態。 |
-| `storage/` | `sqlite/`は実行用DB、`snapshots/`は固定manifest・release、`objects/`はobject転送と条件付き書込。領域の意味や採否を決めない。 |
-| `primitives/`・`cli/` | 前者は小さな共通値・純粋変換、後者は引数・表示・終了コードと実行環境の入口。汎用箱に業務規則を逃がさない。 |
+| `data_collection/` | `providers/`は提供元の通信/native契約、`receipts/`は受領の識別/受渡し、`transport/`は通信手段、`acquisition/`はL1取得の合成。分析分野とproviderを混ぜない。 |
+| `machine_analysis/observations/` | 原本の投影・正規化。複数分野を含む応答は共通入口で束ねる。 |
+| `machine_analysis/models/` | [七種のモデル](glossary.md#現在の解析モデル)ごとの問い・計算・結果。候補政策を知らない。 |
+| `machine_analysis/generation/` | 入力/対象の固定、必要観測の読取、モデル実行と世代の保存/読取。途中で外部取得しない。 |
+| `machine_analysis/screening/` | 保存モデルから候補/理由を選ぶ`policies/`と、その結果の保存/読取。 |
+| `machine_analysis/historical_evaluation/` | 機械手法の歴史評価と必要な旧run。旧ER/FV・Screening規則を現行政策へ混ぜない。 |
+| `investment_judgment/` | 調査・評価・独立検証・提案・市場判断。`workflow/`は対象固定・進行・再開。 |
+| `portfolio/` | `ledger/`の確認済み取引/資本、`holdings/`の保有、`performance/`の成果。採否/調査完了は所有しない。 |
+| `tasks/` | 人間が明示した作業と進行。 |
+| `storage/` | `sqlite/`の実行DB、`snapshots/`の固定manifest/release、`objects/`の転送/条件付き書込。領域の意味は決めない。 |
+| `primitives/`・`cli/` | 小さな共通値/純粋変換と、引数/表示/終了コードの入口。業務規則の汎用箱にしない。 |
 
-snapshotの列・layer・coverage等の定義とSQLite tableの意味は原本／観測のownerが持つ。Storageは明示された定義を使う保存・検証機構であり、公開対象やsource別の受入条件はJobsが合成する。全体hydrate/dehydrateは完全なcatalogとpolicyを必須入力にし、個別の固定読取は必要なownerの契約だけを受け取る。
+保存契約は原本/観測ownerが持ち、Storageは保存・検証機構、Jobsは公開対象とsource別受入の合成を担う。全体hydrate/dehydrateには完全なcatalog/policy、個別固定読取には必要なowner契約を渡す。
 
-`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成する。各domainの算術や保存条件を複製せず、所有者の入口を呼ぶ。`tools/`は開発・診断用で、通常運用の隠れた入口にしない。Webは資産・損益・保有、運用成績、タスク、最新保存提案とexact評価pairの読取を合成し、候補抽出や判断の成功条件には含めない。判断の作成・現在条件の再試算・台帳更新はWebから呼ばない。表示契約は[Web](../web/README.md)が所有する。
+`jobs/src/baibai_jobs/`は取得・統合・公開・保守・監視を合成し、算術/保存条件を複製しない。`tools/`は開発・診断用で通常運用を隠さない。[Web](../web/README.md)は資産・成果・task・保存提案/exact評価pairの読取に限り、判断作成・現在再試算・台帳更新や候補抽出の成功条件を持たない。
 
-```mermaid
-flowchart TB
-    JOB[Jobs] --> C[Data Collection]
-    JOB --> G[Generation]
-    JOB --> S[Screening]
-    G --> M[Models]
-    G --> O[Observations]
-    M -->|値・純粋処理| O
-    S -->|保存結果の読取| G
-    J[Investment Judgment] -->|固定モデル| G
-    J -->|固定政策結果| S
-    J -->|共通観測| O
-    J -->|原本の読取| C
-    J --> P[Portfolio]
-    P --> O
-    W[Web] --> P
-    W -->|保存提案・exact評価pairの読取| J
-```
-
-上図は主要な依存方向。領域から保存機構・共通値への依存は省略する。CollectionからL2、観測からモデル、モデル生成から候補政策、PortfolioからL3への逆依存は作らない。工程間で必要な保存・再開の合成と、解析モデル内の算術は別に置く。厳密な境界は[依存契約](../pyproject.toml)で管理する。
+CollectionはL2、観測はモデル、生成は候補政策、PortfolioはL3へ逆依存しない。モデル内算術と工程間の保存/再開を分ける。具体的な許可importは[依存契約](../pyproject.toml)を正本とする。
 
 ## モデル追加と候補政策の変更
 
-モデルはScreening専用の中間データではない。L3は候補外の企業も同じ生成世代から調査できる。候補政策は企業財務・企業成長と市場の業種区分から経済経路を計算する。テクニカル・外部評価・共有環境は比較の支持・反対材料として渡し、全モデルを一つの加点表にしない。政策の意味と限界は[Screening](reference/screening-runtime.md)が所有する。
+モデルはScreening専用ではなく、候補外も同じ世代からL3へ渡せる。モデル追加と生成への接続、候補政策の変更を分ける。現政策は企業財務・成長・業種から経済経路を計算し、テクニカル・外部評価・共有環境は支持/反対材料として扱う。全モデルを加点表にせず、同じ価格等を独立根拠へ増やさない。意味は[Screening](reference/screening-runtime.md)が所有する。
 
-モデルを追加するときは、計算の所有者と生成への組込みを変更する。候補にどう効かせるかは別に政策として決める。モデル数を固定したL3の一覧で結果を捨てず、個社・業種・市場の結果をそれぞれの対象とともに渡す。同じ価格情報を複数モデルが使うことは、独立した複数の根拠を得たこととは限らない。
+個社5モデルに加え、産業/社会動向は原受領と別のimmutable抽出artifactから生成する。主張の帰属・範囲・否定・条件・精度・原文座標と記事の有限選択はObservations、比較可能な差分はモデル、入力と銘柄への関連づけは[Generation](../engine/src/baibai_engine/machine_analysis/generation/)が所有する。産業はversion付き業界定義、社会は薄い市場共有subjectを使い、銘柄数/候補政策へ混入させない。未確認の業界対応を推測せず、対象除外・母集団・出典を保つ。本文はexact参照に分け、元引用のlineage releaseと保持中のlookup releaseを区別する。
 
-産業動向と社会動向は、原受領と別のimmutable抽出artifactから生成する。Observationsが主張の帰属・範囲・否定・条件・精度と原文座標を所有し、モデルは比較可能な差分を計算する。産業の共有subjectはversion付き業界定義、社会は薄い市場共有結果を使う。個社には既存5モデルを維持し、共有subjectを銘柄数や候補政策へ混入させない。本文は固定releaseのexact参照へ分け、旧引用のlineage releaseと保持中のlookup releaseを区別する。
-
-記事の有限選択はObservations readerが担当し、Generationは固定選択から両共有モデルの入力と銘柄への関連を組み立てる。個社への対応が未確認の業界subjectを推測で銘柄へ付けず、原典の対象除外・母集団・出典を保持する。具体的な選択と対応は[生成owner](../engine/src/baibai_engine/machine_analysis/generation/)から辿る。
-
-生成世代は、その世代の対象・予定モデル・関連する共有文脈を固定する。これは重み付けや実行DAGではなく、未生成と生成結果内の欠測を区別するための契約である。L3のsliceは対象企業と必要な共有文脈だけを持ち、再開時に新しいモデル一覧や既定fieldを補わない。保存identityと公開時の原入力を保持し、明示移行後の通常再開と過去の出典照合は[運用手順](../jobs/OPERATIONS.md#financials-identity-cutover)で区別する。
+世代は対象・予定モデル・共有文脈を固定し、未生成と結果内の欠測を区別する。重み付けや実行DAGではない。L3は対象企業と必要文脈だけを切り出し、再開時に新モデル一覧・既定fieldを補わない。保存identity/原入力を保持し、移行後の通常再開と過去出典照合は[運用](../jobs/OPERATIONS.md#financials-identity-cutover)で分ける。
 
 ## 判断と進行
 
-Company Researchは一次資料から事業・財務・競争力・経営を調べる。Stock Assessmentは調査と機械観測を統合し、価値・価格・成立条件・リスクリワードを評価する。Independent Reviewは作者と独立して根拠・仮定・算術・反証を検証する。Trade Proposalは検証された評価を価格・cash・保有へ適用する。これらは無リスク認定や、全事実の完全証明を意味しない。
+一次資料によるCompany Research、価値/価格のStock Assessment、作者と独立した根拠・仮定・算術・反証のIndependent Reviewを経て、検証済み評価を価格・cash・保有へ適用したTrade Proposalを作る。無リスク認定や全事実の完全証明ではない。解釈はAI、算術・保存・状態管理はエンジンが担う。
 
-`investment_judgment/judgment_retrospective/`は特定の旧判断と後日根拠の照合・学びをapplication DBへ保存し、企業知識の更新・現在評価・Portfolioの損益・機械手法の歴史較正とは分ける。
+Selectionは人間が明示した有限対象・問い・入力を固定する。不足/反証は調査・評価へ戻し、工程名から必須DAGや承認を増やさない。市場判断は個社と独立した入口を持つ。`judgment_retrospective/`は旧判断と後日根拠の照合/学びをapplicationへ保存し、企業知識・現在評価・資産損益・機械較正と分ける。
 
-解釈と判断はAI、算術・保存・状態管理はエンジンが担当する。Selectionは人間が明示した有限対象・問い・入力を固定する。不足や反証があれば調査・評価へ戻り、工程名だけを理由に必須DAGや承認を増やさない。市場全体の判断は個別企業から独立した入口を持つ。
-
-Operation完了、提案公開、人間の採用、注文、約定は別の状態である。確認済み取引の記帳を現在の候補政策へ従属させない。操作と完了・再開の手順は[投資判断](../.agents/skills/investment-judgment/SKILL.md)、[市場判断](../.agents/skills/market-context-assessment/SKILL.md)、[取引事実の記録](../.agents/skills/ledger-record/SKILL.md)が所有する。
+Operation完了・提案公開・人間の採用・注文・約定は別状態で、確認済み取引の記帳を候補政策へ従属させない。操作は[投資判断](../.agents/skills/investment-judgment/SKILL.md)・[市場判断](../.agents/skills/market-context-assessment/SKILL.md)・[記帳](../.agents/skills/ledger-record/SKILL.md)を参照する。
 
 <a id="store-authority"></a>
 ## 保存責務
 
-データ状態の正本はクラウドにあり、認可された実行環境とActionsが更新する。作業コピーと正本を区別し、世代を照合して反映する。
+クラウドを正本とし、認可された実行環境/Actionsが作業copyと世代を照合して更新する。
 
 | 保存単位 | 役割 |
 | --- | --- |
-| application DB | 部分的な企業調査・判断・Review・提案・Selection・Operation・task・台帳の正本。 |
-| native L1 | 対応sourceごとの可変headと不変の原本body・request pack。原受領の記録と同値bodyの共有を区別する。 |
-| 共有固定入力 | 採用原本と確認・失敗状態を固定するroot・月別metadata。generationとSelectionが参照し、原本本文を複写しない。 |
-| 固定lake snapshot | L2投影と未移行のL1を保持するimmutable object・manifest。readerは一つのreleaseを固定する。 |
-| source cache SQLite | marketの実行用コピー。展開したL2と未移行の原本・運用状態が混在するため、DB全体を廃棄可能なcacheとは扱わない。 |
-| native source SQLite | 経済等のnative原本・受領・取得記録。必要な観測は固定した読取から導出する。 |
-| runs SQLite | 再生成可能なモデル世代・候補政策結果と、必要な旧run。 |
-| calibration directory | 再生成可能な歴史評価snapshot。runs DBとは別の保存単位。 |
+| application DB | 部分調査・判断・Review・提案・Selection・Operation・task・台帳の正本。 |
+| native L1 | source別の可変headと不変body/request pack。受領記録と同値body共有を区別する。 |
+| 共有固定入力 | 採用原本と確認/失敗状態のmetadata。generation/Selectionが参照し本文は複写しない。 |
+| 固定lake snapshot | L2と未移行L1のimmutable object/manifest。読取releaseは一つに固定する。 |
+| source cache SQLite | marketの実行copy。未移行原本/運用状態もあり全体は廃棄可能cacheではない。 |
+| native source SQLite | 経済等の原本・受領・取得記録。観測は固定読取から導出する。 |
+| runs SQLite | 再生成可能なモデル世代/候補政策結果と必要な旧run。 |
+| calibration directory | runsと別の再生成可能な歴史評価snapshot。 |
 
-原本受領とL2公開は別の成功境界である。独立L1へ移行したsourceはL2の成功を待たずに取得・公開し、モデルや公開L2に使う入力を開始時に固定する。保存した入力の再開・再現時に最新headへ読み替えない。未移行sourceのhandoff・取得coverage・再試行条件まで同一とは限らない。source別の入口と切替条件は[取得元](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)が所有する。
+原本受領とL2公開は別の成功境界。独立L1はL2成功を待たず取得/公開し、モデル/公開L2は開始時の入力を固定する。保存入力の再現を最新headへ読み替えない。未移行sourceも同じ取得/再開条件とは限らず、[取得元](reference/data-sources.md#source-owners)と[運用](../jobs/OPERATIONS.md#actions-write-boundary)で確認する。
 
-L2は必要な投影だけを持ち、変更のないobjectや固定入力metadataを共有する。再生成可能なL2のために原本本文や全履歴を毎日複写しない。ただし、native L1からのcold再生成が実装済みの範囲と、旧releaseに依存する範囲を区別し、未移行データまで削除可能とは扱わない。
-
-共有固定入力と参照原本はruns cacheとは別寿命であり、保存判断の入力を再計算する間は保持する。L3は必要なモデル断面・政策結果をapplication DBへ複写し、再開時に可変storeから再計算しない。生成cacheと政策結果の整理はJobsが束ね、原本・判断・取引履歴を対象にしない。lakeのローカルGCとnative L1・共有固定入力の保持も別であり、R2の自動削除を意味しない。
+L2は必要投影と不変object/metadataを再利用し、原本本文や全履歴を毎日複写しない。ただしcold再生成の実装済み範囲と旧release依存を分ける。共有固定入力/参照原本はruns cacheと別寿命で、保存判断の入力再計算に必要な間は保持する。L3は必要モデル断面/政策結果をapplicationへ複写し、再開時に可変storeから再計算しない。Jobsの生成cache/政策整理とローカルlake GCは、原本・判断・取引履歴・R2の削除ではない。
 
 経済の固定入力は[経済generation owner](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)の明示APIで作成・再計算する。原本のPK・内容digest、採用済みperiodと文書、当時のconfirmation・最新runの不在/失敗を固定し、本文は現行経済L1に残す。期間metadataを共有し、FREDの同値確認clockだけで全月を複写しない。TradingView補助文脈は無効・失敗を含む上位201受領を固定する。冷再計算は当時と同じengine/config/runtimeを要求し、後日訂正や新しい採用状態へ置き換えない。原本欠落は再計算失敗であり、当時の欠測ではない。
 
@@ -120,6 +90,4 @@ L2は必要な投影だけを持ち、変更のないobjectや固定入力metada
 
 この経済APIはofflineの実装sliceで、通常dailyの`sqlite_snapshot`を置き換えていない。現行canonicalに旧原本が残ることが必要で、原本のobject別取得・全generationのexact再生・過去の市場PITは保証しない。実データの保持・容量・時間確認とgenerationへの接続は #1820 の残作業。計算用の一時projectionは公開・mergeせず、保存判断やL2を原本の代わりにしない。
 
-module名・CLI名と保存identityは別の契約である。配置変更だけでobject key・table・path・model ID・JSON field・hashや意味revisionを書き換えない。原本bytes・受領日時・source identity、nullと0、既知の不足を保持する。価格日・観測期間・公表日・受領cutoffを区別し、固定snapshotをintraday point-in-time再現の保証と扱わない。過去計算の再現には当時のコードと入力も必要であり、古い実装を現行経路へ復活させない。
-
-取得・発行・移行・復旧は[OPERATIONS](../jobs/OPERATIONS.md)、開発環境と検証は[development](development.md)、文書の統合・削減は[文書ルール](documentation.md)に従う。
+module/CLI名と保存identityは別契約。配置変更でkey/table/path/model ID/JSON/hash/意味revisionを変えない。原本bytes・受領時刻・source identity、null/0・既知の不足と、価格日/対象期間/公表日/cutoffを保持する。固定snapshotはintraday PITを保証せず、過去再現には当時のcode/入力も必要。古い実装を現行経路へ復活させない。環境と検証は[development](development.md)、文書整理は[documentation](documentation.md)へ進む。
