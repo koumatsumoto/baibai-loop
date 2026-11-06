@@ -13,6 +13,7 @@ from datetime import date, timedelta
 
 from baibai_engine.data_collection.catalog import SourceDefinition, load_sources
 from baibai_engine.data_collection.receipts.native_sources.documents import read_document_metadata
+from baibai_engine.data_collection.receipts.native_sources.planning_inputs import covered_input_days
 
 DEFAULT_LATEST_LOOKBACK_DAYS = 370
 LATEST_FETCH_LOOKBACK_DAYS = {"daily": 14, "weekly": 60, "monthly": 370, "quarterly": 370}
@@ -159,6 +160,9 @@ def _missing_ranges(
     ):
         day = date.fromisoformat(observed)
         covered.append((day, day))
+    covered.extend(
+        (day, day) for day in covered_input_days(connection, source.source_id, first, last)
+    )
     if source.provider in {"spglobal_pmi", "tradingeconomics_pmi"}:
         for document in read_document_metadata(connection, source.source_id):
             identity = document.metadata
