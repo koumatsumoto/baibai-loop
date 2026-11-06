@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.helpers.article_acquisition import SLOT, Response, Session
+from tests.helpers.article_acquisition import SLOT, Response, Session, first_packet_market_schema
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.machine_analysis.observations.articles.store import read_observations
@@ -219,7 +219,10 @@ def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path,
     assert load_discovery_cursor(store, state)["pending_urls"] == [target_url]
 
 
-def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch):
+@pytest.mark.parametrize("first_schema", [49, 50])
+def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch, first_schema):
+    first_packet_market_schema(monkeypatch, first_schema)
+
     class Clock(datetime):
         @classmethod
         def now(cls, _tz):
@@ -638,7 +641,12 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
         )
 
 
-def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("first_schema", [49, 50])
+def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(
+    tmp_path, monkeypatch, first_schema
+):
+    first_packet_market_schema(monkeypatch, first_schema)
+
     class Clock(datetime):
         @classmethod
         def now(cls, _tz):
