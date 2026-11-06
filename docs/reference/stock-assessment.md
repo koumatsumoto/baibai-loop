@@ -39,16 +39,16 @@ snippetから原文/一次情報へ戻り、法人・上場親子、発生/発�
 [七モデル](../architecture.md#現在の解析モデル)の重要な支持・相反・不足を個社仮定へ結ぶ。全指標の消化やマクロ固定起点を要求せず、価格と事業の不一致から往復する。悪材料だけでなく過度な悲観・一時悪化も検証する。
 
 - [成長](model-observations.md#financial-periods): 年間水準と直近同四半期を読む。前年を当然の正常値とせず、回復継続は履歴で確認する。報告増を有機成長、営業CF低下を正常FCF悪化と即断せず、利益/EPS/低PERを独立票にしない。科目不足で原典調査を止めない。
-- [環境・外部評価](model-observations.md#market-context-reads): 需要/費用/資金と要求収益/織込み/流動性への伝達を分ける。評価者・対象期・単位/basis・更新時点を揃え、相違も一致も元仮定へ戻る。同年度/定義の総額予想−累計実績は必要残額で、実現確率ではない。取得日だけで全予想を最新決算反映済みにせず、株式basis不足を総額比較禁止へ広げない。
+- [環境・外部評価](model-observations.md#external-assessment): 需要/費用/資金と要求収益/織込み/流動性への伝達を分ける。相違も一致も元仮定へ戻る。同年度/定義の総額予想−累計実績は必要残額で、実現確率ではない。取得日だけで全予想を最新決算反映済みにせず、株式basis不足を総額比較禁止へ広げない。
 - 産業/社会: 市場・母集団・期・利益basisを保持し、黒字企業割合≠利益率、変化≠原典/抽出訂正、倒産/譲渡≠供給消滅。発表者・範囲・否定・条件・予定を保ち、予定日経過を実施確認にしない。coverage/省略を変化なしとせず、重要原文をexact参照する。個社への伝達はL3仮説である。
-- [テクニカル](model-observations.md#technical-analysis): 価値実現期間と価格窓を分ける。重要なら同ref・同端点の市場/業種比較で期間と競合仮説を選び、[好悪ニュース](#recent-news-research)から利益・cash・必要資本への影響を問う。単純差はalpha/原因同定ではなく、価格局面だけでPmax/売買条件を変えない。旧MC窓の流用・旧snapshotへの後付け・全注記消化はしない。
+- [テクニカル](model-observations.md#technical-analysis): 価値実現期間と価格窓を分ける。重要なら同refの市場/業種比較で期間と競合仮説を選び、[好悪ニュース](#recent-news-research)から利益・cash・必要資本への影響を問う。単純差はalpha/原因同定ではなく、価格局面だけでPmax/売買条件を変えない。旧snapshotへ後付けせず、全注記の消化を求めない。
 
 一領域の欠測や事後比較を、全体停止・当時判断の根拠・候補外発見や長期収益優位の証明にしない。
 
 <a id="scenario-arithmetic"></a>
 ## 条件付き価値
 
-resolvedは原価格・期間・[案件の要求率](../doctrine.md#required-return-policy)・Base/Downsideが、根拠付き仮定の下で単位・利益・資金・帰属と整合すること。将来確定ではない。unresolvedは理由を残し、未確定値をゼロや推定で埋めない。supportedも購入採用ではなく、Pmax超過/cash不足でunsupportedへ変えない。
+resolvedは原価格・期間・[案件の要求率](../doctrine.md#required-return-policy)・Base/Downsideが、根拠付き仮定の下で単位・利益・資金・帰属と整合すること。将来確定ではない。unresolvedは理由を残し、未確定値をゼロや推定で埋めない。
 
 terminalは分配後の残余価値、cashは期間内累積分配で、同じ起点の未調整1株へ揃える。配当・売却・買戻しを二重算入せず、権利落ち後価格と未入金配当権利を分ける。権利確定前の未公表配当は仮定である。[算術owner](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)の年率は投資家の税費用控除前・分配再投資なしで、期待値/IRRではない。企業利益の税/営業費用を除く意味でもなく、表示丸めで判定しない。
 
@@ -72,7 +72,7 @@ terminalは分配後の残余価値、cashは期間内累積分配で、同じ�
 <a id="draft-calculation"></a>
 ### 計算資料
 
-`investment-judgment calculate`はtyped ratio/Projectionの算術だけで文章や売上からterminalを作らない。作者とReviewは原典・上流算式を別々に確認する。同じ誤入力の一致は検証ではない。
+`investment-judgment calculate`はtyped ratio/Projectionの算術だけで文章や売上からterminalを作らない。
 
 `--cash-share-cb`は額面現金＋転換価値超過分の株式交付CBだけの試算。額面は計上債務の消滅と対応し再控除しない。決済VWAP・配当調整参照終値・評価株価、端株現金をVWAPと置く試算・VWAPと終価を結ぶ固定点を分ける。調整時期/本数/権利は原典確認し、連続近似や整数固定点不存在を実決済へ読み替えない。採否は別判断である。
 
@@ -91,14 +91,14 @@ Pmaxの読み替えは保存条件下の必要値で、独立signal/市場予想
 
 `intact`は明示仮説が既知事実で未破綻、`uncertain`は仮説/中核根拠の整理不足で評価未完、`broken`は仮説不成立。将来利益率等の未確定だけでuncertainにせず、別の再建/回収仮説は検討できるが、反証された旧仮説を安さで復活させない。
 
-supportedには未破綻以上の積極的な価値根拠が必要。不明点、利益/資金/希薄化/価値への影響、基準経路を選び見返りで引き受ける理由を所見・計算・最強反証へ結ぶ。[Base/Downsideの方針](../doctrine.md#fact-analysis-separation)に従い、損失を書くだけで受容済みとしない。顧客別採算が非開示でも総額と妥当な仮定で評価できる一方、根拠も代替もない借換成功だけを高利回りで正当化しない。観測価格・単位・期間を創作せず、quote等の不足は[提案条件](trade-proposal.md#条件付き購入)へ分離する。
+supportedには未破綻以上の積極的な価値根拠が必要。確認事実と仮定を分け、不明点、利益/資金/希薄化/価値への影響、基準経路を選び見返りで引き受ける理由を所見・計算・最強反証へ結ぶ。[Base/Downsideの方針](../doctrine.md#fact-analysis-separation)に従い、損失を書くだけで受容済みとしない。顧客別採算が非開示でも総額と妥当な仮定で評価できるが、根拠も代替もない借換成功等を高いBase利回りや架空事実で正当化しない。採否不能なら不足を限定して保留する。観測価格・単位・期間を創作しない。supportedは購入採用ではなく、Pmax超過や提案のquote/cash不足でunsupportedへ変えない。[提案条件](trade-proposal.md#条件付き購入)とは分ける。
 
 機械検証は構造・参照・算術・説明欄を確認するだけで、経済的妥当性は作者と独立検証が判断する。旧`nonmaterial_unknown_reason`の受付を、当時の重要リスク受容審査へ読み替えない。
 
 <a id="independent-second-pass"></a>
 ## 独立検証と保存
 
-作者と別の作業者が原典・当期/前期見出し・単位/期間・仮定/最強反証を確認する。resolvedはterminal/cashを独立入力から再計算し、unresolvedは所見・不足・結論を検討する。抽出値/出力のコピーやhash一致を独立性/真実性の証明にしない。[資本の橋渡し](#capital-bridge)と過大/過小仮定の両側、相反/比較不能・unknown/partial・受容理由と検証限界を残す。
+作者と別の作業者が原典・上流算式・当期/前期見出し・単位/期間・仮定/最強反証を確認する。resolvedはterminal/cashを独立入力から再計算し、unresolvedは所見・不足・結論を検討する。抽出値/出力のコピー・同じ誤入力の一致・hash一致を独立性/真実性の証明にしない。[資本の橋渡し](#capital-bridge)と過大/過小仮定の両側、相反/比較不能・unknown/partial・受容理由と検証限界を残す。
 
 評価/Reviewはexact coreのpair、Proposalもそのpairへ束縛する。最新を選んで検証し、unsupported/unresolvedを避けて旧supportedへ戻らない。保存読取へ現在cash/価格条件を適用しない。
 
