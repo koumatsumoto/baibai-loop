@@ -193,7 +193,7 @@ def test_gates_secret_scopes_and_durability():
         == "steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')"
     )
     assert "steps.tradingview.outputs.status == 'partial'" in steps["stage"]["if"]
-    assert "rows_added" in steps["stage"]["if"]
+    assert "native_added" in steps["stage"]["if"]
     assert steps["cooldown-check"]["if"] == "steps.preflight.outputs.status == 'needs_fetch'"
     assert "always()" in steps["cooldown-save"]["if"]
     assert "lease-acquire" not in steps["cooldown-save"]["if"]
@@ -339,7 +339,8 @@ def test_acquisition_shell_passes_explicit_master_without_changing_observation_d
 @pytest.mark.parametrize(
     "status", ["saved", "partial", "already_saved", "originals_saved", "skipped_historical_asof"]
 )
-def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
+@pytest.mark.parametrize("rows_added", [0, 2])
+def test_acquisition_shell_parses_only_known_success_status(tmp_path, status, rows_added):
     steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
@@ -347,10 +348,13 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
         + json.dumps(
             {
                 "status": status,
-                "rows_added": 2,
-                "rows": 2,
+                "rows_added": rows_added,
+                "native_added": 2,
+                "native_received": 2,
+                "remaining_requests": 1 if status == "partial" else 0,
+                "rows": 3 if status == "partial" and rows_added == 0 else 2,
                 "expected_universe": 3 if status == "partial" else 2,
-                "remaining": 1 if status == "partial" else 0,
+                "remaining": 1 if status == "partial" and rows_added else 0,
                 "unresolved": 0,
                 "stop_reason": "provider_rate_limit",
             }
@@ -374,7 +378,10 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status):
     assert result.returncode == 0
     assert f"status={status}" in output.read_text().splitlines()
     if status in {"saved", "partial"}:
-        assert "rows_added=2" in output.read_text()
+        assert f"rows_added={rows_added}" in output.read_text()
+        assert "native_added=2" in output.read_text()
+        assert "fromJSON(steps.tradingview.outputs.native_added || '0') > 0" in steps["stage"]["if"]
+        assert "outputs.rows_added" not in steps["stage"]["if"]
 
 
 @pytest.mark.parametrize(

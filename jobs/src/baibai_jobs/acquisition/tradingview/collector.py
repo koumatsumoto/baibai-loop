@@ -171,37 +171,29 @@ def _snapshot_state(
     expected = {symbol.removeprefix("TSE:") for symbol in symbols}
     if not stored <= expected:
         raise SourceDataError("Stored TradingView ticker is outside exact-date universe")
-    remaining = [symbol for symbol in symbols if symbol.removeprefix("TSE:") not in stored]
-    if not remaining:
-        return remaining, {
-            **context,
-            **stored_quality(conn, day),
-            "status": "already_saved",
-            "snapshot_date": day.isoformat(),
-            "rows": len(stored),
-            "expected_universe": len(symbols),
-            "remaining": 0,
-            "rows_added": 0,
-            "requests_attempted": 0,
-            "symbols_requested": 0,
-        }
     native = _retained_coverage(conn, day, basis, set(symbols), business=business)
-    missing_projection = len(remaining)
-    remaining = [symbol for symbol in remaining if symbol not in native]
+    missing_projection = {symbol for symbol in symbols if symbol.removeprefix("TSE:") not in stored}
+    # L2 rows are not proof of a received request, including legacy partial copies.
+    remaining = [symbol for symbol in symbols if symbol not in native]
     return remaining, {
         **context,
         **stored_quality(conn, day),
-        "status": "needs_fetch" if remaining else "originals_saved",
+        "status": "needs_fetch"
+        if remaining
+        else "originals_saved"
+        if missing_projection
+        else "already_saved",
         "snapshot_date": day.isoformat(),
         "needs_master": False,
         "rows": len(stored),
         "expected_universe": len(symbols),
-        "remaining": missing_projection,
+        "remaining": len(missing_projection),
         "remaining_requests": len(remaining),
-        "projection_pending": missing_projection - len(remaining),
+        "projection_pending": len(missing_projection & native),
+        "rows_without_originals": len(set(remaining) - missing_projection),
         "native_received": len(native),
         **(
-            {"rows_added": 0, "requests_attempted": 0, "symbols_requested": 0}
+            {"rows_added": 0, "native_added": 0, "requests_attempted": 0, "symbols_requested": 0}
             if not remaining
             else {}
         ),
@@ -278,8 +270,13 @@ async def collect(
             return prior
         if symbols is None:
             raise SourceDataError("Exact-date J-Quants master is unavailable")
-        stored_rows = prior["rows"]
-        assert isinstance(stored_rows, int)
+        prior_tickers = {
+            row[0]
+            for row in conn.execute(
+                "SELECT ticker FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
+                (day.isoformat(),),
+            )
+        }
         expected_universe = int(str(prior["expected_universe"]))
         rows_added = 0
         consecutive_bad = 0
@@ -383,6 +380,9 @@ async def collect(
                 last_error = exc
                 stop_reason = failure_category(exc)
                 break
+            # Acquire missing originals without silently replacing an existing L2 date.
+            # Rebuilding that date from an explicit receipt selection is a separate action.
+            rows = [row for row in rows if row["ticker"] not in prior_tickers]
             current = replace(current, phase="store")
             emit()
             conn.execute("BEGIN IMMEDIATE")
@@ -425,9 +425,9 @@ async def collect(
         ).fetchone()
         total_rows = int(totals[0])
         remaining = expected_universe - total_rows
-        if rows_added == 0:
+        if current.chunks_completed == 0:
             raise last_error or observations_owner.FetchError(
-                "TradingView collection added no rows"
+                "TradingView collection completed no requests"
             )
         current = replace(current, phase="complete")
         emit()
@@ -435,14 +435,20 @@ async def collect(
         return {
             **asdict(current),
             "last_failure": failure_line(last_error) if last_error is not None else None,
-            "status": "saved" if remaining == 0 else "partial",
+            "status": "saved"
+            if remaining == 0 and final_state["remaining_requests"] == 0
+            else "partial",
             "snapshot_date": day.isoformat(),
             "expected_universe": expected_universe,
             "rows": total_rows,
             "rows_added": rows_added,
             "remaining": remaining,
-            "remaining_requests": final_state.get("remaining_requests", 0),
-            "projection_pending": final_state.get("projection_pending", 0),
+            "remaining_requests": final_state["remaining_requests"],
+            "projection_pending": final_state["projection_pending"],
+            "rows_without_originals": final_state["rows_without_originals"],
+            "native_received": final_state["native_received"],
+            "native_added": int(str(final_state["native_received"]))
+            - int(str(prior["native_received"])),
             "stop_reason": stop_reason,
             "unresolved": int(totals[1] or 0),
             "normal_nulls": stored_quality(conn, day)["normal_nulls"],

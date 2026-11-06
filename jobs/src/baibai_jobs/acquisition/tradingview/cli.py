@@ -108,7 +108,7 @@ async def snapshot(
             )
     except Exception as exc:
         category = failure_category(exc)
-        added = result.get("rows_added") if result is not None else None
+        added = result.get("native_added") if result is not None else None
         if (
             result is None
             or result.get("status") not in {"saved", "partial"}

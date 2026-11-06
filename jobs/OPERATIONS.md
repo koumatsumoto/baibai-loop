@@ -658,7 +658,7 @@ hard kill前の未保存試行は再GETされ得る。pointer成功後のtermina
 
 本人確認済みの利用範囲と毎日取得の指示に従い、[公式MCP](https://www.tradingview.com/mcp/docs)と既存 `tradingview-runtime` 認証を使う。一般FAQだけで停止・削除・入力除外せず、新client/credential・権限・課金・再配布へ許可を広げない。認証変更は別途確認し、認証失敗を成功/保存済み省略にしない。
 
-[日次workflow](../.github/workflows/cloud-tradingview-snapshot.yml)は一snapshot完成までの再開枠。上限・間隔・cooldownは[collector](src/baibai_jobs/acquisition/tradingview/collector.py)に従う。未取得銘柄だけを取得し、正常原応答が充足してL2だけ不足する `originals_saved` は再GETせずrebuildする。HTTP/tool失敗や銘柄/要求列不足を充足にしない。
+[日次workflow](../.github/workflows/cloud-tradingview-snapshot.yml)は一snapshot完成までの再開枠。上限・間隔・cooldownは[collector](src/baibai_jobs/acquisition/tradingview/collector.py)に従う。原応答の未取得銘柄だけを取得し、L2行だけでは取得済みとしない。正常原応答が充足してL2だけ不足する `originals_saved` は再GETせずrebuildする。L2だけ残るcopyでは当cycleの不足原本を受領して既存L2を保ち、`native_added` と `rows_added` を分ける。後から受け取った原本を既存L2の生成元とみなさず、過去cycleの穴も現在応答で埋めない。HTTP/tool失敗や銘柄/要求列不足を充足にしない。
 
 `snapshot_date` は09:00 JST切替のcycle日。保存暦に従い営業日15:30、休日09:00から翌09:00未満まで取得する。休日は直前営業日のexact masterと連続calendarを使う。日跨ぎも同cycleを続け、翌09:00以降に旧不足を現在応答で埋めない。実受領UTC・既存key/bytesを付け替えず、翌朝受領を前日の既知情報にしない。
 
