@@ -112,7 +112,7 @@ def build_dashboard(
         if any(item.market_price_as_of is None for item in holdings)
         else min(
             (item.market_price_as_of for item in holdings if item.market_price_as_of is not None),
-            default=snapshot.as_of.astimezone(JST).date(),
+            default=None,
         )
     )
     return DashboardView(

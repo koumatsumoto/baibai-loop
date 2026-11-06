@@ -130,6 +130,8 @@ it('distinguishes display generation, last ledger record, and quote basis', () =
   expect(html).toMatch(/表示データ生成 <time[^>]*dateTime="2026-10-16T13:43:00Z"[^>]*>2026-10-16 22:43 JST/)
   expect(html).toMatch(/台帳最終記録 <time[^>]*dateTime="2026-10-12T01:30:00Z"[^>]*>2026-10-12 10:30 JST/)
   expect(html).toContain('株価基準 2026-10-15')
+  expect(html).toContain('表示の基準日の保存終値に基づきます')
+  expect(html).toContain('リアルタイム価格ではありません')
 })
 
 it('still shows the generation stamp when the ledger is absent or unreadable', () => {

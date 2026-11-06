@@ -144,3 +144,27 @@ def test_dashboard_retains_realized_pnl_when_market_price_is_missing(
     assert view.realized_gross_pnl_yen == 6_000
     if missing:
         assert view.total_capital_yen is None
+
+
+def test_cash_only_dashboard_keeps_ledger_facts_without_inventing_a_quote_date(tmp_path, mocker):
+    app, market = tmp_path / "app.sqlite", tmp_path / "absent-market.sqlite"
+    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    ledger = ledger.model_copy(update={"events": ledger.events[:2]})
+    seed_ledger(app, ledger)
+    for module in (db_sources, dashboard):
+        mocker.patch.object(module, "datetime").now.return_value = NOW
+    before = app.read_bytes()
+
+    view = build_dashboard(DbLedgerSource(app, market), DbMarketSource(market))
+
+    assert view.ledger_exists is True
+    assert view.ledger_error is None
+    assert view.valuation_error is None
+    assert view.generated_at == NOW
+    assert view.ledger_as_of == ledger.as_of  # An old last report does not expire known cash.
+    assert view.available_cash_yen == view.total_capital_yen == 10_400_000
+    assert view.reserved_cash_yen == view.holdings_market_value_yen == 0
+    assert view.holdings == []
+    assert view.valuation_as_of is None
+    assert app.read_bytes() == before
+    assert not market.exists()
