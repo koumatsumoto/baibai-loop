@@ -35,7 +35,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 既定読取は発行時刻よりas_ofの新しさを優先し、古い非空候補へ自動fallbackしない。過去日を後から再計算しても新しいas_ofの結果は置換しないため、その日を分析するときは対象のgeneration/selection IDを明示する。
 
-共通統合の`cloud-daily-batch`は取得workflowから独立して起動する。最初に利用可能な経済受領を固定し、経済L1の単独公開・読戻し・seal・次回取得input発行を完了する。続いてmarket側のready受領を固定し、market/runsだけのpullとmarket hydrateを行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。全providerの完了は待たない。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
+共通統合の`cloud-daily-batch`は取得workflowから独立して起動する。最初に利用可能な経済受領を固定し、経済L1の単独公開・読戻し・seal・次回取得input発行を完了する。続いてmarket側のready受領を固定し、market/runsだけのpullとmarket hydrateを行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。全providerの完了は待たない。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。生成cacheと候補政策結果の整理は、そのreleaseの公開成功後に限る。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
 
 ### 保存済み世代への候補政策の発行
 
