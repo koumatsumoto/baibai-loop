@@ -1,18 +1,17 @@
 # 運用手順
 
-repository rootのBashから、依頼された対象だけを操作する。責務は[architecture](../docs/architecture.md#store-authority)、環境は[development](../docs/development.md)、全option/内部判定は各CLIのhelpと所有実装が正本。以下は操作の選び方・成功境界・再開を扱う。
+repository rootのBashから依頼された対象だけを操作する。責務は[architecture](../docs/architecture.md#store-authority)、環境は[development](../docs/development.md)、option/判定はCLIのhelpと実装へ。本書は開始・成功境界・復旧を扱う。
 
 <a id="actions-write-boundary"></a>
 ## 実行前の確認
 
-通常取得・公開は既存Actions、個別application更新は認可環境の作業コピーと正規CLIを使う。環境接続や開発変更を本番更新・課金・権限拡大・broker操作・未報告取引入力の許可へ読み替えない。追加課金禁止の依頼ではrunner・storage・外部API・R2を含む課金経路を確認する。code撤去も配備済みWorker/domain/credential/旧objectの削除ではない。
+通常取得・公開は既存Actions、application更新は認可環境の作業コピーと正規CLIを使う。環境接続/開発変更は本番更新・課金・権限拡大・broker操作・未報告取引入力の許可ではない。課金禁止ならrunner・storage・API・R2も確認する。code撤去で配備済みWorker/domain/credential/旧objectを削除しない。
 
-秘密・endpoint・原文・私有DB/原稿をGit、Issue、公開log/artifactへ出さない。取得/公開stepだけにR2・J-Quants/e-Stat/EDINETの既存secret、通知stepだけにDISCORD_WEBHOOK_URLを渡す。通常開発へwriter credentialを流用せず、認証/403/429を別経路・権限拡大で迂回しない。baibai-storesは非公開正本である。
+秘密・endpoint・原文・私有DB/原稿はGit・Issue・公開log/artifactへ出さない。既存のR2・J-Quants/e-Stat/EDINET secretは取得/公開step、DISCORD_WEBHOOK_URLは通知stepだけへ渡す。通常開発へのwriter credential流用、認証/403/429の別経路・権限拡大による迂回は禁止。baibai-storesは非公開正本。
 
-- 受領、取得成功、L2成功、公開/readback、seal、次input発行を別々に確認する。正常空/partial/未試行/失敗を混ぜず、L2失敗で保存L1を戻さない。
-- 固定plan・receipt・ID/hash・原bytes・実受領時計を保つ。結果不明なら現objectを読み、未反映/同候補/第三の内容を区別する。新UUID・日付付替え・marker手修正・古いcopyの盲再送で解消しない。
-- market/runs・経済の共通反映はfresh正本と取得ETagを同じpublication lease内で照合する。applicationのpublish.shと初回seedはこのlease対象ではない。独立native L1にも共通leaseやL2成功を新たに課さず、source固有のCAS/並行制御に従う。
-- schema/origin/CAS/必要なleaseの不一致は停止する。旧release・stage/input・参照原本は必要な間保持し、通常dailyへ移行・全期間再取得を代行させない。source別の現在接続と未完移行を確認する。
+- 受領・取得・L2・公開/readback・seal・次input発行は別々に確認する。正常空/partial/未試行/失敗を分け、L2失敗で保存L1を戻さない。
+- 固定plan/receipt/ID/hash・原bytes・実受領時計を保つ。結果不明は現objectから未反映/同候補/第三の内容を確認し、新UUID・日付付替え・marker手修正・古いcopyの盲再送で解消しない。
+- schema/origin/CAS/必要なlease不一致は停止。旧release・stage/input・参照原本を必要な間保持し、通常dailyへ移行/全期間再取得を代行させない。反映範囲は[共通公開](#machine-publication)、接続と未完移行はsource別手順に従う。
 
 ## 操作を選ぶ
 
@@ -73,7 +72,7 @@ fresh正本でID・政策method・候補を読戻す。結果不明は先に反�
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
 
-currentは最初に一度解決し、release ID/manifest SHA-256を固定する。以後は同じmanifestが列挙したobjectだけを通常readerでhash・bytes・row数・schema照合する。optional未収録を別release/providerで埋めない。resolveだけではdata objectを検証していない。
+currentを一度resolveし、固定release ID/manifest SHA-256が列挙するobjectを通常readerで照合する。resolveだけではdataを検証していない。hash・bytes・row数・schemaを確認し、optional未収録を別release/providerで埋めない。
 
 ```bash
 uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores --format json
@@ -81,32 +80,27 @@ uv run baibai-jobs snapshots resolve --mirror stores --bucket baibai-stores \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
 
-bulk作業copyはdaily/local publisherと重ねず、通常は終了後に`jobs/scripts/pull.sh`で取得する。machine receipt/ETagとhydrate開始時のmarket origin/releaseを照合し、競合/途中失敗のlocalを分析へ使わずfreshに取り直す。applicationはbulk pull対象でなくpull-appを使う。保存L2のInputSnapshotと現在quote用copyは用途が違うため、全てを同一currentへ付け替えない。
+daily/local publisher終了後に`jobs/scripts/pull.sh`でbulk作業copyを取得し、machine receipt/ETagとhydrate開始時のmarket origin/releaseを照合する。競合/途中失敗のlocalは分析に使わずfreshに取り直す。applicationはpull-appで別取得。保存L2のInputSnapshotを現在quote用copy/currentへ付け替えない。
 
 <a id="local-release-hydrate"></a>
 ### 完全local mirrorからのhydrate
 
-認可済みR2読取か完全mirrorを使い、必要なDB/一時snapshot容量を先に確保する。旧L1公開APIや部分JSONを正規readerの代用にしない。
+認可済みR2読取か完全mirrorとDB/一時snapshot容量を用意する。旧L1公開API・部分JSONを正規readerの代用にしない。
 
 ```bash
 uv run baibai-jobs snapshots hydrate --mirror <COMPLETE_LOCAL_MIRROR> --store <LOCAL_MARKET_COPY> \
   --release <RELEASE_ID> --manifest-sha256 <MANIFEST_SHA256>
 ```
 
-通常のlocal mirrorはbucketなし。EDINET一覧cache除去の検証だけは[専用条件](#edinet-list-native-l1)に従いbucketも指定する。hydrateは対象tableを置換するがstore-local取得coverageを作らない。変更後のhydrateは成果を上書きする。旧contractは元commitのcodeで読み、不足/破損時にreleaseを替えない。
+local mirrorはbucketなし。EDINET一覧cache除去の[原本照合](#edinet-list-native-l1)だけはbucketも指定する。hydrateは対象tableを置換するため、変更後に再実行しない。store-local取得coverageは作らない。旧contractは元commitのcodeで読み、不足/破損を別releaseで埋めない。
 
 Parquet直接読取は[reader](../engine/src/baibai_engine/storage/snapshots/reader.py)のresolve_release→accepted_dataset→selected_partitions→materialize_partitionsで返る検証済みpathだけをlake_sessionへ渡す。glob、別release、remote拡張は使わない。
-
-<a id="edinet-research-query"></a>
-### EDINET factsの書類選択
-
-固定releaseをhydrateし、[文書選択](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_facts/selection.py)のlatest_annual_filingへdocument_inventory・対象JST日・tickerを渡し、usable_documentを確認する。cutoffは日末でintraday PITではない。未選択は書類不存在ではなく、未抽出/公開不明なら原典へ戻る。segment/debtはsource_doc_idで取り、期・連結・通貨を照合する。全債務/資金余命を抽出行だけで確定しない。
 
 <a id="machine-publication"></a>
 <a id="ローカルからクラウドを更新する"></a>
 ## 共通公開とmachineの復旧
 
-長い準備は先に済ませ、production read/merge/publishは同じlease内で行う。lake対象tableは変更前にhydrateする。
+market/runs・経済は同じpublication lease内でfresh正本/取得ETagを照合し、read/merge/publishする。長い準備は先に済ませ、lake対象tableは変更前にhydrateする。applicationのpublish.sh・初回seedは対象外。独立native L1はsource固有のCAS/並行制御を使い、共通leaseやL2成功を課さない。
 
 ```bash
 with_publication_lease() (
@@ -277,13 +271,15 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 <a id="sources"></a>
 ## source取得と再開
 
-独立取得はsource固有の原本/publicationとprivate stageを持ち、全market/applicationをhydrateしない。同source/groupは取得〜stageを直列化し、J-Quants共有quotaも守る。共有source inputや記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。不足を全DB取得/空seedで迂回しない。J-Quantsはこれを使わず、独立headまたは未移行sourceの固定L1から計画する。[source input](src/baibai_jobs/acquisition/source_inputs.py)は正本でなく、必要な原本履歴/coverageを持つ再生成物である。部分storeにfull lake originを付けない。
+独立取得はsource固有の原本/publicationを使い、全market/applicationをhydrateしない。handoff対象はprivate stageへ保存する。同source/groupの取得〜stageを直列化し、J-Quants共有quotaを守る。J-Quantsは共有inputを使わずnative head、未移行sourceは固定L1/未統合原本から計画する。
 
-入力移管後も元bindingで再開する。J-Quantsはnative head、未移行sourceは固定L1/未統合原本を使う。経済planning inputは取得計画に必要な範囲/成功失敗/確認だけを持ち、原文/URL/実時計はhandoff、同値/訂正/遅着の受入はcanonical原本が担う。Matsuiは現在pageの明示空seed、TSRはrun/coverage（latest成功日だけへ縮めない）、PMIはURL/月/phase、UMich/ECBは受領日集合を使う。空seedは原本不在やinput欠落の自動初期化でない。
+共有[source input](src/baibai_jobs/acquisition/source_inputs.py)・記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。inputは原本履歴/coverageに基づく再生成物で、正本ではない。移管後も元bindingで再開し、欠落を全DB取得/空seedで迂回せず、部分storeにfull lake originを付けない。
+
+経済planning inputは計画用の範囲/成功失敗/確認を持ち、原文/URL/実時計はhandoff、同値/訂正/遅着の受入はcanonical原本が担う。Matsuiは現在pageの明示空seed、TSRはrun/coverage（latest成功日だけに縮めない）、PMIはURL/月/phase、UMich/ECBは受領日集合を使う。空seedを原本/input欠落の自動初期化にしない。
 
 新形式inputの配布は両形式readerを先行させ、非対応の実行中/queued runを終えてから行う。旧SHAで再実行しない。全15経済groupは受領なしでも再発行し、group失敗は旧pointerを保って次cycleへ。旧input/stageを削除せず、形式移管をFRED schema切替と一括にしない。
 
-破損handoff/decodeは当該sourceを報告し他を進めるが、正本破損/R2全体障害では停止する。遅着・未統合は次統合、必要なら既存dailyで拾う。後続統合後の旧stageはneeds_explicit_recoveryとしてID・理由・期間・markerを確認し、現在値は新取得、旧vintageはexact回復で扱う。正常nullを埋める全期間取得は行わない。
+破損handoff/decodeは当該sourceを報告して他を進め、正本破損/R2全体障害は停止する。遅着/未統合は次統合または既存dailyへ。後続統合後の旧stageはneeds_explicit_recoveryのID・理由・期間・markerを確認し、現値は新取得、旧vintageはexact回復で扱う。正常nullを全期間取得で埋めない。
 
 <a id="economic-acquisition"></a>
 ### 経済原本
@@ -371,6 +367,12 @@ EDINET一覧→保存原ZIP→L2抽出の順。手動source=allは一覧取得/s
 
 <a id="edinet-research-facts"></a>
 <a id="edinet-factsの取得範囲schema-50"></a>
+<a id="edinet-research-query"></a>
+<a id="edinet-factsの書類選択"></a>
+### EDINET factsの取得と読取
+
+固定releaseをhydrateし、[facts reader](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_facts/)のdocument_inventoryへstoreと対象JST日を渡す。得た文書とtickerをlatest_annual_filingへ渡し、usable_documentを確認する。cutoffは日末でintraday PITではない。未選択は書類不存在ではなく、未抽出/公開不明なら原典へ戻る。segment/debtはsource_doc_idで取り、期・連結・通貨を照合する。全債務/資金余命を抽出行だけで確定しない。
+
 facts scopeは取得範囲のoperational stateで、L2品質からglobal開始日/docID集合を狭めない。対象family IDはGET前に保持し、失敗/未提供/交代でも消さず、stale input/stageは出所とunionする。未初期化では通常annual取得を始めずholderは独立。明示initializeの取得成功後だけglobalを有効化し、後のL2失敗で戻さない。GET途中失敗はID/ZIPを保ち同じrefreshで再開、ticker限定は他社/globalを置換しない。offline extractのinitializeは将来GETを有効化しない。
 
 ```bash
