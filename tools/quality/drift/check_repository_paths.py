@@ -16,12 +16,10 @@ _OWNERS = {
     "stores/market/market.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
     "stores/market_context/indicators.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
     "stores/screening/runs.sqlite": Path("engine/src/baibai_engine/storage/paths.py"),
-    "stores/screening/calibration": Path("engine/src/baibai_engine/storage/paths.py"),
     _CONTEXT_PATH: Path("engine/src/baibai_engine/storage/paths.py"),
 }
 
 _RULE_DIRECTORIES = (
-    "engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/rules/",
     "engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/",
 )
 _RULE_OWNER = Path("engine/src/baibai_engine/storage/paths.py")

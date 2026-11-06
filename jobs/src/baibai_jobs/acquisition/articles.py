@@ -29,6 +29,7 @@ from baibai_engine.data_collection.providers.articles.native import (
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt
 from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
+    connect_read_only,
     copy_receipt_closure,
     read_body,
     read_receipt,
@@ -37,7 +38,6 @@ from baibai_engine.data_collection.receipts.articles.store import (
 from baibai_engine.data_collection.transport.articles import ArticleBudget, fetch_article
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_discovery import (
     DISCOVERY_SOURCES,

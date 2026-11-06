@@ -158,3 +158,46 @@ def test_received_200_without_body_region_remains_a_projection_failure(tmp_path)
     assert not result.complete
     assert result.report["acquisition_failures"] == []
     assert result.report["projection_failures"] == [receipt.receipt_id]
+
+
+def test_common_integration_accepts_article_shape_from_old_market_version(tmp_path, monkeypatch):
+    import sqlite3
+
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_jobs.acquisition.article_evidence import exact_entry
+    from baibai_jobs.acquisition.economic_staging import save_handoff
+    from baibai_jobs.integration import sources
+
+    packet = tmp_path / "legacy"
+    original = _packet(packet, "legacy-original", datetime(2026, 10, 29, tzinfo=UTC))
+    with closing(sqlite3.connect(packet / "receipts.sqlite")) as conn:
+        conn.execute("PRAGMA user_version=49")
+    report = json.loads((packet / "result.json").read_text())
+    report.update(started_at=original.received_at.isoformat(), asof="2026-10-29")
+    (packet / "result.json").write_text(json.dumps(report))
+    before = (packet / "receipts.sqlite").read_bytes()
+    remote = MemoryR2Store()
+    save_handoff(remote, "legacy-article", packet, namespace="article-sources")
+    manifest = remote.values["coordination/article-sources/legacy-article/handoff.json"].body
+    entry = exact_entry(
+        remote,
+        source="boj_news",
+        stage_id="legacy-article",
+        manifest_sha256=hashlib.sha256(manifest).hexdigest(),
+    )
+    work = tmp_path / "integration"
+    work.mkdir()
+    (work / "plan.json").write_text(json.dumps({"handoffs": [entry]}))
+    market = tmp_path / "market.sqlite"
+    with closing(open_connection(market)):
+        pass
+    monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
+    puts = list(remote.put_keys)
+    applied = sources.apply(remote, work, market=market, asof=original.received_at.date())
+    outcome = applied["handoffs"][0]
+    assert outcome["applied"] is True
+    assert outcome["failed"] is False
+    assert outcome["article_delta"]["articles.source_receipts"]
+    assert (packet / "receipts.sqlite").read_bytes() == before
+    assert remote.put_keys == puts

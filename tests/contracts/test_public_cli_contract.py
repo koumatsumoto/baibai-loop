@@ -16,7 +16,7 @@ def _choices(parser) -> set[str]:
 
 def test_screening_cli_preserves_saved_reads_without_legacy_live_generation() -> None:
     choices = _choices(build_screening_parser())
-    assert {"run-show", "candidates"} <= choices
+    assert {"run-show", "candidates", "prune"} == choices
     assert "run" not in choices
     with pytest.raises(SystemExit):
         build_screening_parser().parse_args(["run", "--asof", "2026-10-23"])
@@ -208,3 +208,14 @@ def test_minimal_job_read_boundary_does_not_load_judgment_or_legacy_views():
         ],
         check=True,
     )
+
+
+@pytest.mark.parametrize(
+    "command", ["calibration-build", "calibration-evaluate", "verify-cache-coverage"]
+)
+def test_historical_recalculation_commands_are_removed(command, tmp_path) -> None:
+    before = set(tmp_path.iterdir())
+    with pytest.raises(SystemExit) as error:
+        main(["historical-evaluation", command])
+    assert error.value.code == 2
+    assert set(tmp_path.iterdir()) == before

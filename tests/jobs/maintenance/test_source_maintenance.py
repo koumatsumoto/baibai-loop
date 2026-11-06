@@ -323,7 +323,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with (
             patch.object(source_app, "market_calendar_business_day", return_value=True),
             patch(
-                "baibai_engine.machine_analysis.historical_evaluation.grid.days_with_bars",
+                "baibai_jobs.maintenance.market.grid.days_with_bars",
                 return_value=set(),
             ),
             patch.object(
@@ -369,7 +369,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
         with (
             patch.object(source_app, "market_calendar_business_day", return_value=False),
             patch(
-                "baibai_engine.machine_analysis.historical_evaluation.grid.days_with_bars",
+                "baibai_jobs.maintenance.market.grid.days_with_bars",
                 return_value={historical},
             ),
             patch.object(

@@ -5,16 +5,51 @@ from __future__ import annotations
 import gzip
 import hashlib
 import sqlite3
+from contextlib import closing
+from functools import lru_cache
+from pathlib import Path
 
 from baibai_engine.data_collection.receipts.articles.contracts import (
     ArticleReceipt,
     BodyRef,
     utc_day,
 )
+from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL
+from baibai_engine.storage.sqlite.read import connect_read_only as connect_sqlite_read_only
 
 
 class ArticleStoreError(ValueError):
     """Missing closure, mismatched immutable identity, or invalid received envelope."""
+
+
+@lru_cache(maxsize=1)
+def _receipt_shape() -> tuple[tuple[object, ...], ...]:
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.executescript(ARTICLE_RECEIPTS_DDL)
+        return tuple(
+            tuple(row) for row in conn.execute("PRAGMA table_xinfo(article_source_receipts)")
+        )
+
+
+def validate_receipt_schema(conn: sqlite3.Connection) -> None:
+    """Validate this L1 owner, independently of unrelated market-cache revisions."""
+    kind = conn.execute(
+        "SELECT type FROM sqlite_schema WHERE name='article_source_receipts'"
+    ).fetchone()
+    shape = tuple(tuple(row) for row in conn.execute("PRAGMA table_xinfo(article_source_receipts)"))
+    if kind is None or kind[0] != "table" or shape != _receipt_shape():
+        raise ArticleStoreError("article receipt table shape differs from its native contract")
+
+
+def connect_read_only(path: Path) -> sqlite3.Connection:
+    """Read retained article bytes without migrating their enclosing SQLite store."""
+    conn = connect_sqlite_read_only(path)
+    try:
+        validate_receipt_schema(conn)
+        return conn
+    except BaseException:
+        conn.close()
+        raise
 
 
 def retain_receipt(

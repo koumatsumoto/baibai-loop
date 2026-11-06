@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
-from tests.helpers.article_acquisition import SLOT, Response, Session
+from tests.helpers.article_acquisition import SLOT, Response, Session, first_packet_market_schema
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_engine.data_collection.transport.articles as transport
@@ -34,7 +34,11 @@ def feed(count):
     ).encode()
 
 
-def test_late_tsr_poll_then_same_cycle_body_resume_and_complete_skip(tmp_path, clock):
+@pytest.mark.parametrize("first_schema", [49, 50])
+def test_late_tsr_poll_then_same_cycle_body_resume_and_complete_skip(
+    tmp_path, clock, monkeypatch, first_schema
+):
+    first_packet_market_schema(monkeypatch, first_schema)
     remote = MemoryR2Store()
     publish_planning_input(remote, "tsr_data", {})
     body = b'<div class="entry">Synthetic body</div>'

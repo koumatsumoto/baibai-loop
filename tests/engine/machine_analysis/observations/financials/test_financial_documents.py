@@ -13,17 +13,14 @@ from typing import Any
 import pytest
 from tests.helpers.financial_documents import document, documents
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
-    build_normalized_profit_signals,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _resolve_capital_basis,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
+)
+from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+    DEFAULT_TTM_RULES,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.periods import (
     _latest_actual_row,
@@ -59,10 +56,8 @@ def decode(records: list[dict[str, Any]]) -> list[JQuantsFinancialSummary]:
 
 
 def snapshot(rows: list[JQuantsFinancialSummary]):
-    rules = load_screening_rules()
-    return build_financial_snapshot(
-        1074, rows, None, rules.ttm, adjustment_events=(), asof_date=ASOF
-    )
+    rules = DEFAULT_TTM_RULES
+    return build_financial_snapshot(1074, rows, None, rules, adjustment_events=(), asof_date=ASOF)
 
 
 def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
@@ -114,7 +109,7 @@ def test_document_streams_keep_zero_and_income_source(tmp_path: Path) -> None:
         sector=None,
         as_of=ASOF,
         input_release=InputRelease(release_id="synthetic-release", manifest_sha256="a" * 64),
-        ttm_rules=load_screening_rules().ttm,
+        ttm_rules=DEFAULT_TTM_RULES,
     )
     assert generate_financial_and_price_models(
         documents=raw, **arguments
@@ -319,46 +314,6 @@ def test_f_and_next_slots_are_retained_without_mixing() -> None:
     assert snapshot([row]).forecast_special_gain_flag
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-def test_conflicting_actual_eps_is_unresolved_in_normalized_fy(reverse: bool) -> None:
-    rows = decode(
-        [
-            document(
-                "a",
-                DocType="FYFinancialStatements_NonConsolidated_JP",
-                CurFYSt="2025-07-01",
-                CurFYEn="2026-06-30",
-                EPS="20",
-            ),
-            document(
-                "b",
-                DocType="FYFinancialStatements_NonConsolidated_JP",
-                CurFYSt="2025-07-01",
-                CurFYEn="2026-06-30",
-                EPS="30",
-            ),
-        ]
-    )
-    rows = [
-        replace(
-            row,
-            fiscal_year_end=date(2026, 6, 30),
-            period_start=date(2025, 7, 1),
-            period_end=date(2026, 6, 30),
-        )
-        for row in rows
-    ]
-    if reverse:
-        rows.reverse()
-    assert _latest_actual_row(rows, field_names=("cumulative_eps",)) is None
-    assert (
-        build_normalized_profit_signals(
-            rows, (), ASOF, close=1074, ttm_rules=load_screening_rules().ttm
-        ).normalized_per_3fy
-        is None
-    )
-
-
 def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
     db = tmp_path / "market.sqlite"
     records = [document("issued", ShOutFY="1000"), document("treasury", TrShFY="100")]
@@ -549,7 +504,7 @@ def test_conflicting_actual_dps_does_not_hide_agreed_profit_and_sales(reverse: b
     assert carry.dividend_yield is None
     assert carry.dps_actual_annual is None
     assert carry.basis == "unresolved_actual_dividend"
-    rules = load_screening_rules().ttm
+    rules = DEFAULT_TTM_RULES
     assert _ttm_value(rows, "profit", rules)[0] == 100
     assert _ttm_value(rows, "sales", rules)[0] == 1000
     assert snapshot(rows).sales_ttm == 1000
@@ -686,7 +641,7 @@ def test_latest_actual_missing_fields_do_not_revive_older_revision() -> None:
     latest = actual_document("latest-partial", ShOutFY="1000")
     latest["NP"] = latest["Sales"] = ""
     rows = decode([old, latest])
-    rules = load_screening_rules().ttm
+    rules = DEFAULT_TTM_RULES
     assert _ttm_value(rows, "profit", rules)[0] is None
     assert _ttm_value(rows, "sales", rules)[0] is None
 
@@ -716,9 +671,6 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
 
 @pytest.mark.parametrize("reverse", [False, True])
 def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(reverse: bool) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
-        _latest_fy_revisions,
-    )
 
     a, b = (
         actual_document("eps", ShOutFY="1000"),
@@ -727,10 +679,6 @@ def test_complementary_fy_eps_and_dps_keep_both_without_joining_capital_pair(rev
     a["NP"] = a["Sales"] = ""
     b["EPS"] = b["NP"] = b["Sales"] = ""
     rows = decode([a, b] if not reverse else [b, a])
-    fy = _latest_fy_revisions(rows)[0]
-    assert fy.cumulative_eps == 20
-    assert fy.dps_actual_annual == 7
-    assert fy.shares_outstanding is None or fy.treasury_shares is None
     assert _resolve_capital_basis(rows).shares_ex_treasury is None
 
 
@@ -779,7 +727,7 @@ def test_unresolved_only_latest_period_cannot_revive_old_profit(reverse: bool) -
     if reverse:
         latest.reverse()
     rows = decode([old, *latest])
-    rules = load_screening_rules().ttm
+    rules = DEFAULT_TTM_RULES
     assert _ttm_value(rows, "profit", rules)[0] is None
     normalized = _normalize_summaries_with_status(rows, (), ASOF).summaries
     assert normalized[-1].unresolved_actual_fields
@@ -804,10 +752,7 @@ def test_explicit_unknown_forecast_slot_is_not_an_absent_complement() -> None:
 def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order(
     reverse: bool,
 ) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
-        _asof_basis_fy_dps,
-        _latest_fy_revisions,
-    )
+
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
         _resolve_dividend_carry,
     )
@@ -830,10 +775,6 @@ def test_conflicting_payment_allocations_cannot_select_split_adjustment_by_order
             ticker="9999", traded_at=date(2026, 1, 15), adjustment_factor=0.5, ex_right_type="1"
         )
     ]
-    fy_rows = _latest_fy_revisions(rows)
-    assert fy_rows[0].cumulative_eps == 20
-    assert fy_rows[0].dps_actual_annual == 7
-    assert _asof_basis_fy_dps(fy_rows, events, ASOF) == {}
     assert _resolve_dividend_carry(rows, events, 100, ASOF).dividend_yield is None
     assert _resolve_dividend_carry(rows, (), 100, ASOF).dividend_yield == 0.07
 
@@ -949,9 +890,9 @@ def test_expired_dividend_guidance_cannot_replace_current_zero_actual(
                 DivAnn="30",
             )
         )
-    rules = load_screening_rules()
+    rules = DEFAULT_TTM_RULES
     result = build_financial_snapshot(
-        130, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 8, 11)
+        130, decode(records), None, rules, adjustment_events=(), asof_date=date(2026, 8, 11)
     )
     assert result.dps_forecast_annual is None
     assert result.dps_actual_annual == 0
@@ -981,9 +922,9 @@ def test_actual_correction_does_not_withdraw_a_different_period_forecast() -> No
             NxFDivAnn="",
         ),
     ]
-    rules = load_screening_rules()
+    rules = DEFAULT_TTM_RULES
     result = build_financial_snapshot(
-        1000, decode(records), None, rules.ttm, adjustment_events=(), asof_date=date(2026, 5, 20)
+        1000, decode(records), None, rules, adjustment_events=(), asof_date=date(2026, 5, 20)
     )
     assert result.dps_actual_annual == 0
     assert result.dps_forecast_annual == 40
@@ -1079,7 +1020,7 @@ def test_prior_year_comparison_requires_actual_period_dates(missing_field):
         CurPerEn="2025-06-30",
     )
     current = actual_document("current")
-    rules = load_screening_rules().ttm
+    rules = DEFAULT_TTM_RULES
     assert (
         _prior_year_summary(decode([old, current]), rules, field_name="cumulative_eps") is not None
     )
@@ -1344,28 +1285,15 @@ def test_new_numeric_guidance_resolves_previous_unknown_revision():
     [("CurPerSt", ""), ("CurPerEn", ""), ("CurPerSt", "2027-01-01")],
 )
 @pytest.mark.parametrize("dps", [0, 7])
-def test_actual_dividend_period_validity_agrees_with_forward_measurement(
-    tmp_path, field, value, dps
-):
-    from baibai_engine.machine_analysis.historical_evaluation.forward import (
-        _asof_basis_dividend,
-        _load_fy_dividends,
-    )
+def test_actual_dividend_period_validity_keeps_unknown_or_observed_zero(field, value, dps):
+
     from baibai_engine.machine_analysis.models.company_financials.metrics.dividends import (
         _resolve_dividend_carry,
     )
 
     record = actual_document("invalid-period", DivAnn=str(dps))
     record[field] = value
-    path = tmp_path / "market.sqlite"
-    store_jquants_fin_summaries(
-        path, [record], requested_start=date(2026, 8, 10), requested_end=ASOF
-    )
-    with closing(sqlite3.connect(path)) as connection:
-        observations = _load_fy_dividends(connection, "9999", cutoff=ASOF)
-    assert len(observations) == 1
     expected = 0 if dps == 0 else None
-    assert _asof_basis_dividend(observations[0], (), basis_date=ASOF) == expected
     assert _resolve_dividend_carry(decode([record]), (), 100, ASOF).dps_actual_annual == expected
 
 
@@ -1422,7 +1350,7 @@ def test_short_fiscal_year_uses_current_statement_basis(new_basis, late_old_corr
             1000,
             decode(ordered),
             None,
-            load_screening_rules().ttm,
+            DEFAULT_TTM_RULES,
             adjustment_events=(),
             asof_date=date(2027, 2, 15),
         )
@@ -1467,7 +1395,7 @@ def test_ttm_does_not_add_different_statement_bases(different_operand, current_b
     for rows in (records, list(reversed(records))):
         decoded = decode(rows)
         for field in ("sales", "operating_profit", "profit", "cfo"):
-            assert _ttm_value(decoded, field, load_screening_rules().ttm) == expected
+            assert _ttm_value(decoded, field, DEFAULT_TTM_RULES) == expected
         # Single-period reported facts remain usable; no raw value is rewritten.
         assert {row.sales for row in decoded} == {20, 100, 30}
 
@@ -1521,7 +1449,7 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
             1000,
             decode(ordered),
             None,
-            load_screening_rules().ttm,
+            DEFAULT_TTM_RULES,
             adjustment_events=(),
             asof_date=date(2026, 8, 15),
         )
@@ -1532,81 +1460,3 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
         assert result.operating_profit_loss_narrowing is None
         assert result.net_share_change_yoy == pytest.approx(-0.1)
         assert result.sales == 200
-
-
-@pytest.mark.parametrize("dps", [0, 7])
-def test_tied_fy_period_conflict_does_not_select_by_input_order(dps):
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
-        _latest_fy_revisions,
-    )
-
-    first = actual_document("full-year", DivAnn=str(dps), ShOutFY="1000", TrShFY="0")
-    short = {**first, "DiscNo": "short-year", "CurPerSt": "2025-10-01", "EPS": "40"}
-    for records in ([first, short], [short, first]):
-        rows = decode(records)
-        selected = _latest_fy_revisions(rows)
-        assert len(selected) == 1
-        assert selected[0].cumulative_eps is None
-        assert selected[0].dps_actual_annual == (0 if dps == 0 else None)
-        assert selected[0].shares_outstanding is None
-        assert {row.cumulative_eps for row in rows} == {20, 40}
-
-
-def test_tied_fy_basis_conflict_preserves_independent_issuer_dividend():
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
-        _latest_fy_revisions,
-    )
-
-    individual = actual_document("individual", DivAnn="7")
-    consolidated = {
-        **individual,
-        "DiscNo": "group",
-        "DocType": "FYFinancialStatements_Consolidated_JP",
-    }
-    for records in ([individual, consolidated], [consolidated, individual]):
-        selected = _latest_fy_revisions(decode(records))
-        assert selected[0].cumulative_eps is None
-        assert selected[0].dps_actual_annual == 7
-
-
-@pytest.mark.parametrize("problem", ["missing", "short", "inverted", "future", "basis"])
-@pytest.mark.parametrize("affected_index", [0, 2])
-def test_normalized_earnings_requires_comparable_completed_years(problem, affected_index):
-    records = [
-        document(
-            f"year-{year}",
-            day=f"{year}-05-15",
-            DocType="FYFinancialStatements_Consolidated_JP",
-            CurPerType="FY",
-            CurFYSt=f"{year - 1}-04-01",
-            CurFYEn=f"{year}-03-31",
-            CurPerSt=f"{year - 1}-04-01",
-            CurPerEn=f"{year}-03-31",
-            EPS="20",
-        )
-        for year in range(2022, 2027)
-    ]
-    rules = load_screening_rules().ttm
-    baseline = build_normalized_profit_signals(
-        decode(records), (), date(2026, 6, 1), close=1000, ttm_rules=rules
-    )
-    assert baseline.normalized_per_3fy == 50
-    assert baseline.normalized_per_5fy == 50
-    affected = records[affected_index]
-    year = 2022 + affected_index
-    if problem == "missing":
-        affected["CurPerSt"] = ""
-    elif problem == "short":
-        affected["CurPerSt"] = f"{year - 1}-10-01"
-    elif problem == "inverted":
-        affected["CurPerSt"] = f"{year}-04-01"
-    elif problem == "future":
-        affected["CurPerEn"] = f"{year + 1}-03-31"
-    else:
-        affected["DocType"] = "FYFinancialStatements_NonConsolidated_JP"
-    for ordered in (records, list(reversed(records))):
-        result = build_normalized_profit_signals(
-            decode(ordered), (), date(2026, 6, 1), close=1000, ttm_rules=rules
-        )
-        assert result.normalized_per_3fy == (50 if affected_index == 0 else None)
-        assert result.normalized_per_5fy is None

@@ -198,7 +198,7 @@ jobs/scripts/pull.sh
 
 machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者を同一transactionでは固定しないため、競合・検査失敗後のlocal stateを分析へ使わずfreshに取得し直す。applicationはbulk pullせずpull-appを使う。
 
-新しいモデル入力の補修は固定generationの未生成・欠測理由と該当source受領から対象を限定し、取得欠落を同じas-ofのsource取得で補う。verify-cache-coverageは旧較正入力の保守診断で、新候補の共通資格gateにしない。提供元のnullやL2計算不能を取得失敗とせず、値が埋まるまで全期間を再取得しない。
+新しいモデル入力の補修は固定generationの未生成・欠測理由と該当source受領から対象を限定し、取得欠落を同じas-ofのsource取得で補う。提供元のnullやL2計算不能を取得失敗とせず、値が埋まるまで全期間を再取得しない。
 
 <a id="article-acquisition"></a>
 ### 記事sourceのslot・差分統合（schema 49）
@@ -225,7 +225,7 @@ planning CAS失敗で残った原本も不変handoffから次回統合で発見�
 
 ### 日次統合前の記事原本を読む
 
-固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。
+固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。 Articleの原本読取は専用tableのshapeとreceipt/body digestを検証し、無関係なmarket schemaの版数では拒否しない。元SQLiteの版数・bytesは変更しない。
 
 ```bash
 uv run baibai-jobs article-evidence \
@@ -684,16 +684,16 @@ uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TI
 
 初回だけ、4 keyすべて不存在を確認してseed.shを使う。既存keyが一件でもあれば停止し、通常更新/復旧へ戻る。1〜3 keyの部分seedは、供用前・writerなし・対象exact keyを確認できた場合だけ初回復旧として扱い、通常pull/pushや無条件上書きで直さない。seed後のapplication更新はpull-appで正本と世代を取り直す。
 
-## 定期maintenance
+## 保存済み旧評価を読む
 
-較正は仮説・期間・利用先を明示した旧ER/FV・四Approachの研究/保守用で、新モデル/候補政策に月次再構築や旧context更新を要求しない。[意味・force・配布条件](../docs/reference/estimate-calibration.md)に従い、月次比較は前月までを同じrulesで扱う。
+旧ER/FV・四Approachと較正の再生成・再配布は廃止し、過去run・旧Selection・凍結contextの読取だけを残す。[保存値の意味と限界](../docs/reference/estimate-calibration.md)に従い、既存原本・store・identityを変更しない。
 
 ```bash
-uv run baibai-engine historical-evaluation calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-uv run baibai-engine historical-evaluation calibration-evaluate --out /tmp/calibration-evaluation.yaml
+uv run baibai-engine historical-evaluation run-show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
+uv run baibai-engine historical-evaluation candidates show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
 ```
 
-旧Selection用の配布更新だけはevaluateへ `--run-purpose empirical_change_evidence --decision-subject estimator_policy --required-asof <YYYY-MM-DD> --required-metric er_level_calibration --context-out <PUBLISHED_YAML>` を加える。目的・全対象月・metricを先に固定し、required-asofは各月分繰り返す。identity・期限・不足と配布差分をGit reviewし、記述context成功をformal evidence成立としない。context-out省略時は配布artifactを更新しない。
+## 定期maintenance
 
 PMIは公表翌週、TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な公開を行う。全履歴監査を定例化しない。依頼された注文結果は `measure_limit_outcomes` で測り、価格差を逸失利益や指値規律の因果効果としない。
 
