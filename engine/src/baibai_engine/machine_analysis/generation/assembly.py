@@ -122,6 +122,7 @@ def generate_models(
     )
     shared_plan: dict[str, GenerationSubject] = {}
     related: dict[str, tuple[str, ...]] = {}
+    industry_basis: dict[str, str] = {}
     if trends is not None:
         for fixed in (trends.social, *(item.inputs for item in trends.industries)):
             if (
@@ -141,6 +142,10 @@ def generate_models(
             subject = f"industry:{industry.definition.scope_id}"
             shared_plan[subject] = GenerationSubject(scope="sector", model_ids=("industry_trends",))
         industry_links = dict(trends.industry_links)
+        industry_basis = {
+            f"industry:{scope}": basis
+            for scope, basis in (trends.industry_membership_basis or {}).items()
+        }
         related = {
             ticker: tuple(
                 sorted(
@@ -159,6 +164,12 @@ def generate_models(
                     scope="stock",
                     model_ids=company_model_ids,
                     related_subjects=related.get(ticker, ()),
+                    related_subject_basis={
+                        subject: industry_basis[subject]
+                        for subject in related.get(ticker, ())
+                        if subject in industry_basis
+                    }
+                    or None,
                 )
                 for ticker in tickers
             },
