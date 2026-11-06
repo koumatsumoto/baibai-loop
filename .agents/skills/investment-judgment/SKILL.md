@@ -7,7 +7,7 @@ description: 人間の明示開始から有限対象を選び、Company Research
 
 採否は[doctrine](../../../docs/doctrine.md)、原典・モデル統合・価値・独立検証は[Stock Assessment](../../../docs/reference/stock-assessment.md)、行動/指値/数量/内容Reviewは[Trade Proposal](../../../docs/reference/trade-proposal.md)に従う。ここは操作と再開の入口で、全optionは各commandの`--help`を参照する。
 
-`<APP_DB>`は[application作業コピー](../../../jobs/OPERATIONS.md#application-db-を反映する)。DBと取得ETagを再開時も一組で保持する。machine pullはapplicationを含まない。
+`<APP_DB>`は[applicationの取得・再開手順](../../../jobs/OPERATIONS.md#application-db-を反映する)で用意する。
 
 ## 開始と固定対象
 

@@ -5,7 +5,7 @@ repository rootのBashから、依頼された対象だけを操作する。責�
 <a id="actions-write-boundary"></a>
 ## 実行前の確認
 
-通常取得・公開は既存Actions、個別application更新は認可環境の作業コピーと正規CLIを使う。開発変更を本番更新・課金・権限拡大・broker操作・未報告取引入力の許可へ読み替えない。code撤去も配備済みWorker/domain/credential/旧objectの削除ではない。
+通常取得・公開は既存Actions、個別application更新は認可環境の作業コピーと正規CLIを使う。環境接続や開発変更を本番更新・課金・権限拡大・broker操作・未報告取引入力の許可へ読み替えない。追加課金禁止の依頼ではrunner・storage・外部API・R2を含む課金経路を確認する。code撤去も配備済みWorker/domain/credential/旧objectの削除ではない。
 
 秘密・endpoint・原文・私有DB/原稿をGit、Issue、公開log/artifactへ出さない。取得/公開stepだけにR2・J-Quants/e-Stat/EDINETの既存secret、通知stepだけにDISCORD_WEBHOOK_URLを渡す。通常開発へwriter credentialを流用せず、認証/403/429を別経路・権限拡大で迂回しない。baibai-storesは非公開正本である。
 
