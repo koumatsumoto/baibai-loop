@@ -26,6 +26,7 @@ from baibai_jobs.acquisition.article_frontier import (
     bind_local_stage,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
+from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
 
 ARTICLE_SOURCES = tuple(SOURCES)
 TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})
@@ -65,6 +66,8 @@ class ArticlePlanning:
     requests: dict[str, dict[str, Any]] = field(default_factory=dict)
     cursor: dict[str, Any] = field(default_factory=dict)
     last_stage: dict[str, Any] | None = None
+    # Transient v1/v2 migration seed, written once into the next immutable stage.
+    legacy_pending: tuple[dict[str, Any], ...] | None = field(default=None, repr=False)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -85,8 +88,12 @@ class ArticlePlanning:
                 _clock(value)
         if len(self.requests) > MAX_REQUEST_STATES:
             raise ValueError("article request planning bound reached")
-        if self.last_stage is not None:
-            entry = self.last_stage
+        stages = (
+            self.legacy_pending
+            if self.legacy_pending is not None
+            else ((self.last_stage,) if self.last_stage is not None else ())
+        )
+        for entry in stages:
             if (
                 entry.get("source") != self.source
                 or entry.get("namespace") != ARTICLE_NAMESPACE
@@ -134,6 +141,9 @@ class ArticlePlanning:
             else value["pending"][-1]
             if value["pending"]
             else None,
+            legacy_pending=tuple(value["pending"])
+            if value["format"] != "article-planning-v3"
+            else None,
         )
         result.encoded()
         return result
@@ -143,30 +153,7 @@ def load_planning(store: ObjectStore, source: str) -> tuple[ArticlePlanning, str
     saved = read_private(store, source_key(source))
     if saved is None:
         raise LakePublishError("article planning input missing; publish inputs before acquisition")
-    state = ArticlePlanning.decode(saved.payload, source)
-    value = json.loads(saved.payload)
-    # Do not erase a legacy backlog reference unless its original is discoverable
-    # without this mutable summary. This check ends with the first v3 commit.
-    if value["format"] != "article-planning-v3":
-        for entry in value["pending"]:
-            if (
-                entry.get("source") != source
-                or entry.get("namespace") != ARTICLE_NAMESPACE
-                or entry.get("market") is not True
-            ):
-                raise ValueError("legacy article stage differs from its planning source")
-            original = read_private(
-                store,
-                stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE) + "/handoff.json",
-            )
-            if (
-                original is None
-                or hashlib.sha256(original.payload).hexdigest() != entry["manifest_sha256"]
-            ):
-                raise LakePublishError("legacy pending article manifest differs or is missing")
-            if json.loads(original.payload)["result"]["source"] != source:
-                raise ValueError("legacy pending article manifest belongs to another source")
-    return state, saved.etag
+    return ArticlePlanning.decode(saved.payload, source), saved.etag
 
 
 def publish_planning_input(store: ObjectStore, source: str, generations: dict[str, str]) -> None:
@@ -230,6 +217,9 @@ def commit_stage(
         "requests": requests,
         "cursor": cursor,
         "not_before": not_before,
+        # Bind to the snapshot used by this CAS, never a later competing writer.
+        "previous_stage": state.last_stage if state.legacy_pending is None else None,
+        **({"legacy_pending": state.legacy_pending} if state.legacy_pending is not None else {}),
     }
     write_json_atomic(directory / "result.json", report)
     # Never discard successfully received L1 when planning exceeds its bound.
@@ -285,6 +275,99 @@ def commit_stage(
     )
     put_private(store, source_key(state.source), candidate.encoded(), previous_etag=expected_etag)
     return entry
+
+
+def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
+    """Find raw independently; also detect breaks in each retained planning root.
+
+    References live in the existing raw manifests, not another index. L1 only
+    writes one parent; L2 follows the accepted history before filtering seals.
+    Missing roots or uncommitted orphans cannot prove completeness of history.
+    """
+    checks: list[tuple[Any, str, bool, dict[str, Any]]] = []
+    issues: dict[str, dict[str, Any]] = {}
+    # Read roots before LIST: a later L1 commit must not look like a missing raw
+    # merely because it was committed after the listing boundary.
+    for source in ARTICLE_SOURCES:
+        saved = read_private(store, source_key(source))
+        if saved is None:
+            continue
+        problem = {
+            "source": source,
+            "market": True,
+            "namespace": ARTICLE_NAMESPACE,
+            "stage_id": f"{source}-planning",
+            "manifest_sha256": "",
+        }
+        try:
+            state = ArticlePlanning.decode(saved.payload, source)
+            if state.legacy_pending is not None:
+                checks.extend((entry, source, False, problem) for entry in state.legacy_pending)
+            elif state.last_stage is not None:
+                checks.append((state.last_stage, source, True, problem))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            issues[str(problem["stage_id"])] = {**problem, "invalid": "invalid_planning_state"}
+    entries: list[dict[str, Any]] = [
+        dict(entry)
+        for entry in available_handoffs(
+            store, market=True, namespace=ARTICLE_NAMESPACE, include_integrated=True
+        )
+    ]
+    by_id = {str(entry["stage_id"]): entry for entry in entries}
+    seen = set()
+    while checks:
+        reference, source, linked, parent = checks.pop()
+        try:
+            if (
+                not isinstance(reference, dict)
+                or reference.get("source") != source
+                or reference.get("namespace") != ARTICLE_NAMESPACE
+                or reference.get("market") is not True
+                or not isinstance(reference.get("manifest_sha256"), str)
+            ):
+                raise ValueError("invalid article original reference")
+            stage_prefix(reference["stage_id"], namespace=ARTICLE_NAMESPACE)
+        except (ValueError, KeyError, TypeError):
+            parent["invalid"] = "invalid_article_reference"
+            issues[str(parent["stage_id"])] = parent
+            continue
+        identity = (reference["stage_id"], reference["manifest_sha256"], linked)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        entry = by_id.get(reference["stage_id"])
+        if entry is None:
+            issues[reference["stage_id"]] = {**reference, "invalid": "missing_article_original"}
+            continue
+        if entry["source"] != source or entry["manifest_sha256"] != reference["manifest_sha256"]:
+            entry["invalid"] = "article_original_differs"
+            issues[reference["stage_id"]] = {**reference, "invalid": "article_original_differs"}
+        if entry.get("invalid"):
+            continue  # Keep its existing error visible; do not invent missing parents.
+        if linked and "previous_stage" not in entry:
+            entry["invalid"] = "article_previous_stage_missing"
+            continue
+        if (previous := entry.get("previous_stage")) is not None:
+            checks.append((previous, source, True, entry))
+        legacy = entry.get("legacy_pending", [])
+        if not isinstance(legacy, list):
+            entry["invalid"] = "invalid_article_legacy_pending"
+            continue
+        checks.extend((item, source, False, entry) for item in legacy)
+    ready = {
+        str(entry["stage_id"]): entry
+        for entry in entries
+        if entry.get("invalid") or entry["integration"] is None
+    }
+    ready.update(issues)
+    return sorted(
+        ready.values(),
+        key=lambda entry: (
+            str(entry["source"]),
+            str(entry.get("started_at", "")),
+            str(entry["stage_id"]),
+        ),
+    )
 
 
 def _load_workset(

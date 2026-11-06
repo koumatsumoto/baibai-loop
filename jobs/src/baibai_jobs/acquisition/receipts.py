@@ -110,6 +110,15 @@ def available_handoffs(
                     "asof": report["asof"],
                     "integration": integrated,
                     **(
+                        {
+                            name: report["planning"][name]
+                            for name in ("previous_stage", "legacy_pending")
+                            if name in report["planning"]
+                        }
+                        if article and isinstance(report.get("planning"), dict)
+                        else {}
+                    ),
+                    **(
                         {"request_ids_complete": True}
                         if report.get("request_ids_complete") is True
                         else {}

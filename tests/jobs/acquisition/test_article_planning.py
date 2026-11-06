@@ -13,16 +13,13 @@ from baibai_jobs.acquisition.article_planning import (
     index_poll_due,
     is_due,
     load_planning,
+    pending_handoffs,
     publish_planning_input,
     slot_at,
     source_key,
 )
-from baibai_jobs.acquisition.receipts import available_handoffs, seal_integrated
+from baibai_jobs.acquisition.receipts import seal_integrated
 from baibai_jobs.maintenance.article_recovery import prepare
-
-
-def pending_handoffs(store):
-    return available_handoffs(store, market=True, namespace="article-sources")
 
 
 def test_six_wakeups_do_not_assume_a_fixed_tsr_launch_hour():
@@ -178,7 +175,7 @@ def test_legacy_backlog_does_not_stop_acquisition_and_keeps_only_latest_referenc
 
 @pytest.mark.parametrize("format_version", ["article-planning-v1", "article-planning-v2"])
 @pytest.mark.parametrize("damage", [None, "missing", "changed"])
-def test_legacy_transition_keeps_all_unprocessed_originals_or_keeps_old_reference(
+def test_legacy_transition_keeps_all_unprocessed_original_references(
     tmp_path, format_version, damage
 ):
     from baibai_jobs.acquisition.article_discovery import DISCOVERY_REF_FORMAT
@@ -215,12 +212,8 @@ def test_legacy_transition_keeps_all_unprocessed_originals_or_keeps_old_referenc
         del remote.values[key]
     elif damage == "changed":
         remote.store_object(key, b"changed original")
-    if damage:
-        with pytest.raises(LakePublishError, match="legacy pending article manifest"):
-            load_planning(remote, "boj_news")
-        assert remote.values[source_key("boj_news")] == saved
-        return
     state, etag = load_planning(remote, "boj_news")
+    assert remote.values[source_key("boj_news")] == saved
     assert state.last_stage == entries[-1]
     assert len(pending_handoffs(remote)) == 3
     root = tmp_path / "new"
@@ -237,7 +230,9 @@ def test_legacy_transition_keeps_all_unprocessed_originals_or_keeps_old_referenc
         not_before=None,
     )
     assert "pending" not in json.loads(remote.values[source_key("boj_news")].body)
-    assert len(pending_handoffs(remote)) == 4
+    found = pending_handoffs(remote)
+    assert len(found) == 4
+    assert len([entry for entry in found if entry.get("invalid")]) == int(damage is not None)
 
 
 def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path):
@@ -272,10 +267,11 @@ def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path):
         else:
             remote.store_object(source_key("boj_news"), b"broken mutable planning")
         remote.get_keys.clear()
-        (old,) = pending_handoffs(remote)
+        found = pending_handoffs(remote)
+        (old,) = [entry for entry in found if not entry.get("invalid")]
         assert old["stage_id"] == entries[0]["stage_id"]
         assert old["late_before_integrated"] is False
-        assert source_key("boj_news") not in remote.get_keys
+        assert (source_key("boj_news") in remote.get_keys) is not missing_planning
 
 
 @pytest.mark.parametrize(
@@ -320,7 +316,10 @@ def test_planning_budgets_utf8_without_dropping_japanese_evidence():
     legacy = ArticlePlanning("nhk_news", {}, cursor={"title": "以前の形式"})
     old_wire = {**legacy.to_json(), "format": "article-planning-v1", "pending": []}
     old_wire.pop("last_stage")
-    assert ArticlePlanning.decode(json.dumps(old_wire).encode(), "nhk_news") == legacy
+    assert (
+        ArticlePlanning.decode(json.dumps(old_wire).encode(), "nhk_news").to_json()
+        == legacy.to_json()
+    )
 
 
 def test_compact_planning_still_refuses_actual_byte_overflow():

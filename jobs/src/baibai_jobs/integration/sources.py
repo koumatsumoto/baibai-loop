@@ -36,6 +36,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
     ARTICLE_SOURCES,
+    pending_handoffs,
     publish_planning_input,
 )
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
@@ -401,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
                         entry
                         for entry in [
                             *available_handoffs(store, market=True),
-                            *available_handoffs(store, market=True, namespace=ARTICLE_NAMESPACE),
+                            *pending_handoffs(store),
                         ]
                         if not (
                             (

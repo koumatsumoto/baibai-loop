@@ -4,6 +4,7 @@ import json
 from contextlib import closing
 from datetime import datetime, timedelta
 
+import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -12,6 +13,7 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_planning import (
     load_planning,
+    pending_handoffs,
     publish_planning_input,
     source_key,
 )
@@ -19,7 +21,10 @@ from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed,
 from baibai_jobs.integration.article_handoff import import_handoff
 
 
-def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(tmp_path, monkeypatch):
+@pytest.mark.parametrize("drop_original", [False, True], ids=["retained", "missing_old_stage"])
+def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(
+    tmp_path, monkeypatch, drop_original
+):
     class Clock(datetime):
         current = SLOT
 
@@ -39,6 +44,7 @@ def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(tmp_path,
     lengths = []
     same_clock = []
     feed_bodies = []
+    stages = []
     for index in range(64):
         slot = SLOT + timedelta(hours=index * 4)
         # Two different 200s with the same receipt clock are both kept.
@@ -62,6 +68,7 @@ def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(tmp_path,
             session=session,
         )
         assert report["status"] == ("partial" if status == 403 else "completed")
+        stages.append(report["stage_id"])
         assert session.urls[0] == articles.SOURCES["boj_news"].entry_url
         with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
             for (encoded,) in conn.execute("SELECT receipt_json FROM article_source_receipts"):
@@ -90,6 +97,12 @@ def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(tmp_path,
                 if key in originals:
                     assert originals[key] == value.body
                 originals[key] = value.body
+        if drop_original and index == 42:
+            # Simulate external expiration of an earlier, non-baseline packet.
+            # L1 must keep receiving, and L2 must not mistake its loss for no work.
+            for key in list(store.values):
+                if key.startswith(f"coordination/article-sources/{stages[5]}/"):
+                    del store.values[key]
 
     # No L2 operation or acknowledgement occurred during these 64 slots.
     assert not any(key.endswith("integrated.json") for key in store.values)
@@ -104,9 +117,14 @@ def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(tmp_path,
         "http_error",
     }
     store.get_keys.clear()
-    ready = available_handoffs(store, market=True, namespace="article-sources")
+    ready = pending_handoffs(store)
     assert len(ready) == 64
     assert not any(key.endswith(".sqlite") for key in store.get_keys)
+    if drop_original:
+        (missing,) = [entry for entry in ready if entry.get("invalid")]
+        assert missing["stage_id"] == stages[5]
+        assert missing["invalid"] == "missing_article_original"
+        return
     planning = store.values[source_key("boj_news")]
 
     database = tmp_path / "canonical.sqlite"
@@ -116,7 +134,7 @@ def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(tmp_path,
         result = import_handoff("boj_news", database, packet)
         assert result.complete
         seal_integrated(store, entry, generations={}, recovery=False)
-    assert available_handoffs(store, market=True, namespace="article-sources") == []
+    assert pending_handoffs(store) == []
     assert store.values[source_key("boj_news")] == planning
     assert all(store.values[key].body == value for key, value in originals.items())
     with closing(connect_read_only(database)) as conn:
