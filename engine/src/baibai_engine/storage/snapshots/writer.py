@@ -214,8 +214,7 @@ def export_dataset_snapshot(
         raise ValueError("native lineage and its coverage must be provided together")
     if native_source is not None and dataset.layer != "l2_processed":
         raise ValueError("native lineage requires a derived L2 dataset")
-    if object_date_grain is not None and dataset.date_column not in dataset.primary_key:
-        raise ValueError("date-split objects require the date in the primary key")
+    object_date_grain = object_date_grain or dataset.object_date_grain
     if object_date_grain == "month" and dataset.primary_key[:1] != (dataset.date_column,):
         raise ValueError("month-split objects require the date as the first primary key")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
@@ -568,29 +567,21 @@ def validate_snapshot_parity(
         if source_periods != set(partitions):
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
-            # A date can follow the ticker in the logical key. Daily physical
-            # objects then overlap in key ranges, while their rows remain key-sorted.
-            # Read their actual date bounds so old whole-month objects keep the
-            # original order, including when their endpoint keys share one date.
-            date_index = (
-                dataset.primary_key.index(dataset.date_column)
-                if dataset.date_column in dataset.primary_key
-                else 0
-            )
-            date_first = bool(
-                date_index
-                and len(partition.objects) > 1
-                and all(
-                    _single_date_object(mirror_root / obj.key, dataset=dataset)
+            # Physical day objects need not have the date in the logical key.
+            # Their own bounds keep legacy whole-month objects in key order.
+            days = (
+                {
+                    obj.key: _object_date(mirror_root / obj.key, dataset=dataset)
                     for obj in partition.objects
-                )
+                }
+                if len(partition.objects) > 1
+                else {}
             )
+            date_first = bool(days) and all(day is not None for day in days.values())
             rows = _period_rows(connection, dataset, period, date_first=date_first)
             objects = sorted(
                 partition.objects,
-                key=lambda item: (
-                    (item.min_key[date_index], item.min_key) if date_first else ("", item.min_key)
-                ),
+                key=lambda item: (days[item.key] if date_first else "", item.min_key),
             )
             for obj in objects:
                 _validate_parquet(
@@ -824,8 +815,8 @@ def _period_rows(
         yield tuple(row)
 
 
-def _single_date_object(path: Path, *, dataset: LakeDataset) -> bool:
-    """Recognize daily objects without changing the existing manifest contract."""
+def _object_date(path: Path, *, dataset: LakeDataset) -> str | None:
+    """Read a daily object's actual date without changing the manifest contract."""
     index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
     try:
         with pq.ParquetFile(path, pre_buffer=False) as parquet:
@@ -833,14 +824,14 @@ def _single_date_object(path: Path, *, dataset: LakeDataset) -> bool:
             for group in range(parquet.metadata.num_row_groups):
                 statistics = parquet.metadata.row_group(group).column(index).statistics
                 if statistics is None or not statistics.has_min_max or statistics.null_count:
-                    return False
+                    return None
                 if statistics.min != statistics.max:
-                    return False
+                    return None
                 days.add(statistics.min)
-            return len(days) == 1
+            return str(next(iter(days))) if len(days) == 1 else None
     except (OSError, ValueError):
         # The normal object verification below owns missing/corrupt-file errors.
-        return False
+        return None
 
 
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:
