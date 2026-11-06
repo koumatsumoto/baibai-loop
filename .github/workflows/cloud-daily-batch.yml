@@ -158,7 +158,7 @@ jobs:
           ASOF: ${{ steps.source-plan.outputs.asof }}
         run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
-      # Core publication owns one fixed market release and economic snapshot.
+      # Core publication owns one fixed market release and native economic selection.
       # Web is not part of the engine's success or publication path.
       - name: Generate models and candidates, then publish the same fixed release
         id: batch
@@ -239,9 +239,19 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          jobs/scripts/r2_transfer.sh pull-app
-          uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
-          jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
+          # Validation errors may include private application payloads.
+          umask 077
+          set +e
+          (
+            set -e
+            jobs/scripts/r2_transfer.sh pull-app
+            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+            jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
+          ) > "$RUNNER_TEMP/portfolio-views-private.log" 2>&1
+          code=$?
+          set -e
+          printf 'portfolio_views_exit_code=%s\n' "$code"
+          exit "$code"
 
       - name: Release publication lease
         id: lease-release

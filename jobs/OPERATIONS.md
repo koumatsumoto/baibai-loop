@@ -36,7 +36,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 共通統合は全providerの完了を待たず、利用可能な受領を固定する。
 
 1. 経済L1を単独公開・読戻し・sealし、次回取得inputを発行する。
-2. marketのready受領を固定してsource別投影/EDINET抽出を行い、[model-integration](src/baibai_jobs/integration/models.py)が固定market releaseと独立economic snapshotからモデル/候補を保存し、同じreleaseを公開する。
+2. marketのready受領を固定してsource別投影/EDINET抽出を行い、[model-integration](src/baibai_jobs/integration/models.py)が固定market releaseと経済原本の固定selectionからモデル/候補を保存し、同じreleaseを公開する。
 3. 公開成功後だけ生成cache/候補を整理し、machine反映・readback・受領sealへ進む。
 
 source失敗は前回適格投影を保って他sourceを進め、モデル生成/公開失敗は後続machine反映を止める。model-integrationは外部取得/Web生成を呼ばず、後続のWeb表示もcore成功条件ではない。workflowの成否と公開済みrelease/storeの到達点を分けて確認する。
@@ -149,7 +149,7 @@ converter・専用publisherとこの一回手順は、本番切替・全input/�
 
 ### 経済L1の単独公開への切替
 
-経済正本は既存の`indicators.sqlite`一つで、market/runsのbundleから独立する。通常dailyの`economic_sources`はfresh正本と固定handoffだけを読み、採用・1世代backup・条件付きPUT・全bytes読戻しを終えてからsealと15取得groupのinputを発行する。TradingViewの明示MCP原本も経済namespaceの受入対象だが、定期取得inputには追加しない。各seal/input PUT直前に同じ経済ETagとleaseを再確認する。取得失敗runを保持できたことは取得成功ではなく、source失敗・明示history回復の必要はsource gapsとしてcheck/通知へ残す。モデルはこの読戻しcopyを固定して使い、後段L2失敗で経済L1を戻したり、経済を再PUTしたりしない。
+経済正本は既存の`indicators.sqlite`一つで、market/runsのbundleから独立する。通常dailyの`economic_sources`はfresh正本と固定handoffだけを読み、採用・1世代backup・条件付きPUT・全bytes読戻しを終えてからsealと15取得groupのinputを発行する。TradingViewの明示MCP原本も経済namespaceの受入対象だが、定期取得inputには追加しない。各seal/input PUT直前に同じ経済ETagとleaseを再確認する。取得失敗runを保持できたことは取得成功ではなく、source失敗・明示history回復の必要はsource gapsとしてcheck/通知へ残す。モデルは読戻しcopyから[固定selection](../docs/architecture.md#store-authority)を保存・再計算し、metadataや原本の検証失敗時はモデル/lakeを公開しない。後段L2失敗で経済L1を戻したり、経済を再PUTしたりしない。
 
 切替前に全旧writer（daily・手動push・待機中run）を停止し、実行中の終了を確認する。旧codeで未統合stageと部分machine pushを有限整理し、必要なschema12→13の上記cutover・input読戻しを完了してから、全writer/consumerを新codeへ同時に切り替える。旧writerと新writerを混在させない。新`pull-machine`/`push-machine`とmanifestはmarket/runsの2keyだけを扱う。旧manifestの余分なindicators欄は正本の根拠にせず、次の正常market公開で省かれる。経済の旧bytes・stage・1世代backupは削除しない。schema12 cutoverは旧3keyを照合する有限入口なので、この単独公開の再開後に再実行しない。未完の旧article cutover receiptも切替前に完了・整理し、新2keyのreceiptへ黙って読み替えない。
 
@@ -171,6 +171,8 @@ Matsui/TSRは原document全履歴をinputへ複写しない。schema13 envelope�
 
 - **Matsui:** 実取得日のcurrent pageを1 GETするため、document・受領履歴・runなしの明示空seed。正本schemaを検証して発行し、原本不在やinput欠落の自動初期化を意味しない。
 - **TSR倒産件数:** complete JSONの本文を除き、run範囲・成功/失敗・native coverageを残す。recent/outage/未完了広範囲の判定を最新成功日だけへ縮約しない。run metadataが増えれば再発行し、固定bytes量とはしない。
+
+PMI/UMich/ECBは先行配布した両形式readerに対してv1 planning inputを発行する。PMIはURL/月/phase、UMich/ECBは空を含む受領日集合とrun/confirmation metadataから同じ取得計画を作り、過去本文はcanonical原本に残す。発行切替前に旧readerを使う実行中・待機runを終え、運用CLIをreader-first版以降へ揃える。旧SHAを再実行しない。両形式readerへ配布済みなら、旧writerによる旧形式の再発行も読める。共通経済統合は新受領がなくても全15groupを再発行し、groupごとの失敗では旧pointerを保って次の通常統合で再開する。原本・旧input/stageを削除せず、FRED packやschema移行と一括にしない。
 
 通常発行後はgeneration・同値再利用・次受領とfresh正本の受入を確認する。新受領の原文/URL/params/実時計はhandoff、同値/訂正/遅着の比較とL2再生成は保持正本が担う。旧input/stageと参照先は有効な間保持し、削除・retention変更を伴わない。経済正本全体の転送・source別object化は残作業（refs #1820）。
 
@@ -538,7 +540,7 @@ receipt再生成で復旧する場合だけ、対象がbucket直下のmutable ma
 
 ## 指標観測とregistryの修正
 
-原本が誤っていればsource訂正取得または明示再構築。local DELETEをcloud mergeによる訂正に使わない。系列追加/退役/改名や式変更はL2定義を直し、外部取得条件を変える場合だけData Collectionも直す。原本から再計算できる変更へ再取得・scalar撤回・registry世代台帳を要求しない。
+原本訂正はsourceの再取得か明示再構築で行い、local DELETEをcloud mergeへ流さない。系列の追加・退役・改名や式変更はL2定義、外部取得条件の変更だけData Collectionを直す。式変更だけで再取得・scalar撤回・registry世代台帳を要求しない。
 
 ```bash
 uv run baibai-jobs acquire-economic list
@@ -547,73 +549,58 @@ uv run baibai-engine market-context reading --asof <YYYY-MM-DD>
 uv run baibai-jobs validate-market-context-stores
 ```
 
-最後のcommandは原本storeのpayload・record count等を確認する。L2数式の証明やL3全履歴検査ではない。原本更新だけpush-indicatorsへ進み、式変更だけなら不要。明示CLI取得では実際の最新受領を失わないようにする。FREDは同値確認を本文から分離し、fresh正本との比較で変更と確認を統合する。他sourceでは作業copyと同値の実受領も保存・発行し、全履歴取得では同値・空応答の行も増えるため必要なsourceと期間へ限定する。取得失敗でcommit済み原本を取り消さず、L2欠測を直すため全取得を繰り返さない。
+validateは原本payload・件数等の検査で、L2数式やL3全履歴の証明ではない。原本更新時だけpush-indicatorsへ進む。[FREDの同値確認](#fred確認stateと経済schema-1213の切替)はfresh正本へ統合し、他sourceは同値・空応答も実受領として発行する。全履歴取得は必要なsourceと期間に限り、失敗でcommit済み原本を取り消さず、L2欠測のため全取得を繰り返さない。
 
-optionsのall-historyは保存済み古い日を再利用して直近と不足日を取得する。古い訂正は日付範囲を明示する。購読rolling境界の提供不能を示し、空応答と途中失敗を区別する。式変更だけでrawを再取得しない。
+optionsのall-historyは保存済み古い日を再利用し、直近と不足日を取得する。古い訂正は日付範囲を明示する。購読rolling境界の提供不能、空応答、途中失敗を区別する。
 
 PMI manifestは公表翌週にdry-run→更新→対象月refresh→公表値照合→commitする。
-
-PMIは既存のprovider別jobで分離済み。確認済みのHTTP 403だけで取得が止まり、private受領の保存が成功した場合は、取得失敗・HTTP status・欠測を残したままDiscordの繰返し失敗通知だけを省略する。Actionsは成功に変えず、ログにUNAVAILABLEを表示する。403を未公表と推測せず、空応答・manifest不足・parse失敗・429・5xx・保存失敗・取消は従来どおり通知する。公表前の当月値を要求するためのjobや日程台帳は追加しない。
 
 ```bash
 uv run python -m tools.pmi_manifest --dry-run
 uv run python -m tools.pmi_manifest
 ```
 
-PDF自身のPMI名・embargo月・対象headline月を確認し、月の穴を飛び越えない。indexの最新月以前はarchive snapshotからrelease IDを辿り、既存月と照合する。翌月PDFの明示restateを使う時も元の対象月を保つ。URL訂正と同URL本文差替えを区別し、抽出式だけなら保存PDFを再読する。
+PDFのPMI名・embargo月・headline対象月を照合する。indexの最新月以前はarchive snapshotのrelease IDで既存月を確認し、穴を飛ばさない。翌月PDFのrestateも元対象月を保つ。URL訂正と同URL本文差替えを分け、抽出式だけなら保存PDFを再読する。
+
+provider別jobは、失敗が確認済みHTTP 403だけでprivate受領保存に成功した場合のみDiscord通知を省略する。失敗status・欠測・Actions失敗は残し、ログはUNAVAILABLE。403を未公表と推測せず、他の失敗・取消は通知する。公表前の当月値を要求するjobや日程台帳は足さない。
 
 <a id="edinet-metrics-revision"></a>
 ## EDINET metricsの意味変更
 
-[抽出意味revision](../docs/reference/data-sources.md#edinet-metric-revision)を変える時だけ実施する。Company Research facts revisionとは別。隔離コピーで保持CSV ZIPを再抽出し、期待差分・quality/failure・coverageを確認する。
+[抽出意味revision](../docs/reference/data-sources.md#edinet-metric-revision)変更時だけ実施し、Company Research facts revisionと区別する。隔離コピーで保持CSV ZIPを再抽出し、期待差分・quality/failure・coverageを確認する。
 
-main反映とwriterの非競合を確認し、同じlease内でfresh pull/hydrate→比較元backup→extract-edinet-metrics→publish-lake→push-market→固定release読戻しを行う。原本不足で取得が必要な時だけrefresh-edinet-metricsを使う。対象as-ofを指定し、保存値とrevision・store-local情報の整合を確認する。
+main反映とwriter非競合を確認し、同じlease内でfresh pull/hydrate→比較元backup→extract-edinet-metrics→publish-lake→push-market→固定release読戻しを行う。原本取得が必要な時だけrefresh-edinet-metricsを使う。対象as-ofと保存値・revision・store-local情報を照合する。
 
-期待外差分、取得失敗、世代競合、lease失効で後段を止める。準備コピーを本番へ戻さず、再抽出後にhydrateせず、旧値のrevisionだけを付け替えない。通常dailyへ意味移行を代行させない。
+期待外差分、取得失敗、世代競合、lease失効で後段を止める。準備コピーの本番復元、再抽出後のhydrate、旧値のrevision付替え、通常dailyによる意味移行は行わない。
 
 <a id="edinet-source-archives"></a>
 ## JPX決算PDFの表示額による補完
 
-詳細APIの未契約を契約変更で解消せず、実際に取得したJPX決算PDFを明示的に取り込める。
-`financial-pdf-source --receipts <JSON> --directory <NEW_PRIVATE_DIRECTORY>`はHTTPを行わず、
-新しい有限handoffへ保存する。JSONは1〜8件の配列で、各要素に`requested_url`、`file`（JSONからの相対path）、
-`sha256`、`request_started_at`、`captured_at`、`http_status: 200`、`content_type: application/pdf`を持つ。
-時刻は実際の取得ログのtimezone付きUTCで、`captured_at`は本文保存・hash計算を含み得る記録上の取得完了時刻。
-ファイルmtime、公表日、移行実行時刻から受領時刻を作らない。原本・URL・hashは取り込み前に照合する。
+契約を変えず、既知の公開URLから取得済みのPDFを明示取り込みする。通常dailyの自動取得には追加しない。
 
-保存先は既存JPX原受領bundleの`financial_statements` collectionで、schema移行や既存原本の書換えは不要。
-明示handoffは`python -m baibai_jobs.integration.source_handoff stage --source jpx-financial-pdfs
---directory <DIRECTORY> --stage-id <NEW_ID>`から通常の共通統合・固定release・モデル生成へ渡す。
-このsourceを通常dailyの自動取得へ追加せず、既知の公開URLだけを対象にする。
+`financial-pdf-source --receipts <JSON> --directory <NEW_PRIVATE_DIRECTORY>`はHTTPなしで新しい有限handoffを作る。JSONは1〜8件の配列で、各要素は`requested_url`、`file`（JSONからの相対path）、`sha256`、`request_started_at`、`captured_at`、`http_status: 200`、`content_type: application/pdf`。原本・URL・hashを事前照合する。時刻は実取得ログのtimezone付きUTCで、captured_atは本文保存・hash計算を含み得る完了時刻。mtime・公表日・移行時刻から作らない。schema移行・既存原本書換えは不要。
 
-明示的に取得した株式交付・普通株転換の完了開示は同じreceipt形式を使い、`--collection capital_actions`で別collectionへ保持し、`--source jpx-capital-actions`でstageする。対応形式は抽出ownerが限定し、不対応PDFも原本は保持して未解決として報告する。取得網羅性は保証しない。完了報告の発行済普通株数だけでは同日時点の自己株数を推測せず、時価総額・利益利回りの未確定を候補側に渡す。
+既存JPX原受領bundleの`financial_statements`を`python -m baibai_jobs.integration.source_handoff stage --source jpx-financial-pdfs --directory <DIRECTORY> --stage-id <NEW_ID>`で共通統合・固定release・モデル生成へ渡す。株式交付・普通株転換の完了開示は同じreceipt形式に`--collection capital_actions`と`--source jpx-capital-actions`を使う。不対応PDFも保持し未解決とする。取得網羅性を保証せず、発行済株数だけで同日時点の自己株数を推定しない。
 
-IFRS連結・百万円未満切捨て・前年組替の明記がある二列表と、p1六科目集約表が一致する形式を読む。
-日本基準は、遡及修正を明記したQ1の百万円集約表と、同日公表の通期予想修正資料内の「前期連結実績」を読む。予想値を実績へ転用せず、参考実績の丸め方が未記載なら不明のまま保持する。現行対応形式・不受入理由の正本は抽出ownerにある。
-訂正も完全な対応表があれば原観測として保持し、対応外・矛盾は理由付き欠測にする。
-`pdf_supplement`は文書vintageを残す補助表示、`pdf_selection`は保持開示一覧内の最新期・訂正を先に固定した選択である。
-最新のJ-Quants開示ID・公表日・期・basisとPDFを照合し、当期額は精密値の百万円切捨てと一致させる。
-同日不明順序・本文競合・未取得の最新訂正から古いPDFへ戻らない。後続期へ古いPDFのTTMをcarryしない。
-採用時は同じ選択を企業財務の利益/売上/営業利益TTM・倍率と企業成長の当期/比較・TTMへ渡し、
-精度を表示額由来（approximated）として残す。EPSは円利益の合成後に自己株控除後株数で一度だけ割る。
-同一期の最新訂正PDFが欠ける場合は旧PDF/旧比較で年間額を作らず、当期報告や独立した株数・価格は残す。
-年度operandに限り、最新訂正の同一期間・basisの3金額が元J-Quants開示から全て不変なら、旧PDFの当期欄を採用し、最新訂正IDと不変確認を記録する。当期短信の比較欄へこの例外を使わない。年度訂正で金額が変わり現在の比較短信より後なら、未照合のvintageを混ぜない。
-未取得訂正の網羅を保証せず、保存入力内の選択と明示する。PDFなしの企業の既存計算は変えない。
-旧保存結果は再serializeせず、新しいgenerationで反映する。fixture CI・保存実PDF照合・母集団差分・固定release読戻しを区別する。
+対応形式・不受入理由は[抽出owner](../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_statements.py)、採用は[選択owner](../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_selection.py)に従う。予想を実績へ転用せず、丸め方不明は残す。文書vintageの補助表示と最新期・訂正を先に固定する選択を区別し、企業財務/成長で同じ選択を使う。表示額由来の近似で、EPSは円利益合成後に自己株控除後株数で一度だけ割る。
+
+同日順序不明・本文競合・最新訂正欠測を旧PDF/比較で埋めず、後続期へ旧TTMをcarryしない。年度の当期額だけは、選択ownerで不変を確認した旧PDFを使える。最新訂正の比較欄まで確認済みとしない。未照合vintageを混ぜず、独立した当期報告・株数・価格は残す。選択は保持入力内で、未受領訂正の網羅を保証しない。
+
+旧保存結果を再serializeせず、新generationで反映する。fixture CI、保存実PDFとの照合、母集団差分、固定release読戻しは別に確認する。
 
 ## EDINET原本とCompany Research facts
 
-原本再利用は明示したmarket SQLiteのedinet_source_archivesから行い、以前の端末ZIPを暗黙に取り込まない。stored_onは初回保存UTC日で開示・初回利用可能日ではない。受領ZIPとL2の選択文書・metricsを混同せず、取得エラーで既存ZIPを上書きしない。
+明示market SQLiteのedinet_source_archivesを使い、端末ZIPを暗黙に取り込まない。stored_onは初回保存UTC日で、公表・初回利用可能日ではない。受領ZIPとL2の選択文書・metricsを分け、取得失敗で既存ZIPを上書きしない。
 
 <a id="edinet-research-facts"></a>
-未初期化storeだけ、整合する隔離marketとdocument inventoryを指定して初期抽出する。
+未初期化storeだけ、整合する隔離marketとdocument inventoryで初期抽出する。
 
 ```bash
 uv run baibai-jobs maintain-market refresh-edinet-facts \
   --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
 ```
 
-失敗後は同commandで再開し、ok書類を再取得しない。保存原本だけの再計算はextract-edinet-facts。ticker限定は全体initializedを作らない。未対応形式の理由付きokと取得/破損のfailedを区別し、代表原典、missing reasons、export/hydrateを確認してcode・L1・coverageを一組で反映する。
+失敗後は同commandで再開してok書類を再取得せず、保存原本だけの再計算はextract-edinet-factsを使う。ticker限定では全体initializedを作らない。未対応形式の理由付きokと取得/破損のfailedを分け、代表原典・missing reasons・export/hydrateを確認してcode・L1・coverageを一組で反映する。
 
 dailyは未初期化をskipし、初期化後の新規年次/訂正を独立処理する。最新訂正失敗を旧版で埋めず、failed docIDの原因を直して再開する。利用側の選択は[固定release](#edinet-research-query)に従う。
 

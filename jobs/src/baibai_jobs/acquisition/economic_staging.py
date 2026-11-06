@@ -8,12 +8,22 @@ import json
 import re
 from pathlib import Path
 
+from baibai_engine.data_collection.receipts.native_sources.planning_inputs import (
+    validate_planning_input,
+)
 from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
 from baibai_jobs.acquisition.dependencies import save_dependencies
+
+_PLANNING_INPUT_GROUPS = {
+    "pmi-acquisition-input-v1": "economic-spglobal_pmi",
+    "umich-acquisition-input-v1": "economic-umich_sca",
+    "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
+}
+_PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
@@ -37,6 +47,14 @@ def save_handoff(
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
+    receipt_format = (
+        _PLANNING_INPUT_FORMATS.get(input_group or "") if namespace == "source-inputs" else None
+    )
+    receipt_field = "planning_key" if receipt_format else "receipt_key"
+    if receipt_format:
+        if market:
+            raise ValueError("planning input is not a market receipt handoff")
+        validate_planning_input(path, _PLANNING_INPUT_GROUPS[receipt_format])
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -47,7 +65,7 @@ def save_handoff(
     if reusable_receipt is not None and reusable_receipt.get("receipt_sha256") == digest:
         if namespace != "source-inputs" or input_group is None:
             raise ValueError("receipt reuse is limited to scoped source inputs")
-        reusable_receipt_key = reusable_receipt.get("receipt_key")
+        reusable_receipt_key = reusable_receipt.get(receipt_field)
         pattern = (
             rf"coordination/source-inputs/{re.escape(input_group)}-"
             rf"[A-Za-z0-9_-]+/receipts-{digest}\.sqlite"
@@ -79,10 +97,13 @@ def save_handoff(
         raise LakePublishError("source private receipt write mismatch")
     value: dict[str, object] = {
         "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
-        "receipt_key": key,
+        receipt_field: key,
         "receipt_sha256": digest,
         "receipt_bytes": size,
     }
+    if receipt_format:
+        # Pre-reader-first code must fail rather than silently broaden recovery.
+        value["receipt_format"] = receipt_format
     if market:
         value["dependencies"] = save_dependencies(store, prefix, directory)
     manifest = json.dumps(value, sort_keys=True).encode()
@@ -109,6 +130,19 @@ def load_handoff(
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
+    receipt_format = manifest.get("receipt_format") if isinstance(manifest, dict) else None
+    planning_group = (
+        _PLANNING_INPUT_GROUPS.get(receipt_format) if isinstance(receipt_format, str) else None
+    )
+    if planning_group is not None:
+        if (
+            market
+            or namespace != "source-inputs"
+            or input_group != planning_group
+            or "receipt_key" in manifest
+        ):
+            raise ValueError("planning input is not a source receipt handoff")
+        manifest["receipt_key"] = manifest.get("planning_key")
     if (
         not isinstance(manifest, dict)
         or not isinstance(manifest.get("receipt_sha256"), str)
@@ -140,5 +174,7 @@ def load_handoff(
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
         raise LakePublishError("source handoff receipt content differs")
+    if planning_group is not None:
+        validate_planning_input(path, planning_group)
     path.chmod(0o600)
     (directory / "result.json").write_text(json.dumps(manifest["result"]), encoding="utf-8")

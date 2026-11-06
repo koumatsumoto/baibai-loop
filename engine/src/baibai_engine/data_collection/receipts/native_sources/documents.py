@@ -26,6 +26,17 @@ class SourceDocument(SourceDocumentMetadata):
     payload: bytes
 
 
+PMI_INPUT_TABLE = "economic_pmi_input_documents"
+PMI_INPUT_COLUMNS = (
+    "source_id",
+    "request_key",
+    "fetched_at",
+    "source_url",
+    "content_type",
+    "metadata",
+)
+
+
 def store_document(connection: sqlite3.Connection, document: SourceDocument) -> bool:
     """Stage one received body; the acquisition caller owns the transaction."""
     if document.fetched_at.tzinfo is None or document.fetched_at.utcoffset() is None:
@@ -108,25 +119,35 @@ def read_document_rows(
 def read_document_metadata(
     connection: sqlite3.Connection, source_id: str
 ) -> Iterator[SourceDocumentMetadata]:
-    """Plan and reacquire from receipt scope without loading retained document bodies."""
-    rows = connection.execute(
-        "SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "
-        "c.content_type, c.metadata FROM economic_source_documents c "
-        "WHERE c.source_id = ? AND c.fetched_at = ("
-        "SELECT MAX(n.fetched_at) FROM economic_source_documents n "
-        "WHERE n.source_id = c.source_id AND n.request_key = c.request_key) "
-        "ORDER BY c.request_key",
-        (source_id,),
-    )
-    for source_id, key, fetched_at, url, content_type, raw_metadata in rows:
-        yield SourceDocumentMetadata(
-            source_id=source_id,
-            request_key=key,
-            source_url=url,
-            content_type=content_type,
-            fetched_at=datetime.fromisoformat(fetched_at),
-            metadata=_decode_metadata(raw_metadata),
+    """Combine fixed planning metadata with newer real receipts, without reading bodies."""
+    tables = ["economic_source_documents"]
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (PMI_INPUT_TABLE,)
+    ).fetchone():
+        tables.insert(0, PMI_INPUT_TABLE)
+    latest: dict[str, SourceDocumentMetadata] = {}
+    for table in tables:
+        rows = connection.execute(
+            f"SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "  # nosec B608
+            f"c.content_type, c.metadata FROM {table} c "
+            "WHERE c.source_id = ? AND c.fetched_at = ("
+            f"SELECT MAX(n.fetched_at) FROM {table} n "
+            "WHERE n.source_id = c.source_id AND n.request_key = c.request_key)",
+            (source_id,),
         )
+        for stored_source, key, fetched_at, url, content_type, raw_metadata in rows:
+            item = SourceDocumentMetadata(
+                source_id=stored_source,
+                request_key=key,
+                source_url=url,
+                content_type=content_type,
+                fetched_at=datetime.fromisoformat(fetched_at),
+                metadata=_decode_metadata(raw_metadata),
+            )
+            prior = latest.get(key)
+            if prior is None or item.fetched_at >= prior.fetched_at:
+                latest[key] = item
+    yield from (latest[key] for key in sorted(latest))
 
 
 def _decode_metadata(raw: str) -> Mapping[str, object]:

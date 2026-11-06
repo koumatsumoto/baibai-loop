@@ -88,6 +88,6 @@ L2は必要投影と不変object/metadataを再利用し、原本本文や全履
 
 経済固定入力v2のnative期間はReadingと同じ規則から取り、derivedの再帰・月初拡張と共有sourceの窓を合成する。flowsは観測期間ではなく公表cutoff以前の全原本、Matsui/PMI等の文書は窓外の不正・訂正も結果に影響するため全latestを保つ。全体collectionの確認digestはprovenanceに残し、部分projectionを完全collectionとは扱わない。capture時のFRED全体整合検証は引き続き全anchorを読むため、一律のbounded I/O保証ではない。v1を新しい窓へ黙って読み替えない。
 
-この経済APIはofflineの実装sliceで、通常dailyの`sqlite_snapshot`を置き換えていない。現行canonicalに旧原本が残ることが必要で、原本のobject別取得・全generationのexact再生・過去の市場PITは保証しない。実データの保持・容量・時間確認とgenerationへの接続は #1820 の残作業。計算用の一時projectionは公開・mergeせず、保存判断やL2を原本の代わりにしない。
+通常Generationもこの経済固定入力から計算し、market seal後に固定した評価時刻・対象日を入力と共有する。日次の経済DB全体copyとhash-only identityは作らず、原本は既存の経済正本`indicators.sqlite`、共有metadataは`fixed-inputs/economic/`に残す。冷再計算は保存Generationのeconomic identityと保持中の原本から同じ文脈を作り、計算用の一時projectionを公開・mergeしない。旧`sqlite_snapshot`世代の保存結果は読めるが、hashだけから失われた旧DBを復元したりnative固定入力へ昇格させたりしない。原本のobject別取得・全Generationのexact再生・過去の市場PITは保証せず、実データの保持・容量・時間確認は #1820 に残る。
 
 module/CLI名と保存identityは別契約。配置変更でkey/table/path/model ID/JSON/hash/意味revisionを変えない。原本bytes・受領時刻・source identity、null/0・既知の不足と、価格日/対象期間/公表日/cutoffを保持する。固定snapshotはintraday PITを保証せず、過去再現には当時のcode/入力も必要。古い実装を現行経路へ復活させない。環境と検証は[development](development.md)、文書整理は[documentation](documentation.md)へ進む。

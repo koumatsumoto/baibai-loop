@@ -7,7 +7,6 @@ import json
 import os
 import sqlite3
 import sys
-import tempfile
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -18,7 +17,10 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
 from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
-from baibai_engine.machine_analysis.generation.contracts import InputSnapshot as ModelInputSnapshot
+from baibai_engine.machine_analysis.generation.economic_inputs import (
+    rebuild_economic_input,
+    retain_economic_input,
+)
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
@@ -38,8 +40,6 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
-from baibai_engine.storage.snapshots.sources import sha256_file
-from baibai_engine.storage.sqlite.snapshot import create_snapshot
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
@@ -81,15 +81,15 @@ def integrate_models(
         with sqlite3.connect(market) as connection:
             connection.execute("DELETE FROM jquants_fin_summaries")
             connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
-    with (
-        prepare_market_lake(
-            sqlite_path=market, mirror_root=mirror, store=store, as_of=as_of
-        ) as prepared,
-        tempfile.TemporaryDirectory(prefix=".model-economic-", dir=mirror) as directory,
-    ):
-        economic_copy = Path(directory) / "economic.sqlite"
-        create_snapshot(economic, economic_copy)
-        digest = sha256_file(economic_copy)
+    with prepare_market_lake(
+        sqlite_path=market, mirror_root=mirror, store=store, as_of=as_of
+    ) as prepared:
+        evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
+        economic_input = rebuild_economic_input(
+            store,
+            economic,
+            retain_economic_input(store, economic, as_of=as_of, evaluation_time=evaluation_time),
+        )
         generation = read_and_generate_models(
             generation_id=f"models-{prepared.release.release_id}",
             market_snapshot=prepared.source_snapshot,
@@ -97,12 +97,9 @@ def integrate_models(
                 release_id=prepared.release.release_id,
                 manifest_sha256=prepared.release_sha256,
             ),
-            economic_path=economic_copy,
-            economic_identity=ModelInputSnapshot(
-                kind="sqlite_snapshot", reference=f"economic-{digest[:24]}", sha256=digest
-            ),
+            economic_input=economic_input,
             as_of=as_of,
-            evaluation_time=max(evaluated_at, prepared.source_snapshot.sealed_at),
+            evaluation_time=evaluation_time,
             ttm_rules=DEFAULT_TTM_RULES,
             growth_start=growth_start,
             financial_input=financial_input,
@@ -137,7 +134,7 @@ def integrate_models(
         "candidate_count": len(selection.result.tickers),
         "screening_price_inputs": evaluation.price_inputs,
         "growth_start": None if growth_start is None else growth_start.isoformat(),
-        "economic_snapshot_sha256": digest,
+        "economic_input_sha256": economic_input.identity.sha256,
         "lake": publication.as_dict(),
     }
 
