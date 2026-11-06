@@ -14,9 +14,9 @@ from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
-from baibai_engine.machine_analysis.historical_evaluation.grid import month_end_asof_grid
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+from baibai_jobs.maintenance.market.grid import month_end_asof_grid
 
 
 def backfill_native_master(args: argparse.Namespace, *, sqlite_path: Path) -> int:

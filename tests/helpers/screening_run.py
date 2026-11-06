@@ -10,12 +10,6 @@ from typing import Any
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
     APPROACH_IDS,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
-    production_rules_contract_hash,
-)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
 
@@ -26,7 +20,7 @@ class _Omitted:
 
 OMIT = _Omitted()
 
-RULES_HASH = production_rules_contract_hash(load_screening_rules().model_dump_json())
+RULES_HASH = "b95d85a60bbd7a83"
 MODEL_ID = "expected-return-v1"
 
 

@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 import yaml
-from tests.helpers.legacy_candidates import GOLDEN, _analysis, _publish, _run
+from tests.helpers.legacy_candidates import _analysis, _publish, _run
 from tests.helpers.screening_run import saved_candidate
 
 import baibai_engine.storage.sqlite.machine_analysis as machine_store
@@ -23,13 +22,9 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_s
     ScreeningRunStore,
     initialize_run_store,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.schema import (
-    StockAnalysis,
-)
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
     published_run_payload,
     serialize_published_run_yaml,
-    stock_analysis_payload,
 )
 from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
 
@@ -253,50 +248,6 @@ def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
         initialize_run_store(legacy)
     with pytest.raises(RuntimeError, match="explicit migration"):
         ScreeningRunReader(legacy).get_run("absent")
-
-
-def test_stock_analysis_schema_and_serializer_keep_original_numeric_rounding() -> None:
-    analysis = StockAnalysis(
-        ticker="1111",
-        name="合成会社",
-        sector_33="合成業種",
-        per_forward=10.005,
-        per_trailing=11.999,
-        pbr=0.855,
-        ev_ebitda=5.15,
-        p_s=1.234,
-        pcfr=9.99,
-        ttm_quality={},
-        market_cap_oku=99,
-        avg_turnover_oku=1.25,
-        price_history_span_days=20,
-        metrics={
-            "er_annual": 0.123456,
-            "normalized_per_3fy": 10.123456,
-            "forecast_special_gain_flag": False,
-            "unknown": None,
-        },
-    )
-    # The golden keeps the original saved shape; replay no longer rebuilds unused market fields.
-    expected = {
-        key: value
-        for key, value in GOLDEN["rounded_analysis"].items()
-        if key
-        not in {
-            "price_change_1d",
-            "price_change_5d",
-            "price_change_20d",
-            "turnover_spike_5d",
-            "sector_relative_strength_percentile",
-        }
-    }
-    assert stock_analysis_payload(analysis) == {**expected, "candidate": None}
-    assert analysis.candidate is None
-    with pytest.raises(
-        ValueError,
-        match="finite",
-    ):
-        StockAnalysis(**{**asdict(analysis), "per_forward": float("inf")})
 
 
 @pytest.fixture

@@ -206,17 +206,9 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
 
 
 def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path: Path) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-        load_screening_rules,
-    )
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
-        production_rules_contract_hash,
-    )
 
-    rules_json = load_screening_rules().model_dump_json()
-    old_hash = production_rules_contract_hash(rules_json, universe_scope_revision="")
-    current_hash = production_rules_contract_hash(rules_json)
-    assert old_hash != current_hash
+    old_hash = "retained-pre-scope-identity"
+    current_hash = "saved-later-scope-identity"
     payload = context_artifact(rules_hash=old_hash)
     path = tmp_path / "old-scope-context.yaml"
     _write(path, payload)
@@ -234,26 +226,10 @@ def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path:
 @pytest.mark.parametrize("scope_revision", ["", "valid-price-one-bar-v2"])
 @pytest.mark.parametrize("partial", [False, True], ids=["complete", "partial"])
 def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope_revision: str, partial: bool
+    tmp_path: Path, scope_revision: str, partial: bool
 ) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-        load_screening_rules,
-    )
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
-        production_rules_contract_hash,
-    )
-    from baibai_engine.machine_analysis.models.company_financials.metrics import financial_snapshot
-
-    rules_json = load_screening_rules().model_dump_json()
-    with monkeypatch.context() as previous:
-        previous.setattr(
-            financial_snapshot, "VALUATION_CALCULATION_REVISION", "same-profit-basis-yoy-v25"
-        )
-        old_hash = production_rules_contract_hash(
-            rules_json, universe_scope_revision=scope_revision
-        )
-    current_hash = production_rules_contract_hash(rules_json)
-    assert old_hash != current_hash
+    old_hash = f"retained-dividend-identity:{scope_revision}"
+    current_hash = "saved-later-dividend-identity"
     payload = context_artifact(rules_hash=old_hash)
     if partial:
         # Schema 4 may expose price while total return is unobserved. That does
@@ -290,41 +266,12 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
 
 
 def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp_path) -> None:
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-        load_screening_rules,
-    )
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
-        production_rules_contract_hash,
-    )
 
-    current = load_screening_rules()
-    old = current.model_copy(
-        update={
-            "candidate_discovery": current.candidate_discovery.model_copy(
-                update={
-                    "common_eligibility": current.candidate_discovery.common_eligibility.model_copy(
-                        update={"min_market_cap_oku": 100.0}
-                    )
-                }
-            )
-        }
-    )
-    new = old.model_copy(
-        update={
-            "candidate_discovery": old.candidate_discovery.model_copy(
-                update={
-                    "common_eligibility": old.candidate_discovery.common_eligibility.model_copy(
-                        update={"min_market_cap_oku": 0.0}
-                    )
-                }
-            )
-        }
-    )
-    payload = context_artifact(rules_hash=production_rules_contract_hash(old.model_dump_json()))
+    payload = context_artifact(rules_hash="retained-population-identity")
     path = tmp_path / "context.yaml"
     _write(path, payload)
     original = path.read_bytes()
-    current_hash = production_rules_contract_hash(new.model_dump_json())
+    current_hash = "saved-other-population-identity"
     result = load_er_calibration_context(
         path,
         expected_rules_hash=current_hash,

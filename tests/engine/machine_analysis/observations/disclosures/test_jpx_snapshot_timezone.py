@@ -3,9 +3,6 @@ from datetime import date
 
 import pytest
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jpx import (
-    _append_jpx_freshness_issues,
-)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_jpx_earnings_calendar_snapshot,
@@ -45,19 +42,3 @@ def test_calendar_snapshot_requires_explicit_fetch_timezone(
     else:
         with pytest.raises(JPXProviderError, match="fetched_at lacks timezone"):
             read_jpx_earnings_calendar_snapshot(path, date(2026, 10, 14), allow_stale=allow_stale)
-
-
-@pytest.mark.parametrize("allow_stale", [False, True])
-def test_regulation_preflight_rejects_naive_fetch_timestamp(tmp_path, allow_stale):
-    with closing(open_connection(tmp_path / "market.sqlite")) as connection, connection:
-        connection.execute(
-            "INSERT INTO jpx_regulation_sources(asof_date, source_name, fetched_at_utc) "
-            "VALUES (?, ?, ?)",
-            ("2026-10-14", "取引停止", "2026-10-14T12:00:00"),
-        )
-        issues = []
-        _append_jpx_freshness_issues(
-            connection, issues, asof_date=date(2026, 10, 14), allow_stale_jpx=allow_stale
-        )
-    assert len(issues) == 1
-    assert "invalid fetched_at_utc" in issues[0].reason

@@ -36,7 +36,7 @@ Baibai Loopは日本個別株の機会を調べ、価値・価格・リスク・
 | `machine_analysis/models/` | 下表の分析上の問い・計算・結果。候補政策を知らない。 |
 | `machine_analysis/generation/` | 固定入力・モデル実行・保存/読取。途中で外部取得しない。 |
 | `machine_analysis/screening/` | 保存モデルへの候補政策と結果保存。 |
-| `machine_analysis/historical_evaluation/` | 機械手法の歴史評価。旧ER/FVを現行政策へ混ぜない。 |
+| `machine_analysis/historical_evaluation/` | 保存旧run・旧Selectionの投影と凍結context読取。旧ER/FVの再推計・再選抜・較正再生成はしない。 |
 | `investment_judgment/` | 調査・評価・Review・提案・市場判断。workflowは固定/進行/再開、retrospectiveは後日照合と学び。 |
 | `portfolio/` | 確認済み取引のledger、保有holdings、資産全体のperformance。採否/調査完了は持たない。 |
 | `tasks/` | 人間が明示した作業と進行。 |
@@ -77,7 +77,7 @@ CollectionはL2、観測はモデル、生成は政策、PortfolioはL3へ依存
 | 共有固定入力 | 採用原本/確認/失敗のmetadata。本文はL1へ参照し、保存入力再計算に必要な間は保持する。 |
 | 固定lake | L2と未移行L1のimmutable object/manifest。一つのreleaseへ固定して読む。 |
 | source cache SQLite | market実行copy。未移行原本/運用状態を含み、全体は廃棄可能cacheではない。 |
-| runs / calibration | 再生成可能なモデル世代/政策結果と、別管理の歴史評価。必要な旧runは保持する。 |
+| runs / 旧calibration | モデル世代/政策結果は再生成可能。保存旧run・旧較正結果は保持し、旧方式は再生成・再公開しない。 |
 
 原本受領・原本公開・L2公開は別の成功。独立L1をL2成功待ちにせず、生成/公開は開始時の入力を固定する。未生成と結果内欠測を分け、再開で現在のモデル一覧/既定field/latest headを補わない。L3は必要断面をapplicationへ保存し、元runの存続や可変storeからの再計算に依存しない。整理/GCは原本・判断・取引履歴・R2全体の削除許可ではない。
 

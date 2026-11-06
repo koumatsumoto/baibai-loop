@@ -498,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         if args.command == "backfill-master":
-            from baibai_engine.machine_analysis.historical_evaluation.grid import (
+            from baibai_jobs.maintenance.market.grid import (
                 days_with_bars,
                 month_end_asof_grid,
             )

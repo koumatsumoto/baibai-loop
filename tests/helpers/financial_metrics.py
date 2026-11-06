@@ -1,35 +1,17 @@
-"""財務・株式基準の共有合成fixture。旧較正リプレイからも使用する。"""
+"""財務・株式基準の共有合成fixture。現在の財務計算へ観測を与える。"""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from enum import Enum
 
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
-from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
-from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 
 
 class _DefaultProfit(Enum):
     FROM_EPS = "from_eps"
-
-
-def _daily_bars(code: str, end: date, total_days: int) -> list[JQuantsDailyBar]:
-    """Synthetic daily observations, including weekends; not an exchange calendar."""
-    start = end - timedelta(days=total_days - 1)
-    return [
-        JQuantsDailyBar(
-            ticker=code,
-            traded_at=start + timedelta(days=index),
-            close=100.0 + index,
-            turnover_value=300_000_000.0,
-        )
-        for index in range(total_days)
-    ]
 
 
 def _summary(
@@ -110,64 +92,4 @@ def _summary(
             if fiscal_period in {"1Q", "2Q", "3Q", "FY"}
             else None
         ),
-    )
-
-
-def _security(code: str = "130A") -> SecurityMaster:
-    return SecurityMaster(
-        ticker=code,
-        name="Alpha",
-        market_segment="Prime",
-        sector_33="情報・通信業",
-        is_common_stock=True,
-    )
-
-
-def _edinet_metric_record(
-    code: str = "130A",
-    *,
-    sales_ttm: float = 1_000.0,
-    ocf_ttm: float = 100.0,
-    debt: float = 300.0,
-    cash: float = 100.0,
-    investment_securities: float | None = None,
-    ebitda_ttm: float = 200.0,
-    consolidation_basis: str = "consolidated",
-    ttm_quality: TTMQuality = TTMQuality.EXACT,
-    source_doc_id: str | None = "S100TEST",
-    document_type: str | None = "120",
-    source_submit_datetime: str | None = "2026-04-01 12:00",
-    source_period_start: date | None = date(2025, 4, 1),
-    source_period_end: date | None = date(2026, 3, 31),
-    total_assets: float | None = None,
-) -> EdinetMetricRecord:
-    return EdinetMetricRecord(
-        ticker=code,
-        total_assets=total_assets,
-        sales_ttm=sales_ttm,
-        ocf_ttm=ocf_ttm,
-        debt=debt,
-        cash=cash,
-        investment_securities=investment_securities,
-        ebitda_ttm=ebitda_ttm,
-        consolidation_basis=consolidation_basis,
-        ttm_quality_ev_ebitda=ttm_quality,
-        ttm_quality_p_s=ttm_quality,
-        ttm_quality_pcfr=ttm_quality,
-        source_doc_id=source_doc_id,
-        document_type=document_type,
-        source_submit_datetime=source_submit_datetime,
-        source_period_start=source_period_start,
-        source_period_end=source_period_end,
-    )
-
-
-def _split_bar(code: str, traded_at: date, factor: float) -> JQuantsDailyBar:
-    return JQuantsDailyBar(
-        ticker=code,
-        traded_at=traded_at,
-        close=100.0,
-        turnover_value=300_000_000.0,
-        adjustment_factor=factor,
-        ex_right_type=(None if factor is None or factor == 1.0 else "2" if factor > 1 else "1"),
     )
