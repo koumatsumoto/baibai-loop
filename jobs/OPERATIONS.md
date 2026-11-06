@@ -931,6 +931,8 @@ uv run baibai-jobs rebuild-price-native --work-directory /secure-work/price-read
 
 過去generationの `inputs.price` を `--saved-input` へ渡すと同じ固定入力を再生成する。正常空のL1と、価格必須の公開policyによる0行拒否は別。取引暦もnativeなら、固定暦で休場と証明できる未試行日だけ公開coverageから除き、raw未取得は残す。旧v1入力へ新しい休場除外を遡及しない。理由と判定は[価格入力](src/baibai_jobs/integration/price_native.py)に置く。
 
+日足L2は月契約を保った日別objectを再利用する。初回公開では全releaseのobject数・manifest容量の既存上限を確認し、旧月object/releaseは削除しない。
+
 ### 旧日足原本と混在market stageからの切替
 
 [共通手順](#jquants-native-operations)に加え、market stageの全宣言request IDを照合し、日足だけを移す。移行済みの日足を旧SQLiteへ再投影せず、同じstageの他sourceはそのまま再生する。未移行/改変した日足原本は明示回復する。
