@@ -9,7 +9,6 @@ from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_jobs.acquisition.article_planning import (
     MAX_PLANNING_BYTES,
     ArticlePlanning,
-    acknowledge_stage,
     commit_stage,
     index_poll_due,
     is_due,
@@ -19,6 +18,7 @@ from baibai_jobs.acquisition.article_planning import (
     slot_at,
     source_key,
 )
+from baibai_jobs.acquisition.receipts import seal_integrated
 from baibai_jobs.maintenance.article_recovery import prepare
 
 
@@ -43,7 +43,7 @@ def test_missing_input_is_not_an_empty_success_and_cooldown_survives_slots():
     assert is_due(state, slot=SLOT + timedelta(hours=8), now=SLOT + timedelta(hours=8))
 
 
-def test_private_raw_precedes_planning_and_summary_never_reads_past_stages(tmp_path):
+def test_private_raw_precedes_planning_and_seal_never_mutates_acquisition(tmp_path):
     remote = MemoryR2Store()
     publish_planning_input(remote, "boj_news", {"lake_release_id": "initial"})
     state, etag = load_planning(remote, "boj_news")
@@ -62,11 +62,15 @@ def test_private_raw_precedes_planning_and_summary_never_reads_past_stages(tmp_p
     assert remote.put_keys[-1] == source_key("boj_news")
     assert remote.put_keys[-2].endswith("/handoff.json")
     remote.get_keys.clear()
-    assert pending_handoffs(remote) == [entry]
-    assert all(key.startswith("coordination/article-planning/") for key in remote.get_keys)
-    acknowledge_stage(remote, entry)
+    (available,) = pending_handoffs(remote)
+    assert all(available[key] == value for key, value in entry.items())
+    assert all(not key.endswith(".sqlite") for key in remote.get_keys)
+    original_etag = remote.head(source_key("boj_news")).etag
+    seal_integrated(remote, entry, generations={}, recovery=False)
+    assert pending_handoffs(remote) == []
+    assert remote.head(source_key("boj_news")).etag == original_etag
     state, _ = load_planning(remote, "boj_news")
-    assert state.pending == ()
+    assert state.last_stage == entry
     assert state.cursor == {"page": 2}
     assert state.requests == {"request": {"etag": "validator"}}
     assert state.last_slot == SLOT.isoformat()
@@ -92,7 +96,7 @@ def test_daily_input_refresh_keeps_acquisition_cas_and_pending_stage(tmp_path):
         cursor={"page": 2},
         not_before=None,
     )
-    assert entry in pending_handoffs(remote)
+    assert any(item["stage_id"] == entry["stage_id"] for item in pending_handoffs(remote))
     saved, _ = load_planning(remote, "boj_news")
     assert saved.cursor == {"page": 2}
     assert saved.generations == {"lake_release_id": "initial"}
@@ -131,7 +135,8 @@ def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_pa
         )
     saved, _ = load_planning(remote, "boj_news")
     assert saved.cursor == {}
-    assert saved.pending == ()
+    assert saved.last_stage is None
+    assert [item["stage_id"] for item in pending_handoffs(remote)] == ["boj_news-orphan"]
     assert "coordination/article-sources/boj_news-orphan/handoff.json" in remote.values
     stage = json.loads((tmp_path / "boj_news" / "stage.json").read_text())
     prepare(
@@ -145,10 +150,155 @@ def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_pa
     assert recovery["explicit_article_recovery"] is True
 
 
-def test_pending_bound_does_not_silently_drop_unsaved_range():
-    state = ArticlePlanning("boj_news", {}, pending=tuple({} for _ in range(42)))
-    with pytest.raises(ValueError, match="pending stage limit"):
-        is_due(state, slot=SLOT, now=SLOT)
+def test_legacy_backlog_does_not_stop_acquisition_and_keeps_only_latest_reference():
+    entries = [
+        {
+            "source": "boj_news",
+            "namespace": "article-sources",
+            "market": True,
+            "stage_id": f"boj_news-{number}",
+        }
+        for number in range(42)
+    ]
+    legacy = {
+        **ArticlePlanning("boj_news", {}).to_json(),
+        "format": "article-planning-v1",
+        "pending": entries,
+    }
+    legacy.pop("last_stage")
+    state = ArticlePlanning.decode(json.dumps(legacy).encode(), "boj_news")
+    assert is_due(state, slot=SLOT, now=SLOT)
+    assert state.last_stage == entries[-1]
+    assert "pending" not in state.to_json()
+    assert state.to_json()["format"] == "article-planning-v3"
+
+
+@pytest.mark.parametrize("format_version", ["article-planning-v1", "article-planning-v2"])
+@pytest.mark.parametrize("damage", [None, "missing", "changed"])
+def test_legacy_transition_keeps_all_unprocessed_original_references(
+    tmp_path, format_version, damage
+):
+    from baibai_jobs.acquisition.article_discovery import DISCOVERY_REF_FORMAT
+
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "boj_news", {})
+    entries = []
+    for index in range(3):
+        root = tmp_path / str(index)
+        root.mkdir()
+        state, etag = load_planning(remote, "boj_news")
+        entries.append(
+            commit_stage(
+                remote,
+                state=state,
+                expected_etag=etag,
+                slot=SLOT + timedelta(hours=index * 4),
+                stage_id=f"boj_news-legacy-{index}",
+                directory=_packet(root),
+                requests={},
+                cursor={},
+                not_before=None,
+            )
+        )
+    state, _ = load_planning(remote, "boj_news")
+    value = {**state.to_json(), "format": format_version, "pending": entries}
+    value.pop("last_stage")
+    if format_version == "article-planning-v2":
+        value["cursor"] = {"format": DISCOVERY_REF_FORMAT, "stage": entries[-1]}
+    remote.store_object(source_key("boj_news"), json.dumps(value).encode())
+    saved = remote.values[source_key("boj_news")]
+    key = f"coordination/article-sources/{entries[0]['stage_id']}/handoff.json"
+    if damage == "missing":
+        del remote.values[key]
+    elif damage == "changed":
+        remote.store_object(key, b"changed original")
+    state, etag = load_planning(remote, "boj_news")
+    assert remote.values[source_key("boj_news")] == saved
+    assert state.last_stage == entries[-1]
+    assert len(pending_handoffs(remote)) == 3
+    root = tmp_path / "new"
+    root.mkdir()
+    commit_stage(
+        remote,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT + timedelta(hours=12),
+        stage_id="boj_news-after-legacy",
+        directory=_packet(root),
+        requests={},
+        cursor={},
+        not_before=None,
+    )
+    assert "pending" not in json.loads(remote.values[source_key("boj_news")].body)
+    found = pending_handoffs(remote)
+    assert len(found) == 4
+    assert len([entry for entry in found if entry.get("invalid")]) == int(damage is not None)
+
+
+def test_discovery_does_not_need_planning_or_a_source_watermark(tmp_path):
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "boj_news", {})
+    entries = []
+    for index in range(2):
+        root = tmp_path / str(index)
+        root.mkdir()
+        packet = _packet(root)
+        report = json.loads((packet / "result.json").read_text())
+        report["started_at"] = (SLOT + timedelta(hours=index * 4)).isoformat()
+        (packet / "result.json").write_text(json.dumps(report))
+        state, etag = load_planning(remote, "boj_news")
+        entries.append(
+            commit_stage(
+                remote,
+                state=state,
+                expected_etag=etag,
+                slot=SLOT + timedelta(hours=index * 4),
+                stage_id=f"boj_news-late-{index}",
+                directory=packet,
+                requests={},
+                cursor={},
+                not_before=None,
+            )
+        )
+    seal_integrated(remote, entries[-1], generations={}, recovery=False)
+    for missing_planning in (True, False):
+        if missing_planning:
+            del remote.values[source_key("boj_news")]
+        else:
+            remote.store_object(source_key("boj_news"), b"broken mutable planning")
+        remote.get_keys.clear()
+        found = pending_handoffs(remote)
+        (old,) = [entry for entry in found if not entry.get("invalid")]
+        assert old["stage_id"] == entries[0]["stage_id"]
+        assert old["late_before_integrated"] is False
+        assert (source_key("boj_news") in remote.get_keys) is not missing_planning
+
+
+@pytest.mark.parametrize(
+    "damage", [{"manifest_sha256": "0" * 64}, {"source": "mof_news"}, {"status": "unknown"}]
+)
+def test_incorrect_article_seal_cannot_hide_the_original(tmp_path, damage):
+    remote = MemoryR2Store()
+    publish_planning_input(remote, "boj_news", {})
+    state, etag = load_planning(remote, "boj_news")
+    entry = commit_stage(
+        remote,
+        state=state,
+        expected_etag=etag,
+        slot=SLOT,
+        stage_id="boj_news-seal",
+        directory=_packet(tmp_path),
+        requests={},
+        cursor={},
+        not_before=None,
+    )
+    seal_integrated(remote, entry, generations={}, recovery=False)
+    key = "coordination/article-sources/boj_news-seal/integrated.json"
+    remote.store_object(key, json.dumps({**json.loads(remote.values[key].body), **damage}).encode())
+    (invalid,) = pending_handoffs(remote)
+    assert invalid["stage_id"] == entry["stage_id"]
+    assert invalid["invalid"] == "ValueError"
+    assert invalid["namespace"] == "article-sources"
 
 
 def test_planning_budgets_utf8_without_dropping_japanese_evidence():
@@ -164,7 +314,12 @@ def test_planning_budgets_utf8_without_dropping_japanese_evidence():
     assert "あ".encode() in payload
     assert ArticlePlanning.decode(payload, "nhk_news").to_json() == state.to_json()
     legacy = ArticlePlanning("nhk_news", {}, cursor={"title": "以前の形式"})
-    assert ArticlePlanning.decode(json.dumps(legacy.to_json()).encode(), "nhk_news") == legacy
+    old_wire = {**legacy.to_json(), "format": "article-planning-v1", "pending": []}
+    old_wire.pop("last_stage")
+    assert (
+        ArticlePlanning.decode(json.dumps(old_wire).encode(), "nhk_news").to_json()
+        == legacy.to_json()
+    )
 
 
 def test_compact_planning_still_refuses_actual_byte_overflow():
@@ -202,14 +357,14 @@ def test_frontier_is_exact_and_outlives_integration_acknowledgement(tmp_path):
         not_before=None,
     )
     saved, _ = load_planning(remote, source)
-    assert saved.to_json()["format"] == "article-planning-v2"
+    assert saved.to_json()["format"] == "article-planning-v3"
     assert saved.cursor == {"format": FRONTIER_REF_FORMAT, "stage": entry}
     resolved = load_frontier_cursor(remote, saved)
     assert resolved["indexes"][0]["stage"] == entry
     assert resolved["legacy_omitted"] == 190
-    acknowledge_stage(remote, entry)
+    seal_integrated(remote, entry, generations={}, recovery=False)
     after, _ = load_planning(remote, source)
-    assert after.pending == ()
+    assert after.last_stage == entry
     assert load_frontier_cursor(remote, after) == resolved
     bad = dict(entry, manifest_sha256="0" * 64)
     invalid = ArticlePlanning(source, {}, cursor={"format": FRONTIER_REF_FORMAT, "stage": bad})
@@ -260,7 +415,7 @@ def test_legacy_omission_requires_exact_successful_window_even_after_ack(
         cursor=cursor,
         not_before=None,
     )
-    acknowledge_stage(remote, entry)
+    seal_integrated(remote, entry, generations={}, recovery=False)
     saved, _ = load_planning(remote, source)
     result = legacy_omission_evidence(remote, saved)
     if recoverable:
@@ -278,18 +433,12 @@ def test_legacy_omission_requires_exact_successful_window_even_after_ack(
 
 
 @pytest.mark.parametrize("source", ["tsr_data", "tsr_flash"])
-def test_tsr_eligibility_uses_receipts_later_but_preserves_quota_and_pending_bounds(source):
+def test_tsr_eligibility_uses_receipts_later_but_preserves_quota_and_slot_bounds(source):
     slot = SLOT.replace(hour=1)
     assert is_due(ArticlePlanning(source, {}), slot=slot, now=slot)
     assert is_due(ArticlePlanning(source, {}, last_slot=slot.isoformat()), slot=slot, now=slot)
     state = ArticlePlanning(source, {}, not_before=(slot + timedelta(hours=1)).isoformat())
     assert not is_due(state, slot=slot, now=slot)
-    with pytest.raises(ValueError, match="pending stage limit"):
-        is_due(
-            ArticlePlanning(source, {}, pending=tuple({} for _ in range(42))),
-            slot=slot,
-            now=slot,
-        )
     with pytest.raises(ValueError, match="invalid article acquisition slot"):
         is_due(ArticlePlanning(source, {}), slot=slot, now=slot - timedelta(seconds=1))
 

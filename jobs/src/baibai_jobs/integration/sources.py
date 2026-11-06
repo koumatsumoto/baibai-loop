@@ -36,7 +36,6 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
     ARTICLE_SOURCES,
-    acknowledge_stage,
     pending_handoffs,
     publish_planning_input,
 )
@@ -517,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
                     outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
                     and not outcome["applied"]
                 ):
-                    # No seal/ack without a captured closure; retain pending for repair.
+                    # No seal without a captured closure; keep the handoff discoverable for repair.
                     continue
                 if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
                     outcome["article_readback"] = verify_delta(
@@ -533,17 +532,8 @@ def main(argv: list[str] | None = None) -> int:
                     generations=generations,
                     recovery=outcome["recovery"],
                 )
-                if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE:
-                    try:
-                        acknowledge_stage(store, outcome["entry"])
-                    except LakeCASConflict:
-                        outcome["planning_ack_pending"] = True
-                    else:
-                        outcome["planning_ack_pending"] = False
             report["canonical_generations"] = generations
             write_json_atomic(directory / "applied.json", report)
-            if any(item.get("planning_ack_pending") for item in report["handoffs"]):
-                return 1
     except Exception as error:
         print(f"common source integration failed: {type(error).__name__}", file=sys.stderr)
         return 1
