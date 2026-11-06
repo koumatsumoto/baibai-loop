@@ -112,14 +112,89 @@ def test_absent_acquire_busy_release_and_reacquire() -> None:
 def test_expired_takeover_and_race() -> None:
     store = MemoryStore()
     old, _ = lease.acquire(store, "daily", now=NOW)
-    new, expired = lease.acquire(store, "tradingview", now=NOW + timedelta(minutes=120))
+    new, expired = lease.acquire(store, "tradingview", now=NOW + lease.DAILY_LEASE_TTL)
     assert expired
     assert store.writes[-1] == (old.etag, False)
     with pytest.raises(lease.LeaseBusy):
-        lease.acquire(store, "operator", now=NOW + timedelta(minutes=120))
+        lease.acquire(store, "operator", now=NOW + lease.DAILY_LEASE_TTL)
     with pytest.raises(lease.LeaseError):
         lease.release(store, old)
     assert lease._decode(store.body or b"").owner == new.owner
+
+
+@pytest.mark.parametrize("purpose", ["daily", "tradingview", "materialize", "operator"])
+def test_only_new_daily_leases_receive_the_longer_budget(purpose: str) -> None:
+    store = MemoryStore()
+    handle, _ = lease.acquire(store, purpose, now=NOW)
+    expected = timedelta(minutes=180 if purpose == "daily" else 120)
+    assert handle.expires_at_utc - handle.acquired_at_utc == expected
+    lease.verify_held(store, handle, now=handle.expires_at_utc - timedelta(seconds=1))
+    with pytest.raises(lease.LeaseError, match="expired or replaced"):
+        lease.verify_held(store, handle, now=handle.expires_at_utc)
+
+
+def test_new_daily_still_excludes_a_competitor_after_the_old_expiry() -> None:
+    store = MemoryStore()
+    handle, _ = lease.acquire(store, "daily", now=NOW)
+    before = store.body, store.etag, list(store.writes)
+    with pytest.raises(lease.LeaseBusy):
+        lease.acquire(store, "operator", now=NOW + timedelta(minutes=121))
+    lease.verify_held(store, handle, now=NOW + timedelta(minutes=170))
+    assert (store.body, store.etag, store.writes) == before
+
+
+@pytest.mark.parametrize("state", ["held", "released"])
+def test_old_daily_lease_and_handle_keep_their_exact_expiry(state: str, tmp_path: Path) -> None:
+    store = MemoryStore()
+    old = lease.PublicationLease(
+        state, "local:" + "a" * 32, "daily", NOW, NOW + timedelta(minutes=120)
+    )
+    store._set(lease._encode(old))
+    handle = lease.PublicationLeaseHandle(
+        old.owner, old.purpose, store.etag, old.acquired_at_utc, old.expires_at_utc
+    )
+    path = tmp_path / "old-handle.json"
+    lease._save_handle(path, handle)
+    assert lease._load_handle(path) == handle
+    assert lease._decode(store.body or b"") == old
+    if state == "held":
+        lease.verify_held(store, handle, now=NOW + timedelta(minutes=119))
+        with pytest.raises(lease.LeaseBusy):
+            lease.acquire(store, "daily", now=NOW + timedelta(minutes=119))
+        assert store.writes == []
+        lease.release(store, handle)
+        assert lease._decode(store.body or b"").expires_at_utc == old.expires_at_utc
+    newer, expired = lease.acquire(store, "daily", now=NOW + timedelta(minutes=119))
+    assert not expired
+    assert newer.expires_at_utc == NOW + timedelta(minutes=299)
+
+
+def test_old_daily_lease_can_be_taken_over_at_its_original_expiry() -> None:
+    store = MemoryStore()
+    old = lease.PublicationLease(
+        "held", "local:" + "a" * 32, "daily", NOW, NOW + timedelta(minutes=120)
+    )
+    store._set(lease._encode(old))
+    old_etag = store.etag
+    newer, expired = lease.acquire(store, "daily", now=old.expires_at_utc)
+    assert expired
+    assert store.writes == [(old_etag, False)]
+    assert newer.expires_at_utc == NOW + timedelta(minutes=300)
+
+
+@pytest.mark.parametrize(
+    ("purpose", "minutes"),
+    [("daily", 121), ("daily", 181), ("operator", 180), ("tradingview", 180), ("materialize", 180)],
+)
+def test_longer_budget_is_not_an_arbitrary_ttl(purpose: str, minutes: int) -> None:
+    store = MemoryStore()
+    invalid = lease.PublicationLease(
+        "held", "local:" + "a" * 32, purpose, NOW, NOW + timedelta(minutes=minutes)
+    )
+    store._set(lease._encode(invalid))
+    with pytest.raises(lease.LeaseError, match="invalid publication lease TTL"):
+        lease.acquire(store, "daily", now=NOW)
+    assert store.writes == []
 
 
 def test_generation_change_during_get_refuses_acquire_without_put() -> None:

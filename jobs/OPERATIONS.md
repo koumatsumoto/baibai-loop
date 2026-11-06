@@ -121,6 +121,8 @@ with_publication_lease() (
 
 releaseを保証するため関数内でset -eを使わない。busyはowner/expiry/runを確認し、release失敗はhandleを保つ。cloud-publish queueだけではlocal writerを排除しない。malformed leaseは自動修復せず、全active/pending writer不在を確認した明示復旧だけexact lease keyを調べて削除→通常acquireとする。prefix削除/手書きJSONはしない。
 
+日次は準備・生成後の公開と後処理にも時間を残すため、job枠170分・新daily lease180分とする。他purposeとEDINET有限移送の120分leaseは延ばさない。旧120分のlease/handleも元の期限のまま読取・releaseできる。旧codeはreleased後も新180分leaseを読めないため、切替前に旧writerの新規起動を止め、旧active/queued runの完了とleaseを確認してから修正mainの新runを起動する。手動/local operatorも修正codeへ揃え、途中更新・旧runのrerun・強制unlockで延長しない。hard cancelでreleaseできなければ元のexpiryまでbusyが残り得る。これは速度改善や完走保証ではなく、共通queueの占有が最長60分伸びる。中断時は下記の部分公開を読戻してから再開する。
+
 | 変更 | 反映経路 |
 | --- | --- |
 | lake table | publish-lake → push-market |
