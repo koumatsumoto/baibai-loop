@@ -26,10 +26,19 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     validate_current_schema,
 )
 from baibai_engine.machine_analysis.generation.contracts import Digest, InputSnapshot
-from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
-from baibai_engine.machine_analysis.generation.runners.reading_rules import DEFAULT_RULES_PATH
+from baibai_engine.machine_analysis.generation.runners.market_reading import (
+    reading_observation_ranges,
+    reading_snapshot,
+)
+from baibai_engine.machine_analysis.generation.runners.reading_rules import (
+    DEFAULT_RULES_PATH,
+    load_reading_rules,
+)
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
+)
+from baibai_engine.machine_analysis.observations.economic_indicators.reader import (
+    source_record_ranges,
 )
 from baibai_engine.machine_analysis.observations.prices.tradingview_market import (
     stored_market_context,
@@ -70,13 +79,14 @@ class _Month(_Fixed):
 
 
 class _Selection(_Fixed):
-    format: Literal["economic-selection-v1"] = "economic-selection-v1"
+    format: Literal["economic-selection-v2"] = "economic-selection-v2"
     as_of: date
     evaluation_time: AwareDatetime
     recipe_sha256: Digest
-    # All latest native periods/documents for these sources are fixed before L2
-    # window selection. This slice deliberately does not optimize their read ranges.
     sources: tuple[str, ...]
+    # Native bounds come from the Reading/observation owners. Documents retain
+    # every latest request, and flows still start at date.min (publication days).
+    record_ranges: dict[str, tuple[date, date]]
     months: dict[str, Digest]
     # Valid complete FRED state has one shared clock; never repeat it in each month.
     confirmations: dict[str, tuple[str, Digest] | None]
@@ -186,6 +196,12 @@ def retain_economic_input(
     if evaluation_time.utcoffset() is None:
         raise ValueError("economic input requires a timezone-aware evaluation time")
     definitions = load_definitions()
+    record_ranges = source_record_ranges(
+        series=definitions.series,
+        requested=reading_observation_ranges(
+            series=definitions.series, rules=load_reading_rules(rules_path), asof=as_of
+        ),
+    )
     sources = tuple(sorted({s.source_id for s in definitions.series if s.provider != "derived"}))
     document_sources = {s.source_id for s in definitions.series if s.provider in DOCUMENT_PROVIDERS}
     blocks: dict[str, dict[str, list[_Receipt]]] = {}
@@ -195,10 +211,12 @@ def retain_economic_input(
     with closing(connect_read_only(source)) as connection:
         connection.execute("BEGIN")
         validate_current_schema(connection)
+        # This integrity check still reads complete FRED anchors. Narrowing the
+        # projection is not a bounded-capture-I/O guarantee for these sources.
         validate_collection_confirmations(connection)
 
-        def remember(kind: str, key: tuple[str, ...], *, confirmed: bool = False) -> None:
-            row = _row(connection, kind, key)
+        def remember(kind: str, row: tuple[Any, ...], *, confirmed: bool = False) -> None:
+            key = tuple(row[:3])
             # Native period or request month. Non-date request identities share
             # one source block; bodies still stay in the canonical receipt store.
             month = key[1][:7] if len(key[1]) >= 10 and key[1][4:5] == "-" else "documents"
@@ -226,9 +244,11 @@ def retain_economic_input(
             )
             if source_id in document_sources:
                 for document_row in read_document_rows(connection, source_id):
-                    remember("documents", tuple(document_row[:3]))
+                    remember("documents", document_row)
             else:
-                for row in read_snapshot_rows(connection, date.min, date.max, source_id=source_id):
+                for row in read_snapshot_rows(
+                    connection, *record_ranges[source_id], source_id=source_id
+                ):
                     key = tuple(row[:3])
                     confirmed = (
                         connection.execute(
@@ -238,7 +258,7 @@ def retain_economic_input(
                         ).fetchone()
                         is not None
                     )
-                    remember("records", key, confirmed=confirmed)
+                    remember("records", row, confirmed=confirmed)
 
         # This is the same pre-interpretation boundary as stored_market_context:
         # 201st receipt proves truncation; failed/invalid/tied receipts are inputs.
@@ -253,13 +273,14 @@ def retain_economic_input(
                 end.isoformat(timespec="microseconds"),
             ),
         ):
-            remember("documents", tuple(key))
+            remember("documents", _row(connection, "documents", tuple(key)))
 
     selection = _Selection(
         as_of=as_of,
         evaluation_time=evaluation_time,
         recipe_sha256=recipe,
         sources=sources,
+        record_ranges=record_ranges,
         months={
             name: _retain(store, _Month(**rows).model_dump(mode="json"))
             for name, rows in sorted(blocks.items())
@@ -268,7 +289,7 @@ def retain_economic_input(
         runs=runs,
     )
     descriptor = {
-        "format": "economic-input-v1",
+        "format": "economic-input-v2",
         "selection_sha256": _retain(store, selection.model_dump(mode="json")),
     }
     digest = _digest(descriptor)
@@ -294,7 +315,7 @@ def rebuild_economic_input(
     if (
         saved.kind != "native_l1"
         or descriptor is None
-        or descriptor.get("format") != "economic-input-v1"
+        or descriptor.get("format") != "economic-input-v2"
     ):
         raise ValueError("saved economic fixed selection is required")
     digest = descriptor.get("selection_sha256")
@@ -343,12 +364,8 @@ def rebuild_economic_input(
                         )
                 for reference in block.documents:
                     copy("documents", reference)
-            for source_id, state in selection.confirmations.items():
-                if state is not None:
-                    projection.execute(
-                        "INSERT INTO economic_source_collection_confirmations VALUES (?,?,?)",
-                        (source_id, *state),
-                    )
+            # Whole-source confirmation is saved provenance, not a claim that
+            # this selected-period calculation projection is a complete source.
             for run_reference in selection.runs.values():
                 if run_reference is not None:
                     copy("runs", run_reference)
