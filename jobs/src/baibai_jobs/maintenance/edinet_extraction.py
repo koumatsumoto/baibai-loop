@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Protocol, TextIO
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
     EdinetRateLimitError,
@@ -49,6 +50,8 @@ class EdinetMetricAcquisition(Protocol):
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
 
     def download_csv_zip(self, doc_id: str) -> bytes: ...
+
+    def retained_archives(self) -> FixedEdinetArchives: ...
 
 
 def refresh_edinet_metrics_command(
@@ -113,10 +116,15 @@ def refresh_edinet_metrics_command(
     )
     if plan is None:
         return 1
+    archive_reader = (
+        acquisition.retained_archives()
+        if edinet_list_native_enabled() and plan.archive_candidates
+        else reader
+    )
     return extract_edinet_metrics_from_plan(
         asof_date=asof_date,
         plan=plan,
-        reader=reader,
+        reader=archive_reader,
         sqlite_path=sqlite_path,
         stdout=out,
     )
