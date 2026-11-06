@@ -119,7 +119,11 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     assert [step.get("id") for step in daily if "pull-app" in step.get("run", "")] == [
         "portfolio-views"
     ]
-    assert by_id["portfolio-views"]["run"].splitlines()[0] == "jobs/scripts/r2_transfer.sh pull-app"
+    portfolio_run = by_id["portfolio-views"]["run"]
+    assert portfolio_run.index("pull-app") < portfolio_run.index("baibai_web.materialize")
+    assert portfolio_run.index("baibai_web.materialize") < portfolio_run.index(
+        "upload-portfolio-views"
+    )
     assert "pull-machine" in by_id["pull"]["run"]
     assert "baibai_web" not in by_id["batch"]["run"]
     assert "baibai_web" not in by_id["source-seal"]["run"]
@@ -131,7 +135,7 @@ def test_materialize_keeps_verified_application_independent_of_market_failure():
     app, market, materialize = (by_id[name] for name in ("pull-app", "market", "materialize"))
     upload = next(step for step in steps if step.get("name") == "Upload serving objects")
     assert steps.index(app) < steps.index(market) < steps.index(materialize) < steps.index(upload)
-    assert app["run"] == "jobs/scripts/r2_transfer.sh pull-app"
+    assert "jobs/scripts/r2_transfer.sh pull-app" in app["run"]
     assert market["run"].splitlines() == [
         "jobs/scripts/r2_transfer.sh pull-market",
         "jobs/scripts/r2_transfer.sh hydrate-market",
@@ -182,7 +186,10 @@ def test_materialize_excludes_unverified_market_copies_but_keeps_application(
 
     assert result.returncode == 0
     verified = market_outcome == "success"
-    assert result.stdout.strip() == ("present" if verified else "absent")
+    assert result.stdout == ""
+    assert (tmp_path / "materialize-private.log").read_text().strip() == (
+        "present" if verified else "absent"
+    )
     assert app.read_bytes() == b"verified application"
     if market_present:
         retained = market if verified else tmp_path / "unverified-market/market.sqlite"
