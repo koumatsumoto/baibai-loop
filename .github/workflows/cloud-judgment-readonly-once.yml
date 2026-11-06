@@ -1,0 +1,321 @@
+name: cloud-judgment-readonly-once
+
+on:
+  push:
+    branches: [codex/inspect-live-judgment-once]
+    paths: [.github/workflows/cloud-judgment-readonly-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-readonly-judgment-acceptance
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  inspection:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+            github.event_name == 'push' &&
+            github.ref == 'refs/heads/codex/inspect-live-judgment-once' &&
+            github.run_attempt == 1 &&
+            github.event.head_commit.message == 'ops: inspect saved judgment read-only 2026-11-06 once' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require exact reviewed code
+        env:
+          EXPECTED_CODE_SHA: 917c271e700cce92a46de8783e7bf54dc23cc162
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/cloud-judgment-readonly-once.yml'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Inspect one private application snapshot without remote writes
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          export SAFE_RESULT_FILE="$(mktemp "$RUNNER_TEMP/judgment-safe.XXXXXX")"
+          PRIVATE_LOG="$(mktemp "$RUNNER_TEMP/judgment-private.XXXXXX")"
+          set +e
+          uv run python - > "$PRIVATE_LOG" 2>&1 <<'PRIVATE_PY'
+          """既存Actions内だけで一件の保存判断を検証し、固定の安全状態だけを返す。
+          
+          Raw application、ID、hash、金額、本文、例外本文をログやartifactへ出さない。
+          Remote APIは一つのapplication keyへのHeadObject/GetObjectだけ。
+          """
+          
+          from __future__ import annotations
+          
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import re
+          import shutil
+          import tempfile
+          from pathlib import Path
+          
+          from botocore.exceptions import ClientError
+          from tools.experiments.inspect_decision_cohort import inspect_decision_cohort
+          
+          from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
+          from baibai_engine.investment_judgment.workflow.operation.service import OperationService
+          from baibai_engine.investment_judgment.workflow.selection import (
+              GeneratedResearchSelection,
+              GeneratedResearchSelectionV4,
+          )
+          from baibai_engine.storage.objects.r2 import Boto3R2Store, RemoteObject
+          from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
+          from baibai_engine.storage.sqlite.snapshot import validate_snapshot
+          
+          KEY = "baibai.sqlite"
+          MAX_BYTES = 128 * 1024 * 1024
+          RESERVE_BYTES = 256 * 1024 * 1024
+          FAILURE_CODES = frozenset(
+              {
+                  "remote_operation_not_allowed",
+                  "invalid_object_identity",
+                  "invalid_object_size",
+                  "application_read_budget_exceeded",
+                  "private_storage_budget_exceeded",
+                  "body_identity_mismatch",
+                  "body_size_mismatch",
+                  "application_changed_during_download",
+                  "application_schema_not_current",
+                  "no_completed_operation",
+                  "latest_completed_selection_not_generated",
+                  "fixed_cohort_reread_mismatch",
+                  "local_snapshot_changed",
+                  "application_changed_during_inspection",
+              }
+          )
+          
+          
+          class InspectionFailure(RuntimeError):
+              """Only these hard-coded failure codes may leave the private scope."""
+          
+          
+          def require(condition, code):
+              if not condition:
+                  raise InspectionFailure(code)
+          
+          
+          def restrict_operation(*, model, **_kwargs):
+              require(model.name in {"HeadObject", "GetObject"}, "remote_operation_not_allowed")
+          
+          
+          class ApplicationReader:
+              """No list/mutation interface; If-Match binds the only body GET to its HEAD."""
+          
+              def __init__(self, client, bucket):
+                  self._client = client
+                  self._bucket = bucket
+          
+              def head(self):
+                  result = self._client.head_object(Bucket=self._bucket, Key=KEY)
+                  etag = str(result["ETag"]).strip('"')
+                  size = result["ContentLength"]
+                  require(bool(re.fullmatch(r"[A-Za-z0-9._:-]+", etag)), "invalid_object_identity")
+                  require(type(size) is int and size > 0, "invalid_object_size")
+                  return RemoteObject(
+                      etag=etag,
+                      size=size,
+                      metadata=result.get("Metadata", {}),
+                      content_type=result.get("ContentType", "application/octet-stream"),
+                  )
+          
+              def download(self, expected, target):
+                  require(expected.size <= MAX_BYTES, "application_read_budget_exceeded")
+                  require(
+                      shutil.disk_usage(target.parent).free >= expected.size * 3 + RESERVE_BYTES,
+                      "private_storage_budget_exceeded",
+                  )
+                  response = self._client.get_object(Bucket=self._bucket, Key=KEY, IfMatch=expected.etag)
+                  body = response["Body"]
+                  try:
+                      require(
+                          str(response["ETag"]).strip('"') == expected.etag
+                          and response["ContentLength"] == expected.size,
+                          "body_identity_mismatch",
+                      )
+                      remaining = expected.size
+                      with target.open("xb") as output:
+                          while remaining:
+                              chunk = body.read(min(8 * 1024 * 1024, remaining))
+                              require(0 < len(chunk) <= remaining, "body_size_mismatch")
+                              output.write(chunk)
+                              remaining -= len(chunk)
+                          require(body.read(1) == b"", "body_size_mismatch")
+                  finally:
+                      body.close()
+                  require(self.head() == expected, "application_changed_during_download")
+          
+          
+          def file_digest(path):
+              with path.open("rb") as source:
+                  return hashlib.file_digest(source, "sha256").hexdigest()
+          
+          
+          def inspect_private_snapshot(reader, directory, states):
+              before = reader.head()
+              states["application_metadata_read"] = True
+              source = directory / "application.sqlite"
+              reader.download(before, source)
+              states["conditional_snapshot_downloaded"] = True
+              require(
+                  validate_snapshot(source) == APPLICATION_SCHEMA_VERSION,
+                  "application_schema_not_current",
+              )
+              states["application_snapshot_verified"] = True
+              digest = file_digest(source)
+              operations = OperationService(source).list()
+              states["operation_records_decoded"] = True
+              operation = next((item for item in operations if item.status == "completed"), None)
+              require(operation is not None, "no_completed_operation")
+              selected = selection_binding(operation.payload)
+              require(
+                  isinstance(selected, (GeneratedResearchSelection, GeneratedResearchSelectionV4)),
+                  "latest_completed_selection_not_generated",
+              )
+              baseline = inspect_decision_cohort(db_path=source, operation_id=operation.operation_id)
+              states["saved_cohort_inspected"] = True
+              states["proposal_reference_inspected"] = baseline["baseline"]["proposal_ref"] is not None
+              require(
+                  inspect_decision_cohort(db_path=source, operation_id=operation.operation_id) == baseline,
+                  "fixed_cohort_reread_mismatch",
+              )
+              states["fixed_cohort_reread_matches"] = True
+              require(file_digest(source) == digest, "local_snapshot_changed")
+              states["local_snapshot_unchanged"] = True
+              require(reader.head() == before, "application_changed_during_inspection")
+              states["remote_application_still_matches"] = True
+              states["inspection_completed"] = True
+          
+          
+          def execute(reader_factory, *, temp_root=None):
+              states = {
+                  "application_metadata_read": False,
+                  "conditional_snapshot_downloaded": False,
+                  "application_snapshot_verified": False,
+                  "operation_records_decoded": False,
+                  "saved_cohort_inspected": False,
+                  "proposal_reference_inspected": False,
+                  "fixed_cohort_reread_matches": False,
+                  "local_snapshot_unchanged": False,
+                  "remote_application_still_matches": False,
+                  "inspection_completed": False,
+                  "remote_writes_performed": False,
+                  "raw_values_exported": False,
+                  "current_l1_l2_reconstructed": False,
+                  "investment_quality_measured": False,
+              }
+              failure = None
+              os.umask(0o077)
+              with tempfile.TemporaryDirectory(prefix="judgment-readonly-", dir=temp_root) as temporary:
+                  directory = Path(temporary)
+                  with (directory / "private-output.log").open("w") as private_output:
+                      with (
+                          contextlib.redirect_stdout(private_output),
+                          contextlib.redirect_stderr(private_output),
+                      ):
+                          try:
+                              with reader_factory() as reader:
+                                  inspect_private_snapshot(reader, directory, states)
+                          except InspectionFailure as error:
+                              code = str(error)
+                              failure = code if code in FAILURE_CODES else "read_or_validation_failed"
+                          except ClientError as error:
+                              code = error.response.get("Error", {}).get("Code")
+                              failure = {
+                                  "AccessDenied": "remote_access_denied",
+                                  "Unauthorized": "remote_access_denied",
+                                  "PreconditionFailed": "conditional_read_conflict",
+                                  "NoSuchKey": "application_object_missing",
+                                  "404": "application_object_missing",
+                              }.get(code, "read_or_validation_failed")
+                          except Exception:
+                              # Libraries may embed credential paths, IDs or data in errors.
+                              failure = "read_or_validation_failed"
+              if failure is not None:
+                  states["inspection_completed"] = False
+                  states["error_code"] = failure
+              return states
+          
+          
+          @contextlib.contextmanager
+          def production_reader():
+              store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET", "baibai-stores"))
+              try:
+                  client = store._client(MAX_BYTES)
+                  client.meta.events.register("before-call.s3", restrict_operation)
+                  yield ApplicationReader(client, store.bucket)
+              finally:
+                  store.close()
+          
+          
+          if __name__ == "__main__":
+              result = execute(production_reader, temp_root=os.environ.get("RUNNER_TEMP"))
+              safe_file = os.environ.get("SAFE_RESULT_FILE")
+              if safe_file is None:
+                  print(json.dumps(result, sort_keys=True))
+              else:
+                  Path(safe_file).write_text(json.dumps(result, sort_keys=True) + "\n")
+              raise SystemExit(0 if result["inspection_completed"] else 2)
+          PRIVATE_PY
+          status=$?
+          set -e
+          python3 - <<'SAFE_PY'
+          import json
+          import os
+          from pathlib import Path
+          
+          flags = {
+              "application_metadata_read", "conditional_snapshot_downloaded",
+              "application_snapshot_verified", "operation_records_decoded",
+              "saved_cohort_inspected", "proposal_reference_inspected",
+              "fixed_cohort_reread_matches", "local_snapshot_unchanged",
+              "remote_application_still_matches", "inspection_completed",
+              "remote_writes_performed", "raw_values_exported",
+              "current_l1_l2_reconstructed", "investment_quality_measured",
+          }
+          codes = {
+              "remote_operation_not_allowed", "invalid_object_identity", "invalid_object_size",
+              "application_read_budget_exceeded", "private_storage_budget_exceeded",
+              "body_identity_mismatch", "body_size_mismatch", "application_changed_during_download",
+              "application_schema_not_current", "no_completed_operation",
+              "latest_completed_selection_not_generated", "fixed_cohort_reread_mismatch",
+              "local_snapshot_changed", "application_changed_during_inspection",
+              "read_or_validation_failed", "remote_access_denied", "conditional_read_conflict",
+              "application_object_missing",
+          }
+          try:
+              path = Path(os.environ["SAFE_RESULT_FILE"])
+              if path.stat().st_size > 8192:
+                  raise ValueError
+              result = json.loads(path.read_text())
+              if not isinstance(result, dict) or set(result) not in (flags, flags | {"error_code"}):
+                  raise ValueError
+              if any(type(result[name]) is not bool for name in flags):
+                  raise ValueError
+              if "error_code" in result and result["error_code"] not in codes:
+                  raise ValueError
+              if result["inspection_completed"] and "error_code" in result:
+                  raise ValueError
+          except Exception:
+              result = {"inspection_completed": False, "error_code": "safe_result_unavailable"}
+          print(json.dumps(result, sort_keys=True))
+          raise SystemExit(0 if result["inspection_completed"] else 2)
+          SAFE_PY
+          exit "$status"
