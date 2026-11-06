@@ -16,6 +16,7 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
     save_collection_confirmation,
     save_confirmation,
 )
+from baibai_engine.data_collection.receipts.native_sources.documents import PMI_INPUT_TABLE
 
 _RECEIPT_CLOCKS = {
     "economic_source_records": "fetched_at",
@@ -49,6 +50,38 @@ def export_tsr_input(source: Path, output: Path) -> None:
         since=datetime.min.replace(tzinfo=UTC),
         documents=False,
     )
+
+
+def export_pmi_input(source: Path, output: Path, *, source_ids: Sequence[str]) -> None:
+    """Keep latest request identities for acquisition, not past document bodies."""
+    _export_receipts(
+        source,
+        output,
+        source_ids=source_ids,
+        since=datetime.min.replace(tzinfo=UTC),
+        documents=False,
+    )
+    with (
+        closing(store.open_read_only_connection(source)) as received,
+        closing(sqlite3.connect(output)) as target,
+        target,
+    ):
+        target.execute(
+            f"CREATE TABLE {PMI_INPUT_TABLE}("  # nosec B608
+            "source_id TEXT NOT NULL, request_key TEXT NOT NULL, fetched_at TEXT NOT NULL, "
+            "source_url TEXT NOT NULL, content_type TEXT NOT NULL, metadata TEXT NOT NULL, "
+            "PRIMARY KEY(source_id, request_key))"
+        )
+        for source_id in dict.fromkeys(source_ids):
+            rows = received.execute(
+                "SELECT c.source_id, c.request_key, c.fetched_at, c.source_url, "
+                "c.content_type, c.metadata FROM economic_source_documents c "
+                "WHERE c.source_id=? AND c.fetched_at=("
+                "SELECT MAX(n.fetched_at) FROM economic_source_documents n "
+                "WHERE n.source_id=c.source_id AND n.request_key=c.request_key)",
+                (source_id,),
+            )
+            target.executemany(f"INSERT INTO {PMI_INPUT_TABLE} VALUES (?,?,?,?,?,?)", rows)  # nosec B608
 
 
 def _export_receipts(

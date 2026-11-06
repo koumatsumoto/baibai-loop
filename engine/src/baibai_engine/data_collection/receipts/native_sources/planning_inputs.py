@@ -1,4 +1,4 @@
-"""Read acquisition-only metadata without treating it as a received original."""
+"""Acquisition-only metadata, separate from received originals."""
 
 from __future__ import annotations
 
@@ -18,6 +18,39 @@ _DAY_INPUTS = {
     "economic-umich_sca": ("umich-sca-ics", "economic_umich_input_days"),
     "economic-ecb_fx": ("ecb-fx", "economic_ecb_input_days"),
 }
+
+
+def export_day_input(source: Path, output: Path, *, group: str) -> None:
+    """A full CSV/ZIP request needs covered days and runs, not previous values.
+
+    Keep empty days and the exact confirmation metadata; they are not synthetic
+    receipts. Only newly fetched originals leave this disposable input.
+    """
+    source_id, table = _DAY_INPUTS[group]
+    if output.exists():
+        raise FileExistsError(output)
+    with closing(store.open_read_only_connection(source)) as received:
+        store.validate_current_schema(received)
+        with closing(store.initialize_database(output)) as target, target:
+            target.execute(f"CREATE TABLE {table}(observed_at TEXT NOT NULL PRIMARY KEY)")  # nosec B608
+            target.executemany(
+                f"INSERT INTO {table} VALUES (?)",  # nosec B608
+                received.execute(
+                    "SELECT DISTINCT observed_at FROM economic_source_records "
+                    "WHERE source_id=? ORDER BY observed_at",
+                    (source_id,),
+                ),
+            )
+            for metadata in ("economic_source_runs", *store.CONFIRMATION_TABLES):
+                rows = received.execute(
+                    f"SELECT * FROM {metadata} WHERE source_id=?",  # nosec B608
+                    (source_id,),
+                )
+                placeholders = ",".join("?" for _ in rows.description or ())
+                target.executemany(
+                    f"INSERT INTO {metadata} VALUES ({placeholders})",  # nosec B608
+                    rows,
+                )
 
 
 def covered_input_days(

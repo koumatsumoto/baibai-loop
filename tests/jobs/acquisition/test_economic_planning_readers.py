@@ -1,4 +1,4 @@
-"""Reader-first compatibility; producers deliberately keep the existing wire format."""
+"""Both full and planning inputs use the same acquisition and recovery policy."""
 
 import json
 import sqlite3
@@ -132,7 +132,8 @@ def _upload(remote, directory, case, *, planning):
     report = {"group": group, "canonical_generations": generations}
     (directory / "result.json").write_text(json.dumps(report))
     stage = group + ("-planning" if planning else "-original")
-    save_handoff(remote, stage, directory, namespace="source-inputs", input_group=group)
+    # A legacy wire fixture; production's group-aware writer now emits planning.
+    save_handoff(remote, stage, directory, namespace="source-inputs")
     key = f"coordination/source-inputs/{stage}/handoff.json"
     manifest = json.loads(remote.get_bytes(key))
     if planning:
@@ -327,7 +328,7 @@ def test_acquisition_exports_only_actual_receipts_from_planning_seed(tmp_path, m
         assert seen
 
 
-def test_all_fifteen_publishers_still_emit_original_receipt_envelopes(tmp_path):
+def test_only_three_of_fifteen_publishers_emit_planning_envelopes(tmp_path):
     canonical = tmp_path / "canonical.sqlite"
     for case in CASES:
         _seed(canonical, case[1])
@@ -350,9 +351,15 @@ def test_all_fifteen_publishers_still_emit_original_receipt_envelopes(tmp_path):
         manifest = json.loads(
             remote.get_bytes(f"coordination/source-inputs/{name}-reader-only/handoff.json")
         )
-        assert "receipt_key" in manifest
-        assert "planning_key" not in manifest
-        assert "receipt_format" not in manifest
+        planning_formats = {case[0]: case[2] for case in CASES}
+        if name in planning_formats:
+            assert manifest["receipt_format"] == planning_formats[name]
+            assert "planning_key" in manifest
+            assert "receipt_key" not in manifest
+        else:
+            assert "receipt_key" in manifest
+            assert "planning_key" not in manifest
+            assert "receipt_format" not in manifest
         assert "format" not in manifest
     assert canonical.read_bytes() == before
     assert not any(key.startswith("l1/") for key in remote.put_keys)

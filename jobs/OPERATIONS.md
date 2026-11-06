@@ -172,7 +172,7 @@ Matsui/TSRは原document全履歴をinputへ複写しない。schema13 envelope�
 - **Matsui:** 実取得日のcurrent pageを1 GETするため、document・受領履歴・runなしの明示空seed。正本schemaを検証して発行し、原本不在やinput欠落の自動初期化を意味しない。
 - **TSR倒産件数:** complete JSONの本文を除き、run範囲・成功/失敗・native coverageを残す。recent/outage/未完了広範囲の判定を最新成功日だけへ縮約しない。run metadataが増えれば再発行し、固定bytes量とはしない。
 
-PMI/UMich/ECBのv1 planning inputはreaderを先行配布し、現publisherは全履歴inputのまま保つ。本文ではなくPMIのURL/月/phase、UMich/ECBの受領日集合とrun metadataから同じ取得計画を作る。後続の発行切替前に旧readerを使う実行中・待機runを終え、運用CLIを新readerへ揃える。旧SHAを再実行しない。共通経済統合は新受領がなくても全15groupを再発行するため、取得jobだけの停止では切替を隔離できない。原本・旧inputを保持し、FRED packやschema移行と一括にしない。
+PMI/UMich/ECBは先行配布した両形式readerに対してv1 planning inputを発行する。PMIはURL/月/phase、UMich/ECBは空を含む受領日集合とrun/confirmation metadataから同じ取得計画を作り、過去本文はcanonical原本に残す。発行切替前に旧readerを使う実行中・待機runを終え、運用CLIをreader-first版以降へ揃える。旧SHAを再実行しない。両形式readerへ配布済みなら、旧writerによる旧形式の再発行も読める。共通経済統合は新受領がなくても全15groupを再発行し、groupごとの失敗では旧pointerを保って次の通常統合で再開する。原本・旧input/stageを削除せず、FRED packやschema移行と一括にしない。
 
 通常発行後はgeneration・同値再利用・次受領とfresh正本の受入を確認する。新受領の原文/URL/params/実時計はhandoff、同値/訂正/遅着の比較とL2再生成は保持正本が担う。旧input/stageと参照先は有効な間保持し、削除・retention変更を伴わない。経済正本全体の転送・source別object化は残作業（refs #1820）。
 

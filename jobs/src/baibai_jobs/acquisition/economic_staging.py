@@ -23,6 +23,7 @@ _PLANNING_INPUT_GROUPS = {
     "umich-acquisition-input-v1": "economic-umich_sca",
     "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
 }
+_PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
@@ -46,6 +47,14 @@ def save_handoff(
 ) -> str:
     prefix = stage_prefix(stage_id, market=market, namespace=namespace)
     path = directory / "receipts.sqlite"
+    receipt_format = (
+        _PLANNING_INPUT_FORMATS.get(input_group or "") if namespace == "source-inputs" else None
+    )
+    receipt_field = "planning_key" if receipt_format else "receipt_key"
+    if receipt_format:
+        if market:
+            raise ValueError("planning input is not a market receipt handoff")
+        validate_planning_input(path, _PLANNING_INPUT_GROUPS[receipt_format])
     sha, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -56,7 +65,7 @@ def save_handoff(
     if reusable_receipt is not None and reusable_receipt.get("receipt_sha256") == digest:
         if namespace != "source-inputs" or input_group is None:
             raise ValueError("receipt reuse is limited to scoped source inputs")
-        reusable_receipt_key = reusable_receipt.get("receipt_key")
+        reusable_receipt_key = reusable_receipt.get(receipt_field)
         pattern = (
             rf"coordination/source-inputs/{re.escape(input_group)}-"
             rf"[A-Za-z0-9_-]+/receipts-{digest}\.sqlite"
@@ -88,10 +97,13 @@ def save_handoff(
         raise LakePublishError("source private receipt write mismatch")
     value: dict[str, object] = {
         "result": json.loads((directory / "result.json").read_text(encoding="utf-8")),
-        "receipt_key": key,
+        receipt_field: key,
         "receipt_sha256": digest,
         "receipt_bytes": size,
     }
+    if receipt_format:
+        # Pre-reader-first code must fail rather than silently broaden recovery.
+        value["receipt_format"] = receipt_format
     if market:
         value["dependencies"] = save_dependencies(store, prefix, directory)
     manifest = json.dumps(value, sort_keys=True).encode()
