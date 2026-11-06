@@ -45,7 +45,9 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: jobs/scripts/r2_transfer.sh pull-app
+        run: |
+          umask 077
+          jobs/scripts/r2_transfer.sh pull-app > "$RUNNER_TEMP/materialize-pull-app-private.log" 2>&1
 
       # Market data enriches application facts but must be fully hydrated before use.
       # Keep acquisition failure visible while still publishing independent ledger/tasks.
@@ -65,10 +67,13 @@ jobs:
         env:
           MARKET_OUTCOME: ${{ steps.market.outcome }}
         run: |
-          if [[ "$MARKET_OUTCOME" != "success" && -d stores/market ]]; then
-            mv stores/market "$RUNNER_TEMP/unverified-market"
-          fi
-          uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+          umask 077
+          {
+            if [[ "$MARKET_OUTCOME" != "success" && -d stores/market ]]; then
+              mv stores/market "$RUNNER_TEMP/unverified-market"
+            fi
+            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+          } > "$RUNNER_TEMP/materialize-private.log" 2>&1
 
       - name: Upload serving objects
         if: ${{ !cancelled() && steps.materialize.outcome == 'success' }}
@@ -76,7 +81,9 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
+        run: |
+          umask 077
+          jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving" > "$RUNNER_TEMP/materialize-upload-private.log" 2>&1
 
       - name: Release publication lease
         id: lease-release
