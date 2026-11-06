@@ -20,16 +20,14 @@
 <a id="candidate-discovery"></a>
 ## 調査への引渡し
 
-カードは原数値・符号・対象期・反対材料を保つ。Investment Judgmentは複数モデル・一次資料・必要な少数の候補外対照を比較し、価値獲得経路と反証を自ら評価する。外部評価・テクニカル・共有環境は比較材料であり、保存市場判断やportfolioで機械順位を変更しない。旧run・旧Selectionは保存済みidentityと内容のまま読み、[旧機械ER/FVの較正](estimate-calibration.md)を現在の政策へ混ぜない。
+カードは原数値・符号・対象期・反対材料を保つ。Investment Judgmentは複数モデル・一次資料・必要な少数の候補外対照を比較し、価値獲得経路と反証を自ら評価する。外部評価・テクニカル・共有環境は比較材料であり、保存市場判断やportfolioで機械順位を変更しない。旧成果は[保存reader](estimate-calibration.md)に従う。
 
 ## 入力不足と品質
 
-価格日、財務対象期間・公表日、計算基準日、外部評価の取得時点を区別する。取得coverageは成功した要求範囲で、全銘柄の入力充足ではない。入力不足で候補が少ないことを、投資機会が少ないという結論へ置き換えない。価格と株数のbasisは[企業財務](model-observations.md#financial-periods)、期間比較の意味は[企業成長](model-observations.md#financial-periods)に従う。
-
-as_ofが新しくても株価観測日を当日へ書き換えず、保存原本からの再計算を完全な当時point-in-time再現とは扱わない。L3は必要な一次資料とCF/BSを追加確認する。
+[時点・欠測](model-observations.md#source-owners)の共通条件に従う。取得coverageは成功した要求範囲で、全銘柄の入力充足ではない。入力不足で候補が少ないことを、投資機会が少ないという結論へ置き換えない。価格/株数basisと期間比較は[開示と会計比較](model-observations.md#financial-periods)に従う。
 
 ## 保存と読取
 
 ModelGenerationとScreeningSelectionは別identityであり、同じモデルからの政策変更をモデル再生成と混同しない。候補0件も正常な公開結果で、過去の非空候補へ戻さない。保存・時点選択の詳細は[selection store](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)と[selection query](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)が所有する。
 
-L3再開と生成cacheの寿命は[保存責務](../architecture.md#store-authority)、取得・retry・発行と整理の順序は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)に従う。政策を変更しても既存世代・Selectionのidentity・hash・再開入力は書き換えない。
+L3再開と生成cacheの寿命は[保存責務](../architecture.md#store-authority)、取得・retry・発行と整理の順序は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)に従う。
