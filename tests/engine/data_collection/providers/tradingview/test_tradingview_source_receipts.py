@@ -233,7 +233,7 @@ def test_fixed_release_roundtrip_preserves_exact_receipt_rows(
     )
     destination = tmp_path / "hydrated.sqlite"
     shutil.copyfile(source_path, destination)
-    with open_connection(destination) as conn:
+    with closing(open_connection(destination)) as conn:
         conn.execute("DELETE FROM tradingview_source_receipts")
         write_lake_store_origin(conn, LakeStoreOrigin(release.release_id, release.manifest_sha256))
         conn.commit()
