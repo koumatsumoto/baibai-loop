@@ -279,7 +279,7 @@ def _prepare_complete_responses(
                 blocked.add(source_id)
                 continue
             if checked < prior[1]:
-                unseen = False
+                unseen: list[tuple[str, str, int, str]] = []
                 for original in raw.execute(
                     "SELECT * FROM economic_source_records WHERE source_id=?", (source_id,)
                 ):
@@ -289,12 +289,19 @@ def _prepare_complete_responses(
                         original[:3],
                     ).fetchone()
                     if known is None:
-                        unseen = True
+                        unseen.append(
+                            (
+                                str(original[1]),
+                                str(original[2]),
+                                int(original[3]),
+                                hashlib.sha256(original[4]).hexdigest(),
+                            )
+                        )
                     elif tuple(known) != tuple(original):
                         raise EconomicReceiptConflict("conflicting economic receipt identity")
-                # A stale untouched source in a full working copy is not a new
-                # delayed response. Only unseen originals require recovery.
-                if unseen:
+                # A full seed may carry an old anchor for a later actual check.
+                # Compare that response at its clock, including omitted periods.
+                if not _known_late_response(raw, current, source_id, checked, unseen):
                     late.append([source_id, "*", checked])
                 blocked.add(source_id)
                 continue
@@ -341,6 +348,76 @@ def _prepare_complete_responses(
         if key[0] in blocked:
             del confirmations[key]
     return extra, accepted, blocked
+
+
+def _known_late_response(
+    raw: sqlite3.Connection,
+    current: sqlite3.Connection,
+    source_id: str,
+    checked: str,
+    unseen: list[tuple[str, str, int, str]],
+) -> bool:
+    """A late complete recheck is redundant only against the state at its clock."""
+    response = {
+        str(day): (int(count), str(digest))
+        for day, count, digest in raw.execute(
+            "SELECT c.observed_at,r.record_count,c.content_sha256 "
+            "FROM economic_source_record_confirmations c JOIN economic_source_records r "
+            "ON r.source_id=c.source_id AND r.observed_at=c.observed_at "
+            "AND r.fetched_at=c.adopted_fetched_at WHERE c.source_id=?",
+            (source_id,),
+        )
+    }
+    # Both complete confirmations were validated by the caller. An old [] alone
+    # may be a legacy calendar filler, not a received disappearance.
+    empty_proofs = {
+        (str(day), str(adopted), str(digest))
+        for connection in (raw, current)
+        for day, adopted, digest in connection.execute(
+            "SELECT observed_at,adopted_fetched_at,content_sha256 "
+            "FROM economic_source_record_confirmations WHERE source_id=?",
+            (source_id,),
+        )
+    }
+    known_periods = {
+        str(row[0])
+        for row in current.execute(
+            "SELECT DISTINCT observed_at FROM economic_source_records "
+            "WHERE source_id=? AND record_count>0 AND fetched_at<=?",
+            (source_id, checked),
+        )
+    }
+    previous: dict[str, tuple[int, str]] = {}
+    uncertain_empty = False
+    absent = (0, hashlib.sha256(gzip.compress(b"[]", mtime=0)).hexdigest())
+    for day, stamp, count, payload in current.execute(
+        "SELECT r.observed_at,r.fetched_at,r.record_count,r.payload "
+        "FROM economic_source_records r WHERE r.source_id=? AND r.fetched_at=("
+        "SELECT MAX(n.fetched_at) FROM economic_source_records n "
+        "WHERE n.source_id=r.source_id AND n.observed_at=r.observed_at "
+        "AND n.fetched_at<=?)",
+        (source_id, checked),
+    ):
+        day, stamp = str(day), str(stamp)
+        value = int(count), hashlib.sha256(payload).hexdigest()
+        # The response clock applies even when a full seed only carries an older
+        # unchanged anchor. Do not downgrade an exact-clock conflict to recovery.
+        if stamp == checked and value != response.get(day, absent):
+            raise EconomicReceiptConflict("conflicting complete response at the same received time")
+        if count > 0:
+            previous[day] = value
+        elif day in known_periods and (day, stamp, value[1]) not in empty_proofs:
+            uncertain_empty = True
+    # Extra unseen intermediate changes remain recoverable, even if the final
+    # response repeats known content. Ordinary empty-seed rows belong to this check.
+    return (
+        not uncertain_empty
+        and previous == {day: value for day, value in response.items() if value[0] > 0}
+        and all(
+            stamp == checked and response.get(day) == (count, digest)
+            for day, stamp, count, digest in unseen
+        )
+    )
 
 
 def _accept_confirmations(
