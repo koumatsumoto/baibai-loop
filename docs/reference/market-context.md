@@ -18,7 +18,7 @@
 
 全銘柄残高と選別subset、対象日と公表日の違いは[source境界](data-sources.md#信用残のsourceと日付)に従う。
 
-[旧信用指標](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/margin_inputs.py)のlevelは公表済み直近残高、26wは各週最終残高に揃えた**観測ISO週26個前**との比較。日次26行前ではなく、欠測週を補間しないため暦期間は延び得る。[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)は明示PubDateを優先し、なければ週次2/日次1営業日lagを使う。公表日当日は含めず、この暦規約を実配信時刻の証明にしない。
+[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)は明示PubDateを優先し、なければ週次2/日次1営業日lagを使う。公表日当日は含めず、この暦規約を実配信時刻の証明にしない。
 
 株数/出来高はExRTで確定した分割/併合だけで判定日の単位へ揃える。rights issueの価格factorを株数へ使わず、換算不能は影響する比率/差だけへ局所化する。同一残高のlong/short構成比まで消さず、残高/平均出来高を実際の解消日数予測としない。
 

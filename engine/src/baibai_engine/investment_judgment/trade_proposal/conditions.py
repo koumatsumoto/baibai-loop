@@ -126,6 +126,7 @@ def buy_evaluation_payload(result: BuyTermsEvaluation) -> dict[str, object]:
         "current_price_above_maximum": result.current_price_above_maximum,
         "current_price_projection": result.current_price_projection,
         "limit_price_projection": result.limit_price_projection,
+        "capital_comparison": result.capital_comparison,
     }
 
 

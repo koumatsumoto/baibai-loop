@@ -63,6 +63,10 @@ def test_collect_preserves_meta_cutoff_and_stable_daily_label(tmp_path):
     conditional = context.calculations["1234"]["calculation_at_maximum_price"]
     assert actual["current_price_above_maximum"] is True
     assert conditional["hard_blockers"] == []
+    assert actual["capital_comparison"] is None
+    assert conditional["capital_comparison"]["quantity_basis"] == "quantity_ceiling"
+    assert Decimal(conditional["capital_comparison"]["notional_yen"]) == 300000
+    assert Decimal(conditional["capital_comparison"]["base"]["profit_loss_yen"]) == 30000
     assert context.calculations["1234"]["maximum_common_grid_price_yen"] == "1000"
 
 

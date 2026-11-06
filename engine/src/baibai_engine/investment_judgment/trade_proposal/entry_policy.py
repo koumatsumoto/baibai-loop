@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import Literal
 
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
     current_price_projection,
 )
-from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
+from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    maximum_entry_price,
+    project_return,
+)
+from baibai_engine.investment_judgment.stock_assessment.valuation import Valuation
 from baibai_engine.investment_judgment.trade_proposal.contracts import GateReason, QuoteInput
 from baibai_engine.primitives.numbers import finite_decimal
 
@@ -43,6 +47,52 @@ class BuyTermsEvaluation:
     current_price_above_maximum: bool | None
     current_price_projection: dict[str, object] | None
     limit_price_projection: dict[str, object] | None
+    capital_comparison: dict[str, object] | None
+
+
+def _capital_comparison(
+    valuation: Valuation,
+    *,
+    limit: Decimal,
+    cash: Decimal,
+    quantity: int,
+    author_selected: bool,
+) -> dict[str, object]:
+    """同じ未拘束cashの全量指値成立例。既保有/予約の価値や約定確率は含めない。"""
+    assert valuation.horizon_months is not None
+    assert valuation.base is not None
+    assert valuation.downside is not None
+    with localcontext() as arithmetic:
+        arithmetic.prec = 50
+        notional = limit * quantity
+        unspent = cash - notional
+        result: dict[str, object] = {
+            "scope": "available_cash_only",
+            "execution_assumption": "full_fill_at_limit",
+            "return_basis": "conditional_pretax_without_reinvestment",
+            "investor_taxes_and_fees_included": False,
+            "cash_basis": "constant_nominal_without_interest",
+            "horizon_months": valuation.horizon_months,
+            "quantity_basis": "author_selected" if author_selected else "quantity_ceiling",
+            "quantity": quantity,
+            "limit_price_yen": str(limit),
+            "notional_yen": str(notional),
+            "unspent_cash_yen": str(unspent),
+            "cash_only_terminal_value_yen": str(cash),
+        }
+        for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
+            total = (
+                project_return(
+                    projection, price_yen=limit, horizon_months=valuation.horizon_months
+                ).total_value_yen
+                * quantity
+            )
+            result[name] = {
+                "investment_total_value_yen": str(total),
+                "profit_loss_yen": str(total - notional),
+                "capital_total_value_yen": str(unspent + total),
+            }
+        return result
 
 
 def _positive_board_lot(value: object) -> int:
@@ -175,4 +225,13 @@ def evaluate_buy_terms(
         None if maximum is None or price is None else price > maximum,
         current_projection,
         limit_projection,
+        None
+        if blockers
+        else _capital_comparison(
+            valuation,
+            limit=limit,
+            cash=cash,
+            quantity=quantity,
+            author_selected=selected_quantity is not None,
+        ),
     )

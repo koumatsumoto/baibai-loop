@@ -7,9 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
-from baibai_engine.machine_analysis.historical_evaluation.estimates import (
-    EXPECTED_RETURN_MODEL_VERSION,
-)
 from baibai_engine.primitives.coerce import string_or_none as _text
 
 CARRY_MISSING_ASSUMPTION = (
@@ -38,6 +35,10 @@ class MachineValuation:
     dividend_basis: str | None
     net_share_change_yoy: float | None
     carry_missing_assumption: str | None
+
+
+# 保存旧runの識別子。推計モデルを再実行したり現在の版へ更新したりしない。
+EXPECTED_RETURN_MODEL_VERSION = "expected-return-v1"
 
 
 def machine_valuation_from_analysis(analysis: Mapping[str, object]) -> MachineValuation:

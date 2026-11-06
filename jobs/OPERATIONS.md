@@ -41,6 +41,8 @@ gh run watch <RUN_ID> --exit-status --interval 60
 
 source失敗は前回適格投影を保って他sourceを進め、モデル生成/公開失敗は後続machine反映を止める。model-integrationは外部取得/Web生成を呼ばず、後続のWeb表示もcore成功条件ではない。workflowの成否と公開済みrelease/storeの到達点を分けて確認する。
 
+model-integrationの`phase`ログは開始時にflushし、成功した処理だけ`done`と所要秒を出す。停止時は最後の未完了phaseから調べるが、ログだけを原本・正本の反映成功の証拠にしない。
+
 ### 保存済み世代への候補政策の発行
 
 モデルを再生成せず保存V2 generationへ現行政策だけを適用する場合は、main反映後、[公開lease](#ローカルからクラウドを更新する)内でfresh runsを取得する。exact generationを指定し、通常経路と同じ政策/Selection IDを使う。同ID・同内容はno-op、異内容は競合で止め、旧IDを改名しない。
@@ -196,7 +198,7 @@ jobs/scripts/pull.sh
 
 machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者を同一transactionでは固定しないため、競合・検査失敗後のlocal stateを分析へ使わずfreshに取得し直す。applicationはbulk pullせずpull-appを使う。
 
-新しいモデル入力の補修は固定generationの未生成・欠測理由と該当source受領から対象を限定し、取得欠落を同じas-ofのsource取得で補う。verify-cache-coverageは旧較正入力の保守診断で、新候補の共通資格gateにしない。提供元のnullやL2計算不能を取得失敗とせず、値が埋まるまで全期間を再取得しない。
+新しいモデル入力の補修は固定generationの未生成・欠測理由と該当source受領から対象を限定し、取得欠落を同じas-ofのsource取得で補う。提供元のnullやL2計算不能を取得失敗とせず、値が埋まるまで全期間を再取得しない。
 
 <a id="article-acquisition"></a>
 ### 記事sourceのslot・差分統合（schema 49）
@@ -207,9 +209,11 @@ machine receipt/ETagとhydrate開始時のmarket releaseを照合する。両者
 - BOJ/MOFは元runのslotを保持するが、未処理URLまたは新しい発見revisionで再解析できる原本があれば同slotでも再開する。同slotの再開ではindexを取り直さず、保持原本からの発見と未処理本文を進める。
 - その他はsourceごとのslot・validator・worksetで再開する。設定された再検証GETは改訂確認であり、保持原本をoffline再解析する処理と区別する。充足の確認は現在のownerが保持する要求範囲と再開状態を読む。
 
-初回planningは`integration.sources inputs`で取得有効化前に発行する。不足を空DBや全market pullで迂回しない。原本stageを保存した後にだけ計画をCAS更新する。未処理workはvalidator cacheから独立して保持し、未統合stageのacknowledgementでworksetやindex原本を消さない。容量上限では未完了項目を捨てず、統合または限定回復へ進む。
+初回planningは`integration.sources inputs`で取得有効化前に発行する。不足を空DBや全market pullで迂回しない。原本stageを保存した後にだけ計画をCAS更新する。未処理workはvalidator cacheから独立して保持する。planning v3は取得cursor・validator・最新stageだけを持ち、L2未処理件数では取得を止めない。共通統合は既存article namespaceの不変handoffとintegrated markerから未処理を発見し、sealでplanningを書き換えない。L2停止中も原本stageと参照worksetを保持し、parser失敗・CAS失敗の原本を消さない。取得workset自身の容量上限では未完了項目を捨てず限定回復へ進む。
 
-planning CAS失敗で残った原本の統合と、最新cursorの復元は別である。exact stage/hashから原本を回復できても、全sourceのcursorを自動修復できる保証ではない。後続取得が進めた計画を古いcursorで巻き戻さない。参照worksetの不足と、validatorの200 body不足も別である。後者では通常予算内の新しい無条件GETを行う場合があるが、過去原本を復元したとは扱わない。
+新stageは、そのCASで読んだ直前stageのID/hashを持つ。v1/v2の旧pending全件は最初の新stageへ一度だけ引き継ぐ。共通統合はplanningの最新参照から原本のつながりを照合し、seal済みを除く前に欠落を報告する。L1は親参照を書くだけで履歴全体を読まない。これは保持されたplanning rootから到達する確定原本の欠落検知であり、rawの復元・保持期間の保証ではない。root自体の消失、CAS未確定の孤立stage、導入前のpending外原本まで全検知はしない。処理済みでも参照中のstageを期限削除してよい根拠にはしない。
+
+planning CAS失敗で残った原本も不変handoffから次回統合で発見する。原本の統合と最新cursorの復元は別で、全sourceのcursorを自動修復できる保証ではない。後続取得が進めた計画を古いcursorで巻き戻さない。参照worksetの不足と、validatorの200 body不足も別である。後者では通常予算内の新しい無条件GETを行う場合があるが、過去原本を復元したとは扱わない。
 
 原本の表現・添付・リンク範囲は[記事sourceの意味](../docs/reference/data-sources.md#public-articles)を参照する。トウシルの同一host内の公開記事移転（301/308）はLocationを保持し、既存予算内で転送先を別受領として取得する。一般のHTTP redirect、認証付きURL、未許可hostへ巡回を広げない。旧受領に未保存のLocationは推測して補わない。HTTP失敗を含むL1の保存成功と、取得成功・本文投影成功を区別する。受領失敗はsource不備としてDEGRADED通知に残し、本文を受領した後のparser失敗だけを投影失敗として扱う。財務省の許可された案内は親子の別受領を保ち、rolling一覧から過去全PDFへ巡回しない。応答の種類別上限は契約に従い、本文が大きいからfeed・source・groupの総予算まで増やさない。
 
@@ -217,11 +221,11 @@ planning CAS失敗で残った原本の統合と、最新cursorの復元は別�
 
 200同値は別受領、304は具体的200 bodyへの参照、正常空と失敗は別状態として保持する。原文・概要はprivate原本に限定する。sealは固定releaseから今回のreceiptとprojection/抽出artifactを読戻して一致した後に行い、原本保存・投影成功・正本公開を同じ成功件数にしない。
 
-設定上限は実測値や無料枠の保証ではない。runではsource別requests/bytes/seconds、metadata操作、input/raw転送と保存、runner時間、readbackを確認する。setupを含むActions時間とR2全体の費用を部分logだけでゼロと報告しない。旧formatを読めないcodeへ戻して同じplanningを書かせず、切替・回復では稼働中writerを確認する。
+設定上限は実測値や無料枠の保証ではない。runではsource別requests/bytes/seconds、metadata操作、input/raw転送と保存、runner時間、readbackを確認する。setupを含むActions時間とR2全体の費用を部分logだけでゼロと報告しない。日次の未処理発見はstageとsealのmetadataを列挙・照合し、履歴量に比例する。新しい恒久checkpointや全履歴本文copyは作らない。v1/v2 planningの旧pending参照は新原本stageへ引き継いでからv3で保存し、欠落・不一致の診断は統合側で行う。切替前に旧取得・旧統合writerをdrainし、v3を読めない旧codeへ戻して同じplanningを書かせない。既存stageの保持先やlifecycleを変更する移行ではなく、本番の保持期間・費用は別途確認する。
 
 ### 日次統合前の記事原本を読む
 
-固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。
+固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。 Articleの原本読取は専用tableのshapeとreceipt/body digestを検証し、無関係なmarket schemaの版数では拒否しない。元SQLiteの版数・bytesは変更しない。
 
 ```bash
 uv run baibai-jobs article-evidence \
@@ -680,18 +684,18 @@ uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TI
 
 初回だけ、4 keyすべて不存在を確認してseed.shを使う。既存keyが一件でもあれば停止し、通常更新/復旧へ戻る。1〜3 keyの部分seedは、供用前・writerなし・対象exact keyを確認できた場合だけ初回復旧として扱い、通常pull/pushや無条件上書きで直さない。seed後のapplication更新はpull-appで正本と世代を取り直す。
 
+## 保存済み旧評価を読む
+
+旧ER/FV・四Approachと較正の再生成・再配布は廃止し、過去run・旧Selection・凍結contextの読取だけを残す。[保存値の意味と限界](../docs/reference/estimate-calibration.md)に従い、既存原本・store・identityを変更しない。
+
+```bash
+uv run baibai-engine historical-evaluation run-show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
+uv run baibai-engine historical-evaluation candidates show --run-revision-id <RUN_REVISION_ID> --runs-db <PRIVATE_RUNS_COPY>
+```
+
 ## 定期maintenance
 
 既存due taskを完了して必要な次回分だけ作り、同じ期限・対象・問いを重複登録しない。開発変更はIssueで扱う。
-
-較正は仮説・期間・利用先を明示した旧ER/FV・四Approachの研究/保守用で、新モデル/候補政策に月次再構築や旧context更新を要求しない。[意味・force・配布条件](../docs/reference/estimate-calibration.md)に従い、月次比較は前月までを同じrulesで扱う。
-
-```bash
-uv run baibai-engine historical-evaluation calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
-uv run baibai-engine historical-evaluation calibration-evaluate --out /tmp/calibration-evaluation.yaml
-```
-
-旧Selection用の配布更新だけはevaluateへ `--run-purpose empirical_change_evidence --decision-subject estimator_policy --required-asof <YYYY-MM-DD> --required-metric er_level_calibration --context-out <PUBLISHED_YAML>` を加える。目的・全対象月・metricを先に固定し、required-asofは各月分繰り返す。identity・期限・不足と配布差分をGit reviewし、記述context成功をformal evidence成立としない。context-out省略時は配布artifactを更新しない。
 
 PMIは公表翌週、TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な公開を行う。全履歴監査を定例化しない。依頼された注文結果は `measure_limit_outcomes` で測り、価格差を逸失利益や指値規律の因果効果としない。
 

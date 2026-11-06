@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -26,12 +26,12 @@ from baibai_jobs.acquisition.article_frontier import (
     bind_local_stage,
 )
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
+from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
 
 ARTICLE_SOURCES = tuple(SOURCES)
 TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})
 ARTICLE_NAMESPACE = "article-sources"
 ARTICLE_CRON = "13 1,5,9,13,17,21 * * *"
-MAX_PENDING_STAGES = 42
 MAX_PLANNING_BYTES = 128 * 1024
 MAX_REQUEST_STATES = 128
 
@@ -65,20 +65,20 @@ class ArticlePlanning:
     # Adapter-owned URL/validator/cursor/body references, with a strict bytes cap.
     requests: dict[str, dict[str, Any]] = field(default_factory=dict)
     cursor: dict[str, Any] = field(default_factory=dict)
-    pending: tuple[dict[str, Any], ...] = ()
+    last_stage: dict[str, Any] | None = None
+    # Transient v1/v2 migration seed, written once into the next immutable stage.
+    legacy_pending: tuple[dict[str, Any], ...] | None = field(default=None, repr=False)
 
     def to_json(self) -> dict[str, Any]:
         return {
-            "format": "article-planning-v2"
-            if self.cursor.get("format") in {FRONTIER_REF_FORMAT, DISCOVERY_REF_FORMAT}
-            else "article-planning-v1",
+            "format": "article-planning-v3",
             "source": self.source,
             "generations": self.generations,
             "last_slot": self.last_slot,
             "not_before": self.not_before,
             "requests": self.requests,
             "cursor": self.cursor,
-            "pending": list(self.pending),
+            "last_stage": self.last_stage,
         }
 
     def encoded(self) -> bytes:
@@ -86,15 +86,20 @@ class ArticlePlanning:
         for value in (self.last_slot, self.not_before):
             if value is not None:
                 _clock(value)
-        if len(self.requests) > MAX_REQUEST_STATES or len(self.pending) > MAX_PENDING_STAGES:
-            raise ValueError("article planning bound reached; drain or recover exact stages")
-        for entry in self.pending:
+        if len(self.requests) > MAX_REQUEST_STATES:
+            raise ValueError("article request planning bound reached")
+        stages = (
+            self.legacy_pending
+            if self.legacy_pending is not None
+            else ((self.last_stage,) if self.last_stage is not None else ())
+        )
+        for entry in stages:
             if (
                 entry.get("source") != self.source
                 or entry.get("namespace") != ARTICLE_NAMESPACE
                 or entry.get("market") is not True
             ):
-                raise ValueError("article pending entry differs from its planning source")
+                raise ValueError("article stage differs from its planning source")
             stage_prefix(entry["stage_id"], namespace=ARTICLE_NAMESPACE)
         # Budget actual UTF-8 JSON, not six-byte escapes for each Japanese character.
         # This changes no fields or bounds and never evicts saved cursor/evidence.
@@ -112,9 +117,11 @@ class ArticlePlanning:
     @classmethod
     def decode(cls, payload: bytes, source: str) -> ArticlePlanning:
         value = json.loads(payload)
-        if value.get("format") not in {"article-planning-v1", "article-planning-v2"} or (
-            value.get("source") != source
-        ):
+        if value.get("format") not in {
+            "article-planning-v1",
+            "article-planning-v2",
+            "article-planning-v3",
+        } or (value.get("source") != source):
             raise ValueError("article planning source/format mismatch")
         if value["format"] == "article-planning-v2" and (
             value["cursor"].get("format") not in {FRONTIER_REF_FORMAT, DISCOVERY_REF_FORMAT}
@@ -127,7 +134,16 @@ class ArticlePlanning:
             not_before=value["not_before"],
             requests=value["requests"],
             cursor=value["cursor"],
-            pending=tuple(value["pending"]),
+            # Old backlog entries remain discoverable by their immutable handoffs.
+            # Only the last receipt is needed to bind this acquisition summary.
+            last_stage=value["last_stage"]
+            if value["format"] == "article-planning-v3"
+            else value["pending"][-1]
+            if value["pending"]
+            else None,
+            legacy_pending=tuple(value["pending"])
+            if value["format"] != "article-planning-v3"
+            else None,
         )
         result.encoded()
         return result
@@ -173,11 +189,7 @@ def is_due(
         previous = _clock(state.last_slot)
         if previous > slot or (previous == slot and not resume_pending):
             return False
-    if state.not_before and _clock(state.not_before) > now:
-        return False
-    if len(state.pending) >= MAX_PENDING_STAGES:
-        raise ValueError("article pending stage limit reached; integration/recovery required")
-    return True
+    return not (state.not_before and _clock(state.not_before) > now)
 
 
 def commit_stage(
@@ -205,6 +217,9 @@ def commit_stage(
         "requests": requests,
         "cursor": cursor,
         "not_before": not_before,
+        # Bind to the snapshot used by this CAS, never a later competing writer.
+        "previous_stage": state.last_stage if state.legacy_pending is None else None,
+        **({"legacy_pending": state.legacy_pending} if state.legacy_pending is not None else {}),
     }
     write_json_atomic(directory / "result.json", report)
     # Never discard successfully received L1 when planning exceeds its bound.
@@ -256,10 +271,103 @@ def commit_stage(
         not_before,
         bound_requests,
         bound_cursor,
-        (*state.pending, entry),
+        entry,
     )
     put_private(store, source_key(state.source), candidate.encoded(), previous_etag=expected_etag)
     return entry
+
+
+def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
+    """Find raw independently; also detect breaks in each retained planning root.
+
+    References live in the existing raw manifests, not another index. L1 only
+    writes one parent; L2 follows the accepted history before filtering seals.
+    Missing roots or uncommitted orphans cannot prove completeness of history.
+    """
+    checks: list[tuple[Any, str, bool, dict[str, Any]]] = []
+    issues: dict[str, dict[str, Any]] = {}
+    # Read roots before LIST: a later L1 commit must not look like a missing raw
+    # merely because it was committed after the listing boundary.
+    for source in ARTICLE_SOURCES:
+        saved = read_private(store, source_key(source))
+        if saved is None:
+            continue
+        problem = {
+            "source": source,
+            "market": True,
+            "namespace": ARTICLE_NAMESPACE,
+            "stage_id": f"{source}-planning",
+            "manifest_sha256": "",
+        }
+        try:
+            state = ArticlePlanning.decode(saved.payload, source)
+            if state.legacy_pending is not None:
+                checks.extend((entry, source, False, problem) for entry in state.legacy_pending)
+            elif state.last_stage is not None:
+                checks.append((state.last_stage, source, True, problem))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            issues[str(problem["stage_id"])] = {**problem, "invalid": "invalid_planning_state"}
+    entries: list[dict[str, Any]] = [
+        dict(entry)
+        for entry in available_handoffs(
+            store, market=True, namespace=ARTICLE_NAMESPACE, include_integrated=True
+        )
+    ]
+    by_id = {str(entry["stage_id"]): entry for entry in entries}
+    seen = set()
+    while checks:
+        reference, source, linked, parent = checks.pop()
+        try:
+            if (
+                not isinstance(reference, dict)
+                or reference.get("source") != source
+                or reference.get("namespace") != ARTICLE_NAMESPACE
+                or reference.get("market") is not True
+                or not isinstance(reference.get("manifest_sha256"), str)
+            ):
+                raise ValueError("invalid article original reference")
+            stage_prefix(reference["stage_id"], namespace=ARTICLE_NAMESPACE)
+        except (ValueError, KeyError, TypeError):
+            parent["invalid"] = "invalid_article_reference"
+            issues[str(parent["stage_id"])] = parent
+            continue
+        identity = (source, reference["stage_id"], reference["manifest_sha256"], linked)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        entry = by_id.get(reference["stage_id"])
+        if entry is None:
+            issues[reference["stage_id"]] = {**reference, "invalid": "missing_article_original"}
+            continue
+        if entry["source"] != source or entry["manifest_sha256"] != reference["manifest_sha256"]:
+            entry["invalid"] = "article_original_differs"
+            issues[reference["stage_id"]] = {**reference, "invalid": "article_original_differs"}
+        if entry.get("invalid"):
+            continue  # Keep its existing error visible; do not invent missing parents.
+        if linked and "previous_stage" not in entry:
+            entry["invalid"] = "article_previous_stage_missing"
+            continue
+        if (previous := entry.get("previous_stage")) is not None:
+            checks.append((previous, source, True, entry))
+        legacy = entry.get("legacy_pending", [])
+        if not isinstance(legacy, list):
+            entry["invalid"] = "invalid_article_legacy_pending"
+            continue
+        checks.extend((item, source, False, entry) for item in legacy)
+    ready = {
+        str(entry["stage_id"]): entry
+        for entry in entries
+        if entry.get("invalid") or entry["integration"] is None
+    }
+    ready.update(issues)
+    return sorted(
+        ready.values(),
+        key=lambda entry: (
+            str(entry["source"]),
+            str(entry.get("started_at", "")),
+            str(entry["stage_id"]),
+        ),
+    )
 
 
 def _load_workset(
@@ -340,7 +448,7 @@ def legacy_omission_evidence(
         return None
     policy = SOURCES[state.source]
     prefix = f"{state.source}-{_clock(state.last_slot):%Y%m%dT%H%M}-"
-    candidates = list(state.pending)
+    candidates = [state.last_stage] if state.last_stage is not None else []
     candidates.extend(value["stage"] for value in state.requests.values() if "stage" in value)
     seen = set()
     for entry in candidates:
@@ -394,45 +502,3 @@ def legacy_omission_evidence(
         if len(references) >= policy.max_pages:
             return entry, references
     return None
-
-
-def pending_handoffs(store: ObjectStore) -> list[dict[str, Any]]:
-    """One bounded summary per source; no LIST or history/body download."""
-    result: list[dict[str, Any]] = []
-    for source in ARTICLE_SOURCES:
-        saved = read_private(store, source_key(source))
-        if saved is not None:
-            try:
-                result.extend(ArticlePlanning.decode(saved.payload, source).pending)
-            except (ValueError, KeyError, TypeError, AttributeError):
-                result.append(
-                    {
-                        "source": source,
-                        "market": True,
-                        "namespace": ARTICLE_NAMESPACE,
-                        "stage_id": f"{source}-planning",
-                        "manifest_sha256": "",
-                        "invalid": "invalid_planning_state",
-                    }
-                )
-    return sorted(
-        result, key=lambda entry: (entry["source"], entry.get("started_at", ""), entry["stage_id"])
-    )
-
-
-def acknowledge_stage(store: ObjectStore, entry: dict[str, Any]) -> None:
-    """After readback/seal, remove only that entry; never rewind live validators."""
-    state, etag = load_planning(store, entry["source"])
-    remaining = tuple(
-        item
-        for item in state.pending
-        if (item["stage_id"], item["manifest_sha256"])
-        != (entry["stage_id"], entry["manifest_sha256"])
-    )
-    if remaining != state.pending:
-        put_private(
-            store,
-            source_key(state.source),
-            replace(state, pending=remaining).encoded(),
-            previous_etag=etag,
-        )

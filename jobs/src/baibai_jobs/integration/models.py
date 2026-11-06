@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -50,6 +51,13 @@ from baibai_jobs.publication.snapshot_publication import (
 )
 
 
+def _phase_progress(phase: str, started: float | None = None) -> float:
+    now = time.perf_counter()
+    state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
+    print(f"model integration: phase={phase} state={state}", file=sys.stderr, flush=True)
+    return now
+
+
 def integrate_models(
     *,
     store: FinancialObjectStore,
@@ -69,6 +77,7 @@ def integrate_models(
     evaluated_at = datetime.now(UTC)
     financial_input = None
     if financial_native_enabled():
+        phase_started = _phase_progress("native_financial")
         # One head read fixes both source membership and confirmation/failure state.
         fixed = FinancialL1(store, mirror / "financial-native").fixed()
         evaluated_at = datetime.now(UTC)
@@ -81,15 +90,19 @@ def integrate_models(
         with sqlite3.connect(market) as connection:
             connection.execute("DELETE FROM jquants_fin_summaries")
             connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
+        _phase_progress("native_financial", phase_started)
     with prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, as_of=as_of
     ) as prepared:
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
+        phase_started = _phase_progress("economic_input")
         economic_input = rebuild_economic_input(
             store,
             economic,
             retain_economic_input(store, economic, as_of=as_of, evaluation_time=evaluation_time),
         )
+        _phase_progress("economic_input", phase_started)
+        phase_started = _phase_progress("model_inputs")
         generation = read_and_generate_models(
             generation_id=f"models-{prepared.release.release_id}",
             market_snapshot=prepared.source_snapshot,
@@ -109,19 +122,28 @@ def integrate_models(
             margin_alerts_identity=prepared.margin_alerts_identity,
             short_sale_reports_identity=prepared.short_sale_reports_identity,
         )
+        _phase_progress("model_inputs", phase_started)
+        phase_started = _phase_progress("model_generation")
         generations = ModelGenerationStore(runs)
         saved = generations.publish_stream(generation)
+        _phase_progress("model_generation", phase_started)
         subjects = generation.subjects
+        phase_started = _phase_progress("screening")
         evaluation = evaluate_saved_economic_generation(
             generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
         )
         selection = evaluation.selection
         selection_id = economic_selection_id(generation.metadata.generation_id, policy=policy)
         ScreeningSelectionStore(runs).publish(selection_id, selection)
+        _phase_progress("screening", phase_started)
+        phase_started = _phase_progress("lake_publish")
         publication = publish_prepared_market_lake(
             prepared, store=store, before_pointer_switch=lambda: verify_held(store, handle)
         )
+        _phase_progress("lake_publish", phase_started)
+    phase_started = _phase_progress("model_cache_prune")
     pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
+    _phase_progress("model_cache_prune", phase_started)
     return {
         "pruned_generation_count": len(pruned),
         "asof": as_of.isoformat(),

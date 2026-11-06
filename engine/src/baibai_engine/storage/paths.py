@@ -6,12 +6,8 @@ APPLICATION_DB_PATH = Path("stores/application/baibai.sqlite")
 MARKET_DB_PATH = Path("stores/market/market.sqlite")
 RUNS_DB_PATH = Path("stores/screening/runs.sqlite")
 INDICATORS_DB_PATH = Path("stores/market_context/indicators.sqlite")
-CALIBRATION_DIR = Path("stores/screening/calibration")
 ER_LEVEL_CALIBRATION_CONTEXT_PATH = Path(
     "engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml"
-)
-SCREENING_RULES_PATH = Path(
-    "engine/src/baibai_engine/machine_analysis/historical_evaluation/legacy_screening/rules/2026-10-16T133000+0900.yaml"
 )
 READING_RULES_PATH = Path(
     "engine/src/baibai_engine/machine_analysis/models/market_context/reading/rules/2026-08-01T100000+0900.yaml"
@@ -54,13 +50,11 @@ DEFAULT_SQLITE_CACHE_DIR = MARKET_DB_PATH.parent
 
 __all__ = [
     "APPLICATION_DB_PATH",
-    "CALIBRATION_DIR",
     "ER_LEVEL_CALIBRATION_CONTEXT_PATH",
     "INDICATORS_DB_PATH",
     "MARKET_DB_PATH",
     "READING_RULES_PATH",
     "RUNS_DB_PATH",
-    "SCREENING_RULES_PATH",
     "StoreLayoutError",
     "reject_noncanonical_store_paths",
     "repository_root_error",

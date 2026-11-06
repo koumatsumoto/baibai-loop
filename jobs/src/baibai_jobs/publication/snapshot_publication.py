@@ -116,6 +116,13 @@ from baibai_jobs.publication.snapshot_release import (
 from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
 
 
+def _phase_progress(phase: str, started: float | None = None) -> float:
+    now = time.perf_counter()
+    state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
+    print(f"market lake: phase={phase} state={state}", file=sys.stderr, flush=True)
+    return now
+
+
 @dataclass(frozen=True, slots=True)
 class MarketLakePublishReport:
     release_id: str
@@ -187,6 +194,7 @@ def prepare_market_lake(
         )
     calendar_identity = None
     if native_calendar:
+        phase_started = _phase_progress("native_calendar")
         fixed_calendar = CalendarL1(
             cast(CalendarObjectStore, store), mirror_root / "calendar-native"
         ).fixed()
@@ -198,8 +206,10 @@ def prepare_market_lake(
             evaluated_at=evaluated_at,
             market=sqlite_path,
         )
+        _phase_progress("native_calendar", phase_started)
     master_identity = None
     if native_master:
+        phase_started = _phase_progress("native_master")
         fixed_master = MasterL1(
             cast(MasterObjectStore, store), mirror_root / "master-native"
         ).fixed()
@@ -211,8 +221,10 @@ def prepare_market_lake(
             evaluated_at=evaluated_at,
             market=sqlite_path,
         )
+        _phase_progress("native_master", phase_started)
     price_identity = None
     if native_price:
+        phase_started = _phase_progress("native_price")
         fixed = PriceL1(cast(PriceObjectStore, store), mirror_root / "price-native").fixed()
         evaluated_at = datetime.now(UTC)
         price_identity = native_price_model_input(
@@ -223,7 +235,9 @@ def prepare_market_lake(
             market=sqlite_path,
             calendar_input=calendar_identity,
         )
+        _phase_progress("native_price", phase_started)
     started = time.perf_counter()
+    phase_started = _phase_progress("base_resolve")
     serving = _serving_pointer(store)
     previous = serving.pointer
     published_coverage_start: dict[str, date] = {}
@@ -241,8 +255,10 @@ def prepare_market_lake(
             and not (native_alerts and name == "jquants.margin_alerts")
             and not (native_shorts and name == "jquants.short_sale_reports")
         }
+    _phase_progress("base_resolve", phase_started)
     alerts_identity = None
     if native_alerts:
+        phase_started = _phase_progress("native_margin_alerts")
         previous_alerts = None
         if serving_release is not None and read_lake_store_origin(sqlite_path) == _pointer_origin(
             previous
@@ -261,8 +277,10 @@ def prepare_market_lake(
             mirror_root=mirror_root,
             previous=previous_alerts,
         )
+        _phase_progress("native_margin_alerts", phase_started)
     shorts_identity = None
     if native_shorts:
+        phase_started = _phase_progress("native_short_sale_reports")
         previous_shorts = None
         if serving_release is not None and read_lake_store_origin(sqlite_path) == _pointer_origin(
             previous
@@ -281,6 +299,7 @@ def prepare_market_lake(
             mirror_root=mirror_root,
             previous=previous_shorts,
         )
+        _phase_progress("native_short_sale_reports", phase_started)
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         policy = release_policy_for_profile("production")
@@ -292,15 +311,22 @@ def prepare_market_lake(
         native_price_enabled = native_price and "jquants.daily_bars" in policy_names
         native_alerts_enabled = native_alerts and "jquants.margin_alerts" in policy_names
         native_shorts_enabled = native_shorts and "jquants.short_sale_reports" in policy_names
-        derived_names = {
+        independently_derived_names = {
+            name
+            for name, enabled in (
+                ("jquants.fin_summaries", finance_enabled),
+                ("jquants.daily_bars", price_enabled and not native_price),
+            )
+            if enabled
+        }
+        derived_names = independently_derived_names | {
             name
             for name, enabled in (
                 ("jquants.market_calendar", native_calendar_enabled),
                 ("jquants.margin_alerts", native_alerts_enabled),
                 ("jquants.short_sale_reports", native_shorts_enabled),
                 ("jquants.master_snapshots", native_master_enabled),
-                ("jquants.fin_summaries", finance_enabled),
-                ("jquants.daily_bars", price_enabled or native_price_enabled),
+                ("jquants.daily_bars", native_price_enabled),
             )
             if enabled
         }
@@ -330,6 +356,7 @@ def prepare_market_lake(
                 raise LakePublishError("J-Quants L2 requires retained L1 originals")
             datasets = dict(export.datasets)
             if finance_enabled:
+                phase_started = _phase_progress("derive_financial")
                 assert source is not None
                 datasets["jquants.fin_summaries"] = export_financial_from_l1(
                     source=source,
@@ -337,7 +364,9 @@ def prepare_market_lake(
                     producer_git_commit=git_commit,
                     known_at=snapshot.sealed_at,
                 ).build
+                _phase_progress("derive_financial", phase_started)
             if price_enabled and not native_price:
+                phase_started = _phase_progress("derive_price")
                 assert source is not None
                 datasets["jquants.daily_bars"] = export_prices_from_l1(
                     source=source,
@@ -345,6 +374,7 @@ def prepare_market_lake(
                     producer_git_commit=git_commit,
                     known_at=snapshot.sealed_at,
                 ).build
+                _phase_progress("derive_price", phase_started)
             if native_price_enabled:
                 assert price_identity is not None
                 datasets["jquants.daily_bars"] = export_prices_from_native_input(
@@ -388,6 +418,7 @@ def prepare_market_lake(
                     )
                 )
             export = replace(export, datasets=datasets)
+        phase_started = _phase_progress("release_prepare")
         # source_pages mixes native-migrated originals with sources still served here.
         # Compare like-for-like history, without exempting the remaining originals.
         migrated_sources = frozenset(
@@ -426,15 +457,17 @@ def prepare_market_lake(
                 catalog=LAKE_DATASETS,
                 policy=release_policy_for_profile("production"),
             )
-            # Models still read this fixed SQLite snapshot. Refuse to publish a
-            # release if its newly L1-derived inputs differ from the model view.
-            for name in sorted(derived_names):
+            # Native projections were exported from this same seal and checked
+            # in full by export_dataset_snapshot. Only independent L1 rebuilds
+            # still need comparison with the SQLite model view here.
+            for name in sorted(independently_derived_names):
                 validate_snapshot_parity(
                     dataset=LAKE_DATASETS[name],
                     sqlite_path=snapshot.path,
                     mirror_root=mirror_root,
                     manifest=export.datasets[name].manifest,
                 )
+            _phase_progress("release_prepare", phase_started)
             yield PreparedMarketLake(
                 sqlite_path=sqlite_path,
                 mirror_root=mirror_root,

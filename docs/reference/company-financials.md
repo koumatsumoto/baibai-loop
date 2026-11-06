@@ -1,6 +1,6 @@
 # 企業財務 / Company Financials
 
-実績利益・価格・財務状態を、期間と株式basisを揃えて観測するL2。名称は[用語集](../glossary.md)、旧ER/FVは[歴史評価](estimate-calibration.md#machine-valuation)を参照する。現行候補抽出は保存モデルを読み、機械ER/FVを生成しない。算式・field・欠測分岐は[所有実装](../../engine/src/baibai_engine/machine_analysis/models/company_financials/)が正本である。
+実績利益・価格・財務状態を、期間と株式basisを揃えて観測するL2。名称は[解析モデル](../architecture.md#現在の解析モデル)、旧ER/FVは[歴史評価](estimate-calibration.md#machine-valuation)を参照する。現行候補抽出は保存モデルを読み、機械ER/FVを生成しない。算式・field・欠測分岐は[所有実装](../../engine/src/baibai_engine/machine_analysis/models/company_financials/)が正本である。
 
 EDINETは同じmarket sealで文書・訂正・抽出revisionが適格な場合の任意入力。未取得を埋めず全社生成の前提にしない。価格欠測でも財務金額・出典を残し、価格依存値だけを未評価にする。旧価格や0で補わない。
 
