@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import tempfile
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -61,6 +62,16 @@ _KEYS = {
     "documents": ("source_id", "request_key", "fetched_at"),
     "runs": ("run_id",),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class EconomicModelInput:
+    """The contexts recalculated from one saved native selection and its clocks."""
+
+    identity: InputSnapshot
+    as_of: date
+    evaluation_time: datetime
+    context: dict[str, Any]
 
 
 class _Fixed(BaseModel):
@@ -191,7 +202,7 @@ def retain_economic_input(
     """Save native membership and acquisition state, never a daily SQLite/body copy.
 
     Both regular calculation and cold calculation use ``rebuild_economic_input``
-    with the returned identity. This opt-in API is not yet a daily integration route.
+    with the returned identity. The canonical native originals remain the owner.
     """
     if evaluation_time.utcoffset() is None:
         raise ValueError("economic input requires a timezone-aware evaluation time")
@@ -304,7 +315,7 @@ def rebuild_economic_input(
     saved: InputSnapshot,
     *,
     rules_path: Path = DEFAULT_RULES_PATH,
-) -> dict[str, Any]:
+) -> EconomicModelInput:
     """Recalculate from exact original rows, not current adoption or an old L2 result.
 
     Canonical schema-13 originals must still exist. The temporary projection is
@@ -369,11 +380,16 @@ def rebuild_economic_input(
             for run_reference in selection.runs.values():
                 if run_reference is not None:
                     copy("runs", run_reference)
-        return {
-            "reading": reading_snapshot(path, asof=selection.as_of, rules_path=rules_path),
-            "tradingview_market": stored_market_context(
-                path,
-                asof=selection.as_of,
-                known_at=selection.evaluation_time,
-            ),
-        }
+        return EconomicModelInput(
+            identity=saved,
+            as_of=selection.as_of,
+            evaluation_time=selection.evaluation_time,
+            context={
+                "reading": reading_snapshot(path, asof=selection.as_of, rules_path=rules_path),
+                "tradingview_market": stored_market_context(
+                    path,
+                    asof=selection.as_of,
+                    known_at=selection.evaluation_time,
+                ),
+            },
+        )

@@ -41,8 +41,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
             generation_id="generated-from-new-release",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="new-release", manifest_sha256="a" * 64),
-            economic_path=None,
-            economic_identity=None,
+            economic_input=None,
             as_of=date(2026, 1, 5),
             evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
             ttm_rules=TTMRules(
@@ -143,8 +142,7 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
             generation_id="price-path-fixture",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
-            economic_path=None,
-            economic_identity=None,
+            economic_input=None,
             as_of=as_of,
             evaluation_time=datetime(2026, 10, 27, tzinfo=UTC),
             ttm_rules=DEFAULT_TTM_RULES,
@@ -222,8 +220,7 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
             generation_id="fixed-edinet",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="new-release", manifest_sha256="a" * 64),
-            economic_path=None,
-            economic_identity=None,
+            economic_input=None,
             as_of=TARGET,
             evaluation_time=datetime(2026, 4, 28, tzinfo=UTC),
             ttm_rules=TTMRules(
@@ -273,8 +270,7 @@ def test_generation_retains_provider_capital_from_the_same_expected_price_day(tm
             generation_id="provider-capital",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
-            economic_path=None,
-            economic_identity=None,
+            economic_input=None,
             as_of=date(2026, 1, 5),
             evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
             ttm_rules=DEFAULT_TTM_RULES,
@@ -302,8 +298,7 @@ def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkey
             generation_id="partial",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
-            economic_path=None,
-            economic_identity=None,
+            economic_input=None,
             as_of=date(2026, 1, 5),
             evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
             ttm_rules=DEFAULT_TTM_RULES,
@@ -316,15 +311,18 @@ def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkey
     assert result.result("company_growth", "1234") is not None
 
 
-def test_shared_market_model_contains_retained_tradingview_observations(tmp_path, monkeypatch):
+def test_shared_market_model_contains_retained_tradingview_observations(tmp_path):
+    from tests.helpers.r2_store import MemoryR2Store
     from tests.helpers.tradingview_market import CLOCK, capture
 
     from baibai_engine.data_collection.providers.tradingview.market_receipts import (
         retain_market_capture,
     )
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-    from baibai_engine.storage.snapshots.sources import sha256_file
+    from baibai_engine.machine_analysis.generation.economic_inputs import (
+        rebuild_economic_input,
+        retain_economic_input,
+    )
 
     market = market_store(
         tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),)
@@ -335,16 +333,16 @@ def test_shared_market_model_contains_retained_tradingview_observations(tmp_path
         retain_market_capture(
             c, capture(receipt_id="bar", bars=True, received=CLOCK + timedelta(minutes=1))
         )
-    monkeypatch.setattr(generation_reader, "reading_snapshot", lambda *_args, **_kwargs: None)
+    store = MemoryR2Store()
+    identity = retain_economic_input(
+        store, economic, as_of=date(2026, 1, 5), evaluation_time=CLOCK + timedelta(hours=1)
+    )
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
         result = generation_reader.read_and_generate_models(
             generation_id="with-tv",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
-            economic_path=economic,
-            economic_identity=InputSnapshot(
-                kind="sqlite_snapshot", reference="economy", sha256=sha256_file(economic)
-            ),
+            economic_input=rebuild_economic_input(store, economic, identity),
             as_of=date(2026, 1, 5),
             evaluation_time=CLOCK + timedelta(hours=1),
             ttm_rules=DEFAULT_TTM_RULES,
@@ -355,3 +353,39 @@ def test_shared_market_model_contains_retained_tradingview_observations(tmp_path
     assert tv["quotes"][0]["receipt_id"] == "quote"
     assert tv["bars"][0]["receipt_id"] == "bar"
     assert "tradingview" in common.calculation_revision
+
+
+@pytest.mark.parametrize("changed", ["as_of", "evaluation_time"])
+def test_saved_economic_clocks_must_match_generation(tmp_path, changed):
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+    from baibai_engine.machine_analysis.generation.economic_inputs import (
+        rebuild_economic_input,
+        retain_economic_input,
+    )
+
+    economic = tmp_path / "economic.sqlite"
+    initialize_database(economic).close()
+    store = MemoryR2Store()
+    day = date(2026, 1, 5)
+    evaluated = datetime(2026, 1, 6, tzinfo=UTC)
+    identity = retain_economic_input(store, economic, as_of=day, evaluation_time=evaluated)
+    fixed = rebuild_economic_input(store, economic, identity)
+    market = market_store(tmp_path / "market.sqlite")
+    with (
+        sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot,
+        pytest.raises(ValueError, match="economic input clocks differ"),
+    ):
+        generation_reader.read_and_generate_models(
+            generation_id="clock-mismatch",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+            economic_input=fixed,
+            as_of=day + timedelta(days=1) if changed == "as_of" else day,
+            evaluation_time=evaluated + timedelta(seconds=1)
+            if changed == "evaluation_time"
+            else evaluated,
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1301",),
+        )

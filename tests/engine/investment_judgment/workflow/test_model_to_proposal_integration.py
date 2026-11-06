@@ -278,8 +278,7 @@ def _prepare_case(tmp_path, monkeypatch, scenario="wait", *, shared_trends=False
             market_release=InputRelease(
                 release_id="synthetic-fixed-release", manifest_sha256="a" * 64
             ),
-            economic_path=None,
-            economic_identity=None,
+            economic_input=None,
             as_of=START.date(),
             evaluation_time=START,
             ttm_rules=DEFAULT_TTM_RULES,

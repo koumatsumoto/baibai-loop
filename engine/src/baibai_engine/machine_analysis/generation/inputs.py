@@ -10,11 +10,10 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime
 from math import isfinite
-from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream
-from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
+from baibai_engine.machine_analysis.generation.economic_inputs import EconomicModelInput
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
     prepare_market_context_from_bars,
@@ -66,15 +65,11 @@ from baibai_engine.machine_analysis.observations.prices.price_observation_reader
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     _adjustment_events_from_rows,
 )
-from baibai_engine.machine_analysis.observations.prices.tradingview_market import (
-    stored_market_context,
-)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.primitives.stocks import normalize_ticker
-from baibai_engine.storage.snapshots.sources import sha256_file
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
@@ -92,8 +87,7 @@ def read_and_generate_models(
     generation_id: str,
     market_snapshot: SealedSQLiteSnapshot,
     market_release: InputRelease,
-    economic_path: Path | None,
-    economic_identity: InputSnapshot | None,
+    economic_input: EconomicModelInput | None,
     as_of: date,
     evaluation_time: datetime,
     ttm_rules: TTMRules,
@@ -106,22 +100,15 @@ def read_and_generate_models(
     margin_alerts_identity: InputSnapshot | None = None,
     short_sale_reports_identity: InputSnapshot | None = None,
 ) -> ModelGenerationStream:
-    """callerは同じmarket sealからreleaseを作り、economic copyも固定する。
+    """callerは同じmarket sealと保存した経済selectionから入力を固定する。
 
     seal内に残る旧originでなく、今回exportしたreleaseを入力identityとする。
     ここでは原本取得・候補選択・公開をせず、業種参照は全masterを維持する。
     """
-    if (economic_path is None) != (economic_identity is None):
-        raise ValueError("economic snapshot path and identity must be paired")
-    if (
-        economic_identity is not None
-        and economic_path is not None
-        and (
-            economic_identity.kind != "sqlite_snapshot"
-            or sha256_file(economic_path) != economic_identity.sha256
-        )
+    if economic_input is not None and (
+        economic_input.as_of != as_of or economic_input.evaluation_time != evaluation_time
     ):
-        raise ValueError("economic snapshot differs from its fixed identity")
+        raise ValueError("economic input clocks differ from the generation")
     path = market_snapshot.path
     master_as_of: date | None = as_of
     if master_identity is not None and master_identity.descriptor is not None:
@@ -307,7 +294,7 @@ def read_and_generate_models(
                 reference=market_release.release_id,
                 sha256=market_release.manifest_sha256,
             ),
-            **({"economic": economic_identity} if economic_identity is not None else {}),
+            **({"economic": economic_input.identity} if economic_input is not None else {}),
             **({"calendar": calendar_identity} if calendar_identity is not None else {}),
             **(
                 {"margin_alerts": margin_alerts_identity}
@@ -337,12 +324,11 @@ def read_and_generate_models(
         external_observations=histories,
         market_context={
             "market": build_market_snapshot(sqlite_path=path, asof_date=as_of, prepared=prepared),
-            "reading": None
-            if economic_path is None
-            else reading_snapshot(economic_path, asof=as_of),
-            "tradingview_market": None
-            if economic_path is None
-            else stored_market_context(economic_path, asof=as_of, known_at=evaluation_time),
+            **(
+                {"reading": None, "tradingview_market": None}
+                if economic_input is None
+                else economic_input.context
+            ),
         },
         securities_context=contexts,
         market_context_revision="shared-market-context-bar-timing-v6-tradingview",

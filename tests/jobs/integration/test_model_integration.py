@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 from pydantic import TypeAdapter
+from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.integration.models as job
+from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
@@ -26,7 +28,7 @@ from baibai_jobs.observability.discord import render_generation
 def integration(tmp_path, monkeypatch):
     events = []
     economic = tmp_path / "economic"
-    economic.write_bytes(b"fixed-economic")
+    initialize_database(economic).close()
     prepared = SimpleNamespace(
         release=SimpleNamespace(release_id="new-release"),
         release_sha256="a" * 64,
@@ -49,9 +51,16 @@ def integration(tmp_path, monkeypatch):
         yield prepared
         events.append("release-snapshot")
 
-    def snapshot(source, output):
-        output.write_bytes(source.read_bytes())
-        source.write_bytes(b"later-economic")
+    retain = job.retain_economic_input
+    rebuild = job.rebuild_economic_input
+
+    def retain_input(*args, **kwargs):
+        events.append("retain")
+        return retain(*args, **kwargs)
+
+    def rebuild_input(*args, **kwargs):
+        events.append("rebuild")
+        return rebuild(*args, **kwargs)
 
     def generate(**kwargs):
         events.append("generate")
@@ -64,7 +73,11 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["margin_alerts_identity"] is prepared.margin_alerts_identity
         assert kwargs["short_sale_reports_identity"] is prepared.short_sale_reports_identity
         assert kwargs["market_release"].release_id == "new-release"
-        assert kwargs["economic_path"].read_bytes() == b"fixed-economic"
+        fixed = kwargs["economic_input"]
+        assert fixed.identity.kind == "native_l1"
+        assert fixed.as_of == kwargs["as_of"]
+        assert fixed.evaluation_time == kwargs["evaluation_time"]
+        assert set(fixed.context) == {"reading", "tradingview_market"}
         return ModelGenerationStream(
             metadata=GenerationMetadata(
                 schema_version=2,
@@ -75,7 +88,7 @@ def integration(tmp_path, monkeypatch):
                     "market": InputSnapshot(
                         kind="lake_release", reference="new-release", sha256="a" * 64
                     ),
-                    "economic": kwargs["economic_identity"],
+                    "economic": fixed.identity,
                     "calendar": kwargs["calendar_identity"],
                 },
                 subject_plan={
@@ -137,11 +150,12 @@ def integration(tmp_path, monkeypatch):
     monkeypatch.setattr(job, "_load_handle", lambda path: object())
     monkeypatch.setattr(job, "verify_held", lambda store, handle: events.append("lease"))
     monkeypatch.setattr(job, "prepare_market_lake", prepare)
-    monkeypatch.setattr(job, "create_snapshot", snapshot)
+    monkeypatch.setattr(job, "retain_economic_input", retain_input)
+    monkeypatch.setattr(job, "rebuild_economic_input", rebuild_input)
     monkeypatch.setattr(job, "read_and_generate_models", generate)
     monkeypatch.setattr(job, "publish_prepared_market_lake", publish)
     arguments = dict(
-        store=object(),
+        store=MemoryR2Store(),
         market=tmp_path / "market",
         economic=economic,
         runs=tmp_path / "runs",
@@ -181,10 +195,19 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     assert result["screening_price_inputs"]["valid_count"] == 1
     assert result["screening_price_inputs"]["universe_count"] == 2
     assert result["growth_start"] == (None if growth_start is None else growth_start.isoformat())
-    assert events == ["lease", "prepare", "generate", "lease", "publish", "release-snapshot"]
+    assert events == [
+        "lease",
+        "prepare",
+        "retain",
+        "rebuild",
+        "generate",
+        "lease",
+        "publish",
+        "release-snapshot",
+    ]
     stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
     assert stored.inputs["market"].reference == result["lake"]["release_id"]
-    assert stored.inputs["economic"].sha256 == result["economic_snapshot_sha256"]
+    assert stored.inputs["economic"].sha256 == result["economic_input_sha256"]
     assert stored.inputs["calendar"].reference == "calendar-native-fixed"
 
 
