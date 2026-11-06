@@ -84,7 +84,7 @@ uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --db <APP_DB> --sqlite-path stores/market/market.sqlite
 ```
 
-contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を被覆して[指値/数量/待機](../../../docs/reference/trade-proposal.md#limit-selection)または[保有/回収](../../../docs/reference/trade-proposal.md#holding)を比較する。`trade-proposal-check <DRAFT> --db <APP_DB>`の正規draft_sha256へ別作業者の内容Reviewを束縛し、`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。validは内容Reviewでなく、変更時は[再snapshot/再Review](../../../docs/reference/trade-proposal.md#publication-review)する。
+contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を被覆して[指値/数量/待機](../../../docs/reference/trade-proposal.md#limit-selection)または[保有/回収](../../../docs/reference/trade-proposal.md#holding)を比較する。`trade-proposal-check <DRAFT> --db <APP_DB>`後、[内容Review](../../../docs/reference/trade-proposal.md#publication-review)を経て`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
 
 全対象が理由/参照付きunfinishedで、公開済みProposalも束縛参照もない場合だけProposal工程を省いて完了できる。resultへ確認範囲/評価未完、nextへ未解決の問い/再調査条件を記す。reviewedや公開済み未束縛Proposalがあれば通常経路を使い、経済的見送り/保有判断をunfinishedにしない。0対象は選定理由を残し空Proposalなしで終える。
 

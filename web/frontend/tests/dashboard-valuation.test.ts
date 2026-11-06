@@ -121,6 +121,7 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('+￥136,100')
     expect(html).not.toContain('配分データなし')
     expect(html).not.toContain('未評価')
+    expect(html).not.toContain('株価基準')
   })
 
   it('shows negative, zero, null, and temporarily absent realized amounts', () => {
@@ -147,6 +148,8 @@ describe('Dashboard valuation display', () => {
     expect(html).toContain('8255')
     expect(html).toContain('未評価')
     expect(html).toContain('取得')
+    expect(html).toContain('取得 / 保存終値')
+    expect(html).not.toContain('現在')
     expect(html).toContain('￥1,000')
     expect(html).toMatch(/評価損益 合計<\/span><span[^>]*>未評価/)
   })

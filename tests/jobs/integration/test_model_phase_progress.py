@@ -209,7 +209,6 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
         result = models.integrate_models(**arguments)
         assert result["models_ready"] is True
         phases = (
-            "economic_input",
             "model_inputs",
             "model_generation",
             "screening",
@@ -217,8 +216,13 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             "model_cache_prune",
         )
         expected = [
-            f"phase={phase} state={state}" for phase in phases for state in ("start", "done")
-        ]
+            "phase=economic_input state=start",
+            "phase=economic_input_retain state=start",
+            "phase=economic_input_retain state=done",
+            "phase=economic_input_rebuild state=start",
+            "phase=economic_input_rebuild state=done",
+            "phase=economic_input state=done",
+        ] + [f"phase={phase} state={state}" for phase in phases for state in ("start", "done")]
         lines = [
             "phase=" + line.split("phase=", 1)[1].split(" elapsed_seconds=")[0]
             for line in progress.flushed.splitlines()
@@ -240,7 +244,8 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
 @pytest.mark.parametrize(
     ("phase", "operation"),
     [
-        ("economic_input", "retain_economic_input"),
+        ("economic_input_retain", "retain_economic_input"),
+        ("economic_input_rebuild", "rebuild_economic_input"),
         ("model_inputs", "read_and_generate_models"),
         ("screening", "evaluate_saved_economic_generation"),
         ("lake_publish", "publish_prepared_market_lake"),

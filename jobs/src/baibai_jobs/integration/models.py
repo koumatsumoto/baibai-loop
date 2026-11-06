@@ -96,11 +96,14 @@ def integrate_models(
     ) as prepared:
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
         phase_started = _phase_progress("economic_input")
-        economic_input = rebuild_economic_input(
-            store,
-            economic,
-            retain_economic_input(store, economic, as_of=as_of, evaluation_time=evaluation_time),
+        step_started = _phase_progress("economic_input_retain")
+        saved_economic = retain_economic_input(
+            store, economic, as_of=as_of, evaluation_time=evaluation_time
         )
+        _phase_progress("economic_input_retain", step_started)
+        step_started = _phase_progress("economic_input_rebuild")
+        economic_input = rebuild_economic_input(store, economic, saved_economic)
+        _phase_progress("economic_input_rebuild", step_started)
         _phase_progress("economic_input", phase_started)
         phase_started = _phase_progress("model_inputs")
         generation = read_and_generate_models(

@@ -6,7 +6,7 @@
 
 ## 現行判断を将来比較へつなぐ前の診断
 
-完了した一回のOperationから、保存済みの母集団・候補・選定・提案を[読取専用tool](../../tools/experiments/inspect_decision_cohort.py)で照合できる。既存のSelection・評価pair・Proposalを参照し、現在のgenerationや価格で埋めず、第二の判断正本を作らない。
+完了した一回のOperationを[読取専用tool](../../tools/experiments/inspect_decision_cohort.py)で照合する。保存済みの母集団・候補・Selection・評価pair・Proposalを使い、現在値で補わず、第二の判断正本にしない。
 
 ```bash
 uv run python -m tools.experiments.inspect_decision_cohort \
@@ -14,9 +14,9 @@ uv run python -m tools.experiments.inspect_decision_cohort \
   --out <NEW_PRIVATE_JSON>
 ```
 
-未選定は経済的見送りではなく、未完了は完成した`no_action`ではない。0対象でも当時の候補を残し、提案なしを捏造しない。行は候補と調査対象のunionであり、全母集団の詳細ではない。モデルrevision一覧も保存Selectionのsliceに限る。未完了・中断など他のOperationは数えないため、これだけで全開始件数を分母にした方法比較はできない。出力には私有の判断内容が入るため公開ログ・artifactへ転送しない。CLIの既知の失敗は例外classだけを表示し、検証エラー内の私有値やpathを出さない。
+未選定を経済的見送り、未完を`no_action`としない。0対象でも当時の候補を残し、提案なしを捏造しない。行は候補と調査対象のunion、モデルrevisionは保存Selectionのsliceに限る。他の未完/中断Operationを数えず、全母集団の詳細や全開始件数を分母にした方法比較ではない。私有出力を公開ログ・artifactへ転送しない。
 
-これは将来追跡の入力確認であり、成果・指値の因果効果・当時PIT・事前登録を証明しない。後日選んだ旧Operationのhashが一致しても事前固定した比較群とは呼べない。正式な比較では対象の選び方・観測窓・metricを結果を見る前に固定する。`baseline_available_at`はOperation完了時刻で、約定可能な時刻ではない。選定の比較は`screening_published_at`、最終提案の比較は`proposal_published_at`以後の観測を起点として分け、価格観測・取引可能時刻も確認する。後日の訂正・人間報告・取引・Retrospectiveは別時点の記録として照合し、当時の本文へ混入させない。
+入力確認であって成果・指値の因果効果・当時PIT・事前登録を証明しない。旧Operationのhash一致も事前固定の証明でなく、正式比較の対象・窓・metricは結果を見る前に固定する。`baseline_available_at`は完了時計で約定可能時刻ではない。選定は`screening_published_at`、最終提案は`proposal_published_at`以後の観測から別に比べ、価格観測・取引可能時刻も確認する。後日の訂正・人間報告・取引・Retrospectiveを当時の本文へ混ぜない。
 
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味
