@@ -249,7 +249,7 @@ def test_unknown_cron_is_rejected_even_with_explicit_asof(tmp_path, asof):
     assert output == {}
 
 
-def test_only_edinet_archives_load_and_resume_scoped_inputs():
+def test_native_edinet_archives_do_not_load_or_resume_scoped_inputs():
     workflow = yaml.load(
         (ROOT / ".github/workflows/cloud-market-source.yml").read_text(), Loader=yaml.BaseLoader
     )
@@ -258,9 +258,7 @@ def test_only_edinet_archives_load_and_resume_scoped_inputs():
         "Load only the assigned source input",
         "Read own confirmed originals and required EDINET list receipts",
     ):
-        assert steps[name]["if"] == (
-            '${{ contains(fromJSON(\'["edinet-metrics","edinet-facts"]\'), inputs.source) }}'
-        )
+        assert name not in steps
 
 
 @pytest.mark.parametrize("source", [*INPUT_SOURCES, "edinet-metrics", "edinet-facts"])
@@ -302,6 +300,4 @@ def test_acquire_shell_passes_input_only_to_its_consumers(tmp_path, source):
     assert parsed.source == source
     assert parsed.asof == date(2026, 11, 6)
     assert parsed.directory == runner / "source-handoff"
-    assert parsed.input_directory == (
-        runner / "source-input" if source in {"edinet-metrics", "edinet-facts"} else None
-    )
+    assert parsed.input_directory is None

@@ -906,11 +906,11 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 
 runnerの強制kill、local disk故障、private stage保存も失敗した場合まで原本回復を保証しない。既存の期限前打切りとpartial stage保存を使い、通常publication失敗を成功通知へ変えない。新remote journalやreceipt複製層は追加しない。
 
-CSV/XBRL ZIP・facts scopeの保存/inputと一覧L2公開はmarket経路に残る。独立一覧L1だけでEDINET全取得の独立化や過去L3入力の一貫固定が完了したとは扱わない。後続設計は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)で扱う。
+CSV/XBRL ZIP・facts scopeも独立ownerへ保存し、通常取得は旧source-inputやL2公開を待たない。既存SQL consumerとlake原本parquetは移行中の読取経路として残る。全L2のcold再生成・原本の重複配布解消・過去PIT保証は別であり、残作業は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)で扱う。
 
-#### EDINET ZIP/scope独立ownerの明示検証入口
+#### EDINET ZIP/scopeの通常取得と固定consumer
 
-以下は通常workflow・共有固定input・market公開・既存SQL consumerへ未接続の明示入口。既存原本がある場合は後述の有限移行を使い、空head作成だけで移行完了にしない。旧market/L2の廃棄、全EDINET L2のcold再生成、過去PIT入力の保証にもならない。
+通常切替の前に、旧取得・共通統合writerを止めた同じ区間で、後述の有限移送により固定releaseの全原本と全旧stage・scopeを移し、本文/保存日を検証する。移送開始から通常route切替まで旧定期/手動writerを新規起動しない。空head作成で既存原本の移送を代用しない。merge後は既存の `BAIBAI_EDINET_LIST_NATIVE=true` が一覧とZIP/scopeの両方を選ぶ。head未作成で通常dailyに初期化を代行させず、旧一覧だけのplanも作り直す。
 
 `edinet-archives-native`は初回ZIPと取得scopeを `l1/edinet/archives/v1/` へ保持する。原本を持たない隔離環境と、同じbucketの固定可能なnative一覧headを用意し、`--bucket`を明示する。
 
@@ -926,7 +926,11 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <isolated-bucket>
 
 選択・取得予算は[取得owner](src/baibai_jobs/acquisition/edinet_archive_native.py)、scopeの未初期化・ticker限定は[取得範囲](#edinet-factsの取得範囲schema-50)に従う。計画は固定一覧/scopeを使い、旧market・L2成功・全ZIP本文を入力にしない。`input.json`の一覧/archive headを保持し、各ZIPを次のGET前に確定する。後続失敗で保存済み原本を取り消さず、scope有効化を抽出成功としない。
 
-[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は `(doc_id, source_type)` の初回bytes/保存日を保つ。新取得だけ実受領UTCを持ち、旧日付から時計を作らない。`pending.json`があれば新HTTPを始めず、同じworkの `commit-work` で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合として明示再試行する。失ったheadを部分workから再作成しない。work消失やremote failure stageからの回復は未対応。
+[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は `(doc_id, source_type)` の初回bytes/保存日を保つ。新取得だけ実受領UTCを持ち、旧日付から時計を作らない。`pending.json`があれば新HTTPを始めず、同じworkの `commit-work` で同じbytes/時刻を再確認する。CAS競合も最新headとの和集合として明示再試行する。失ったheadを部分workから再作成しない。通常workflowの公開失敗は、未確定ZIP・実受領UTC・scopeだけを既存private handoffへ保存する。`edinet-archives-native commit-stage --bucket <bucket> --directory <new-work-dir> --stage-id <ID>` で同じ受領を公開し、読戻し後だけそのstageを確定する。通常L2統合は未確定stageを処理済みにせず、旧形式stageは有限移送へ戻す。runner強制killやlocal/private stageの両保存失敗まで回復を保証しない。
+
+手動のmetrics/TOB refreshもZIPをnativeへ先に確定し、facts refreshは取得scopeと原本を確定してからSQLへ投影する。`--initialize`/`--ticker`と任意lookbackを維持し、明示annual refreshへ日次holder batchを追加しない。
+
+共通統合はplanで一覧/archive両headを固定し、その後の最新headを読まない。実行copyの既存ZIP bytes・保存日・scopeを照合して不足ZIPだけを取り込み、同じSQLをcomparison・holder・TOB・factsへ渡す。有限移送でstageの保存日がcanonicalより早かった場合は、同じbytesの実行copyだけを最早日に整合する。未知原本/広すぎるscopeは消さず切替未完として止める。L2失敗はnative取得を妨げない。毎回の全原本cold copyはしないが、既存BLOBの全hash照合とlake原本parquet再exportの費用は残る。
 
 有限移行では旧EDINET archive取得・手動更新・market統合と移行先archive writerをdrainし、schema50 canonicalとrelease ID/digestを固定する。canonicalはそのreleaseの全EDINET archiveをhydrate済みにする。移行入口はorigin一致と期待行数で脱水・部分hydrateを拒否するが、同数の別bytesまでreleaseと照合するものではない。source inputのinventoryやL2断面を全原本の代わりに渡さない。
 

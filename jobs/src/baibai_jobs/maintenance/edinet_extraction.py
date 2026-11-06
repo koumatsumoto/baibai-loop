@@ -15,12 +15,14 @@ from typing import Any, Protocol, TextIO
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
     EdinetRateLimitError,
+    EdinetResponse,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.planning import (
     plan_fact_item,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     XbrlReader,
+    extract_edinet_facts_command,
     finish_edinet_facts,
     prepare_edinet_facts,
     process_edinet_fact_item,
@@ -123,6 +125,8 @@ def refresh_edinet_metrics_command(
 class XbrlAcquisition(Protocol):
     def download_xbrl_zip(self, doc_id: str) -> bytes: ...
 
+    def fetch_archive(self, doc_id: str, source_type: int) -> EdinetResponse: ...
+
 
 def refresh_edinet_facts_command(
     *,
@@ -135,6 +139,54 @@ def refresh_edinet_facts_command(
     stdout: TextIO | None = None,
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
+    if edinet_list_native_enabled():
+        from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+        from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+        from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
+        from baibai_jobs.integration.edinet_archive_native import materialize_archives
+        from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+        try:
+            with closing(
+                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            ) as store:
+                owner = EdinetArchiveL1(store, sqlite_path.parent / "edinet-archive-work")
+                lists = EdinetListL1(store, sqlite_path.parent / "edinet-list-read").freeze()
+                report = acquire_archives(
+                    owner,
+                    acquisition,
+                    lists,
+                    group="edinet-facts",
+                    asof=asof,
+                    initialize_facts=initialize,
+                    tickers=tickers,
+                    # The explicit annual refresh never requested the daily holder batch.
+                    include_holder_archives=False,
+                )
+                print(json.dumps({"native_archive_acquisition": report}, sort_keys=True), file=out)
+                materialize_archives(owner.freeze(), sqlite_path)
+                materialize_lists(lists, sqlite_path)
+        except (
+            EdinetAcquisitionError,
+            EDINETProviderError,
+            LakePublishError,
+            sqlite3.Error,
+            OSError,
+            ValueError,
+        ) as error:
+            print(f"EDINET native facts refresh failed: {type(error).__name__}", file=sys.stderr)
+            return 1
+        return max(
+            int(report["status"] == "failed"),
+            extract_edinet_facts_command(
+                asof=asof,
+                sqlite_path=sqlite_path,
+                reader=reader,
+                initialize=initialize,
+                tickers=tickers,
+                stdout=out,
+            ),
+        )
     selected = prepare_fact_acquisition(
         sqlite_path, asof=asof, initialize=initialize, tickers=tickers
     )

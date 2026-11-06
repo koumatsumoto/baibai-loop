@@ -34,8 +34,6 @@ def test_explicit_initialization_and_strict_missing_head(tmp_path):
     writer = EdinetArchiveL1(MemoryR2Store(), tmp_path)
     with pytest.raises(LakePublishError, match="initialization"):
         writer.freeze()
-    with pytest.raises(LakePublishError, match="initialization"):
-        writer.publish([archive()])
     empty = writer.initialize()
     assert empty.archive_keys == frozenset()
     assert empty.scope == FactsScope()
@@ -50,6 +48,20 @@ def test_explicit_initialization_and_strict_missing_head(tmp_path):
     del value["acquisition_scope"]["since"]
     with pytest.raises(ValueError, match="Field required"):
         FixedEdinetArchives(writer.store, value)
+
+
+def test_missing_head_keeps_received_bytes_but_never_initializes_from_them(tmp_path):
+    writer = EdinetArchiveL1(MemoryR2Store(), tmp_path)
+    original = archive()
+    with pytest.raises(LakePublishError, match="disappeared"):
+        writer.publish([original])
+    assert (tmp_path / (original.metadata.sha256 + ".object")).read_bytes() == original.content
+    assert (tmp_path / "pending.json").is_file()
+    with pytest.raises(LakePublishError, match="disappeared"):
+        writer.resume_work()
+    with pytest.raises(LakePublishError, match="resume_work"):
+        writer.initialize()
+    assert writer.store.values == {}
 
 
 def test_first_retained_bytes_day_and_type_identity(tmp_path):
