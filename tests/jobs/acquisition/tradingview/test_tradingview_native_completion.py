@@ -18,6 +18,160 @@ from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("close", "private-invalid-number"), ("AnalystRating", 123), ("recommendation_total", -1)],
+)
+def test_numeric_projection_failure_keeps_collecting_and_stages_every_original(
+    tmp_path, field, value
+):
+    from tests.helpers.tradingview import stored
+
+    from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
+
+    path = store(tmp_path / "source.sqlite", 5)
+    canonical = store(tmp_path / "canonical.sqlite", 5)
+    calls = []
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        response = payload(symbols)
+        response["data"][symbols[0]][field] = value
+        return CallToolResult(content=[], structuredContent=response)
+
+    result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
+    assert len(calls) == result["chunks_completed"] == result["native_added"] == 5
+    assert result["status"] == "partial"
+    assert result["rows_added"] == result["rows"] == result["remaining_requests"] == 0
+    assert result["projection_pending"] == result["remaining"] == 5
+    assert result["last_failure"]
+    assert "private-invalid-number" not in repr(result)
+    assert stored(path) == []
+    assert asyncio.run(collect(path, DAY, fetch, clock=lambda: NOW))["status"] == "originals_saved"
+    assert len(calls) == 5
+    with closing(open_connection(path)) as conn:
+        originals = conn.execute(
+            "SELECT * FROM tradingview_source_receipts ORDER BY receipt_id"
+        ).fetchall()
+
+    stage = tmp_path / "stage.sqlite"
+    selected = export_handoff(path, stage, day=DAY, since=NOW)
+    assert len(selected.receipt_ids) == 5
+    replayed = import_handoff(stage, canonical, selected)
+    assert not replayed.complete
+    assert replayed.report["raw_receipts_added"] == 5
+    assert replayed.report["rows_added"] == 0
+    assert len(replayed.report["rejected_receipts"]) == 5
+    assert stored(canonical) == []
+    with closing(open_connection(canonical)) as conn:
+        assert (
+            conn.execute("SELECT * FROM tradingview_source_receipts ORDER BY receipt_id").fetchall()
+            == originals
+        )
+    assert import_handoff(stage, canonical, selected).report["raw_receipts_added"] == 0
+    assert preflight_snapshot(canonical, DAY, now=NOW)["status"] == "originals_saved"
+
+
+def test_raw_only_progress_resets_provider_failure_counter_and_reaches_later_good_batch(tmp_path):
+    path = store(tmp_path / "source.sqlite", 6)
+    calls = []
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        response = payload(symbols)
+        if symbols == ["TSE:1002"]:
+            response["data"][symbols[0]]["close"] = "invalid number"
+        elif symbols != ["TSE:1005"]:
+            response = {"success": True}
+        return CallToolResult(content=[], structuredContent=response)
+
+    result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
+    assert len(calls) == 6
+    assert result["chunks_completed"] == result["native_added"] == 2
+    assert result["rows_added"] == result["projection_pending"] == 1
+    assert result["remaining_requests"] == 4
+
+
+def test_numeric_error_cannot_hide_an_incomplete_later_native_row(tmp_path):
+    from baibai_jobs.observability.tradingview import CollectionFailure
+
+    path = store(tmp_path / "source.sqlite", 10)
+    calls = []
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        response = payload(symbols)
+        response["data"][symbols[0]]["close"] = "invalid number"
+        response["data"][symbols[1]].pop("close")
+        return CallToolResult(content=[], structuredContent=response)
+
+    with pytest.raises(CollectionFailure):
+        asyncio.run(collect(path, DAY, fetch, batch_size=2, interval=0, clock=lambda: NOW))
+    assert len(calls) == 3
+    state = preflight_snapshot(path, DAY, now=NOW)
+    assert state["native_received"] == state["rows"] == 0
+    assert state["remaining_requests"] == 10
+
+
+@pytest.mark.parametrize("status", [403, 429])
+def test_raw_only_progress_does_not_bypass_later_http_stop(tmp_path, status):
+    from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
+        ProviderHTTPError,
+    )
+
+    path = store(tmp_path / "source.sqlite", 5)
+    calls = []
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        if len(calls) == 2:
+            raise ProviderHTTPError(status)
+        response = payload(symbols)
+        response["data"][symbols[0]]["close"] = "invalid number"
+        return CallToolResult(content=[], structuredContent=response)
+
+    result = asyncio.run(collect(path, DAY, fetch, batch_size=1, interval=0, clock=lambda: NOW))
+    assert len(calls) == 2
+    assert result["chunks_completed"] == result["native_added"] == 1
+    assert result["rows_added"] == 0
+    assert result["remaining_requests"] == 4
+    assert result["stop_reason"] == ("auth" if status == 403 else "provider_rate_limit")
+
+
+@pytest.mark.parametrize("limit", ["time_guard", "soft_budget"])
+def test_raw_only_progress_keeps_acquisition_time_limits(tmp_path, limit):
+    from tests.helpers.tradingview import Timer
+
+    path = store(tmp_path / "source.sqlite", 5)
+    timer = Timer()
+    calls = []
+    clocks = iter((NOW, NOW, NOW, NOW + timedelta(days=1)))
+
+    async def fetch(symbols, _columns):
+        calls.append(symbols)
+        if limit == "soft_budget":
+            timer.value = 25 * 60
+        response = payload(symbols)
+        response["data"][symbols[0]]["close"] = "invalid number"
+        return CallToolResult(content=[], structuredContent=response)
+
+    result = asyncio.run(
+        collect(
+            path,
+            DAY,
+            fetch,
+            batch_size=1,
+            interval=0,
+            clock=lambda: next(clocks),
+            timer=timer,
+        )
+    )
+    assert len(calls) == result["native_added"] == 1
+    assert result["rows_added"] == 0
+    assert result["remaining_requests"] == 4
+    assert result["stop_reason"] == limit
+
+
 def retain(path, response, *, symbols=("TSE:1000",), **overrides):
     values = {
         "snapshot_date": DAY,

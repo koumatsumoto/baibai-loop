@@ -408,6 +408,8 @@ lease外でacquire→inspect→ready --cumulative、共通統合が固定集合�
 
 [日次](../.github/workflows/cloud-tradingview-snapshot.yml)は未取得原応答だけを再開する。L2行だけでは充足でなく、originals_savedは再GETせずrebuild。L2だけ残るcopyは不足原本を受領して既存L2を保ち、native_added/rows_addedを分ける。後受領を旧L2の生成元とせず、過去cycleを現在応答で埋めない。cycleは09:00 JST切替、営業日15:30/休日09:00から翌09:00未満。休日は直前営業日のexact masterと連続calendarを固定し、翌朝受領を前日既知へ付け替えない。
 
+要求銘柄・fieldの揃った原応答はL2の数値/型検証失敗でも取得の前進として残し、後続batchを止めない。L2不足はpartial/診断に残し、無効応答の連続停止・HTTP/認証・時刻/予算・保存失敗の境界は維持する。
+
 receiveはHTTPなしでNativeToolCaptureをcurrent-schema copyへ保存する。SDK応答全体・失敗も保持し、値から原本を作らない。同IDは全内容一致の再送だけ、別呼出しは別ID。
 
 ```bash
