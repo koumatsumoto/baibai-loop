@@ -165,7 +165,7 @@ def test_unchanged_years_are_reused_and_warm_transport_scales_with_year_blocks(t
     assert freeze(store, path) == first
     assert rebuild_economic_input(store, path, first).context == expected
     # Three yearly record blocks and one root, read once for retain and rebuild.
-    assert len(store.head_keys) == 16
+    assert len(store.head_keys) == 8
     assert len(store.get_keys) == 8
     assert not store.put_keys
     with closing(initialize_database(path)) as connection, connection:

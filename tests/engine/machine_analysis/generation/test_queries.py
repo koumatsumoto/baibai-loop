@@ -24,6 +24,7 @@ from baibai_engine.investment_judgment.market_assessment.query import latest_ass
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
+    prepare_market_context_from_bars,
 )
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.models.technical_analysis.calculations import bollinger_20bar
@@ -145,7 +146,13 @@ def test_null_close_split_factor_adjusts_past_prices_without_future_events(tmp_p
         connection.close()
     series = read_price_bars(path, start=ASOF - timedelta(days=90), end=ASOF)["1321"]
     assert [bar.price for bar in series] == [100.0] * 20
-    benchmark = security(path, ticker="1321")["benchmark_trend"]
+    benchmark = prepare_market_context_from_bars(
+        sqlite_path=path,
+        asof_date=ASOF,
+        master=read_master_snapshot(path, as_of=ASOF),
+        bars_by_ticker=read_price_bars(path, start=date.min, end=ASOF),
+        subjects=("1321",),
+    ).benchmark_trend.to_dict()
     assert benchmark["benchmark_return_20d"] is None  # null close isn't a bar
     assert benchmark["benchmark_gap_from_high"] == 0
     assert (

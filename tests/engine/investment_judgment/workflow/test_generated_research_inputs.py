@@ -1,5 +1,6 @@
 """保存モデル→Selection→再開・提案入力の経路。投資成績やAI判断の証明ではない。"""
 
+from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -768,7 +769,7 @@ def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
     if shared_input:
         import sqlite3
 
-        with sqlite3.connect(app) as connection:
+        with closing(sqlite3.connect(app)) as connection:
             stored_payload = connection.execute("SELECT payload FROM operation_session").fetchone()[
                 0
             ]

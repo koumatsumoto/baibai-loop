@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 from contextlib import closing
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -29,6 +29,7 @@ from baibai_jobs.publication.external_assessment_verification import (
 from baibai_jobs.publication.external_assessment_verification import (
     verify_release_history as external_assessment_verify_release_history,
 )
+from baibai_jobs.publication.lease import DAILY_LEASE_TTL
 
 WORKFLOW = Path(__file__).resolve().parents[4] / ".github/workflows/cloud-external-assessment.yml"
 
@@ -159,7 +160,7 @@ def test_workflow_is_daily_serial_private_and_keeps_publication_inside_existing_
     daily = common["jobs"]["daily"]
     assert daily["concurrency"]["group"] == "cloud-publish"
     assert "needs" not in daily
-    assert int(daily["timeout-minutes"]) < 120
+    assert timedelta(minutes=int(daily["timeout-minutes"])) < DAILY_LEASE_TTL
     assert "refs/heads/main" in workflow["jobs"]["plan"]["if"]
     assert not any(
         "upload-artifact" in step.get("uses", "")

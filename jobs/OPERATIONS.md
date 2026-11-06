@@ -5,7 +5,7 @@ repository rootのBashから、依頼された対象だけを操作する。責�
 <a id="actions-write-boundary"></a>
 ## 実行前の確認
 
-通常取得・公開は既存Actions、個別application更新は認可環境の作業コピーと正規CLIを使う。開発変更を本番更新・課金・権限拡大・broker操作・未報告取引入力の許可へ読み替えない。code撤去も配備済みWorker/domain/credential/旧objectの削除ではない。
+通常取得・公開は既存Actions、個別application更新は認可環境の作業コピーと正規CLIを使う。環境接続や開発変更を本番更新・課金・権限拡大・broker操作・未報告取引入力の許可へ読み替えない。追加課金禁止の依頼ではrunner・storage・外部API・R2を含む課金経路を確認する。code撤去も配備済みWorker/domain/credential/旧objectの削除ではない。
 
 秘密・endpoint・原文・私有DB/原稿をGit、Issue、公開log/artifactへ出さない。取得/公開stepだけにR2・J-Quants/e-Stat/EDINETの既存secret、通知stepだけにDISCORD_WEBHOOK_URLを渡す。通常開発へwriter credentialを流用せず、認証/403/429を別経路・権限拡大で迂回しない。baibai-storesは非公開正本である。
 
@@ -120,6 +120,8 @@ with_publication_lease() (
 ```
 
 releaseを保証するため関数内でset -eを使わない。busyはowner/expiry/runを確認し、release失敗はhandleを保つ。cloud-publish queueだけではlocal writerを排除しない。malformed leaseは自動修復せず、全active/pending writer不在を確認した明示復旧だけexact lease keyを調べて削除→通常acquireとする。prefix削除/手書きJSONはしない。
+
+日次は準備・生成後の公開と後処理にも時間を残すため、job枠170分・新daily lease180分とする。他purposeとEDINET有限移送の120分leaseは延ばさない。旧120分のlease/handleも元の期限のまま読取・releaseできる。旧codeはreleased後も新180分leaseを読めないため、切替前に旧writerの新規起動を止め、旧active/queued runの完了とleaseを確認してから修正mainの新runを起動する。手動/local operatorも修正codeへ揃え、途中更新・旧runのrerun・強制unlockで延長しない。hard cancelでreleaseできなければ元のexpiryまでbusyが残り得る。これは速度改善や完走保証ではなく、共通queueの占有が最長60分伸びる。中断時は下記の部分公開を読戻してから再開する。
 
 | 変更 | 反映経路 |
 | --- | --- |
@@ -407,6 +409,8 @@ lease外でacquire→inspect→ready --cumulative、共通統合が固定集合�
 本人確認済み利用範囲・毎日取得の指示と既存tradingview-runtime認証を使い、一般FAQだけで停止/除外しない。新credential/課金/再配布へ広げず、認証失敗を充足へ変えない。
 
 [日次](../.github/workflows/cloud-tradingview-snapshot.yml)は未取得原応答だけを再開する。L2行だけでは充足でなく、originals_savedは再GETせずrebuild。L2だけ残るcopyは不足原本を受領して既存L2を保ち、native_added/rows_addedを分ける。後受領を旧L2の生成元とせず、過去cycleを現在応答で埋めない。cycleは09:00 JST切替、営業日15:30/休日09:00から翌09:00未満。休日は直前営業日のexact masterと連続calendarを固定し、翌朝受領を前日既知へ付け替えない。
+
+要求銘柄・fieldの揃った原応答はL2の数値/型検証失敗でも取得の前進として残し、後続batchを止めない。L2不足はpartial/診断に残し、無効応答の連続停止・HTTP/認証・時刻/予算・保存失敗の境界は維持する。
 
 receiveはHTTPなしでNativeToolCaptureをcurrent-schema copyへ保存する。SDK応答全体・失敗も保持し、値から原本を作らない。同IDは全内容一致の再送だけ、別呼出しは別ID。
 

@@ -47,7 +47,7 @@ from baibai_engine.machine_analysis.observations.prices.tradingview_market impor
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
-from baibai_engine.storage.objects.json import put_private, read_private
+from baibai_engine.storage.objects.json import MAX_PRIVATE_OBJECT_BYTES, put_private
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_engine.storage.sqlite.read import connect_read_only
 
@@ -158,26 +158,47 @@ def _retain(store: ObjectStore, value: Any) -> str:
     payload = canonical_json(value).encode()
     digest = hashlib.sha256(payload).hexdigest()
     key = _key(digest)
-    saved = read_private(store, key)
+    saved = _find(store, digest)
     if saved is None:
         try:
             put_private(store, key, payload, previous_etag=None)
         except LakePublishError:
             # A lost acknowledgement or concurrent identical write is resolved
             # by the exact immutable bytes, never by another identity.
-            if (saved := read_private(store, key)) is None or saved.payload != payload:
+            if (saved := _find(store, digest)) != payload:
                 raise
-        saved = read_private(store, key)
-    if saved is None or saved.payload != payload:
+        else:
+            saved = _find(store, digest)
+    if saved != payload:
         raise LakePublishError("economic selection object failed integrity")
     return digest
 
 
-def _read(store: ObjectStore, digest: str) -> bytes:
-    saved = read_private(store, _key(digest))
-    if saved is None or hashlib.sha256(saved.payload).hexdigest() != digest:
+def _find(store: ObjectStore, digest: str) -> bytes | None:
+    key = _key(digest)
+    metadata = store.head(key)
+    if metadata is None:
+        return None
+    if (
+        not metadata.etag
+        or not 0 < metadata.size <= MAX_PRIVATE_OBJECT_BYTES
+        or metadata.metadata.get("sha256") != digest
+    ):
         raise LakePublishError("economic selection object is missing or changed")
-    return saved.payload
+    payload = store.get_bytes(key)
+    # These keys name exact bytes, not a mutable generation. A post-GET HEAD
+    # cannot strengthen the expected digest; keep the pre-read size bound and
+    # validate the bytes actually received, including concurrent replacements.
+    if len(payload) != metadata.size or hashlib.sha256(payload).hexdigest() != digest:
+        raise LakePublishError("economic selection object is missing or changed")
+    return payload
+
+
+def _read(store: ObjectStore, digest: str) -> bytes:
+    payload = _find(store, digest)
+    if payload is None:
+        raise LakePublishError("economic selection object is missing or changed")
+    return payload
 
 
 def _row(connection: sqlite3.Connection, kind: str, key: tuple[str, ...]) -> tuple[Any, ...]:

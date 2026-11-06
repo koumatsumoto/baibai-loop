@@ -342,6 +342,9 @@ def read_and_generate_models(
         external_observations=histories,
         market_context={
             "market": build_market_snapshot(sqlite_path=path, asof_date=as_of, prepared=prepared),
+            "benchmark_trend": None
+            if prepared.benchmark_trend is None
+            else prepared.benchmark_trend.to_dict(),
             **(
                 {"reading": None, "tradingview_market": None}
                 if economic_input is None
@@ -349,7 +352,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-bar-timing-v6-tradingview",
+        market_context_revision="shared-market-context-bar-timing-v7-tradingview",
         growth_start=growth_start,
         trends=trends,
     )

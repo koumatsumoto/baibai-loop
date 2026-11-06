@@ -2,11 +2,14 @@
 
 import os
 import subprocess
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 import yaml
 from tests.helpers.workflow_schedule import declared_schedule
+
+from baibai_jobs.publication.lease import DAILY_LEASE_TTL
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "cloud-daily-batch.yml"
@@ -30,7 +33,8 @@ def by_id(steps):
 def test_common_integration_runs_including_weekends_without_acquisition(workflow):
     assert declared_schedule(WORKFLOW_PATH.read_text()) == [{"cron": "43 13 * * *"}]
     job = workflow["jobs"]["daily"]
-    assert int(job["timeout-minutes"]) < 120
+    assert int(job["timeout-minutes"]) == 170
+    assert timedelta(minutes=int(job["timeout-minutes"])) == DAILY_LEASE_TTL - timedelta(minutes=10)
     assert "needs" not in job
     for secret in ("JQUANTS_API_KEY", "EDINET_API_KEY", "ESTAT_APP_ID"):
         assert secret not in str(job)
