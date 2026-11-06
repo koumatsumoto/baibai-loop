@@ -1,0 +1,1205 @@
+name: cloud-price-recovery-once
+run-name: "11/5 price recovery and daily integration"
+
+# 一時branchの1 pushだけ。当日native取得と通常daily公開のscopeを分ける。
+on:
+  push:
+    branches: [codex/price-recovery-20261106]
+    paths: [.github/workflows/cloud-price-recovery-once.yml]
+
+permissions:
+  contents: read
+
+env:
+  BAIBAI_MASTER_NATIVE: "true"
+  BAIBAI_CALENDAR_NATIVE: "true"
+  BAIBAI_EDINET_LIST_NATIVE: "true"
+  BAIBAI_PRICE_NATIVE: "true"
+  BAIBAI_FINANCIAL_NATIVE: "true"
+  BAIBAI_MARGIN_ALERTS_NATIVE: ${{ vars.BAIBAI_MARGIN_ALERTS_NATIVE == 'true' && 'true' || 'false' }}
+  BAIBAI_SHORT_SALE_REPORTS_NATIVE: ${{ vars.BAIBAI_SHORT_SALE_REPORTS_NATIVE == 'true' && 'true' || 'false' }}
+
+concurrency:
+  group: common-source-integration
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  acquire:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/price-recovery-20261106' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: 11月5日価格の有限取得と日次統合を一度実行 (2026-11-06)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    outputs:
+      calendar: ${{ steps.acquire.outputs.calendar }}
+      master: ${{ steps.acquire.outputs.master }}
+      price: ${{ steps.acquire.outputs.price }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed code and only this temporary workflow change
+        env:
+          EXPECTED_CODE_SHA: 3864b6109e97896a7cc541dd475f441a837f31d4
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/cloud-price-recovery-once.yml'
+          test "$(gh api 'repos/koumatsumoto/baibai-loop/commits/main' --jq '.sha')" = "$EXPECTED_CODE_SHA"
+          test "$BAIBAI_MARGIN_ALERTS_NATIVE" = 'false'
+          test "$BAIBAI_SHORT_SALE_REPORTS_NATIVE" = 'false'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Materialize the reviewed recovery helper
+        run: |
+          umask 077
+          cat > "$RUNNER_TEMP/recover_price_once.py" <<'PY_RECOVERY'
+          """11/5の有限native取得。公開logは件数・hash・固定reasonのみ。"""
+
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import sqlite3
+          import sys
+          import time
+          from contextlib import closing
+          from datetime import date
+          from pathlib import Path
+
+          from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+          from baibai_engine.data_collection.providers.jquants.contracts import complete_request
+          from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+          from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+          from baibai_engine.data_collection.providers.jquants.native_index import (
+              calendar_sessions,
+          )
+          from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_engine.storage.snapshots.keys import release_manifest_key
+          from baibai_jobs.acquisition.jquants_calendar_native import acquire_calendar_native
+          from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+          from baibai_jobs.acquisition.jquants_price_native import acquire_price_native
+
+          DAY = date(2026, 11, 5)
+          RELEASE = "20261105T215230Z-b62b61f6-93c61f1e7503"
+          RELEASE_SHA = "5a04fc0e88db20b02bd8d1483d39af09969300f2b45c0423cb0dee521414eef6"
+          MACHINE_SHA = "4241e85424cb09e122f21f83d0aea5c4623a576571225c7f47dc3a6a14373913"
+          POINTER = "lake/pointers/market/current.json"
+          PREFIXES = {
+              "calendar": "l1/jquants/market-calendar/v1/",
+              "master": "l1/jquants/master/v1/",
+              "price": "l1/jquants/daily-bars/v1/",
+          }
+          PROTECTED = (
+              POINTER,
+              "market.sqlite",
+              "runs.sqlite",
+              "indicators.sqlite",
+              "machine-manifest.json",
+              "baibai.sqlite",
+              "l1/jquants/margin-alerts/v1/head.json",
+              "l1/jquants/short-sale-reports/v1/head.json",
+          )
+          NATIVE_MODES = ("MASTER", "CALENDAR", "EDINET_LIST", "PRICE", "FINANCIAL")
+          MAX_READ = 256 * 1024 * 1024
+          MAX_OBJECT = 32 * 1024 * 1024
+
+
+          class RecoveryFailure(RuntimeError):
+              pass
+
+
+          def require(condition, reason):
+              if not condition:
+                  raise RecoveryFailure(reason)
+
+
+          def check_modes():
+              for name in NATIVE_MODES:
+                  require(os.environ.get(f"BAIBAI_{name}_NATIVE") == "true", "native_mode_changed")
+              for name in ("MARGIN_ALERTS", "SHORT_SALE_REPORTS"):
+                  require(
+                      os.environ.get(f"BAIBAI_{name}_NATIVE") == "false",
+                      "pending_cutover_mode_changed",
+                  )
+
+
+          class LimitedStore:
+              """通常ownerへ3prefixのhead/immutable packだけを公開。delete APIなし。"""
+
+              def __init__(self, store):
+                  self.store = store
+                  self.read_bytes = self.put_bytes = self.put_count = 0
+
+              def permitted(self, key):
+                  return any(
+                      key == prefix + "head.json"
+                      or re.fullmatch(re.escape(prefix + "packs/") + r"[0-9a-f]{64}\.json\.gz", key)
+                      for prefix in PREFIXES.values()
+                  )
+
+              def head(self, key):
+                  require(self.permitted(key) or key in PROTECTED, "object_outside_scope")
+                  return self.store.head(key)
+
+              def get_bytes(self, key):
+                  require(
+                      self.permitted(key) or key in {POINTER, "machine-manifest.json"},
+                      "read_outside_scope",
+                  )
+                  before = self.head(key)
+                  require(
+                      before is not None and 0 <= before.size <= MAX_OBJECT,
+                      "object_size_or_presence",
+                  )
+                  require(self.read_bytes + before.size <= MAX_READ, "read_budget_exceeded")
+                  body = self.store.get_bytes(key)
+                  self.read_bytes += len(body)
+                  require(
+                      len(body) == before.size and self.head(key) == before,
+                      "object_changed_during_read",
+                  )
+                  return body
+
+              def put_file(self, key, path, **kwargs):
+                  require(self.permitted(key), "write_outside_scope")
+                  require(path.stat().st_size <= MAX_OBJECT, "write_object_budget")
+                  if key.endswith("head.json"):
+                      require(
+                          kwargs.get("if_match") and not kwargs.get("if_none_match"),
+                          "head_requires_cas",
+                      )
+                  else:
+                      require(
+                          kwargs.get("if_none_match") and not kwargs.get("if_match"),
+                          "pack_requires_create",
+                      )
+                  self.put_count += 1
+                  self.put_bytes += path.stat().st_size
+                  return self.store.put_file(key, path, **kwargs)
+
+
+          def protected(store):
+              return {key: store.head(key) for key in PROTECTED}
+
+
+          def require_release(store):
+              pointer = json.loads(store.get_bytes(POINTER))
+              require(pointer.get("release_id") == RELEASE, "production_release_changed")
+              require(pointer.get("manifest_sha256") == RELEASE_SHA, "production_manifest_changed")
+              require(
+                  hashlib.sha256(store.get_bytes("machine-manifest.json")).hexdigest() == MACHINE_SHA,
+                  "production_machine_changed",
+              )
+              return pointer["release_id"]
+
+
+          def owners(store, root):
+              return {
+                  "calendar": CalendarL1(store, root / "calendar"),
+                  "master": MasterL1(store, root / "master"),
+                  "price": PriceL1(store, root / "price"),
+              }
+
+
+          def retained(before, after, name):
+              key = "days" if name == "calendar" else "scopes"
+              require(
+                  all(after["receipts"].get(k) == v for k, v in before["receipts"].items()),
+                  "prior_receipt_changed",
+              )
+              require(
+                  all(after[key].get(k) == v for k, v in before[key].items() if k != DAY.isoformat()),
+                  "unselected_day_changed",
+              )
+              require(set(after[key]) - set(before[key]) <= {DAY.isoformat()}, "unselected_day_added")
+              if name == "calendar":
+                  scope = DAY.isoformat() + "/" + DAY.isoformat()
+                  require(
+                      all(after["ranges"].get(k) == v for k, v in before["ranges"].items() if k != scope),
+                      "unselected_calendar_range_changed",
+                  )
+                  require(
+                      set(after["ranges"]) - set(before["ranges"]) <= {scope},
+                      "calendar_range_added",
+                  )
+
+
+          def price_latest_retained_day(head):
+              latest = max((date.fromisoformat(day) for day in head["scopes"]), default=DAY)
+              require(latest <= DAY, "price_contains_later_retained_day")
+              return latest.isoformat()
+
+
+          def cold_accept(store, root, expected=None):
+              """新しいownerからpack/digest/原受領を読戻し、非空と対象日を確認。"""
+              fixed = {name: owner.fixed() for name, owner in owners(store, root).items()}
+              if expected:
+                  require(
+                      all(fixed[name].content_id == expected[name] for name in fixed),
+                      "selected_head_changed",
+                  )
+              calendar = fixed["calendar"]
+              sessions, unknown = calendar_sessions(calendar.index(), start=DAY, end=DAY)
+              require(sessions.get(DAY) is True and not unknown, "calendar_not_open_or_unresolved")
+              state = calendar.value()["days"][DAY.isoformat()]
+              attempts = tuple(calendar.requests(store, days=[DAY]))
+              chosen = [a for a in attempts if a.request_id == state["adopted"]]
+              require(len(chosen) == 1 and chosen[0].failure is None, "calendar_receipt_missing")
+              calendar_rows = complete_request(chosen[0].pages).records()
+              require(
+                  any(
+                      str(r.get("Date")) == DAY.isoformat() and str(r.get("HolDiv")) in {"1", "2"}
+                      for r in calendar_rows
+                  ),
+                  "calendar_raw_session_mismatch",
+              )
+              counts = {"price_latest_retained_date": price_latest_retained_day(fixed["price"].value())}
+              for name in ("master", "price"):
+                  current = fixed[name]
+                  scope = current.value()["scopes"].get(DAY.isoformat(), {})
+                  require(
+                      scope.get("adopted") and not scope.get("failure") and not scope.get("held"),
+                      name + "_unresolved",
+                  )
+                  requests = tuple(current.requests(store, days=[DAY]))
+                  valid = [r.request for r in requests if r.request is not None and r.error is None]
+                  require(len(valid) == 1, name + "_receipt_missing")
+                  rows = valid[0].records()
+                  require(bool(rows), name + "_empty")
+                  require(
+                      all(str(row.get("Date")) == DAY.isoformat() for row in rows),
+                      name + "_wrong_date",
+                  )
+                  counts[name + "_rows"] = len(rows)
+              return {name: value.content_id for name, value in fixed.items()}, counts
+
+
+          class LimitedClient:
+              """日付・sourceの有限scopeだけを既存HTTP receiverへ渡す。"""
+
+              def __init__(self, client):
+                  self.client = client
+                  self.calls = []
+                  self.pages_received = self.bytes_received = 0
+
+              def pages(self, source, params):
+                  expected = {
+                      "market_calendar": {"from": "20261105", "to": "20261105"},
+                      "master": {"date": "20261105"},
+                      "daily_bars": {"date": "20261105"},
+                  }
+                  require(
+                      source in expected and dict(params) == expected[source],
+                      "provider_scope_changed",
+                  )
+                  require(source not in self.calls, "provider_logical_request_repeated")
+                  self.calls.append(source)
+                  for page in self.client.pages(source, params):
+                      self.pages_received += 1
+                      self.bytes_received += len(page.body)
+                      yield page
+
+
+          def recover(store, client, root):
+              require_release(store)
+              old_protected = protected(store)
+              selected = owners(store, root / "acquire")
+              before = {name: owner.fixed().value() for name, owner in selected.items()}
+              price_latest_retained_day(before["price"])
+              # All three initialized heads must be readable before any provider request/write.
+              report = {"asof": DAY.isoformat(), "baseline_release": RELEASE, "results": {}}
+              calendar = selected["calendar"]
+              if calendar.fixed().plan(start=DAY, end=DAY):
+                  report["results"]["calendar"] = acquire_calendar_native(
+                      calendar, start=DAY, end=DAY, client=client
+                  )
+              sessions, unknown = calendar_sessions(calendar.fixed().index(), start=DAY, end=DAY)
+              require(sessions.get(DAY) is True and not unknown, "calendar_not_open_or_unresolved")
+              report["results"]["master"] = acquire_master_native(
+                  selected["master"], start=DAY, end=DAY, client=client
+              )
+              require(
+                  not any(
+                      report["results"]["master"].get(k) for k in ("failed", "held", "halted", "incomplete")
+                  ),
+                  "master_acquisition_incomplete",
+              )
+              report["results"]["price"] = acquire_price_native(
+                  selected["price"], start=DAY, end=DAY, revision_overlap_days=0, client=client
+              )
+              require(
+                  not any(report["results"]["price"].get(k) for k in ("failed", "held", "halted")),
+                  "price_acquisition_incomplete",
+              )
+              for name, owner in selected.items():
+                  retained(before[name], owner.fixed().value(), name)
+              ids, counts = cold_accept(store, root / "cold")
+              require(protected(store) == old_protected, "protected_canonical_or_margin_changed")
+              report.update(counts)
+              report.update(
+                  {
+                      "head_sha256": ids,
+                      "prior_receipts_preserved": True,
+                      "unselected_scopes_preserved": True,
+                      "protected_objects_unchanged": True,
+                      "provider_logical_requests": len(client.calls),
+                      "provider_pages": client.pages_received,
+                      "provider_bytes": client.bytes_received,
+                      "r2_body_read_bytes": store.read_bytes,
+                      "r2_put_bytes": store.put_bytes,
+                      "r2_put_attempts": store.put_count,
+                  }
+              )
+              return report
+
+
+          def verify_generation(generation, expected):
+              require(generation["as_of"] == DAY.isoformat(), "model_date_not_target")
+              for name in PREFIXES:
+                  descriptor = generation["inputs"][name]["descriptor"]
+                  require(descriptor["head_sha256"] == expected[name], "model_head_changed")
+
+
+          def main():
+              check_modes()
+              phase = sys.argv[1]
+              require(phase in {"acquire", "before-daily", "after-daily"}, "phase_invalid")
+              root = Path(os.environ["RUNNER_TEMP"]) / ("price-recovery-" + phase)
+              with closing(Boto3R2Store(bucket="baibai-stores")) as raw:
+                  store = LimitedStore(raw)
+                  if phase == "acquire":
+                      # The normal receiver's finite retry policy is unchanged; stop new HTTP after 15m.
+                      os.environ["BAIBAI_ACQUISITION_DEADLINE"] = str(time.time() + 15 * 60)
+                      with closing(JQuantsHTTP(os.environ["JQUANTS_API_KEY"])) as http:
+                          report = recover(store, LimitedClient(http), root)
+                      with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+                          for name, digest in report["head_sha256"].items():
+                              print(f"{name}={digest}", file=out)
+                  else:
+                      expected = {name: os.environ["EXPECTED_" + name.upper()] for name in PREFIXES}
+                      if phase == "before-daily":
+                          require_release(store)
+                          ids, counts = cold_accept(store, root, expected)
+                          # Only metadata, no copies of application or pending margin bodies.
+                          snapshot = {
+                              key: raw.head(key).etag if raw.head(key) else None
+                              for key in PROTECTED
+                              if key
+                              not in {
+                                  POINTER,
+                                  "market.sqlite",
+                                  "runs.sqlite",
+                                  "indicators.sqlite",
+                                  "machine-manifest.json",
+                              }
+                          }
+                          (Path(os.environ["RUNNER_TEMP"]) / "price-recovery-protected.json").write_text(
+                              json.dumps(snapshot)
+                          )
+                          report = {
+                              "phase": phase,
+                              "asof": DAY.isoformat(),
+                              "baseline_release": RELEASE,
+                              "head_sha256": ids,
+                              **counts,
+                              "ready": True,
+                          }
+                      else:
+                          snapshot = json.loads(
+                              (Path(os.environ["RUNNER_TEMP"]) / "price-recovery-protected.json").read_text()
+                          )
+                          require(
+                              all(
+                                  (raw.head(key).etag if raw.head(key) else None) == value
+                                  for key, value in snapshot.items()
+                              ),
+                              "application_or_pending_margin_changed",
+                          )
+                          pointer = json.loads(store.get_bytes(POINTER))
+                          require(pointer.get("release_id") != RELEASE, "new_release_not_published")
+                          manifest_key = release_manifest_key(release_id=pointer["release_id"])
+                          require(pointer["manifest_key"] == manifest_key, "published_manifest_key")
+                          manifest_head = raw.head(manifest_key)
+                          require(
+                              manifest_head is not None and manifest_head.size <= MAX_OBJECT,
+                              "published_manifest_size",
+                          )
+                          manifest_body = raw.get_bytes(manifest_key)
+                          require(
+                              hashlib.sha256(manifest_body).hexdigest() == pointer["manifest_sha256"],
+                              "published_manifest_digest",
+                          )
+                          manifest = json.loads(manifest_body)
+                          price_watermark = manifest["datasets"]["jquants.daily_bars"]["data_as_of"]
+                          require(price_watermark == DAY.isoformat(), "published_price_not_target_day")
+                          generation_id = "models-" + pointer["release_id"]
+                          db = Path("stores/screening/runs.sqlite").resolve()
+                          with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as connection:
+                              row = connection.execute(
+                                  "SELECT header FROM model_generation WHERE generation_id=?",
+                                  (generation_id,),
+                              ).fetchone()
+                          require(row is not None, "published_generation_missing")
+                          generation = json.loads(row[0])
+                          verify_generation(generation, expected)
+                          report = {
+                              "phase": phase,
+                              "asof": DAY.isoformat(),
+                              "published_release": pointer["release_id"],
+                              "manifest_sha256": pointer["manifest_sha256"],
+                              "generation_id": generation_id,
+                              "evaluation_time": generation["evaluation_time"],
+                              "published_price_watermark": price_watermark,
+                              "model_inputs_match_acquired_heads": True,
+                              "application_and_pending_margin_unchanged": True,
+                          }
+                  print(json.dumps(report, sort_keys=True))
+
+
+          if __name__ == "__main__":
+              try:
+                  main()
+              except Exception as error:
+                  print(
+                      json.dumps(
+                          {
+                              "completed": False,
+                              "phase": sys.argv[1],
+                              "daily_publication_may_have_occurred": sys.argv[1] == "after-daily",
+                              "reason": str(error)
+                              if isinstance(error, RecoveryFailure)
+                              else type(error).__name__,
+                              "native_write_may_have_occurred": sys.argv[1] == "acquire",
+                          }
+                      )
+                  )
+                  raise SystemExit(1) from None
+          PY_RECOVERY
+      - name: Acquire and cold-read only the fixed November 5 native originals
+        id: acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+        run: |
+          umask 077
+          uv run python "$RUNNER_TEMP/recover_price_once.py" acquire
+
+  daily:
+    needs: acquire
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/price-recovery-20261106' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: 11月5日価格の有限取得と日次統合を一度実行 (2026-11-06)' }}
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    # Offline integration, materialization and publication fit within the 120-minute lease.
+    timeout-minutes: 110
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed code and only this temporary workflow change
+        env:
+          EXPECTED_CODE_SHA: 3864b6109e97896a7cc541dd475f441a837f31d4
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/cloud-price-recovery-once.yml'
+          test "$(gh api 'repos/koumatsumoto/baibai-loop/commits/main' --jq '.sha')" = "$EXPECTED_CODE_SHA"
+          test "$BAIBAI_MARGIN_ALERTS_NATIVE" = 'false'
+          test "$BAIBAI_SHORT_SALE_REPORTS_NATIVE" = 'false'
+
+      # The notification script must import on the runner's system python3
+      # (before setup-python), so the final notification step can run it without
+      # uv. The import is what guarantees the stdlib-only / no-3.13-syntax contract.
+      - name: Smoke-check notification script
+        id: smoke
+        env:
+          PYTHONPATH: jobs/src
+        run: python3 -c "import baibai_jobs.observability.discord"
+
+      # Validate the untrusted dispatch value before any credential-bearing step.
+      # The scheduled event supplies an empty value, which is valid.
+      - name: Validate dispatch input
+        id: validate-input
+        env:
+          MANUAL_ASOF: "2026-11-05"
+          PYTHONPATH: jobs/src
+        run: |
+          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF"
+          echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: setup
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        id: setup-uv
+        with:
+          enable-cache: true
+
+      - name: Sync Python environment
+        id: sync
+        run: uv sync --locked
+
+      - name: Pin the original integration run clock
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created_at="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.created_at')"
+          printf 'created_at=%s\n' "$created_at" >> "$GITHUB_OUTPUT"
+
+      - name: Fix the integration date
+        id: source-plan
+        env:
+          MANUAL_ASOF: ${{ steps.validate-input.outputs.asof }}
+          RUN_CREATED_AT: ${{ steps.clock.outputs.created_at }}
+        run: |
+          asof="$MANUAL_ASOF"
+          if [ -z "$asof" ]; then asof=$(uv run python -c 'import os; from datetime import datetime; from baibai_jobs.schedule import integration_target_date; print(integration_target_date(datetime.fromisoformat(os.environ["RUN_CREATED_AT"]), scheduled=os.environ["GITHUB_EVENT_NAME"] == "schedule"))'); fi
+          echo "asof=$asof" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize the reviewed recovery helper
+        run: |
+          umask 077
+          cat > "$RUNNER_TEMP/recover_price_once.py" <<'PY_RECOVERY'
+          """11/5の有限native取得。公開logは件数・hash・固定reasonのみ。"""
+
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          import sqlite3
+          import sys
+          import time
+          from contextlib import closing
+          from datetime import date
+          from pathlib import Path
+
+          from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+          from baibai_engine.data_collection.providers.jquants.contracts import complete_request
+          from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+          from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+          from baibai_engine.data_collection.providers.jquants.native_index import (
+              calendar_sessions,
+          )
+          from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_engine.storage.snapshots.keys import release_manifest_key
+          from baibai_jobs.acquisition.jquants_calendar_native import acquire_calendar_native
+          from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+          from baibai_jobs.acquisition.jquants_price_native import acquire_price_native
+
+          DAY = date(2026, 11, 5)
+          RELEASE = "20261105T215230Z-b62b61f6-93c61f1e7503"
+          RELEASE_SHA = "5a04fc0e88db20b02bd8d1483d39af09969300f2b45c0423cb0dee521414eef6"
+          MACHINE_SHA = "4241e85424cb09e122f21f83d0aea5c4623a576571225c7f47dc3a6a14373913"
+          POINTER = "lake/pointers/market/current.json"
+          PREFIXES = {
+              "calendar": "l1/jquants/market-calendar/v1/",
+              "master": "l1/jquants/master/v1/",
+              "price": "l1/jquants/daily-bars/v1/",
+          }
+          PROTECTED = (
+              POINTER,
+              "market.sqlite",
+              "runs.sqlite",
+              "indicators.sqlite",
+              "machine-manifest.json",
+              "baibai.sqlite",
+              "l1/jquants/margin-alerts/v1/head.json",
+              "l1/jquants/short-sale-reports/v1/head.json",
+          )
+          NATIVE_MODES = ("MASTER", "CALENDAR", "EDINET_LIST", "PRICE", "FINANCIAL")
+          MAX_READ = 256 * 1024 * 1024
+          MAX_OBJECT = 32 * 1024 * 1024
+
+
+          class RecoveryFailure(RuntimeError):
+              pass
+
+
+          def require(condition, reason):
+              if not condition:
+                  raise RecoveryFailure(reason)
+
+
+          def check_modes():
+              for name in NATIVE_MODES:
+                  require(os.environ.get(f"BAIBAI_{name}_NATIVE") == "true", "native_mode_changed")
+              for name in ("MARGIN_ALERTS", "SHORT_SALE_REPORTS"):
+                  require(
+                      os.environ.get(f"BAIBAI_{name}_NATIVE") == "false",
+                      "pending_cutover_mode_changed",
+                  )
+
+
+          class LimitedStore:
+              """通常ownerへ3prefixのhead/immutable packだけを公開。delete APIなし。"""
+
+              def __init__(self, store):
+                  self.store = store
+                  self.read_bytes = self.put_bytes = self.put_count = 0
+
+              def permitted(self, key):
+                  return any(
+                      key == prefix + "head.json"
+                      or re.fullmatch(re.escape(prefix + "packs/") + r"[0-9a-f]{64}\.json\.gz", key)
+                      for prefix in PREFIXES.values()
+                  )
+
+              def head(self, key):
+                  require(self.permitted(key) or key in PROTECTED, "object_outside_scope")
+                  return self.store.head(key)
+
+              def get_bytes(self, key):
+                  require(
+                      self.permitted(key) or key in {POINTER, "machine-manifest.json"},
+                      "read_outside_scope",
+                  )
+                  before = self.head(key)
+                  require(
+                      before is not None and 0 <= before.size <= MAX_OBJECT,
+                      "object_size_or_presence",
+                  )
+                  require(self.read_bytes + before.size <= MAX_READ, "read_budget_exceeded")
+                  body = self.store.get_bytes(key)
+                  self.read_bytes += len(body)
+                  require(
+                      len(body) == before.size and self.head(key) == before,
+                      "object_changed_during_read",
+                  )
+                  return body
+
+              def put_file(self, key, path, **kwargs):
+                  require(self.permitted(key), "write_outside_scope")
+                  require(path.stat().st_size <= MAX_OBJECT, "write_object_budget")
+                  if key.endswith("head.json"):
+                      require(
+                          kwargs.get("if_match") and not kwargs.get("if_none_match"),
+                          "head_requires_cas",
+                      )
+                  else:
+                      require(
+                          kwargs.get("if_none_match") and not kwargs.get("if_match"),
+                          "pack_requires_create",
+                      )
+                  self.put_count += 1
+                  self.put_bytes += path.stat().st_size
+                  return self.store.put_file(key, path, **kwargs)
+
+
+          def protected(store):
+              return {key: store.head(key) for key in PROTECTED}
+
+
+          def require_release(store):
+              pointer = json.loads(store.get_bytes(POINTER))
+              require(pointer.get("release_id") == RELEASE, "production_release_changed")
+              require(pointer.get("manifest_sha256") == RELEASE_SHA, "production_manifest_changed")
+              require(
+                  hashlib.sha256(store.get_bytes("machine-manifest.json")).hexdigest() == MACHINE_SHA,
+                  "production_machine_changed",
+              )
+              return pointer["release_id"]
+
+
+          def owners(store, root):
+              return {
+                  "calendar": CalendarL1(store, root / "calendar"),
+                  "master": MasterL1(store, root / "master"),
+                  "price": PriceL1(store, root / "price"),
+              }
+
+
+          def retained(before, after, name):
+              key = "days" if name == "calendar" else "scopes"
+              require(
+                  all(after["receipts"].get(k) == v for k, v in before["receipts"].items()),
+                  "prior_receipt_changed",
+              )
+              require(
+                  all(after[key].get(k) == v for k, v in before[key].items() if k != DAY.isoformat()),
+                  "unselected_day_changed",
+              )
+              require(set(after[key]) - set(before[key]) <= {DAY.isoformat()}, "unselected_day_added")
+              if name == "calendar":
+                  scope = DAY.isoformat() + "/" + DAY.isoformat()
+                  require(
+                      all(after["ranges"].get(k) == v for k, v in before["ranges"].items() if k != scope),
+                      "unselected_calendar_range_changed",
+                  )
+                  require(
+                      set(after["ranges"]) - set(before["ranges"]) <= {scope},
+                      "calendar_range_added",
+                  )
+
+
+          def price_latest_retained_day(head):
+              latest = max((date.fromisoformat(day) for day in head["scopes"]), default=DAY)
+              require(latest <= DAY, "price_contains_later_retained_day")
+              return latest.isoformat()
+
+
+          def cold_accept(store, root, expected=None):
+              """新しいownerからpack/digest/原受領を読戻し、非空と対象日を確認。"""
+              fixed = {name: owner.fixed() for name, owner in owners(store, root).items()}
+              if expected:
+                  require(
+                      all(fixed[name].content_id == expected[name] for name in fixed),
+                      "selected_head_changed",
+                  )
+              calendar = fixed["calendar"]
+              sessions, unknown = calendar_sessions(calendar.index(), start=DAY, end=DAY)
+              require(sessions.get(DAY) is True and not unknown, "calendar_not_open_or_unresolved")
+              state = calendar.value()["days"][DAY.isoformat()]
+              attempts = tuple(calendar.requests(store, days=[DAY]))
+              chosen = [a for a in attempts if a.request_id == state["adopted"]]
+              require(len(chosen) == 1 and chosen[0].failure is None, "calendar_receipt_missing")
+              calendar_rows = complete_request(chosen[0].pages).records()
+              require(
+                  any(
+                      str(r.get("Date")) == DAY.isoformat() and str(r.get("HolDiv")) in {"1", "2"}
+                      for r in calendar_rows
+                  ),
+                  "calendar_raw_session_mismatch",
+              )
+              counts = {"price_latest_retained_date": price_latest_retained_day(fixed["price"].value())}
+              for name in ("master", "price"):
+                  current = fixed[name]
+                  scope = current.value()["scopes"].get(DAY.isoformat(), {})
+                  require(
+                      scope.get("adopted") and not scope.get("failure") and not scope.get("held"),
+                      name + "_unresolved",
+                  )
+                  requests = tuple(current.requests(store, days=[DAY]))
+                  valid = [r.request for r in requests if r.request is not None and r.error is None]
+                  require(len(valid) == 1, name + "_receipt_missing")
+                  rows = valid[0].records()
+                  require(bool(rows), name + "_empty")
+                  require(
+                      all(str(row.get("Date")) == DAY.isoformat() for row in rows),
+                      name + "_wrong_date",
+                  )
+                  counts[name + "_rows"] = len(rows)
+              return {name: value.content_id for name, value in fixed.items()}, counts
+
+
+          class LimitedClient:
+              """日付・sourceの有限scopeだけを既存HTTP receiverへ渡す。"""
+
+              def __init__(self, client):
+                  self.client = client
+                  self.calls = []
+                  self.pages_received = self.bytes_received = 0
+
+              def pages(self, source, params):
+                  expected = {
+                      "market_calendar": {"from": "20261105", "to": "20261105"},
+                      "master": {"date": "20261105"},
+                      "daily_bars": {"date": "20261105"},
+                  }
+                  require(
+                      source in expected and dict(params) == expected[source],
+                      "provider_scope_changed",
+                  )
+                  require(source not in self.calls, "provider_logical_request_repeated")
+                  self.calls.append(source)
+                  for page in self.client.pages(source, params):
+                      self.pages_received += 1
+                      self.bytes_received += len(page.body)
+                      yield page
+
+
+          def recover(store, client, root):
+              require_release(store)
+              old_protected = protected(store)
+              selected = owners(store, root / "acquire")
+              before = {name: owner.fixed().value() for name, owner in selected.items()}
+              price_latest_retained_day(before["price"])
+              # All three initialized heads must be readable before any provider request/write.
+              report = {"asof": DAY.isoformat(), "baseline_release": RELEASE, "results": {}}
+              calendar = selected["calendar"]
+              if calendar.fixed().plan(start=DAY, end=DAY):
+                  report["results"]["calendar"] = acquire_calendar_native(
+                      calendar, start=DAY, end=DAY, client=client
+                  )
+              sessions, unknown = calendar_sessions(calendar.fixed().index(), start=DAY, end=DAY)
+              require(sessions.get(DAY) is True and not unknown, "calendar_not_open_or_unresolved")
+              report["results"]["master"] = acquire_master_native(
+                  selected["master"], start=DAY, end=DAY, client=client
+              )
+              require(
+                  not any(
+                      report["results"]["master"].get(k) for k in ("failed", "held", "halted", "incomplete")
+                  ),
+                  "master_acquisition_incomplete",
+              )
+              report["results"]["price"] = acquire_price_native(
+                  selected["price"], start=DAY, end=DAY, revision_overlap_days=0, client=client
+              )
+              require(
+                  not any(report["results"]["price"].get(k) for k in ("failed", "held", "halted")),
+                  "price_acquisition_incomplete",
+              )
+              for name, owner in selected.items():
+                  retained(before[name], owner.fixed().value(), name)
+              ids, counts = cold_accept(store, root / "cold")
+              require(protected(store) == old_protected, "protected_canonical_or_margin_changed")
+              report.update(counts)
+              report.update(
+                  {
+                      "head_sha256": ids,
+                      "prior_receipts_preserved": True,
+                      "unselected_scopes_preserved": True,
+                      "protected_objects_unchanged": True,
+                      "provider_logical_requests": len(client.calls),
+                      "provider_pages": client.pages_received,
+                      "provider_bytes": client.bytes_received,
+                      "r2_body_read_bytes": store.read_bytes,
+                      "r2_put_bytes": store.put_bytes,
+                      "r2_put_attempts": store.put_count,
+                  }
+              )
+              return report
+
+
+          def verify_generation(generation, expected):
+              require(generation["as_of"] == DAY.isoformat(), "model_date_not_target")
+              for name in PREFIXES:
+                  descriptor = generation["inputs"][name]["descriptor"]
+                  require(descriptor["head_sha256"] == expected[name], "model_head_changed")
+
+
+          def main():
+              check_modes()
+              phase = sys.argv[1]
+              require(phase in {"acquire", "before-daily", "after-daily"}, "phase_invalid")
+              root = Path(os.environ["RUNNER_TEMP"]) / ("price-recovery-" + phase)
+              with closing(Boto3R2Store(bucket="baibai-stores")) as raw:
+                  store = LimitedStore(raw)
+                  if phase == "acquire":
+                      # The normal receiver's finite retry policy is unchanged; stop new HTTP after 15m.
+                      os.environ["BAIBAI_ACQUISITION_DEADLINE"] = str(time.time() + 15 * 60)
+                      with closing(JQuantsHTTP(os.environ["JQUANTS_API_KEY"])) as http:
+                          report = recover(store, LimitedClient(http), root)
+                      with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
+                          for name, digest in report["head_sha256"].items():
+                              print(f"{name}={digest}", file=out)
+                  else:
+                      expected = {name: os.environ["EXPECTED_" + name.upper()] for name in PREFIXES}
+                      if phase == "before-daily":
+                          require_release(store)
+                          ids, counts = cold_accept(store, root, expected)
+                          # Only metadata, no copies of application or pending margin bodies.
+                          snapshot = {
+                              key: raw.head(key).etag if raw.head(key) else None
+                              for key in PROTECTED
+                              if key
+                              not in {
+                                  POINTER,
+                                  "market.sqlite",
+                                  "runs.sqlite",
+                                  "indicators.sqlite",
+                                  "machine-manifest.json",
+                              }
+                          }
+                          (Path(os.environ["RUNNER_TEMP"]) / "price-recovery-protected.json").write_text(
+                              json.dumps(snapshot)
+                          )
+                          report = {
+                              "phase": phase,
+                              "asof": DAY.isoformat(),
+                              "baseline_release": RELEASE,
+                              "head_sha256": ids,
+                              **counts,
+                              "ready": True,
+                          }
+                      else:
+                          snapshot = json.loads(
+                              (Path(os.environ["RUNNER_TEMP"]) / "price-recovery-protected.json").read_text()
+                          )
+                          require(
+                              all(
+                                  (raw.head(key).etag if raw.head(key) else None) == value
+                                  for key, value in snapshot.items()
+                              ),
+                              "application_or_pending_margin_changed",
+                          )
+                          pointer = json.loads(store.get_bytes(POINTER))
+                          require(pointer.get("release_id") != RELEASE, "new_release_not_published")
+                          manifest_key = release_manifest_key(release_id=pointer["release_id"])
+                          require(pointer["manifest_key"] == manifest_key, "published_manifest_key")
+                          manifest_head = raw.head(manifest_key)
+                          require(
+                              manifest_head is not None and manifest_head.size <= MAX_OBJECT,
+                              "published_manifest_size",
+                          )
+                          manifest_body = raw.get_bytes(manifest_key)
+                          require(
+                              hashlib.sha256(manifest_body).hexdigest() == pointer["manifest_sha256"],
+                              "published_manifest_digest",
+                          )
+                          manifest = json.loads(manifest_body)
+                          price_watermark = manifest["datasets"]["jquants.daily_bars"]["data_as_of"]
+                          require(price_watermark == DAY.isoformat(), "published_price_not_target_day")
+                          generation_id = "models-" + pointer["release_id"]
+                          db = Path("stores/screening/runs.sqlite").resolve()
+                          with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as connection:
+                              row = connection.execute(
+                                  "SELECT header FROM model_generation WHERE generation_id=?",
+                                  (generation_id,),
+                              ).fetchone()
+                          require(row is not None, "published_generation_missing")
+                          generation = json.loads(row[0])
+                          verify_generation(generation, expected)
+                          report = {
+                              "phase": phase,
+                              "asof": DAY.isoformat(),
+                              "published_release": pointer["release_id"],
+                              "manifest_sha256": pointer["manifest_sha256"],
+                              "generation_id": generation_id,
+                              "evaluation_time": generation["evaluation_time"],
+                              "published_price_watermark": price_watermark,
+                              "model_inputs_match_acquired_heads": True,
+                              "application_and_pending_margin_unchanged": True,
+                          }
+                  print(json.dumps(report, sort_keys=True))
+
+
+          if __name__ == "__main__":
+              try:
+                  main()
+              except Exception as error:
+                  print(
+                      json.dumps(
+                          {
+                              "completed": False,
+                              "phase": sys.argv[1],
+                              "daily_publication_may_have_occurred": sys.argv[1] == "after-daily",
+                              "reason": str(error)
+                              if isinstance(error, RecoveryFailure)
+                              else type(error).__name__,
+                              "native_write_may_have_occurred": sys.argv[1] == "acquire",
+                          }
+                      )
+                  )
+                  raise SystemExit(1) from None
+          PY_RECOVERY
+
+      - name: Acquire publication lease
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease acquire --purpose daily --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Recheck fixed originals and current production before integration
+        id: recovery-acceptance
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EXPECTED_CALENDAR: ${{ needs.acquire.outputs.calendar }}
+          EXPECTED_MASTER: ${{ needs.acquire.outputs.master }}
+          EXPECTED_PRICE: ${{ needs.acquire.outputs.price }}
+        run: uv run python "$RUNNER_TEMP/recover_price_once.py" before-daily
+
+      - name: Publish economic L1 and refresh acquisition inputs before L2
+        id: economic-l1
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_jobs.integration.economic_sources --asof "$ASOF" --directory "$RUNNER_TEMP/economic-integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+
+      - name: Freeze currently ready market handoffs
+        id: market-plan
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
+
+      # failure policy: 1 — the batch cannot compute without the canonical stores.
+      - name: Pull stores
+        id: pull
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          jobs/scripts/r2_transfer.sh pull-machine
+
+      # The market store arrives holding only what the lake does not own — the coverage
+      # ledger and store metadata. Filling lake-owned observations and originals from current
+      # is what makes it the store every reader already expects. It fails closed on the
+      # published row counts, so a fill that silently did nothing cannot reach screening
+      # as an empty universe.
+      # failure policy: 2 — incomplete hydration would make the screening output invalid.
+      - name: Hydrate market store from the lake release
+        id: hydrate
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: jobs/scripts/r2_transfer.sh hydrate-market
+
+      - name: Apply fixed original receipts and common offline extraction
+        id: source-integration
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+        run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
+
+      # Core publication owns one fixed market release and economic snapshot.
+      # Web is not part of the engine's success or publication path.
+      - name: Generate models and candidates, then publish the same fixed release
+        id: batch
+        shell: bash
+        env:
+          INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          args=(--asof "$INTEGRATION_ASOF" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json")
+          set +e
+          uv run baibai-jobs model-integration "${args[@]}"
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "asof=$INTEGRATION_ASOF" >> "$GITHUB_OUTPUT"
+          if [[ $code -eq 0 ]]; then
+            echo "models_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "models_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Upload the core machine stores
+        id: upload-stores
+        if: steps.batch.outputs.models_ready == 'true'
+        shell: bash
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          code=0
+          jobs/scripts/r2_transfer.sh push-machine || code=$?
+          if [[ $code -eq 0 ]]; then
+            echo "machine=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "machine=failure" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$code"
+
+      - name: Seal canonical market handoffs
+        id: source-seal
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          uv run python -m baibai_jobs.integration.sources seal --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Refresh source-scoped inputs from this canonical generation
+        id: source-inputs
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          ASOF: ${{ steps.source-plan.outputs.asof }}
+          IDENTITY: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: uv run python -m baibai_jobs.integration.sources inputs --asof "$ASOF" --identity "$IDENTITY" --directory "$RUNNER_TEMP/integration" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Report retained economic source failures
+        id: economic-check
+        if: ${{ always() && steps.economic-l1.outcome == 'success' }}
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/economic-integration"
+
+      - name: Report integration failures and deferred source inputs
+        id: source-check
+        if: ${{ always() && steps.source-seal.outcome == 'success' }}
+        run: uv run python -m baibai_jobs.integration.sources check --directory "$RUNNER_TEMP/integration"
+
+      # Presentation follows core persistence; it never gates model generation or sealing.
+      - name: Publish retained portfolio and task views
+        id: portfolio-views
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          set +e
+          (
+            set -e
+            jobs/scripts/r2_transfer.sh pull-app
+            uv run python -m baibai_web.materialize --output-dir "$RUNNER_TEMP/serving"
+            jobs/scripts/r2_transfer.sh upload-portfolio-views "$RUNNER_TEMP/serving"
+          ) > "$RUNNER_TEMP/portfolio-views-private.log" 2>&1
+          code=$?
+          set -e
+          printf 'portfolio_views_exit_code=%s\n' "$code"
+          exit "$code"
+
+      - name: Verify application and pending margin were not rewritten
+        id: recovery-readback
+        if: ${{ always() && steps.upload-stores.outputs.machine == 'success' && steps.batch.outcome == 'success' && steps.recovery-acceptance.outcome == 'success' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EXPECTED_CALENDAR: ${{ needs.acquire.outputs.calendar }}
+          EXPECTED_MASTER: ${{ needs.acquire.outputs.master }}
+          EXPECTED_PRICE: ${{ needs.acquire.outputs.price }}
+        run: uv run python "$RUNNER_TEMP/recover_price_once.py" after-daily
+
+      - name: Release publication lease
+        id: lease-release
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
+
