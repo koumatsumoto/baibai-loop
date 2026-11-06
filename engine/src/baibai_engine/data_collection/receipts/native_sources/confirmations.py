@@ -120,24 +120,24 @@ def collection_digest(connection: sqlite3.Connection, source_id: str, checked_at
     ).fetchone():
         raise ValueError("complete source confirmation is missing a known native period")
     periods = []
-    for day, checked, adopted, digest in connection.execute(
-        "SELECT observed_at,checked_at,adopted_fetched_at,content_sha256 "
-        "FROM economic_source_record_confirmations WHERE source_id=? ORDER BY observed_at",
+    # Keep missing anchors visible while streaming the same full-source proof.
+    # A separate SQL lookup for every daily period adds no integrity information.
+    for day, checked, adopted, digest, count, payload in connection.execute(
+        "SELECT c.observed_at,c.checked_at,c.adopted_fetched_at,c.content_sha256,"
+        "r.record_count,r.payload FROM economic_source_record_confirmations c "
+        "LEFT JOIN economic_source_records r ON r.source_id=c.source_id "
+        "AND r.observed_at=c.observed_at AND r.fetched_at=c.adopted_fetched_at "
+        "WHERE c.source_id=? ORDER BY c.observed_at",
         (source_id,),
     ):
-        anchor = connection.execute(
-            "SELECT record_count,payload FROM economic_source_records "
-            "WHERE source_id=? AND observed_at=? AND fetched_at=?",
-            (source_id, day, adopted),
-        ).fetchone()
         if (
             checked != checked_at
             or adopted > checked
-            or anchor is None
-            or hashlib.sha256(anchor[1]).hexdigest() != digest
+            or payload is None
+            or hashlib.sha256(payload).hexdigest() != digest
         ):
             raise ValueError("complete source confirmation lost its period anchor")
-        if anchor[0] > 0:
+        if count > 0:
             periods.append((day, digest))
     if not periods:
         raise ValueError("complete FRED response has no native periods")
