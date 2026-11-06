@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -27,6 +28,8 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import (
     Metric,
     PdfStatement,
+    PdfSupplement,
+    build_pdf_supplement,
 )
 
 type AnnualRevisionBasis = Literal[
@@ -62,6 +65,28 @@ class PdfFinancialSelection(BaseModel):
     annual_latest_disclosure_number: str | None = None
     annual_revision_basis: AnnualRevisionBasis | None = None
     amounts_yen: dict[Metric, int] = {}
+
+
+@dataclass(frozen=True, slots=True)
+class PdfFinancialInput:
+    ticker: str
+    as_of: date
+    selection: PdfFinancialSelection | None
+    supplement: PdfSupplement | None
+
+
+def prepare_pdf_financials(
+    documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
+) -> PdfFinancialInput | None:
+    """財務と成長へ同じ観測を渡し、一方のモデル結果を他方の入力にしない。"""
+    if not statements:
+        return None
+    return PdfFinancialInput(
+        ticker=statements[0].ticker,
+        as_of=as_of,
+        selection=select_pdf_financials(documents, statements, as_of=as_of),
+        supplement=build_pdf_supplement(statements, as_of=as_of),
+    )
 
 
 def _latest(rows: Sequence[JQuantsFinancialSummary]) -> JQuantsFinancialSummary | None:

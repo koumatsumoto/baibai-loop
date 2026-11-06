@@ -28,11 +28,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
-    select_pdf_financials,
-)
-from baibai_engine.machine_analysis.observations.financials.pdf_statements import (
-    PdfStatement,
-    build_pdf_supplement,
+    PdfFinancialInput,
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 
@@ -48,7 +44,7 @@ def generate_company_growth(
     end: date | None = None,
     comparisons: Sequence[FilingComparisons] = (),
     comparison_input_reason: str | None = None,
-    pdf_statements: Sequence[PdfStatement] = (),
+    pdf_input: PdfFinancialInput | None = None,
     pdf_input_reason: str | None = None,
 ) -> CompanyGrowth:
     """固定入力から成長観測を作り、表示だけを会計期末で絞る。"""
@@ -59,7 +55,11 @@ def generate_company_growth(
     result = CompanyGrowth(
         ticker=ticker, status="unavailable", requested_start=start, requested_end=end
     )
-    selected_pdf = select_pdf_financials(documents, pdf_statements, as_of=as_of)
+    if pdf_input is not None and pdf_input.ticker != ticker:
+        raise ValueError("PDF statements contain a different ticker")
+    if pdf_input is not None and pdf_input.as_of != as_of:
+        raise ValueError("PDF financial input has a different as-of date")
+    selected_pdf = pdf_input.selection if pdf_input is not None else None
     # 窓外の前年値や後日訂正を先に落とすと、同じ期の値が表示範囲で変わる。
     states = apply_pdf_periods(
         build_period_states(documents, sector=sector), selected_pdf, sector=sector
@@ -83,9 +83,7 @@ def generate_company_growth(
             )
         )
     )
-    if any(item.ticker != ticker for item in pdf_statements):
-        raise ValueError("PDF statements contain a different ticker")
-    pdf = build_pdf_supplement(pdf_statements, as_of=as_of)
+    pdf = pdf_input.supplement if pdf_input is not None else None
     available = bool(displayed or any(c.changes for c in reported) or (pdf and pdf.comparisons))
     return result.model_copy(
         update={
