@@ -22,7 +22,10 @@ from baibai_jobs.integration.article_handoff import import_handoff
 
 
 @pytest.mark.parametrize("conditional", [False, True])
-def test_private_exact_export_keeps_original_after_integration(tmp_path, conditional):
+@pytest.mark.parametrize("packet_schema", [49, 50])
+def test_private_exact_export_keeps_original_after_integration(
+    tmp_path, conditional, packet_schema
+):
     store = MemoryR2Store()
     packet = _packet(tmp_path)
     original = receipt(body=b"<rss><channel/></rss>")
@@ -38,6 +41,7 @@ def test_private_exact_export_keeps_original_after_integration(tmp_path, conditi
                 }
             )
             retain_receipt(conn, original)
+        conn.execute(f"PRAGMA user_version={packet_schema}")
     report = {
         "source": original.source,
         "started_at": SLOT.isoformat(),

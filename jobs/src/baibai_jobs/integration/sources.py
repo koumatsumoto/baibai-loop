@@ -12,6 +12,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from baibai_engine.data_collection.receipts.articles.store import validate_receipt_schema
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -204,6 +205,8 @@ def apply(
                             validate_source_handoff(raw, sources=JQUANTS_FINANCIAL_SOURCES)
                         elif entry["source"] == "jquants-market":
                             validate_source_handoff(raw, sources=JQUANTS_MARKET_SOURCES)
+                        elif entry["source"] in ARTICLE_SOURCES:
+                            validate_receipt_schema(raw)
                         else:
                             validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
