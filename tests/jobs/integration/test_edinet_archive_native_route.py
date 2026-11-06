@@ -36,6 +36,8 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetRateLimitError,
     EdinetResponse,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import edinet_archive_native as acquisition
@@ -192,8 +194,12 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     work = tmp_path / "integration"
     assert sources.main(["plan", "--directory", str(work)]) == 0
     fixed_plan = json.loads((work / "plan.json").read_bytes())
-    assert fixed_plan["edinet_list_head"] == lists.value()
-    assert fixed_plan["edinet_archive_head"] == archives.value()
+    saved = InputSnapshot.model_validate(fixed_plan["edinet_input"])
+    fixed = read_edinet_input(store, saved)
+    assert fixed.lists.value() == lists.value()
+    assert fixed.archives.value() == archives.value()
+    assert "edinet_list_head" not in fixed_plan
+    assert "edinet_archive_head" not in fixed_plan
     owner.publish([NativeArchive.from_response("S100LATER", 1, EdinetResponse(KNOWN, b"later"))])
     del store.values[ARCHIVE_HEAD]
     del store.values[LIST_HEAD]
@@ -201,7 +207,11 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     market = tmp_path / "market.sqlite"
     with closing(open_connection(market)):
         pass
+    extraction = Mock(wraps=sources.extract_saved_edinet)
+    monkeypatch.setattr(sources, "extract_saved_edinet", extraction)
     applied = sources.apply(store, work, market=market, asof=ASOF)
+    assert applied["edinet_input"] == saved.model_dump(mode="json")
+    assert extraction.call_args.kwargs["metric_archives"].identity == archives.identity
     assert applied["extractions"]["native_archives"]["l1_identity"] == archives.identity
     assert ARCHIVE_HEAD not in store.get_keys
     assert LIST_HEAD not in store.get_keys
@@ -352,7 +362,7 @@ def test_legacy_list_only_native_plan_is_rejected_before_any_cache_write(tmp_pat
     work.mkdir()
     (work / "plan.json").write_text(json.dumps({"edinet_list_native": True, "handoffs": []}))
     database = tmp_path / "absent.sqlite"
-    with pytest.raises(ValueError, match="archive head is absent"):
+    with pytest.raises(ValueError, match="fixed EDINET input is absent"):
         sources.apply(Mock(), work, market=database, asof=ASOF)
     assert not database.exists()
 

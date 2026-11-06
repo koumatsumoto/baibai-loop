@@ -18,10 +18,12 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
 from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.economic_inputs import (
     rebuild_economic_input,
     retain_economic_input,
 )
+from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
@@ -69,11 +71,13 @@ def integrate_models(
     lease_handle: Path,
     growth_start: date | None,
     policy: EconomicPathPolicy,
+    edinet_input: InputSnapshot | None = None,
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
     handle = _load_handle(lease_handle)
     verify_held(store, handle)
     mirror.mkdir(parents=True, exist_ok=True)
+    fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
     evaluated_at = datetime.now(UTC)
     financial_input = None
     if financial_native_enabled():
@@ -119,6 +123,7 @@ def integrate_models(
             ttm_rules=DEFAULT_TTM_RULES,
             growth_start=growth_start,
             financial_input=financial_input,
+            edinet_input=fixed_edinet,
             price_identity=prepared.price_identity,
             master_identity=prepared.master_identity,
             calendar_identity=prepared.calendar_identity,
@@ -179,12 +184,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional accounting-period start; omitted retains all available periods",
     )
     parser.add_argument("--candidate-limit", type=int, default=36)
+    parser.add_argument("--integration-report", type=Path)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        edinet_input = None
+        if args.integration_report is not None:
+            report = json.loads(args.integration_report.read_bytes())
+            if report["asof"] != args.asof.isoformat():
+                raise ValueError("source integration report differs from the model date")
+            if report.get("edinet_input") is not None:
+                edinet_input = InputSnapshot.model_validate(report["edinet_input"])
         result = integrate_models(
             store=Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
             market=args.market,
@@ -195,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             lease_handle=args.lease_handle,
             growth_start=args.growth_start,
             policy=EconomicPathPolicy(candidate_limit=args.candidate_limit),
+            edinet_input=edinet_input,
         )
     except Exception as error:
         write_json_atomic(

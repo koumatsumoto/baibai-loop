@@ -447,3 +447,26 @@ def test_candidate_never_replaces_existing_output(tmp_path, monkeypatch, existin
     if existing != "race":
         assert store.get_keys == []
     assert not list(tmp_path.glob("edinet-metrics-*"))
+
+
+def test_retained_pair_reuses_cold_metric_reader_without_sql_archives(tmp_path, monkeypatch):
+    from baibai_engine.machine_analysis.generation.edinet_inputs import (
+        read_edinet_input,
+        retain_edinet_input,
+    )
+
+    store, _, _, lists, archives = sources(tmp_path)
+    saved = retain_edinet_input(store, lists, archives, selected_at=AT)
+    del store.values[LIST_HEAD]
+    del store.values[ARCHIVE_HEAD]
+    fixed = read_edinet_input(store, saved)
+    before = dict(store.values)
+    monkeypatch.setattr(EDINETReader, "read_csv_zip", lambda *a: pytest.fail("SQL ZIP read"))
+    output = tmp_path / "candidate.sqlite"
+    report = run(fixed.lists, fixed.archives, output)
+    assert report["edinet-metrics"]["status"] == "completed"
+    assert metrics(output).rows["7203"].record.cash == 1000
+    with sqlite3.connect(output) as connection:
+        assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM edinet_segment_facts").fetchone() == (0,)
+    assert store.values == before
