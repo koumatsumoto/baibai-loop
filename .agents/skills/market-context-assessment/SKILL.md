@@ -13,7 +13,7 @@ description: 人間の明示開始から市場入力を固定し、重要な環�
 
 クラウド反映を伴う開始・再開は[applicationの作業手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
-1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個社状態と一次資料を読む。取得は[運用](../../../jobs/OPERATIONS.md)へ。判断直前の[多市場補助観測](../../../jobs/OPERATIONS.md#判断直前の多市場補助観測)を使う場合も、readが返す同じsource-handoffをreviewerへ渡す。日次TV充足・遅延quote・bar時刻・正式提案終値を混同しない。
+1. 対象日as_ofと入力確定時刻known_atを固定し、保存Reading・市場/業種/個社状態と一次資料を読む。[多市場補助観測](../../../jobs/OPERATIONS.md#判断直前の多市場補助観測)も同手順の時点/用途を守り、同じsource-handoffをreviewerへ渡す。
 2. 重要な変化と個社への含意を記し、別sessionのreviewerがsource・因果・反証を確認する。数値・単位・日付・限定を保ち、新根拠/判断を採ったら再Review。最大3巡で未解決なら発行せず人間へ上げる。
 3. Review PASSまたは人間のdraft承認後、known_atを保ち、初回発行直前の実時刻をpublished_atとしてcheckし、headを読んでCAS発行する。
 
