@@ -567,14 +567,14 @@ def validate_snapshot_parity(
         if source_periods != set(partitions):
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
-            # Physical day objects need not have the date in the logical key.
-            # Their own bounds keep legacy whole-month objects in key order.
+            # Day bounds matter only when the logical key is not already date ordered.
+            # Whole-month objects keep their legacy key order.
             days = (
                 {
                     obj.key: _object_date(mirror_root / obj.key, dataset=dataset)
                     for obj in partition.objects
                 }
-                if len(partition.objects) > 1
+                if len(partition.objects) > 1 and dataset.primary_key[:1] != (dataset.date_column,)
                 else {}
             )
             date_first = bool(days) and all(day is not None for day in days.values())
