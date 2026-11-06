@@ -1,151 +1,104 @@
 # データソース
 
-数値・経済統計は原公表機関または出所を確認できる公式集約先、企業調査は一次開示、broker事実は人間の確認報告を使う。速報・地政学の補助はReuters・NHK・AP等の事実報道とし、意見記事と数値の一次確認を混同しない。有料媒体は現行運用では使わない。sourceのtierは用途であり、正確さや利用許諾の点数ではない。
-
-取得と原本はData Collection、選択・単位変換・計算はL2が所有する。取得toolの障害を原資料の不存在にせず、同じ公表元のAPI・CSV・索引を調べる。異なる時刻・定義のsourceを無説明に接続しない。主な取得先と能力は既存source catalog・provider、L2の列と式は各領域の定義が正本である。
+数値は原公表機関か出所を確認できる公式集約先、企業調査は一次開示、broker事実は人間の確認報告を使う。Reuters・NHK・AP等の事実報道は速報・地政学の補助で、意見や数値の一次確認とは分ける。有料媒体は現行運用では使わない。sourceのtierは用途で、正確さ・利用許諾の保証ではない。
 
 <a id="source-owners"></a>
 ## 取得範囲と実装の入口
 
-source catalogは経済原本の一覧であり、L1全体の一覧ではない。取得先・要求範囲・保存形式は各owner、起動時刻は[Actions](../../.github/workflows/)、遅延時の対象日・cycleは[Jobs schedule](../../jobs/src/baibai_jobs/schedule.py)とsourceの計画が所有する。設定をここへ複写せず、実取得・保存・投影・公開の実績は別に確認する。
+取得・原本はData Collection、選択・単位変換・計算はL2、起動・再開は[運用](../../jobs/OPERATIONS.md)、保存は[architecture](../architecture.md#store-authority)が所有する。実装・取得・公開・本番切替を区別し、L2の有用性未確認を理由に許可済みL1の取得元・頻度・保持を縮小しない。
 
-| 対象 | 正準の入口 |
+| 対象 | 正本 |
 | --- | --- |
-| 経済統計・市場指標 | [source catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)と[acquisition](../../engine/src/baibai_engine/data_collection/acquisition/) |
-| 株式・企業開示・公開資料 | [J-Quants](../../engine/src/baibai_engine/data_collection/providers/jquants/)・[JPX](../../engine/src/baibai_engine/data_collection/providers/jpx/)・[EDINET](../../engine/src/baibai_engine/data_collection/providers/edinet/) |
-| ニュース・機関公表記事 | [article source契約](../../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)・[取得と再開](../../jobs/src/baibai_jobs/acquisition/articles.py) |
-| 公開HTML外部評価 | [source別取得](../../jobs/src/baibai_jobs/acquisition/external_assessments/)・[公開ページ通信](../../engine/src/baibai_engine/data_collection/transport/public_pages.py) |
-| TradingView | [native契約と要求充足](../../engine/src/baibai_engine/data_collection/providers/tradingview/)・[取得](../../jobs/src/baibai_jobs/acquisition/tradingview/) |
-
-L2での比較価値が未確認でも、許可されたL1の取得元・頻度・保持範囲を自動で縮小しない。取得することと判断に採用することは別で、変更の採否は[開発方針](../doctrine.md#development-investment-policy)に従う。
+| 経済統計 | [catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)・[acquisition](../../engine/src/baibai_engine/data_collection/acquisition/)（L1全体の一覧ではない） |
+| 株式・開示 | [J-Quants](../../engine/src/baibai_engine/data_collection/providers/jquants/)・[JPX](../../engine/src/baibai_engine/data_collection/providers/jpx/)・[EDINET](../../engine/src/baibai_engine/data_collection/providers/edinet/) |
+| 記事 | [source契約](../../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)・[投影/抽出](../../engine/src/baibai_engine/machine_analysis/observations/articles/) |
+| 外部評価 | [公開HTML取得](../../jobs/src/baibai_jobs/acquisition/external_assessments/)・[TradingView原本](../../engine/src/baibai_engine/data_collection/providers/tradingview/) |
 
 ## 入手不能と利用条件
 
-一次統計の二次配信は、公式経路を確認してもsource側の継続的な問題で解決できず、同じ期間・定義・数値を複数経路で確認できた場合だけ一次未確認と明示して使う。失敗した一次inputと実読した二次inputを分け、判断は採用したsourceへ結ぶ。単一値・不一致・toolの一時障害では代用せず、AIが観測storeへ転記しない。Tier外の速報補助もその旨を示す。
+tool障害を原資料の不存在にせず、取得失敗で既存原本・観測を消さない。一次のAPI・CSV・索引を確認しても継続的なsource障害が残り、同期間・定義・値を複数経路で確認できる場合だけ、一次未確認と明示して二次配信を採る。単一値・不一致・一時障害では代用せず、AIが観測storeへ転記しない。失敗した入力と採用した根拠、Tier外の補助を明示する。
 
-Web Archiveのcapture時刻は元資料の公表時刻ではなく、closestもcutoff以前を保証しない。原URL、公表日、archive URLとcapture時刻を分け、改定前内容を確定できなければ未確認とする。
-
-取得資料は契約・利用条件の範囲で個人・非公開運用に用いる。この文書は利用許諾を拡張せず、原本全文・転載表を公開Issueへ再配布しない。保存場所は[architecture](../architecture.md#store-authority)、固定releaseの操作は[OPERATIONS](../../jobs/OPERATIONS.md#fixed-release-read)に従う。
+公表・更新・実受領・観測対象日を分け、未知の日付を受領日で埋めない。Web Archiveのcapture/closestは当時の公表・cutoff以前を保証せず、原URLとcaptureを残す。改訂前内容が不明なら未確認とする。契約範囲内の個人・非公開利用とし、原本全文・転載表を公開Issueへ再配布しない。
 
 ## J-QuantsとJPX
 
-J-Quantsはnative HTTP pageをL1として保存する。masterや財務summaryのtyped行は選択・正規化後のL2であり、HTTP bytesの代わりではない。未使用field・空欄・当期/翌期slotを原本に残し、旧flattened行から架空の原本を作らない。取得済み空と未取得・partial、件数とcoverageを区別する。
+native HTTP pageがL1で、typed/flattened行から原本を作らない。空欄・未使用fieldも保持し、取得済み空・未取得・partialを分ける。普通株は完全なcodeと商品区分で識別し、末尾0・業種名では推定しない。calendarの元区分もbooleanから復元しない。[native操作](../../jobs/OPERATIONS.md#jquants-native-operations)で通常経路と切替を確認する。
 
-masterは完全な提供元codeとrecordを保持し、主銘柄codeと商品区分を組み合わせて国内普通株を識別する。末尾0だけではETF/REITも含み、業種名から商品を推測しない。市場の選択は普通株判定とは別である。calendarは提供元区分を保持し、現物営業日を導出する。古いbooleanから区分を復元しない。
-
-空売り残高報告の独立L1と通常接続は[操作手順](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)。日付・原本順序の契約は[owner](../../engine/src/baibai_engine/data_collection/providers/jquants/short_sale_reports_native.py)を参照し、codeの接続と本番writerの切替を区別する。
-
-財務のDiscNoは文書identityでありrevision順序ではない。開示日時と会計期間を使う。訂正前情報や取得前の公開範囲を持たない期間を完全PITとしない。共通の財務観測が原本文書を読み、[企業財務](company-financials.md)が予想・実績の比較座標を、[企業成長](company-growth.md)が過去実績の状態・比較期間を選ぶ。
-
-JPXの規制・決算予定・資本政策・上場廃止は完了済みsource bundleの原本からL2へ投影する。bundle完了は宣言対象の受領で、同時公表snapshotの保証ではない。選択bundleにない旧月・旧行を合流させず、消えた行を取消や不存在の証明にしない。現在取得した決算予定だけで過去の予定履歴を再現せず、個別調査では会社IRを再確認する。
+DiscNoはidentityで訂正順ではない。開示日時・期間を用い、未保持vintageを完全PITとしない。比較座標は[企業財務](company-financials.md)・[企業成長](company-growth.md)。JPXは選択完了bundleだけを投影し、旧行を合流させず、消失を取消/不存在としない。受領完了は同時公表の証明ではない。現在の決算予定から過去予定を復元せず、会社IRで再確認する。
 
 ### 信用残のsourceと日付
 
-全銘柄の旧週次と日次は残高対象日の異なる系列で、日々公表のmargin-alertは選別されたsubsetである。切替日・取得窓は[source規則](../../engine/src/baibai_engine/data_collection/providers/jquants/market_rules.py)、全銘柄残高の公表lag/cutoffは[公表owner](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_publication.py)が所有する。subsetを全銘柄残高の代替・欠損補完にせず、掲載されないtickerを0にしない。
-
-margin-alertのPubDateは公表日、AppDateは残高基準の申込日で、規制適用開始日ではない。全銘柄日次のDateは残高日で、後日訂正も公表・受領の文脈を保つ。全銘柄残高の判断用cutoffとmargin-alertの公表日範囲読取は別契約であり、[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)を参照する。PubDateだけで正確なAPI利用可能時刻や訂正前vintageを再現できるわけではない。
-
-margin-alertの独立取得・固定consumer・有限移行は[明示native入口](../../jobs/OPERATIONS.md#margin-alerts-native-l1)にあり、通常market取得への接続とは別である。公表前の空応答、取得失敗、取得済み対象なしを分ける。株数と金額は元の単位を保持し、欠測金額を株数×価格で補わない。指標の週比較と株式basisは[市場環境](market-context.md#margin)に従う。
-
-週次・全銘柄日次の独立L1は[明示CLI](../../jobs/OPERATIONS.md#margin-interest-native-l1)で取得・有限移行・固定読取する。通常writerと歴史評価の経路は変更しない。
+全銘柄の週次・日次は残高対象日で使い分け、選別subsetのmargin-alertを全銘柄の欠損補完にしない。非掲載は0ではない。PubDateは公表日、AppDateは残高基準の申込日で規制開始日ではなく、全銘柄日次のDateも残高日。公表前の空・失敗・対象なしを分け、欠測金額を株数×価格で作らない。公表lag/cutoffは[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)、比較/basisは[市場環境](market-context.md#margin)、取得・移行は[margin-alert](../../jobs/OPERATIONS.md#margin-alerts-native-l1)・[全銘柄残高](../../jobs/OPERATIONS.md#margin-interest-native-l1)・[空売り報告](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)を参照する。
 
 ## 経済原本
 
-取得時刻は受領・改訂の順序で、公表vintageや当時の既知値とは限らない。正常bulk応答の空日と取得失敗を分ける。FREDは全CSVの実在期間を比較し、過去にnative行が存在した期間の消失だけを空集合として残す。全暦日を埋める人工空は新規作成しない。最新原本が空・欠測でも古い非null値へ戻らず、取得失敗では既存原本を消さない。取得成功とL2計算可能は別の事実である。L2定義の退役・改名だけでsource factを消さない。
+受領履歴は公表vintage/当時の既知値とは限らない。最新原本の空・欠測を旧値で埋めず、取得失敗やL2定義の退役で原本を消さない。取得成功と計算可能も別。bulk応答・期間消失はacquisitionの規則に従い、暦日を人工補完しない。
 
-| source | 読む時に残す制約 |
+| source | 解釈上の境界 |
 | --- | --- |
-| FRED・H.15 | 配信元ごとのrolling範囲・開始日がある。現在のCSV先頭は全歴史の保証ではなく、欠測セルと未使用列を残す |
-| CFTC・ECB | long/shortや通貨の両脚を同じ原本から読む。古いnet/crossだけでは元値を復元できない |
-| e-Stat | 頻度・季調・地域を固定。確報選択と速報を分け、確報欠測を速報へ戻さない。基準年は単位codeだけでは確定しない |
-| BOJ・財務省 | 期間代表日と実公表日を分け、当月訂正・欠測も読む。月初/四半期代表日は実観測時刻ではない |
-| 投資部門別 | 集計期間末とPubDateを区別。公表日cutoff以下の最新版を選び、取得時刻を当時の配信時刻としない |
-| multpl | 日付付き月次表の表示日と推定注記を読む。現在の表で過去の日々のcurrent値は復元できない |
-| PMI | 公式release PDFと月・URLを保持。headlineとflash/composite/sub-indexを混ぜず、L2抽出の失敗で原本受領を取り消さない |
-| options | chain原本を保存し、snapshot/満期選択はL2。SQ直後のIV/skew欠測は構造的に生じ得る。緊急証拠金日は指定された清算値算出時の部だけを読む |
+| FRED・H.15 | 提供期間はrolling/開始日で限定され、CSV先頭は全歴史の保証ではない |
+| CFTC・ECB | long/short・通貨両脚を保持。net/crossから原値を復元しない |
+| e-Stat | 頻度・季調・地域を揃え、確報欠測を速報で埋めない。単位codeだけで基準年は決まらない |
+| BOJ・財務省・投資部門別 | 期間代表日/集計末・公表・受領を分け、訂正と公表cutoffを読む |
+| multpl | 月次表示と推定注記から過去の日々のcurrent値を復元したとしない |
+| options | 満期選択はL2。SQ直後の欠測はあり得る。緊急証拠金日は指定部の清算値を使う |
 
-松井証券の買建評価損益率は同社内の信用買建の一系列で、全市場・追証人数・二市場信用残を直接観測しない。公表符号と注記を保ち、紹介算式から符号を修正しない。年のない表示日は受領JST日から14日以内の月日・曜日の一意候補による推定で、当時の公表年の証明ではない。再掲で鮮度を進めず、受領vintageを公表時刻と呼ばない。背景情報に限り、既存価格下落と独立した悪材料として加算しない。
+松井の買建評価損益率は同社の信用買建に限る背景情報。全市場・追証人数を表さず、価格下落と独立した悪材料へ加算しない。符号を紹介算式で直さず、年推定を公表年の証明、再掲を鮮度更新としない。
 
 <a id="pmi-public-articles"></a>
 ### PMIの公開記事経路（未有効化）
 
-現行catalogはS&P Global公式PDFによる日本/米国の製造業headline PMIとサービスBusiness Activity Indexの4系列を取得する。Trading Economics（TE）の公開記事adapterは実装済みだが、通常取得へ接続していない。候補adapterが存在することと、本番で取得・保存・公開できていることは別である。公式PDFの原本履歴・source IDは保持する。
-
-TE経路は同じS&P測定の別配信であり、独立した経済測定ではない。ISM・製造業Output・Compositeを代用せず、速報と確報、対象月、配信時刻と元測定の公表時刻を区別する。原文受領とidentity/数値抽出の成功を分け、取得失敗を旧値や検索snippetの転記で隠さない。完全な改訂履歴・当時PITの再現は保証しない。
-
-取得条件と原文identityは[provider](../../engine/src/baibai_engine/data_collection/providers/tradingeconomics/)、観測値の選択はL2の所有実装を正本とする。明示URL入口は拒否後の自動fallbackではない。取得可能性・継続coverage・利用範囲を確認せずcatalogを切り替えない。有限実験・配信候補・採否は[Issue #1477](https://github.com/koumatsumoto/baibai-loop/issues/1477)と[当時の確認記録](https://github.com/koumatsumoto/baibai-loop/blob/d6c085d433ab0e5561b14b46a5595c7abf84e340/docs/reference/data-sources.md#pmi-public-articles)に残す。
+現行はS&P公式PDFの日本/米国製造業headline・サービスBusiness Activity Index。TE記事adapterは未接続で、同じ測定の別配信にすぎない。ISM・Output・Compositeへの代用、旧値/snippet補完、拒否後の自動fallbackはしない。原文受領と抽出成功、速報/確報・対象月・公表/配信時刻を分ける。完全PITを主張せず、取得・coverage・利用範囲の確認なしに切り替えない。[provider](../../engine/src/baibai_engine/data_collection/providers/tradingeconomics/)・[採否 #1477](https://github.com/koumatsumoto/baibai-loop/issues/1477)を参照する。
 
 <a id="public-articles"></a>
 ## ニュース・機関公表記事
 
-索引の受領、本文の受領、リンクの発見、文章の投影、主張の抽出は別の進捗である。RSSや一覧だけを取得して全記事を本文実読済みと扱わず、見出し・概要・全文・部分テキストの範囲を保持する。記事公表日・更新日・実受領日を混同せず、未知の日付を取得日で埋めない。
+索引・本文受領・投影・主張抽出は別の進捗。見出し/概要/全文/部分の範囲と欠落を残し、失敗を出来事なしにしない。BBC World/Business・Fed・ECBの通常取得はRSS見出し・概要まで。BBC重複feedを独立source、Fed/ECB発言を政策決定としない。本文実読と判断接続の受入は[#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705)。
 
-BBC World/Business・Fed・ECB は独立した world group で索引を取得する。BBC の二つの feed は同一発行元であり、重複掲載を独立した裏付けに数えない。Fed/ECB の category は原文の分類で、発言を政策決定へ自動変換しない。定期取得は RSS の見出し・概要までで、選んだ案件の本文取得とは別である。個人利用の保存範囲と公開再配布を混同しない。導入・運用診断・判断接続の受入は [#1705](https://github.com/koumatsumoto/baibai-loop/issues/1705) で追跡する。
-
-[ニュース・機関公表のsource契約](../../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)がURL範囲と取得予算を持つ。[native parser](../../engine/src/baibai_engine/data_collection/providers/articles/native.py)が提供形式を読み、[Observations](../../engine/src/baibai_engine/machine_analysis/observations/articles/)が日付・範囲・出典を保つ投影と抽出artifactを所有する。HTML本文が取れても全ての主張が機械抽出済みとは限らない。
-
-案内ページと転送先、本文と添付資料は別の原受領で、親子の出典を残す。財務省の金利CSVの文字表現は経済系列と独立した測定ではない。日銀XLSXのセル投影は書式・図表や式の計算結果の復元ではない。欠けた本文・未対応形式・抽出失敗を「出来事なし」へ変換しない。[取得・再開とexact回復](../../jobs/OPERATIONS.md#article-acquisition)は保存済み原本を基準に行う。
+案内・転送先・添付は別受領で出典の親子を保つ。財務省金利CSVの文字表現は経済系列と独立した測定ではなく、日銀XLSXのセル投影は図表・書式・計算結果の復元ではない。[exact回復](../../jobs/OPERATIONS.md#article-acquisition)は保存原本から行う。
 
 ## EDINET
 
-一覧応答とCSV/XBRL ZIPの受領がL1、文書選択・抽出したmetrics/segment/debtがL2。Company Financialsのtype=5 CSV経路とCompany Research factsのtype=1 XBRL経路は別で、原本がなければ抽出履歴から捏造しない。明示したSQLite原本storeを再利用し、端末ZIPを暗黙に取り込まない。
-
-archiveは同じdocID/typeの最初のbytesを保持する。通常refreshは保存済みZIPを再利用し、文書editや抽出失敗の再処理が同一archiveのfresh再取得を意味するわけではない。provider側で同一文書のbytesが修復された場合の差替えは、隔離取得と差分確認を伴う別の明示操作として扱う。現在の通常経路にその自動修復はなく、抽出testへ修復済みbytesを渡した成功を取得経路の修復保証にしない。
+一覧/ZIP受領がL1、文書選択・metrics/segment/debtがL2。type=5 CSVとtype=1 XBRLは別経路で、明示storeの原本を使う。抽出履歴から原本を作らず、端末ZIPを暗黙に取り込まない。同じdocID/typeの最初のbytesを保持し、通常refreshは再利用する。再抽出は再取得ではなく、提供元修復後の差替えは隔離取得・差分確認を伴う別操作。自動修復を保証しない。
 
 <a id="edinet-metric-revision"></a>
 ### 抽出意味revision
 
-EDINET_METRIC_REVISIONは数値・文書選択・訂正/取下げ・期間/連結/単位・null/0・quality/failure等の意味変更時に明示更新する。配置・import・transport retryでは更新しない。保存済み値・日時・旧release/hashを付け替えず、反映は[運用](../../jobs/OPERATIONS.md#edinet-metrics-revision)へ進む。releaseのproducer commitは各行の元抽出commitとは別である。
+EDINET_METRIC_REVISIONは抽出/選択の意味変更時だけ更新し、配置・import・retryでは変えない。旧値・時刻・release/hashを付け替えず、producer commitを各行の元抽出commitと同一視しない。[反映手順](../../jobs/OPERATIONS.md#edinet-metrics-revision)に従う。
 
 <a id="edinet-research-facts"></a>
 ### Company Research facts
 
-セグメントと負債満期は直近年次・訂正とその比較年度から始まる任意datasetで、全提出履歴や全債務のcoverageではない。外部/内部売上、利益のbasis、連結範囲、当期/比較期、instant/durationと事業区分変更を揃える。企業独自conceptを名称の類似だけで標準指標へ割り当てない。
+直近年次・訂正と比較年度の任意datasetで、全履歴ではない。内外売上・利益basis・連結・期間・区分変更を揃え、企業独自conceptを名前で推定しない。提出JST日以前へ遡及せず、最新訂正が不明なら旧年次で埋めない。[固定release選択](../../jobs/OPERATIONS.md#edinet-research-query)ではtickerだけでなく原典期間・連結・通貨を合わせる。
 
-負債はJP GAAP明細表の明示元本。社債括弧内額を年別償還へ重ねず、リース・金利・担保・covenant・IFRS注記・5年超残差を完全に含む表とはしない。「－」・nil・未開示・未対応・未取得は0ではない。抽出okで0行もあり、取得失敗で以前のfactを消さない。
-
-disclosed_onは提出JST日で、比較年度末へ遡及して利用可能にはならない。訂正は別docIDで保持し、同一releaseでも古い年次へfallbackしない。metricsと結ぶ時はtickerだけでなくas-of・原典期間・連結・通貨を揃える。借換え・将来FCF・維持投資はInvestment Judgmentの見積りであり、抽出factへ混ぜない。選択と照会は[固定release操作](../../jobs/OPERATIONS.md#edinet-research-query)に従う。
+負債はJP GAAP表の明示元本で、社債括弧内額を重複計上しない。リース・利率・担保・covenant・IFRS注記・5年超残差を網羅しない。空/未対応/未取得は0でなく、抽出okでも0行があり得る。失敗で以前のfactを消さず、借換・将来FCF・維持投資の見積りを混ぜない。
 
 <a id="external-assessment"></a>
 ## 外部評価
 
-媒体が提示した値、元評価者、尺度・対象期・basisと時点を読む。モデル価格、アナリスト予測/rating、Quants scoreは異なる結果。同じIFIS等の転載を独立票へ数えず、元評価者不明の独立性を推測しない。
-
-latest/previousの差は同じorigin・単位・対象期・株式basis/尺度が揃う場合だけ計算する。初回、欠測回復、人数変更、同値の再受領は予想改善と別である。受領間のcomparableは自己評価への比較可能性を保証しない。最新の正常nullを古い非nullで埋めず、未取得・正常欠測・metadata未確認・障害を区別する。後日の取得失敗で既存観測を消さず、最新保存値を現在値や最新試行成功と呼ばない。
+モデル価格・アナリスト予測/rating・Quants scoreを分け、転載を独立票にしない。origin・単位・対象期・株式basis/尺度を揃えた差だけを読み、初回・欠測回復・人数変更・再受領を改善としない。正常nullを旧値で埋めず、未取得・metadata不明・障害を区別する。保存最新値は現在値/最新試行成功の証明でなく、受領間比較が自己評価との比較を保証するものでもない。
 
 <a id="external-assessment-incremental-use"></a>
 ### 判断への利用
 
-相違が利益・倍率・資本・期間の何を変えるかを先に問い、重要なものだけ原典で比較する。比較不能な外部値を使わずに調査を完成でき、銀行のEBITDA/FCF等を一律の不足要件にしない。ratingで順位加点せず、coverageのある企業だけの新laneを作らない。固定8社の比較では同basisの専門予想の増分価値と維持費を確認できず、原典の参照用途を採った。追加自動化は具体的な判断寄与と手作業の費用から選ぶ。[当時の採否](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は全将来効果の否定ではない。
-
-Investing.comは個別の評価変更日・変更主体・新旧目標を調べる補助参照先で、日次の第二consensusには採用しない。同じ予想の転載を増やすより差分の判断寄与を優先した[選定記録](https://github.com/koumatsumoto/baibai-loop/blob/27daa52c4b63a8a2fc380e7f4f35b2e211be8e79/reports/studies/2026-10-22-public-external-sources/report.md)を残す。
+利益・倍率・資本・期間の重要な相違だけ原典で確認し、比較不能値や銀行のEBITDA/FCF等を全社必須にしない。rating加点・coverage別laneは作らない。固定8社で増分価値/維持費が未確認だった[採否](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)は、将来効果の否定ではない。Investing.comは評価変更の補助参照に限り、日次の第二consensusにしない。
 
 ### 公開HTMLの意味
 
-マネックスはモデル価格と目標consensus、楽天は公開IFIS iframeのrating、株マップはQuants Researchの定量score、みんかぶはアナリスト欄のrating・目標・会社/外部予想を読む。投稿・総合目標・機械診断をアナリスト予想へ混ぜず、rating人数を利益予想の寄与者数へ流用しない。表示更新日・受領JST日・UTC時刻を分ける。過去比較列を過去日に受領した履歴へ変換しない。
+媒体別の値・scope・metadataは[観測契約/normalization](../../engine/src/baibai_engine/machine_analysis/observations/external_assessments/)を正本とする。投稿/総合診断をアナリスト予想にせず、人数・年表示・過去比較列から未記載の予想人数・期末・EPS・受領履歴を作らない。銘柄同一性のない「情報なし」/404を正常欠測とせず、不明basis・期衝突からdelta/一致票を作らない。
 
-公開HTML bodyとencodingはL1で、wire bytesや取得全体成功の証明ではない。楽天outer/iframeは同じ試行へ束縛する。共通の「予測情報なし」ページは無効codeにも返り、銘柄同一性未確認を正常nullへ変えない。みんかぶの404だけも未カバーの証明ではなく、同銘柄の明示表示が必要。403・429等を別経路で迂回しない。
-
-みんかぶの対象期と単位は明示表記だけを使い、年だけから期末日、年度表からEPSや更新日を生成しない。表間の対象期衝突は観測全体を不採用として原本を残す。原評価元・株数basis・metric別人数が不明なら未知に保ち、自動deltaや一致票を作らない。
-
-原本handoffは短期bundleであり、lakeへ公開して読戻すまで長期L1ではない。未保存の過去本文は復元できない。liveとreplayのparser選択は共通化しても、取得・receipt順序・失敗の意味は混ぜない。[取得・再開](../../jobs/OPERATIONS.md#external-assessment-acquisition)を参照する。
+body/encodingはL1でwire bytesではない。楽天outer/iframeは同じ試行に束縛し、403/429を迂回しない。短期handoffは公開・読戻しまで長期L1ではなく、未保存本文は復元不能。[取得・再開](../../jobs/OPERATIONS.md#external-assessment-acquisition)で原受領・失敗をreplayで書き換えない。
 
 <a id="tradingview"></a>
 ### TradingView
 
-L1はMCP SDK CallToolResultの保存可能な表現で、HTTP wire bytesやSDKが捨てたfieldは含まない。受領直後に原本を保存してからL2へ正規化する。snapshot_dateは受領JST日、master_asofは対象集合を選ぶ日で、**どちらもprovider公表日ではない**。fetched_at_utcで確かめられるのは実受領で、最初の公表や初回既知時刻は保証しない。
-
-各行を実受領cutoff以内へ限定し、観測後の次の取引機会より前へ遡及させない。休日の同値を独立sampleにしない。正常rowのnull、明示unresolved、行がない未取得と技術障害を分ける。部分公開は全市場の代表標本ではなく、L1 replayでも元の受領時刻を維持する。
-
-quote通貨とestimate通貨・単位は別。絶対対象期やmetricごとの期対応が未確認なら推定せず、FY/next FYやrating人数を一括流用しない。元metadataがあっても全metricの対応を保証しない。参考closeを株価の第二正本にしない。公式connectorの明示受領、保存・モデル入力と履歴の扱いは[TradingView運用](../../jobs/OPERATIONS.md#tradingview-expectations)に従う。
+L1は保存可能なSDK応答でwire bytesではなく、L2前に保持する。受領JST日・master選択日を公表日とせず、実受領cutoffと次の取引機会を守る。休日同値を独立sample、部分公開を市場代表標本としない。null・unresolved・未取得・障害を分け、replayでも元時刻を保つ。quote/estimateの通貨・単位・期対応をmetric別に確認し、FY/next FY・人数を一括流用しない。参考closeは株価の第二正本にしない。[受領・保存・履歴](../../jobs/OPERATIONS.md#tradingview-expectations)に従う。
 
 <a id="public-research-reports"></a>
 ## 公開企業レポート
 
-[証券リサーチセンター](https://holistic-r.org/report/)と[フィスコ](https://www.fisco.co.jp/service/report/)は、選択済み企業の予想理由・事業仮説を調べる追加参照先。毎回2社を揃えたり、未カバー企業を除外したりせず、日次crawlerを追加しない。
-
-SRCの独自予想と会社計画を凡例・対象期から区別する。フィスコの有償企業調査やissuer提供値は独立した賛成票としない。銘柄同一性、発行日、訂正・終了と実読ページを確認し、一覧/snippetだけを本文実読と記録しない。採用したHTTPS原本を既存sourceへ結び、事実・外部予測・作者仮定を分ける。原本に届かなければ一次資料へ戻る。
+[SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)は選定企業の予想理由/事業仮説の追加参照。毎回取得・coverageを必須にせず、日次crawlerを作らない。独自予想と会社計画、sponsor調査と独立根拠を分け、銘柄・発行/訂正・対象期・実読ページを確認する。snippetを本文実読とせず、採用HTTPS原本を根拠へ結ぶ。届かなければ一次資料へ戻る。
 
 ## Portfolioの価格とbenchmark
 
-保有quoteはmarket storeのJ-Quantsを使い、欠測を公開quoteの台帳転記で補わない。補助quoteは時点とprice basisを示す。年次・3年・5年Outcomeのprimary benchmarkはJPX TOPIX gross total returnで、同期間・公表時点・gross区分を確認する。ETF価格を代用せず、[Outcome](portfolio-ledger.md#historical-outcome)の税費用basisと区別する。
+保有quoteはJ-Quantsを使い、公開quoteの台帳転記で補わない。補助quoteの時点/basisを明示。年次・3年・5年Outcomeのprimary benchmarkはJPX TOPIX gross total returnで、同期間・公表時点・grossを確認しETF価格で代用しない。[Outcome](portfolio-ledger.md#historical-outcome)の税費用basisと区別する。
