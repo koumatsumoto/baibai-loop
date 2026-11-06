@@ -150,7 +150,7 @@ def test_native_scope_skips_old_and_future_bodies_and_reduces_projection(tmp_pat
     root = selection(store, saved)
     assert root["format"] == "economic-selection-v2"
     assert root["record_ranges"][source_id][1] == DAY.isoformat()
-    assert set(root["months"]) == {source_id + "/2026-01"}
+    assert set(root["months"]) == {source_id + "/2026"}
     sizes = []
 
     def read_projection(path, **kwargs):
@@ -212,7 +212,7 @@ def test_fred_subset_keeps_global_provenance_without_claiming_complete_projectio
     saved = fixed.retain_economic_input(store, source, as_of=DAY, evaluation_time=AT)
     root = selection(store, saved)
     assert root["confirmations"]["fred-payems"] is not None
-    assert set(root["months"]) == {"fred-payems/2026-01"}
+    assert set(root["months"]) == {"fred-payems/2026"}
 
     def inspect_projection(path, **kwargs):
         with closing(sqlite3.connect(path)) as c:

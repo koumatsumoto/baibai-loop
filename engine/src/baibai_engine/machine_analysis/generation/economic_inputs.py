@@ -85,7 +85,7 @@ class _Receipt(_Fixed):
     confirmed: bool = False
 
 
-class _Month(_Fixed):
+class _Block(_Fixed):
     records: tuple[_Receipt, ...] = ()
     documents: tuple[_Receipt, ...] = ()
 
@@ -99,8 +99,10 @@ class _Selection(_Fixed):
     # Native bounds come from the Reading/observation owners. Documents retain
     # every latest request, and flows still start at date.min (publication days).
     record_ranges: dict[str, tuple[date, date]]
+    # Keep the saved wire name: old monthly and new yearly record blocks have
+    # identical receipts, and readers resolve their digests, not calendar labels.
     months: dict[str, Digest]
-    # Valid complete FRED state has one shared clock; never repeat it in each month.
+    # Valid complete FRED state has one shared clock; never repeat it in each block.
     confirmations: dict[str, tuple[str, Digest] | None]
     runs: dict[str, _Receipt | None]
 
@@ -229,10 +231,16 @@ def retain_economic_input(
 
         def remember(kind: str, row: tuple[Any, ...], *, confirmed: bool = False) -> None:
             key = tuple(row[:3])
-            # Native period or request month. Non-date request identities share
-            # one source block; bodies still stay in the canonical receipt store.
-            month = key[1][:7] if len(key[1]) >= 10 and key[1][4:5] == "-" else "documents"
-            block = blocks.setdefault(key[0] + "/" + month, {"records": [], "documents": []})
+            # A selected record has at most one receipt per native day. Year
+            # blocks reduce round trips while keeping unchanged years reusable.
+            # Documents keep their existing request grouping and receipt order.
+            if kind == "records":
+                period = key[1][:4]
+            elif len(key[1]) >= 10 and key[1][4:5] == "-":
+                period = key[1][:7]
+            else:
+                period = "documents"
+            block = blocks.setdefault(key[0] + "/" + period, {"records": [], "documents": []})
             block[kind].append(_Receipt(key=key, sha256=_row_digest(row), confirmed=confirmed))
 
         for source_id in sources:
@@ -287,14 +295,14 @@ def retain_economic_input(
         ):
             remember("documents", _row(connection, "documents", tuple(key)))
 
-    def retain_month(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
+    def retain_block(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
         name, rows = item
-        return name, _retain(store, _Month(**rows).model_dump(mode="json"))
+        return name, _retain(store, _Block(**rows).model_dump(mode="json"))
 
-    # Independent immutable month objects otherwise serialize thousands of
+    # Independent immutable objects otherwise serialize thousands of
     # network round trips. Keep their order and all per-object integrity checks.
     with ThreadPoolExecutor(max_workers=8) as workers:
-        months = dict(workers.map(retain_month, sorted(blocks.items()), buffersize=8))
+        retained = dict(workers.map(retain_block, sorted(blocks.items()), buffersize=8))
 
     selection = _Selection(
         as_of=as_of,
@@ -302,7 +310,7 @@ def retain_economic_input(
         recipe_sha256=recipe,
         sources=sources,
         record_ranges=record_ranges,
-        months=months,
+        months=retained,
         confirmations=confirmations,
         runs=runs,
     )
@@ -367,12 +375,12 @@ def rebuild_economic_input(
                 )
                 return row
 
-            def read_month(month_digest: str) -> _Month:
-                return _Month.model_validate_json(_read(store, month_digest))
+            def read_block(block_digest: str) -> _Block:
+                return _Block.model_validate_json(_read(store, block_digest))
 
             # Only metadata transport runs concurrently. SQLite reads/writes
             # and fixed receipt checks stay on this transaction's owning thread.
-            for block in workers.map(read_month, selection.months.values(), buffersize=8):
+            for block in workers.map(read_block, selection.months.values(), buffersize=8):
                 for reference in block.records:
                     row = copy("records", reference)
                     if reference.confirmed:
