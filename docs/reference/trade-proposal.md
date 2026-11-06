@@ -24,7 +24,7 @@
 
 PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)からの上限で、期待値/勝率/最適指値ではない。魅力的な上振れがあってもlimitのBase年率が要求率未達なら現行gateを通さず、その制約をBase/率/期間の通過用変更で迂回しない。quoteがPmax超でも低いlimitで待てるが、購入判断未了の監視はbuyにしない。
 
-[受容理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedから、見返り・主要損失経路・今引き受ける理由を示す。企業仮説の棄却とquote/cash等の不足を分け、未完はdefer、完成した見送りはno_actionとする。既保有・active買予約への追加、別評価IDによる迂回、約定済み提案の全売却後再利用はしない。
+[受容理由](stock-assessment.md#uncertainty-and-decision)を持つsupported/resolvedを使う。既保有・active買予約への追加、別評価IDによる迂回、約定済み提案の全売却後再利用はしない。
 
 <a id="limit-selection"></a>
 ### 指値と待機案の選択
