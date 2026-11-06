@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Protocol
 
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES as ARTICLE_SOURCES
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_GROUP
 from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
@@ -31,17 +32,21 @@ def available_handoffs(
     source: str | None = None,
     include_integrated: bool = False,
     market: bool | None = None,
+    namespace: str | None = None,
 ) -> list[dict[str, object]]:
     """Freeze available receipts and source ordering; isolate malformed handoffs."""
+    if namespace is not None and (namespace != "article-sources" or market is not True):
+        raise ValueError("explicit handoff namespace requires article market receipts")
     ready: list[dict[str, object]] = []
     watermarks: dict[str, datetime] = {}
     blocked_sources: set[str] = set()
 
     def inspect(
-        item: tuple[bool, str],
+        item: tuple[bool, str, str],
     ) -> tuple[dict[str, object] | None, tuple[str, datetime] | None, str | None]:
-        market, key = item
-        namespace = "market-sources" if market else "economic-sources"
+        market, namespace, key = item
+        article = namespace == "article-sources"
+        scope = {"namespace": namespace} if article else {}
         stage_id = key.split("/")[-2]
         source_name = source or f"{namespace}-unreadable"
         digest = ""
@@ -55,12 +60,15 @@ def available_handoffs(
             source_name = report["source"] if market else "economic-" + report["group"]
             if not isinstance(source_name, str) or (source is not None and source_name != source):
                 raise ValueError("handoff source differs from its scope")
+            if article and source_name not in ARTICLE_SOURCES:
+                raise ValueError("unsupported article handoff source")
             started = datetime.fromisoformat(report["started_at"])
             if started.tzinfo is None:
                 raise ValueError("handoff clock has no timezone")
             date.fromisoformat(report["asof"])
             terminal = read_private(
-                store, stage_prefix(stage_id, market=market) + "/integrated.json"
+                store,
+                stage_prefix(stage_id, market=market, namespace=namespace) + "/integrated.json",
             )
             integrated = None
             watermark = None
@@ -68,10 +76,17 @@ def available_handoffs(
                 try:
                     integrated = json.loads(terminal.payload)
                     status = integrated["status"]
+                    if article and (
+                        integrated["manifest_sha256"] != digest
+                        or integrated["source"] != source_name
+                        or status not in {"integrated", "needs_explicit_recovery"}
+                    ):
+                        raise ValueError("article integration marker differs from its original")
                 except (ValueError, KeyError, TypeError):
                     return (
                         {
                             "market": market,
+                            **scope,
                             "stage_id": stage_id,
                             "source": source_name,
                             "manifest_sha256": digest,
@@ -87,6 +102,7 @@ def available_handoffs(
             return (
                 {
                     "market": market,
+                    **scope,
                     "stage_id": stage_id,
                     "manifest_sha256": digest,
                     "source": source_name,
@@ -115,6 +131,7 @@ def available_handoffs(
             return (
                 {
                     "market": market,
+                    **scope,
                     "stage_id": stage_id,
                     "source": source_name,
                     "manifest_sha256": digest,
@@ -124,16 +141,16 @@ def available_handoffs(
                 None,
             )
 
-    keys: list[tuple[bool, str]] = []
+    keys: list[tuple[bool, str, str]] = []
     selections = (False, True) if market is None else (market,)
     for market in selections:
-        namespace = "market-sources" if market else "economic-sources"
+        selected_namespace = namespace or ("market-sources" if market else "economic-sources")
         if source is not None and source.startswith("economic-") == market:
             continue
         selection = source.removeprefix("economic-") + "-" if source is not None else ""
         keys.extend(
-            (market, key)
-            for key, _ in store.iter_objects(f"coordination/{namespace}/{selection}")
+            (market, selected_namespace, key)
+            for key, _ in store.iter_objects(f"coordination/{selected_namespace}/{selection}")
             if key.endswith("/handoff.json")
         )
     # Private reads verify each object before and after downloading; independent
@@ -153,14 +170,19 @@ def available_handoffs(
         watermark = watermarks.get(str(entry["source"]))
         # An integrated intermediate receipt can still be missing from a stale input.
         # Only a never-integrated receipt is a newly out-of-order arrival.
+        # Article receipts append independently; a later sealed stage must not hide
+        # an older raw commit whose planning CAS failed or whose integration failed.
         entry["late_before_integrated"] = bool(
-            str(entry["source"]) in blocked_sources
-            or (
-                # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
-                str(entry["source"]) != "economic-" + MARKET_GROUP
-                and entry["integration"] is None
-                and watermark
-                and datetime.fromisoformat(str(entry["started_at"])) < watermark
+            entry.get("namespace") != "article-sources"
+            and (
+                str(entry["source"]) in blocked_sources
+                or (
+                    # 個別受領IDで引用するMCP原本は、後着でも他の観測を置換しない。
+                    str(entry["source"]) != "economic-" + MARKET_GROUP
+                    and entry["integration"] is None
+                    and watermark
+                    and datetime.fromisoformat(str(entry["started_at"])) < watermark
+                )
             )
         )
     return sorted(
