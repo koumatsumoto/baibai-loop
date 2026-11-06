@@ -249,7 +249,7 @@ def test_unknown_cron_is_rejected_even_with_explicit_asof(tmp_path, asof):
     assert output == {}
 
 
-def test_jquants_sources_skip_scoped_input_and_resume():
+def test_only_edinet_archives_load_and_resume_scoped_inputs():
     workflow = yaml.load(
         (ROOT / ".github/workflows/cloud-market-source.yml").read_text(), Loader=yaml.BaseLoader
     )
@@ -258,6 +258,50 @@ def test_jquants_sources_skip_scoped_input_and_resume():
         "Load only the assigned source input",
         "Read own confirmed originals and required EDINET list receipts",
     ):
-        condition = steps[name]["if"]
-        assert "jquants-market" in condition
-        assert "jquants-financial" in condition
+        assert steps[name]["if"] == (
+            '${{ contains(fromJSON(\'["edinet-metrics","edinet-facts"]\'), inputs.source) }}'
+        )
+
+
+@pytest.mark.parametrize("source", [*INPUT_SOURCES, "edinet-metrics", "edinet-facts"])
+def test_acquire_shell_passes_input_only_to_its_consumers(tmp_path, source):
+    from baibai_jobs.integration.source_handoff import build_parser
+
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/cloud-market-source.yml").read_text(), Loader=yaml.BaseLoader
+    )
+    step = next(
+        step for step in workflow["jobs"]["acquire"]["steps"] if step.get("id") == "acquire"
+    )
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    uv = binary / "uv"
+    uv.write_text('#!/usr/bin/env bash\nprintf \'%s\\0\' "$@" > "$CAPTURE_ARGS"\n')
+    uv.chmod(0o755)
+    captured = tmp_path / "argv"
+    runner = tmp_path / "runner with spaces"
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{binary}:{os.environ['PATH']}",
+            "SOURCE": source,
+            "ASOF": "2026-11-06",
+            "RUNNER_TEMP": str(runner),
+            "CAPTURE_ARGS": str(captured),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    arguments = captured.read_bytes().decode().split("\0")[:-1]
+    assert arguments[:4] == ["run", "python", "-m", "baibai_jobs.integration.source_handoff"]
+    parsed = build_parser().parse_args(arguments[4:])
+    assert parsed.command == "acquire"
+    assert parsed.source == source
+    assert parsed.asof == date(2026, 11, 6)
+    assert parsed.directory == runner / "source-handoff"
+    assert parsed.input_directory == (
+        runner / "source-input" if source in {"edinet-metrics", "edinet-facts"} else None
+    )

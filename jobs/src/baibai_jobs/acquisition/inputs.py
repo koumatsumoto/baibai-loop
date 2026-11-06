@@ -29,8 +29,6 @@ _TABLES = {
     "edinet-list": _LISTS,
     "edinet-metrics": _LISTS,
     "edinet-facts": (*_LISTS, "edinet_facts_scope"),
-    "jpx-earnings": (),
-    "jpx-regulations": (),
     "tradingview": (
         "jquants_market_calendar",
         "jquants_master_snapshots",

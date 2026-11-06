@@ -161,8 +161,32 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     }
     assert remote.values[input_key("tradingview")] == prior
     assert input_key("edinet-list") not in remote.values
-    for group in ("edinet-metrics", "edinet-facts", "jpx-earnings", "jpx-regulations"):
+    for group in ("edinet-metrics", "edinet-facts"):
         assert json.loads(remote.values[input_key(group)].body)["stage_id"] == f"{group}-retry"
+
+
+def test_daily_input_publication_leaves_retired_jpx_inputs_untouched(tmp_path, monkeypatch, capsys):
+    remote, _, command = _input_cli(tmp_path, monkeypatch, "true")
+    previous = {}
+    for group in ("jpx-earnings", "jpx-regulations"):
+        assert group not in SOURCE_INPUT_GROUPS
+        for key in (
+            f"coordination/source-inputs/{group}.json",
+            f"coordination/source-inputs/{group}-old/handoff.json",
+        ):
+            remote.store_object(key, b"retained old input")
+            previous[key] = remote.values[key]
+    remote.head_keys.clear()
+    remote.get_keys.clear()
+    remote.put_keys.clear()
+    assert sources.main(command) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert not any(group.startswith("jpx-") for group in report["updated"])
+    assert not any(
+        key.startswith("coordination/source-inputs/jpx-")
+        for key in remote.head_keys + remote.get_keys + remote.put_keys
+    )
+    assert {key: remote.values[key] for key in previous} == previous
 
 
 @pytest.mark.parametrize("changed_key", ["market.sqlite", "runs.sqlite"])
