@@ -404,7 +404,11 @@ def _context_calculations(
         pair = assessments[outcome.assessment_ref.assessment_id]
         quote = next((quote for quote in inputs.quotes if quote.ticker == outcome.ticker), None)
         basis = assessment_quote_basis(
-            pair.document, quote, sqlite_path=sqlite_path, market_connection=market_connection
+            pair.document,
+            quote,
+            sqlite_path=sqlite_path,
+            now=now,
+            market_connection=market_connection,
         )
         row: dict[str, object] = {
             "current_quote_projection": current_price_projection(
