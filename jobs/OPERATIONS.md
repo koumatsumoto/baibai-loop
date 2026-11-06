@@ -166,17 +166,17 @@ jobs/scripts/r2_transfer.sh pull-app
 jobs/scripts/publish.sh
 ```
 
-publish.shは引数なし。台帳preflight・取得世代への条件付きbackup/PUT・次回ETag記録を行う。時価/quote不足と実取引保存の障害を分け、DBだけ別世代へ替えたり未知世代を現HEADで補ったりしない。backupは実行JST日の日別keyを同日置換する。R2_APP_BACKUP_PRUNE=skipも同日置換は止めないため、保全/置換の依頼範囲を確認する。
+publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。backupは実行JST日の日別keyを同日置換する。R2_APP_BACKUP_PRUNE=skipでも同日置換は止まらないため、保全/置換の依頼範囲を確認する。
 
-保存・R2反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合なら未公開変更を退避し、最新正本へ必要差分を正規serviceで再適用する。PUT後の記録失敗を未反映と決めて旧DBを再送しない。current schemaだけを開き、移行は限定source version・別copyで検証し、code/store反映後に一回toolを撤去する。
+保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。current schemaだけを開き、移行は限定source version・別copyで検証後、code/store反映後に一回toolを撤去する。
 
 ### application DB を復元する
 
-application DBは判断とledgerを保持するため再生成しない。通常の判断更新は前節の取得→正規CLI更新→反映に従う。この節は、明示的に選んだ過去snapshotへクラウド正本を戻す復旧である。
-全writerを停止し、未公開の作業コピーをconsistent snapshotで退避する。次に空の作業領域へ`pull-app`し、復旧で置き換える現在のクラウド世代とDBを確保してから以下を同じshell sessionで実行する。現在の正本が取得・検査できなければ通常更新経路での復旧を止める。key消失は[初回seed](#storeをseedする)の既存key確認を含む別の復旧判断に戻し、無条件PUTへ迂回しない。
-復旧候補はR2の日別世代、または出所・時点を照合できるローカルcheckpointから選ぶ。ローカル候補を自動的に正本より新しいとみなさない。
+判断/ledgerの正本を再生成せず、明示選択した過去snapshotへ戻す手順。通常更新は前節を使う。
 
-**1. 復元前backup。** 取得した現在の正本のWAL込みconsistent snapshotを作る。backup失敗なら復旧へ進まない。
+全writer停止→未公開copyのconsistent snapshot退避→空の作業領域へ`pull-app`し、現在の正本/世代を取得・検査してから同じshellで進める。取得・検査不能なら停止。key消失は[初回seed](#storeをseedする)の既存key確認を含む別判断とし、無条件PUTで迂回しない。候補はR2日別世代か、出所・時点を照合できるlocal checkpoint。localを自動的に正本より新しいとみなさない。
+
+**1. 復元前backup。** 現正本のWAL込みconsistent snapshotを作り、失敗なら停止する。
 
 ```bash
 restore_backup=
@@ -190,7 +190,7 @@ if test -f stores/application/baibai.sqlite; then
 fi
 ```
 
-**2. 候補選択。** ローカルcheckpointはbackup commandが検証済みsnapshotを直近10世代保持する。
+**2. 候補選択。** backup commandが保持する検証済みlocal snapshotは直近10世代。
 
 ```bash
 ls -t stores/application/backups/ || exit 1
@@ -198,7 +198,7 @@ read -r -p '復元するcheckpoint path: ' target || exit 1
 test -f "$target" || exit 1
 ```
 
-R2候補を選ぶ場合は上の選択を行わず、R2の一覧を確認する。
+R2候補なら上の選択に代えて一覧を確認する。
 
 ```bash
 (
@@ -211,7 +211,7 @@ R2候補を選ぶ場合は上の選択を行わず、R2の一覧を確認する�
 )
 ```
 
-一覧取得成功後、選んだexact keyを一意なstaging fileへ取得する。
+一覧取得成功後、exact keyを一意なstaging fileへ取得する。
 
 ```bash
 read -r -p '復元するexact R2 key: ' restore_key || exit 1
@@ -226,7 +226,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
 ) || exit 1
 ```
 
-**3. 共通検査。** 出力を読み、integrityがexact `ok`、foreign key違反が0行、user_versionがcurrent codeのschemaと一致する場合だけ進む。sqlite3のexit 0だけでは合格にしない。runtime自動移行はない。
+**3. 共通検査。** integrityがexact `ok`、foreign key違反0行、user_versionとcurrent schema一致を出力で確認する。exit 0だけでは合格にせず、自動移行もしない。
 
 ```bash
 (
@@ -238,7 +238,7 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
 )
 ```
 
-**4. 配置と照合。** 検査合格とwriter停止を確認後、copy成功前に現在の作業コピーを動かさない。ここだけは明示的な復旧として、取得した現在のクラウド世代を保持したまま検査済み候補へ置換する。
+**4. 配置と照合。** 検査合格・writer停止後、copy成功まで現copyを動かさない。明示復旧として現クラウド世代を保持し、検査済み候補へ置換する。
 
 ```bash
 (
@@ -251,9 +251,9 @@ target="$(mktemp /tmp/baibai-restore.XXXXXX.sqlite)" || exit 1
 )
 ```
 
-ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。照合成功後は取得世代を保ったまま再pullせず、前節の`publish.sh`で反映してから判断業務を再開する。公開途中の失敗では検証済みlocalを戻さず、upload・読戻しの到達点を確認して反映側を復旧する。ledgerを`head`へpipeしない。
+ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手順5へ。成功なら取得世代を保ち、再pullせず`publish.sh`で反映後に判断を再開する。公開途中の失敗では検証済みlocalを戻さず、upload/readbackの到達点から反映側を復旧する。
 
-**5. ローカル復元の検証失敗時。** 復元前backupがある場合だけ、次で戻す。backupがない場合は判断を再開せず、別候補の取得・検査へ戻る。
+**5. ローカル復元の検証失敗時。** 復元前backupがある場合だけ次で戻す。なければ判断を再開せず、別候補の取得・検査へ戻る。
 
 ```bash
 (
@@ -271,8 +271,6 @@ ledgerを復元対象の時点と照合し、不一致なら手順5へ進む。�
 ```
 
 途中停止では残存pathと失敗commandを確認し、blockを無条件反復しない。
-
-
 
 <a id="sources"></a>
 ## source取得と再開
