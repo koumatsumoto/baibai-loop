@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -349,7 +350,7 @@ def publish_release(
             except ValueError:
                 raise LakePublishError("serving pointer is invalid") from None
         pointer_precondition = PointerPrecondition(etag=None if initial is None else initial.etag)
-    local_graph_started = time.perf_counter()
+    local_graph_started = _phase_progress("local_graph")
     root = mirror_root.resolve()
     resolved_release_path = release_manifest_path.resolve()
     if not resolved_release_path.is_relative_to(root):
@@ -438,18 +439,28 @@ def publish_release(
         previous_expected = inventory.setdefault(key, expected)
         if previous_expected != expected:
             raise LakePublishError(f"remote graph has conflicting identities: {key}")
-    remote_closure_started = time.perf_counter()
-    for key, path, content_type, expected_sha256, expected_size in uploads:
-        _ensure_immutable(
-            publication,
-            key=key,
-            path=path,
-            content_type=content_type,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-        )
+    _phase_progress("local_graph", local_graph_started)
+    remote_closure_started = _phase_progress("remote_closure")
+    # Only small HEAD responses overlap. Sealing, PUT and full readback remain
+    # serial so publication does not multiply its large-object scratch space.
+    unique_uploads = tuple(dict.fromkeys(uploads))
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        heads = workers.map(store.head, inventory, buffersize=8)
+        for upload, existing in zip(unique_uploads, heads, strict=True):
+            key, path, content_type, expected_sha256, expected_size = upload
+            publication.head_requests += 1
+            _ensure_immutable(
+                publication,
+                key=key,
+                path=path,
+                content_type=content_type,
+                expected_sha256=expected_sha256,
+                expected_size=expected_size,
+                existing=existing,
+            )
 
-    pointer_started = time.perf_counter()
+    _phase_progress("remote_closure", remote_closure_started)
+    pointer_started = _phase_progress("pointer")
     current = publication.head(pointer_key)
     if current is not None:
         serving = load_lake_model_json(
@@ -463,6 +474,7 @@ def publish_release(
                 or serving.manifest_sha256 != release_sha256
             ):
                 raise LakePublishError("current pointer reuses release ID with different identity")
+            _phase_progress("pointer", pointer_started)
             return PublishReport(
                 release_id=release.release_id,
                 transfers=publication.report(),
@@ -504,6 +516,7 @@ def publish_release(
                 expected=pointer_payload,
                 cause=exc,
             )
+    _phase_progress("pointer", pointer_started)
     return PublishReport(
         release_id=release.release_id,
         transfers=publication.report(),
@@ -512,6 +525,13 @@ def publish_release(
         remote_closure_seconds=pointer_started - remote_closure_started,
         pointer_seconds=time.perf_counter() - pointer_started,
     )
+
+
+def _phase_progress(phase: str, started: float | None = None) -> float:
+    now = time.perf_counter()
+    state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
+    print(f"lake publication: phase={phase} state={state}", file=sys.stderr, flush=True)
+    return now
 
 
 def _reconcile_pointer_switch(
@@ -545,6 +565,7 @@ def _ensure_immutable(
     content_type: str,
     expected_sha256: str,
     expected_size: int,
+    existing: RemoteObject | None,
 ) -> bool:
     if key in publication.verified:
         publication.require_identity(
@@ -554,7 +575,6 @@ def _ensure_immutable(
             content_type=content_type,
         )
         return False
-    existing = publication.head(key)
     if existing is not None:
         publication.accept_existing(
             existing,
@@ -570,7 +590,7 @@ def _ensure_immutable(
             raise LakePublishError(f"local upload source differs from graph identity: {key}")
         uploaded = True
         try:
-            publication.put(
+            existing = publication.put(
                 key,
                 sealed,
                 sha256=digest,
@@ -580,9 +600,11 @@ def _ensure_immutable(
             )
         except LakeCASConflict:
             uploaded = False
+            existing = publication.head(key)
     # The PUT has consumed the sealed upload. Release those bytes before the full
     # remote readback; large first-publication objects otherwise need two copies.
-    publication.require_identity(
+    publication.accept_existing(
+        existing,
         key=key,
         expected_sha256=digest,
         expected_size=size,
