@@ -2,6 +2,20 @@
 
 旧ER/FV・四Approachを保存入力から過去as-ofで再構成し、forward outcomeと照合する横断診断。資産全体の運用成績やL3銘柄評価とは別で、現行の経済経路政策を較正済みとは扱わない。新しいSelectionには旧ER分布を付けず、`not_applicable`を返す。計算・field・検証条件は[較正処理](../../engine/src/baibai_engine/machine_analysis/historical_evaluation/)、実行は[OPERATIONS](../../jobs/OPERATIONS.md#定期maintenance)が所有する。
 
+## 現行判断を将来比較へつなぐ前の診断
+
+完了した一回のOperationから、保存済みの母集団・候補・選定・提案を[読取専用tool](../../tools/experiments/inspect_decision_cohort.py)で照合できる。既存のSelection・評価pair・Proposalを参照し、現在のgenerationや価格で埋めず、第二の判断正本を作らない。
+
+```bash
+uv run python -m tools.experiments.inspect_decision_cohort \
+  --db <PRIVATE_APPLICATION_COPY> --operation-id <COMPLETED_OPERATION_ID> \
+  --out <NEW_PRIVATE_JSON>
+```
+
+未選定は経済的見送りではなく、未完了は完成した`no_action`ではない。0対象でも当時の候補を残し、提案なしを捏造しない。行は候補と調査対象のunionであり、全母集団の詳細ではない。モデルrevision一覧も保存Selectionのsliceに限る。未完了・中断など他のOperationは数えないため、これだけで全開始件数を分母にした方法比較はできない。出力には私有の判断内容が入るため公開ログ・artifactへ転送しない。
+
+これは将来追跡の入力確認であり、成果・指値の因果効果・当時PIT・事前登録を証明しない。後日選んだ旧Operationのhashが一致しても事前固定した比較群とは呼べない。正式な比較では対象の選び方・観測窓・metricを結果を見る前に固定する。`baseline_available_at`はOperation完了時刻で、約定可能な時刻ではない。選定の比較は`screening_published_at`、最終提案の比較は`proposal_published_at`以後の観測を起点として分け、価格観測・取引可能時刻も確認する。後日の訂正・人間報告・取引・Retrospectiveは別時点の記録として照合し、当時の本文へ混入させない。
+
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味
 
