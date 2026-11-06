@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import sys
+import time
 from collections import defaultdict
 from collections.abc import Sequence
 from contextlib import closing
@@ -72,6 +74,13 @@ from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.writer import SealedSQLiteSnapshot
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
+
+
+def _phase_progress(phase: str, started: float | None = None) -> float:
+    now = time.perf_counter()
+    state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
+    print(f"model inputs: phase={phase} state={state}", file=sys.stderr, flush=True)
+    return now
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,15 +157,20 @@ def read_and_generate_models(
         )
         for row in financial_rows:
             documents[row.ticker].append(row)
+        phase_started = _phase_progress("edinet_comparisons")
         comparisons = read_comparison_population(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
         )
+        _phase_progress("edinet_comparisons", phase_started)
+        phase_started = _phase_progress("pdf_financials")
         pdf_statements = read_pdf_statements(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
         )
         capital_actions = read_capital_actions(
             connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
         )
+        _phase_progress("pdf_financials", phase_started)
+        phase_started = _phase_progress("holder_capital")
         try:
             holder_capital, holder_coverage = read_holder_capital(
                 connection,
@@ -171,6 +185,8 @@ def read_and_generate_models(
                 "holder-capital unavailable: %s", type(error).__name__
             )
             holder_capital, holder_coverage = {}, "unavailable"
+        else:
+            _phase_progress("holder_capital", phase_started)
         calendar = read_price_calendar(connection, as_of=as_of)
         path_calendar = price_calendar(calendar, as_of=as_of)
         state_start = min(
@@ -210,7 +226,9 @@ def read_and_generate_models(
         )
         for event in _adjustment_events_from_rows(action_rows):
             events[event.ticker].append(event)
+    phase_started = _phase_progress("price_series")
     prices = read_price_bars(path, start=date.min, end=as_of)
+    _phase_progress("price_series", phase_started)
     prepared = prepare_market_context_from_bars(
         sqlite_path=path,
         asof_date=as_of,
