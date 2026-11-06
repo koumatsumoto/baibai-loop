@@ -35,6 +35,8 @@ PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)から�
 
 数量は[資本方針](../doctrine.md#required-return-policy)に従う。小口・上限量・現金維持を比べ、同じ一株returnでも損益金額・残cash・集中・ADVとno-addによる放棄利益が異なることを示す。
 
+context/check/previewの金額比較は、同じ未拘束cashから指定数量が指値で全量成立した条件例である。数量未指定なら上限量の試算で、採用数量ではない。Base/Downsideの期間内分配を一度だけ含め、残cashと現金維持は無利息、税費用前とする。既保有・予約を含む全体NAVや約定予測ではなく、待機後の買付やcash利回り・費用が採否を変える場合は同一終期の別案へ反映する。
+
 待機は逃す利益だけでなく、保持cash・他機会・回避損失・追加情報を比較する。悪材料時だけ約定する逆選択/event gapも考え、約定率×Base利益だけで選ばない。価値に織込んだ毀損をpenaltyへ重ねず、機会損失を事後最高値で定義しない。ADV/日足から板・queue・impact・精密約定率を創作せず、`low <= limit`を約定保証にしない。確率推定は[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
 session・前提/イベントと未約定・部分約定・新情報後の確認時点を残す。変化は評価/snapshotへ戻して再Review。部分約定後は実保有・残注文・cashとno-addで判断し、残数再提案・指値引上げ/延長・上限超追随を自動化しない。
