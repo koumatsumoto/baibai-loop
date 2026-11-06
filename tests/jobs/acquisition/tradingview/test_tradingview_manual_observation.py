@@ -8,13 +8,14 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx2
 import pytest
-from tests.helpers.tradingview import Timer, _sdk, payload, store, stored
+from tests.helpers.tradingview import Timer, _sdk, payload, retain_result, store, stored
 
 import baibai_jobs.acquisition.tradingview.cli as cli
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.observations import (
     FetchError,
 )
 from baibai_jobs.acquisition.tradingview.collector import collect, preflight_snapshot
+from baibai_jobs.maintenance.tradingview_rebuild import rebuild_from_receipts
 from baibai_jobs.observability.tradingview import (
     SourceDataError,
     TimeGuardError,
@@ -25,23 +26,36 @@ MASTER = date(2026, 10, 9)
 NOW = datetime(2026, 10, 11, 1, tzinfo=UTC)
 
 
-def manual_store(tmp_path, count=153):
+def manual_store(tmp_path, count=153, *, day=DAY):
     path = store(tmp_path / "market.sqlite", count)
     with closing(sqlite3.connect(path)) as conn, conn:
         conn.execute(
             "UPDATE jquants_master_snapshots SET snapshot_date=?, record_json=json_set(record_json, '$.Date', ?)",
             (MASTER.isoformat(), MASTER.isoformat()),
         )
-        conn.execute("INSERT INTO jquants_market_calendar VALUES (?,0)", (DAY.isoformat(),))
-        conn.execute("INSERT INTO jquants_market_calendar VALUES ('2026-10-10',0)")
+        for offset in range(1, (day - MASTER).days + 1):
+            conn.execute(
+                "INSERT INTO jquants_market_calendar VALUES (?,0)",
+                ((MASTER + timedelta(days=offset)).isoformat(),),
+            )
         conn.execute("INSERT INTO jquants_market_calendar VALUES (?,1)", (MASTER.isoformat(),))
-        conn.executemany(
-            "INSERT INTO tradingview_forecast_snapshots(snapshot_date,ticker,provider_symbol,fetched_at_utc,fetch_status,quote_close) VALUES (?,?,?,?,?,?)",
-            [
-                (DAY.isoformat(), str(1000 + i), f"TSE:{1000 + i}", NOW.isoformat(), "ok", 123)
-                for i in range(100)
-            ],
+    receipts = []
+    for offset in (0, 50):
+        symbols = tuple(f"TSE:{1000 + i}" for i in range(offset, offset + 50))
+        response = payload(list(symbols))
+        for row in response["data"].values():
+            row["close"] = 123
+        receipts.append(
+            retain_result(
+                path,
+                _sdk(response),
+                day=day,
+                master=MASTER,
+                received=NOW + (day - DAY),
+                symbols=symbols,
+            )
         )
+    rebuild_from_receipts(path, day, receipts)
     return path
 
 
@@ -262,16 +276,7 @@ def test_weekend_response_after_next_cycle_is_rejected(tmp_path):
 def test_rest_day_automatically_uses_calendar_business_day_and_observation_hours(
     tmp_path, observation_day
 ):
-    path = manual_store(tmp_path, 101)
-    with closing(sqlite3.connect(path)) as conn, conn:
-        if observation_day != DAY:
-            conn.execute(
-                "INSERT INTO jquants_market_calendar VALUES (?,0)", (observation_day.isoformat(),)
-            )
-            conn.execute(
-                "UPDATE tradingview_forecast_snapshots SET snapshot_date=?",
-                (observation_day.isoformat(),),
-            )
+    path = manual_store(tmp_path, 101, day=observation_day)
     before = stored(path)
     morning = datetime.combine(observation_day, datetime.min.time(), UTC)
     assert (

@@ -288,17 +288,19 @@ jobs:
                   }:
                       raise ValueError("invalid TradingView status")
                   if value in {"saved", "partial"}:
-                      added = report.get("rows_added")
+                      added = report.get("native_added")
                       if type(added) is not int or added <= 0:
-                          raise ValueError("invalid TradingView rows_added")
-                      for key in ("rows_added", "rows", "expected_universe", "remaining", "unresolved"):
+                          raise ValueError("invalid TradingView native_added")
+                      for key in ("native_added", "native_received", "remaining_requests", "rows_added", "rows", "expected_universe", "remaining", "unresolved"):
                           count = report.get(key)
                           if type(count) is not int or count < 0:
                               raise ValueError("invalid TradingView count")
                           outputs.append(f"{key}={count}")
                       if (report["rows_added"] > report["rows"]
+                              or report["native_added"] > report["native_received"]
                               or report["rows"] + report["remaining"] != report["expected_universe"]
-                              or (value == "saved") != (report["remaining"] == 0)):
+                              or report["native_received"] + report["remaining_requests"] != report["expected_universe"]
+                              or (value == "saved") != (report["remaining"] == 0 and report["remaining_requests"] == 0)):
                           raise ValueError("inconsistent TradingView counts")
                       reason = report.get("stop_reason")
                       if reason not in {None, "provider_rate_limit",
@@ -350,7 +352,7 @@ jobs:
           ${{ always() && !cancelled() && steps.pull.outcome == 'success' && steps.hydrate.outcome == 'success'
           && steps.tradingview.outcome != 'skipped'
           && (((steps.tradingview.outputs.status == 'saved' || steps.tradingview.outputs.status == 'partial')
-          && fromJSON(steps.tradingview.outputs.rows_added || '0') > 0)
+          && fromJSON(steps.tradingview.outputs.native_added || '0') > 0)
           || (steps.tradingview.outcome == 'failure'
           && steps.tradingview.outputs.publish_failed_receipts == 'true')) }}
         env:
@@ -457,6 +459,8 @@ jobs:
               "remaining_requests": acquisition.get("remaining_requests"),
               "projection_pending": acquisition.get("projection_pending"),
               "native_received": acquisition.get("native_received"),
+              "native_added": acquisition.get("native_added"),
+              "rows_without_originals": acquisition.get("rows_without_originals"),
               "unresolved": os.environ.get("UNRESOLVED") or acquisition.get("unresolved"),
               "stop_reason": os.environ.get("STOP_REASON"),
               "requests_attempted": progress.get("requests_attempted", 0 if no_fetch else None),

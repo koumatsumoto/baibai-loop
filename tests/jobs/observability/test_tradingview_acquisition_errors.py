@@ -356,8 +356,9 @@ def test_snapshot_progress_rotation_and_best_effort_acquisition(
         ("partial", 1, "provider_rate_limit", "provider_rate_limit"),
     ],
 )
+@pytest.mark.parametrize("rows_added", [0, 1])
 def test_session_cleanup_error_preserves_committed_result(
-    tmp_path, monkeypatch, status, remaining, prior_reason, expected_reason
+    tmp_path, monkeypatch, status, remaining, prior_reason, expected_reason, rows_added
 ):
     import asyncio
     from contextlib import asynccontextmanager
@@ -373,7 +374,8 @@ def test_session_cleanup_error_preserves_committed_result(
     async def completed(*_args, **_kwargs):
         return {
             "status": status,
-            "rows_added": 1,
+            "rows_added": rows_added,
+            "native_added": 1,
             "rows": 2 - remaining,
             "expected_universe": 2,
             "remaining": remaining,
@@ -390,7 +392,7 @@ def test_session_cleanup_error_preserves_committed_result(
     assert (result["status"], result["remaining"], result["rows_added"]) == (
         status,
         remaining,
-        1,
+        rows_added,
     )
     assert result["stop_reason"] == expected_reason
 
