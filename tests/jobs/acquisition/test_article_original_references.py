@@ -21,16 +21,16 @@ from baibai_jobs.acquisition.economic_staging import save_handoff
 from baibai_jobs.acquisition.receipts import seal_integrated
 
 
-def commit(store, root, name):
+def commit(store, root, name, source="boj_news"):
     root.mkdir()
-    state, etag = load_planning(store, "boj_news")
+    state, etag = load_planning(store, source)
     return commit_stage(
         store,
         state=state,
         expected_etag=etag,
         slot=SLOT,
-        stage_id=f"boj_news-{name}",
-        directory=_packet(root),
+        stage_id=f"{source}-{name}",
+        directory=_packet(root, source),
         requests={},
         cursor={},
         not_before=None,
@@ -139,6 +139,26 @@ def test_root_and_parent_references_are_checked_before_seal_filtering(tmp_path, 
     seal_integrated(store, first, generations={}, recovery=False)
     seal_integrated(store, latest, generations={}, recovery=False)
     assert any(entry.get("invalid") for entry in pending_handoffs(store))
+
+
+@pytest.mark.parametrize(
+    ("source", "other_source"), [("boj_news", "mof_news"), ("mof_news", "boj_news")]
+)
+@pytest.mark.parametrize("sealed", [False, True])
+def test_reference_deduplication_preserves_source_validation(
+    tmp_path, source, other_source, sealed
+):
+    store = MemoryR2Store()
+    publish_planning_input(store, source, {})
+    actual = commit(store, tmp_path / "actual", "actual", source)
+    if sealed:
+        seal_integrated(store, actual, generations={}, recovery=False)
+    wrong = {**actual, "source": other_source}
+    store.store_object(
+        source_key(other_source), ArticlePlanning(other_source, {}, last_stage=wrong).encoded()
+    )
+    (invalid,) = [entry for entry in pending_handoffs(store) if entry.get("invalid")]
+    assert invalid == {**wrong, "invalid": "article_original_differs"}
 
 
 def test_listing_race_does_not_invent_missing_new_root(tmp_path):

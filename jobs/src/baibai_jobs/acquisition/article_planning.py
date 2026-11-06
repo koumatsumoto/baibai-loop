@@ -331,7 +331,7 @@ def pending_handoffs(store: ReceiptStore) -> list[dict[str, Any]]:
             parent["invalid"] = "invalid_article_reference"
             issues[str(parent["stage_id"])] = parent
             continue
-        identity = (reference["stage_id"], reference["manifest_sha256"], linked)
+        identity = (source, reference["stage_id"], reference["manifest_sha256"], linked)
         if identity in seen:
             continue
         seen.add(identity)
