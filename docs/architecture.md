@@ -84,4 +84,10 @@ Operation完了・提案公開・人間の採用・注文・約定は別状態�
 
 L2は必要投影と不変object/metadataを再利用し、原本本文や全履歴を毎日複写しない。ただしcold再生成の実装済み範囲と旧release依存を分ける。共有固定入力/参照原本はruns cacheと別寿命で、保存判断の入力再計算に必要な間は保持する。L3は必要モデル断面/政策結果をapplicationへ複写し、再開時に可変storeから再計算しない。Jobsの生成cache/政策整理とローカルlake GCは、原本・判断・取引履歴・R2の削除ではない。
 
+経済の固定入力は[経済generation owner](../engine/src/baibai_engine/machine_analysis/generation/economic_inputs.py)の明示APIで作成・再計算する。原本のPK・内容digest、採用済みperiodと文書、当時のconfirmation・最新runの不在/失敗を固定し、本文は現行経済L1に残す。期間metadataを共有し、FREDの同値確認clockだけで全月を複写しない。TradingView補助文脈は無効・失敗を含む上位201受領を固定する。冷再計算は当時と同じengine/config/runtimeを要求し、後日訂正や新しい採用状態へ置き換えない。原本欠落は再計算失敗であり、当時の欠測ではない。
+
+経済固定入力v2のnative期間はReadingと同じ規則から取り、derivedの再帰・月初拡張と共有sourceの窓を合成する。flowsは観測期間ではなく公表cutoff以前の全原本、Matsui/PMI等の文書は窓外の不正・訂正も結果に影響するため全latestを保つ。全体collectionの確認digestはprovenanceに残し、部分projectionを完全collectionとは扱わない。capture時のFRED全体整合検証は引き続き全anchorを読むため、一律のbounded I/O保証ではない。v1を新しい窓へ黙って読み替えない。
+
+この経済APIはofflineの実装sliceで、通常dailyの`sqlite_snapshot`を置き換えていない。現行canonicalに旧原本が残ることが必要で、原本のobject別取得・全generationのexact再生・過去の市場PITは保証しない。実データの保持・容量・時間確認とgenerationへの接続は #1820 の残作業。計算用の一時projectionは公開・mergeせず、保存判断やL2を原本の代わりにしない。
+
 module/CLI名と保存identityは別契約。配置変更でkey/table/path/model ID/JSON/hash/意味revisionを変えない。原本bytes・受領時刻・source identity、null/0・既知の不足と、価格日/対象期間/公表日/cutoffを保持する。固定snapshotはintraday PITを保証せず、過去再現には当時のcode/入力も必要。古い実装を現行経路へ復活させない。環境と検証は[development](development.md)、文書整理は[documentation](documentation.md)へ進む。

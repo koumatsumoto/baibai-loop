@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -22,6 +23,10 @@ from baibai_engine.machine_analysis.models.market_context.reading.compute import
 from baibai_engine.machine_analysis.models.market_context.reading.models import (
     ReadingSnapshot,
     snapshot_payload,
+)
+from baibai_engine.machine_analysis.models.market_context.reading.rules import ReadingRules
+from baibai_engine.machine_analysis.observations.economic_indicators.contracts import (
+    SeriesDefinition,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
@@ -105,6 +110,16 @@ def store_snapshot_payload(snapshot: ReadingSnapshot) -> dict[str, object]:
     return payload
 
 
+def reading_observation_ranges(
+    *, series: Sequence[SeriesDefinition], rules: ReadingRules, asof: date
+) -> dict[str, tuple[date, date]]:
+    """The same requested model windows drive current reads and fixed native selection."""
+    return {
+        definition.series_id: required_observation_range(definition, rules=rules, asof=asof)
+        for definition in sorted(series, key=lambda item: item.series_id)
+    }
+
+
 def read_store_snapshot(
     connection: sqlite3.Connection, *, asof: date, rules_path: Path
 ) -> ReadingSnapshot:
@@ -114,12 +129,13 @@ def read_store_snapshot(
     fixed: dict[str, tuple[ObservationRecord, ...] | UnavailableObservationError] = {}
     # Preserve the model's exact window and source-specific vintage rules. The
     # calculation callback below can only access this already materialized input.
-    for definition in sorted(definitions.series, key=lambda item: item.series_id):
-        start, end = required_observation_range(definition, rules=rules, asof=asof)
+    for series_id, (start, end) in reading_observation_ranges(
+        series=definitions.series, rules=rules, asof=asof
+    ).items():
         try:
-            fixed[definition.series_id] = tuple(source_reader(definition.series_id, start, end))
+            fixed[series_id] = tuple(source_reader(series_id, start, end))
         except UnavailableObservationError as error:
-            fixed[definition.series_id] = error
+            fixed[series_id] = error
 
     def fixed_reader(series_id: str, start: date, end: date) -> tuple[ObservationRecord, ...]:
         value = fixed[series_id]
@@ -147,6 +163,7 @@ def read_store_snapshot(
 __all__ = [
     "READING_RULES_PATH",
     "read_store_snapshot",
+    "reading_observation_ranges",
     "reading_snapshot",
     "store_snapshot_payload",
 ]

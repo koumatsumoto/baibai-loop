@@ -643,82 +643,60 @@ dailyは未初期化をskipし、初期化後の新規年次/訂正を独立処�
 <a id="external-assessment-acquisition"></a>
 ## 外部評価の取得・再開
 
-限定collectは明示した少数銘柄の公開HTTPを直列で読み、private captureへ保存する。通常TLS/proxyを使い、403/429でそのsourceを止める。captureの保存先は試行ごとに別名にし、部分captureを再取得で上書きしない。既存のcurrent-schema隔離marketへimportする。
+限定取得は通常TLS/proxyで少数銘柄を直列に読み、403/429を迂回しない。試行ごとに別のprivate captureを保存し、既存current-schemaの隔離marketへimportする。
 
 ```bash
-uv run baibai-jobs external-assessment collect --source minkabu --tickers 7203 4436 --output /tmp/private-external-assessment/responses.json
-uv run baibai-jobs external-assessment import --input /tmp/private-external-assessment/responses.json --db /tmp/private-external-assessment/market.sqlite
+uv run baibai-jobs external-assessment collect --source minkabu --tickers 7203 4436 --output <NEW_PRIVATE_CAPTURE>
+uv run baibai-jobs external-assessment import --input <PRIVATE_CAPTURE> --db <LOCAL_MARKET_COPY>
 ```
 
-importは原本を保持して選択attemptを再解析する。parse失敗時にL1は残り得るがL2を部分追記しない。原本/観測の挿入件数と再投入0を確認し、HTTP・parse・未試行・正常nullを分ける。新規DB初期化や旧schema移行は行わない。
+importは初期化・移行をしない。parse失敗でL1が残ってもL2は部分追記しない。原本/観測件数と再投入0を確認し、正常null・未試行・HTTP/parse失敗を分ける。
 
 ### 日次取得と固定コホートの再開
 
-source別planはmaster/calendarとparser/request条件へ固定し、再開時に最新依存を読み直さない。[native切替](#master-native-l1)後の新planは独立master/calendarを使う。旧経路は固定lakeとJ-Quants/TradingViewのreadyに含まれる小さい依存入力を使い、取得用の全market SQLiteや日次公開を要求しない。過去masterを当日へ読み替えず、calendar欠落・不完全masterは取得前に失敗として確認する。依存取得だけのためにTradingViewを起動しない。
-
-起動枠・source別cycleと期限は[workflow](../.github/workflows/cloud-external-assessment.yml)と[取得owner](src/baibai_jobs/acquisition/external_assessments/daily.py)を正本とする。同sourceのlocal/Actionsを重ねず、host queue後にcycleを再確認する。期限後に旧planへ新しいpairを追加せず、原受領・未試行を元planに残す。master遅延は対象sourceだけを再実行し、同じ保存pairを再GETしたり受領日をmaster/cycle日へ替えたりしない。
+起動枠・cycle・期限は[workflow](../.github/workflows/cloud-external-assessment.yml)、固定依存・再開・attempt履歴は[取得owner](src/baibai_jobs/acquisition/external_assessments/daily.py)を参照する。元master/calendar・parser/request条件を保持する。native切替後は独立入力、旧経路は固定lake/readyを使い、依存不足を全market取得・日次公開・TradingView起動や過去masterの読み替えで迂回しない。
 
 ```bash
 gh workflow run cloud-external-assessment.yml --ref main \
   -f source=monex -f batch_id=<LABEL> -f master_asof=<YYYY-MM-DD>
 ```
 
-scheduled再開は既存external-assessment-daily-<source>-YYYY-MM-DDをそのまま指定し、欠落planを現在masterで再作成しない。手動labelはsource prefixを重ねない。stage確定済みentry/受領時刻を変えず未試行pairだけを再開する。保存失敗pairの再取得は別labelにする。collector binding変更で拒否されたplanを手書きhashで通さない。
+同sourceのlocal/Actionsを重ねず、queue後にcycleを再確認する。scheduled再開は保存済み `external-assessment-daily-<source>-YYYY-MM-DD`、手動labelはsource prefixなし。欠落planの再作成やbinding hashの手修正はしない。期限内の未試行pairだけを再開し、保存受領を再GET・再日付化しない。保存済みの失敗pairを再取得する場合は別labelにする。
 
 ### 原本handoffと公開
 
-旧planの有限保全は、対象と欠落/残存を確認してから実行する。これはcopyだけで、plan・旧raw・公開releaseを変更しない。
+新原本は `external-assessment/retained/`。旧 `raw/` だけが3日削除の短期handoffで、厳密72時間や長期L1ではない。実lifecycle・残存を確認し、[保全](src/baibai_jobs/acquisition/external_assessments/raw.py)は同一bytesのcopy/読戻しだけを行う。元key/stage/IDを変えず、期限切れの復元を保証しない。retainedの自動削除やlifecycle変更はしない。
 
 ```bash
 uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run-id <EXACT_RUN_ID>
 ```
 
+取得はlease外でacquire→inspect→immutable ready。通常 `ready --cumulative` はplanを閉じず、[共通統合](#actions-write-boundary)が固定集合を公開・読戻してackする。後着の小集合で後退せず、ack済み原本はcanonical hydrateのID/hashで照合する。market取込と固定lake読戻しまで長期L1反映成功にしない。
 
-raw bundleをstageより先にuploadし、各retryの結果・実完了時計・原本参照を追記型attempt journalへ固定してからmutable stageをCASする。CAS競合では勝者の進捗を採用するが、敗者の候補stageと原受領参照もjournalに残す。audit入口はこの履歴を読取り、最終成功で以前の429等を消さない。hard kill前の未保存試行まで保存できる保証ではない。
+403/429・未完了を自動で閉じない。確定分で終える明示partialだけ、上のworkflowをsource単独で `-f operation=stage_confirmed_partial` として実行する。取得は再実行せず、実公開とterminal確定は次回共通統合が行う。
 
-累積handoffの実装入口はsource `ready --cumulative`。exact集合のreadback ackを保存し、planを閉じる旧terminalとは区別する。後着した小さい集合で後退せず、ack済みの原本はcanonical hydrateのID/hashを照合して再利用する。従来の明示partial terminalは元の意味を維持する。通常handoffは累積modeを使う。新原本はexternal-assessment/retained/へ保存し、旧external-assessment/raw/参照は同じbytesを保全prefixへコピー・読戻してからreadyを確定する。原key・stage・原IDは変えない。既存の3日削除ルールの対象はraw/だけであり、期限超過した旧原本を復元できる保証ではない。保全prefixの削除やlifecycle変更を自動実行しない。
-
-未確定GETはhard kill後に繰り返され得る。旧external-assessment/raw/は3日期限の短期handoffであり、厳密72時間でも長期L1でもない。実lifecycleを確認し、期限切れ原本の復元を保証しない。publisherがmarketへ取り込み固定lakeを読戻して初めて長期L1となる。
-
-取得はlease外でsourceごとにacquire→inspect→immutable readyを完了する。共通統合scheduleはその時点のready exact planだけを固定し、raw/typed/historyを照合して一回の共通releaseへ公開する。mutable checkpointの更新を同じrun途中で読み直さない。history_digestsは保存後baselineで、更新前の全履歴保全まで証明したとは説明しない。原本・stage破損はsource別の失敗として報告し、正常sourceの統合を進める。失敗sourceのterminalは閉じない。
-
-累積modeはreadback後にexact集合のackを保存する。従来modeだけsource別terminalを保存する。pointer成功後のterminal失敗は未反映と断定せず、既存terminalを読んで再開する。sealed sourceは以前の検証としてno-op、未sealedはfresh hydrateからidempotentに再適用する。未確認件数を0にしない。
-
-403/429・未完了sourceを自動で閉じない。確定分だけを明示する操作はsource単独で行い、取得を再実行しない。`stage_confirmed_partial`は確定stageをprivate readyへ固定し、実際の公開とterminalは次回共通統合で行う。
-
-```bash
-gh workflow run cloud-external-assessment.yml --ref main \
-  -f source=minkabu -f batch_id=<LABEL> -f master_asof=<YYYY-MM-DD> \
-  -f operation=stage_confirmed_partial
-```
-
-固定pair、正常null、失敗・未試行、完全/部分公開、release/hash・readback・lease解放を確認する。lake反映は共通統合が担当する。通知・CI緑・stage保存だけで正本反映成功を認定しない。
+hard kill前の未保存試行は再GETされ得る。pointer成功後のterminal失敗は既存terminalを読み、sealedはno-op、未sealedはfresh hydrateから再適用する。破損sourceを閉じず正常sourceを進め、未確認件数を0にしない。完全/部分、原本/観測、release/hash・readback・lease解放を照合し、通知やCI緑を成功としない。`history_digests` は保存後baselineで、更新前の全履歴保全の証明ではない。
 
 <a id="tradingview-expectations"></a>
 ## TradingViewの毎日取得・明示受領・保存・分析
 
-本人が確認した利用範囲と毎日取得の明示指示に従い、既存の公式MCP接続を使う。一般FAQのサポート範囲と個別の利用許可は分け、一般条件だけでsourceを停止・削除・入力除外しない。新しいcredential・権限・課金・再配布へ許可を広げない。接続方法は[公式MCP案内](https://www.tradingview.com/mcp/docs)を参照する。
+本人確認済みの利用範囲と毎日取得の指示に従い、[公式MCP](https://www.tradingview.com/mcp/docs)と既存 `tradingview-runtime` 認証を使う。一般FAQだけで停止・削除・入力除外せず、新client/credential・権限・課金・再配布へ許可を広げない。認証変更は別途確認し、認証失敗を成功/保存済み省略にしない。
 
-`cloud-tradingview-snapshot`の起動枠は[workflow](../.github/workflows/cloud-tradingview-snapshot.yml)を参照する。毎日一つのsnapshotを完成させるための再開枠であり、同一取得cycleの対象銘柄が保存済みなら後続枠は外部要求0件で省略する。正常なnative応答が要求を満たしていてL2投影だけ不足する場合は`originals_saved`と投影残数を表示し、再GETせず下記の明示receipt rebuildで修復する。HTTP/tool失敗や応答の銘柄・要求列不足は原本充足に含めない。部分取得は未取得銘柄だけを再開し、50symbol以下・15秒以上間隔、既存のprovider cooldownを守る。時刻とmasterは保存calendarの営業日/休日を使う。`snapshot_date`は09:00 JSTに切り替わる取得cycle日であり、営業日は15:30、休日は09:00から翌09:00未満まで取得できる。遅延して日付を跨いだrunも未充足の同cycleを続け、実受領UTCは過去へ付け替えない。翌09:00以降は新cycleへ進み、古い不足を現在の応答で埋めない。既存の同日受領は同じkey・bytesのまま有効で、移行・履歴の書換えは不要。
+[日次workflow](../.github/workflows/cloud-tradingview-snapshot.yml)は一snapshot完成までの再開枠。上限・間隔・cooldownは[collector](src/baibai_jobs/acquisition/tradingview/collector.py)に従う。未取得銘柄だけを取得し、正常原応答が充足してL2だけ不足する `originals_saved` は再GETせずrebuildする。HTTP/tool失敗や銘柄/要求列不足を充足にしない。
 
-取得は既存の`tradingview-runtime` environment内の認証だけを使い、非対話の新規client登録を行わない。認証失敗は成功や保存済み省略にせず記録する。認証の作成・権限変更が必要ならその操作を別途確認する。明示connector captureの`receive`も引き続き使える。原応答はL1へ保存してからL2へ投影し、private handoffと共通統合で公開する。新規取得成功、保存済み省略、部分取得、受領だけ保存、統合未達を区別する。
+`snapshot_date` は09:00 JST切替のcycle日。保存暦に従い営業日15:30、休日09:00から翌09:00未満まで取得する。休日は直前営業日のexact masterと連続calendarを使う。日跨ぎも同cycleを続け、翌09:00以降に旧不足を現在応答で埋めない。実受領UTC・既存key/bytesを付け替えず、翌朝受領を前日の既知情報にしない。
 
 ### 原応答をL1へ保持する
 
-`tradingview-source receive`は外部通信せず、既存のcurrent-schema作業copyへcapture JSONを取り込む。captureは`NativeToolCapture`の形で、受領ID・snapshot_date・master_asof・実受領UTC・実際のtool名・要求symbol/columnと、公式connectorのSDK `CallToolResult`全体を`result`へ保存する。本文から金融値を転記・再構成しない。IDは一度の受領ごとに固定し、同IDの再送は全保存内容が同じ場合だけno-opになる。異なる呼出しは同値でも別IDにする。
+`receive` は外部通信せず、既存current-schema copyへ[NativeToolCapture](src/baibai_jobs/maintenance/tradingview_capture.py)を保存する。SDK応答全体をそのまま保存し、金融値から原応答を作らず、失敗応答も保持する。同IDは全内容一致の再送だけ、別呼出しは別IDとする。capture/金融値を公開artifact/logへ出さない。
 
 ```bash
-uv run baibai-jobs tradingview-source receive --sqlite <LOCAL_MARKET_COPY> \
-  --capture <PRIVATE_NATIVE_CAPTURE_JSON>
+uv run baibai-jobs tradingview-source receive --sqlite <LOCAL_MARKET_COPY> --capture <PRIVATE_NATIVE_CAPTURE_JSON>
 ```
-
-L1保存はL2の成功判定ではない。失敗応答や業務payloadの不整合もSDK表現のまま保持し、`tool_is_error`とL2の状態を分ける。原本・日時・保存済みgeneration/Selection/判断を削除・再日付化しない。captureや金融値を公開GitHub artifact/logへ出さない。
 
 ### L2検証と正本への反映
 
-L2 replayはownerが宣言するnative wire名と公式connectorの公開識別名のbatch契約、および18列を実際に要求した受領を検証する。receiptには呼び出したtool識別名を保持し、別toolの結果をbatch名へ付け替えない。保存calendarから当日の営業日とmaster基準日を決め、休日は直前営業日のexact masterと連続calendarを使う。時刻検証はcycle日からの取得windowと実受領UTCを照合する。L2の時点読取は実受領UTCのcutoffを別に守り、翌朝受領を前日の既知情報にしない。休日を理由に取得不可とはしない。
-
-新しい受領の公開は既存の[handoffと共通統合](#actions-write-boundary)を使う。`integration.source_handoff export --source tradingview`で明示受領を切り出し、fresh canonicalへのreplayは同cycle最初の正常行と原receiptを保つ。元master/calendarが違うhandoffを黙って採用しない。取得用copyを丸ごと古い正本へpushしない。公開lease・CAS・固定release・読戻しは通常の正本反映手順に従う。
+新受領は[共通統合](#actions-write-boundary)へ渡し、同cycle最初の正常行と原receiptを保つ。元master/calendar不一致を黙って採用せず、取得copy全体を正本へpushしない。
 
 ```bash
 uv run python -m baibai_jobs.integration.source_handoff export --source tradingview \
@@ -726,16 +704,14 @@ uv run python -m baibai_jobs.integration.source_handoff export --source tradingv
   --database <LOCAL_MARKET_COPY> --directory <NEW_PRIVATE_HANDOFF>
 ```
 
-明示offline再構築は次を使う。これは一日分のL2を選択receiptで置換するため、隔離copyへその日の必要な受領集合を渡す。新しい部分受領を正本へ追加するときに一部receiptだけで既存日を置換しない。
+[offline rebuild](src/baibai_jobs/maintenance/tradingview_rebuild.py)は選択receiptで一日分のL2を置換する。隔離copyに必要な受領集合を渡し、部分受領の追加で既存日を一部receiptに置換しない。
 
 ```bash
-uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_COPY> \
-  --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
-uv run baibai-engine external-assessment show --ticker <TICKER> \
-  --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
+uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_COPY> --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
+uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
 ```
 
-正常null、明示unresolved、未取得と技術障害を区別する。quote通貨をestimate通貨・単位へ流用せず、対象期が未確認なら推定しない。新しいモデル生成は保存済みTV履歴をcutoffで読み、`same-series-v6`で値と品質状態を渡す。旧`same-series-v5-no-tradingview`のpayloadと`excluded_by_source_terms`は履歴としてそのまま読めるよう保持し、新規生成へ一律除外を適用しない。定期取得と明示captureの双方を同じ保存・投影契約で扱う。
+欠測・通貨・対象期・cutoffの解釈は[取得元](../docs/reference/data-sources.md#tradingview)へ。L1保存・L2成功・公開を区別し、取得成功・省略・部分・原受領のみ・統合未達を確認する。保存判断と旧除外履歴を改変せず、新生成へ旧除外を流用しない。
 
 ## Storeをseedする
 
@@ -743,30 +719,20 @@ uv run baibai-engine external-assessment show --ticker <TICKER> \
 
 ## 定期maintenance
 
-既存のdue taskを使い、同じ期限・対象・問いのopen taskを重複登録しない。実行後は完了を記録し、必要な次回分だけ作る。開発変更はGitHub Issueで管理する。
+既存due taskを完了して必要な次回分だけ作り、同じ期限・対象・問いを重複登録しない。開発変更はIssueで扱う。
 
-旧ER/FV・四Approachのcalibrationは、評価する仮説・対象期間・利用先を明示した研究/保守で必要な時だけbuild→evaluateする。新しいモデル生成・候補政策の通常運用に月次再構築や旧contextの期限更新を要求しない。月次比較を計画する場合は前月までの対象を同じrulesで扱い、forceは全再構築の時だけ使う。
+較正は仮説・期間・利用先を明示した旧ER/FV・四Approachの研究/保守用で、新モデル/候補政策に月次再構築や旧context更新を要求しない。[意味・force・配布条件](../docs/reference/estimate-calibration.md)に従い、月次比較は前月までを同じrulesで扱う。
 
 ```bash
 uv run baibai-engine historical-evaluation calibration-build --start <YYYY-MM-DD> --end <YYYY-MM-DD>
 uv run baibai-engine historical-evaluation calibration-evaluate --out /tmp/calibration-evaluation.yaml
 ```
 
-保存済み旧Selectionに対応する較正文脈を更新する場合は目的・required月・必要metricを先に固定し、同じ評価に明示的な出力先を加える。`--context-out`に既定の発行先はなく、省略時に配布artifactを更新しない。
+旧Selection用の配布更新だけはevaluateへ `--run-purpose empirical_change_evidence --decision-subject estimator_policy --required-asof <YYYY-MM-DD> --required-metric er_level_calibration --context-out <PUBLISHED_YAML>` を加える。目的・全対象月・metricを先に固定し、required-asofは各月分繰り返す。identity・期限・不足と配布差分をGit reviewし、記述context成功をformal evidence成立としない。context-out省略時は配布artifactを更新しない。
 
-```bash
-uv run baibai-engine historical-evaluation calibration-evaluate \
-  --run-purpose empirical_change_evidence --decision-subject estimator_policy \
-  --required-asof <YYYY-MM-DD> --required-metric er_level_calibration \
-  --out /tmp/calibration-evaluation.yaml \
-  --context-out engine/src/baibai_engine/machine_analysis/historical_evaluation/context/published/er-level-calibration-latest.yaml
-```
+PMIは公表翌週、TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な公開を行う。全履歴監査を定例化しない。依頼された注文結果は `measure_limit_outcomes` で測り、価格差を逸失利益や指値規律の因果効果としない。
 
-required-asofは事前に選んだ全対象月分を繰り返す。配布前にoperative runのrules/model identity・期限・不足を照合し、Gitでreviewする。[較正の意味](../docs/reference/estimate-calibration.md)に従い、記述context成功をformal evidence成立としない。古いcontextの日付・hashだけを編集しない。
-
-PMIは公表翌週、TSE資本政策とJPX廃止は翌月15日以降に既存refresh/buildを行い、必要なlake/store公開へ進む。全履歴監査を定例に増やさない。注文結果の計測が依頼された場合は既存measure_limit_outcomesの対象と限界を確認し、価格差を逸失利益や指値規律の因果効果にしない。
-
-通知webhookのrotationはDiscordで新規/再生成→repository secret DISCORD_WEBHOOK_URL更新→通常runの通知確認。旧webhookはDiscord側で消すまで有効。rotationだけで過去Screeningを再実行しない。
+通知webhook rotationはDiscord新規/再生成→secret `DISCORD_WEBHOOK_URL` 更新→通常通知確認。旧webhookはDiscord側で消すまで有効で、過去Screeningの再実行は不要。
 
 <a id="web-serving"></a>
 ## 保有・運用Webの表示更新
@@ -787,295 +753,156 @@ Worker secretの`VIEW_PASSWORD`はowner用Bearer、`READ_ACCESS_TOKEN`は共有�
 
 ## 判断直前の多市場補助観測
 
-`market-evidence`はTradingView MCPのquote／5分足を、既存native-document storeとimmutable handoffで保持する。日次外部評価の充足・価格master・正式な提案終値とは別であり、DB schemaは追加しない。要求parameters・SDK応答・要求/受領時計は[provider owner](../engine/src/baibai_engine/data_collection/providers/tradingview/market_models.py)、読取の時計・遅延・欠測は[観測owner](../engine/src/baibai_engine/machine_analysis/observations/prices/tradingview_market.py)が所有する。
+`market-evidence` はTradingView quote/5分足のprivate原受領で、日次外部評価の充足・価格master・正式提案終値とは別。[定期workflow](../.github/workflows/cloud-tradingview-market-daily.yml)の途中失敗でも原本を保持するが、全件成功/統合済みとは限らない。朝の判断には保存参照か新しい明示取得を使い、旧値を現在値にしない。
 
-`cloud-tradingview-market-daily`の[定期取得](../.github/workflows/cloud-tradingview-market-daily.yml)は、日経225先物の連続限月、S&P 500、NASDAQ 100のquoteと、日経225先物・S&P 500の5分足を取得し、private handoffへ保存する。夜間取引終了後と米国通常取引終了後を狙うが、休場・提供遅延・schedule遅延・限月切替は別途確認する。受領時刻は取引時刻ではなく、連続先物は現物指数ではない。途中失敗でも受領済み原本は残し、全件成功とは報告しない。共通統合は別scheduleのため朝の取得直後には正本へ未統合の場合がある。判断直前は保存参照または新たな明示取得を使い、古い値を新しいものとして扱わない。
+定期/明示取得は同じ[有限capture契約](src/baibai_jobs/acquisition/market_context.py)を使う。実tool名・引数・要求/受領時計・SDK応答を受領時に保持し、時計を後から推定しない。
 
-1. 判断開始時に必要なquoteと5分足を有限に取得し、実際のtool名・明示引数・要求/受領時計・SDK resultをcaptureへ保存する。5分足は各最大500bar。後から時計を推測して付けない。
-2. `baibai-jobs market-evidence prepare --capture <CAPTURE> ... --directory <NEW_PRIVATE_DIR>`で最大3応答を固定する。`stage --directory <DIR> --stage-id tradingview_market-<ID>`はprivate handoffを冪等保存する。明示取得でも日次取得でも同じ保存契約を使う。
-3. 別sessionは返却stage ID/manifest SHAを指定し、`download --directory <NEW_DIR> --stage-id <ID> --manifest-sha256 <SHA>`で再GETなしに復元する。`read --directory <DIR> --receipt-id <RECEIPT> --sha256 <CAPTURE_SHA>`は観測と、同じ原本を指すAssessment入力を返す。未保存のlocal captureはL3用の耐久参照を返さない。
-4. 通常のnative統合後も同じreceipt/hashを読む。共通更新より遅く着いた独立captureをsource全体のwatermarkだけで捨てず、packetの限定scopeと原受領identityを検証してappendする。
+1. `baibai-jobs market-evidence prepare --capture <CAPTURE> ... --directory <NEW_PRIVATE_DIR>` で固定し、`stage --directory <DIR> --stage-id tradingview_market-<ID>` で保存する。
+2. 別sessionは返却stage ID/manifest SHAで `download --directory <NEW_DIR> --stage-id <ID> --manifest-sha256 <SHA>`、続いて `read --directory <DIR> --receipt-id <RECEIPT> --sha256 <CAPTURE_SHA>` を使い、再GETせず観測とAssessment入力を得る。未保存local captureに耐久参照はない。統合後も同じreceipt/hashを読む。
 
-モデル生成は固定したeconomic入力から市場補助観測を読み、L3にも同じ受領参照・時計・欠測を渡す。symbolごとの最新受領が失敗・不正payloadなら古い成功価格へ戻さない。受領cutoffは評価時刻と評価基準日のJST日末の両方で限定するため、前日基準の寄前評価には当日朝に受領した夜間情報を含めない。その情報が必要な判断では別の明示入力として固定する。
+生成/L3は固定economic入力の同じ参照・時計・欠測を使う。[読取owner](../engine/src/baibai_engine/machine_analysis/observations/prices/tradingview_market.py)は最新失敗を旧成功価格で埋めず、評価時刻と基準JST日末の両方でcutoffする。前日基準の寄前判断へ当朝の夜間受領を含めるなら、別の明示入力として固定する。
 
-価格の比較端点は同一商品・同一basisで明示する。provider changeは日本引け基準とは限らず、barの`t`は最終約定時計ではない。update_mode不明をリアルタイムにせず、最後の足を確定値にしない。AssessmentとReviewは同じcaptureを読む。新しい価格が判断を変える場合は新たな入力として固定して再Reviewし、旧Selection/判断へ遡及挿入しない。元原文やprivate handoffを公開Issueへ転載しない。
-
+休場・遅延・限月切替を確認し、同一商品/basisの端点を比べる。受領時計は取引時計でなく、連続先物は現物でない。provider changeを日本引け基準、barの`t`を最終約定、update_mode不明をリアルタイム、最後の足を確定値としない。Assessment/Reviewは同じcaptureを読み、判断が変わる新価格は新入力で再Reviewする。旧判断へ遡及挿入せず、原文/private handoffを公開Issueへ転載しない。
 
 <a id="jquants-native-operations"></a>
 ## J-Quants native L1の共通操作
 
-通常経路の設定は[財務](src/baibai_jobs/financial_cutover.py)・[日足](src/baibai_jobs/price_cutover.py)・[master](src/baibai_jobs/master_cutover.py)・[取引暦](src/baibai_jobs/calendar_cutover.py)を正本とする。codeの既定値、運用環境の設定、移行・公開の成功は別に確認する。通常CLIの4source既定と対象Actions callerは `true` に揃える。明示 `false` は旧入力の有限検証用で、本番rollbackとして使わない。
+以下の7sourceは、取得・原本保持とL2再生成を分ける。通常設定は[財務](src/baibai_jobs/financial_cutover.py)・[日足](src/baibai_jobs/price_cutover.py)・[master](src/baibai_jobs/master_cutover.py)・[取引暦](src/baibai_jobs/calendar_cutover.py)の4sourceが既定/Actionsとも `true`。明示 `false` は旧入力の有限検証用で、本番rollbackに使わない。他3sourceの接続状態は各節で確認する。codeの既定値・運用設定・移行/公開成功は別の事実である。
 
-- `initialize` は新規の空namespaceだけ。既存原本の移行失敗や消失headを空初期化で迂回しない。
-- 取得は毎回新しいdirectoryを使う。応答不明なら `resume` で確定headを確認し、保存済みattemptは `commit-work` で同じidentityのまま再開する。failed/heldや未試行を正常空へ変えない。
-- `--saved-input` は保存generation/Selectionの正確なInputSnapshot JSONを渡す。表示summaryや最新headで代用せず、保持条件は[保存責務](../docs/architecture.md#store-authority)に従う。
-- 切替前に、実bucketで原本・共有固定入力のprefixへの必要なread/write権限と、期限削除対象外であることを確認する。設定を読めない場合は未確認とし、初回読戻し成功を保持条件の確認に代えない。
-- 本番切替は旧writerとdaily・queued jobを止め、旧release ID/SHA256、UTC境界、全対象stageを固定する。prepareの `blocked` を解消してからapply→全packのcold verify→旧投影compareを行う。後着stageがあれば境界を固定し直す。
-- writerと全consumerのcode・設定を揃え、初回公開の入力identity・coverage・次hydrateを読戻した後に定期起動を再開する。異常時はwriterを止め、確定head・移行plan・旧releaseから再開先を決める。flagだけを戻して旧writerを並行稼働させない。
+取得CLIは `jquants-<source>-native`。`initialize` は新規の空namespaceだけに一度行い、既存原本の移行失敗やhead消失を迂回しない。`plan` / `acquire` は毎回新しい `--directory` と次の対象期間を渡す。応答不明は `resume` で確定headを確認し、保存済みattemptは同じdirectoryの `commit-work` でidentity・時刻を変えず再開する。failed/held・partial・未試行を正常空にしない。
 
-移行や全期間再取得を通常dailyへ代行させない。旧release/stageには同値確認時のexact bytesもあるため、自動削除しない。合成testやcodeのmergeは本番切替の証拠ではない。
+| source | plan/acquireの期間指定 | 固有の取得条件 |
+| --- | --- | --- |
+| financial / price | `--start` / `--end` | 日別原本と訂正確認 |
+| master / calendar | `--start` / `--end` | 明示訂正だけ `--force`。連続日足のoverlapを流用しない |
+| margin-alerts / short-sale-reports | `--asof`、任意の `--start` | 休場でも公表を確認 |
+| margin-interest | `--asof`、有限backfillは `--start` / `--end` | 固定calendarが必要。`--force` は明示区間の訂正再取得だけ |
+
+再生成は `rebuild-<source>-native` に `--work-directory` / `--start` / `--end` / `--output` を渡す。新規の観測出力と `input.json` を作り、既存出力を上書きしない。calendarだけは後述の専用引数を使う。保存入力の再生では、generation/Selectionの正確なInputSnapshot JSONを `--saved-input` へ渡し、summaryや最新headで代用しない。保持条件は[保存責務](../docs/architecture.md#store-authority)に従う。
+
+本番切替は以下を一組で行う。移行・全期間取得を通常dailyへ代行させず、合成testやcodeのmergeを本番切替の証拠としない。
+
+1. 実bucketの原本/共有固定入力prefixに必要なread/write権限と期限削除対象外を確認する。設定を読めなければ未確認であり、初回読戻し成功では代用できない。
+2. 対象の旧writer・daily・queued jobを止め、旧release ID/SHA256・UTC境界・統合済みを含む全対象stageを固定する。`prepare` の `blocked` を解消し、原本・宣言identity・scopeを確認する。後着stageがあれば境界を固定し直す。
+3. 空targetを一度だけinitializeし、同じplanで `apply` → 全packのcold `verify` → 旧投影との `compare` を行う。移すのは対象sourceだけで、mixed stageの他sourceは保つ。旧投影との差とcoverage不足を確認し、意味差を受け入れる場合は明示する。
+4. 全writer/consumerのcode・設定を揃え、初回公開の固定input・coverage・native lineageと次hydrateを読戻してから定期起動を再開する。異常時はwriterを止め、確定head・plan・旧releaseから再開先を決める。flagだけを戻して旧writerを並行稼働させない。
+
+共通command例（対象sourceと固定値を置き換える）。`apply` 前の確認・初期化は省略しない。
+
+```bash
+uv run baibai-jobs price-native-cutover prepare --directory <PLAN_DIR> \
+  --work-directory <NEW_MIRROR> --release <FIXED_OLD_RELEASE> \
+  --manifest-sha256 <FIXED_OLD_SHA256> --known-at <UTC_BOUNDARY>
+uv run baibai-jobs price-native-cutover apply --directory <PLAN_DIR> --work-directory <APPLY_WORK>
+uv run baibai-jobs price-native-cutover verify --directory <PLAN_DIR> --work-directory <COLD_WORK>
+```
+
+`<source>-native-cutover compare` も同じ `--directory` と別の `--work-directory` を使う。price / margin-alerts / short-sale-reportsは初回運用日の `--asof`、margin-interestは比較終端の `--asof` と固定 `--calendar-head` を追加する。他3sourceに追加日付はない。全optionは各commandのhelpを参照する。
+
+切替後のmixed stageは、移行した原本の全page fingerprint/bytes・宣言IDを照合して対象sourceだけ再投影から外す。未移行・改変・不足を黙ってskipしない。旧release/stageには同値確認のexact bytesもあるため、自動削除しない。
 
 <a id="margin-alerts-native-l1"></a>
 ## 日々公表銘柄margin-alert native L1と通常経路
 
-`BAIBAI_MARGIN_ALERTS_NATIVE` は通常 `jquants-market` の取得とdailyの固定reader/公開を一組で選ぶ。既定は `false` で、本番切替は未実施。取得日とoverlapは[owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残のsource](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。native取得は旧market releaseを開く前に確定し、日々公表の原本取得はL2の成否・品質を使わない。既知休場でも8暦日の公表確認を行うため、切替前に追加GETとprovider予算を確認する。
-
-```bash
-uv run baibai-jobs jquants-margin-alerts-native initialize \
-  --directory /secure-work/margin-alerts-init
-uv run baibai-jobs jquants-margin-alerts-native plan \
-  --directory /secure-work/margin-alerts-plan --asof 2026-11-05
-uv run baibai-jobs jquants-margin-alerts-native acquire \
-  --directory /secure-work/margin-alerts-cycle --asof 2026-11-05
-uv run baibai-jobs rebuild-margin-alerts-native \
-  --work-directory /secure-work/margin-alerts-read \
-  --start 2026-10-29 --end 2026-11-05 --output /secure-work/margin-alerts-output
-```
-
-`rebuild-margin-alerts-native` は新規 `margin-alerts.sqlite` と `input.json` を出力し、既存SQLiteを上書きしない。`--saved-input` で同じ有限範囲を再生する。正常空・partial・未取得の読取は[既存consumerへの投影](src/baibai_jobs/integration/margin_alerts_native.py)に従う。
+`BAIBAI_MARGIN_ALERTS_NATIVE` は通常 `jquants-market` とdailyの固定reader/公開を一組で選ぶ。既定 `false`、本番切替は未実施。取得日/overlapは[取得owner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_alerts_native.py)、母集団は[信用残](../docs/reference/data-sources.md#信用残のsourceと日付)に従う。旧market releaseを開く前に原本を確定し、L2成否・品質を取得条件にしない。休場も8暦日の公表確認を行うため、追加GETとprovider予算を切替前に確認する。
 
 ### 有限移行と本番切替
 
-統合済みを含む全market stageを固定し、margin-alertの原本だけを移す。source別失敗や欠損はprepareの結果で確認する。
+[共通手順](#jquants-native-operations)で全market stageから対象原本を移し、予定日までの全保持範囲をcompareする。確認後、sourceとdailyのflagを同時に有効化する。切替後の旧maintenance取得は拒否し、明示native取得を使う。
 
-```bash
-uv run baibai-jobs margin-alerts-native-cutover prepare \
-  --directory /secure-work/margin-alerts-migration \
-  --work-directory /secure-work/margin-alerts-mirror \
-  --release "$OLD_RELEASE" --manifest-sha256 "$OLD_MANIFEST_SHA256" \
-  --known-at "$CUTOVER_UTC"
-uv run baibai-jobs margin-alerts-native-cutover apply \
-  --directory /secure-work/margin-alerts-migration --work-directory /secure-work/margin-alerts-apply
-uv run baibai-jobs margin-alerts-native-cutover verify \
-  --directory /secure-work/margin-alerts-migration --work-directory /secure-work/margin-alerts-verify
-uv run baibai-jobs margin-alerts-native-cutover compare \
-  --directory /secure-work/margin-alerts-migration --work-directory /secure-work/margin-alerts-compare \
-  --asof 2026-11-05
-```
+margin-alertと次節のshort-sale-reportは、通常dailyで一つの固定selectionから投影し、同じsealをreader・モデルinput・公開native lineageへ渡す。[前回cache](src/baibai_jobs/integration/native_projection_cache.py)はcompleteかつParquet/SQLiteの全行一致時だけ再利用し、欠損・改変・partialなら固定L1から再生成する。取得側はcacheを使わず、専用cache namespaceや毎日の全履歴copyを増やさない。固定readerでは全履歴0行も正常空だが、現共通manifestは観測行を要求するため公開できない。両sourceの切替は既存非空履歴の有限移行を前提とし、架空行を補わない。
 
-compareは予定日までの全保持範囲を検査する。移行中は旧writerを止め、最後の全stageを同じUTC境界で固定する。prepare/apply/verify/compare、prefixの権限・保持、取得予算を確認してから通常sourceとdailyの `BAIBAI_MARGIN_ALERTS_NATIVE` を同時に有効化する。code/Actionsの既定値変更や本番variable更新はこの接続変更に含めない。旧release/stageは削除しない。
-
-旧mixed stageでは移行済alerts原本の全page fingerprintを照合し、それ以外のsourceだけを従来どおり反映する。不一致・未移行は黙ってskipせず明示回復する。切替後の旧maintenance取得は拒否し、明示native取得と固定入力の再生成を使う。
-
-通常dailyは固定L1 selectionを一つだけ採り、同じ投影をモデルの `inputs.margin_alerts` と公開L2のnative lineageに渡す。前回のcompleteなnative L2はParquetとSQLiteの全行照合後に限ってcacheとして使い、変更された公表日だけをrawから投影する。cacheの欠損・改変・partial時は固定L1のみから再生成する。取得側はcacheを読まない。公開objectはyear/v2の中で月別に内容共有し、既存の共通seal以外に毎日の全履歴snapshotや専用cache namespaceを増やさない。
-
-初回通常source後に独立headの増分と旧stageからalertsが外れること、初回daily後にreaderのPubDate/AppDate・正常空訂正・partial、保存inputと公開lineage、次回hydrateを確認する。全履歴0行は固定readerでは正常空だが、現market releaseはdatasetの観測行を必須にしており公開できない。既存非空履歴の有限移行をこの切替の前提とし、空原本へ架空行を足さない。
-
-margin-alertのPubDate/AppDateを、[空売り残高報告](#short-sale-reports-native-l1)の `disc_date`・行順へ読み替えない。margin_interestの週次/全日次・公表lag・固定暦と、その通常接続は別途扱う。
+alertsは変更した公表日だけrawから投影し、year/v2内の月別objectを内容共有する。[投影](src/baibai_jobs/integration/margin_alerts_native.py)のPubDate/AppDate・正常空訂正・partial、`inputs.margin_alerts` と公開lineage、次hydrateを確認する。初回sourceでは独立headの増分と旧stageからalertsが外れることも確認する。PubDate/AppDateをshort-saleの開示日/行順へ読み替えず、全銘柄信用残とも別に運用する。
 
 <a id="short-sale-reports-native-l1"></a>
 ## 空売り残高報告native L1と通常経路
 
-`BAIBAI_SHORT_SALE_REPORTS_NATIVE` は通常sourceとdailyの固定reader/公開を一組で選び、既定は `false`。本番切替は未実施。`jquants-short-sale-reports-native` の `initialize / plan / acquire / resume / commit-work` は旧market releaseやL2を使わない。query・日付・順序の意味は[取得owner](src/baibai_jobs/acquisition/jquants_short_sale_reports_native.py)と[固定reader](src/baibai_jobs/integration/short_sale_reports_native.py)に置く。保存・中断再開・固定inputは[共通操作](#jquants-native-operations)に従う。
+`BAIBAI_SHORT_SALE_REPORTS_NATIVE` はsourceとdailyを一組で選ぶ。既定 `false`、本番切替は未実施。日付/順序は[取得](src/baibai_jobs/acquisition/jquants_short_sale_reports_native.py)・[固定reader](src/baibai_jobs/integration/short_sale_reports_native.py)に従う。旧market/L2を使わず、直近7日前〜当日の8暦日と保持範囲の不足を再確認する。休場でも確認するため、追加GET・provider予算を確認してから切り替える。
 
-```bash
-uv run baibai-jobs jquants-short-sale-reports-native plan \
-  --directory /secure-work/short-sale-plan --asof 2026-11-05
-uv run baibai-jobs jquants-short-sale-reports-native acquire \
-  --directory /secure-work/short-sale-cycle --asof 2026-11-05
-uv run baibai-jobs rebuild-short-sale-reports-native \
-  --work-directory /secure-work/short-sale-read --start 2026-10-29 --end 2026-11-05 \
-  --output /secure-work/short-sale-output
-```
+全market stageからの移行は[共通手順](#jquants-native-operations)、cacheと非空履歴の公開条件は[前節](#margin-alerts-native-l1)に従う。compareは開示日と行順のidentityを使う。通常source/dailyのflagを同時に有効化し、旧maintenance writerは使わない。flag・本番writerの変更自体は別操作である。
 
-既存原本は `short-sale-reports-native-cutover prepare / apply / verify / compare` で有限移行する。引数と順序は上のmargin-alert手順と同じ。prepareは旧releaseと統合済みを含む全market stageを固定し、apply前に不明scope・欠損・未来の受領を解消する。compareは開示日と行順のidentityで旧投影を比較する。正常空・失敗・未取得を混同せず、旧release/stageは削除しない。
-
-固定読取は新規 `short-sale-reports.sqlite` と `input.json` を出力する。`--saved-input` は最新headなしで再生できる。通常取得は旧market releaseを開く前に独立L1へ確定し、直近7日前〜当日の8暦日と保持範囲の不足を再確認する。L2の成否・品質や市場休場を取得条件に戻さないため、切替前に追加GETとprovider予算を確認する。
-
-通常dailyは一つの固定selectionから投影し、同じsealをreader、モデルの `inputs.short_sale_reports`、公開native lineageに渡す。前回completeなnative L2はParquetとSQLiteの全行照合後だけcacheとして使い、同値確認ではrawを再読しない。cache消失・改変・partial時は固定L1から再生成する。開示日単位のcoverageと確認時計、DiscDate/CalcDate、ページ/行順・重複を維持する。共通seal/exportの走査は既存のままで、専用cache namespaceや毎日の全履歴copyは追加しない。
-
-有限移行後に通常sourceとdailyのflagを同時に有効化する。旧mixed stageでは移行したshort-sale全pageのfingerprintを照合して除外し、他sourceは従来どおり再生する。未移行・改変した原本を黙ってskipせず、切替後の旧maintenance writerは拒否する。初回dailyと次hydrateで保存input/native lineage、行順・重複、正常空・局所partialを読戻す。source_coverageはpaired machine SQLiteが保持する。
-
-本番variableやwriterの変更、旧release/stage削除はこの接続変更に含めない。全履歴0行は固定readerで正常空だが、既存共通manifestが観測行なしdatasetを許さないため公開できない。既存非空履歴の有限移行を切替前提とし、架空報告を補わない。margin_alertsとは別のflagとsource契約で運用する。
+同値確認ではrawを再読せず、開示日別coverage/確認時計・DiscDate/CalcDate・page/行順・重複を保つ。初回dailyと次hydrateでこれらと正常空/局所partial、`inputs.short_sale_reports` と公開lineageを読戻す。source_coverageはpaired machine SQLiteが保持する。margin-alertとflag・日付・source契約を混ぜない。
 
 <a id="margin-interest-native-l1"></a>
 ## 週次・全銘柄日次信用残の独立L1
 
-`jquants-margin-interest-native` は明示CLIだけ。通常market writer、旧maintenance、historical readerの経路は変えない。`margin_alerts`（指定銘柄の別source）と混ぜない。取得・固定読取の前に、必要範囲を持つnative calendarを用意する。通常calendarの初回53日窓だけでは週次230日・日次2026-09-25以降の全範囲を満たさない。`plan` の `unknown_calendar_days` / `unknown_incomplete_requests` を無視したり、unknownを休場へ変えたりしない。
+明示CLIのみで、通常market writer・旧maintenance・historical readerは未接続。[指定銘柄](#margin-alerts-native-l1)とは別sourceである。取得/固定読取には必要範囲のnative calendarを用意する。通常calendarの初回53日窓だけでは週次230日・日次2026-09-25以降を満たさない。`unknown_calendar_days` / `unknown_incomplete_requests` を無視せず、unknownを休場へ変えない。
+
+- 週次は230日窓・各ISO週の最終取引日・2営業日公表lagで、2026-09-18残高まで。公表日前の空と最終週の空を再確認する。空の充足には実確認JST日より前の後続2営業日の暦が必要で、不足を残す。有限backfillから現在までの全暦は要求しない。最終週の空は公表日以降、終端後の暦なしでも再確認し、rebuild/compareでも未充足とする。
+- 全銘柄日次は2026-09-25〜asofの取引日を保ち、通常は後続1営業日を待つ。空は未充足。7日overlapや230日へ狭めず、9月19〜24日をどちらの系列にも作らない。
+- [取得計画](../engine/src/baibai_engine/data_collection/providers/jquants/margin_interest_native.py)は固定暦・実確認時刻・raw件数を使う。非空原本のL2 partialを取得条件へ戻さない。旧maintenanceのpartial再取得は別経路のまま。
+
+取得directoryの `plan.json` / `calendar-fixed.json` とattemptを保ち、`commit-work` でも最新暦へ差し替えない。同値確認は確認時計だけを更新し、元HTTP pageの時計を変えない。有限backfillの終端は含む。
 
 ```bash
-uv run baibai-jobs jquants-margin-interest-native initialize \
-  --directory /secure-work/margin-interest-init
-uv run baibai-jobs jquants-margin-interest-native plan \
-  --directory /secure-work/margin-interest-plan --asof 2026-11-05
 uv run baibai-jobs jquants-margin-interest-native acquire \
-  --directory /secure-work/margin-interest-cycle --asof 2026-11-05
-# 明示backfillは終端を含む。--force はこの有限区間の訂正再取得にだけ使う。
-uv run baibai-jobs jquants-margin-interest-native acquire \
-  --directory /secure-work/margin-interest-backfill --asof 2026-11-05 \
-  --start 2026-09-18 --end 2026-10-30
-uv run baibai-jobs rebuild-margin-interest-native \
-  --work-directory /secure-work/margin-interest-read \
-  --calendar-head /secure-work/margin-interest-cycle/calendar-fixed.json \
-  --start 2026-09-18 --end 2026-10-30 --output /secure-work/margin-interest-output
+  --directory <NEW_WORK> --asof 2026-11-05 --start 2026-09-18 --end 2026-10-30
+uv run baibai-jobs rebuild-margin-interest-native --work-directory <NEW_READ_WORK> \
+  --calendar-head <NEW_WORK>/calendar-fixed.json --start 2026-09-18 --end 2026-10-30 \
+  --output <NEW_OUTPUT>
 ```
 
-- 週次は従来の230日窓・各ISO週の最終取引日・2営業日公表lag。2026-09-18残高までを対象にし、公表日以前（JST）の空と最終週の空は再確認する。
-- 有限backfillでも週次空の充足には実確認JST日より前の後続2営業日の暦証拠が必要。証拠不足は再確認対象と不足暦を残すが、有限区間から現在asofまでの全暦は要求しない。最終週の空は公表日以降、終端後の暦がなくても再確認し、rebuild/compareも未充足として報告する。
-- 全銘柄日次は2026-09-25からasofまでの取引日を保ち、通常取得は後続1営業日を待つ。空は未充足。7日overlapや直近230日だけに狭めない。9月19〜24日をどちらの系列にも作り替えない。
-- 計画は固定calendarとnative原本の実確認時刻・raw件数だけを見る。正常な非空原本のL2変換がpartialでも、そのL2を取得条件に戻さない。旧maintenanceがL2 partialを再取得する挙動はそのまま残す。
-- 取得は新しいdirectoryを使い、`plan.json` と `calendar-fixed.json` を保存する。`commit-work` は両方と保存attemptを使い、最新暦に差し替えず、日次空・失敗・未試行を残したまま成功にしない。同値確認は実確認時刻を更新するが、元HTTP pageの時刻は変えない。
-- rebuildは新規 `margin-interest.sqlite` / `input.json` / `result.json` を出す。`--saved-input` では固定したmarginとcalendarのmetadata/packだけを読み、最新head・旧releaseを参照しない。週次9列・日次16列（PubDateを含む）の投影とcoverageを保存する。これは有限観測copyであり、歴史promptの完全再現を保証する入口ではない。
-- 歴史評価の公表時差fallbackは保存済み価格日のまま。native calendarへ置換しない。PubDate優先、同日引け除外、観測済み26週、35日鮮度、split/share基準を変えない。歴史評価比較を行う場合は価格入力も固定する。
+rebuildは週次9列・日次16列（PubDateを含む）とcoverageを持つ有限copy、`input.json` / `result.json` を出す。`--saved-input` では固定margin/calendarだけを読み、最新head・旧releaseを使わない。歴史promptの完全再現ではない。歴史評価は保存価格日の公表時差fallback・PubDate優先・同日引け除外・観測済26週・35日鮮度・split/share basisを保つ。native暦へ置換せず、比較時は価格も固定する。
 
 ### 有限移行
 
-[共通手順](#jquants-native-operations)に従い、`margin-interest-native-cutover prepare` に `--release` / `--manifest-sha256` / `--known-at` と `--directory` / `--work-directory` を渡す。全source_pages partitionと統合済みを含む全market stageを調べ、対象sourceだけを移す。境界後の受領・filtered request・欠落page/宣言identity・未知の失敗scopeはblockedにする。`daily_margin_incomplete` は実在する空またはpartial原本が必要で、正常空へ昇格しない。
+[共通手順](#jquants-native-operations)で全source_pages partitionと全market stageを確認する。境界後の受領・filtered request・page/宣言identity欠落・未知の失敗scopeはblocked。`daily_margin_incomplete` は実在する空/partial原本を要求し、正常空へ昇格しない。
 
-blocked解消後の空targetに対して `apply` → `verify` → `compare`。compareは同じ固定旧releaseと保存した `--calendar-head`、比較終端 `--asof` を必須とし、元のUTC境界後のmargin/calendar確認を拒否する。週次・日次の全保持行を別々に照合する。取得範囲・coverage差分が残れば切替根拠にはしない。旧release/stage/原本は削除しない。通常writer接続と本番実行は別途の指示・検証が必要。
+compareは同じ旧release、保存 `--calendar-head` と比較終端 `--asof` を使い、UTC境界後のmargin/calendar確認を拒否する。週次/日次の全保持行を別々に照合し、取得範囲・coverage差が残れば切替根拠にしない。通常writer接続と本番実行は別途の指示・検証が必要。
 
 <a id="price-native-l1"></a>
 ## 日足native L1の取得・固定読取・有限移行
 
-`BAIBAI_PRICE_NATIVE` は取得と通常consumerを一組で選ぶ。[取得owner](src/baibai_jobs/acquisition/jquants_price_native.py)が日付範囲と訂正確認を持つ。切替後は旧 `maintain-market bootstrap-cache` / `backfill-history` で日足を取得せず、次の入口を使う。
+`BAIBAI_PRICE_NATIVE` は取得とconsumerを一組で選ぶ。[取得owner](src/baibai_jobs/acquisition/jquants_price_native.py)が日付範囲・訂正確認を持つ。切替後は旧 `maintain-market bootstrap-cache` / `backfill-history` で取得せず、専用native CLIを使う。過去generationは `inputs.price` を `--saved-input` へ渡す。
 
-```bash
-uv run baibai-jobs jquants-price-native initialize --directory /secure-work/price-init
-uv run baibai-jobs jquants-price-native acquire --directory /secure-work/price-cycle \
-  --start 2026-11-01 --end 2026-11-05
-uv run baibai-jobs rebuild-price-native --work-directory /secure-work/price-read \
-  --start 2026-11-01 --end 2026-11-05 --output /secure-work/price-observations
-```
-
-過去generationの `inputs.price` を `--saved-input` へ渡すと同じ固定入力を再生成する。正常空のL1と、価格必須の公開policyによる0行拒否は別。取引暦もnativeなら、固定暦で休場と証明できる未試行日だけ公開coverageから除き、raw未取得は残す。旧v1入力へ新しい休場除外を遡及しない。理由と判定は[価格入力](src/baibai_jobs/integration/price_native.py)に置く。
-
-日足L2は月契約を保った日別objectを再利用する。初回公開では全releaseのobject数・manifest容量の既存上限を確認し、旧月object/releaseは削除しない。
+正常空L1と、価格必須の公開policyによる0行拒否は別である。native暦で休場と証明できる未試行日だけ公開coverageから除き、raw未取得は残す。旧v1入力へ遡及しない。[価格入力](src/baibai_jobs/integration/price_native.py)のidentity・補正係数・coverage/lineageを初回公開で読戻す。日足L2は月契約の日別objectを再利用するため、全releaseのobject数・manifest容量上限を確認し、旧月object/releaseは削除しない。
 
 ### 旧日足原本と混在market stageからの切替
 
-[共通手順](#jquants-native-operations)に加え、market stageの全宣言request IDを照合し、日足だけを移す。移行済みの日足を旧SQLiteへ再投影せず、同じstageの他sourceはそのまま再生する。未移行/改変した日足原本は明示回復する。
-
-```bash
-uv run baibai-jobs price-native-cutover prepare --directory /secure-work/price-migration \
-  --work-directory /secure-work/price-mirror --release <FIXED_OLD_RELEASE> \
-  --manifest-sha256 <FIXED_OLD_SHA256> --known-at <REAL_UTC_BOUNDARY>
-# planのblocked/原本/全stageを確認し、空targetへinitializeしてから実施
-uv run baibai-jobs price-native-cutover apply --directory /secure-work/price-migration \
-  --work-directory /secure-work/price-mirror
-uv run baibai-jobs price-native-cutover verify --directory /secure-work/price-migration \
-  --work-directory /secure-work/price-cold-read
-uv run baibai-jobs price-native-cutover compare --directory /secure-work/price-migration \
-  --work-directory /secure-work/price-compare --asof <FIRST_DAILY_DATE>
-```
-
-compareには予定する初回daily日と、通常運用と同じcalendar設定を渡す。通常取得窓より古い欠測も隠さず、休場の未試行と取得失敗を分けて確認する。初回公開ではprice identity・補正係数・coverage・native lineageを読戻す。
+[共通手順](#jquants-native-operations)でmarket stageの全宣言request IDを照合し、日足だけ移す。compareには初回dailyの `--asof` と通常運用と同じcalendar設定を使う。通常取得窓より古い欠測も確認し、休場未試行と取得失敗を分ける。
 
 <a id="financial-native-l1"></a>
 ## 財務native L1の明示取得・再生成
 
-`BAIBAI_FINANCIAL_NATIVE` は財務writerとdaily consumerを一組で選ぶ。切替後は旧financial stageのresume/replay-copyと旧bootstrap/backfillを使わず、未移行原本を保持して明示回復する。取得と正規化の意味は[取得](src/baibai_jobs/acquisition/jquants_financial_native.py)・[固定入力reader](src/baibai_jobs/integration/financial_native.py)を参照する。
+`BAIBAI_FINANCIAL_NATIVE` は財務writerとdailyを一組で選ぶ。切替後の旧financial stage resume/replay-copy・bootstrap/backfillは使わず、未移行原本を保持して明示回復する。[取得](src/baibai_jobs/acquisition/jquants_financial_native.py)・[固定reader](src/baibai_jobs/integration/financial_native.py)に従う。
 
-```bash
-uv run baibai-jobs jquants-financial-native initialize --directory /secure-work/financial-init
-uv run baibai-jobs jquants-financial-native acquire --directory /secure-work/financial-cycle \
-  --start 2026-11-01 --end 2026-11-05
-uv run baibai-jobs rebuild-financial-native --work-directory /secure-work/financial-read \
-  --start 2026-11-01 --end 2026-11-05 --output /secure-work/financial-observations
-```
-
-過去の再生成は保存JSONの `inputs.generation.inputs.financial`（generation headerでは `inputs.financial`）を、descriptorを含むInputSnapshotとして渡す。保存Operationの通常再開は保存済みモデルを使い、cold再計算とは区別する。
-
-```bash
-uv run baibai-jobs rebuild-financial-native --saved-input /secure-work/saved-financial-input.json \
-  --work-directory /secure-work/financial-cold-read --start 2026-11-01 --end 2026-11-05 \
-  --output /secure-work/saved-financial-observations
-```
-
-旧inline入力と新しい共有固定入力は同じreaderで読む。旧Selectionのhash・本文を書き換えず、cold readerも対応codeへ揃える。旧protocolのpendingがある場合は新取得を止め、元の作業directory・原本・確定状態から復旧する。head消失や大きすぎるrequestを空初期化で通さない。
+再生成は保存JSONの `inputs.generation.inputs.financial`（generation headerは `inputs.financial`）をdescriptor込みのInputSnapshotとして `--saved-input` へ渡す。旧inline/共有固定入力を同じreaderで読み、旧Selectionのhash/本文を書き換えない。cold readerも対応codeへ揃える。保存Operationの通常再開は保存済みモデルを使い、cold再計算とは別である。旧protocolのpendingは新取得を止め、元directory・原本・確定状態から復旧する。大きすぎるrequestも空初期化で通さない。
 
 ### 旧財務L1からの有限移行と切替条件
 
-[共通手順](#jquants-native-operations)で全financial stageを固定し、次を順に実行する。comparisonの旧のみ・新のみ・内容差と日別不足を確認し、受け入れる意味差は明示する。
+[共通手順](#jquants-native-operations)で全financial stageを移し、旧のみ/新のみ/内容差と日別不足を比較する。財務query・maintenance・historical readerも切替範囲を確認し、参照releaseの財務L2欠落を正常空にしない。
 
-```bash
-uv run baibai-jobs financial-native-cutover prepare --directory /secure-work/financial-migration \
-  --work-directory /secure-work/financial-mirror --release <FIXED_OLD_RELEASE> \
-  --manifest-sha256 <FIXED_OLD_SHA256> --known-at <REAL_UTC_BOUNDARY>
-# plan.jsonのblockedと全stage/出所を確認後、空targetへ一度だけinitialize
-uv run baibai-jobs financial-native-cutover apply --directory /secure-work/financial-migration \
-  --work-directory /secure-work/financial-mirror
-uv run baibai-jobs financial-native-cutover verify --directory /secure-work/financial-migration \
-  --work-directory /secure-work/financial-cold-read
-uv run baibai-jobs financial-native-cutover compare --directory /secure-work/financial-migration \
-  --work-directory /secure-work/financial-compare
-```
-
-通常generation以外の財務query・maintenance・historical readerも切替対象を確認する。参照releaseに財務L2がないことを正常空と解釈させない。初回dailyが除くのはdownload済み実行copyの旧財務table/coverageであり、L1・旧immutable release・application DBではない。モデルのfinancial identity、upload copyのdehydrateと次hydrateを読戻す。
+初回dailyが除くのはdownload済みcopyの旧財務table/coverageだけで、L1・旧immutable release・application DBではない。モデルのfinancial identityと、upload copyのdehydrate/次hydrateを読戻す。
 
 <a id="master-native-l1"></a>
 ## master native L1と取得依存の切替
 
-`BAIBAI_MASTER_NATIVE` はmaster取得・通常モデル/公開・TradingView・外部評価を一組で選ぶ。masterは疎なsnapshotであり、日足の連続backfillを流用しない。通常は非空受領済みの日を再GETせず、明示訂正は `--force` を使う。詳しい完了条件は[取得owner](../engine/src/baibai_engine/data_collection/providers/jquants/master_native.py)。
+`BAIBAI_MASTER_NATIVE` はmaster取得・モデル/公開・TradingView・外部評価を一組で選ぶ。masterは疎なsnapshotで、非空受領済み日は通常再GETせず、訂正だけ `--force` を使う。[取得owner](../engine/src/baibai_engine/data_collection/providers/jquants/master_native.py)に従い、日足の連続backfillを流用しない。
 
-```bash
-uv run baibai-jobs jquants-master-native initialize --directory /secure-work/master-init
-uv run baibai-jobs jquants-master-native acquire --directory /secure-work/master-cycle \
-  --start 2026-11-05 --end 2026-11-05
-uv run baibai-jobs jquants-master-native acquire --directory /secure-work/master-correction \
-  --start 2026-11-04 --end 2026-11-04 --force
-uv run baibai-jobs rebuild-master-native --work-directory /secure-work/master-read \
-  --start 2026-10-01 --end 2026-11-05 --output /secure-work/master-observations
-```
+保存 `inputs.master` とその暦で再生し、休日basisを最新暦へ差し替えない。旧bootstrapのmaster取得は使わず、`backfill-master` または専用native CLIへ向ける。月末cohort日を作るbackfillだけは既存bars gridを要求する。
 
-保存 `inputs.master` を `--saved-input` に渡して再生する。休日basisも固定入力の暦を使い、最新暦へ取り替えない。旧bootstrapのmaster取得は使わず、明示 `backfill-master` または専用native CLIへ向ける。月末cohort日を作るbackfillだけは既存bars gridを必要とする。
-
-TradingView・外部評価も取得前にnative masterを固定し、元のbindingで再開する。空/failed/heldから旧masterへ黙って戻さない。通常calendarの休場判定より前に取得するため、休日の追加GETを切替時に確認する。
+TradingView/外部評価も取得前にnative masterを固定し、元bindingで再開する。空/failed/heldを旧masterで埋めない。通常calendarの休場判定より前に取得するため、休日の追加GETを確認する。
 
 ### 旧masterの有限移行
 
-[共通手順](#jquants-native-operations)でmarketとTradingViewの両master writerを止め、両sourceの全stageを固定する。marketのrequest IDsとTradingViewのmaster/receipt IDsを照合し、master原本だけを移す。
-
-```bash
-uv run baibai-jobs master-native-cutover prepare --directory /secure-work/master-migration \
-  --work-directory /secure-work/master-mirror --release <FIXED_OLD_RELEASE> \
-  --manifest-sha256 <FIXED_SHA256> --known-at <UTC_BOUNDARY>
-uv run baibai-jobs master-native-cutover apply --directory /secure-work/master-migration \
-  --work-directory /secure-work/master-writer
-uv run baibai-jobs master-native-cutover verify --directory /secure-work/master-migration \
-  --work-directory /secure-work/master-cold
-uv run baibai-jobs master-native-cutover compare --directory /secure-work/master-migration \
-  --work-directory /secure-work/master-compare
-```
-
-全過去取得日/全Codeのcompareを確認する。移行後のmixed stageはnativeに保持したfingerprintとbytesを照合してmasterだけ再投影から外す。未移行IDや原本不足を既知扱いしない。
+[共通手順](#jquants-native-operations)でmarket/TradingView両writerと全stageを固定する。market request IDとTradingView master/receipt IDを照合してmasterだけ移し、全過去取得日/全Codeをcompareする。mixed stageのmasterはnative fingerprint/bytes一致時だけ再投影から外し、未移行ID・原本不足を既知扱いしない。
 
 <a id="calendar-native-l1"></a>
 ## market_calendar native L1と日別充足
 
-`BAIBAI_CALENDAR_NATIVE` の通常モデル/公開への切替は、旧exporterのcalendar依存を残さないため財務・日足・masterのnative設定も同時に有効にする。明示取得自体は他source/L2/releaseを必要としない。
+`BAIBAI_CALENDAR_NATIVE` の通常モデル/公開への切替は、旧exporterの依存を残さないため財務・日足・masterも同時に有効化する。明示取得は他source/L2/releaseを必要としない。
 
-暦はrange原本を保持する。[取得owner](../engine/src/baibai_engine/data_collection/providers/jquants/calendar_native.py)の欠測補修計画を使い、日足の強制overlapを流用しない。既取得日の明示訂正だけ `--force` を使う。未知HolDiv・不正日・partialを休場と推測せず、必要区間が欠ける場合はmasterの休日basisを確認する。
+range原本と[欠測補修計画](../engine/src/baibai_engine/data_collection/providers/jquants/calendar_native.py)を使い、既取得日の明示訂正だけ `--force` で取得する。日足の強制overlapを流用せず、未知HolDiv・不正日・partialを休場と推測しない。必要区間が欠ければmasterの休日basisを確認する。`commit-work` は保存実受領だけを再確認し、空/partialを成功にしない。
+
+calendarの固定再生は次だけを指定し、最新暦を混ぜない。
 
 ```bash
-uv run baibai-jobs jquants-calendar-native initialize --directory /secure-work/calendar-init
-uv run baibai-jobs jquants-calendar-native acquire --directory /secure-work/calendar-cycle \
-  --start 2026-10-29 --end 2026-12-20
-uv run baibai-jobs jquants-calendar-native acquire --directory /secure-work/calendar-correction \
-  --start 2026-11-01 --end 2026-12-20 --force
-uv run baibai-jobs jquants-calendar-native commit-work --directory /secure-work/calendar-cycle
-uv run baibai-jobs rebuild-calendar-native --saved-input /secure-work/calendar-input.json \
-  --output /secure-work/calendar-cold
+uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>
 ```
-
-`commit-work` は保存した実受領だけを再確認する。空/partialを成功へ変えず、`--saved-input` の再生に最新暦を混ぜない。
 
 ### 旧calendar rangeとdependencyの有限移行
 
-[共通手順](#jquants-native-operations)でmarket/TradingViewの全stageを固定する。page原本だけでなく、別途保存されたcalendar dependency JSONも固定manifestとdigestを照合して取り込む。
-
-```bash
-uv run baibai-jobs calendar-native-cutover prepare --directory /secure-work/calendar-migration \
-  --work-directory /secure-work/calendar-mirror --release <FIXED_OLD_RELEASE> \
-  --manifest-sha256 <FIXED_SHA256> --known-at <UTC_BOUNDARY>
-uv run baibai-jobs calendar-native-cutover apply --directory /secure-work/calendar-migration \
-  --work-directory /secure-work/calendar-writer
-uv run baibai-jobs calendar-native-cutover verify --directory /secure-work/calendar-migration \
-  --work-directory /secure-work/calendar-cold-verify
-uv run baibai-jobs calendar-native-cutover compare --directory /secure-work/calendar-migration \
-  --work-directory /secure-work/calendar-compare
-```
-
-旧投影compareと全pack読戻しを確認する。移行済みmixed stageはcalendarだけ再投影から外し、他source原本を維持する。切替後の旧bootstrap calendar writerは使わず、専用native CLIへ向ける。
+[共通手順](#jquants-native-operations)でmarket/TradingView全stageのpageと、別保存のcalendar dependency JSONを固定manifest/digestと照合する。旧投影compare・全pack読戻し後、mixed stageのcalendarだけを再投影から外し他sourceを保つ。切替後の旧bootstrap calendar writerは使わず、専用native CLIへ向ける。
 
 <a id="edinet-list-native-l1"></a>
 ### EDINET一覧原本の独立取得・有限切替
