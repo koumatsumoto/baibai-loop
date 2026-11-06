@@ -16,9 +16,13 @@ from baibai_engine.data_collection.acquisition.policy import (
 from baibai_engine.data_collection.acquisition.policy import source_policy as economic_source_policy
 from baibai_engine.data_collection.catalog import load_sources as load_economic_sources
 from baibai_engine.data_collection.receipts.native_sources.handoff import (
+    export_pmi_input,
+    export_tsr_input,
+)
+from baibai_engine.data_collection.receipts.native_sources.handoff import (
     export_receipts as export_economic_receipts,
 )
-from baibai_engine.data_collection.receipts.native_sources.handoff import export_tsr_input
+from baibai_engine.data_collection.receipts.native_sources.planning_inputs import export_day_input
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -138,6 +142,8 @@ def _publish_one(
         report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
         if group == "economic-tsr_bankruptcies":
             export_tsr_input(economic, path)
+        elif group in {"economic-umich_sca", "economic-ecb_fx"}:
+            export_day_input(economic, path, group=group)
         elif group.startswith("economic-"):
             source_ids = sorted(
                 source.source_id
@@ -150,12 +156,15 @@ def _publish_one(
                 # the generation-bound SQLite envelope, not a second L1 history.
                 # Fresh canonical acceptance still owns same-body/late comparison.
                 source_ids = []
-            export_economic_receipts(
-                economic,
-                path,
-                source_ids=source_ids,
-                since=datetime.min.replace(tzinfo=UTC),
-            )
+            if group == "economic-spglobal_pmi":
+                export_pmi_input(economic, path, source_ids=source_ids)
+            else:
+                export_economic_receipts(
+                    economic,
+                    path,
+                    source_ids=source_ids,
+                    since=datetime.min.replace(tzinfo=UTC),
+                )
         else:
             report = export_market_source_input(market, path, group=group, asof=asof)
         report["canonical_generations"] = generations
