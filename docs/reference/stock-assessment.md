@@ -76,6 +76,8 @@ terminalは分配後の残余価値、cashは期間内累積分配で、同じ�
 
 `investment-judgment calculate`はtyped ratio/Projectionの算術だけで文章や売上からterminalを作らない。
 
+入力の任意の `price_comparison`（`price_yen` と任意の `hypothetical_quantity`）で、観測Factを差し替えず別価格を比較できる。別枠の損益は仮数量が全量同値で成立した税費用前・再投資なしの条件例で、必要支出を口座cashや購入可能量へ読み替えない。単元・呼値・約定・採用/Reviewは検証せず、元のvaluation/Review用数値と正規提案のPmax/no-add等の判定を変えない。
+
 `--cash-share-cb`は額面現金＋転換価値超過分の株式交付CBだけの試算。額面は計上債務の消滅と対応し再控除しない。決済VWAP・配当調整参照終値・評価株価、端株現金をVWAPと置く試算・VWAPと終価を結ぶ固定点を分ける。調整時期/本数/権利は原典確認し、連続近似や整数固定点不存在を実決済へ読み替えない。採否は別判断である。
 
 <a id="valuation-context"></a>
