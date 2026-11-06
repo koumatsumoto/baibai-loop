@@ -13,6 +13,7 @@ from datetime import (
     datetime,
 )
 from pathlib import Path
+from typing import Any
 
 from mcp.types import CallToolResult
 
@@ -66,6 +67,17 @@ BatchFetch = Callable[[list[str], list[str]], Awaitable[CallToolResult]]
 ProgressHook = Callable[[CollectionProgress], None]
 
 
+def _complete_native_answer(result_json: str, symbols: list[str] | tuple[str, ...]) -> bool:
+    try:
+        data, _ = account_batch(decode_tool_result(result_json), symbols)
+    except (observations_owner.FetchError, BatchAccountingError):
+        return False
+    return all(
+        isinstance(row, dict) and set(observations_owner.COLUMNS) <= row.keys()
+        for row in data.values()
+    )
+
+
 def _retained_coverage(
     conn: sqlite3.Connection, day: date, basis: date, expected: set[str], *, business: bool
 ) -> set[str]:
@@ -96,15 +108,10 @@ def _retained_coverage(
             continue
         try:
             validate_time(day, receipt.received_at_utc, is_business_day=business)
-            data, _ = account_batch(decode_tool_result(receipt.result_json), requested)
-        except (observations_owner.FetchError, BatchAccountingError):
+        except observations_owner.FetchError:
             continue
-        if any(
-            not isinstance(row, dict) or not set(receipt.requested_columns) <= row.keys()
-            for row in data.values()
-        ):
-            continue
-        covered.update(requested)
+        if _complete_native_answer(receipt.result_json, requested):
+            covered.update(requested)
     return covered
 
 
@@ -368,45 +375,51 @@ async def collect(
                 break
             try:
                 payload = decode_tool_result(result_json)
-                rows = observations_owner.normalize_batch(payload, chunk, fetched)
+                rows: list[dict[str, Any]] | None = observations_owner.normalize_batch(
+                    payload, chunk, fetched
+                )
             except observations_owner.ProviderPayloadError as exc:
-                consecutive_bad += 1
                 last_error = exc
                 stop_reason = failure_category(exc)
-                if consecutive_bad >= 3:
-                    break
-                continue
+                if not _complete_native_answer(result_json, chunk):
+                    consecutive_bad += 1
+                    if consecutive_bad >= 3:
+                        break
+                    continue
+                # A complete original is L1 progress even when L2 cannot interpret it.
+                rows = None
             except observations_owner.FetchError as exc:
                 last_error = exc
                 stop_reason = failure_category(exc)
                 break
             # Acquire missing originals without silently replacing an existing L2 date.
             # Rebuilding that date from an explicit receipt selection is a separate action.
-            rows = [row for row in rows if row["ticker"] not in prior_tickers]
-            current = replace(current, phase="store")
-            emit()
-            conn.execute("BEGIN IMMEDIATE")
-            existing = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT ticker FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
-                    (day.isoformat(),),
-                )
-            }
-            if any(row["ticker"] in existing for row in rows):
-                raise SourceDataError("TradingView row changed during collection")
-            conn.executemany(
-                sql,
-                [
-                    tuple(
-                        day.isoformat() if name == "snapshot_date" else row.get(name)
-                        for name in names
+            if rows is not None:
+                rows = [row for row in rows if row["ticker"] not in prior_tickers]
+                current = replace(current, phase="store")
+                emit()
+                conn.execute("BEGIN IMMEDIATE")
+                existing = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT ticker FROM tradingview_forecast_snapshots WHERE snapshot_date=?",
+                        (day.isoformat(),),
                     )
-                    for row in rows
-                ],
-            )
-            conn.commit()
-            rows_added += len(rows)
+                }
+                if any(row["ticker"] in existing for row in rows):
+                    raise SourceDataError("TradingView row changed during collection")
+                conn.executemany(
+                    sql,
+                    [
+                        tuple(
+                            day.isoformat() if name == "snapshot_date" else row.get(name)
+                            for name in names
+                        )
+                        for row in rows
+                    ],
+                )
+                conn.commit()
+                rows_added += len(rows)
             consecutive_bad = 0
             current = replace(
                 current,
