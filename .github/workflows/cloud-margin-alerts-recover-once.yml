@@ -1,0 +1,1001 @@
+name: cloud-margin-alerts-recover-once
+
+# 既存原本を再移行せず、固定された直近未取得日だけを受領する。
+on:
+  push:
+    branches: [codex/margin-alerts-recover-20261106]
+    paths: [.github/workflows/cloud-margin-alerts-recover-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: >-
+      ${{ github.repository == 'koumatsumoto/baibai-loop' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/codex/margin-alerts-recover-20261106' &&
+          github.run_attempt == 1 &&
+          github.event.head_commit.message == 'ops: 日々公表の直近欠測だけを一度回復 (2026-11-06)' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require the reviewed code and only this temporary workflow change
+        env:
+          EXPECTED_CODE_SHA: 76a82af5808c7dd17e3b0efe7caf7a7268284b11
+        run: |
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_CODE_SHA"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = '.github/workflows/cloud-margin-alerts-recover-once.yml'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - name: Recover only the fixed recent missing margin dates
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+          ALLOW_RECENT_MISSING_RECOVERY: 'true'
+        run: |
+          umask 077
+          cat > "$RUNNER_TEMP/margin_alerts_diagnose_once.py" <<'PY_DIAGNOSE'
+          """既存margin移行の私有metadataとheadだけを読み、raw不足とL2品質を分ける。"""
+          
+          from __future__ import annotations
+          
+          import contextlib
+          import hashlib
+          import json
+          import os
+          import re
+          import sys
+          from datetime import UTC, date, datetime, timedelta
+          from pathlib import Path
+          
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+              HEAD_KEY,
+              FixedMarginAlertsL1,
+              plan_margin_alert_days,
+          )
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          
+          RUN_ID = "42132114612"
+          PRIVATE_PREFIX = f"coordination/cutovers/margin-alerts-native/{RUN_ID}/"
+          NAMES = ("state", "plan", "applied", "comparison", "next-acquisition-plan", "outcome")
+          OBJECT_LIMIT = 16 * 1024 * 1024
+          TOTAL_LIMIT = 32 * 1024 * 1024
+          LIST_LIMIT = 32
+          HEX = r"[0-9a-f]{64}"
+          
+          
+          class DiagnosisFailure(RuntimeError):
+              """公開可能な固定reasonだけを保持する。"""
+          
+          
+          def require(condition, code):
+              if not condition:
+                  raise DiagnosisFailure(code)
+          
+          
+          class MetadataReader:
+              """exact runの6JSONとnative head以外のbody、全write経路を公開しない。"""
+          
+              def __init__(self, store):
+                  self.store = store
+                  self.bytes_read = 0
+          
+              def listing(self):
+                  found = {}
+                  for index, (key, size) in enumerate(self.store.iter_objects(PRIVATE_PREFIX)):
+                      require(index < LIST_LIMIT, "private_listing_limit")
+                      require(key.startswith(PRIVATE_PREFIX), "private_listing_outside_scope")
+                      found[key] = size
+                  return found
+          
+              def head(self, key):
+                  allowed = key == HEAD_KEY or any(
+                      re.fullmatch(re.escape(PRIVATE_PREFIX + name + ".json-") + HEX, key)
+                      for name in NAMES
+                  )
+                  require(allowed, "metadata_outside_scope")
+                  return self.store.head(key)
+          
+              def get(self, key):
+                  before = self.head(key)
+                  require(before is not None, "required_metadata_missing")
+                  require(0 <= before.size <= OBJECT_LIMIT, "metadata_object_limit")
+                  require(self.bytes_read + before.size <= TOTAL_LIMIT, "metadata_total_limit")
+                  self.bytes_read += before.size
+                  response = self.store._client(before.size).get_object(
+                      Bucket=self.store.bucket, Key=key, IfMatch=before.etag
+                  )
+                  body = response["Body"]
+                  try:
+                      payload = body.read(before.size + 1)
+                  finally:
+                      body.close()
+                  require(len(payload) == before.size, "metadata_size_changed")
+                  require(self.head(key) == before, "metadata_changed_during_read")
+                  return payload, before
+          
+          
+          def analyze(documents, fixed):
+              """固定metadataのみから分類する。原本の再検証・新しい完了認定ではない。"""
+              state, plan, applied, comparison, following, outcome = (
+                  documents[name] for name in NAMES
+              )
+              require(state["format"] == "margin-alerts-cutover-once-v1", "state_format_invalid")
+              for key in ("release_id", "manifest_sha256"):
+                  require(state[key] == plan[key] == comparison[key], "release_binding_mismatch")
+              require(state["known_at"] == plan["known_at"], "clock_binding_mismatch")
+              clock = datetime.fromisoformat(state["known_at"])
+              require(clock.utcoffset() is not None, "clock_timezone_missing")
+              asof = date.fromisoformat(state["asof"])
+              require(
+                  asof.isoformat() == comparison["as_of"] == following["asof"],
+                  "asof_binding_mismatch",
+              )
+              require(
+                  fixed.content_id
+                  == applied["head_sha256"]
+                  == comparison["head_sha256"]
+                  == following["head_sha256"],
+                  "native_head_differs_from_applied",
+              )
+              require(
+                  not plan["blocked"] and bool(plan["attempts"]), "finite_plan_not_applicable"
+              )
+              attempts = {item["request_id"]: item["sha256"] for item in plan["attempts"]}
+              require(len(attempts) == len(plan["attempts"]), "duplicate_plan_identity")
+              head = fixed.value()
+              require(
+                  attempts
+                  == {key: value["fingerprint"] for key, value in head["receipts"].items()},
+                  "native_receipts_differ_from_plan",
+              )
+              require(
+                  not comparison["differences"]
+                  and comparison["rows"]
+                  == comparison["legacy_rows"]
+                  == comparison["native_rows"]
+                  == comparison["matched_rows"],
+                  "saved_comparison_not_equal",
+              )
+              require(
+                  outcome.get("native_applied") is True
+                  and outcome.get("native_verified") is True
+                  and outcome.get("comparison_equal") is True
+                  and outcome.get("migration_completed") is False
+                  and outcome.get("coverage_complete") is False
+                  and outcome.get("failed_phase") == "verify_compare",
+                  "saved_outcome_differs_from_reported_failure",
+              )
+              scopes = head["scopes"]
+              require(bool(scopes), "native_scopes_empty")
+              first, last = (
+                  min(map(date.fromisoformat, scopes)),
+                  max(asof, *map(date.fromisoformat, scopes)),
+              )
+              days = tuple(
+                  first + timedelta(days=offset) for offset in range((last - first).days + 1)
+              )
+              # Exact row parity implies all old row dates are in this native interval.
+              require(len(days) == comparison["publication_days"], "comparison_interval_mismatch")
+              missing, failed, held, raw_partial = [], [], [], []
+              for day in days:
+                  scope = scopes.get(day.isoformat(), {})
+                  for key in ("confirmed_at", "last_attempt_at", "changed_at"):
+                      if value := scope.get(key):
+                          moment = datetime.fromisoformat(value)
+                          require(
+                              moment.utcoffset() is not None and moment <= clock,
+                              "scope_after_boundary",
+                          )
+                  for key in ("adopted", "failure", "held"):
+                      if identity := scope.get(key):
+                          require(identity in head["receipts"], "scope_receipt_missing")
+                  if not scope.get("adopted"):
+                      missing.append(day)
+                  if scope.get("failure"):
+                      failed.append(day)
+                  if scope.get("held"):
+                      held.append(day)
+                  if scope.get("adopted") and (scope.get("failure") or scope.get("held")):
+                      raw_partial.append(day)
+              require(
+                  len(missing) == comparison["unavailable_days"],
+                  "saved_unavailable_count_mismatch",
+              )
+              partial_count = comparison["partial_days"]
+              require(
+                  type(partial_count) is int
+                  and len(raw_partial) <= partial_count <= len(days) - len(missing),
+                  "saved_partial_count_mismatch",
+              )
+              require(
+                  comparison["coverage_status"] == "partial" and (missing or partial_count),
+                  "saved_coverage_inconsistent",
+              )
+              planned = plan_margin_alert_days(fixed, asof=asof)
+              require(
+                  [day.isoformat() for day in planned] == following["days"]
+                  and following["provider_requests_performed"] == 0,
+                  "saved_next_plan_mismatch",
+              )
+              unresolved = set(missing + failed + held)
+              overlap_start = asof - timedelta(days=7)
+              quality_extra = partial_count - len(raw_partial)
+              public = {
+                  "diagnostic_completed": True,
+                  "private_evidence_bound": True,
+                  "native_head_matches_applied": True,
+                  "native_receipts_match_fixed_plan": True,
+                  "comparison_equal": True,
+                  "raw_coverage_complete": not unresolved,
+                  "raw_missing_days_present": bool(missing),
+                  "raw_failed_days_present": bool(failed),
+                  "raw_held_days_present": bool(held),
+                  "raw_gaps_before_recent_overlap": any(
+                      day < overlap_start for day in unresolved
+                  ),
+                  "raw_gaps_after_asof": any(day > asof for day in unresolved),
+                  "comparison_extends_after_asof": last > asof,
+                  "additional_projection_quality_partial": quality_extra > 0,
+                  # If raw and L2 failures overlap, metadata cannot rule out extra quality problems.
+                  "projection_quality_partial_count_exact": not raw_partial,
+                  "next_acquisition_plan_matches": True,
+                  "next_acquire_within_eight_days": len(planned) <= 8,
+                  "original_bytes_reverified": False,
+                  "retention_verified": False,
+                  "migration_completion_changed": False,
+                  "remote_writes": False,
+                  "provider_requests": False,
+              }
+              private = {
+                  "comparison_start": first.isoformat(),
+                  "comparison_end": last.isoformat(),
+                  "missing_days": [day.isoformat() for day in missing],
+                  "failed_days": [day.isoformat() for day in failed],
+                  "held_days": [day.isoformat() for day in held],
+                  "raw_partial_days": [day.isoformat() for day in raw_partial],
+                  "additional_projection_partial_days": quality_extra,
+                  "next_days": [day.isoformat() for day in planned],
+              }
+              return public, private
+          
+          
+          def inspect(store):
+              reader = MetadataReader(store)
+              before = reader.listing()
+              documents, keys = {}, {}
+              for name in NAMES:
+                  matches = [
+                      key
+                      for key in before
+                      if re.fullmatch(re.escape(PRIVATE_PREFIX + name + ".json-") + HEX, key)
+                  ]
+                  require(len(matches) == 1, "private_document_missing_or_ambiguous")
+                  key = matches[0]
+                  payload, _ = reader.get(key)
+                  require(
+                      hashlib.sha256(payload).hexdigest() == key.rsplit("-", 1)[1],
+                      "private_digest_mismatch",
+                  )
+                  documents[name], keys[name] = json.loads(payload), key
+              payload, native = reader.get(HEAD_KEY)
+              fixed = FixedMarginAlertsL1(payload, native.etag)
+              public, details = analyze(documents, fixed)
+              require(before == reader.listing(), "private_evidence_changed")
+              require(reader.head(HEAD_KEY) == native, "native_head_changed")
+              public["native_head_stable"] = True
+              private = {
+                  "checked_at": datetime.now(UTC).isoformat(),
+                  "run_id": RUN_ID,
+                  "private_keys": keys,
+                  "documents": documents,
+                  "native_head": fixed.value(),
+                  "native_etag": native.etag,
+                  "native_head_sha256": fixed.content_id,
+                  "metadata_bytes": reader.bytes_read,
+                  "diagnosis": details,
+                  "public": public,
+              }
+              return public, private
+          
+          
+          def private_file(path):
+              return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w")
+          
+          
+          def main():
+              output = sys.stdout
+              try:
+                  directory = Path(os.environ["RUNNER_TEMP"])
+                  with (
+                      private_file(directory / "margin-diagnosis-private.log") as private_log,
+                      contextlib.redirect_stdout(private_log),
+                      contextlib.redirect_stderr(private_log),
+                      contextlib.closing(Boto3R2Store(bucket="baibai-stores")) as store,
+                  ):
+                      require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1", "first_attempt_only")
+                      public, private = inspect(store)
+                      with private_file(directory / "margin-diagnosis-private.json") as stream:
+                          json.dump(private, stream, sort_keys=True)
+              except Exception as error:  # noqa: BLE001 - 私有情報を公開tracebackへ漏らさない最外境界。
+                  public = {
+                      "diagnostic_completed": False,
+                      "remote_writes": False,
+                      "provider_requests": False,
+                      "error_type": type(error).__name__,
+                  }
+                  if isinstance(error, DiagnosisFailure):
+                      public["reason"] = str(error)
+              output.write(
+                  json.dumps({"at": datetime.now(UTC).isoformat(), **public}, sort_keys=True)
+                  + "\n"
+              )
+              return 0 if public["diagnostic_completed"] else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY_DIAGNOSE
+          cat > "$RUNNER_TEMP/margin_alerts_recover_once.py" <<'PY_RECOVER'
+          """固定旧移行で未取得だった直近日だけを受領し、新しい境界で受け入れる。"""
+          
+          from __future__ import annotations
+          
+          import contextlib
+          import json
+          import os
+          import re
+          import sys
+          from datetime import UTC, date, datetime, timedelta
+          from pathlib import Path
+          
+          from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+              HEAD_KEY,
+              PREFIX,
+              MarginAlertsAttempt,
+              MarginAlertsL1,
+          )
+          from baibai_engine.data_collection.providers.jquants.native_objects import (
+              _digest,
+              _json,
+              _put,
+          )
+          from baibai_engine.machine_analysis.observations.jquants_writer import (
+              _margin_alert_rows_with_quality,
+          )
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_jobs.acquisition.jquants_full_day_native import acquire_full_day_native
+          from margin_alerts_diagnose_once import inspect, private_file
+          
+          EVIDENCE_PREFIX = "coordination/cutovers/margin-alerts-recovery/"
+          OBJECT_LIMIT = 16 * 1024 * 1024
+          
+          
+          class RecoveryFailure(RuntimeError):
+              """公開可能な固定reasonだけを保持する。"""
+          
+          
+          def require(condition, code):
+              if not condition:
+                  raise RecoveryFailure(code)
+          
+          
+          class RecoveryStore:
+              """既存headのCASと新原本packだけを書く。旧packを再取得しない。"""
+          
+              def __init__(self, store, initial_etag):
+                  self.store = store
+                  self.initial_etag = initial_etag
+                  self.new_packs = set()
+                  self.write_attempted = False
+          
+              def head(self, key):
+                  require(
+                      key == HEAD_KEY or key in self.new_packs, "native_read_outside_recovery"
+                  )
+                  return self.store.head(key)
+          
+              def get_bytes(self, key):
+                  before = self.head(key)
+                  require(before is not None, "recovery_object_missing")
+                  require(0 <= before.size <= OBJECT_LIMIT, "recovery_object_size_limit")
+                  response = self.store._client(before.size).get_object(
+                      Bucket=self.store.bucket, Key=key, IfMatch=before.etag
+                  )
+                  body = response["Body"]
+                  try:
+                      payload = body.read(before.size + 1)
+                  finally:
+                      body.close()
+                  require(len(payload) == before.size, "recovery_object_size_changed")
+                  require(self.head(key) == before, "recovery_object_changed")
+                  return payload
+          
+              def put_file(self, key, path, **kwargs):
+                  is_head = key == HEAD_KEY
+                  is_pack = re.fullmatch(
+                      re.escape(PREFIX + "packs/") + r"[0-9a-f]{64}\.json\.gz", key
+                  )
+                  require(is_head or is_pack, "native_write_outside_recovery")
+                  require(path.stat().st_size <= OBJECT_LIMIT, "recovery_object_size_limit")
+                  if is_head:
+                      require(
+                          kwargs.get("if_match") == self.initial_etag
+                          and not kwargs.get("if_none_match"),
+                          "existing_head_cas_required",
+                      )
+                  else:
+                      require(
+                          kwargs.get("if_none_match") and not kwargs.get("if_match"),
+                          "new_pack_create_only",
+                      )
+                  if is_head:
+                      current = self.store.head(HEAD_KEY)
+                      require(
+                          current is not None and current.etag == self.initial_etag,
+                          "native_writer_changed",
+                      )
+                  # Immutable new bodies may survive a competing head; never overwrite that head.
+                  if is_pack:
+                      self.new_packs.add(key)
+                  self.write_attempted = True
+                  return self.store.put_file(key, path, **kwargs)
+          
+          
+          def recovery_days(checks, evidence):
+              required_true = (
+                  "diagnostic_completed",
+                  "private_evidence_bound",
+                  "native_head_matches_applied",
+                  "native_head_stable",
+                  "native_receipts_match_fixed_plan",
+                  "comparison_equal",
+                  "raw_missing_days_present",
+                  "projection_quality_partial_count_exact",
+                  "next_acquisition_plan_matches",
+                  "next_acquire_within_eight_days",
+              )
+              required_false = (
+                  "raw_coverage_complete",
+                  "raw_failed_days_present",
+                  "raw_held_days_present",
+                  "raw_gaps_before_recent_overlap",
+                  "raw_gaps_after_asof",
+                  "additional_projection_quality_partial",
+                  "remote_writes",
+                  "provider_requests",
+              )
+              require(
+                  all(checks.get(key) is True for key in required_true),
+                  "prior_diagnosis_not_accepted",
+              )
+              require(
+                  all(checks.get(key) is False for key in required_false),
+                  "prior_diagnosis_changed",
+              )
+              asof = date.fromisoformat(evidence["documents"]["state"]["asof"])
+              days = tuple(
+                  date.fromisoformat(day) for day in evidence["diagnosis"]["missing_days"]
+              )
+              require(
+                  1 <= len(days) <= 8 and list(days) == sorted(set(days)),
+                  "invalid_missing_day_plan",
+              )
+              require(
+                  all(asof - timedelta(days=7) <= day <= asof for day in days),
+                  "missing_day_outside_recent_scope",
+              )
+              return days
+          
+          
+          def preserve_evidence(store, directory, run_id, name, value):
+              payload = _json(value)
+              require(len(payload) <= 64 * 1024, "recovery_evidence_size_limit")
+              key = f"{EVIDENCE_PREFIX}{run_id}/{name}.json-{_digest(payload)}"
+              _put(store, key, payload, directory, etag=None)
+              return key
+          
+          
+          def verify_new_head(prior, current, directory, days):
+              before, after = prior.value(), current.value()
+              allowed = {day.isoformat() for day in days}
+              require(
+                  {
+                      key: value
+                      for key, value in before.items()
+                      if key not in {"receipts", "scopes"}
+                  }
+                  == {
+                      key: value
+                      for key, value in after.items()
+                      if key not in {"receipts", "scopes"}
+                  },
+                  "native_contract_changed",
+              )
+              require(
+                  all(
+                      after["receipts"].get(key) == value
+                      for key, value in before["receipts"].items()
+                  ),
+                  "prior_receipt_changed",
+              )
+              require(
+                  {key: value for key, value in before["scopes"].items() if key not in allowed}
+                  == {key: value for key, value in after["scopes"].items() if key not in allowed},
+                  "unselected_scope_changed",
+              )
+              attempts = [
+                  MarginAlertsAttempt.from_value(json.loads(path.read_bytes()))
+                  for path in directory.glob("attempt-*.json")
+              ]
+              require(
+                  bool(attempts) and len(attempts) <= len(days),
+                  "unexpected_recovery_attempt_count",
+              )
+              require(
+                  len({item.day for item in attempts}) == len(attempts), "duplicate_recovery_day"
+              )
+              require(all(item.day in days for item in attempts), "recovery_attempt_outside_plan")
+              additions = {
+                  key: value
+                  for key, value in after["receipts"].items()
+                  if key not in before["receipts"]
+              }
+              require(
+                  {key: value["fingerprint"] for key, value in additions.items()}
+                  == {item.request_id: _digest(_json(item.value())) for item in attempts},
+                  "new_receipts_differ_from_acquisition",
+              )
+          
+          
+          def execute(
+              store,
+              directory,
+              *,
+              run_id,
+              client_factory,
+              clock=lambda: datetime.now(UTC),
+              inspect_prior=inspect,
+          ):
+              require(run_id.isdigit(), "invalid_run_identity")
+              directory.mkdir(parents=True, exist_ok=False)
+              report = {
+                  "recovery_acceptance_completed": False,
+                  "native_originals_accepted": False,
+                  "recovered_projection_complete": False,
+                  "native_write_attempted": False,
+                  "provider_requests_attempted": False,
+                  "retention_verified": False,
+                  "old_full_pack_verification_repeated": False,
+                  "canonical_write_attempted": False,
+                  "lease_operation_attempted": False,
+                  "flags_changed": False,
+              }
+              native = None
+              phase = "fixed_readback"
+              private = {}
+              try:
+                  checks, evidence = inspect_prior(store)
+                  days = recovery_days(checks, evidence)
+                  report["original_migration_evidence_bound"] = True
+                  report["prior_original_verification_reused"] = True
+                  native = RecoveryStore(store, evidence["native_etag"])
+                  owner = MarginAlertsL1(native, directory / "native")
+                  prior = owner.resume()
+                  require(
+                      prior.content_id == evidence["native_head_sha256"],
+                      "native_head_changed_before_recovery",
+                  )
+                  original_clock = datetime.fromisoformat(
+                      evidence["documents"]["state"]["known_at"]
+                  )
+                  started = clock()
+                  require(
+                      started.utcoffset() is not None and started > original_clock,
+                      "new_actual_clock_required",
+                  )
+                  private = {
+                      "format": "margin-alerts-recent-missing-recovery-v1",
+                      "original_run_id": evidence["run_id"],
+                      "original_evidence": evidence["private_keys"],
+                      "original_head_sha256": prior.content_id,
+                      "original_known_at": original_clock.isoformat(),
+                      "recovery_started_at": started.isoformat(),
+                      "days": [day.isoformat() for day in days],
+                  }
+                  phase = "preserve_intent"
+                  preserve_evidence(store, directory, run_id, "intent", private)
+                  report["recovery_intent_preserved"] = True
+                  phase = "acquire_missing"
+                  # One batch, at most eight explicit dates; no initialize or old apply call.
+                  with contextlib.closing(client_factory()) as client:
+                      report["provider_requests_attempted"] = True
+                      result = acquire_full_day_native(
+                          owner,
+                          start=days[0],
+                          end=days[-1],
+                          revision_overlap_days=0,
+                          planned_days=days,
+                          client=client,
+                          clock=clock,
+                      )
+                  private["acquisition"] = result
+                  current = owner.fixed()
+                  phase = "verify_recovered_scope"
+                  verify_new_head(prior, current, owner.directory, days)
+                  report["prior_receipt_entries_preserved"] = True
+                  report["unselected_scopes_preserved"] = True
+                  ended = clock()
+                  require(
+                      ended.utcoffset() is not None and ended >= started,
+                      "recovery_clock_reversed",
+                  )
+                  complete = set()
+                  requests = {}
+                  for item in current.requests(native, days=days):
+                      require(
+                          item.last_received_at is not None
+                          and started <= item.last_received_at <= ended,
+                          "new_receipt_clock_invalid",
+                      )
+                      if item.request is None or item.error is not None:
+                          continue
+                      request = item.request
+                      require(
+                          request.source == "margin_alerts" and set(request.params) == {"date"},
+                          "new_request_scope_invalid",
+                      )
+                      day = date.fromisoformat(request.params["date"])
+                      require(day in days and day not in complete, "new_request_day_invalid")
+                      require(
+                          current.value()["scopes"][day.isoformat()].get("adopted")
+                          == item.request_id,
+                          "new_adopted_identity_invalid",
+                      )
+                      requests[day] = request
+                      complete.add(day)
+                  scopes = current.value()["scopes"]
+                  first = date.fromisoformat(evidence["diagnosis"]["comparison_start"])
+                  last = date.fromisoformat(evidence["diagnosis"]["comparison_end"])
+                  raw_complete = all(
+                      (scope := scopes.get((first + timedelta(days=offset)).isoformat(), {})).get(
+                          "adopted"
+                      )
+                      and not scope.get("failure")
+                      and not scope.get("held")
+                      for offset in range((last - first).days + 1)
+                  )
+                  report["recovered_receipts_cold_readable"] = set(days) == complete
+                  report["raw_coverage_complete"] = raw_complete
+                  report["native_originals_accepted"] = raw_complete and set(days) == complete
+                  phase = "verify_recovered_projection"
+                  quality = {}
+                  for day, request in requests.items():
+                      try:
+                          normalized = _margin_alert_rows_with_quality(
+                              request.records(), day, day
+                          )
+                          quality[day.isoformat()] = {
+                              "rows": len(normalized.rows),
+                              "rejected": normalized.rejected_count,
+                              "excluded": normalized.excluded_count,
+                          }
+                      except Exception as error:  # noqa: BLE001 - L2解釈失敗を原本保存の失敗と混同しない。
+                          quality[day.isoformat()] = {
+                              "error_type": type(error).__name__,
+                              "error": str(error),
+                          }
+                  report["recovered_projection_complete"] = set(days) == complete and all(
+                      "error_type" not in row and not row["rejected"] for row in quality.values()
+                  )
+                  private.update(
+                      recovery_ended_at=ended.isoformat(),
+                      recovered_head_sha256=current.content_id,
+                      projection_quality=quality,
+                  )
+                  require(
+                      owner.fixed().content_id == current.content_id, "recovered_head_changed"
+                  )
+                  report["recovered_head_stable"] = True
+                  report["recovery_acceptance_completed"] = (
+                      report["native_originals_accepted"]
+                      and report["recovered_projection_complete"]
+                  )
+                  if not report["native_originals_accepted"]:
+                      report["reason"] = "recent_acquisition_incomplete"
+                  elif not report["recovered_projection_complete"]:
+                      report["reason"] = "recovered_raw_with_projection_partial"
+                  phase = "preserve_acceptance"
+                  report["native_write_attempted"] = native.write_attempted
+                  private["new_pack_keys"] = sorted(native.new_packs)
+                  private["report"] = dict(report)
+                  preserve_evidence(store, directory, run_id, "acceptance", private)
+                  report["acceptance_evidence_preserved"] = True
+              except Exception as error:  # noqa: BLE001 - 部分適用を公開ログへ漏らさず報告する最外境界。
+                  report.update(
+                      recovery_acceptance_completed=False,
+                      failed_phase=phase,
+                      error_type=type(error).__name__,
+                  )
+                  if isinstance(error, RecoveryFailure):
+                      report["reason"] = str(error)
+                  report["native_write_attempted"] = native is not None and native.write_attempted
+                  with contextlib.suppress(Exception):
+                      preserve_evidence(
+                          store,
+                          directory,
+                          run_id,
+                          "failure",
+                          {
+                              **private,
+                              "report": report,
+                              "error": str(error),
+                              "new_pack_keys": sorted(native.new_packs)
+                              if native is not None
+                              else [],
+                          },
+                      )
+              finally:
+                  report["native_write_attempted"] = native is not None and native.write_attempted
+                  report["native_state_requires_readback"] = bool(
+                      report["native_write_attempted"]
+                      and not report["recovery_acceptance_completed"]
+                  )
+              return report
+          
+          
+          def public_summary(report):
+              return {
+                  key: value
+                  for key, value in report.items()
+                  if isinstance(value, bool) or key in {"reason", "failed_phase", "error_type"}
+              }
+          
+          
+          def main():
+              output = sys.stdout
+              report = {"recovery_acceptance_completed": False}
+              try:
+                  root = Path(os.environ["RUNNER_TEMP"])
+                  with (
+                      private_file(root / "margin-recovery-private.log") as private_log,
+                      contextlib.redirect_stdout(private_log),
+                      contextlib.redirect_stderr(private_log),
+                  ):
+                      require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1", "first_attempt_only")
+                      require(
+                          os.environ.get("ALLOW_RECENT_MISSING_RECOVERY") == "true",
+                          "recovery_not_armed",
+                      )
+                      with contextlib.closing(Boto3R2Store(bucket="baibai-stores")) as store:
+                          # Stop new provider calls/retries early enough to retain the received originals.
+                          os.environ["BAIBAI_ACQUISITION_DEADLINE"] = str(
+                              datetime.now(UTC).timestamp() + 600
+                          )
+                          report = execute(
+                              store,
+                              root / "margin-recovery",
+                              run_id=os.environ["GITHUB_RUN_ID"],
+                              client_factory=lambda: JQuantsHTTP(
+                                  os.environ.get("JQUANTS_API_KEY", "")
+                              ),
+                          )
+              except Exception as error:  # noqa: BLE001 - constructor/closeの私有値を公開しない。
+                  report.update(
+                      recovery_acceptance_completed=False, error_type=type(error).__name__
+                  )
+                  if isinstance(error, RecoveryFailure):
+                      report["reason"] = str(error)
+              report["native_state_requires_readback"] = bool(
+                  report.get("native_write_attempted")
+                  and not report["recovery_acceptance_completed"]
+              )
+              output.write(
+                  json.dumps(
+                      {"at": datetime.now(UTC).isoformat(), **public_summary(report)},
+                      sort_keys=True,
+                  )
+                  + "\n"
+              )
+              return 0 if report["recovery_acceptance_completed"] else 1
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY_RECOVER
+          cat > "$RUNNER_TEMP/publish_margin_recovery_result.py" <<'PY_PUBLISH'
+          """隔離processの私有stdoutから、有限な運用判定だけを公開する。stdlibのみ。"""
+          
+          from __future__ import annotations
+          
+          import argparse
+          import json
+          from datetime import UTC, datetime
+          from pathlib import Path
+          
+          BOOLEANS = frozenset(
+              {
+                  "recovery_acceptance_completed",
+                  "native_originals_accepted",
+                  "recovered_projection_complete",
+                  "native_write_attempted",
+                  "provider_requests_attempted",
+                  "retention_verified",
+                  "old_full_pack_verification_repeated",
+                  "canonical_write_attempted",
+                  "lease_operation_attempted",
+                  "flags_changed",
+                  "original_migration_evidence_bound",
+                  "prior_original_verification_reused",
+                  "recovery_intent_preserved",
+                  "prior_receipt_entries_preserved",
+                  "unselected_scopes_preserved",
+                  "recovered_receipts_cold_readable",
+                  "raw_coverage_complete",
+                  "recovered_head_stable",
+                  "acceptance_evidence_preserved",
+                  "native_state_requires_readback",
+              }
+          )
+          SUCCESS_TRUE = BOOLEANS - {
+              "retention_verified",
+              "old_full_pack_verification_repeated",
+              "canonical_write_attempted",
+              "lease_operation_attempted",
+              "flags_changed",
+              "native_state_requires_readback",
+          }
+          SUCCESS_FALSE = BOOLEANS - SUCCESS_TRUE
+          PHASES = frozenset(
+              {
+                  "fixed_readback",
+                  "preserve_intent",
+                  "acquire_missing",
+                  "verify_recovered_scope",
+                  "verify_recovered_projection",
+                  "preserve_acceptance",
+              }
+          )
+          REASONS = frozenset(
+              {
+                  "duplicate_recovery_day",
+                  "existing_head_cas_required",
+                  "first_attempt_only",
+                  "invalid_missing_day_plan",
+                  "invalid_run_identity",
+                  "missing_day_outside_recent_scope",
+                  "native_contract_changed",
+                  "native_head_changed_before_recovery",
+                  "native_read_outside_recovery",
+                  "native_write_outside_recovery",
+                  "native_writer_changed",
+                  "new_actual_clock_required",
+                  "new_adopted_identity_invalid",
+                  "new_pack_create_only",
+                  "new_receipt_clock_invalid",
+                  "new_receipts_differ_from_acquisition",
+                  "new_request_day_invalid",
+                  "new_request_scope_invalid",
+                  "prior_diagnosis_changed",
+                  "prior_diagnosis_not_accepted",
+                  "prior_receipt_changed",
+                  "recent_acquisition_incomplete",
+                  "recovered_head_changed",
+                  "recovered_raw_with_projection_partial",
+                  "recovery_attempt_outside_plan",
+                  "recovery_clock_reversed",
+                  "recovery_evidence_size_limit",
+                  "recovery_not_armed",
+                  "recovery_object_changed",
+                  "recovery_object_missing",
+                  "recovery_object_size_changed",
+                  "recovery_object_size_limit",
+                  "unexpected_recovery_attempt_count",
+                  "unselected_scope_changed",
+              }
+          )
+          ERROR_TYPES = frozenset(
+              {
+                  "RecoveryFailure",
+                  "DiagnosisFailure",
+                  "R2Error",
+                  "LakePublishError",
+                  "LakeCASConflict",
+                  "JQuantsAcquisitionError",
+                  "JQuantsRateLimitError",
+                  "ValueError",
+                  "RuntimeError",
+                  "FileNotFoundError",
+                  "FileExistsError",
+                  "PermissionError",
+                  "OSError",
+                  "ClientError",
+                  "JSONDecodeError",
+                  "TypeError",
+                  "KeyError",
+                  "AssertionError",
+              }
+          )
+          
+          
+          def publish(path, process_status):
+              with path.open("rb") as stream:
+                  payload = stream.read(64 * 1024 + 1)
+              if len(payload) > 64 * 1024:
+                  raise ValueError("result limit")
+              value = json.loads(payload)
+              if not isinstance(value, dict) or set(value) - BOOLEANS - {
+                  "at",
+                  "reason",
+                  "failed_phase",
+                  "error_type",
+              }:
+                  raise ValueError("result schema")
+              if type(value.get("recovery_acceptance_completed")) is not bool:
+                  raise ValueError("completion missing")
+              if any(type(value[key]) is not bool for key in value.keys() & BOOLEANS):
+                  raise ValueError("boolean required")
+              if "reason" in value and value["reason"] not in REASONS:
+                  raise ValueError("unknown reason")
+              if "failed_phase" in value and value["failed_phase"] not in PHASES:
+                  raise ValueError("unknown phase")
+              if process_status != int(not value["recovery_acceptance_completed"]):
+                  raise ValueError("process outcome mismatch")
+              if value["recovery_acceptance_completed"]:
+                  if not all(value.get(key) is True for key in SUCCESS_TRUE):
+                      raise ValueError("incomplete success")
+                  if not all(value.get(key) is False for key in SUCCESS_FALSE):
+                      raise ValueError("unexpected success scope")
+                  if value.keys() & {"reason", "failed_phase", "error_type"}:
+                      raise ValueError("success with failure")
+              if "error_type" in value and value["error_type"] not in ERROR_TYPES:
+                  value["error_type"] = "OtherError"
+              value.pop("at", None)
+              return value
+          
+          
+          def main():
+              parser = argparse.ArgumentParser(description=__doc__)
+              parser.add_argument("--path", type=Path, required=True)
+              parser.add_argument("--status", type=int, required=True)
+              args = parser.parse_args()
+              try:
+                  result = publish(args.path, args.status)
+              except Exception:  # noqa: BLE001 - 私有内容・path・例外を公開しないprotocol境界。
+                  result = {
+                      "recovery_acceptance_completed": False,
+                      "native_state_requires_readback": True,
+                      "reason": "public_result_unavailable",
+                  }
+              print(json.dumps({"at": datetime.now(UTC).isoformat(), **result}, sort_keys=True))
+              return int(not result["recovery_acceptance_completed"])
+          
+          
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY_PUBLISH
+          set +e
+          uv run python "$RUNNER_TEMP/margin_alerts_recover_once.py" > "$RUNNER_TEMP/margin-recovery-stdout.private" 2> "$RUNNER_TEMP/margin-recovery-stderr.private"
+          result_status=$?
+          set -e
+          python -I -S "$RUNNER_TEMP/publish_margin_recovery_result.py" --path "$RUNNER_TEMP/margin-recovery-stdout.private" --status "$result_status"
