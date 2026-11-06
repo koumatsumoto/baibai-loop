@@ -242,9 +242,12 @@ def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch)
     assert "If-None-Match" not in session.headers[0]
     assert session.headers[1]["If-None-Match"] == '"feed-v1"'
     planning, _ = load_planning(store, "boj_news")
-    assert len(planning.pending) == 2
+    from baibai_jobs.acquisition.receipts import available_handoffs
+
+    ready = available_handoffs(store, market=True, namespace="article-sources")
+    assert len(ready) == 2
     downloaded = tmp_path / "downloaded"
-    download_fixed(store, planning.pending[-1], downloaded)
+    download_fixed(store, planning.last_stage, downloaded)
     with closing(connect_read_only(downloaded / "receipts.sqlite")) as conn:
         values = [
             json.loads(row[0])
@@ -254,10 +257,7 @@ def test_second_slot_304_carries_unintegrated_200_closure(tmp_path, monkeypatch)
     original = next(item for item in values if item["status"] == "ok")
     unchanged = next(item for item in values if item["status"] == "not_modified")
     assert unchanged["body_ref"] == original["body_ref"]
-    assert (
-        planning.requests[original["requested_url"]]["stage"]["stage_id"]
-        == planning.pending[0]["stage_id"]
-    )
+    assert planning.requests[original["requested_url"]]["stage"]["stage_id"] == ready[0]["stage_id"]
 
 
 def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, monkeypatch, capsys):
@@ -317,7 +317,7 @@ def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monk
     assert report["bodies"] == 8
     assert report["omitted_url_count"] == 0
     planning, _ = load_planning(store, source)
-    assert len(planning.pending) == 1
+    assert planning.last_stage is not None
     frontier = load_frontier_cursor(store, planning)
     assert [item[0] for item in frontier["pending"]] == [f"https://www.tsr-net.co.jp{urls[-1]}"]
     assert json.loads((packet / "result.json").read_text())["continuation_only"] is True
@@ -409,7 +409,7 @@ def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
     assert report["pages"] == 1
     planning, _ = load_planning(store, "minkabu_news")
     assert planning.cursor["next_page"] == articles.SOURCES["minkabu_news"].entry_url
-    assert len(planning.pending) == 1
+    assert planning.last_stage is not None
     with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
         assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 2
 
@@ -507,7 +507,7 @@ def test_nhk_four_feeds_keep_each_summary_and_fetch_shared_guid_once(tmp_path, m
     with closing(connect_read_only(tmp_path / "nhk/receipts.sqlite")) as conn:
         assert conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0] == 5
     planning, _ = load_planning(store, "nhk_news")
-    assert len(planning.pending) == 1
+    assert planning.last_stage is not None
     projected = import_handoff("nhk_news", tmp_path / "market.sqlite", tmp_path / "nhk")
     assert not projected.complete
     saved = json.loads((tmp_path / "nhk/result.json").read_text())
@@ -630,7 +630,7 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
     assert report["pages"] == expected_pages
     assert len(session.urls) == expected_pages
     planning, _ = load_planning(store, "nhk_news")
-    assert len(planning.pending) == 1
+    assert planning.last_stage is not None
     with closing(connect_read_only(tmp_path / "nhk/receipts.sqlite")) as conn:
         assert (
             conn.execute("SELECT COUNT(*) FROM article_source_receipts").fetchone()[0]
@@ -865,8 +865,6 @@ def test_nhk_conflicting_guids_for_one_url_keep_raw_without_guessed_projection(
 def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache(
     tmp_path, monkeypatch
 ):
-    from baibai_jobs.acquisition.article_planning import acknowledge_stage
-
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
@@ -910,7 +908,7 @@ def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache
         assert report["failures"] == []
         state, _ = load_planning(store, source)
         assert len(state.requests) <= 128
-        acknowledge_stage(store, state.pending[-1])
+        # L2 does not run; acquisition still advances the source frontier.
     assert observed == wanted
     state, _ = load_planning(store, source)
     assert load_frontier_cursor(store, state)["pending"] == []
