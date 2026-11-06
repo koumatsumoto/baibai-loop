@@ -171,25 +171,3 @@ def test_missing_publication_retains_the_existing_lag_rule(tmp_path):
     assert published_margin_balance_dates(database, asof) == [(day, "daily")]
     rows = read_all_issues_daily_margin(database, day, publication_asof=asof)
     assert [row.ticker for row in rows] == ["1301"]
-
-
-def test_screening_applies_publication_cutoff_to_latest_and_prior_rows(tmp_path, monkeypatch):
-    import baibai_engine.machine_analysis.historical_evaluation.legacy_screening.margin_inputs as margin_inputs
-
-    database = tmp_path / "market.sqlite"
-    prior, latest, asof = date(2026, 9, 25), date(2026, 10, 2), date(2026, 10, 6)
-    for day, dates in ((prior, ("2026-09-28", "2026-10-07")), (latest, ("2026-10-05",) * 2)):
-        store_jquants_all_issues_daily_margin(
-            database,
-            [
-                _daily_record(day, code, published)
-                for code, published in zip(("13010", "13020"), dates, strict=True)
-            ],
-            balance_date=day,
-        )
-    # A one-week fixture isolates propagation to both read paths; production's
-    # 26-week sampling policy is unchanged.
-    monkeypatch.setattr(margin_inputs, "MARGIN_DELTA_WEEKS", 1)
-    current, previous = margin_inputs.read_margin_supply_demand_inputs(database, asof)
-    assert set(current) == {"1301", "1302"}
-    assert set(previous) == {"1301"}

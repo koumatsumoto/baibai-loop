@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from math import isfinite
 from typing import Literal, Self
 
@@ -98,27 +97,6 @@ class CandidateDiscoverySummary(BaseModel):
     diagnostics: CandidateDiscoveryDiagnostics
 
 
-@dataclass(frozen=True, slots=True)
-class CandidateDiscoveryResult:
-    """Pure calculation result; contexts become rows, diagnostics become one header."""
-
-    method: CandidateDiscoveryMethodIdentity
-    contexts: Mapping[str, StockCandidateContext]
-    common_eligible_count: int
-    candidate_counts_by_approach: Mapping[str, int]
-    candidate_count: int
-
-    def summary_payload(self) -> dict[str, object]:
-        return {
-            "method": self.method.model_dump(mode="json"),
-            "diagnostics": {
-                "common_eligible_count": self.common_eligible_count,
-                "candidate_counts_by_approach": dict(self.candidate_counts_by_approach),
-                "candidate_count": self.candidate_count,
-            },
-        }
-
-
 def validate_candidate_run(
     header: Mapping[str, object], rows: Sequence[Mapping[str, object]]
 ) -> None:
@@ -162,7 +140,6 @@ __all__ = [
     "APPROACH_IDS",
     "CandidateDiscoveryDiagnostics",
     "CandidateDiscoveryMethodIdentity",
-    "CandidateDiscoveryResult",
     "CandidateDiscoverySummary",
     "CandidateReason",
     "StockCandidateContext",

@@ -53,7 +53,7 @@ DOMAINS: Mapping[str, Domain] = {
     ),
     "historical-evaluation": Domain(
         module="baibai_engine.cli.historical_evaluation.app",
-        summary="saved legacy runs and calibration diagnostics",
+        summary="read saved legacy runs and candidates",
     ),
     "market-context": Domain(
         module="baibai_engine.cli.market_context",

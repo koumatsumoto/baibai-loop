@@ -5,10 +5,6 @@ from datetime import date, timedelta
 
 import pytest
 
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.annual import (
-    build_normalized_profit_signals,
-    build_profitability_level_signals,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.financial_snapshot import (
     build_financial_snapshot,
 )
@@ -398,62 +394,3 @@ def test_same_time_dividend_notice_does_not_revoke_actual_statement_basis(notice
     reported = next(item for item in state.observations if item.measurement == "reported")
     assert reported.metrics["parent_profit"].value == 100.0
     assert reported.accounting_standard == "JP"
-
-
-def test_multi_fy_average_cannot_mix_jp_and_ifrs_eps():
-    rows = [
-        replace(
-            document(date(year, 4, 1), date(year + 1, 3, 31), 100.0),
-            cumulative_eps=10.0,
-        )
-        for year in (2022, 2023, 2024)
-    ]
-
-    def signals(items):
-        return build_normalized_profit_signals(
-            items, (), date(2025, 6, 30), close=100.0, ttm_rules=DEFAULT_TTM_RULES
-        )
-
-    assert signals(rows).normalized_per_3fy == 10.0
-    tied = replace(
-        rows[-1],
-        disclosure_number="same-time-ifrs",
-        document_type="FYFinancialStatements_Consolidated_IFRS",
-    )
-    assert signals([*rows, tied]).normalized_per_3fy is None
-    rows[-1] = replace(rows[-1], document_type="FYFinancialStatements_Consolidated_IFRS")
-    assert signals(rows).normalized_per_3fy is None
-
-
-def test_profitability_ratio_does_not_use_old_jp_assets_with_ifrs_flows():
-    rows = [
-        replace(document(date(2023, 4, 1), date(2024, 3, 31), 100.0), total_assets=1000.0),
-        replace(
-            document(
-                date(2024, 4, 1),
-                date(2024, 6, 30),
-                20.0,
-                fiscal_period="1Q",
-                fiscal_year_end=date(2025, 3, 31),
-            ),
-            document_type="1QFinancialStatements_Consolidated_IFRS",
-        ),
-        replace(
-            document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
-            document_type="FYFinancialStatements_Consolidated_IFRS",
-        ),
-        replace(
-            document(
-                date(2025, 4, 1),
-                date(2025, 6, 30),
-                30.0,
-                fiscal_period="1Q",
-                fiscal_year_end=date(2026, 3, 31),
-            ),
-            document_type="1QFinancialStatements_Consolidated_IFRS",
-        ),
-    ]
-    result = build_profitability_level_signals(rows, date(2025, 8, 31), DEFAULT_TTM_RULES)
-    assert result.operating_margin == 0.1
-    assert result.operating_profit_to_assets is None
-    assert result.asset_turnover is None

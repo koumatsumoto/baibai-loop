@@ -44,9 +44,6 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     scaffold_review,
     selected_prepare,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 NOW = datetime.fromisoformat("2026-09-07T18:00:00+09:00")
@@ -111,9 +108,6 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
     from tests.helpers.screening_run import screening_run_payload, seed_saved_run, stock_analysis
 
     from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
-    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
-        build_candidate_contexts,
-    )
     from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
         ScreeningRunReader,
     )
@@ -151,7 +145,6 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
         "dps_forecast_annual": 170.0,
         "dividend_basis": "actual_reported",
     }
-    baseline = stock_analysis("1234", per_forward=10.0, metrics=numbers)
     row = stock_analysis(
         "1234",
         per_forward=10.0,
@@ -160,14 +153,6 @@ def test_forecast_sources_prepare_and_resume_from_fixed_analysis(tmp_path, monke
             "earnings_forecast_source": earnings,
             "dividend_forecast_source": dividend,
         },
-    )
-    rules = load_screening_rules()
-    candidate_options = {
-        "rules": rules.candidate_discovery,
-        "required_jpx_flags": rules.universe.required_jpx_flags,
-    }
-    assert build_candidate_contexts([row], **candidate_options) == build_candidate_contexts(
-        [baseline], **candidate_options
     )
     runs = tmp_path / "runs"
     value = selection(

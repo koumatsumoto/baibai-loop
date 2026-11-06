@@ -4,14 +4,10 @@ from dataclasses import replace
 from datetime import date
 
 import pytest
-from tests.engine.machine_analysis.historical_evaluation.legacy_screening.metric_fixtures import (
+from tests.helpers.financial_metrics import (
     _summary,
 )
 
-from baibai_engine.machine_analysis.historical_evaluation.forward import (
-    _FYDividendObservation,
-    _resolve_total_return,
-)
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
 )
@@ -100,47 +96,6 @@ def test_rights_and_split_sequence_applies_only_split_to_share_counts():
     ]
     result = _normalize_summaries_with_status([source], events, date(2026, 3, 2))
     assert result.summaries[0].shares_outstanding == 200.0
-
-
-@pytest.mark.parametrize("factor", [0.8, 1.0])
-def test_rights_during_holding_need_proceeds_or_exercise_facts_for_total_return(factor):
-    event = JQuantsAdjustmentFactorEvent("1111", date(2025, 6, 1), factor, "3")
-    result = _resolve_total_return(
-        [],
-        [],
-        adjustment_events=[event],
-        price_basis_date=date(2025, 12, 31),
-        entry_date=date(2025, 1, 1),
-        exit_date=date(2025, 12, 31),
-        entry_close=100.0 * factor,
-        price_return=0.1,
-        adjustment_coverage="complete",
-    )
-    assert result == (None, 0, None, "unresolved_rights_issue")
-
-
-def test_rights_after_exit_do_not_change_an_already_completed_total_return():
-    exit_date = date(2025, 12, 31)
-    event = JQuantsAdjustmentFactorEvent("1111", date(2026, 3, 1), 0.8, "3")
-    dividend = _FYDividendObservation(
-        exit_date, date(2026, 2, 1), 8.0, period_start=date(2025, 1, 1)
-    )
-    result = _resolve_total_return(
-        [],
-        [dividend],
-        adjustment_events=[event],
-        price_basis_date=date(2026, 6, 30),
-        entry_date=date(2025, 1, 1),
-        exit_date=exit_date,
-        entry_close=80.0,
-        price_return=0.1,
-        adjustment_coverage="complete",
-    )
-    cash_on_price_basis, count, total, status = result
-    assert cash_on_price_basis == pytest.approx(6.4)
-    assert count == 1
-    assert total == pytest.approx(0.18)
-    assert status == "resolved"
 
 
 @pytest.mark.parametrize("factor", [0.0, -1.0, float("inf"), float("nan")])

@@ -2,32 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.candidates import (
-    build_candidate_contexts,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.discovery.contracts import (
-    CandidateDiscoveryResult,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rule_config import (
-    load_screening_rules,
-)
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.rules_identity import (
-    production_rules_contract_hash,
-)
 from tests.helpers.screening_run import saved_candidate, seed_saved_run
 
-SCREENING_RULES = load_screening_rules()
-RULES = SCREENING_RULES.candidate_discovery
-REQUIRED_JPX_FLAGS = SCREENING_RULES.universe.required_jpx_flags
-RULES_HASH = production_rules_contract_hash(SCREENING_RULES.model_dump_json())
-GOLDEN = json.loads(Path("tests/fixtures/screening/candidate-discovery-golden.json").read_text())
-
-
-def _discover(rows: list[dict[str, object]]) -> CandidateDiscoveryResult:
-    return build_candidate_contexts(rows, rules=RULES, required_jpx_flags=REQUIRED_JPX_FLAGS)
+RULES_HASH = "b95d85a60bbd7a83"
 
 
 def _analysis(

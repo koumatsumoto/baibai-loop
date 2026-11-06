@@ -17,9 +17,6 @@ from pydantic import ValidationError
 from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
 
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.sqlite_coverage.jquants import (
-    _append_master_snapshot_issues,
-)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_master
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
@@ -331,93 +328,6 @@ class MasterSnapshotStoreTests(unittest.TestCase):
         validated = validate_master_snapshot(records, asof)
         self.assertEqual(json.loads(validated.rows[0][2])["S33Nm"], "情報･通信業")
         self.assertEqual(masters_from_payloads([validated.rows[0][2]])[0].sector_33, "情報・通信業")
-
-
-class MasterSnapshotCoverageTests(unittest.TestCase):
-    def test_non_integer_coverage_count_is_reported_as_an_issue(self) -> None:
-        asof = date(2026, 5, 29)
-        for invalid_count in ("not-an-integer", 2500.5):
-            with (
-                self.subTest(invalid_count=invalid_count),
-                tempfile.TemporaryDirectory() as tmp,
-            ):
-                db = Path(tmp) / "market.sqlite"
-                store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-                with closing(open_connection(db)) as conn, conn:
-                    conn.execute(
-                        "UPDATE source_coverage SET record_count = ? "
-                        "WHERE source = ? AND coverage_start = ?",
-                        (invalid_count, "jquants_master_snapshots", asof.isoformat()),
-                    )
-                    conn.commit()
-                    issues = []
-                    _append_master_snapshot_issues(conn, issues, asof_date=asof)
-
-                self.assertTrue(any("not a non-negative integer" in i.reason for i in issues))
-
-    def test_damage_is_scoped_to_requested_snapshot_date(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
-        for damaged in (first, second):
-            for damage_kind in ("row", "coverage", "product_category"):
-                with (
-                    self.subTest(damaged=damaged, damage_kind=damage_kind),
-                    tempfile.TemporaryDirectory() as tmp,
-                ):
-                    db = Path(tmp) / "market.sqlite"
-                    store_jquants_master(db, make_master_records(first), requested_asof=first)
-                    store_jquants_master(db, make_master_records(second), requested_asof=second)
-                    with closing(open_connection(db)) as conn, conn:
-                        if damage_kind == "row":
-                            conn.execute(
-                                "DELETE FROM jquants_master_snapshots "
-                                "WHERE snapshot_date = ? AND security_code = '10000'",
-                                (damaged.isoformat(),),
-                            )
-                        elif damage_kind == "coverage":
-                            conn.execute(
-                                "DELETE FROM source_coverage WHERE source = ? "
-                                "AND coverage_start = ? AND coverage_end = ?",
-                                (
-                                    "jquants_master_snapshots",
-                                    damaged.isoformat(),
-                                    damaged.isoformat(),
-                                ),
-                            )
-                        else:
-                            conn.execute(
-                                "UPDATE jquants_master_snapshots SET record_json = json_set(record_json, '$.ProdCat', NULL) "
-                                "WHERE snapshot_date = ? AND security_code = '10000'",
-                                (damaged.isoformat(),),
-                            )
-                        conn.commit()
-
-                        damaged_issues = []
-                        _append_master_snapshot_issues(conn, damaged_issues, asof_date=damaged)
-                        intact = second if damaged == first else first
-                        intact_issues = []
-                        _append_master_snapshot_issues(conn, intact_issues, asof_date=intact)
-
-                    self.assertTrue(damaged_issues)
-                    self.assertEqual(intact_issues, [])
-
-    def test_bad_other_date_coverage_does_not_contaminate_requested_date(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(first), requested_asof=first)
-            store_jquants_master(db, make_master_records(second), requested_asof=second)
-            with closing(open_connection(db)) as conn, conn:
-                conn.execute(
-                    "UPDATE source_coverage SET status = 'failed', error = 'bad second' "
-                    "WHERE source = 'jquants_master_snapshots' AND coverage_start = ?",
-                    (second.isoformat(),),
-                )
-                conn.commit()
-                issues = []
-                _append_master_snapshot_issues(conn, issues, asof_date=first)
-            self.assertEqual(issues, [])
 
 
 class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
