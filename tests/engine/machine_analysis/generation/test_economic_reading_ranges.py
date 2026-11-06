@@ -158,7 +158,7 @@ def test_native_scope_skips_old_and_future_bodies_and_reduces_projection(tmp_pat
         return reading_snapshot(path, **kwargs)
 
     monkeypatch.setattr(fixed, "reading_snapshot", read_projection)
-    assert fixed.rebuild_economic_input(store, source, saved)["reading"] == expected
+    assert fixed.rebuild_economic_input(store, source, saved).context["reading"] == expected
     assert exact == [("records", retained[0])]
     assert sizes[0] < len(before) // 10
     assert source.read_bytes() == before
@@ -185,7 +185,7 @@ def test_custom_rule_window_and_yoy_lookback_are_saved_from_same_owner(tmp_path)
     assert actual == {
         key: [start.isoformat(), end.isoformat()] for key, (start, end) in plan.items()
     }
-    assert fixed.rebuild_economic_input(store, source, saved, rules_path=rules_path)[
+    assert fixed.rebuild_economic_input(store, source, saved, rules_path=rules_path).context[
         "reading"
     ] == reading_snapshot(
         source,
@@ -229,9 +229,9 @@ def test_fred_subset_keeps_global_provenance_without_claiming_complete_projectio
         return reading_snapshot(path, **kwargs)
 
     monkeypatch.setattr(fixed, "reading_snapshot", inspect_projection)
-    assert fixed.rebuild_economic_input(store, source, saved)["reading"] == reading_snapshot(
-        source, asof=DAY
-    )
+    assert fixed.rebuild_economic_input(store, source, saved).context[
+        "reading"
+    ] == reading_snapshot(source, asof=DAY)
 
 
 def test_v1_selection_is_not_reinterpreted_as_narrowed_v2(tmp_path):

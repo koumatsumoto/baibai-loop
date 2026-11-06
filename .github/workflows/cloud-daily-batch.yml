@@ -158,7 +158,7 @@ jobs:
           ASOF: ${{ steps.source-plan.outputs.asof }}
         run: uv run python -m baibai_jobs.integration.sources apply --asof "$ASOF" --directory "$RUNNER_TEMP/integration"
 
-      # Core publication owns one fixed market release and economic snapshot.
+      # Core publication owns one fixed market release and native economic selection.
       # Web is not part of the engine's success or publication path.
       - name: Generate models and candidates, then publish the same fixed release
         id: batch

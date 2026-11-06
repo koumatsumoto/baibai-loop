@@ -93,7 +93,7 @@ def test_cold_rebuild_uses_originals_not_current_adoption_runs_or_l2(tmp_path):
         retain_market_capture(c, capture())
     expected = current(path)
     saved = freeze(store, path)
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
     original_bytes = path.read_bytes()
     seed(path, value="200000", at=CLOCK + timedelta(minutes=2))
     run(path, "recovered", status="ok", at=CLOCK + timedelta(minutes=3))
@@ -104,9 +104,9 @@ def test_cold_rebuild_uses_originals_not_current_adoption_runs_or_l2(tmp_path):
     assert path.read_bytes() != original_bytes
     assert current(path) != expected
     after = path.read_bytes()
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
     assert path.read_bytes() == after
-    assert rebuild_economic_input(store, path, freeze(store, path)) == current(path)
+    assert rebuild_economic_input(store, path, freeze(store, path)).context == current(path)
     assert all(b"private diagnostic" not in item.body for item in store.values.values())
     assert all(b'PAYEMS": "100' not in item.body for item in store.values.values())
     assert all(item.content_type == "application/json" for item in store.values.values())
@@ -125,7 +125,10 @@ def test_same_response_changes_only_root_not_period_metadata_or_body(tmp_path):
     assert len(store.put_keys) == count + 1
     with closing(sqlite3.connect(path)) as c, c:
         assert c.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 1
-    assert rebuild_economic_input(store, path, first) == rebuild_economic_input(store, path, second)
+    assert (
+        rebuild_economic_input(store, path, first).context
+        == rebuild_economic_input(store, path, second).context
+    )
     count = len(store.put_keys)
     assert freeze(store, path) == second
     assert len(store.put_keys) == count
@@ -142,7 +145,7 @@ def test_absent_run_and_empty_source_do_not_acquire_later_evidence(tmp_path):
     assert all(item is None for item in root(store, saved)["runs"].values())
     seed(path)
     run(path, "new-failure")
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
     assert current(path) != expected
 
 
@@ -182,7 +185,7 @@ def test_current_confirmation_can_be_absent_without_reselecting(tmp_path):
     with closing(sqlite3.connect(path)) as c, c:
         c.execute("DELETE FROM economic_source_record_confirmations")
         c.execute("DELETE FROM economic_source_collection_confirmations")
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
 
 
 def test_disappeared_period_stays_empty_after_later_return(tmp_path):
@@ -207,7 +210,7 @@ def test_disappeared_period_stays_empty_after_later_return(tmp_path):
             records_by_day={PERIOD: [{"PAYEMS": "100000"}], other: [{"PAYEMS": "100000"}]},
         )
     assert current(path) != expected
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
 
 
 def test_original_timestamp_spelling_is_not_reformatted_in_a_locator(tmp_path):
@@ -224,7 +227,7 @@ def test_original_timestamp_spelling_is_not_reformatted_in_a_locator(tmp_path):
             "UPDATE economic_source_collection_confirmations SET checked_at=?", (CLOCK.isoformat(),)
         )
     saved = freeze(store, path)
-    assert rebuild_economic_input(store, path, saved) == current(path)
+    assert rebuild_economic_input(store, path, saved).context == current(path)
 
 
 def test_lost_metadata_put_acknowledgement_reuses_exact_object(tmp_path):
@@ -239,7 +242,7 @@ def test_lost_metadata_put_acknowledgement_reuses_exact_object(tmp_path):
     store = LostAckStore()
     saved = freeze(store, path)
     assert len(store.put_keys) == len(store.values)
-    assert rebuild_economic_input(store, path, saved) == current(path)
+    assert rebuild_economic_input(store, path, saved).context == current(path)
 
 
 @pytest.mark.parametrize("count", [200, 201, 205])
@@ -257,7 +260,7 @@ def test_tradingview_boundary_keeps_unusable_receipts_and_201st(tmp_path, count)
     expected = current(path)
     assert expected["tradingview_market"]["history_bounded"] is (count > 200)
     saved = freeze(store, path)
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
     rows = sum(len(json.loads(item.body).get("documents", [])) for item in store.values.values())
     assert rows == min(count, 201)
 
@@ -277,7 +280,7 @@ def test_tradingview_same_time_disagreement_and_cutoffs_are_fixed(tmp_path):
     expected = current(path)
     assert expected["tradingview_market"]["quotes"][0]["status"] == "ambiguous_same_time"
     saved = freeze(store, path)
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
 
 
 def test_latest_matsui_unreadable_document_is_not_discarded(tmp_path):
@@ -304,7 +307,7 @@ def test_latest_matsui_unreadable_document_is_not_discarded(tmp_path):
     )
     assert "source_unreadable" in matsui["flags"]
     saved = freeze(store, path)
-    assert rebuild_economic_input(store, path, saved) == expected
+    assert rebuild_economic_input(store, path, saved).context == expected
     with closing(sqlite3.connect(path)) as c, c:
         c.execute("UPDATE economic_source_documents SET metadata='{}'")
     with pytest.raises(ValueError, match="failed integrity"):
@@ -336,6 +339,25 @@ def test_hash_only_legacy_or_tampered_descriptor_is_not_upgraded(tmp_path):
     )
     with pytest.raises(ValueError, match="digest-matching"):
         rebuild_economic_input(store, path, altered)
+
+
+def test_saved_hash_only_generation_remains_readable_without_original_snapshot(tmp_path):
+    from tests.helpers.model_generation import generation
+
+    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+
+    legacy = InputSnapshot(kind="sqlite_snapshot", reference="old", sha256="a" * 64)
+    original = generation()
+    original = original.model_copy(update={"inputs": {**original.inputs, "economic": legacy}})
+    generations = ModelGenerationStore(tmp_path / "runs.sqlite")
+    generations.publish(original)
+    restored = generations.read(original.generation_id)
+    assert restored == original
+    assert restored.inputs["economic"].model_dump_json() == legacy.model_dump_json()
+    with pytest.raises(ValueError, match="fixed selection"):
+        rebuild_economic_input(
+            MemoryR2Store(), tmp_path / "missing-old-economic.sqlite", restored.inputs["economic"]
+        )
 
 
 def test_missing_or_changed_selection_object_is_an_integrity_failure(tmp_path):

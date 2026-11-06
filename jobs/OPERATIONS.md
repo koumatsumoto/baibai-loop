@@ -36,7 +36,7 @@ gh run watch <RUN_ID> --exit-status --interval 60
 共通統合は全providerの完了を待たず、利用可能な受領を固定する。
 
 1. 経済L1を単独公開・読戻し・sealし、次回取得inputを発行する。
-2. marketのready受領を固定してsource別投影/EDINET抽出を行い、[model-integration](src/baibai_jobs/integration/models.py)が固定market releaseと独立economic snapshotからモデル/候補を保存し、同じreleaseを公開する。
+2. marketのready受領を固定してsource別投影/EDINET抽出を行い、[model-integration](src/baibai_jobs/integration/models.py)が固定market releaseと経済原本の固定selectionからモデル/候補を保存し、同じreleaseを公開する。
 3. 公開成功後だけ生成cache/候補を整理し、machine反映・readback・受領sealへ進む。
 
 source失敗は前回適格投影を保って他sourceを進め、モデル生成/公開失敗は後続machine反映を止める。model-integrationは外部取得/Web生成を呼ばず、後続のWeb表示もcore成功条件ではない。workflowの成否と公開済みrelease/storeの到達点を分けて確認する。
@@ -149,7 +149,7 @@ converter・専用publisherとこの一回手順は、本番切替・全input/�
 
 ### 経済L1の単独公開への切替
 
-経済正本は既存の`indicators.sqlite`一つで、market/runsのbundleから独立する。通常dailyの`economic_sources`はfresh正本と固定handoffだけを読み、採用・1世代backup・条件付きPUT・全bytes読戻しを終えてからsealと15取得groupのinputを発行する。TradingViewの明示MCP原本も経済namespaceの受入対象だが、定期取得inputには追加しない。各seal/input PUT直前に同じ経済ETagとleaseを再確認する。取得失敗runを保持できたことは取得成功ではなく、source失敗・明示history回復の必要はsource gapsとしてcheck/通知へ残す。モデルはこの読戻しcopyを固定して使い、後段L2失敗で経済L1を戻したり、経済を再PUTしたりしない。
+経済正本は既存の`indicators.sqlite`一つで、market/runsのbundleから独立する。通常dailyの`economic_sources`はfresh正本と固定handoffだけを読み、採用・1世代backup・条件付きPUT・全bytes読戻しを終えてからsealと15取得groupのinputを発行する。TradingViewの明示MCP原本も経済namespaceの受入対象だが、定期取得inputには追加しない。各seal/input PUT直前に同じ経済ETagとleaseを再確認する。取得失敗runを保持できたことは取得成功ではなく、source失敗・明示history回復の必要はsource gapsとしてcheck/通知へ残す。モデルは読戻しcopyから[固定selection](../docs/architecture.md#store-authority)を保存・再計算し、metadataや原本の検証失敗時はモデル/lakeを公開しない。後段L2失敗で経済L1を戻したり、経済を再PUTしたりしない。
 
 切替前に全旧writer（daily・手動push・待機中run）を停止し、実行中の終了を確認する。旧codeで未統合stageと部分machine pushを有限整理し、必要なschema12→13の上記cutover・input読戻しを完了してから、全writer/consumerを新codeへ同時に切り替える。旧writerと新writerを混在させない。新`pull-machine`/`push-machine`とmanifestはmarket/runsの2keyだけを扱う。旧manifestの余分なindicators欄は正本の根拠にせず、次の正常market公開で省かれる。経済の旧bytes・stage・1世代backupは削除しない。schema12 cutoverは旧3keyを照合する有限入口なので、この単独公開の再開後に再実行しない。未完の旧article cutover receiptも切替前に完了・整理し、新2keyのreceiptへ黙って読み替えない。
 
