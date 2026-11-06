@@ -39,6 +39,24 @@ class Session:
         return next(self.responses)
 
 
+def first_packet_market_schema(monkeypatch, version):
+    """Model an old enclosing version with the unchanged article-native table."""
+    from baibai_jobs.acquisition import articles
+
+    current = articles.open_connection
+    calls = 0
+
+    def connect(path):
+        nonlocal calls
+        conn = current(path)
+        if calls == 0:
+            conn.execute(f"PRAGMA user_version={int(version)}")
+        calls += 1
+        return conn
+
+    monkeypatch.setattr(articles, "open_connection", connect)
+
+
 def _packet(tmp_path, source="boj_news"):
     from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 

@@ -225,7 +225,7 @@ planning CAS失敗で残った原本も不変handoffから次回統合で発見�
 
 ### 日次統合前の記事原本を読む
 
-固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。
+固定 stage の manifest hash と receipt ID/hash を指定して、[記事原本reader](src/baibai_jobs/acquisition/article_evidence.py) から非公開の作業先へ取得する。provider への再GET、planning変更、正本への書込は行わない。 Articleの原本読取は専用tableのshapeとreceipt/body digestを検証し、無関係なmarket schemaの版数では拒否しない。元SQLiteの版数・bytesは変更しない。
 
 ```bash
 uv run baibai-jobs article-evidence \

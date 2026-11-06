@@ -8,11 +8,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.articles.contracts import SOURCES
-from baibai_engine.data_collection.receipts.articles.store import copy_receipt_closure, read_receipt
+from baibai_engine.data_collection.receipts.articles.store import (
+    connect_read_only,
+    copy_receipt_closure,
+    read_receipt,
+)
 from baibai_engine.machine_analysis.observations.articles.contracts import ArticleObservation
 from baibai_engine.machine_analysis.observations.articles.projection import project_receipt
 from baibai_engine.machine_analysis.observations.trends.extraction import extract_observations
-from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.replay_result import ReplayResult
 
