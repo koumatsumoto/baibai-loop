@@ -172,6 +172,8 @@ Matsui/TSRは原document全履歴をinputへ複写しない。schema13 envelope�
 - **Matsui:** 実取得日のcurrent pageを1 GETするため、document・受領履歴・runなしの明示空seed。正本schemaを検証して発行し、原本不在やinput欠落の自動初期化を意味しない。
 - **TSR倒産件数:** complete JSONの本文を除き、run範囲・成功/失敗・native coverageを残す。recent/outage/未完了広範囲の判定を最新成功日だけへ縮約しない。run metadataが増えれば再発行し、固定bytes量とはしない。
 
+PMI/UMich/ECBのv1 planning inputはreaderを先行配布し、現publisherは全履歴inputのまま保つ。本文ではなくPMIのURL/月/phase、UMich/ECBの受領日集合とrun metadataから同じ取得計画を作る。後続の発行切替前に旧readerを使う実行中・待機runを終え、運用CLIを新readerへ揃える。旧SHAを再実行しない。共通経済統合は新受領がなくても全15groupを再発行するため、取得jobだけの停止では切替を隔離できない。原本・旧inputを保持し、FRED packやschema移行と一括にしない。
+
 通常発行後はgeneration・同値再利用・次受領とfresh正本の受入を確認する。新受領の原文/URL/params/実時計はhandoff、同値/訂正/遅着の比較とL2再生成は保持正本が担う。旧input/stageと参照先は有効な間保持し、削除・retention変更を伴わない。経済正本全体の転送・source別object化は残作業（refs #1820）。
 
 [cloud-market-sources](../.github/workflows/cloud-market-sources.yml)は市場/財務・JPX・EDINET一覧とmetrics/facts archiveを別slotにする。週末も一覧/archiveを続け、facts未初期化を全件取得成功にしない。需給の取得日は固定calendar原本を使う。

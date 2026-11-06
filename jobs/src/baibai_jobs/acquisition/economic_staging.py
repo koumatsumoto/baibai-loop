@@ -8,12 +8,21 @@ import json
 import re
 from pathlib import Path
 
+from baibai_engine.data_collection.receipts.native_sources.planning_inputs import (
+    validate_planning_input,
+)
 from baibai_engine.storage.objects.json import put_private, read_private
 from baibai_engine.storage.objects.r2 import (
     LakePublishError,
     ObjectStore,
 )
 from baibai_jobs.acquisition.dependencies import save_dependencies
+
+_PLANNING_INPUT_GROUPS = {
+    "pmi-acquisition-input-v1": "economic-spglobal_pmi",
+    "umich-acquisition-input-v1": "economic-umich_sca",
+    "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
+}
 
 
 def stage_prefix(stage_id: str, *, market: bool = False, namespace: str | None = None) -> str:
@@ -109,6 +118,19 @@ def load_handoff(
     if saved is None:
         raise LakePublishError("source private handoff is not complete")
     manifest = json.loads(saved.payload)
+    receipt_format = manifest.get("receipt_format") if isinstance(manifest, dict) else None
+    planning_group = (
+        _PLANNING_INPUT_GROUPS.get(receipt_format) if isinstance(receipt_format, str) else None
+    )
+    if planning_group is not None:
+        if (
+            market
+            or namespace != "source-inputs"
+            or input_group != planning_group
+            or "receipt_key" in manifest
+        ):
+            raise ValueError("planning input is not a source receipt handoff")
+        manifest["receipt_key"] = manifest.get("planning_key")
     if (
         not isinstance(manifest, dict)
         or not isinstance(manifest.get("receipt_sha256"), str)
@@ -140,5 +162,7 @@ def load_handoff(
         actual = hashlib.file_digest(stream, "sha256").hexdigest()
     if actual != digest:
         raise LakePublishError("source handoff receipt content differs")
+    if planning_group is not None:
+        validate_planning_input(path, planning_group)
     path.chmod(0o600)
     (directory / "result.json").write_text(json.dumps(manifest["result"]), encoding="utf-8")
