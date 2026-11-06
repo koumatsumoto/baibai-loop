@@ -16,10 +16,8 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     initialize_database as initialize_indicator_database,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
-from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
-    preview_current_terms,
-)
+from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (

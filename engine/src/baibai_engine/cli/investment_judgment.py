@@ -433,7 +433,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     return 0 if validation.valid else 3
                 _emit(service.publish(proposal).model_dump(mode="json"), out)
             case "trade-proposal-preview":
-                from baibai_engine.investment_judgment.trade_proposal.query import (
+                from baibai_engine.investment_judgment.trade_proposal.preview import (
                     preview_current_terms,
                 )
 

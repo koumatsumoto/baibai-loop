@@ -470,7 +470,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
 ):
     from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
     from baibai_engine.investment_judgment.trade_proposal import service as proposal_service
-    from baibai_engine.investment_judgment.trade_proposal.query import preview_current_terms
+    from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 
     case = backend_case(tmp_path, holding=action == "hold", assessment_quote_as_of="2026-10-13")
     proposal = reviewed_proposal(case, action=action)
@@ -604,7 +604,7 @@ def test_known_intraday_action_without_new_fill_reaches_sell_quantity_gate(
 @pytest.mark.parametrize("consumer", ["context", "check", "preview"])
 def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, monkeypatch, consumer):
     from baibai_engine.investment_judgment.trade_proposal import inputs as input_reader
-    from baibai_engine.investment_judgment.trade_proposal.query import preview_current_terms
+    from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 
     case = backend_case(tmp_path)
     proposal = reviewed_proposal(case)

@@ -70,7 +70,7 @@ def verify_generated_inputs(
 
 
 def _analysis_source(saved: ModelInputSlice) -> dict[str, JsonValue]:
-    """Display identities and bounded source summaries, retaining exact saved JSON references."""
+    """表示省略を入力欠測と混同しないよう、固定した完全入力への参照を残す。"""
     source = saved.model_dump(mode="json", exclude={"models", "inputs"})
     inputs = {}
     for name, identity in saved.inputs.items():

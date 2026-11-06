@@ -28,7 +28,7 @@ DiscNoはidentityで訂正順ではない。開示日時・期間を用い、未
 
 ### 信用残のsourceと日付
 
-全銘柄の週次・日次と選別subsetのmargin-alertは相互補完しない。非掲載は0ではない。PubDateは公表日、AppDateは残高基準の申込日で規制開始日ではなく、全銘柄日次のDateも残高日。公表前の空・失敗・対象なしを分け、欠測金額を株数×価格で作らない。公表lag/cutoffは[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)、比較/basisは[市場環境](market-context.md#margin)、取得・移行は[margin-alert](../../jobs/OPERATIONS.md#margin-alerts-native-l1)・[全銘柄残高](../../jobs/OPERATIONS.md#margin-interest-native-l1)・[空売り報告](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)を参照する。
+全銘柄の週次・日次は残高対象日で使い分け、選別subsetのmargin-alertを全銘柄の欠損補完にしない。非掲載は0ではない。PubDateは公表日、AppDateは残高基準の申込日で規制開始日ではなく、全銘柄日次のDateも残高日。公表前の空・失敗・対象なしを分け、欠測金額を株数×価格で作らない。公表lag/cutoffは[reader](../../engine/src/baibai_engine/machine_analysis/observations/trading_activity/margin_reader.py)、比較/basisは[市場環境](market-context.md#margin)、取得・移行は[margin-alert](../../jobs/OPERATIONS.md#margin-alerts-native-l1)・[全銘柄残高](../../jobs/OPERATIONS.md#margin-interest-native-l1)・[空売り報告](../../jobs/OPERATIONS.md#short-sale-reports-native-l1)を参照する。
 
 ## 経済原本
 

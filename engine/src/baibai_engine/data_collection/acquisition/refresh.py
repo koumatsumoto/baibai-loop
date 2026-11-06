@@ -194,10 +194,16 @@ def _refresh_source(
     try:
         context.check_deadline()
         if source.provider in DOCUMENT_PROVIDERS:
-            existing = {
-                item.request_key: item
-                for item in read_document_metadata(connection, source.source_id)
-            }
+            # Matsui always receives the current page once. Even an older scoped
+            # input need not enumerate its document history to plan that request.
+            existing = (
+                {}
+                if source.provider == "matsui_margin"
+                else {
+                    item.request_key: item
+                    for item in read_document_metadata(connection, source.source_id)
+                }
+            )
             for document in fetch_source_documents(
                 source,
                 start=start,

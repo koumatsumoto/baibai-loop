@@ -12,10 +12,8 @@ from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PUBLISHED, backend_case, bind_review
 
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
-from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
-    preview_current_terms,
-)
+from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
+from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
