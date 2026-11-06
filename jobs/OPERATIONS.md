@@ -21,9 +21,7 @@ baibai-storesは非公開の正本。既存Web/APIのコード撤去は、配備
 
 ## 日次実行と結果確認
 
-code修正が必要ならmain反映後に必要な取得・再計算を実行する。定期起動の有効/停止と時刻は各[workflow](../.github/workflows/)の `on.schedule`、対象日の解決は[Jobs schedule](src/baibai_jobs/schedule.py)で確認する。コメントに残したcronや手動run成功は定期稼働の証明ではない。対象run IDを固定し、監視timeoutだけで重複dispatchしない。
-
-手動実行では目的の基準日を明示する。対象日を確認して以下へ指定する。
+code修正をmainへ反映してから、必要な取得・再計算だけを実行する。定期稼働は[workflow](../.github/workflows/)の実 `on.schedule`、対象日は[Jobs schedule](src/baibai_jobs/schedule.py)で確認する。コメント内cronや手動成功は定期稼働の証拠でない。run IDを固定し、監視timeoutだけで重複dispatchしない。
 
 ```bash
 gh workflow run cloud-daily-batch.yml --ref main -f asof=<YYYY-MM-DD>
@@ -31,15 +29,21 @@ gh run list --workflow cloud-daily-batch.yml --limit 5
 gh run watch <RUN_ID> --exit-status --interval 60
 ```
 
-手動asofの空欄は元run作成時刻のJST日であり、直近の完了日や利用可能な終値を自動選択しない。寄前・場中に完了済みの日次モデルを使うならJSTの前日を指定し、前営業日まで戻さず週末の経済・外部評価も対象に残す。同日引後でも共通calendarが要求する価格日と有効な株式分母が揃わなければ価格座標を計算できず、候補0件になり得る。この0件を「買う対象がない」という投資判断に読み替えず、入力不足の理由を確認する。通常cronは元の対象日を保ち、queue遅延で翌日へ進めない。生成as_ofと価格観測日は別で、休場日に価格日を繰り上げない。原本の取得は独立scheduleのsource workflowが所有する。
+手動asof空欄は元run作成時のJST日。寄前・場中に完了済み日次を使うなら前日を指定し、前営業日へ戻して週末の経済・外部評価を落とさない。cronは元run作成時計と該当slotから対象日を固定し、queue/rerunでも保つ。生成as_ofと価格日は別で、休場日に価格日を繰り上げない。引後でも必要な価格日・株式分母が不足すると候補0件になり得るため、買う対象なしと解釈せず[入力不足](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。
 
-既定読取は発行時刻よりas_ofの新しさを優先し、古い非空候補へ自動fallbackしない。過去日を後から再計算しても新しいas_ofの結果は置換しないため、その日を分析するときは対象のgeneration/selection IDを明示する。
+既定読取は発行時計より新しいas_ofを優先し、古い非空候補へ戻らない。過去日の再計算はexact generation/selection IDで読む。現在受領からの再計算を完全な当時PIT再現としない。
 
-共通統合の`cloud-daily-batch`は取得workflowから独立して起動する。最初に利用可能な経済受領を固定し、経済L1の単独公開・読戻し・seal・次回取得input発行を完了する。続いてmarket側のready受領を固定し、market/runsだけのpullとmarket hydrateを行い、source所有のprojection/rebuildとEDINET offline抽出を適用する。全providerの完了は待たない。`model-integration`はmarketを一回sealし、独立したeconomic snapshotを固定して7種類のモデルと候補を保存した後、同じmarket releaseを公開する。生成cacheと候補政策結果の整理は、そのreleaseの公開成功後に限る。外部取得やWeb生成は呼ばない。成功後にmachine storeを反映し、受領をreadback確認してsealする。source失敗では前回の適格投影を保ち、正常sourceを進める。モデル生成・lake公開の失敗では後続のmachine反映を止める。workflow全体の成否と、既に公開されたrelease/storeの到達点は分けて確認する。
+共通統合は全providerの完了を待たず、利用可能な受領を固定する。
+
+1. 経済L1を単独公開・読戻し・sealし、次回取得inputを発行する。
+2. marketのready受領を固定してsource別投影/EDINET抽出を行い、[model-integration](src/baibai_jobs/integration/models.py)が固定market releaseと独立economic snapshotからモデル/候補を保存し、同じreleaseを公開する。
+3. 公開成功後だけ生成cache/候補を整理し、machine反映・readback・受領sealへ進む。
+
+source失敗は前回適格投影を保って他sourceを進め、モデル生成/公開失敗は後続machine反映を止める。model-integrationは外部取得/Web生成を呼ばず、後続のWeb表示もcore成功条件ではない。workflowの成否と公開済みrelease/storeの到達点を分けて確認する。
 
 ### 保存済み世代への候補政策の発行
 
-モデルを再生成せず、固定済みV2 generationに現行候補政策だけを適用する場合は、変更codeをmainへ反映した後、認可された作業環境で[公開lease](#ローカルからクラウドを更新する)を保持したままfresh runsを取得し、次の順で行う。`<GENERATION_ID>`は保存済みのexact IDを指定する。CLIは`subject_plan`のstockだけを対象に、通常のmodel-integrationと同じ`selection-<GENERATION_ID>-best-economic-path-v4`を作業runsへ発行する。既存IDへ同内容なら`created=false`、異内容なら競合で停止する。既存の保存IDは移行・改名しない。
+モデルを再生成せず保存V2 generationへ現行政策だけを適用する場合は、main反映後、[公開lease](#ローカルからクラウドを更新する)内でfresh runsを取得する。exact generationを指定し、通常経路と同じ政策/Selection IDを使う。同ID・同内容はno-op、異内容は競合で止め、旧IDを改名しない。
 
 ```bash
 with_publication_lease bash -c '
@@ -50,29 +54,29 @@ with_publication_lease bash -c '
 '
 ```
 
-`push-runs`はrunsだけの条件付き反映であり、model-integration・lake公開・他store更新を含まない。成功後は正本のfresh読戻しでSelection ID・generation ID・政策method・候補数を照合する。pushの結果が不明なら反映先の状態を先に確認し、同じ作業copyを盲再送しない。旧Selectionとgenerationは書き換えない。
+これはrunsだけの条件付き反映。fresh正本でSelection/generation ID・政策method・候補数を読戻す。結果不明は先に反映先を確認し、同じcopyを盲再送しない。旧Selection/generationや他storeを書き換えない。
 
-取得期限は各source workflowがexport/private stagingの余白を残して設定する。retry/deadline停止で完了済みL1を取り消さず、次runで成功chunkから再開する。Retry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。429の再試行を続けられないときは、その取得pass内の同quota groupだけ新規GETを止め、既受領と他groupの取得を保つ。経済native取得の再試行は失敗した1 GETだけで行い、成功済みの別月やprovider全体の解析をやり直さない。H.15も1回の取得でplain→browserの選択を繰り返さず、browser起動不能はsource拒否として記憶しないため、後の独立取得で再試行できる。文書取得の再試行方針は変えない。日次に移行・全期間backfill・較正再構築を代行させない。
+### 取得と統合の結果確認
 
-取得／private受領の通知と、共通統合の正本反映／読戻し／lease解放を区別し、run log、store push、release、generation/selection IDを照合する。通知配送失敗はjobを赤にしないため、通知がない場合もrun自体を確認する。[watchdog](../.github/workflows/cloud-batch-watchdog.yml)は取得と共通統合を別のschedule/asofで監視する。限定sourceの成功を全体成功へ数えず、経済は取得jobの受領markerを読む。MISSINGは対象日の成功run不足で、過去日確認は次を使う。
+取得期限にはexport/stageの余白を残す。停止前の成功L1を保ち、次runは成功chunkから再開する。[通信owner](../engine/src/baibai_engine/data_collection/transport/context.py)のRetry-Afterを短縮せず、認証・403・解析失敗へtransport retryを広げない。継続不能な429はそのpassの同quota groupだけを止め、経済nativeは失敗した1 GETだけを再試行する。H.15のbrowser起動不能はsource拒否ではなく、別取得で再試行できる。日次へ移行・全期間backfill・較正再構築を代行させない。
+
+取得/private受領、正本反映/readback、lease解放を別々に照合する。通知失敗でjobは赤にならないため、run log・store push・release・generation/selectionも確認する。[watchdog](../.github/workflows/cloud-batch-watchdog.yml)は取得と統合を別schedule/asofで監視し、経済は受領markerを読む。限定source成功を全体成功にせず、MISSINGの過去日確認には次を使う。
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
 
-過去日再計算でも、その日のmaster・価格・財務の対象日と欠測を保持する。現在の受領からの再計算を完全な当時point-in-time再現とは扱わない。
+### EDINETの未到着・抽出失敗
 
-EDINETは取得日と抽出日を分ける。当日一覧・必要archiveの未到着は `applied.json` の `deferred_inputs` と通知の「入力延期」に残し、適格な保存値で統合を続ける。原本が届けば次回統合で再抽出する。別文書の未到着を理由に、保存済み原本の破損・解析失敗を隠さない。
+[CSV取得計画](src/baibai_jobs/acquisition/edinet_archives.py)は既定540日前〜asofの保存一覧とnative訂正/取消から選び、保持docID/typeで原ZIP不足を判断する。L2の成否/revision/破損でGETを減らさず、取得成功をL2採用としない。一覧不足/失敗・候補0は取得失敗で、plannerはL2 failureを書かず、origin/ticker不明をbaselineで推測しない。保持type5 ZIPを再取得せず、lookback外の保持origin/祖先も訂正/取下げの解決に使う。
 
-metricsのlookbackは取得coverageと抽出候補の範囲であり、archive取得計画・明示抽出・共通統合とも訂正・取下げの解決に使う保持origin/祖先は切り捨てない。旧年度operationを誤ってorphan扱いしたquarantine行は再利用せず、archive取得計画で選択された現年度文書のCSVを確保し、次回統合で回復する。CSV未到着なら入力延期を保ち、古い正常baselineへ戻さない。保持証拠の範囲だけを直すこの回復に、全期間再取得・全件再抽出や抽出意味revisionの付替えは不要。
+一覧/archive未到着は `applied.json` の `deferred_inputs` に残し、適格保存値で統合を続け、到着後に[再抽出](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_integration.py)する。他文書の未到着で保存原本の破損/解析失敗を隠さない。不正一覧の再受領は既存ok日/時計を保つ。未適格日は正常部分とfailed coverageをpartial公開できるが、日別成功ではなく厳密読取は拒否する。正常別日の訂正/取下げは進め、不正日は新handoffがなくても正常受領までsource-check失敗を保つ。延期だけはsource-check成功、解析/公開/readback等の失敗はエラーとし当該sourceを修復する。
 
-通常`edinet-metrics`のCSV取得計画は、保存一覧の540日前〜asof（両端込み）の充足、nativeの訂正/取消・ticker選択とarchiveのdocID/typeだけを使う。L2 metricの成功・失敗・revision・破損でGET対象を減らさず、選択文書の原ZIPが無ければ取得する。受領済みのtype5 ZIPは再取得しない。一覧不足/失敗・候補0は取得失敗として報告するが、取得plannerがL2 failure coverageを書き込むことはない。nativeでtickerを特定できる未解決eventは隔離する。originとtickerを失ったeventの関連企業をL2 baselineから推測せず、baselineだけに残る対応の隔離は既存のL2抽出ownerが維持する。原本を取得できたことをL2への採用成功と扱わない。
+誤orphan隔離は現年度の選択CSVを確保して次回統合で回復し、未到着を古い正常baselineで埋めない。全期間GET・全件再抽出・意味revision変更は不要。明示 `maintain-market refresh-edinet-metrics` も一覧保存→原ZIP確保→L2抽出の順で、原本取得失敗なら抽出しない。後続失敗でも受領済みZIPを保つ。
 
-取得inputからmetric本文/coverageを外すため、code更新後の次の通常input発行で小さい形へ置き換える。旧inputの余分なL2欄は読まず、既存schema・原本・受領時刻・stage形式を変換しない。未統合stageの原ZIPと一覧は従来通りresumeで保全する。明示`maintain-market refresh-edinet-metrics`も、要求lookbackの一覧を保存→同じsource-only計画でCSV原本を確保→L2計画/抽出の順にする。既定540日と明示lookbackは変えず、L2が再利用可能でも欠けた原ZIPは取得し、L2破損/抽出失敗や後続archive失敗でも先に保存した原ZIPを保つ。原本取得に失敗した場合はL2計画/抽出へ進まず失敗終了する。CSV取得計画の置換だけならschema/stage移行は不要で、保持済みtype5 ZIPは既存の同一性で再利用する。factsの取得範囲は後述のschema50でsource所有へ移し、その切替には全sourceのinputと未統合stageをschema50へ揃える。一覧原本からの計画とL1公開は後述の[一覧native切替](#edinet-list-native-l1)で分離する。archive input/scopeと一覧L2のmarket共通公開依存は残る（refs #1820）。facts未初期化を迂回したり過去全件GETを増やしたりしない。
+metric本文/coverageを除いたinputは次回通常発行で更新し、旧余分欄を読まない。schema/stage/原本identityを変えず、未統合原ZIP/一覧を保持する。facts未初期化やinput不足を迂回せず、[schema50切替](#edinet-factsの取得範囲schema-50)・[一覧native切替](#edinet-list-native-l1)へ進む。archive input/scope・一覧L2のmarket公開依存は残る（refs #1820）。
 
-一覧の不正再受領では既存のok日の投影・受領時計を保つ。未適格日の不正受領は、選択できた正常原典由来の証拠とfailed coverageを保存し、`edinet.documents`だけはpartialでも公開して正常な別sourceと原本保存を止めない。partial公開は日別取得の完了認定ではなく、厳密な日付読取はfailed日を拒否する。正常な別日の訂正・取下げは反映し、不正日は新しいhandoffがなくても失敗報告を続け、正常受領で回復するまで`source-check`は成功にしない。
-
-Screening成功は全source成功を意味しない。旧snapshot日を当日へ書き換えず、`edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc`、文書ID・提出日時・対象期間で鮮度を確認する。採用条件は[Screeningの入力適格性](../docs/reference/screening-runtime.md#入力不足と品質)を参照する。入力延期だけなら `source-check` は成功、不正受領・解析・公開・readbackの失敗はエラーになる。check無効化や全取得の重複起動ではなく、失敗したsourceだけを修復する。
+Screening成功を全source成功としない。旧snapshot日を当日にせず、`edinet_snapshot_asof` / `edinet_snapshot_recorded_at_utc`、文書ID・提出日時・対象期間で鮮度を確認する。
 
 <a id="financials-identity-cutover"></a>
 ### Company Financialsの保存IDと公開時入力の読取
@@ -96,18 +100,20 @@ uv run python -m tools.financials_identity_workspace --db <APP29> \
 
 ### マクロ原本の独立更新
 
-`cloud-economic-sources`の取得計画は日本株の休場日も対象にする。source catalogのproviderを共有quota単位にまとめ、各groupの取得→非公開R2受領を独立させる。取得側は担当groupだけの再生成可能なread-only inputを読み、正本全体をpullしない。成功sourceは同groupの失敗後も受領を残し、groupの取得結果は赤のまま報告する。handoffは既存stores bucketのcoordination/economic-sources/へ今回の経済受領だけを保存し、application・market storeや秘密を含めない。public repositoryのActions artifactへ原本を出さない。
-
-groupと取得範囲は `baibai-jobs acquire-economic groups` とData Collectionのsource catalogを正本とする。共有quota・取得方式ごとの制約を保ち、月次・四半期を一律「直前2か月」に縮めない。通常改訂や公表遅延を落とすためである。FREDは要求窓に関係なく全CSVが配信されるため、受信した全期間を比較し、古い期間の改訂も残す。他sourceの古い年次改訂は従来どおり明示取得で扱う。全体ファイル配信では比較範囲を絞っても通信量は減らない。松井の現在ページから過去履歴を回復したとは扱わない。定時またはasof未指定の手動取得が日跨ぎで遅れた場合、current-only源だけは実取得日の範囲を記録する。他の期間取得源とhandoffの対象日は動かさず、source別の実範囲と区別する。明示された過去asofは現在値で埋めない。PMIの新配信元・速報採用は #1477 の未完了範囲。[公開記事adapterの検証状況](../docs/reference/data-sources.md#pmi-public-articles)を参照し、通常経路が403のままcatalogを切り替えない。
-
-`--recent`は通常窓に加え、既存source runの完了した取得範囲／通常窓の失敗以後に残った未確認区間を成功範囲のunionから回復する。初回は最近窓から開始する。過去の失敗した広範囲取得を通常runの起点にはせず、実在するnative日次受領とPDF対象月で回復済みを判定する。未取得が残る広範囲失敗はhandoffの`result.json`とrun logの`history_recovery_required`で確認し、明示的な期間指定refreshまたは`--all-history`で別に回復する。初期history seed・古い年次改訂照合も別操作である。過去の全改訂や完全な当時PITの再現を保証しない。
+[cloud-economic-sources](../.github/workflows/cloud-economic-sources.yml)は日本株休場日も取得する。共有quotaごとのgroupが担当sourceのread-only inputを使い、成功分を非公開 `coordination/economic-sources/` へ独立stageする。失敗groupは赤のまま部分受領を保ち、application/market全体や秘密をhandoff・公開artifactへ含めない。
 
 ```bash
 uv run baibai-jobs acquire-economic groups
 gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f source_id=fred-payems
 ```
 
-限定再実行はgroupとその中のsource IDを指定する。取得失敗とprivate受領成功は併存し、原本未保存と正本未反映を混同しない。取得期限とjob上限を分け、通常の時間切れでも成功分をexport/stageする。全groupの完了を待たず、その日の共通統合が利用可能な受領と前回適格値からL2の読取材料を更新する。保存済みのL3判断を書き換えたり、新しい投資判断を自動作成したりしない。遅着は次回統合へ入る。
+限定再実行はgroup内のsource IDを指定する。[取得policy](../engine/src/baibai_engine/data_collection/acquisition/policy.py)のsource別窓を一律2か月へ縮めない。FREDは全CSVの全期間を比較して旧期改訂を残す。全体配信は比較窓を狭めても通信量が減らない。他sourceの古い年次改訂・初回history seedは明示取得とする。
+
+`--recent`は通常窓と、既存成功範囲/通常窓失敗からの未確認区間を回復する。広範囲失敗は通常runの起点にせず、実受領の成功分を除いた残りを `result.json` / logの `history_recovery_required` で確認し、期間指定refreshまたは `--all-history` で別に回復する。全改訂・完全な当時PITは保証しない。
+
+定時/asof空欄の遅延ではcurrent-onlyだけ実取得日を記録し、他sourceとhandoff対象日は動かさない。松井の現在ページや明示過去asofを現在値で埋めて履歴回復としない。PMIの配信元変更/速報採用は[別途受入](../docs/reference/data-sources.md#pmi-public-articles)で扱う。
+
+取得成功と正本反映は別に確認する。保存L3を書き換えたり投資判断を自動作成したりしない。
 
 ### FRED確認stateと経済schema 12→13の切替
 
@@ -155,31 +161,26 @@ FRED以外の比較窓・人工空・確認方式は変更しない。経済SQLi
 
 ### source入力・市場原本の引渡し
 
-日次の独立source取得Actionsと共通統合では、共通統合だけが`cloud-publish`と共通leaseを使う。取得側は固定L1またはsource別のread-only inputと既存private stagingを使い、market/application全体のhydrateや統合計算をしない。TradingViewも独立sourceとして毎日取得し、[取得運用](#tradingview-expectations)に従う。
+共通統合だけが `cloud-publish` と共通leaseを使う。独立取得は固定L1/read-only input→private stagingを担当し、market/application全体のhydrate・統合をしない。同source/groupは取得〜stageを直列化し、J-Quantsは市場/財務/経済の共有quotaを守る。TradingViewも毎日独立取得し、[取得運用](#tradingview-expectations)に従う。
 
-inputは正本generationと原本hashへ結び付く再生成物で、第二の正本ではない。取得計画に必要なsource自身の履歴とcoverage（正常な空も含む）を保持し、部分storeへfull lake originを付けない。同じsource/groupは取得からstageまで直列化し、J-Quantsの市場・財務・経済取得は共有quotaを守る。
+[source input](src/baibai_jobs/acquisition/source_inputs.py)は正本generation/原本hashに結び付く再生成物で、正本ではない。計画に必要なsource履歴/coverage（正常空を含む）を保持し、部分storeにfull lake originを付けない。初回は共通統合から発行し、`coordination/source-inputs/` 不足を全DB取得・空seedで迂回しない。J-Quantsはこれを使わず、未移行sourceは固定L1 release/未統合原本、nativeは独立headから計画する。
 
-Matsuiは実取得日のcurrent pageを1回GETし、過去日を回復しないため、取得inputへdocument本文・受領履歴・runを複写しない。共通統合が正本schemaを確認して空のschema13 SQLiteを発行し、既存のgroup・generation・hash検証と同値input再利用を使う。これは取得用の明示的な空seedで、input不足時の自動初期化や、正本に原本がないという主張ではない。同値・訂正・遅着の比較はfresh経済正本への受入が行い、L2は取得seedではなく保持正本を固定して再生成する。
+Matsui/TSRは原document全履歴をinputへ複写しない。schema13 envelopeと旧全履歴inputとの双方向reader互換を保ち、次の通常input発行で更新する。schema移行・再GETは不要で、同値inputは再利用する。
 
-切替は新codeの通常input発行1回で完了し、旧全履歴SQLite inputも同じreaderで読める。旧readerも新seedを取得に使えるため、format変換やprovider再取得による移行は不要。旧input／stage／正本の削除やretention変更は伴わない。旧stageが再利用可能な間はその参照先も保持する。通常発行後にgeneration一致・空seed再利用・次のMatsui原受領とfresh正本での受入を確認する。日次の全履歴input複写はここで終わるが、経済正本全体の転送とL1本文のsource別object化は残作業である（refs #1820）。
+- **Matsui:** 実取得日のcurrent pageを1 GETするため、document・受領履歴・runなしの明示空seed。正本schemaを検証して発行し、原本不在やinput欠落の自動初期化を意味しない。
+- **TSR倒産件数:** complete JSONの本文を除き、run範囲・成功/失敗・native coverageを残す。recent/outage/未完了広範囲の判定を最新成功日だけへ縮約しない。run metadataが増えれば再発行し、固定bytes量とはしない。
 
-TSR倒産件数の取得inputは、毎回取得するcomplete JSONの過去document本文を含めない。旧schema13 envelopeのままrunの範囲・成功/失敗と既存native coverageを保持し、recent・outage回復・未完了の広範囲取得の判定を変えない。取得成功の最新日だけへ縮約せず、failed runや部分成功を捨てない。新受領の全文・URL・params・実受領時刻は通常handoffに残り、同値・訂正・遅着はfresh正本への受入で比較する。L2は取得inputではなく保持正本から再生成する。
+通常発行後はgeneration・同値再利用・次受領とfresh正本の受入を確認する。新受領の原文/URL/params/実時計はhandoff、同値/訂正/遅着の比較とL2再生成は保持正本が担う。旧input/stageと参照先は有効な間保持し、削除・retention変更を伴わない。経済正本全体の転送・source別object化は残作業（refs #1820）。
 
-新codeの通常input発行1回でTSRのdocument全履歴複写を終える。旧全履歴inputと新inputは相互にreader互換で、schema変換・provider再取得による移行・新prefixは不要。input不足を空seedで迂回しない。run metadataが増えればinputは再発行し、一定bytesにはならない。同値inputは既存機構で再利用する。旧input・stage・原本の削除やretention変更は伴わず、固定参照中のobjectを保持する。経済正本全体の転送とL1本文のsource別object化は #1820 の残作業である。
+[cloud-market-sources](../.github/workflows/cloud-market-sources.yml)は市場/財務・JPX・EDINET一覧とmetrics/facts archiveを別slotにする。週末も一覧/archiveを続け、facts未初期化を全件取得成功にしない。需給の取得日は固定calendar原本を使う。
 
-`cloud-market-sources`は市場／財務・JPX・EDINET一覧と、EDINET metrics/facts用archiveを別slotに分ける。土日は一覧とarchiveの取得を続ける。metricsとfactsは一覧から独立して分岐し、factsの未初期化を成功した全件取得と扱わない。J-Quants需給は固定した取引暦原本から取得日を決め、native暦の有効時はその固定入力を使う。TradingViewは平日・土日とも毎日取得する。保存済み受領の保持と履歴読取は新規取得から分離する。
+手動 `source=all` は一覧取得/stage成功後にmetrics/factsへ分岐する。archiveは未統合一覧も作業copyへ投影するので共通統合を待たない。一覧失敗時はall内のarchiveを止め、有効一覧を確認できる場合だけ同asofの必要archive sourceを再実行する。他sourceは待たせない。
 
-手動`source=all`は一覧の取得・stage成功後にmetrics/factsを分岐する。他sourceや共通統合は待たせない。archive取得は未統合の一覧受領も作業copyへ投影して読むため、共通統合の先行実行は不要。一覧失敗時はall内のarchive取得を止め、古い一覧だけで当日分を取得できたように見せない。有効な一覧受領を確認できる場合は、必要なarchive sourceだけを同じasofで再実行する。
+marketも元run時計/該当cronから日付・曜日を固定する。ただしrun作成自体が次の同slotを越す24時間以上の遅延は復元できず、対象日を確認してasofを明示する。
 
-定時market sourceの対象日と曜日分岐は、元run作成時計以前の直近の該当cron slotで固定し、JST日跨ぎ・作成後のqueue待機・rerunで翌日へ進めない。手動は明示asofを優先し、空欄だけ元run作成時のJST日を使う。本来の予定日時はAPIから得られないため、run作成自体が次の同slotを越える24時間以上の遅延は復元できず、対象日を確認して明示asofで扱う。
+反映は[source所有の投影](src/baibai_jobs/integration/sources.py)を使う。破損handoff/decode失敗は当該sourceを報告して他を進めるが、正本破損/R2全体障害は停止する。失敗前の原本は公開/readback対象とし、不正typed値を採用しない。input発行失敗も前pointerを保ち正常groupを更新する。
 
-市場の反映はJ-Quantsの範囲／単日projection、JPXのcollection固有の置換、EDINET retained receiptのrebuild、TradingViewの同一取得cycle内の最初の正常選択を使う。`merge_market_store`は汎用fact mergerにしない。J-Quantsの古い範囲と後続範囲の再投影は一つのtransactionで確定し、途中失敗時は以前の投影を残す。破損handoffやsource固有のdecode失敗は記録して他sourceを続け、正本破損や全体のR2障害は停止する。外部評価を含め、失敗前に保持した原本も公開・読戻しの対象とし、不正typed値は採用しない。
-
-scoped inputを使うsourceの初回input生成は既存正本から共通統合を一回実行する。`coordination/source-inputs/` のinput不足を全DB取得や空seedで迂回しない。J-Quantsはsource別scoped inputを使わず、未移行の市場sourceは固定L1 releaseと未統合原本、native sourceは独立headから取得計画を作る。独立取得の受領、共通統合のrelease/readback、モデル生成・候補公開時刻、watchdogを確認する。取得workflowと共通統合の責務を分け、削除済みの複合dailyを復活させない。
-
-通常の遅着・未統合受領は次回共通統合、必要なら既存dailyの手動実行で拾う。一つのinput exportが失敗しても前回pointerを保ち、正常groupは更新する。経済の実取得はseedと同値でも一時受領へ残し、統合時にfresh canonicalと比較して変更だけ追記する。同値no-opを統合したstageもsource watermarkを進める。
-
-すでに後続stageを統合した後に古いstageが現れた場合は`needs_explicit_recovery`として保全し、自動で現在値を巻き戻さない。stage ID、理由、対象source/期間、最新integrated markerを確認する。現行値の回復なら当該sourceを新runで再取得し、次回統合する。過去vintageそのものの補完が必要なら通常dailyへ再投入せず、原本を固定した個別回復として主担当が範囲と再投影を確認する。marker削除、受領日時の書換え、古いDBの丸ごとpushで通さない。全履歴rebuildは通常のrecent確認から分ける。
+遅着・未統合受領は次回統合、必要なら既存dailyの手動実行で拾う。同値no-opもstage watermarkを進める。後続統合後に現れた旧stageは `needs_explicit_recovery` として保持し、ID・理由・source/期間・最新markerを照合する。現在値は新run取得→統合、旧vintageの補完は原本固定の個別回復で扱う。marker削除・受領日改変・古いDB全体pushで通さず、通常recentに全履歴rebuildを混ぜない。
 
 ## クラウド正本をローカルへ取得する
 
