@@ -316,9 +316,13 @@ def execute(
             if request.initialize:
                 owner.initialize()
             imported_identity = apply_import(owner, directory=directory)["l1_identity"]
-        report["phase"] = "verify_all_originals"
+        else:
+            report["phase"] = "verify_all_originals"
+            emit()
+            verify_import(owner, directory=directory)
+        # apply_import already reads back every original while holding its fixed inputs.
+        report["phase"] = "final_checks"
         emit()
-        verify_import(owner, directory=directory)
         verify_held(store, handle)
         check_github(request, os.environ)
         _, after = observe()
