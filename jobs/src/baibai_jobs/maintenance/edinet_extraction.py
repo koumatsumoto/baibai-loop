@@ -164,8 +164,21 @@ def refresh_edinet_facts_command(
                     include_holder_archives=False,
                 )
                 print(json.dumps({"native_archive_acquisition": report}, sort_keys=True), file=out)
-                materialize_archives(owner.freeze(), sqlite_path)
+                archives = owner.freeze()
+                materialize_archives(archives, sqlite_path)
                 materialize_lists(lists, sqlite_path)
+                # Extraction must use this same head while its object store is open.
+                return max(
+                    int(report["status"] == "failed"),
+                    extract_edinet_facts_command(
+                        asof=asof,
+                        sqlite_path=sqlite_path,
+                        reader=archives,
+                        initialize=initialize,
+                        tickers=tickers,
+                        stdout=out,
+                    ),
+                )
         except (
             EdinetAcquisitionError,
             EDINETProviderError,
@@ -176,17 +189,6 @@ def refresh_edinet_facts_command(
         ) as error:
             print(f"EDINET native facts refresh failed: {type(error).__name__}", file=sys.stderr)
             return 1
-        return max(
-            int(report["status"] == "failed"),
-            extract_edinet_facts_command(
-                asof=asof,
-                sqlite_path=sqlite_path,
-                reader=reader,
-                initialize=initialize,
-                tickers=tickers,
-                stdout=out,
-            ),
-        )
     selected = prepare_fact_acquisition(
         sqlite_path, asof=asof, initialize=initialize, tickers=tickers
     )
