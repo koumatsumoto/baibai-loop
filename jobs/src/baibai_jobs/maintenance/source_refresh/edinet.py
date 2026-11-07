@@ -77,6 +77,12 @@ class EDINETRefresh:
             self._native_store = None
             self._native_fixed = None
 
+    def retained_archives(self) -> FixedEdinetArchives:
+        """Keep extraction on the last input selected or published by this acquisition."""
+        if self._native_fixed is None:
+            raise ValueError("EDINET native archives have not been selected by acquisition")
+        return self._native_fixed
+
     def _native_archives(self) -> EdinetArchiveL1:
         if self._native_store is None:
             self._native_store = Boto3R2Store(
