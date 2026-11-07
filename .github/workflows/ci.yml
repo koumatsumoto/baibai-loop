@@ -10,17 +10,28 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      operation:
+        description: "通常quality、または固定したalerts後着8原本の一回移送"
+        type: choice
+        required: true
+        default: quality
+        options:
+          - quality
+          - margin-alerts-late8-20261107
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
+  group: ${{ inputs.operation == 'margin-alerts-late8-20261107' && 'common-source-integration' || github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
+  queue: max
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Python gates share one dependency setup.
   quality:
+    if: ${{ inputs.operation != 'margin-alerts-late8-20261107' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -148,3 +159,235 @@ jobs:
           PY
           uv run pip-audit \
             -r /tmp/baibai-loop-build-requirements.txt
+
+  # このbranchだけの一回用job。mainへmergeせず、受入後はbranchを残して終了する。
+  margin-alerts-late8:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'margin-alerts-late8-20261107' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Require the fixed ops branch and unchanged production code
+        run: |
+          test "$GITHUB_REPOSITORY" = koumatsumoto/baibai-loop
+          test "$GITHUB_REF" = refs/heads/ops/margin-alerts-late8-20261107
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD^)" = 5dae021b20bd5f94e455a34a29b63a91bf3f86c9
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = .github/workflows/ci.yml
+      - name: Require the legacy source workflow to stay disabled and drained
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          workflow="repos/$GITHUB_REPOSITORY/actions/workflows/cloud-market-sources.yml"
+          test "$(gh api "$workflow" --jq .state)" = disabled_manually
+          for state in queued in_progress waiting pending requested; do
+            test "$(gh api "$workflow/runs?status=$state&per_page=1" --jq .total_count)" = 0
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Acquire publication lease after the common queues drain
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease acquire --purpose operator --handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Prepare, apply, cold verify, and compare the fixed eight original receipts
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          uv run python - <<'PY'
+          """固定した後着8原本だけを既存cutoverへ渡す一回用Actions実行。"""
+          import base64
+          import gzip
+          import hashlib
+          import json
+          import os
+          import tempfile
+          import sys
+          from contextlib import closing
+          from pathlib import Path
+
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
+          from baibai_engine.storage.json import write_json_atomic
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_jobs.maintenance import margin_alerts_native_cutover as cutover
+          from baibai_jobs.publication.lease import _load_handle, verify_held
+
+          RELEASE = "20261107T052204Z-b676e5fa-6cae15764726"
+          MANIFEST = "3e5f5396eed4968f12461245c18a6a8c629f912873e54be29d9e12c50891683f"
+          BASELINE = "e2a62e5cb6a1172a8e100bf27430d1805d141d4bec4ef87dca295f23af0ce6ef"
+          KNOWN_AT = "2026-11-07T05:22:04+00:00"
+          # 既存固定releaseの検証済み原本から得たrequest fingerprint。
+          EXPECTED = {
+              "0c4ec3c076154cecb227ffd3418addf8": "35d989b5c23edde13bd757761d5842188319fe14b14c394c74e935783f38c11c",
+              "5826cd0cad274897bd8da04331d59f25": "b8c5e791ac1f27d244fdfc4ab00de0a5db1dbf46028c9116b79b1f9b35b92fa0",
+              "26e6949b1992468cb694ba89d37f5109": "0a04a921c3f97821fd2061553be2c2b525aa3e90ab0e4baaf97d29f5727cb42d",
+              "79a5a4babf654e289fc19eeeb2b330e2": "03e077b009bbe96307705357eb520638eb1a6a40e05292d14ecc7aa7bb22c7b1",
+              "ce350ede255f422894d3b37c1c64bb1b": "4bddacbe81b1c3ca7b0a11491c8d10b006c3ecd0c99ab1963e94c29a9ab19f1f",
+              "234814c8d4ef42a6920a6cc3c3fa34ac": "304d7f460cf7ebfdcbf97a7af3c27892acd10f01e0e1e72ba5177c0c80de1d99",
+              "1debcaf441f84f16bcd0846d7d4f3607": "c81abfeffa3cf8d7623d1223b1f123479a60e010ccfaa0d32ffe274ea34ac259",
+              "2d9bf80575a84240903656b308c87b2a": "cca74ae3034a1c3e5599a94d1b8027f7f07bd76a36e24b06400593e8bedc0233",
+          }
+
+
+          class GuardFailure(ValueError):
+              pass
+
+
+          def require(condition, reason):
+              if not condition:
+                  raise GuardFailure(reason)
+
+
+          def select_plan(directory):
+              plan = json.loads((directory / "plan.json").read_bytes())
+              body = (directory / "baseline-head.json").read_bytes()
+              require(hashlib.sha256(body).hexdigest() == BASELINE, "baseline_changed")
+              require(plan["baseline_head_sha256"] == BASELINE, "plan_baseline_changed")
+              require((plan["release_id"], plan["manifest_sha256"], plan["known_at"]) ==
+                      (RELEASE, MANIFEST, KNOWN_AT), "fixed_input_changed")
+              require(not plan["blocked"], "unresolved_originals")
+              prior = json.loads(body)["receipts"]
+              attempts = {item["request_id"]: item for item in plan["attempts"]}
+              require(len(attempts) == len(plan["attempts"]) == 3795, "legacy_count_changed")
+              require(len(prior) == 3788, "baseline_count_changed")
+              require(attempts.keys() - prior.keys() == EXPECTED.keys(), "late_id_set_changed")
+              require(all(prior[key]["fingerprint"] == attempts[key]["sha256"]
+                          for key in attempts.keys() & prior.keys()), "prior_original_changed")
+              require({key: attempts[key]["sha256"] for key in EXPECTED} == EXPECTED,
+                      "late_original_changed")
+              # 未移送8件へ絞る前に、旧3795件と既存3788件の交差を全照合する。
+              plan["attempts"] = [item for item in plan["attempts"] if item["request_id"] in EXPECTED]
+              write_json_atomic(directory / "plan.json", plan)
+              return plan
+
+
+          def save(store, name, value):
+              body = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+              require(0 < len(body) <= 4 * 1024 * 1024, "evidence_size_exceeds_finite_limit")
+              compressed = gzip.compress(body, mtime=0)
+              digest = hashlib.sha256(compressed).hexdigest()
+              raw_digest = hashlib.sha256(body).hexdigest()
+              key = f"coordination/cutovers/margin-alerts-late8-20261107/{os.environ['GITHUB_RUN_ID']}/{name}-{digest}.json.gz"
+              with tempfile.TemporaryDirectory(prefix="alerts-evidence-") as temporary:
+                  path = Path(temporary) / "evidence.json.gz"
+                  path.write_bytes(compressed)
+                  path.chmod(0o600)
+                  saved = store.put_file(
+                      key, path, sha256=digest,
+                      content_md5=base64.b64encode(hashlib.md5(compressed, usedforsecurity=False).digest()).decode(),
+                      content_type="application/gzip", if_none_match=True,
+                  )
+              received = store.get_bytes(key)
+              require(hashlib.sha256(received).hexdigest() == digest and received == compressed,
+                      "evidence_readback_failed")
+              require(gzip.decompress(received) == body, "evidence_readback_failed")
+              after = store.head(key)
+              require(after is not None and after.etag == saved.etag and after.size == len(compressed)
+                      and after.metadata.get("sha256") == digest, "evidence_readback_failed")
+              print(json.dumps({"evidence": name, "key": key, "sha256": digest,
+                                "uncompressed_sha256": raw_digest, "uncompressed_bytes": len(body),
+                                "stored_bytes": len(compressed)}, sort_keys=True))
+
+
+          def main():
+              root = Path(os.environ["RUNNER_TEMP"])
+              directory = root / "margin-alerts-late8-plan"
+              lease = _load_handle(root / "publication-lease-handle.json")
+              result = {"migration_accepted": False, "native_apply_attempted": False,
+                        "provider_requests": 0, "flags_changed": False, "canonical_writes": False}
+              phase = "prepare"
+              with closing(Boto3R2Store(bucket="baibai-stores")) as store:
+                  try:
+                      verify_held(store, lease)
+                      require(cutover.main([
+                          "prepare", "--directory", str(directory),
+                          "--work-directory", str(root / "margin-alerts-prepare"),
+                          "--release", RELEASE, "--manifest-sha256", MANIFEST,
+                          "--baseline-head-sha256", BASELINE, "--known-at", KNOWN_AT,
+                      ]) == 0, "prepare_failed")
+                      phase = "validate_plan"
+                      plan = select_plan(directory)
+                      phase = "preserve_plan"
+                      save(store, "baseline", json.loads((directory / "baseline-head.json").read_bytes()))
+                      save(store, "plan", plan)
+                      verify_held(store, lease)
+                      phase = "apply"
+                      result["native_apply_attempted"] = True
+                      require(cutover.main([
+                          "apply", "--directory", str(directory),
+                          "--work-directory", str(root / "margin-alerts-apply"),
+                      ]) == 0, "apply_failed")
+                      verify_held(store, lease)
+                      phase = "cold_verify"
+                      require(cutover.main([
+                          "verify", "--directory", str(directory),
+                          "--work-directory", str(root / "margin-alerts-cold"),
+                      ]) == 0, "cold_verify_failed")
+                      applied = json.loads((directory / "applied.json").read_bytes())
+                      require(applied["baseline_receipts"] == 3788 and applied["failed"] == 0,
+                              "apply_not_accepted")
+                      head = MarginAlertsL1(store, root / "margin-alerts-final").fixed()
+                      require(len(head.value()["receipts"]) == 3796, "final_receipt_count_changed")
+                      require(head.content_id == applied["head_sha256"], "head_changed_after_apply")
+                      save(store, "applied", applied)
+                      phase = "compare"
+                      compare_status = cutover.main([
+                          "compare", "--directory", str(directory),
+                          "--work-directory", str(root / "margin-alerts-compare"), "--asof", "2026-11-06",
+                      ])
+                      comparison_path = directory / "comparison.json"
+                      if comparison_path.exists():
+                          comparison = json.loads(comparison_path.read_bytes())
+                          save(store, "comparison", comparison)
+                          result.update(coverage_status=comparison["coverage_status"],
+                                        differences=len(comparison["differences"]))
+                      result.update(head_sha256=head.content_id, receipts=3796, apply=applied)
+                      verify_held(store, lease)
+                      require(MarginAlertsL1(store, root / "margin-alerts-stable").fixed().content_id ==
+                              head.content_id, "head_changed_after_comparison")
+                      require(compare_status == 0, "comparison_not_accepted")
+                      result["migration_accepted"] = True
+                  except Exception as error:
+                      # credentialや原本を含む例外messageは公開しない。
+                      result.update(error_type=type(error).__name__, failed_phase=phase)
+                      if isinstance(error, GuardFailure):
+                          result["blocked_reason"] = str(error)
+                  save(store, "outcome", result)
+                  print(json.dumps(result, sort_keys=True))
+                  return int(not result["migration_accepted"])
+
+
+          if __name__ == "__main__":
+              try:
+                  code = main()
+              except Exception as error:
+                  print(json.dumps({"migration_accepted": False, "error_type": type(error).__name__}))
+                  code = 1
+              raise SystemExit(code)
+          PY
+      - name: Release publication lease
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
