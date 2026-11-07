@@ -142,7 +142,12 @@ def _publish_one(
         report: dict[str, object] = {"group": group, "asof": asof.isoformat()}
         if group == "economic-tsr_bankruptcies":
             export_tsr_input(economic, path)
-        elif group in {"economic-umich_sca", "economic-ecb_fx", "economic-mof_jgb"}:
+        elif group in {
+            "economic-umich_sca",
+            "economic-ecb_fx",
+            "economic-mof_jgb",
+            "economic-frb_h15",
+        }:
             export_day_input(economic, path, group=group)
         elif group.startswith("economic-"):
             source_ids = sorted(

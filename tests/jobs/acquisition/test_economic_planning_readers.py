@@ -48,6 +48,12 @@ CASES = (
         "mof-jgb-acquisition-input-v1",
         "economic_mof_jgb_input_days",
     ),
+    (
+        "economic-frb_h15",
+        "fed-h15",
+        "frb-h15-acquisition-input-v1",
+        "economic_frb_h15_input_days",
+    ),
 )
 
 
