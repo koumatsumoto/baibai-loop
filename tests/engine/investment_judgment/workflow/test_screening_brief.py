@@ -83,8 +83,8 @@ def test_brief_keeps_forecast_document_clock_field_sources_and_conflicts(unresol
         forecast_period_start=date(2026, 4, 1),
         forecast_period_end=date(2027, 3, 31),
         forecast_basis="consolidated",
-        forecast_target_basis="current_fiscal_year",
-        forecast_status="unresolved" if unresolved else "available",
+        forecast_target_basis="consolidated",
+        forecast_status="unresolved" if unresolved else "confirmed",
         forecast_source_documents=("20261023150001", "20261023160001"),
         forecast_field_sources=(
             ("forecast_profit", ("record-profit",)),
