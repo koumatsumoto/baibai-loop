@@ -3,6 +3,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from botocore.exceptions import ClientError, ReadTimeoutError
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
@@ -14,7 +15,12 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
 )
 from baibai_engine.data_collection.providers.edinet.facts_scope import FactsScope
 from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
-from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
+from baibai_engine.storage.objects.r2 import (
+    Boto3R2Store,
+    LakeCASConflict,
+    LakePublishError,
+    R2Error,
+)
 
 AT = datetime(2026, 11, 5, 12, 34, 56, 123456, tzinfo=UTC)
 
@@ -109,26 +115,166 @@ def test_fixed_reader_never_consults_latest_head_or_unrelated_body(tmp_path):
     assert old_body not in store.get_keys
     del store.values[HEAD_KEY]
     store.get_keys.clear()
+    store.head_keys.clear()
     assert restored.read_xbrl_zip("S100ONE") == b"retained bytes"
     assert store.get_keys == [old_body]
+    assert store.head_keys == []
     with pytest.raises(ValueError, match="unavailable"):
         restored.read_xbrl_zip("S100TWO")
     assert store.get_keys == [old_body]
 
 
-@pytest.mark.parametrize("tamper", ["missing", "body", "metadata"])
+@pytest.mark.parametrize("tamper", ["missing", "hash", "size"])
 def test_missing_or_changed_fixed_bytes_fail_closed(tmp_path, tamper):
     writer, store = owner(tmp_path)
     fixed = writer.publish([archive()])
     key = next(key for key in store.values if key != HEAD_KEY)
     if tamper == "missing":
         del store.values[key]
-    elif tamper == "body":
-        store.store_object(key, b"changed")
+    elif tamper == "hash":
+        store.store_object(key, b"x" * len(store.values[key].body))
     else:
-        store.values[key].metadata["sha256"] = "0" * 64
-    with pytest.raises(LakePublishError):
+        head = fixed.value()
+        head["archives"][0]["size"] += 1
+        fixed = FixedEdinetArchives(store, head)
+    store.head_keys.clear()
+    store.get_keys.clear()
+    with pytest.raises(LakePublishError, match="missing or changed") as raised:
         fixed.read_xbrl_zip("S100ONE")
+    if tamper == "missing":
+        assert isinstance(raised.value.__cause__, KeyError)
+    assert store.get_keys == [key]
+    assert store.head_keys == []
+
+
+@pytest.mark.parametrize("header", ["etag", "metadata", "content_type"])
+def test_same_fixed_bytes_do_not_depend_on_remote_headers(tmp_path, header):
+    writer, store = owner(tmp_path)
+    fixed = writer.publish([archive()])
+    key = next(key for key in store.values if key != HEAD_KEY)
+    value = store.values[key]
+    if header == "etag":
+        value.etag = "different-generation"
+    elif header == "metadata":
+        value.metadata = {"sha256": "0" * 64}
+    else:
+        value.content_type = "application/octet-stream"
+    store.head_keys.clear()
+    store.get_keys.clear()
+    assert fixed.read_xbrl_zip("S100ONE") == b"retained bytes"
+    assert store.get_keys == [key]
+    assert store.head_keys == []
+
+
+@pytest.mark.parametrize("when", ["before_get", "after_get"])
+def test_fixed_read_authenticates_the_one_get_body_not_a_later_generation(
+    tmp_path, monkeypatch, when
+):
+    writer, store = owner(tmp_path)
+    fixed = writer.publish([archive()])
+    key = next(key for key in store.values if key != HEAD_KEY)
+    get_bytes = store.get_bytes
+
+    def replace(requested):
+        if when == "before_get":
+            store.store_object(key, b"changed")
+        body = get_bytes(requested)
+        if when == "after_get":
+            store.store_object(key, b"changed")
+        return body
+
+    monkeypatch.setattr(store, "get_bytes", replace)
+    store.head_keys.clear()
+    store.get_keys.clear()
+    if when == "before_get":
+        with pytest.raises(LakePublishError, match="missing or changed"):
+            fixed.read_xbrl_zip("S100ONE")
+    else:
+        assert fixed.read_xbrl_zip("S100ONE") == b"retained bytes"
+    assert store.get_keys == [key]
+    assert store.head_keys == []
+    with pytest.raises(LakePublishError, match="missing or changed"):
+        fixed.read_xbrl_zip("S100ONE")
+
+
+@pytest.mark.parametrize(
+    ("doc_id", "source_type"),
+    [(" S100ONE ", 1), ("S100ONE", True), ("S100ONE", "1"), ("S100ONE", 2), ("S100ONE", 5)],
+)
+def test_invalid_or_unretained_identity_never_reads_another_archive(tmp_path, doc_id, source_type):
+    writer, store = owner(tmp_path)
+    fixed = writer.publish([archive()])
+    store.head_keys.clear()
+    store.get_keys.clear()
+    with pytest.raises(ValueError, match=r"lookup identity|unavailable"):
+        fixed.read_archive(doc_id, source_type)
+    assert store.get_keys == store.head_keys == []
+
+
+@pytest.mark.parametrize("failure", ["missing", "auth", "timeout"])
+def test_fixed_reads_keep_real_adapter_transport_failures(tmp_path, monkeypatch, failure):
+    writer, _ = owner(tmp_path)
+    fixed = writer.publish([archive()])
+    store = Boto3R2Store(
+        bucket="offline-fixture",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "fixture",
+            "R2_SECRET_ACCESS_KEY": "fixture",
+        },
+    )
+    cause = (
+        ReadTimeoutError(endpoint_url="https://redacted.invalid")
+        if failure == "timeout"
+        else ClientError(
+            {"Error": {"Code": "NoSuchKey" if failure == "missing" else "AccessDenied"}},
+            "GetObject",
+        )
+    )
+    requests = []
+
+    class Client:
+        def get_object(self, **kwargs):
+            requests.append(kwargs)
+            raise cause
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    restored = FixedEdinetArchives(store, fixed.value())
+    with pytest.raises(R2Error, match="get-object") as raised:
+        restored.read_xbrl_zip("S100ONE")
+    assert raised.value.__cause__ is cause
+    assert requests == [
+        {"Bucket": store.bucket, "Key": next(key for key in writer.store.values if key != HEAD_KEY)}
+    ]
+
+
+def test_mutable_head_still_requires_stable_head_get_head(tmp_path, monkeypatch):
+    writer, store = owner(tmp_path)
+    get_bytes = store.get_bytes
+
+    def replace_etag(key):
+        body = get_bytes(key)
+        store.values[key].etag = "changed-after-get"
+        return body
+
+    monkeypatch.setattr(store, "get_bytes", replace_etag)
+    store.head_keys.clear()
+    store.get_keys.clear()
+    with pytest.raises(LakePublishError, match="object failed integrity"):
+        writer.freeze()
+    assert store.head_keys == [HEAD_KEY, HEAD_KEY]
+    assert store.get_keys == [HEAD_KEY]
+
+
+def test_publication_still_checks_immutable_body_remote_integrity(tmp_path):
+    writer, store = owner(tmp_path)
+    fixed = writer.publish([archive()])
+    key = next(key for key in store.values if key != HEAD_KEY)
+    store.values[key].metadata["sha256"] = "0" * 64
+    assert fixed.read_xbrl_zip("S100ONE") == b"retained bytes"
+    with pytest.raises(LakePublishError, match="object failed integrity"):
+        writer.publish([archive()])
+    assert (tmp_path / "pending.json").exists()
 
 
 def test_scope_union_retains_uninitialized_and_earliest_since(tmp_path):
