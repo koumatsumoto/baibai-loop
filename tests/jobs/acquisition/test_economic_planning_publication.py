@@ -82,7 +82,7 @@ def test_export_keeps_native_plans_metadata_and_originals(tmp_path, case):
             for item in load_sources().values()
             if item.provider == group.removeprefix("economic-")
         ]
-        if group in {"economic-yahoo", "economic-multpl"}
+        if group in {"economic-yahoo", "economic-multpl", "economic-cftc"}
         else [source]
     )
     with closing(store.open_connection(canonical)) as connection, connection:
