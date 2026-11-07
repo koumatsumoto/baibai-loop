@@ -117,17 +117,16 @@ def make_metric_extraction_plan(
     for event in selection.quarantined_events:
         if event.ticker is not None and event.document_type in TARGET_DOC_TYPE_CODES:
             events.setdefault(event.ticker, set()).add(event)
-    tickers_by_doc = dict(retained_tickers_by_doc or {})
+    tickers_by_doc = {
+        doc_id: set(values) for doc_id, values in (retained_tickers_by_doc or {}).items()
+    }
     if baseline is not None:
-        legacy_tickers: dict[str, set[str]] = {}
+        # Retained receipts need not include a legacy baseline's original input.
+        # Preserve that existing safety evidence even when L1 names another ticker.
         for ticker, row in baseline.rows.items():
             record = row.record
             if record.source_doc_id is not None and record.document_type in TARGET_DOC_TYPE_CODES:
-                legacy_tickers.setdefault(record.source_doc_id, set()).add(ticker)
-        # Normalized-only legacy stores can lack the original identity. Keep
-        # that safety fallback, but do not let old L2 override retained L1.
-        for doc_id, values in legacy_tickers.items():
-            tickers_by_doc.setdefault(doc_id, frozenset(values))
+                tickers_by_doc.setdefault(record.source_doc_id, set()).add(ticker)
     for event in selection.quarantined_events:
         if event.target_doc_id is not None:
             for ticker in tickers_by_doc.get(event.target_doc_id, ()):

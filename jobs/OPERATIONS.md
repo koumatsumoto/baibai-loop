@@ -571,7 +571,9 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 - [metrics比較](src/baibai_jobs/integration/edinet_metric_rebuild.py)は保存InputSnapshotを明示した`uv run baibai-jobs rebuild-edinet-metrics --saved-input <INPUT.json> --output <NEW.sqlite> --asof <DATE> --lookback-days <N>`で作る。選択CSVだけを読み、旧metrics/facts scope/全ZIP複写を入力にしない。completed/partialだけoutputを作り、全未取得/一覧不足は延期、parse失敗は失敗、宣言原本破損は例外とする。
 - `maintain-market build-tender-offer-exits --saved-input <INPUT.json>`は同じ保存pairの一覧と必要なtype=5原本だけを読み、指定marketのJPX上場廃止観測から退出proxyを更新する。marketの新しいEDINET一覧・SQL ZIP・最新native headは補わない。原本欠損・破損・CSV decode失敗では既存退出値を保つ。`--asof`は既存の提出日/上場廃止日のcutoffで、受領時点のPIT再現ではない。引数なしの旧SQL読取とrefresh取得は別経路として残す。
 
-metricsの匿名取消・編集は、固定一覧の有効な原受領履歴から対象docIDのtickerを照合する。後の一覧で省略された原文書を候補へ復活させず、既存の対象書類種別とsecCodeの規則だけで隔離先を補う。同docIDに複数tickerを実観測した場合は全てを隔離し、nullや大量保有報告の提出者/発行者codeから推測しない。参照するのはmaterialize済みの原受領cacheであり、追加R2読取や恒久identity indexは作らない。候補がなく隔離だけ判明した新規cold出力は既知の不足を残せるが、正常空/一覧不足を成功へ変えず、既存良好snapshotだけのwarm copyは従来どおり延期する。
+metricsの匿名取消・編集は、固定一覧の有効な原受領履歴から対象docIDのtickerを照合する。後の一覧で省略された原文書を候補へ復活させず、既存の対象書類種別とsecCodeの規則だけで隔離先を補う。同docIDに複数tickerを実観測した場合は全てを隔離し、nullや大量保有報告の提出者/発行者codeから推測しない。原受領が移行前の全履歴を含むとは限らないため、旧baselineが別tickerを示す場合も従来の隔離先を保持する。参照するのはmaterialize済みの原受領cacheであり、追加R2読取や恒久identity indexは作らない。候補がなく隔離だけ判明した新規cold出力は既知の不足を残せるが、正常空/一覧不足を成功へ変えず、既存良好snapshotだけのwarm copyは従来どおり延期する。
+
+この照合は固定原受領をmaterializeしたcold/通常生成の範囲である。原受領cacheを省略した公開releaseの単独hydrate後、generic EDINETReaderは同じ履歴を読めずlegacy fallbackへ戻る。異なる新文書を指すbaselineだけでは古い匿名対象を識別できない。この条件の再生成・eligibility確認は保存pairの一覧を既存owner入口で明示materializeしてから行い、暗黙のR2補完で埋めない。cacheなし単独readerまでL1-onlyで解決済みとは扱わない。
 
 原受領に対象のidentityが一度もなければ、同じ匿名取消原本から異なる旧tickerを識別できない。このlegacy状態では既存baselineのdocID→tickerによる安全側の隔離を残し、L1だけの完全同値再生成とは呼ばない。保持すべき最小証拠は有効一覧の元docID/対象種別/secCodeを含む原受領で、元からないidentityや過去の抽出順・recorded_atを現在時計から作らない。旧良好metricのrevision/出所/時計とfactsの成功0行・status/reasons/revisionは別の実履歴として保持し、ZIP作業copy削減の対象にしない。cold出力は現codeによる新候補であり、旧抽出metadata・時計や受領時点PITの完全再現ではない。
 

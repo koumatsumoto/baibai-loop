@@ -35,7 +35,10 @@ from baibai_engine.machine_analysis.observations.financials.edinet_reader import
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.integration import edinet_metric_rebuild
 from baibai_jobs.integration.edinet_archive_native import rebuild_fixed_edinet_input
-from baibai_jobs.integration.edinet_list_native import materialize_lists
+from baibai_jobs.integration.edinet_list_native import (
+    clear_verified_receipt_cache,
+    materialize_lists,
+)
 from baibai_jobs.integration.edinet_metric_rebuild import rebuild_fixed_edinet_metrics
 
 BASE = date(2026, 4, 24)
@@ -560,6 +563,12 @@ def test_omitted_origin_receipt_quarantines_anonymous_withdrawal_on_cold_and_war
             "SELECT count(*) FROM edinet_documents WHERE doc_id='S100ONE'"
         ).fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM edinet_list_responses").fetchone() == (3,)
+    eligible = set() if current_filings == "none" else {"8306"}
+    assert set(EDINETReader(output).load_metric_records(TARGET)) == eligible
+    # Once the explicit extraction has saved quarantine, its ordinary baseline
+    # identity/reasons keep the affected value ineligible even without the cache.
+    assert clear_verified_receipt_cache(fixed, output) == 3
+    assert set(EDINETReader(output).load_metric_records(TARGET)) == eligible
     assert warm.read_bytes() == original_warm
     assert store.values == original_source
 
@@ -607,7 +616,7 @@ def test_manual_extraction_uses_the_same_original_identity_without_metric_baseli
 
 
 def test_read_eligibility_checks_retained_identity_before_the_next_extraction(tmp_path):
-    _, owner, _, _, archives = sources(
+    store, owner, _, _, archives = sources(
         tmp_path,
         bodies={
             ("S100NEW", 5): _edinet_csv_zip(),
@@ -648,3 +657,13 @@ def test_read_eligibility_checks_retained_identity_before_the_next_extraction(tm
     assert database.read_bytes() == before
     # Eligibility is read-only. The prior successful snapshot is still retained.
     assert metrics(database).rows["7203"].record.cash == 1000
+    assert clear_verified_receipt_cache(fixed, database) == 3
+    store.get_keys.clear()
+    # A generic post-hydrate SQL reader has no raw receipt history. It still uses
+    # the legacy fallback, which cannot link this old target to the different
+    # selected document. Do not hide this boundary behind an implicit R2 read.
+    assert set(EDINETReader(database).load_metric_records(TARGET)) == {"7203", "8306"}
+    assert store.get_keys == []
+    # The already-supported explicit fixed materialization restores the evidence.
+    materialize_lists(fixed, database)
+    assert set(EDINETReader(database).load_metric_records(TARGET)) == {"8306"}

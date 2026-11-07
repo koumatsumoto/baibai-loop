@@ -144,7 +144,9 @@ def _origin(ticker="72030", doc_type="120"):
     return _edinet_document(ticker=ticker, doc_id="S100ORIGIN", doc_type=doc_type)
 
 
-def test_original_identity_survives_list_omission_without_using_or_overriding_l2(tmp_path):
+def test_original_identity_survives_omission_without_requiring_l2_or_losing_legacy_evidence(
+    tmp_path,
+):
     path = tmp_path / "market.sqlite"
     connection = open_connection(path)
     at = datetime(2026, 4, 24, 12, tzinfo=UTC)
@@ -158,10 +160,10 @@ def test_original_identity_survives_list_omission_without_using_or_overriding_l2
     )
     assert retained == {"S100ORIGIN": frozenset({"7203"})}
     assert path.read_bytes() == before
-    wrong = EdinetDocumentCandidate(ticker="8306", doc_id="S100ORIGIN", doc_type_code="120")
+    legacy = EdinetDocumentCandidate(ticker="8306", doc_id="S100ORIGIN", doc_type_code="120")
     for baseline in (
         None,
-        EDINETMetricBaseline(asof_date=date(2026, 4, 24), rows={"8306": _baseline_row(wrong)}),
+        EDINETMetricBaseline(asof_date=date(2026, 4, 24), rows={"8306": _baseline_row(legacy)}),
     ):
         plan = make_metric_extraction_plan(
             selection=selection,
@@ -169,7 +171,10 @@ def test_original_identity_survives_list_omission_without_using_or_overriding_l2
             extractor_revision="metric-v2",
             retained_tickers_by_doc=retained,
         )
-        assert plan.events_by_ticker == {"7203": frozenset(selection.quarantined_events)}
+        tickers = {"7203"} if baseline is None else {"7203", "8306"}
+        assert plan.events_by_ticker == {
+            ticker: frozenset(selection.quarantined_events) for ticker in tickers
+        }
         assert plan.selection is selection  # Historical identity is not a present filing.
         assert plan.archive_candidates == ()
 
