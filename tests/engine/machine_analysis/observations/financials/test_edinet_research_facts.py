@@ -623,7 +623,8 @@ def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body):
     owner, _, _, lists = setup(tmp_path, [filing("S100YR5P")])
     old_file = tmp_path / "edinet/xbrl_zips/S100YR5P.zip"
     old_file.parent.mkdir(parents=True)
-    old_file.write_bytes(source_zip())
+    original = source_zip()
+    old_file.write_bytes(original)
     session = FakeSession(response(body))
     with closing(
         EDINETRefresh("test-key", sqlite_path=tmp_path / "absent.sqlite", session=session)
@@ -641,7 +642,7 @@ def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body):
     assert report["failed"] == [{"doc_id": "S100YR5P", "reason": "ValueError"}]
     assert not owner.freeze().archive_keys
     assert len(session.calls) == 1
-    assert old_file.read_bytes() == source_zip()
+    assert old_file.read_bytes() == original
     assert not (tmp_path / "absent.sqlite").exists()
 
 

@@ -30,6 +30,7 @@ EDINET_SOURCE_ARCHIVES = LakeDataset(
     layer="l1_source",
     sqlite_table="edinet_source_archives",
     date_column="stored_on",
+    object_date_grain="day",
     coverage_authority="unproven",
     population_column=None,
     columns=(
