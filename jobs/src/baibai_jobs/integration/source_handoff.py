@@ -79,6 +79,8 @@ def _retained_archive_keys(database: Path) -> set[tuple[str, int]]:
 
 
 def _command(source: str, asof: date, *, database: Path) -> list[str]:
+    if source == "edinet-list":
+        raise ValueError("EDINET list acquisition moved to edinet-list-native")
     return [
         "baibai-jobs",
         "maintain-market",
