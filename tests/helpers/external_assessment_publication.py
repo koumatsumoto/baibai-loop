@@ -162,7 +162,6 @@ def publication(tmp_path, monkeypatch):
     datasets = (
         "jquants.master_snapshots",
         "jquants.daily_bars",
-        "jquants.short_sale_reports",
         external_assessment.SOURCE_RESPONSES_DATASET,
         external_assessment.VALUATION_DATASET,
         external_assessment.RATING_DATASET,
@@ -171,8 +170,11 @@ def publication(tmp_path, monkeypatch):
         "tradingview.forecast_snapshots",
     )
     narrow_release_policy(monkeypatch, datasets=datasets)
+    monkeypatch.setattr(
+        publisher, "LAKE_DATASETS", {name: publisher.LAKE_DATASETS[name] for name in datasets}
+    )
     monkeypatch.setattr(publisher, "lake_verified_git_commit", lambda: "a" * 40)
-    database = market_store(tmp_path / "market.sqlite")
+    database = market_store(tmp_path / "market.sqlite", short_sale_reports=())
     with closing(sqlite3.connect(database)) as connection, connection:
         insert_master_rows(
             connection, [("2026-09-30", "7203", "合成会社", "PRIME", "輸送用機器", "011")]
