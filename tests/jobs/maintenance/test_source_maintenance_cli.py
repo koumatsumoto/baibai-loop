@@ -347,7 +347,7 @@ def test_main_refresh_tender_offer_exits_closes_provider_on_exception() -> None:
     assert edinet.close_count == 1
 
 
-def test_main_refresh_tender_offer_exits_uses_the_requested_store_for_both_inputs(
+def test_main_refresh_tender_offer_exits_uses_the_requested_store_and_acquisition(
     tmp_path: Path,
 ) -> None:
     sqlite_path = tmp_path / "other-market.sqlite"
@@ -372,7 +372,8 @@ def test_main_refresh_tender_offer_exits_uses_the_requested_store_for_both_input
         )
     assert factory.call_args.kwargs["sqlite_path"] == sqlite_path
     assert command.call_args.kwargs["sqlite_path"] == sqlite_path
-    assert command.call_args.kwargs["reader"]._sqlite_path == sqlite_path
+    assert command.call_args.kwargs["acquisition"] is edinet
+    assert "reader" not in command.call_args.kwargs
     assert edinet.close_count == 1
 
 

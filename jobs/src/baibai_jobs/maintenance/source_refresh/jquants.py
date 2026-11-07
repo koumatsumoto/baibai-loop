@@ -248,17 +248,20 @@ class JQuantsRefresh:
         return count_fin_summaries(self._path, start, end)
 
     def ensure_weekly_margin(self, day: date) -> int:
+        _require_legacy_margin_interest()
         require_legacy_weekly_balance_date(day)
         if read_weekly_margin(self._path, day) is None:
             self._fetch("margin_interest", {"date": day.strftime("%Y%m%d")})
         return len(self._reader.get_mkt_margin_interest_week(day))
 
     def refresh_weekly_margin(self, day: date) -> int:
+        _require_legacy_margin_interest()
         require_legacy_weekly_balance_date(day)
         self._fetch("margin_interest", {"date": day.strftime("%Y%m%d")})
         return len(self._reader.get_mkt_margin_interest_week(day))
 
     def ensure_all_issues_daily_margin(self, day: date) -> int:
+        _require_legacy_margin_interest()
         require_all_issues_daily_balance_date(day)
         if read_all_issues_daily_margin(self._path, day) is None:
             self._fetch("margin_interest", {"date": day.strftime("%Y%m%d")})
@@ -292,6 +295,16 @@ class JQuantsRefresh:
         )
         self._fetch_days("short_sale_reports", planned)
         return len(self._reader.get_mkt_short_sale_report_range(start, end))
+
+
+def _require_legacy_margin_interest() -> None:
+    from baibai_jobs.margin_interest_cutover import margin_interest_native_enabled
+
+    if margin_interest_native_enabled():
+        raise JQuantsProviderError(
+            "legacy margin interest writer is disabled; use jquants-margin-interest-native acquire "
+            "and rebuild-margin-interest-native with its fixed input"
+        )
 
 
 def _require_legacy_margin_alerts() -> None:

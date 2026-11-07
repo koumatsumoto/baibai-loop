@@ -634,7 +634,7 @@ def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
         str(tmp_path / "lease"),
     ]
     assert sources.main(argv) == 0
-    expected = [group for group in sources.SOURCE_INPUT_GROUPS if group != "edinet-list"]
+    expected = [group for group in sources.SOURCE_INPUT_GROUPS if not group.startswith("edinet-")]
     assert published == expected
     assert articles == list(sources.ARTICLE_SOURCES)
     report = json.loads(capsys.readouterr().out)

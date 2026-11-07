@@ -59,7 +59,7 @@ def materialize_lists(fixed: FixedEdinetLists, database: Path) -> dict[str, obje
         }
         if legacy_days - {day.isoformat() for day in receipts}:
             raise ValueError(
-                "EDINET legacy list dates lack original receipts; finish finite cutover"
+                "EDINET legacy list dates lack original receipts in the fixed native head"
             )
         conn.executemany(
             "INSERT OR IGNORE INTO edinet_list_responses VALUES (?, ?, ?, ?)", rows.values()

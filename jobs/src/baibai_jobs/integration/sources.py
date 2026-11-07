@@ -55,6 +55,7 @@ from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MA
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
 from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
+from baibai_jobs.margin_interest_cutover import margin_interest_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
@@ -81,10 +82,14 @@ def apply(
         raise ValueError("calendar cutover mode differs from the fixed integration plan")
     if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
         raise ValueError("EDINET list mode differs from the fixed integration plan")
+    if edinet_list_native_enabled() and plan.get("edinet_archive_head") is None:
+        raise ValueError("EDINET archive head is absent from the fixed integration plan")
     if bool(plan.get("margin_alerts_native", False)) != margin_alerts_native_enabled():
         raise ValueError("margin alerts mode differs from the fixed integration plan")
     if bool(plan.get("short_sale_reports_native", False)) != short_sale_reports_native_enabled():
         raise ValueError("short-sale reports mode differs from the fixed integration plan")
+    if bool(plan.get("margin_interest_native", False)) != margin_interest_native_enabled():
+        raise ValueError("margin interest mode differs from the fixed integration plan")
     margin_alerts_fingerprints = None
     if margin_alerts_native_enabled() and any(
         entry["source"] == "jquants-market" for entry in plan["handoffs"]
@@ -113,6 +118,21 @@ def apply(
             for identity, receipt in ShortSaleReportsL1(
                 store, directory / "short-sale-reports-native"
             )
+            .fixed()
+            .value()["receipts"]
+            .items()
+        }
+    margin_interest_fingerprints = None
+    if margin_interest_native_enabled() and any(
+        entry["source"] == "jquants-market" for entry in plan["handoffs"]
+    ):
+        from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
+            MarginInterestL1,
+        )
+
+        margin_interest_fingerprints = {
+            identity: receipt["fingerprint"]
+            for identity, receipt in MarginInterestL1(store, directory / "margin-interest-native")
             .fixed()
             .value()["receipts"]
             .items()
@@ -167,10 +187,17 @@ def apply(
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
     native_lists = None
+    native_archives = None
     if edinet_list_native_enabled():
+        from baibai_engine.data_collection.providers.edinet.archive_native import (
+            FixedEdinetArchives,
+        )
         from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
+        from baibai_jobs.integration.edinet_archive_native import materialize_archives
         from baibai_jobs.integration.edinet_list_native import materialize_lists
 
+        archives = FixedEdinetArchives(store, plan["edinet_archive_head"])
+        native_archives = materialize_archives(archives, market)
         native_lists = materialize_lists(FixedEdinetLists(store, plan["edinet_list_head"]), market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
@@ -218,6 +245,7 @@ def apply(
                     and price_fingerprints is None
                     and margin_alerts_fingerprints is None
                     and short_sale_reports_fingerprints is None
+                    and margin_interest_fingerprints is None
                     else _replay(
                         entry["source"],
                         market,
@@ -230,6 +258,7 @@ def apply(
                         price_fingerprints=price_fingerprints,
                         margin_alerts_fingerprints=margin_alerts_fingerprints,
                         short_sale_reports_fingerprints=short_sale_reports_fingerprints,
+                        margin_interest_fingerprints=margin_interest_fingerprints,
                     )
                 )
                 result = replay.report
@@ -265,6 +294,8 @@ def apply(
     extractions = extract_saved_edinet(market, asof=asof)
     if native_lists is not None:
         extractions["native_lists"] = native_lists
+    if native_archives is not None:
+        extractions["native_archives"] = native_archives
     for outcome in outcomes:
         if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
             outcome["article_delta"] = capture_delta(
@@ -394,10 +425,17 @@ def main(argv: list[str] | None = None) -> int:
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
             edinet_head = None
+            archive_head = None
             if edinet_list_native_enabled():
+                from baibai_engine.data_collection.providers.edinet.archive_native import (
+                    EdinetArchiveL1,
+                )
                 from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
 
                 edinet_head = EdinetListL1(store, directory / "edinet-native").freeze().value()
+                archive_head = (
+                    EdinetArchiveL1(store, directory / "edinet-archives-native").freeze().value()
+                )
             write_json_atomic(
                 directory / "plan.json",
                 {
@@ -414,18 +452,21 @@ def main(argv: list[str] | None = None) -> int:
                             )
                             or (
                                 edinet_list_native_enabled()
-                                and entry.get("source") == "edinet-list"
+                                and entry.get("source")
+                                in {"edinet-list", "edinet-metrics", "edinet-facts"}
                             )
                         )
                     ],
                     "edinet_list_native": edinet_list_native_enabled(),
                     "edinet_list_head": edinet_head,
+                    "edinet_archive_head": archive_head,
                     "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
                     "calendar_native": calendar_native_enabled(),
                     "margin_alerts_native": margin_alerts_native_enabled(),
                     "short_sale_reports_native": short_sale_reports_native_enabled(),
+                    "margin_interest_native": margin_interest_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },
@@ -464,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
                     tuple(
                         group
                         for group in SOURCE_INPUT_GROUPS
-                        if not (edinet_list_native_enabled() and group == "edinet-list")
+                        if not (edinet_list_native_enabled() and group.startswith("edinet-"))
                     )
                     if args.group is None
                     else (args.group,)

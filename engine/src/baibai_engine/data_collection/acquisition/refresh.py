@@ -125,10 +125,16 @@ def refresh_sources(
                 received = _refresh_source(
                     connection, source, start=first, end=source_end, context=context
                 )
-                # FRED's one complete response already covered every native period.
-                # Replaying it through calendar-gap recovery would invent later
-                # confirmation clocks for the same cached HTTP receipt.
-                if recent and source.provider != "fred_csv":
+                # These unbounded requests already processed their returned periods.
+                # Replaying calendar gaps would give the same cached HTTP receipt
+                # a later clock, not obtain evidence about any missing period.
+                if (
+                    recent
+                    and source.provider != "fred_csv"
+                    and not (
+                        source.provider == "boj_timeseries" and source.frequency == "quarterly"
+                    )
+                ):
                     for missing_start, missing_end in recovery_ranges(connection, source, end):
                         received += _refresh_source(
                             connection,
@@ -258,8 +264,17 @@ def _refresh_source(
                     )
                     count = sum(len(rows) for rows in records_by_day.values())
                 else:
-                    for offset in range((end - start).days + 1):
-                        day = start + timedelta(days=offset)
+                    # Quarterly BOJ can revise old periods in its unbounded response.
+                    # A period not returned is not an observed empty or withdrawal.
+                    days = (
+                        sorted(records_by_day)
+                        if source.provider == "boj_timeseries" and source.frequency == "quarterly"
+                        else (
+                            start + timedelta(days=offset)
+                            for offset in range((end - start).days + 1)
+                        )
+                    )
+                    for day in days:
                         daily_records = records_by_day.get(day, ())
                         store_snapshot(
                             connection,

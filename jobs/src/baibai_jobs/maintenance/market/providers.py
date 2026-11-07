@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Protocol
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarSnapshot,
     JPXRegulationSnapshot,
@@ -42,6 +43,8 @@ class EDINETMaintenance(Protocol):
     def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
 
     def download_csv_zip(self, doc_id: str) -> bytes: ...
+
+    def retained_archives(self) -> FixedEdinetArchives: ...
 
     def download_xbrl_zip(self, doc_id: str) -> bytes: ...
 

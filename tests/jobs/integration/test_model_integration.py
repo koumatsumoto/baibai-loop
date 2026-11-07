@@ -36,6 +36,7 @@ def integration(tmp_path, monkeypatch):
         price_identity=None,
         master_identity=None,
         margin_alerts_identity=None,
+        margin_interest_identity=None,
         short_sale_reports_identity=None,
         calendar_identity=InputSnapshot(
             kind="native_l1",
@@ -71,6 +72,7 @@ def integration(tmp_path, monkeypatch):
         assert kwargs["master_identity"] is prepared.master_identity
         assert kwargs["calendar_identity"] is prepared.calendar_identity
         assert kwargs["margin_alerts_identity"] is prepared.margin_alerts_identity
+        assert kwargs["margin_interest_identity"] is prepared.margin_interest_identity
         assert kwargs["short_sale_reports_identity"] is prepared.short_sale_reports_identity
         assert kwargs["market_release"].release_id == "new-release"
         fixed = kwargs["economic_input"]
