@@ -47,8 +47,6 @@ from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.integration.tradingview_handoff import TradingViewHandoff
 from baibai_jobs.integration.tradingview_handoff import export_handoff as export_tradingview_handoff
 from baibai_jobs.integration.tradingview_handoff import import_handoff as import_tradingview_handoff
-from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
-from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
 
 SOURCES = (
     "tradingview",
@@ -103,8 +101,8 @@ def _export(
 ) -> None:
     if source not in SOURCES:
         raise ValueError("unsupported market handoff source")
-    if source == "edinet-list" and edinet_list_native_enabled():
-        raise ValueError("EDINET list native mode does not export legacy stages")
+    if source in _EDINET_SOURCES and edinet_list_native_enabled():
+        raise ValueError("EDINET native mode does not export legacy stages")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     report: dict[str, object] = {
@@ -178,10 +176,13 @@ def _replay(
     price_fingerprints: Mapping[str, str] | None = None,
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
     short_sale_reports_fingerprints: Mapping[str, str] | None = None,
+    margin_interest_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
 
+    if source in _EDINET_SOURCES and edinet_list_native_enabled():
+        raise ValueError("EDINET stages cannot be replayed into a native execution copy")
     if source in ARTICLE_SOURCES:
         return import_article_handoff(source, database, directory)
     if source not in SOURCES:
@@ -264,20 +265,14 @@ def _replay(
             and calendar_fingerprints is None
         ):
             raise ValueError("native calendar replay requires retained cutover fingerprints")
-        if (
-            source == "jquants-market"
-            and margin_alerts_native_enabled()
-            and margin_alerts_fingerprints is None
-        ):
+        if source == "jquants-market" and margin_alerts_fingerprints is None:
             raise ValueError("native margin alerts replay requires retained cutover fingerprints")
-        if (
-            source == "jquants-market"
-            and short_sale_reports_native_enabled()
-            and short_sale_reports_fingerprints is None
-        ):
+        if source == "jquants-market" and short_sale_reports_fingerprints is None:
             raise ValueError(
                 "native short-sale reports replay requires retained cutover fingerprints"
             )
+        if source == "jquants-market" and margin_interest_fingerprints is None:
+            raise ValueError("native margin interest replay requires retained cutover fingerprints")
         selected = (
             JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
         )
@@ -287,6 +282,7 @@ def _replay(
             or price_fingerprints is not None
             or margin_alerts_fingerprints is not None
             or short_sale_reports_fingerprints is not None
+            or margin_interest_fingerprints is not None
         ):
             return import_jquants_handoff(
                 path,
@@ -298,6 +294,7 @@ def _replay(
                 price_fingerprints=price_fingerprints,
                 margin_alerts_fingerprints=margin_alerts_fingerprints,
                 short_sale_reports_fingerprints=short_sale_reports_fingerprints,
+                margin_interest_fingerprints=margin_interest_fingerprints,
             )
         return import_jquants_handoff(
             path, database, _handoff_ids(report, "request_ids"), sources=selected
@@ -338,6 +335,44 @@ def _acquire_edinet_lists(asof: date, directory: Path) -> bool:
             raise
     print(json.dumps(report, sort_keys=True))
     return not bool(report["failed"])
+
+
+def _acquire_edinet_archives(source: str, asof: date, directory: Path) -> bool:
+    from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+    from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
+    from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+    from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
+    from baibai_jobs.integration.edinet_archive_native import export_pending_handoff
+
+    if source not in {"edinet-metrics", "edinet-facts"}:
+        raise ValueError("unsupported native EDINET archive group")
+    with (
+        closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store,
+        closing(EDINETHTTP(os.environ.get("EDINET_API_KEY", ""))) as client,
+    ):
+        owner = EdinetArchiveL1(store, directory)
+        lists = EdinetListL1(store, directory / "lists").freeze()
+        started = datetime.now(UTC)
+        try:
+            report = acquire_archives(
+                owner,
+                client,
+                lists,
+                group="edinet-metrics" if source == "edinet-metrics" else "edinet-facts",
+                asof=asof,
+            )
+            owner.require_clean_work()
+        except Exception:
+            if export_pending_handoff(owner, source=source, asof=asof, started_at=started) and (
+                output := os.environ.get("GITHUB_OUTPUT")
+            ):
+                with Path(output).open("a", encoding="utf-8") as stream:
+                    print("stage_ready=true", file=stream)
+            raise
+    print(json.dumps(report, sort_keys=True))
+    return report["status"] != "failed"
 
 
 def _acquire_financial_l1(asof: date, directory: Path) -> bool:
@@ -398,57 +433,38 @@ def _acquire_financial_l1(asof: date, directory: Path) -> bool:
 def _acquire_market_l1(asof: date, directory: Path) -> bool:
     """Acquire each market source using retained originals, not L2 copies."""
     from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
-    from baibai_engine.storage.snapshots.objects import open_lake
-    from baibai_engine.storage.snapshots.reader import resolve_current_release
-    from baibai_jobs.acquisition.jquants_market_plan import freeze_market_originals
-    from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
     from baibai_jobs.calendar_cutover import calendar_native_enabled
     from baibai_jobs.master_cutover import master_native_enabled
     from baibai_jobs.price_cutover import price_native_enabled
-    from baibai_jobs.publication.datasets import LAKE_DATASETS
-    from baibai_jobs.publication.policy import release_policy_for_profile
 
     native_prices = price_native_enabled()
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
-    native_alerts = margin_alerts_native_enabled()
-    native_shorts = short_sale_reports_native_enabled()
-    shorts_result = None
-    shorts_ok = True
-    alerts_result = None
-    alerts_ok = True
-    calendar_result = None
-    calendar_fixed = None
-    calendar_ok = True
-    master_result = None
-    master_ok = True
-    native_result: dict[str, object] | None = None
-    price_ok = True
-    provider_halted = False
+    if not (native_calendar and native_master and native_prices):
+        raise ValueError("native market acquisition requires native calendar, master and prices")
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
-    if native_calendar:
-        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
-        from baibai_jobs.acquisition.jquants_calendar_native import (
-            acquire_calendar_native,
-            calendar_window,
-        )
+    from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+    from baibai_jobs.acquisition.jquants_calendar_native import (
+        acquire_calendar_native,
+        calendar_window,
+    )
 
-        with (
-            closing(Boto3R2Store(bucket=bucket)) as calendar_store,
-            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as calendar_client,
-        ):
-            owner = CalendarL1(calendar_store, directory / "calendar-native")
-            start, end = calendar_window(owner.fixed(), asof)
-            result = acquire_calendar_native(owner, start=start, end=end, client=calendar_client)
-            calendar_fixed = owner.fixed()
-        calendar_result = dict(result)
-        calendar_ok = not bool(result["failed"] or result["held"] or result["incomplete"])
-        provider_halted = bool(result.get("halted"))
-        write_json_atomic(directory / "calendar-native-result.json", calendar_result)
-    if native_prices and provider_halted:
+    with (
+        closing(Boto3R2Store(bucket=bucket)) as calendar_store,
+        closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as calendar_client,
+    ):
+        owner = CalendarL1(calendar_store, directory / "calendar-native")
+        start, end = calendar_window(owner.fixed(), asof)
+        result = acquire_calendar_native(owner, start=start, end=end, client=calendar_client)
+        calendar_fixed = owner.fixed()
+    calendar_result = dict(result)
+    calendar_ok = not bool(result["failed"] or result["held"] or result["incomplete"])
+    provider_halted = bool(result.get("halted"))
+    write_json_atomic(directory / "calendar-native-result.json", calendar_result)
+    if provider_halted:
         price_ok = False
         native_result = {"halted": 1, "status": "provider_halted"}
-    if native_prices and not provider_halted:
+    else:
         from baibai_engine.data_collection.providers.jquants.market_rules import (
             MARKET_REVISION_OVERLAP_DAYS,
         )
@@ -456,8 +472,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
         from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
         from baibai_jobs.acquisition.jquants_price_native import acquire_price_native
 
-        # Commit price originals first. A missing legacy release or another market
-        # source's later failure cannot roll them back or prevent this acquisition.
+        # Commit price originals before independent sources and L2 work.
         try:
             with (
                 closing(Boto3R2Store(bucket=bucket)) as price_store,
@@ -481,181 +496,180 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
             native_result = {"error": type(error).__name__}
         directory.mkdir(parents=True, exist_ok=True)
         write_json_atomic(directory / "price-native-result.json", native_result)
-    if native_master:
-        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
-        from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
+    from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+    from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
 
-        if provider_halted:
-            master_result = {"halted": 1, "status": "provider_halted"}
+    if provider_halted:
+        master_result = {"halted": 1, "status": "provider_halted"}
+        master_ok = False
+    else:
+        try:
+            with (
+                closing(Boto3R2Store(bucket=bucket)) as master_store,
+                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as master_client,
+            ):
+                master_owner = MasterL1(master_store, directory / "master-native")
+                acquired_master = acquire_master_native(
+                    master_owner,
+                    start=asof,
+                    end=asof,
+                    client=master_client,
+                )
+            master_result = dict(acquired_master)
+            provider_halted = bool(acquired_master.get("halted", 0))
+            master_ok = not bool(
+                acquired_master["failed"]
+                or acquired_master["held"]
+                or acquired_master["incomplete"]
+            )
+        except LakePublishError:
+            raise
+        except Exception as error:
             master_ok = False
-        else:
-            try:
-                with (
-                    closing(Boto3R2Store(bucket=bucket)) as master_store,
-                    closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as master_client,
-                ):
-                    master_owner = MasterL1(master_store, directory / "master-native")
-                    acquired_master = acquire_master_native(
-                        master_owner,
-                        start=asof,
-                        end=asof,
-                        client=master_client,
-                    )
-                master_result = dict(acquired_master)
-                provider_halted = bool(acquired_master.get("halted", 0))
-                master_ok = not bool(
-                    acquired_master["failed"]
-                    or acquired_master["held"]
-                    or acquired_master["incomplete"]
-                )
-            except LakePublishError:
-                raise
-            except Exception as error:
-                master_ok = False
-                master_result = {"error": type(error).__name__}
-        directory.mkdir(parents=True, exist_ok=True)
-        assert master_result is not None
-        write_json_atomic(directory / "master-native-result.json", master_result)
-    if native_alerts:
-        from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
-            MarginAlertsL1,
-        )
-        from baibai_jobs.acquisition.jquants_margin_alerts_native import (
-            acquire_margin_alerts_native,
-        )
+            master_result = {"error": type(error).__name__}
+    directory.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(directory / "master-native-result.json", master_result)
+    from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+        MarginAlertsL1,
+    )
+    from baibai_jobs.acquisition.jquants_margin_alerts_native import (
+        acquire_margin_alerts_native,
+    )
 
-        if provider_halted:
-            alerts_result = {"halted": 1, "status": "provider_halted"}
-            alerts_ok = False
-        else:
-            # This source commits before the remaining market release is opened.
-            # A later legacy or L2 failure cannot undo its received originals.
-            with (
-                closing(Boto3R2Store(bucket=bucket)) as alerts_store,
-                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as alerts_client,
-            ):
-                acquired_alerts = acquire_margin_alerts_native(
-                    MarginAlertsL1(alerts_store, directory / "margin-alerts-native"),
-                    asof=asof,
-                    client=alerts_client,
-                )
-            alerts_result = dict(acquired_alerts)
-            provider_halted = bool(acquired_alerts.get("halted"))
-            alerts_ok = not bool(acquired_alerts["failed"] or acquired_alerts["held"])
-        write_json_atomic(directory / "margin-alerts-native-result.json", alerts_result)
-    if native_shorts:
-        from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
-            ShortSaleReportsL1,
-        )
-        from baibai_jobs.acquisition.jquants_short_sale_reports_native import (
-            acquire_short_sale_reports_native,
-        )
-
-        if provider_halted:
-            shorts_result = {"halted": 1, "status": "provider_halted"}
-            shorts_ok = False
-        else:
-            # This source commits before the remaining market release is opened.
-            # A later legacy or L2 failure cannot undo its received originals.
-            with (
-                closing(Boto3R2Store(bucket=bucket)) as shorts_store,
-                closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as shorts_client,
-            ):
-                acquired_shorts = acquire_short_sale_reports_native(
-                    ShortSaleReportsL1(shorts_store, directory / "short-sale-reports-native"),
-                    asof=asof,
-                    client=shorts_client,
-                )
-            shorts_result = dict(acquired_shorts)
-            provider_halted = bool(acquired_shorts.get("halted"))
-            shorts_ok = not bool(acquired_shorts["failed"] or acquired_shorts["held"])
-        write_json_atomic(directory / "short-sale-reports-native-result.json", shorts_result)
-    with (
-        tempfile.TemporaryDirectory(prefix="market-l1-") as temporary,
-        open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
-        closing(Boto3R2Store(bucket=bucket)) as store,
-        closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
-    ):
-        release = resolve_current_release(
-            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
-        )
-        fixed = freeze_market_originals(
-            session,
-            release=release,
-            cache=cache,
-            store=store,
-            asof=asof,
-            include_daily_prices=not native_prices,
-            include_master=not native_master,
-            include_calendar=not native_calendar,
-            include_margin_alerts=not native_alerts,
-            include_short_sales=not native_shorts,
-        )
-        if calendar_fixed is not None:
-            from dataclasses import replace
-
-            fixed = replace(
-                fixed, indexes={**fixed.indexes, "market_calendar": calendar_fixed.index()}
-            )
-        legacy_ok = receive_market_handoff(
-            directory,
-            fixed,
-            asof=asof,
-            client=client,
-            scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
-            include_daily_prices=not native_prices,
-            include_master=not native_master,
-            include_calendar=not native_calendar,
-            include_margin_alerts=not native_alerts,
-            include_short_sales=not native_shorts,
-            provider_halted=provider_halted,
-        )
-
-    if any(
-        result is not None
-        for result in (native_result, master_result, calendar_result, alerts_result, shorts_result)
-    ):
-        path = directory / "result.json"
-        report = json.loads(path.read_bytes())
-        if (
-            master_result is not None
-            and master_result.get("incomplete")
-            and not (master_result.get("failed") or master_result.get("held"))
-            and report.get("acquisition", {}).get("status") == "skipped_non_business_day"
+    if provider_halted:
+        alerts_result = {"halted": 1, "status": "provider_halted"}
+        alerts_ok = False
+    else:
+        # Independent source commits survive later acquisition or L2 failures.
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as alerts_store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as alerts_client,
         ):
-            # Raw empty stays unfulfilled, but a proven closed cycle does not
-            # require that date's nonempty universe.
-            from baibai_engine.data_collection.providers.jquants.native_index import (
-                calendar_sessions,
+            acquired_alerts = acquire_margin_alerts_native(
+                MarginAlertsL1(alerts_store, directory / "margin-alerts-native"),
+                asof=asof,
+                client=alerts_client,
             )
+        alerts_result = dict(acquired_alerts)
+        provider_halted = bool(acquired_alerts.get("halted"))
+        alerts_ok = not bool(acquired_alerts["failed"] or acquired_alerts["held"])
+    write_json_atomic(directory / "margin-alerts-native-result.json", alerts_result)
+    from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+        ShortSaleReportsL1,
+    )
+    from baibai_jobs.acquisition.jquants_short_sale_reports_native import (
+        acquire_short_sale_reports_native,
+    )
 
-            calendar = fixed.indexes["market_calendar"]
-            sessions, unknown = calendar_sessions(calendar, start=asof, end=asof)
-            receipts = [
-                item
-                for item in calendar.receipts
-                if any(day == asof for day, _ in item.calendar_divisions)
-            ]
-            latest = max((item.received_at for item in receipts), default=None)
-            divisions = {
-                division
-                for item in receipts
-                if item.received_at == latest
-                for day, division in item.calendar_divisions
-                if day == asof
-            }
-            if sessions[asof] is False and not unknown and divisions and divisions <= {"0", "3"}:
-                master_ok = True
-                master_result = {**master_result, "status": "not_required_non_business_day"}
-        report["independent_l1"] = {
-            **({"daily_bars": native_result} if native_result is not None else {}),
-            **({"master": master_result} if master_result is not None else {}),
-            **({"market_calendar": calendar_result} if calendar_result is not None else {}),
-            **({"margin_alerts": alerts_result} if alerts_result is not None else {}),
-            **({"short_sale_reports": shorts_result} if shorts_result is not None else {}),
+    if provider_halted:
+        shorts_result = {"halted": 1, "status": "provider_halted"}
+        shorts_ok = False
+    else:
+        # Independent source commits survive later acquisition or L2 failures.
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as shorts_store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as shorts_client,
+        ):
+            acquired_shorts = acquire_short_sale_reports_native(
+                ShortSaleReportsL1(shorts_store, directory / "short-sale-reports-native"),
+                asof=asof,
+                client=shorts_client,
+            )
+        shorts_result = dict(acquired_shorts)
+        provider_halted = bool(acquired_shorts.get("halted"))
+        shorts_ok = not bool(acquired_shorts["failed"] or acquired_shorts["held"])
+    write_json_atomic(directory / "short-sale-reports-native-result.json", shorts_result)
+    from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
+        MarginInterestL1,
+    )
+    from baibai_jobs.acquisition.jquants_margin_interest_native import (
+        acquire_margin_interest_native,
+    )
+
+    if provider_halted:
+        interest_result = {"halted": 1, "status": "provider_halted"}
+        interest_ok = False
+    else:
+        with (
+            closing(Boto3R2Store(bucket=bucket)) as interest_store,
+            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as interest_client,
+        ):
+            acquired_interest = acquire_margin_interest_native(
+                MarginInterestL1(interest_store, directory / "margin-interest-native"),
+                calendar_fixed,
+                asof=asof,
+                client=interest_client,
+            )
+        interest_result = dict(acquired_interest)
+        provider_halted = bool(acquired_interest.get("halted"))
+        interest_ok = not bool(
+            acquired_interest["failed"]
+            or acquired_interest["held"]
+            or acquired_interest["incomplete"]
+            or acquired_interest["remaining"]["unknown_calendar_days"]
+            or acquired_interest["remaining"]["unknown_incomplete_requests"]
+        )
+    write_json_atomic(directory / "margin-interest-native-result.json", interest_result)
+    # With the last source migrated there is no legacy release or handoff to open.
+    from baibai_engine.data_collection.providers.jquants.native_index import calendar_sessions
+
+    sessions, unknown = calendar_sessions(calendar_fixed.index(), start=asof, end=asof)
+    skipped = (
+        os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+        and sessions[asof] is False
+        and not unknown
+    )
+    write_json_atomic(
+        directory / "result.json",
+        {
+            "source": "jquants-market",
+            "asof": asof.isoformat(),
+            "native_l1": True,
+            "acquisition": {"status": "skipped_non_business_day" if skipped else "native_l1"},
+        },
+    )
+
+    path = directory / "result.json"
+    report = json.loads(path.read_bytes())
+    if (
+        master_result.get("incomplete")
+        and not (master_result.get("failed") or master_result.get("held"))
+        and report.get("acquisition", {}).get("status") == "skipped_non_business_day"
+    ):
+        # Raw empty stays unfulfilled, but a proven closed cycle does not
+        # require that date's nonempty universe.
+        from baibai_engine.data_collection.providers.jquants.native_index import (
+            calendar_sessions,
+        )
+
+        calendar = calendar_fixed.index()
+        sessions, unknown = calendar_sessions(calendar, start=asof, end=asof)
+        receipts = [
+            item
+            for item in calendar.receipts
+            if any(day == asof for day, _ in item.calendar_divisions)
+        ]
+        latest = max((item.received_at for item in receipts), default=None)
+        divisions = {
+            division
+            for item in receipts
+            if item.received_at == latest
+            for day, division in item.calendar_divisions
+            if day == asof
         }
-        write_json_atomic(path, report)
-    return legacy_ok and price_ok and master_ok and calendar_ok and alerts_ok and shorts_ok
+        if sessions[asof] is False and not unknown and divisions and divisions <= {"0", "3"}:
+            master_ok = True
+            master_result = {**master_result, "status": "not_required_non_business_day"}
+    report["independent_l1"] = {
+        "daily_bars": native_result,
+        "master": master_result,
+        "market_calendar": calendar_result,
+        "margin_alerts": alerts_result,
+        "short_sale_reports": shorts_result,
+        "margin_interest": interest_result,
+    }
+    write_json_atomic(path, report)
+    return price_ok and master_ok and calendar_ok and alerts_ok and shorts_ok and interest_ok
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -682,6 +696,7 @@ class _ReplayContext(TypedDict, total=False):
     price_fingerprints: Mapping[str, str]
     margin_alerts_fingerprints: Mapping[str, str]
     short_sale_reports_fingerprints: Mapping[str, str]
+    margin_interest_fingerprints: Mapping[str, str]
 
 
 def _replay_context(
@@ -695,6 +710,7 @@ def _replay_context(
     price_fingerprints: Mapping[str, str] | None = None,
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
     short_sale_reports_fingerprints: Mapping[str, str] | None = None,
+    margin_interest_fingerprints: Mapping[str, str] | None = None,
 ) -> _ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
     from baibai_jobs.master_cutover import master_native_enabled
@@ -713,7 +729,7 @@ def _replay_context(
         }
     if price_fingerprints is not None:
         context["price_fingerprints"] = price_fingerprints
-    if source == "jquants-market" and margin_alerts_native_enabled():
+    if source == "jquants-market":
         from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
             MarginAlertsL1,
         )
@@ -727,7 +743,7 @@ def _replay_context(
                 .items()
             }
         context["margin_alerts_fingerprints"] = margin_alerts_fingerprints
-    if source == "jquants-market" and short_sale_reports_native_enabled():
+    if source == "jquants-market":
         from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
             ShortSaleReportsL1,
         )
@@ -743,6 +759,22 @@ def _replay_context(
                 .items()
             }
         context["short_sale_reports_fingerprints"] = short_sale_reports_fingerprints
+    if source == "jquants-market":
+        from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
+            MarginInterestL1,
+        )
+
+        if margin_interest_fingerprints is None:
+            margin_interest_fingerprints = {
+                identity: receipt["fingerprint"]
+                for identity, receipt in MarginInterestL1(
+                    store, directory / "margin-interest-native"
+                )
+                .fixed()
+                .value()["receipts"]
+                .items()
+            }
+        context["margin_interest_fingerprints"] = margin_interest_fingerprints
     day = date.fromisoformat(str(packet["asof"]))
     if source == "tradingview":
         if master_input is None and packet.get("master_native_input") is not None:
@@ -792,6 +824,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
+        if (
+            args.command in {"input", "resume"}
+            and args.source in {"edinet-metrics", "edinet-facts"}
+            and edinet_list_native_enabled()
+        ):
+            raise ValueError("native EDINET archives acquire directly from fixed L1 heads")
         if args.command == "replay-copy":
             packet = json.loads((directory / "result.json").read_bytes())
             from baibai_jobs.master_cutover import master_native_enabled
@@ -800,14 +838,7 @@ def main(argv: list[str] | None = None) -> int:
             native = args.source in {"tradingview", "jquants-market"} and (
                 master_native_enabled()
                 or calendar_native_enabled()
-                or (
-                    args.source == "jquants-market"
-                    and (
-                        price_native_enabled()
-                        or margin_alerts_native_enabled()
-                        or short_sale_reports_native_enabled()
-                    )
-                )
+                or args.source == "jquants-market"
                 or packet.get("master_native_input") is not None
                 or packet.get("calendar_native_input") is not None
             )
@@ -830,18 +861,6 @@ def main(argv: list[str] | None = None) -> int:
                 Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             ) as store:
                 load_input(store, args.source, args.database, directory)
-                if (
-                    args.source in {"edinet-metrics", "edinet-facts"}
-                    and edinet_list_native_enabled()
-                ):
-                    from baibai_engine.data_collection.providers.edinet.list_native import (
-                        EdinetListL1,
-                    )
-                    from baibai_jobs.integration.edinet_list_native import materialize_lists
-
-                    edinet_fixed = EdinetListL1(store, directory / "native-list").freeze()
-                    result = materialize_lists(edinet_fixed, args.database)
-                    print(json.dumps({"native_list_input": result}, sort_keys=True))
         elif args.command == "resume":
             from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed
 
@@ -912,12 +931,11 @@ def main(argv: list[str] | None = None) -> int:
                     packet = directory / f"resume-{source}-{index}"
                     download_fixed(store, entry, packet)
                     if source not in {"tradingview", "jquants-market"} or (
-                        master_input is None
+                        source == "tradingview"
+                        and master_input is None
                         and calendar_input is None
                         and not master_native_enabled()
                         and not calendar_native_enabled()
-                        and not margin_alerts_native_enabled()
-                        and not short_sale_reports_native_enabled()
                         and price_fingerprints is None
                     ):
                         _replay(source, args.database, packet)
@@ -959,10 +977,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--asof and export --since are required")
             if (
                 args.command == "acquire"
-                and args.source == "edinet-list"
+                and args.source in _EDINET_SOURCES
                 and edinet_list_native_enabled()
             ):
-                ok = _acquire_edinet_lists(args.asof, directory)
+                ok = (
+                    _acquire_edinet_lists(args.asof, directory)
+                    if args.source == "edinet-list"
+                    else _acquire_edinet_archives(args.source, args.asof, directory)
+                )
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print("stage_ready=false\nnative_l1=true", file=stream)
@@ -978,7 +1000,9 @@ def main(argv: list[str] | None = None) -> int:
                     with Path(output).open("a", encoding="utf-8") as stream:
                         from baibai_jobs.financial_cutover import financial_native_enabled
 
-                        native = args.source == "jquants-financial" and financial_native_enabled()
+                        native = (
+                            args.source == "jquants-financial" and financial_native_enabled()
+                        ) or args.source == "jquants-market"
                         print("stage_ready=" + str(not native).lower(), file=stream)
                         if native:
                             print("native_l1=true", file=stream)

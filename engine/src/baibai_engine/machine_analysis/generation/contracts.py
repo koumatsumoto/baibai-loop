@@ -70,6 +70,11 @@ class GenerationSubject(BaseModel):
     scope: Literal["stock", "sector", "market"]
     model_ids: tuple[Identifier, ...]
     related_subjects: tuple[Identifier, ...] = ()
+    # A recorded relation is not whole-company exposure or survey membership.
+    # Older inputs keep their missing explanation; do not use today's defaults.
+    related_subject_basis: dict[Identifier, str] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def unique_members(self) -> Self:
@@ -77,6 +82,10 @@ class GenerationSubject(BaseModel):
             raise ValueError("planned model IDs must be unique")
         if len(set(self.related_subjects)) != len(self.related_subjects):
             raise ValueError("related subjects must be unique")
+        if self.related_subject_basis is not None and set(self.related_subject_basis) - set(
+            self.related_subjects
+        ):
+            raise ValueError("relation basis must refer to a related subject")
         return self
 
 

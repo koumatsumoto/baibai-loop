@@ -101,7 +101,7 @@ def publish_inputs(
         "economic-" + group for group in economic_acquisition_groups()
     ]
     if edinet_list_native_enabled():
-        groups = [group for group in groups if group != "edinet-list"]
+        groups = [group for group in groups if not group.startswith("edinet-")]
     if only_group is not None:
         if only_group not in groups:
             raise ValueError("unsupported source input group")
@@ -151,10 +151,10 @@ def _publish_one(
                 if economic_source_policy(source).acquisition_group
                 == group.removeprefix("economic-")
             )
-            if group == "economic-matsui_margin":
-                # One current-page GET needs no prior documents or coverage. Keep
-                # the generation-bound SQLite envelope, not a second L1 history.
-                # Fresh canonical acceptance still owns same-body/late comparison.
+            if group in {"economic-matsui_margin", "economic-fred_csv"}:
+                # Current-page and complete FRED requests need no prior bodies.
+                # Keep the generation binding; fresh canonical acceptance owns
+                # same-body, disappearance and late-response comparisons.
                 source_ids = []
             if group == "economic-spglobal_pmi":
                 export_pmi_input(economic, path, source_ids=source_ids)

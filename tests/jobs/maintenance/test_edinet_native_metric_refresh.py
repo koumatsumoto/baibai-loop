@@ -12,6 +12,7 @@ import pytest
 from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
 from baibai_engine.data_collection.providers.edinet.archives import read_source_archive
 from baibai_engine.data_collection.providers.edinet.list_native import (
     EdinetListL1,
@@ -62,6 +63,10 @@ def native_input(tmp_path, monkeypatch, lookback):
     owner.publish(receipts)
     store.close = lambda: None
     monkeypatch.setattr(refresh, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: store
+    )
+    EdinetArchiveL1(store, tmp_path / "archive-native").initialize()
     monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     return store, owner
 
@@ -71,7 +76,7 @@ def native_input(tmp_path, monkeypatch, lookback):
 def test_native_refresh_preserves_window_csv_bytes_and_reuse(
     tmp_path, monkeypatch, lookback, fail_l2
 ):
-    _, owner = native_input(tmp_path, monkeypatch, lookback)
+    store, owner = native_input(tmp_path, monkeypatch, lookback)
     database = tmp_path / "market.sqlite"
     zip_content = _edinet_csv_zip()
     calls = []
@@ -97,6 +102,9 @@ def test_native_refresh_preserves_window_csv_bytes_and_reuse(
         stdout=output,
     ) == int(fail_l2)
     assert calls == [("S100NATIVE", 5)]
+    fixed = EdinetArchiveL1(store, tmp_path / "read").freeze()
+    assert fixed.read_csv_zip("S100NATIVE") == zip_content
+    assert fixed.metadata("S100NATIVE", 5).received_at_utc == AT
     with closing(open_connection(database)) as conn:
         assert read_source_archive(conn, "S100NATIVE", 5) == zip_content
         assert (

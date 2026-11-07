@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+import sqlite3
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
     FullDayL1,
     FullDayObjectStore,
     read_full_day_requests,
+    verify_migrated_full_day_receipts,
 )
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
@@ -241,4 +243,13 @@ def read_margin_interest_requests(
         days=days,
         contract=_CONTRACT,
         attempt_type=MarginInterestAttempt,
+    )
+
+
+def verify_migrated_margin_interest_receipts(
+    connection: sqlite3.Connection, request_ids: Sequence[str], fingerprints: Mapping[str, str]
+) -> set[str]:
+    """Skip mixed legacy receipts only when native L1 preserves their exact originals."""
+    return verify_migrated_full_day_receipts(
+        connection, request_ids, fingerprints, attempt_type=MarginInterestAttempt
     )

@@ -107,6 +107,7 @@ def read_and_generate_models(
     master_identity: InputSnapshot | None = None,
     calendar_identity: InputSnapshot | None = None,
     margin_alerts_identity: InputSnapshot | None = None,
+    margin_interest_identity: InputSnapshot | None = None,
     short_sale_reports_identity: InputSnapshot | None = None,
 ) -> ModelGenerationStream:
     """callerは同じmarket sealと保存した経済selectionから入力を固定する。
@@ -322,6 +323,11 @@ def read_and_generate_models(
             **(
                 {"short_sale_reports": short_sale_reports_identity}
                 if short_sale_reports_identity is not None
+                else {}
+            ),
+            **(
+                {"margin_interest": margin_interest_identity}
+                if margin_interest_identity is not None
                 else {}
             ),
             **({"master": master_identity} if master_identity is not None else {}),

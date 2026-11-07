@@ -41,8 +41,8 @@ class BojTimeSeriesSource:
             "code": series_code,
         }
         # The BOJ API rejects YYYYMM period params for quarterly series
-        # ("Invalid frequency"); fetch the full quarterly series and filter in
-        # the parser. Daily/monthly series accept and are narrowed by the params.
+        # ("Invalid frequency"). Keep its returned periods, including revisions
+        # outside the requested window. Daily/monthly series accept period params.
         if series.frequency != "quarterly":
             params["startDate"] = start.strftime("%Y%m")
             params["endDate"] = end.strftime("%Y%m")
@@ -112,7 +112,7 @@ def parse_boj_timeseries_json(
     }
     for raw_date, raw_value in zip(survey_dates, raw_values, strict=True):
         observed_at = _parse_survey_date(raw_date, series.frequency)
-        if start <= observed_at <= end:
+        if series.frequency == "quarterly" or start <= observed_at <= end:
             records[observed_at].append(
                 {
                     "response_metadata": response_metadata,

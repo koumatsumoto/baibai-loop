@@ -39,7 +39,7 @@ def commit_stage(owner: EdinetListL1, store: ReceiptStore, stage_id: str) -> dic
     download_fixed(store, entry, packet)
     report = json.loads((packet / "result.json").read_bytes())
     if report.get("source") != "edinet-list" or report.get("native_l1_pending") is not True:
-        raise ValueError("legacy EDINET stage requires finite cutover, not commit-stage")
+        raise ValueError("legacy EDINET stage is not a native list recovery stage")
     with closing(
         sqlite3.connect((packet / "receipts.sqlite").resolve().as_uri() + "?mode=ro", uri=True)
     ) as conn:

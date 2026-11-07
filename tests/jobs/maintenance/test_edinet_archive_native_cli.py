@@ -44,12 +44,11 @@ def test_initialize_and_freeze_without_provider_or_list_head(tmp_path, monkeypat
     http.assert_not_called()
 
 
-@pytest.mark.parametrize("command", ["acquire", "prepare-import"])
-def test_missing_arguments_stop_before_remote_or_provider(tmp_path, monkeypatch, command):
+def test_missing_acquire_arguments_stop_before_remote_or_provider(tmp_path, monkeypatch):
     factory, http = Mock(), Mock()
     monkeypatch.setattr(cli, "Boto3R2Store", factory)
     monkeypatch.setattr(cli, "EDINETHTTP", http)
-    assert cli.main([command, "--bucket", "isolated-fixture", "--directory", str(tmp_path)]) == 1
+    assert cli.main(["acquire", "--bucket", "isolated-fixture", "--directory", str(tmp_path)]) == 1
     factory.assert_not_called()
     http.assert_not_called()
 

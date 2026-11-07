@@ -34,6 +34,9 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
     tmp_path, monkeypatch
 ):
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     market, source = tmp_path / "market.sqlite", tmp_path / "source.sqlite"
     prior = calendar(market, "2026-10-01", "2026-10-10", 1, FIRST_AT)
     project_request(market, prior)
@@ -108,6 +111,9 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
     tmp_path, monkeypatch, projection_failed
 ):
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     for path, initialize in ((market, open_connection), (economic, initialize_database)):
         with closing(initialize(path)):
@@ -156,6 +162,9 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
 
 def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False, market_report=None):
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     for path, initialize in ((market, open_connection), (economic, initialize_database)):
         with closing(initialize(path)):

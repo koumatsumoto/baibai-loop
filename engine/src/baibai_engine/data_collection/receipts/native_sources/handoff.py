@@ -15,6 +15,7 @@ from baibai_engine.data_collection.receipts.native_sources.confirmations import 
     collection_digest,
     save_collection_confirmation,
     save_confirmation,
+    scoped_record_sources,
 )
 from baibai_engine.data_collection.receipts.native_sources.documents import PMI_INPUT_TABLE
 
@@ -169,15 +170,37 @@ def accept_rechecks(source: Path, canonical: Path, output: Path) -> dict[str, ob
             (str(row[0]), str(row[1])): tuple(row)
             for row in raw.execute("SELECT * FROM economic_source_record_confirmations")
         }
+        scoped = scoped_record_sources() - {
+            str(row[0])
+            for connection in (raw, current)
+            for row in connection.execute(
+                "SELECT source_id FROM economic_source_collection_confirmations"
+            )
+        }
+        for row in raw.execute(
+            "SELECT r.* FROM economic_source_records r WHERE fetched_at=("
+            "SELECT MAX(n.fetched_at) FROM economic_source_records n "
+            "WHERE n.source_id=r.source_id AND n.observed_at=r.observed_at)"
+        ):
+            key = (str(row[0]), str(row[1]))
+            if key[0] in scoped and key not in confirmations:
+                # Legacy handoffs already retain the actual recheck, including [].
+                # This proves only this day, never a whole-source period set.
+                confirmations[key] = (
+                    *key,
+                    str(row[2]),
+                    str(row[2]),
+                    hashlib.sha256(row[4]).hexdigest(),
+                )
         original_confirmed = set(confirmations)
         try:
             extra_rows, collections, blocked = _prepare_complete_responses(
-                raw, current, confirmations, late
+                raw, current, confirmations, late, scoped
             )
         except ValueError as error:
             raise EconomicReceiptConflict(str(error)) from error
         confirmed_accepted, confirmed_unchanged = _accept_confirmations(
-            raw, current, selected, confirmations, late, extra_rows
+            raw, current, selected, confirmations, late, extra_rows, scoped
         )
         for row in collections:
             save_collection_confirmation(selected, row)
@@ -242,6 +265,7 @@ def _prepare_complete_responses(
     current: sqlite3.Connection,
     confirmations: dict[tuple[str, str], tuple[str, ...]],
     late: list[list[str]],
+    scoped: frozenset[str],
 ) -> tuple[dict[tuple[str, str], tuple[object, ...]], list[tuple[str, ...]], set[str]]:
     complete = {
         str(row[0]): tuple(row)
@@ -257,7 +281,7 @@ def _prepare_complete_responses(
         for row in current.execute("SELECT source_id FROM economic_source_collection_confirmations")
     }
     blocked = (
-        {key[0] for key in confirmations} | (raw_sources & current_complete)
+        ({key[0] for key in confirmations} - scoped) | (raw_sources & current_complete)
     ) - complete.keys()
     for source_id in sorted(blocked):
         late.append([source_id, "*", "collection_confirmation_missing"])
@@ -279,7 +303,7 @@ def _prepare_complete_responses(
                 blocked.add(source_id)
                 continue
             if checked < prior[1]:
-                unseen = False
+                unseen: list[tuple[str, str, int, str]] = []
                 for original in raw.execute(
                     "SELECT * FROM economic_source_records WHERE source_id=?", (source_id,)
                 ):
@@ -289,12 +313,19 @@ def _prepare_complete_responses(
                         original[:3],
                     ).fetchone()
                     if known is None:
-                        unseen = True
+                        unseen.append(
+                            (
+                                str(original[1]),
+                                str(original[2]),
+                                int(original[3]),
+                                hashlib.sha256(original[4]).hexdigest(),
+                            )
+                        )
                     elif tuple(known) != tuple(original):
                         raise EconomicReceiptConflict("conflicting economic receipt identity")
-                # A stale untouched source in a full working copy is not a new
-                # delayed response. Only unseen originals require recovery.
-                if unseen:
+                # A full seed may carry an old anchor for a later actual check.
+                # Compare that response at its clock, including omitted periods.
+                if not _known_late_response(raw, current, source_id, checked, unseen):
                     late.append([source_id, "*", checked])
                 blocked.add(source_id)
                 continue
@@ -343,6 +374,76 @@ def _prepare_complete_responses(
     return extra, accepted, blocked
 
 
+def _known_late_response(
+    raw: sqlite3.Connection,
+    current: sqlite3.Connection,
+    source_id: str,
+    checked: str,
+    unseen: list[tuple[str, str, int, str]],
+) -> bool:
+    """A late complete recheck is redundant only against the state at its clock."""
+    response = {
+        str(day): (int(count), str(digest))
+        for day, count, digest in raw.execute(
+            "SELECT c.observed_at,r.record_count,c.content_sha256 "
+            "FROM economic_source_record_confirmations c JOIN economic_source_records r "
+            "ON r.source_id=c.source_id AND r.observed_at=c.observed_at "
+            "AND r.fetched_at=c.adopted_fetched_at WHERE c.source_id=?",
+            (source_id,),
+        )
+    }
+    # Both complete confirmations were validated by the caller. An old [] alone
+    # may be a legacy calendar filler, not a received disappearance.
+    empty_proofs = {
+        (str(day), str(adopted), str(digest))
+        for connection in (raw, current)
+        for day, adopted, digest in connection.execute(
+            "SELECT observed_at,adopted_fetched_at,content_sha256 "
+            "FROM economic_source_record_confirmations WHERE source_id=?",
+            (source_id,),
+        )
+    }
+    known_periods = {
+        str(row[0])
+        for row in current.execute(
+            "SELECT DISTINCT observed_at FROM economic_source_records "
+            "WHERE source_id=? AND record_count>0 AND fetched_at<=?",
+            (source_id, checked),
+        )
+    }
+    previous: dict[str, tuple[int, str]] = {}
+    uncertain_empty = False
+    absent = (0, hashlib.sha256(gzip.compress(b"[]", mtime=0)).hexdigest())
+    for day, stamp, count, payload in current.execute(
+        "SELECT r.observed_at,r.fetched_at,r.record_count,r.payload "
+        "FROM economic_source_records r WHERE r.source_id=? AND r.fetched_at=("
+        "SELECT MAX(n.fetched_at) FROM economic_source_records n "
+        "WHERE n.source_id=r.source_id AND n.observed_at=r.observed_at "
+        "AND n.fetched_at<=?)",
+        (source_id, checked),
+    ):
+        day, stamp = str(day), str(stamp)
+        value = int(count), hashlib.sha256(payload).hexdigest()
+        # The response clock applies even when a full seed only carries an older
+        # unchanged anchor. Do not downgrade an exact-clock conflict to recovery.
+        if stamp == checked and value != response.get(day, absent):
+            raise EconomicReceiptConflict("conflicting complete response at the same received time")
+        if count > 0:
+            previous[day] = value
+        elif day in known_periods and (day, stamp, value[1]) not in empty_proofs:
+            uncertain_empty = True
+    # Extra unseen intermediate changes remain recoverable, even if the final
+    # response repeats known content. Ordinary empty-seed rows belong to this check.
+    return (
+        not uncertain_empty
+        and previous == {day: value for day, value in response.items() if value[0] > 0}
+        and all(
+            stamp == checked and response.get(day) == (count, digest)
+            for day, stamp, count, digest in unseen
+        )
+    )
+
+
 def _accept_confirmations(
     raw: sqlite3.Connection,
     current: sqlite3.Connection,
@@ -350,6 +451,7 @@ def _accept_confirmations(
     confirmations: dict[tuple[str, str], tuple[str, ...]],
     late: list[list[str]],
     extra_rows: dict[tuple[str, str], tuple[object, ...]],
+    scoped: frozenset[str],
 ) -> tuple[int, int]:
     accepted = unchanged = 0
     for key, confirmation in sorted(confirmations.items()):
@@ -373,7 +475,12 @@ def _accept_confirmations(
             # Keep an actual changed receipt at its original clock. The later
             # confirmation is another observation of the same content, not a
             # replacement identity for that earlier change.
-            rows[confirmation[2]] = (*anchor[:2], confirmation[2], *anchor[3:])
+            confirmed_row = (*anchor[:2], confirmation[2], *anchor[3:])
+            if confirmation[2] in rows and rows[confirmation[2]] != confirmed_row:
+                raise EconomicReceiptConflict(
+                    "conflicting native confirmation at the same received time"
+                )
+            rows[confirmation[2]] = confirmed_row
         prior_check = current.execute(
             "SELECT * FROM economic_source_record_confirmations "
             "WHERE source_id=? AND observed_at=?",
@@ -388,6 +495,14 @@ def _accept_confirmations(
             ).fetchone()
             if previous is None or hashlib.sha256(previous[4]).hexdigest() != prior_check[4]:
                 raise EconomicReceiptConflict("canonical confirmation lost its source receipt")
+        elif key[0] in scoped:
+            # A first scoped confirmation can start from retained change receipts.
+            # It does not reconstruct any previously discarded recheck clock.
+            previous = current.execute(
+                "SELECT * FROM economic_source_records WHERE source_id=? AND observed_at=? "
+                "ORDER BY fetched_at DESC LIMIT 1",
+                key,
+            ).fetchone()
         elif current.execute(
             "SELECT 1 FROM economic_source_records "
             "WHERE source_id=? AND observed_at=? AND record_count>0 LIMIT 1",
@@ -397,7 +512,13 @@ def _accept_confirmations(
             # confirmation may have been newer. Recheck the source explicitly.
             late.append([*key, "confirmation_missing"])
             continue
-        checked_at = str(prior_check[2]) if prior_check is not None else ""
+        checked_at = (
+            str(prior_check[2])
+            if prior_check is not None
+            else str(previous[2])
+            if previous is not None
+            else ""
+        )
         adopted = tuple(previous) if previous is not None else None
         changed_check = False
         for stamp, row in sorted(rows.items()):

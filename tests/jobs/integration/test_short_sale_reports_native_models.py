@@ -230,7 +230,6 @@ def test_normal_publication_and_paired_hydrate_keep_coverage(tmp_path, monkeypat
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     store, owner, market, mirror, _, _ = fixture(tmp_path)
-    monkeypatch.setenv("BAIBAI_SHORT_SALE_REPORTS_NATIVE", "true")
     name = "jquants.short_sale_reports"
     catalog = {name: LAKE_DATASETS[name]}
     narrow_release_policy(monkeypatch, datasets=(name,), carries_history=None)

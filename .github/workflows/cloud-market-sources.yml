@@ -70,7 +70,7 @@ jobs:
           elif slot == '13 9 * * *':
               selected = ['edinet-facts']
           elif slot == '43 7 * * *':
-              selected = all_sources[:5] if day.weekday() < 5 else ['edinet-list']
+              selected = all_sources[:5] if day.weekday() < 5 else ['jquants-market', 'edinet-list']
           else:
               selected = all_sources[:4] if source == 'all' else [source]
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as stream:

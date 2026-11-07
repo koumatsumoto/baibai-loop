@@ -680,7 +680,7 @@ upload_portfolio_views() {
 }
 
 usage() {
-  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market-cutover RECEIPT|resume-market-cutover RECEIPT|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-economic-cutover RECEIPT|push-app|upload-portfolio-views DIR}\n' "$0" >&2
+  printf 'usage: %s {pull-machine|pull-app|pull-market|pull-runs|pull-indicators|seed-all|hydrate-market|publish-lake|push-machine|push-market-cutover RECEIPT|resume-market-cutover RECEIPT|push-runs|push-market|push-indicators [--recheck-source SOURCE]...|push-app|upload-portfolio-views DIR}\n' "$0" >&2
 }
 
 load_credentials
@@ -762,14 +762,6 @@ case "${1:-}" in
     transfer_staging=""
     push_key_if_version market.sqlite "${market_version}"
     write_machine_manifest
-    ;;
-  push-economic-cutover)
-    # Explicit schema12 -> 13 publication owns CAS, uncertain PUT recovery and
-    # bundle-manifest readback. It neither merges old/current nor touches L2.
-    [[ $# -eq 2 ]] || { usage; exit 2; }
-    (cd "${repo_root}" && uv run python -m baibai_jobs.maintenance.economic_cutover publish \
-      --receipt "$2" \
-      --lease-handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}")
     ;;
   push-indicators)
     shift

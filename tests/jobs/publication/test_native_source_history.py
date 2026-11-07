@@ -57,6 +57,9 @@ def mixed_release(tmp_path, monkeypatch):
                         gzip.compress(b'{"data":[]}'),
                     ),
                 )
+        from tests.helpers.native_margin_sources import seed_short_reports
+
+        seed_short_reports(store, market, tmp_path / "short-baseline")
         mirror = tmp_path / "mirror"
         with publication.prepare_market_lake(
             sqlite_path=market, mirror_root=mirror, store=store, release_id="old-mixed"
