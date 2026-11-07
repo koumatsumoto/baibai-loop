@@ -183,6 +183,10 @@ def seed_economic_generation(path, *, scoped=True):
                 "fiscal_year_end": "2027-03-31",
                 "statement_basis": "consolidated",
                 "disclosed_date": "2026-10-20",
+                "disclosure_number": "20261020150001",
+                "disclosed_time": "15:00:00",
+                "forecast_profit_source_records": "record-profit",
+                "forecast_eps_source_records": "record-eps",
             },
         },
         "growth_comparison_basis": "source_reported_economic_scope_unverified",
@@ -320,6 +324,8 @@ def test_initial_cards_keep_evidence_without_reading_candidate_details(
             assert brief[key] == full[key]
         assert result["screening"]["common_model_revisions"] == full["model_revisions"]
         assert brief["paths"][0]["price_value"] == full["paths"][0]["price_value"]
+        forecast = full["context"]["financial"]["earnings_forecast_source"]
+        assert brief["context"]["financial"]["earnings_forecast_source"] == forecast
     card = result["screening"]["cards"][0]
     assert card["paths"][0]["evidence"]["period_basis"][0]["statement_basis"] == "consolidated"
     change = card["context"]["latest_growth_changes"]["latest_quarter"][0]["metrics"][
