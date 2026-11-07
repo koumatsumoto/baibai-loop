@@ -290,7 +290,7 @@ gh workflow run cloud-economic-sources.yml --ref main -f group=fred_csv -f sourc
 uv run baibai-jobs acquire-economic refresh <SOURCE_ID> --all-history --end <YYYY-MM-DD>
 ```
 
-通常窓は[policy](../engine/src/baibai_engine/data_collection/acquisition/policy.py)に従い、一律2か月へ縮めない。FREDは全CSV比較で窓を狭めても通信は減らない。他sourceの旧年改訂/history seedは明示取得。recentは通常窓と未確認区間を補い、広範囲失敗の残りはhistory_recovery_requiredを見て別の期間指定/all-historyで回復する。
+通常窓は[policy](../engine/src/baibai_engine/data_collection/acquisition/policy.py)に従い、一律2か月へ縮めない。FRED全CSV・BOJ四半期APIは期間指定なしの応答を読み、窓外の返却期間も保持する。窓を狭めても通信は減らず、BOJの未返却期間を撤回・全履歴確認とはしない。他sourceの旧年改訂/history seedは明示取得。recentは通常窓と未確認区間を補うが、同じ無期間指定応答を回復用に再処理しない。広範囲失敗の残りはhistory_recovery_requiredを見て別の期間指定/all-historyで回復する。
 
 FREDは全CSV比較で同値なら確認時計だけを進める。本文変更・実確認・公表時計を分け、完全応答の期間集合と原本hashを保つ。headerだけ/短い行を成功とせず、人工空日をprovider欠測に変えない。[confirmation owner](../engine/src/baibai_engine/data_collection/receipts/native_sources/confirmations.py)が比較を行う。確認欠落/遅着で通常pushを拒否されたときだけ、fresh正本を比較基点に実GETする。
 
