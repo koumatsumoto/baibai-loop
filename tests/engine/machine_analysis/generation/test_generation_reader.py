@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
     EDINETMetricBaselineError,
 )
 from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 
@@ -305,11 +306,12 @@ def test_generation_retains_provider_capital_from_the_same_expected_price_day(tm
     }
 
 
-def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure", [ValueError, LakePublishError])
+def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkeypatch, failure):
     path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
 
     def fail(*_args, **_kwargs):
-        raise ValueError("unsupported holder source")
+        raise failure("unsupported holder source")
 
     monkeypatch.setattr(generation_reader, "read_holder_capital", fail)
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
