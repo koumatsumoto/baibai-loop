@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from datetime import date, datetime
 from typing import TYPE_CHECKING
+
+from pydantic import JsonValue
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
@@ -18,6 +20,7 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     FilingComparisons,
     extract_comparisons,
+    successful_comparison_seed,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
@@ -38,6 +41,7 @@ def read_comparison_population(
     tickers: Sequence[str] | None = None,
     known_at: datetime | None = None,
     archives: FixedEdinetArchives | None = None,
+    prior_observations: Iterable[dict[str, JsonValue]] = (),
 ) -> dict[str, tuple[FilingComparisons, ...]]:
     """Already received type=1 only. No missing ZIP can trigger a fetch or fallback.
 
@@ -95,6 +99,26 @@ def read_comparison_population(
             parent_doc_id=doc.get("parentDocID"),
             reason=reason,
         )
+    seeds: dict[str, FilingComparisons] = {}
+    duplicates: set[str] = set()
+    for value in prior_observations if ready else ():
+        seed = successful_comparison_seed(value)
+        if seed is None:
+            continue
+        base = observations.get(seed.source_doc_id)
+        if (
+            base is None
+            or seed.source_doc_id not in ready
+            or seed.ticker != base.ticker
+            or seed.source_submit_datetime != base.source_submit_datetime
+            or seed.document_type != base.document_type
+        ):
+            continue
+        if seed.source_doc_id in seeds or seed.source_doc_id in duplicates:
+            seeds.pop(seed.source_doc_id, None)
+            duplicates.add(seed.source_doc_id)
+        else:
+            seeds[seed.source_doc_id] = seed
     received: set[str] = set()
     for doc_id, content in _archive_contents(
         connection, doc_ids=observations.keys(), tickers=tickers, archives=archives
@@ -106,12 +130,19 @@ def read_comparison_population(
                 update={"source_sha256": hashlib.sha256(content).hexdigest()}
             )
             continue
-        extracted = extract_comparisons(
-            content=content,
-            ticker=base.ticker,
-            doc_id=doc_id,
-            submitted=ready[doc_id],
-            document_type=base.document_type,
+        cached = seeds.pop(doc_id, None)
+        # The current fixed body's integrity is always checked before reuse. A
+        # warm result must not conceal a lost/tampered original or fresh blocking state.
+        extracted = (
+            cached
+            if cached is not None and cached.source_sha256 == hashlib.sha256(content).hexdigest()
+            else extract_comparisons(
+                content=content,
+                ticker=base.ticker,
+                doc_id=doc_id,
+                submitted=ready[doc_id],
+                document_type=base.document_type,
+            )
         )
         observations[doc_id] = extracted.model_copy(update={"parent_doc_id": base.parent_doc_id})
     # Absent unrelated archives are outside this optional capability. A missing

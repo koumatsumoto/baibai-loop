@@ -33,6 +33,7 @@ def integration(tmp_path, monkeypatch):
     initialize_database(economic).close()
     prepared = SimpleNamespace(
         release=SimpleNamespace(release_id="new-release"),
+        serving=SimpleNamespace(pointer=None),
         release_sha256="a" * 64,
         source_snapshot=SimpleNamespace(sealed_at=datetime(2026, 10, 25, tzinfo=UTC)),
         price_identity=None,
@@ -370,3 +371,40 @@ def test_cli_passes_the_applied_edinet_input_only_for_its_date(tmp_path, monkeyp
     )
     assert result == (0 if same_date else 1)
     assert seen == ([saved] if same_date else [])
+
+
+@pytest.mark.parametrize("has_native", [False, True])
+@pytest.mark.parametrize("has_pointer", [False, True])
+def test_comparison_evidence_uses_only_previous_serving_pointer(
+    integration, monkeypatch, has_native, has_pointer
+):
+    arguments, _ = integration
+    prepare = job.prepare_market_lake
+    generate = Mock(wraps=job.read_and_generate_models)
+    monkeypatch.setattr(job, "read_and_generate_models", generate)
+    pointer = SimpleNamespace(release_id="canonical-serving", manifest_sha256="b" * 64)
+
+    @contextmanager
+    def with_serving(**kwargs):
+        with prepare(**kwargs) as prepared:
+            prepared.serving.pointer = pointer if has_pointer else None
+            yield prepared
+
+    monkeypatch.setattr(job, "prepare_market_lake", with_serving)
+    native = InputSnapshot(
+        kind="native_l1",
+        reference="edinet-fixed",
+        descriptor={},
+        sha256=hashlib.sha256(b"{}").hexdigest(),
+    )
+    monkeypatch.setattr(job, "read_edinet_input", lambda *_: SimpleNamespace(identity=native))
+    job.integrate_models(**arguments, edinet_input=native if has_native else None)
+    source = generate.call_args.kwargs["comparison_evidence"]
+    if has_native and has_pointer:
+        assert source.market == InputSnapshot(
+            kind="lake_release", reference="canonical-serving", sha256="b" * 64
+        )
+        assert source.runs == arguments["runs"]
+        assert source.market.reference != generate.call_args.kwargs["market_release"].release_id
+    else:
+        assert source is None

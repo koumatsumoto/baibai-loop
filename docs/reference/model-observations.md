@@ -34,6 +34,8 @@
 
 EDINETは同じmarket sealの文書/訂正/revisionに適格な任意入力で、未取得で全社生成/J-Quantsを止めない。type=5 CSVとtype=1 XBRL、L1受領とL2抽出を分ける。[原本保持/再開](../../jobs/OPERATIONS.md#edinet-list-native-l1)に従い初回bytesを使う。再抽出は再取得でなく、提供元修復後の差替えにも隔離取得/差分確認が要る。
 
+通常統合の固定native原本読取では、serving market releaseに対応する既存Generationが取得済みrunsにある場合だけ、Company Financialsに保存した成功comparisonを任意に再利用する。今回の文書状態・公開時計・訂正系列を先に選び、実原本のGETとhash/size照合は省かない。同じ原本と抽出入力・明示revisionが一致した場合のXML解析だけを省く。前回結果の欠落・旧形式・不正や非対応文書は通常抽出へ戻るため、cold再生成に前回L2の取得を要しない。モデルgzipの読取/展開は増え、非対応文書の解析と原本GETは残る。
+
 | 経路 | 固有の成立範囲 |
 | --- | --- |
 | [EDINET同一文書](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_comparisons.py) | 固定type=1のIFRS年次/半期本表の当期・比較期を別系列へ保存し、金額/精度/期間/scope/原文位置を保つ。J-Quants TTM/倍率のoperandへ横結合せず、単体利益を親利益、相対年度名を比較日に読み替えない。 |
