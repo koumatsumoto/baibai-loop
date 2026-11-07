@@ -49,7 +49,6 @@ from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
@@ -82,17 +81,11 @@ def apply(
         raise ValueError("master cutover mode differs from the fixed integration plan")
     if bool(plan.get("calendar_native", False)) != calendar_native_enabled():
         raise ValueError("calendar cutover mode differs from the fixed integration plan")
-    if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
-        raise ValueError("EDINET list mode differs from the fixed integration plan")
-    if edinet_list_native_enabled() and plan.get("edinet_input") is None:
-        raise ValueError("fixed EDINET input is absent; create a new integration plan")
     if any(not entry["market"] for entry in plan["handoffs"]):
         raise ValueError("economic handoffs require the independent L1 integration")
-    edinet_input = (
-        read_edinet_input(store, InputSnapshot.model_validate(plan["edinet_input"]))
-        if edinet_list_native_enabled()
-        else None
-    )
+    if plan.get("edinet_input") is None:
+        raise ValueError("fixed EDINET input is absent; create a new integration plan")
+    edinet_input = read_edinet_input(store, InputSnapshot.model_validate(plan["edinet_input"]))
     margin_alerts_fingerprints = None
     if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
@@ -181,14 +174,11 @@ def apply(
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
-    native_lists = None
-    native_archives = None
-    if edinet_input is not None:
-        from baibai_jobs.integration.edinet_archive_native import project_archive_execution
-        from baibai_jobs.integration.edinet_list_native import materialize_lists
+    from baibai_jobs.integration.edinet_archive_native import project_archive_execution
+    from baibai_jobs.integration.edinet_list_native import materialize_lists
 
-        native_archives = project_archive_execution(edinet_input.archives, market)
-        native_lists = materialize_lists(edinet_input.lists, market)
+    native_archives = project_archive_execution(edinet_input.archives, market)
+    native_lists = materialize_lists(edinet_input.lists, market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
@@ -284,13 +274,11 @@ def apply(
     extractions = extract_saved_edinet(
         market,
         asof=asof,
-        metric_archives=edinet_input.archives if edinet_input else None,
-        fact_archives=edinet_input.archives if edinet_input else None,
+        metric_archives=edinet_input.archives,
+        fact_archives=edinet_input.archives,
     )
-    if native_lists is not None:
-        extractions["native_lists"] = native_lists
-    if native_archives is not None:
-        extractions["native_archives"] = native_archives
+    extractions["native_lists"] = native_lists
+    extractions["native_archives"] = native_archives
     for outcome in outcomes:
         if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:
             outcome["article_delta"] = capture_delta(
@@ -302,7 +290,7 @@ def apply(
         "asof": asof.isoformat(),
         "handoffs": outcomes,
         "extractions": extractions,
-        "edinet_input": edinet_input.identity.model_dump(mode="json") if edinet_input else None,
+        "edinet_input": edinet_input.identity.model_dump(mode="json"),
         "external": external,
         "external_failed": plan.get("external_failed", []),
     }
@@ -420,18 +408,16 @@ def main(argv: list[str] | None = None) -> int:
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
-            edinet_input = None
-            if edinet_list_native_enabled():
-                from baibai_engine.data_collection.providers.edinet.archive_native import (
-                    EdinetArchiveL1,
-                )
-                from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+            from baibai_engine.data_collection.providers.edinet.archive_native import (
+                EdinetArchiveL1,
+            )
+            from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
 
-                lists = EdinetListL1(store, directory / "edinet-native").freeze()
-                archives = EdinetArchiveL1(store, directory / "edinet-archives-native").freeze()
-                edinet_input = retain_edinet_input(
-                    store, lists, archives, selected_at=datetime.now(UTC)
-                ).model_dump(mode="json")
+            lists = EdinetListL1(store, directory / "edinet-native").freeze()
+            archives = EdinetArchiveL1(store, directory / "edinet-archives-native").freeze()
+            edinet_input = retain_edinet_input(
+                store, lists, archives, selected_at=datetime.now(UTC)
+            ).model_dump(mode="json")
             write_json_atomic(
                 directory / "plan.json",
                 {
@@ -447,13 +433,11 @@ def main(argv: list[str] | None = None) -> int:
                                 and entry.get("source") == "jquants-financial"
                             )
                             or (
-                                edinet_list_native_enabled()
-                                and entry.get("source")
+                                entry.get("source")
                                 in {"edinet-list", "edinet-metrics", "edinet-facts"}
                             )
                         )
                     ],
-                    "edinet_list_native": edinet_list_native_enabled(),
                     "edinet_input": edinet_input,
                     "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),

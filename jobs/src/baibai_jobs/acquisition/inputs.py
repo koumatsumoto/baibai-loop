@@ -21,14 +21,9 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema,
 )
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 
-_LISTS = ("edinet_documents", "edinet_document_lists", "edinet_list_responses")
 _TABLES = {
-    "edinet-list": _LISTS,
-    "edinet-metrics": _LISTS,
-    "edinet-facts": (*_LISTS, "edinet_facts_scope"),
     "tradingview": (
         "jquants_market_calendar",
         "jquants_master_snapshots",
@@ -42,20 +37,12 @@ SOURCE_INPUT_GROUPS = tuple(_TABLES)
 
 
 def export_source_input(source: Path, output: Path, *, group: str, asof: date) -> dict[str, object]:
-    """Keep only a source's planning state and explicit calendar/master/list dependencies.
-
-    J-Quants history and its coverage are copied together, including normal empty
-    responses. EDINET archive inventories carry identity only; CSV/XBRL extraction
-    belongs to common integration and must not download archives merely to parse
-    them again in each acquisition runner. JPX acquisitions need no old facts.
-    """
-    tables = _TABLES[group]
+    """Keep TradingView planning state with explicit calendar/master dependencies."""
+    tables: tuple[str, ...] = _TABLES[group]
     if group == "tradingview" and master_native_enabled():
         tables = tuple(table for table in tables if table != "jquants_master_snapshots")
     if group == "tradingview" and calendar_native_enabled():
         tables = tuple(table for table in tables if table != "jquants_market_calendar")
-    if edinet_list_native_enabled() and group.startswith("edinet-"):
-        tables = tuple(table for table in tables if table not in _LISTS)
     if output.exists():
         raise FileExistsError(output)
     with (
@@ -92,8 +79,6 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
             for table in tables
             if table
             not in {
-                "edinet_list_responses",
-                "edinet_facts_scope",
                 "tradingview_forecast_snapshots",
                 "tradingview_source_receipts",
             }
@@ -106,21 +91,8 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
                 (name, group, master_key),
             )
             target.executemany("INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
-        source_type = 5 if group == "edinet-metrics" else 1
-        archives = (
-            list(
-                raw.execute(
-                    "SELECT doc_id, source_type FROM edinet_source_archives "
-                    "WHERE source_type = ? ORDER BY doc_id",
-                    (source_type,),
-                )
-            )
-            if group in {"edinet-metrics", "edinet-facts"}
-            else []
-        )
     return {
         "group": group,
         "asof": asof.isoformat(),
         "rows": rows_by_table,
-        "archive_keys": archives,
     }

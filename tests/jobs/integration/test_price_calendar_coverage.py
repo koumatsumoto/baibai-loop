@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
@@ -453,9 +454,11 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     monkeypatch.setattr(job, "verify_held", lambda *_: None)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
+    saved_edinet = empty_edinet_input(store, tmp_path)
     store.get_keys.clear()
     result = job.integrate_models(
         store=store,
+        edinet_input=saved_edinet,
         market=market,
         economic=economic,
         runs=tmp_path / "runs.sqlite",
@@ -484,7 +487,9 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
             days=(date.fromisoformat(day),),
         )
         assert proof["scopes"][day] == selected_calendar["scopes"][day]
-    assert all(store.get_keys.count(key) == 1 for key in store.values if key.endswith("/head.json"))
+    for key in store.values:
+        if key.endswith("/head.json"):
+            assert store.get_keys.count(key) == (0 if key.startswith("l1/edinet/") else 1)
     release = resolve_current_release(
         SimpleNamespace(read_bytes=store.get_bytes),
         catalog=publication.LAKE_DATASETS,

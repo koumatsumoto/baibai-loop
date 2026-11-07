@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
@@ -63,8 +64,10 @@ def integration(tmp_path, monkeypatch):
     seed(economic)
     with closing(initialize_database(economic)) as connection:
         retain_market_capture(connection, capture())
+    store = MemoryR2Store()
     return dict(
-        store=MemoryR2Store(),
+        store=store,
+        edinet_input=empty_edinet_input(store, tmp_path),
         market=market,
         economic=economic,
         runs=tmp_path / "runs.sqlite",

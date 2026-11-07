@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from pydantic import TypeAdapter
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.integration.models as job
@@ -164,8 +165,10 @@ def integration(tmp_path, monkeypatch):
     monkeypatch.setattr(job, "rebuild_economic_input", rebuild_input)
     monkeypatch.setattr(job, "read_and_generate_models", generate)
     monkeypatch.setattr(job, "publish_prepared_market_lake", publish)
+    store = MemoryR2Store()
     arguments = dict(
-        store=MemoryR2Store(),
+        store=store,
+        edinet_input=empty_edinet_input(store, tmp_path),
         market=tmp_path / "market",
         economic=economic,
         runs=tmp_path / "runs",
@@ -314,10 +317,9 @@ def test_models_retain_applied_edinet_input_without_current_heads(
     del store.values[LISTS]
     del store.values[ARCHIVES]
     store.get_keys.clear()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     prepare = Mock(wraps=job.prepare_market_lake)
     monkeypatch.setattr(job, "prepare_market_lake", prepare)
-    result = job.integrate_models(**{**arguments, "store": store}, edinet_input=saved)
+    result = job.integrate_models(**{**arguments, "store": store, "edinet_input": saved})
     assert prepare.call_args.kwargs["edinet_input"] == saved
     generated = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
     assert generated.inputs["edinet"] == saved
@@ -330,9 +332,9 @@ def test_native_models_require_the_applied_pair_before_preparing_any_release(
     integration, monkeypatch
 ):
     arguments, events = integration
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
     with pytest.raises(ValueError, match="requires its fixed EDINET input"):
-        job.integrate_models(**arguments)
+        job.integrate_models(**{**arguments, "edinet_input": None})
     assert "prepare" not in events
     assert "generate" not in events
     assert "publish" not in events
@@ -373,10 +375,9 @@ def test_cli_passes_the_applied_edinet_input_only_for_its_date(tmp_path, monkeyp
     assert seen == ([saved] if same_date else [])
 
 
-@pytest.mark.parametrize("has_native", [False, True])
 @pytest.mark.parametrize("has_pointer", [False, True])
 def test_comparison_evidence_uses_only_previous_serving_pointer(
-    integration, monkeypatch, has_native, has_pointer
+    integration, monkeypatch, has_pointer
 ):
     arguments, _ = integration
     prepare = job.prepare_market_lake
@@ -398,9 +399,9 @@ def test_comparison_evidence_uses_only_previous_serving_pointer(
         sha256=hashlib.sha256(b"{}").hexdigest(),
     )
     monkeypatch.setattr(job, "read_edinet_input", lambda *_: SimpleNamespace(identity=native))
-    job.integrate_models(**arguments, edinet_input=native if has_native else None)
+    job.integrate_models(**{**arguments, "edinet_input": native})
     source = generate.call_args.kwargs["comparison_evidence"]
-    if has_native and has_pointer:
+    if has_pointer:
         assert source.market == InputSnapshot(
             kind="lake_release", reference="canonical-serving", sha256="b" * 64
         )

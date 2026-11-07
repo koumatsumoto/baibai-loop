@@ -19,21 +19,11 @@ from baibai_engine.data_collection.providers.edinet.models import (
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_list_native import acquire_lists
-from baibai_jobs.acquisition.inputs import export_source_input
-from baibai_jobs.integration.edinet_handoff import import_handoff
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.source_handoff import main as handoff_main
 
 DAY = date(2026, 11, 2)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
-
-
-@pytest.fixture(params=["explicit", "default"])
-def native_mode(monkeypatch, request):
-    if request.param == "explicit":
-        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
-    else:
-        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
 
 
 def payload(day, *, rows=()):
@@ -208,12 +198,7 @@ def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything
     assert database.read_bytes() == before
 
 
-@pytest.mark.parametrize("native", ["true", "false", None])
-def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkeypatch, native):
-    if native is None:
-        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
+def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "baibai_jobs.integration.source_handoff._acquire_edinet_lists", lambda *a: True
     )
@@ -237,60 +222,6 @@ def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkey
     )
     assert output.read_text() == "stage_ready=false\nnative_l1=true\n"
     assert not (tmp_path / "absent.sqlite").exists()
-
-
-def test_native_archive_input_drops_list_copies_but_keeps_source_scope(tmp_path, native_mode):
-    from baibai_engine.data_collection.providers.edinet.facts_scope import (
-        FactsScope,
-        merge_scope,
-        read_scope,
-    )
-
-    _, owner = owner_at(tmp_path, [receipt()])
-    database = tmp_path / "market.sqlite"
-    materialize_lists(owner.freeze(), database)
-    with closing(open_connection(database)) as conn, conn:
-        merge_scope(conn, FactsScope(DAY, frozenset({"S100TEST"}), frozenset()))
-    output = tmp_path / "input.sqlite"
-    export_source_input(database, output, group="edinet-facts", asof=DAY)
-    with closing(open_connection(output)) as conn:
-        assert read_scope(conn).doc_ids == frozenset({"S100TEST"})
-        assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
-        assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone() == (0,)
-
-
-def test_legacy_archive_stage_can_only_replay_list_ids_already_migrated(tmp_path, monkeypatch):
-    known = receipt()
-    _, owner = owner_at(tmp_path, [known])
-    database = tmp_path / "market.sqlite"
-    materialize_lists(owner.freeze(), database)
-    source = tmp_path / "stage.sqlite"
-    with closing(open_connection(source)) as conn, conn:
-        conn.execute(
-            "INSERT INTO edinet_list_responses VALUES(?,?,?,?)",
-            (known.receipt_id, str(DAY), AT.isoformat(timespec="microseconds"), known.body_gzip),
-        )
-        conn.execute(
-            "INSERT INTO edinet_source_archives VALUES('S100TEST',1,?,?)",
-            (str(DAY), b"existing ZIP"),
-        )
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
-    assert import_handoff(source, database).complete
-    with closing(open_connection(source)) as conn, conn:
-        unknown = receipt(at=AT + timedelta(seconds=1))
-        conn.execute(
-            "INSERT INTO edinet_list_responses VALUES(?,?,?,?)",
-            (
-                unknown.receipt_id,
-                str(DAY),
-                unknown.received_at.isoformat(timespec="microseconds"),
-                unknown.body_gzip,
-            ),
-        )
-    before = database.read_bytes()
-    with pytest.raises(ValueError, match="absent from fixed"):
-        import_handoff(source, database)
-    assert database.read_bytes() == before
 
 
 def test_pending_publication_blocks_http_and_existing_stage_recovers_exact_receipt(
@@ -486,7 +417,7 @@ def test_native_cache_dehydrate_and_hydrate_roundtrip_without_lake_raw(tmp_path,
 
 @pytest.mark.parametrize("failure", [OSError, ValueError])
 def test_workflow_route_exports_pending_even_when_acquirer_returns_failure(
-    tmp_path, monkeypatch, failure, native_mode
+    tmp_path, monkeypatch, failure
 ):
     from baibai_engine.data_collection.providers.edinet import http
     from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY
@@ -540,7 +471,7 @@ def test_workflow_route_exports_pending_even_when_acquirer_returns_failure(
 
 @pytest.mark.parametrize("command", ["hydrate", "dehydrate"])
 def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
-    tmp_path, monkeypatch, command, native_mode
+    tmp_path, monkeypatch, command
 ):
     from contextlib import contextmanager
     from types import SimpleNamespace
@@ -595,7 +526,7 @@ def test_snapshot_cli_verifies_native_cache_before_generic_lake_write(
 
 
 def test_native_daily_input_cli_skips_list_and_publishes_every_other_group(
-    tmp_path, monkeypatch, capsys, native_mode
+    tmp_path, monkeypatch, capsys
 ):
     from baibai_jobs.acquisition import source_inputs
     from baibai_jobs.integration import sources

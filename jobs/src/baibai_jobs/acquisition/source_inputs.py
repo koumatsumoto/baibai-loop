@@ -99,7 +99,6 @@ def publish_inputs(
     groups = list(SOURCE_INPUT_GROUPS) + [
         "economic-" + group for group in economic_acquisition_groups()
     ]
-    groups = [group for group in groups if not group.startswith("edinet-")]
     if only_group is not None:
         if only_group not in groups:
             raise ValueError("unsupported source input group")

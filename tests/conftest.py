@@ -67,9 +67,3 @@ def _guard_real_databases() -> Iterator[None]:
     ]
     if mutated:
         raise AssertionError("tests mutated real operational database(s): " + ", ".join(mutated))
-
-
-@pytest.fixture(autouse=True)
-def _legacy_edinet_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Old SQLite fixtures opt into legacy mode; native/default tests override it."""
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")

@@ -67,21 +67,15 @@ def native_input(tmp_path, monkeypatch, lookback):
         "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: store
     )
     EdinetArchiveL1(store, tmp_path / "archive-native").initialize()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     return store, owner
 
 
-@pytest.mark.parametrize("native", ["true", "false", None])
 @pytest.mark.parametrize("lookback", [0, 2, 600])
 @pytest.mark.parametrize("fail_l2", [False, True])
 def test_native_refresh_preserves_window_csv_bytes_and_reuse(
-    tmp_path, monkeypatch, lookback, fail_l2, native
+    tmp_path, monkeypatch, lookback, fail_l2
 ):
     store, owner = native_input(tmp_path, monkeypatch, lookback)
-    if native is None:
-        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     database = tmp_path / "market.sqlite"
     zip_content = _edinet_csv_zip()
     calls = []
@@ -136,7 +130,6 @@ def test_native_refresh_missing_head_does_not_fall_back_to_legacy_list_writer(
     store = MemoryR2Store()
     store.close = lambda: None
     monkeypatch.setattr(refresh, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     calls = []
     acquisition = SimpleNamespace(
         list_documents=lambda day: calls.append(day),

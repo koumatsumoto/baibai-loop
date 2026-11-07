@@ -67,7 +67,6 @@ def test_cli_preserves_saved_identity_clocks_and_existing_candidate_outcomes(
     tmp_path, monkeypatch, capsys, status
 ):
     store, saved, input_file, _ = _saved(tmp_path, monkeypatch, mode=status)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
     fact_key = next(key for key, value in store.values.items() if value.body == b"unrelated XBRL")
     before = dict(store.values)
     output = tmp_path / "candidate.sqlite"

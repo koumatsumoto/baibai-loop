@@ -5,6 +5,7 @@ import sqlite3
 from datetime import timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_release import market_store
 from tests.helpers.tradingview import _sdk, payload, retain_result
 from tests.jobs.integration.test_master_native_dependencies import AT, DAY, NOW, context
@@ -236,6 +237,7 @@ def test_common_integration_hydrates_native_calendar_even_without_source_handoff
     write_json_atomic(
         directory / "plan.json",
         {
+            "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
             "master_native": True,
             "calendar_native": True,
             "financial_native": False,
@@ -307,6 +309,7 @@ def test_common_apply_verifies_old_calendar_dependency_before_accepting_tradingv
     write_json_atomic(
         directory / "plan.json",
         {
+            "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
             "master_native": True,
             "calendar_native": True,
             "financial_native": False,

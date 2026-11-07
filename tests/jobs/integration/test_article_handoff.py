@@ -4,6 +4,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
@@ -188,7 +189,14 @@ def test_common_integration_accepts_article_shape_from_old_market_version(tmp_pa
     )
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"handoffs": [entry]}))
+    (work / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": [entry],
+                "edinet_input": empty_edinet_input(remote, tmp_path).model_dump(mode="json"),
+            }
+        )
+    )
     market = tmp_path / "market.sqlite"
     with closing(open_connection(market)):
         pass

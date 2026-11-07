@@ -14,9 +14,6 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TypedDict
 
-from baibai_engine.data_collection.providers.edinet.archives import (
-    archive_keys as edinet_archive_keys,
-)
 from baibai_engine.data_collection.providers.jquants.dependencies import (
     export_dependencies as export_master_calendar_dependencies,
 )
@@ -30,12 +27,8 @@ from baibai_engine.storage.objects.r2 import (
     LakePublishError,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
-from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
-from baibai_jobs.integration.edinet_handoff import export_handoff as export_edinet_handoff
-from baibai_jobs.integration.edinet_handoff import import_handoff as import_edinet_handoff
 from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_jobs.integration.jpx_handoff import import_handoff as import_jpx_handoff
 from baibai_jobs.integration.jquants_handoff import FINANCIAL_SOURCES as JQUANTS_FINANCIAL_SOURCES
@@ -69,11 +62,6 @@ _JPX_COLLECTION = {
 }
 
 
-def _retained_archive_keys(database: Path) -> set[tuple[str, int]]:
-    with closing(connect_read_only(database)) as connection:
-        return edinet_archive_keys(connection)
-
-
 def _command(source: str, asof: date, *, database: Path) -> list[str]:
     if source == "edinet-list":
         raise ValueError("EDINET list acquisition moved to edinet-list-native")
@@ -96,13 +84,12 @@ def _export(
     since: datetime,
     database: Path,
     directory: Path,
-    archives: set[tuple[str, int]] | None = None,
     master_input: InputSnapshot | None = None,
     calendar_input: InputSnapshot | None = None,
 ) -> None:
     if source not in SOURCES:
         raise ValueError("unsupported market handoff source")
-    if source in _EDINET_SOURCES and edinet_list_native_enabled():
+    if source in _EDINET_SOURCES:
         raise ValueError("EDINET native mode does not export legacy stages")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
@@ -135,10 +122,6 @@ def _export(
     elif source in _JPX_COLLECTION:
         report["bundle_ids"] = export_jpx_handoff(
             database, path, since=since, collection=_JPX_COLLECTION[source]
-        )
-    elif source in _EDINET_SOURCES:
-        report.update(
-            export_edinet_handoff(database, path, since=since, archives=archives or set())
         )
     from baibai_jobs.master_cutover import master_native_enabled
 
@@ -182,7 +165,7 @@ def _replay(
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
 
-    if source in _EDINET_SOURCES and edinet_list_native_enabled():
+    if source in _EDINET_SOURCES:
         raise ValueError("EDINET stages cannot be replayed into a native execution copy")
     if source in ARTICLE_SOURCES:
         return import_article_handoff(source, database, directory)
@@ -304,8 +287,6 @@ def _replay(
         return import_jpx_handoff(
             path, database, _handoff_ids(report, "bundle_ids"), collection=_JPX_COLLECTION[source]
         )
-    if source in _EDINET_SOURCES:
-        return import_edinet_handoff(path, database)
     raise ValueError("unsupported market handoff source")
 
 
@@ -825,12 +806,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
-        if (
-            args.command in {"input", "resume"}
-            and args.source in {"edinet-metrics", "edinet-facts"}
-            and edinet_list_native_enabled()
-        ):
-            raise ValueError("native EDINET archives acquire directly from fixed L1 heads")
+        if args.command in {"input", "resume"} and args.source in _EDINET_SOURCES:
+            raise ValueError(
+                "native EDINET acquisitions use fixed L1 heads, not market source inputs"
+            )
         if args.command == "replay-copy":
             packet = json.loads((directory / "result.json").read_bytes())
             from baibai_jobs.master_cutover import master_native_enabled
@@ -856,8 +835,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "input":
             from baibai_jobs.acquisition.source_inputs import load_input
 
-            if args.source == "edinet-list" and edinet_list_native_enabled():
-                raise ValueError("native EDINET lists do not use market source inputs")
             with closing(
                 Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             ) as store:
@@ -904,64 +881,53 @@ def main(argv: list[str] | None = None) -> int:
                     .value()["receipts"]
                     .items()
                 }
-            sources = (
-                ("edinet-list", args.source)
-                if args.source in {"edinet-metrics", "edinet-facts"}
-                and not edinet_list_native_enabled()
-                else (args.source,)
-            )
-            for source in sources:
-                for index, entry in enumerate(
-                    available_handoffs(store, source=source, include_integrated=True)
+            source = args.source
+            for index, entry in enumerate(
+                available_handoffs(store, source=source, include_integrated=True)
+            ):
+                if entry.get("invalid") or entry.get("late_before_integrated"):
+                    continue
+                integrated = entry.get("integration")
+                if isinstance(integrated, dict) and (
+                    integrated["status"] == "needs_explicit_recovery"
+                    or integrated["integrated_at"] <= saved_input["created_at"]
                 ):
-                    if entry.get("invalid") or entry.get("late_before_integrated"):
-                        continue
-                    integrated = entry.get("integration")
-                    if isinstance(integrated, dict) and (
-                        integrated["status"] == "needs_explicit_recovery"
-                        or integrated["integrated_at"] <= saved_input["created_at"]
-                    ):
-                        continue
-                    if args.source == "tradingview" and entry["asof"] != args.asof.isoformat():
-                        continue
-                    if (
-                        args.source.startswith("edinet-")
-                        and str(entry["asof"]) > args.asof.isoformat()
-                    ):
-                        continue
-                    packet = directory / f"resume-{source}-{index}"
-                    download_fixed(store, entry, packet)
-                    if source not in {"tradingview", "jquants-market"} or (
-                        source == "tradingview"
-                        and master_input is None
-                        and calendar_input is None
-                        and not master_native_enabled()
-                        and not calendar_native_enabled()
-                        and price_fingerprints is None
-                    ):
-                        _replay(source, args.database, packet)
-                    else:
-                        report = json.loads((packet / "result.json").read_bytes())
-                        context = _replay_context(
-                            store,
-                            source,
-                            directory,
-                            report,
-                            master_input=master_input,
-                            calendar_input=calendar_input,
-                            price_fingerprints=price_fingerprints,
+                    continue
+                if args.source == "tradingview" and entry["asof"] != args.asof.isoformat():
+                    continue
+                packet = directory / f"resume-{source}-{index}"
+                download_fixed(store, entry, packet)
+                if source not in {"tradingview", "jquants-market"} or (
+                    source == "tradingview"
+                    and master_input is None
+                    and calendar_input is None
+                    and not master_native_enabled()
+                    and not calendar_native_enabled()
+                    and price_fingerprints is None
+                ):
+                    _replay(source, args.database, packet)
+                else:
+                    report = json.loads((packet / "result.json").read_bytes())
+                    context = _replay_context(
+                        store,
+                        source,
+                        directory,
+                        report,
+                        master_input=master_input,
+                        calendar_input=calendar_input,
+                        price_fingerprints=price_fingerprints,
+                    )
+                    if calendar_native_enabled():
+                        from baibai_jobs.acquisition.calendar_dependencies import (
+                            verify_stage_calendar_dependencies,
                         )
-                        if calendar_native_enabled():
-                            from baibai_jobs.acquisition.calendar_dependencies import (
-                                verify_stage_calendar_dependencies,
-                            )
 
-                            # Native packets carry fixed references, not legacy dependencies.
-                            # Old stage dependency evidence is verified against the cutover.
-                            fingerprints = context.get("calendar_fingerprints")
-                            if fingerprints is not None:
-                                verify_stage_calendar_dependencies(store, entry, fingerprints)
-                        _replay(source, args.database, packet, store=store, **context)
+                        # Native packets carry fixed references, not legacy dependencies.
+                        # Old stage dependency evidence is verified against the cutover.
+                        fingerprints = context.get("calendar_fingerprints")
+                        if fingerprints is not None:
+                            verify_stage_calendar_dependencies(store, entry, fingerprints)
+                    _replay(source, args.database, packet, store=store, **context)
         elif args.command in {"stage", "download"}:
             if args.stage_id is None:
                 raise ValueError("--stage-id is required")
@@ -1005,11 +971,6 @@ def main(argv: list[str] | None = None) -> int:
                             print("native_l1=true", file=stream)
                 return int(not ok)
             since = args.since or datetime.now(UTC)
-            before = (
-                _retained_archive_keys(args.database)
-                if args.source.startswith("edinet-")
-                else set()
-            )
             status = 0
             acquisition_report: dict[str, object] = {}
             if args.command == "acquire":
@@ -1027,11 +988,6 @@ def main(argv: list[str] | None = None) -> int:
                     status = subprocess.run(
                         _command(args.source, args.asof, database=args.database), check=False
                     ).returncode  # nosec B603
-            archives = (
-                _retained_archive_keys(args.database) - before
-                if args.source.startswith("edinet-")
-                else set()
-            )
             master_input = None
             calendar_input = None
             from baibai_jobs.master_cutover import master_native_enabled
@@ -1047,7 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
                 saved = json.loads((args.input_directory / "result.json").read_bytes())
                 calendar_input = InputSnapshot.model_validate(saved["calendar_native_input"])
             if master_input is None and calendar_input is None:
-                _export(args.source, args.asof, since, args.database, directory, archives)
+                _export(args.source, args.asof, since, args.database, directory)
             else:
                 _export(
                     args.source,
@@ -1055,7 +1011,6 @@ def main(argv: list[str] | None = None) -> int:
                     since,
                     args.database,
                     directory,
-                    archives,
                     master_input,
                     calendar_input,
                 )

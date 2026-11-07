@@ -12,7 +12,6 @@ def test_archive_deadline_keeps_native_originals_without_exporting_legacy_stage(
     source, tmp_path, monkeypatch
 ):
     owner, client, directory, output, argv, _ = native_cli(tmp_path, monkeypatch, group=source)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
     response = client.fetch_archive.return_value
     client.fetch_archive.side_effect = [
         response,

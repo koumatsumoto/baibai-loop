@@ -60,7 +60,6 @@ def native_cli(tmp_path, monkeypatch, *, group="edinet-facts", documents=None):
     owner.publish((), scope=FactsScope(since=DAY - timedelta(days=540)))
     owner.store.close = Mock()
     client.close = Mock()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(source_handoff, "Boto3R2Store", lambda **_: owner.store)
     monkeypatch.setattr(
         "baibai_engine.data_collection.providers.edinet.http.EDINETHTTP", lambda _: client
@@ -91,15 +90,10 @@ def native_cli(tmp_path, monkeypatch, *, group="edinet-facts", documents=None):
 
 
 @pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
-@pytest.mark.parametrize("native", ["true", "false", None])
 def test_workflow_acquires_without_input_market_l2_or_retained_body_get(
-    tmp_path, monkeypatch, group, native
+    tmp_path, monkeypatch, group
 ):
     owner, client, directory, output, argv, _ = native_cli(tmp_path, monkeypatch, group=group)
-    if native is None:
-        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     assert source_handoff.main(argv) == 0
     assert client.fetch_archive.call_count == 2
     assert output.read_text().splitlines() == ["stage_ready=false", "native_l1=true"]
@@ -194,7 +188,7 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     tmp_path, monkeypatch
 ):
     store, _, owner, lists, archives, _ = fixtures(tmp_path)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
     work = tmp_path / "integration"
     assert sources.main(["plan", "--directory", str(work)]) == 0
@@ -203,6 +197,7 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     fixed = read_edinet_input(store, saved)
     assert fixed.lists.value() == lists.value()
     assert fixed.archives.value() == archives.value()
+    assert "edinet_list_native" not in fixed_plan
     assert "edinet_list_head" not in fixed_plan
     assert "edinet_archive_head" not in fixed_plan
     owner.publish([NativeArchive.from_response("S100LATER", 1, EdinetResponse(KNOWN, b"later"))])
@@ -294,7 +289,6 @@ def test_missing_fixed_object_rolls_back_partial_sql_and_never_resolves_current(
 
 @pytest.mark.parametrize("command", ["input", "resume"])
 def test_retired_source_input_route_stops_before_remote_or_sql(tmp_path, monkeypatch, command):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     factory = Mock(side_effect=AssertionError("must not contact canonical storage"))
     monkeypatch.setattr(source_handoff, "Boto3R2Store", factory)
     assert (
@@ -366,11 +360,11 @@ def test_scope_only_pending_work_keeps_unavailable_requests_and_remains_explicit
     assert available_handoffs(owner.store, source="edinet-facts") == []
 
 
-def test_legacy_list_only_native_plan_is_rejected_before_any_cache_write(tmp_path, monkeypatch):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+@pytest.mark.parametrize("old_mode", [None, False, True])
+def test_legacy_list_only_native_plan_is_rejected_before_any_cache_write(tmp_path, old_mode):
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"edinet_list_native": True, "handoffs": []}))
+    (work / "plan.json").write_text(json.dumps({"edinet_list_native": old_mode, "handoffs": []}))
     database = tmp_path / "absent.sqlite"
     with pytest.raises(ValueError, match="fixed EDINET input is absent"):
         sources.apply(Mock(), work, market=database, asof=ASOF)
@@ -381,7 +375,6 @@ def test_legacy_list_only_native_plan_is_rejected_before_any_cache_write(tmp_pat
 def test_legacy_stage_replay_and_export_cannot_write_outside_native_head(
     tmp_path, monkeypatch, group
 ):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     target = tmp_path / "absent.sqlite"
     with pytest.raises(ValueError, match="cannot be replayed into a native execution copy"):
         source_handoff._replay(group, target, tmp_path / "absent-stage")

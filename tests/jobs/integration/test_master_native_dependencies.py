@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jquants_receipts import body
 from tests.helpers.lake_release import market_store
 from tests.helpers.tradingview import _sdk, payload, retain_result
@@ -496,6 +497,7 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     write_json_atomic(
         work / "plan.json",
         {
+            "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
             "master_native": True,
             "price_native": True,
             "financial_native": False,
@@ -532,6 +534,7 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     initialize_database(economic).close()
     generated = models.integrate_models(
         store=store,
+        edinet_input=InputSnapshot.model_validate(applied["edinet_input"]),
         market=target,
         economic=economic,
         runs=tmp_path / "runs",

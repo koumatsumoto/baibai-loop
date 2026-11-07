@@ -15,7 +15,6 @@ from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
     ],
 )
 def test_retired_list_commands_fail_before_environment_or_provider_access(monkeypatch, argv):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
 
     def unexpected(*_args, **_kwargs):
         pytest.fail("retired list command reached environment or provider setup")

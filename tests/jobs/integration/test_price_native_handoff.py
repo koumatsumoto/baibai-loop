@@ -6,6 +6,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jquants_receipts import body
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
@@ -52,7 +53,6 @@ def native_flags(monkeypatch):
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
     monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
 
 
 def price_attempt(state="valid"):
@@ -265,6 +265,7 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
         write_json_atomic(
             directory / "plan.json",
             {
+                "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
                 "financial_native": False,
                 "price_native": True,
                 "master_native": master_native,
@@ -331,6 +332,7 @@ def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monke
         write_json_atomic(
             directory / "plan.json",
             {
+                "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
                 "financial_native": True,
                 "master_native": False,
                 "price_native": True,
@@ -371,13 +373,19 @@ def test_apply_without_market_stages_does_not_read_native_price_head(tmp_path):
     market = market_store(tmp_path / "market.sqlite")
     write_json_atomic(
         tmp_path / "plan.json",
-        {"financial_native": False, "master_native": False, "price_native": True, "handoffs": []},
+        {
+            "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
+            "financial_native": False,
+            "master_native": False,
+            "price_native": True,
+            "handoffs": [],
+        },
     )
     store.get_keys.clear()
     store.head_keys.clear()
     assert integration.apply(store, tmp_path, market=market, asof=DAY)["handoffs"] == []
-    assert not store.get_keys
-    assert not store.head_keys
+    assert HEAD_KEY not in store.get_keys
+    assert HEAD_KEY not in store.head_keys
 
 
 @pytest.mark.parametrize("state", ["valid", "empty", "incomplete", "projection-partial"])
@@ -514,7 +522,7 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
                 "price_native": True,
                 "master_native": True,
                 "calendar_native": True,
-                "edinet_list_native": False,
+                "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
                 "handoffs": available_handoffs(store, source="jquants-market"),
             },
         )

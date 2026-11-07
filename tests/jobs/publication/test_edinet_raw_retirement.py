@@ -62,7 +62,6 @@ def legacy(tmp_path, monkeypatch):
     store.get_keys.clear()
     store.head_keys.clear()
     store.put_keys.clear()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     return store, lists, archives, saved, market, mirror, old
 
 

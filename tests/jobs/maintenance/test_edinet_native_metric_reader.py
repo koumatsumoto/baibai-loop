@@ -37,7 +37,6 @@ def test_retained_archives_keeps_self_publication_but_does_not_resolve_new_heads
 ):
     owner, _, _, _ = setup(tmp_path, [])
     owner.store.close = Mock()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(source, "Boto3R2Store", Mock(return_value=owner.store))
     content = _edinet_csv_zip()
     with closing(
@@ -67,34 +66,24 @@ def test_retained_archives_keeps_self_publication_but_does_not_resolve_new_heads
 
 
 @pytest.mark.parametrize(
-    ("native", "needs_body", "source_ids"),
-    [
-        (False, True, ("S100ONE",)),
-        (False, False, ("S100ONE",)),
-        (True, True, ("S100ONE",)),
-        (True, False, ("S100ONE",)),
-        (True, False, ()),
-    ],
+    ("needs_body", "source_ids"),
+    [(True, ("S100ONE",)), (False, ("S100ONE",)), (False, ())],
 )
 def test_refresh_acquires_before_sql_plan_and_only_selects_a_body_reader_when_needed(
-    tmp_path, monkeypatch, native, needs_body, source_ids
+    tmp_path, monkeypatch, needs_body, source_ids
 ):
-    _wire_refresh(
-        tmp_path, monkeypatch, native=native, needs_body=needs_body, source_ids=source_ids
-    )
+    _wire_refresh(tmp_path, monkeypatch, needs_body=needs_body, source_ids=source_ids)
 
 
 def _wire_refresh(
     tmp_path,
     monkeypatch,
     *,
-    native=True,
     needs_body=True,
     source_ids=("S100ONE",),
     error=None,
     invalid_plan=False,
 ):
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", str(native).lower())
     events = []
     sql_reader = Mock()
     native_reader = Mock()

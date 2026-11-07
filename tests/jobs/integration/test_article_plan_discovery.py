@@ -3,6 +3,7 @@
 import json
 
 from tests.helpers.article_acquisition import SLOT, _packet
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_jobs.acquisition.article_planning import (
@@ -31,7 +32,7 @@ def test_daily_plan_fixes_article_handoff_without_acquisition_summary(tmp_path, 
     )
     del store.values[source_key("boj_news")]
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: store)
-    monkeypatch.setattr(sources, "edinet_list_native_enabled", lambda: False)
+    empty_edinet_input(store, tmp_path)
     store.get_keys.clear()
     directory = tmp_path / "integration"
     assert sources.main(["plan", "--directory", str(directory)]) == 0

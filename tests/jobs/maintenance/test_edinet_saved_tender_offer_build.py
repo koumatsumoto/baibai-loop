@@ -92,7 +92,6 @@ def _case(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "EDINETRefresh", Mock(side_effect=AssertionError("acquisition")))
     monkeypatch.setattr("requests.Session", Mock(side_effect=AssertionError("HTTP")))
     monkeypatch.setattr(EDINETReader, "read_csv_zip", Mock(side_effect=AssertionError("SQL ZIP")))
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "false")
     return case
 
 

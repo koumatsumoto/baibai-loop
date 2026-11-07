@@ -36,7 +36,6 @@ def test_manual_facts_publishes_native_scope_before_http_and_keeps_it_after_l2_f
         ],
     )
     owner.store.close = Mock()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(refresh, "Boto3R2Store", lambda **_: owner.store)
     database = tmp_path / "absent.sqlite"
     response = client.fetch_archive.return_value
@@ -71,7 +70,6 @@ def test_manual_facts_publishes_native_scope_before_http_and_keeps_it_after_l2_f
 def test_unconfirmed_scope_never_changes_the_manual_sql_copy_or_starts_http(tmp_path, monkeypatch):
     owner, client, _, _ = setup(tmp_path, [filing("S100ONE")])
     owner.store.close = Mock()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(refresh, "Boto3R2Store", lambda **_: owner.store)
     monkeypatch.setattr(owner.store, "put_file", Mock(side_effect=LakeCASConflict("injected")))
     database = tmp_path / "absent.sqlite"
@@ -90,16 +88,11 @@ def test_unconfirmed_scope_never_changes_the_manual_sql_copy_or_starts_http(tmp_
     assert (tmp_path / "edinet-archive-work/pending.json").is_file()
 
 
-@pytest.mark.parametrize("native", ["true", "false", None])
 def test_explicit_tob_zip_refresh_publishes_original_before_sql_and_reuses_it(
-    tmp_path, monkeypatch, native
+    tmp_path, monkeypatch
 ):
     owner, _, _, _ = setup(tmp_path, [])
     owner.store.close = Mock()
-    if native is None:
-        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: owner.store
     )
@@ -138,7 +131,6 @@ def test_explicit_tob_zip_refresh_publishes_original_before_sql_and_reuses_it(
 def test_manual_zip_reads_freeze_metadata_once_and_still_refuse_pending_work(tmp_path, monkeypatch):
     owner, _, _, _ = setup(tmp_path, [])
     owner.store.close = Mock()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: owner.store
     )
