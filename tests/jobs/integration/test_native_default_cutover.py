@@ -6,12 +6,10 @@ import pytest
 import yaml
 
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 
 MODES = {
-    "FINANCIAL": financial_native_enabled,
     "PRICE": price_native_enabled,
     "MASTER": master_native_enabled,
     "CALENDAR": calendar_native_enabled,

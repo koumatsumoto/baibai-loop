@@ -12,6 +12,9 @@ from tests.helpers.r2_store import MemoryR2Store
 import baibai_engine.machine_analysis.generation.inputs as generation
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.financial_native import (
+    HEAD_KEY as FINANCIAL_HEAD_KEY,
+)
+from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialAttempt,
     FinancialL1,
 )
@@ -130,7 +133,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     from baibai_jobs.publication.datasets import LAKE_DATASETS
     from baibai_jobs.publication.policy import release_policy_for_profile
 
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "true")
+    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.fin_summaries")
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {key: LAKE_DATASETS[key] for key in names})
@@ -209,6 +212,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     assert financial_policy.carries_history is True
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
+    store.get_keys.clear()
     result = job.integrate_models(
         store=store,
         edinet_input=empty_edinet_input(store, tmp_path),
@@ -222,6 +226,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         policy=EconomicPathPolicy(candidate_limit=36),
     )
     saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
+    assert store.get_keys.count(FINANCIAL_HEAD_KEY) == 1
     assert saved.inputs["financial"].descriptor["head_sha256"] == before.content_id
     assert FinancialL1(store, tmp_path / "cold").fixed().payload == before.payload
     with sqlite3.connect(market) as connection:
@@ -232,8 +237,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
             ).fetchone()[0]
             == 0
         )
-    # A reader in another workflow does not receive the rollout setting.
-    monkeypatch.delenv("BAIBAI_FINANCIAL_NATIVE")
+    # Another workflow reads the published release without a cutover setting.
     from types import SimpleNamespace
 
     source = SimpleNamespace(read_bytes=store.get_bytes)

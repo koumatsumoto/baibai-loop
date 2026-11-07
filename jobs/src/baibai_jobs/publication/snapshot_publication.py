@@ -6,7 +6,7 @@ filled from. That identity lives in the SQLite file itself: a sidecar can be res
 copied independently and therefore cannot prove which rows the export is reading.
 
 Native prices and master snapshots use this execution's rebuilt projection and fixed L1
-identity. Legacy financial and price observations use newly exported originals; other
+identity. Legacy price observations use newly exported originals; other
 datasets remain on the legacy store path during migration. The serving release is read
 for two facts only — the origin the store must be bound to, and the history floor the
 new release must still reach — and none of its partitions are carried.
@@ -83,7 +83,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     read_lake_store_origin,
 )
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.calendar_native import model_input as native_calendar_model_input
 from baibai_jobs.integration.margin_alerts_native import model_input as native_alerts_model_input
 from baibai_jobs.integration.margin_interest_native import (
@@ -98,7 +97,6 @@ from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.l1_calendar_export import export_calendar_from_native_input
-from baibai_jobs.publication.l1_financial_export import export_financial_from_l1
 from baibai_jobs.publication.l1_margin_alerts_export import export_margin_alerts_from_native_input
 from baibai_jobs.publication.l1_margin_interest_export import (
     export_margin_interest_from_native_input,
@@ -189,7 +187,6 @@ def prepare_market_lake(
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
     fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
-    native_financial = financial_native_enabled()
     native_price = price_native_enabled()
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
@@ -202,10 +199,8 @@ def prepare_market_lake(
     )
     if native_interest and not native_calendar:
         raise ValueError("native margin interest publication requires native calendar")
-    if native_calendar and not (native_financial and native_price and native_master):
-        raise ValueError(
-            "native calendar publication requires financial, price and master native modes"
-        )
+    if native_calendar and not (native_price and native_master):
+        raise ValueError("native calendar publication requires price and master native modes")
     calendar_identity = None
     fixed_calendar = None
     if native_calendar:
@@ -262,7 +257,7 @@ def prepare_market_lake(
         published_coverage_start = {
             name: manifest.coverage_start
             for name, manifest in serving_release.dataset_manifests.items()
-            if not (native_financial and name == "jquants.fin_summaries")
+            if name != "jquants.fin_summaries"
             and not (native_price and name == "jquants.daily_bars")
             and not (native_master and name == "jquants.master_snapshots")
             and not (native_calendar and name == "jquants.market_calendar")
@@ -354,7 +349,6 @@ def prepare_market_lake(
         _phase_progress("native_margin_interest", phase_started)
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
-        finance_enabled = "jquants.fin_summaries" in policy_names and not native_financial
         price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
         native_calendar_enabled = native_calendar and "jquants.market_calendar" in policy_names
         native_master_enabled = native_master and "jquants.master_snapshots" in policy_names
@@ -367,10 +361,7 @@ def prepare_market_lake(
         )
         independently_derived_names = {
             name
-            for name, enabled in (
-                ("jquants.fin_summaries", finance_enabled),
-                ("jquants.daily_bars", price_enabled and not native_price),
-            )
+            for name, enabled in (("jquants.daily_bars", price_enabled and not native_price),)
             if enabled
         }
         derived_names = independently_derived_names | {
@@ -390,7 +381,7 @@ def prepare_market_lake(
             name: item
             for name, item in LAKE_DATASETS.items()
             if name not in derived_names
-            and not (native_financial and name == "jquants.fin_summaries")
+            and name != "jquants.fin_summaries"
             and name != "edinet.list_responses"
             and not (fixed_edinet is not None and name == "edinet.source_archives")
         }
@@ -411,19 +402,9 @@ def prepare_market_lake(
         )
         if derived_names:
             source = export.datasets.get("jquants.source_pages")
-            if source is None and (finance_enabled or (price_enabled and not native_price)):
+            if source is None and price_enabled and not native_price:
                 raise LakePublishError("J-Quants L2 requires retained L1 originals")
             datasets = dict(export.datasets)
-            if finance_enabled:
-                phase_started = _phase_progress("derive_financial")
-                assert source is not None
-                datasets["jquants.fin_summaries"] = export_financial_from_l1(
-                    source=source,
-                    mirror_root=mirror_root,
-                    producer_git_commit=git_commit,
-                    known_at=snapshot.sealed_at,
-                ).build
-                _phase_progress("derive_financial", phase_started)
             if price_enabled and not native_price:
                 phase_started = _phase_progress("derive_price")
                 assert source is not None

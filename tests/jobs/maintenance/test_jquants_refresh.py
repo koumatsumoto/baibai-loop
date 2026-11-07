@@ -13,9 +13,6 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsAcquisitionError,
-)
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
@@ -45,10 +42,6 @@ def day(value: str) -> date:
 
 def native(value: str | date) -> str:
     return day(value).strftime("%Y%m%d") if isinstance(value, str) else value.strftime("%Y%m%d")
-
-
-def financial(value: str) -> dict[str, str]:
-    return {"Code": "13010", "DiscDate": value, "DiscNo": value, "CurPerType": "FY"}
 
 
 def bar(value: str, close: float) -> dict[str, str | float]:
@@ -101,28 +94,11 @@ def database(tmp_path):
     return path
 
 
-def test_covered_financial_input_needs_neither_request_nor_api_key(database):
-    start = day("2026-10-13")
-    store_jquants_fin_summaries(
-        database, [financial(start.isoformat())], requested_start=start, requested_end=start
-    )
-    maintenance = JQuantsRefresh(database, None)
-    assert maintenance.ensure_fin_summaries(start, start) == 1
-    with pytest.raises(JQuantsAcquisitionError, match="JQUANTS_API_KEY is required"):
-        maintenance.ensure_fin_summaries(day("2026-10-14"), day("2026-10-14"))
-
-
-def test_covered_bar_and_financial_ensure_count_without_building_models(database, monkeypatch):
+def test_covered_bar_ensure_count_without_building_models(database, monkeypatch):
     target = day("2026-10-16")
     store_jquants_daily_bars(
         database,
         [bar(target.isoformat(), 100.0)],
-        requested_start=target,
-        requested_end=target,
-    )
-    store_jquants_fin_summaries(
-        database,
-        [financial(target.isoformat())],
         requested_start=target,
         requested_end=target,
     )
@@ -131,17 +107,11 @@ def test_covered_bar_and_financial_ensure_count_without_building_models(database
         raise AssertionError("count-only maintenance must not construct source models")
 
     monkeypatch.setattr(JQuantsReader, "get_eq_bars_daily_range", forbidden)
-    monkeypatch.setattr(JQuantsReader, "get_fin_summary_range", forbidden)
     monkeypatch.setattr(
         "baibai_engine.machine_analysis.observations.prices.price_reader.JQuantsDailyBar", forbidden
     )
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.observations.financials.reader.normalize_financial_summary",
-        forbidden,
-    )
     maintenance = JQuantsRefresh(database, None)
     assert maintenance.ensure_daily_bars(target, target) == 1
-    assert maintenance.ensure_fin_summaries(target, target) == 1
 
 
 def test_cached_exact_master_uses_offline_reader_without_acquisition(database):
@@ -152,102 +122,6 @@ def test_cached_exact_master_uses_offline_reader_without_acquisition(database):
     assert JQuantsRefresh(database, None).ensure_master(target) == len(records)
     masters = JQuantsReader(database).get_eq_master(target)
     assert masters[0].name == "極洋"
-
-
-def test_financial_refresh_merges_missing_days_with_correction_overlap(database):
-    start, end = day("2026-10-13"), day("2026-10-16")
-    for value in ("2026-10-13", "2026-10-15"):
-        current = day(value)
-        store_jquants_fin_summaries(
-            database, [financial(value)], requested_start=current, requested_end=current
-        )
-    maintenance, session = refresh(
-        database,
-        {
-            ("summary", value): [financial(value)]
-            for value in ("2026-10-14", "2026-10-15", "2026-10-16")
-        },
-    )
-    progress = []
-    assert (
-        maintenance.refresh_fin_summaries(
-            start, end, revision_overlap_days=1, progress=lambda *args: progress.append(args)
-        )
-        == 4
-    )
-    assert session.calls == [
-        ("summary", "20261014"),
-        ("summary", "20261015"),
-        ("summary", "20261016"),
-    ]
-    assert [item[:2] for item in progress] == [(1, 3), (2, 3), (3, 3)]
-    with sqlite3.connect(database) as conn:
-        request_id = conn.execute(
-            "SELECT request_id FROM jquants_source_pages ORDER BY received_at_utc LIMIT 1"
-        ).fetchone()[0]
-        assert read_request_pages(conn, request_id)[0].query["date"] == "20261014"
-
-
-def test_financial_outage_longer_than_overlap_fetches_gap_once(database):
-    start, covered_end, end = day("2026-04-01"), day("2026-04-10"), day("2026-04-20")
-    store_jquants_fin_summaries(database, [], requested_start=start, requested_end=covered_end)
-    missing_days = [date.fromordinal(covered_end.toordinal() + offset) for offset in range(1, 11)]
-    maintenance, session = refresh(
-        database,
-        {
-            ("summary", current.isoformat()): [financial(current.isoformat())]
-            for current in missing_days
-        },
-    )
-    assert maintenance.refresh_fin_summaries(start, end, revision_overlap_days=7) == 10
-    assert session.calls == [("summary", native(current)) for current in missing_days]
-    with sqlite3.connect(database) as conn:
-        assert range_covered(conn, "jquants_fin_summaries", start, end)
-
-
-def test_later_financial_http_failure_preserves_earlier_projection_and_resume(database):
-    start, middle, end = day("2026-07-01"), day("2026-07-02"), day("2026-07-03")
-    maintenance, session = refresh(
-        database,
-        {
-            ("summary", start.isoformat()): [financial(start.isoformat())],
-            ("summary", middle.isoformat()): requests.ConnectionError("synthetic failure"),
-        },
-    )
-    with pytest.raises(JQuantsAcquisitionError, match="ConnectionError"):
-        maintenance.ensure_fin_summaries(start, end)
-    assert session.calls == [("summary", native(start)), ("summary", native(middle))]
-    with sqlite3.connect(database) as conn:
-        assert range_covered(conn, "jquants_fin_summaries", start, start)
-        assert not range_covered(conn, "jquants_fin_summaries", start, end)
-        assert conn.execute("SELECT disclosed_at FROM jquants_fin_summaries").fetchall() == [
-            (start.isoformat(),)
-        ]
-    resumed, resumed_session = refresh(
-        database,
-        {
-            ("summary", current.isoformat()): [financial(current.isoformat())]
-            for current in (middle, end)
-        },
-    )
-    assert resumed.ensure_fin_summaries(start, end) == 3
-    assert resumed_session.calls == [
-        ("summary", native(middle)),
-        ("summary", native(end)),
-    ]
-
-
-def test_empty_financial_response_is_readable_and_reused(database):
-    start, end = day("2026-05-02"), day("2026-05-03")
-    maintenance, session = refresh(
-        database, {("summary", current.isoformat()): [] for current in (start, end)}
-    )
-    assert maintenance.ensure_fin_summaries(start, end) == 0
-    assert maintenance.ensure_fin_summaries(start, end) == 0
-    assert session.calls == [("summary", native(start)), ("summary", native(end))]
-    assert JQuantsReader(database).get_fin_summary_range(start, end) == []
-    with sqlite3.connect(database) as conn:
-        assert range_covered(conn, "jquants_fin_summaries", start, end)
 
 
 def test_rejected_financial_quality_does_not_claim_coverage(database):

@@ -7,7 +7,6 @@ import json
 import os
 import subprocess  # nosec B404
 import sys
-import tempfile
 from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -31,7 +30,6 @@ from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
 from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_jobs.integration.jpx_handoff import import_handoff as import_jpx_handoff
-from baibai_jobs.integration.jquants_handoff import FINANCIAL_SOURCES as JQUANTS_FINANCIAL_SOURCES
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import export_handoff as export_jquants_handoff
 from baibai_jobs.integration.jquants_handoff import import_handoff as import_jquants_handoff
@@ -53,7 +51,6 @@ SOURCES = (
     "jpx-capital-actions",
 )
 _EDINET_SOURCES = {"edinet-list", "edinet-metrics", "edinet-facts"}
-_JQUANTS_SOURCES = {"jquants-market", "jquants-financial"}
 _JPX_COLLECTION = {
     "jpx-earnings": "earnings_calendar",
     "jpx-regulations": "regulations",
@@ -65,6 +62,8 @@ _JPX_COLLECTION = {
 def _command(source: str, asof: date, *, database: Path) -> list[str]:
     if source == "edinet-list":
         raise ValueError("EDINET list acquisition moved to edinet-list-native")
+    if source == "jquants-financial":
+        raise ValueError("financial acquisition moved to jquants-financial-native")
     return [
         "baibai-jobs",
         "maintain-market",
@@ -91,6 +90,8 @@ def _export(
         raise ValueError("unsupported market handoff source")
     if source in _EDINET_SOURCES:
         raise ValueError("EDINET native mode does not export legacy stages")
+    if source == "jquants-financial":
+        raise ValueError("legacy financial handoff is disabled after native cutover")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     report: dict[str, object] = {
@@ -112,12 +113,9 @@ def _export(
             )
         )
         report.update(handoff.to_json())
-    elif source in _JQUANTS_SOURCES:
-        selected = (
-            JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
-        )
+    elif source == "jquants-market":
         report["request_ids"] = export_jquants_handoff(
-            database, path, since=since, sources=selected
+            database, path, since=since, sources=JQUANTS_MARKET_SOURCES
         )
     elif source in _JPX_COLLECTION:
         report["bundle_ids"] = export_jpx_handoff(
@@ -167,6 +165,8 @@ def _replay(
 
     if source in _EDINET_SOURCES:
         raise ValueError("EDINET stages cannot be replayed into a native execution copy")
+    if source == "jquants-financial":
+        raise ValueError("legacy financial handoff is disabled after native cutover")
     if source in ARTICLE_SOURCES:
         return import_article_handoff(source, database, directory)
     if source not in SOURCES:
@@ -231,57 +231,36 @@ def _replay(
             native_calendar=calendar_input is not None,
             master_fingerprints=master_fingerprints,
         )
-    if source in _JQUANTS_SOURCES:
-        from baibai_jobs.financial_cutover import financial_native_enabled
+    if source == "jquants-market":
         from baibai_jobs.master_cutover import master_native_enabled
         from baibai_jobs.price_cutover import price_native_enabled
 
-        if source == "jquants-financial" and financial_native_enabled():
-            raise ValueError("legacy financial handoff is disabled after native cutover")
-        if source == "jquants-market" and price_native_enabled() and price_fingerprints is None:
+        if price_native_enabled() and price_fingerprints is None:
             raise ValueError("native price replay requires retained cutover fingerprints")
 
-        if source == "jquants-market" and master_native_enabled() and master_fingerprints is None:
+        if master_native_enabled() and master_fingerprints is None:
             raise ValueError("native master replay requires retained cutover fingerprints")
-        if (
-            source == "jquants-market"
-            and calendar_native_enabled()
-            and calendar_fingerprints is None
-        ):
+        if calendar_native_enabled() and calendar_fingerprints is None:
             raise ValueError("native calendar replay requires retained cutover fingerprints")
-        if source == "jquants-market" and margin_alerts_fingerprints is None:
+        if margin_alerts_fingerprints is None:
             raise ValueError("native margin alerts replay requires retained cutover fingerprints")
-        if source == "jquants-market" and short_sale_reports_fingerprints is None:
+        if short_sale_reports_fingerprints is None:
             raise ValueError(
                 "native short-sale reports replay requires retained cutover fingerprints"
             )
-        if source == "jquants-market" and margin_interest_fingerprints is None:
+        if margin_interest_fingerprints is None:
             raise ValueError("native margin interest replay requires retained cutover fingerprints")
-        selected = (
-            JQUANTS_MARKET_SOURCES if source == "jquants-market" else JQUANTS_FINANCIAL_SOURCES
-        )
-        if source == "jquants-market" and (
-            master_fingerprints is not None
-            or calendar_fingerprints is not None
-            or price_fingerprints is not None
-            or margin_alerts_fingerprints is not None
-            or short_sale_reports_fingerprints is not None
-            or margin_interest_fingerprints is not None
-        ):
-            return import_jquants_handoff(
-                path,
-                database,
-                _handoff_ids(report, "request_ids"),
-                sources=selected,
-                master_fingerprints=master_fingerprints,
-                calendar_fingerprints=calendar_fingerprints,
-                price_fingerprints=price_fingerprints,
-                margin_alerts_fingerprints=margin_alerts_fingerprints,
-                short_sale_reports_fingerprints=short_sale_reports_fingerprints,
-                margin_interest_fingerprints=margin_interest_fingerprints,
-            )
         return import_jquants_handoff(
-            path, database, _handoff_ids(report, "request_ids"), sources=selected
+            path,
+            database,
+            _handoff_ids(report, "request_ids"),
+            sources=JQUANTS_MARKET_SOURCES,
+            master_fingerprints=master_fingerprints,
+            calendar_fingerprints=calendar_fingerprints,
+            price_fingerprints=price_fingerprints,
+            margin_alerts_fingerprints=margin_alerts_fingerprints,
+            short_sale_reports_fingerprints=short_sale_reports_fingerprints,
+            margin_interest_fingerprints=margin_interest_fingerprints,
         )
     if source in _JPX_COLLECTION:
         return import_jpx_handoff(
@@ -358,58 +337,29 @@ def _acquire_edinet_archives(source: str, asof: date, directory: Path) -> bool:
 
 
 def _acquire_financial_l1(asof: date, directory: Path) -> bool:
-    """Acquire from a fixed L1 release without publishing a copied L2 input."""
+    """Acquire independent native originals, without a lake or copied L2 input."""
+    from baibai_engine.data_collection.providers.jquants.financial_native import FinancialL1
     from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
     from baibai_engine.primitives.market_windows import (
         FINANCIAL_HISTORY_DAYS,
         FINANCIAL_REVISION_OVERLAP_DAYS,
     )
-    from baibai_engine.storage.snapshots.objects import open_lake
-    from baibai_engine.storage.snapshots.reader import resolve_current_release
-    from baibai_jobs.acquisition.jquants_financial_receive import run_l1_financial_acquisition
-    from baibai_jobs.publication.datasets import LAKE_DATASETS
-    from baibai_jobs.publication.policy import release_policy_for_profile
+    from baibai_jobs.acquisition.jquants_financial_native import acquire_financial_native
 
-    bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
-    from baibai_jobs.financial_cutover import financial_native_enabled
-
-    if financial_native_enabled():
-        from baibai_engine.data_collection.providers.jquants.financial_native import FinancialL1
-        from baibai_jobs.acquisition.jquants_financial_native import acquire_financial_native
-
-        with (
-            closing(Boto3R2Store(bucket=bucket)) as store,
-            closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
-        ):
-            result = acquire_financial_native(
-                FinancialL1(store, directory),
-                start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
-                end=asof,
-                revision_overlap_days=FINANCIAL_REVISION_OVERLAP_DAYS,
-                client=client,
-            )
-        return not bool(result["failed"] or result["held"])
     with (
-        tempfile.TemporaryDirectory(prefix="financial-l1-") as temporary,
-        open_lake(mirror=Path(temporary), bucket=bucket) as (session, cache),
-        closing(Boto3R2Store(bucket=bucket)) as store,
+        closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store,
         closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
     ):
-        release = resolve_current_release(
-            cache.source, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
-        )
-        return run_l1_financial_acquisition(
-            session,
-            release=release,
-            cache=cache,
-            store=store,
-            directory=directory,
-            asof=asof,
-            scheduled=os.environ.get("GITHUB_EVENT_NAME") == "schedule",
-            lookback_days=FINANCIAL_HISTORY_DAYS,
+        result = acquire_financial_native(
+            FinancialL1(store, directory),
+            start=asof - timedelta(days=FINANCIAL_HISTORY_DAYS),
+            end=asof,
             revision_overlap_days=FINANCIAL_REVISION_OVERLAP_DAYS,
             client=client,
         )
+    return not bool(result["failed"] or result["held"])
 
 
 def _acquire_market_l1(asof: date, directory: Path) -> bool:
@@ -806,6 +756,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
+        if args.source == "jquants-financial" and args.command in {
+            "input",
+            "resume",
+            "export",
+            "stage",
+            "replay-copy",
+        }:
+            raise ValueError("legacy financial handoff is disabled after native cutover")
         if args.command in {"input", "resume"} and args.source in _EDINET_SOURCES:
             raise ValueError(
                 "native EDINET acquisitions use fixed L1 heads, not market source inputs"
@@ -961,14 +919,7 @@ def main(argv: list[str] | None = None) -> int:
                 ok = acquire(args.asof, directory)
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
-                        from baibai_jobs.financial_cutover import financial_native_enabled
-
-                        native = (
-                            args.source == "jquants-financial" and financial_native_enabled()
-                        ) or args.source == "jquants-market"
-                        print("stage_ready=" + str(not native).lower(), file=stream)
-                        if native:
-                            print("native_l1=true", file=stream)
+                        print("stage_ready=false\nnative_l1=true", file=stream)
                 return int(not ok)
             since = args.since or datetime.now(UTC)
             status = 0

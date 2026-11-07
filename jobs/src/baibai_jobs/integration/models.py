@@ -44,7 +44,6 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
-from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 from baibai_jobs.publication.lease import _load_handle, verify_held
@@ -81,23 +80,20 @@ def integrate_models(
     if edinet_input is None:
         raise ValueError("normal model integration requires its fixed EDINET input")
     fixed_edinet = read_edinet_input(store, edinet_input)
+    phase_started = _phase_progress("native_financial")
+    # One head read fixes both source membership and confirmation/failure state.
+    fixed = FinancialL1(store, mirror / "financial-native").fixed()
     evaluated_at = datetime.now(UTC)
-    financial_input = None
-    if financial_native_enabled():
-        phase_started = _phase_progress("native_financial")
-        # One head read fixes both source membership and confirmation/failure state.
-        fixed = FinancialL1(store, mirror / "financial-native").fixed()
-        evaluated_at = datetime.now(UTC)
-        financial_input = native_financial_model_input(
-            store, fixed, as_of=as_of, evaluated_at=evaluated_at
-        )
-        # This is the downloaded execution copy, not L1 or application data.
-        # It must not retain an unpublished old projection when push-machine
-        # later verifies/dehydrates the new release.
-        with sqlite3.connect(market) as connection:
-            connection.execute("DELETE FROM jquants_fin_summaries")
-            connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
-        _phase_progress("native_financial", phase_started)
+    financial_input = native_financial_model_input(
+        store, fixed, as_of=as_of, evaluated_at=evaluated_at
+    )
+    # This is the downloaded execution copy, not L1 or application data.
+    # It must not retain an unpublished old projection when push-machine
+    # later verifies/dehydrates the new release.
+    with sqlite3.connect(market) as connection:
+        connection.execute("DELETE FROM jquants_fin_summaries")
+        connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
+    _phase_progress("native_financial", phase_started)
     with prepare_market_lake(
         sqlite_path=market,
         mirror_root=mirror,

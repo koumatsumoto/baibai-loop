@@ -158,7 +158,7 @@ def test_market_publication_refuses_divergent_price_model_inputs(tmp_path, monke
     assert "lake/pointers/market/current.json" not in store.values
 
 
-def test_market_publication_derives_financials_and_prices_from_same_l1(tmp_path, monkeypatch):
+def test_market_publication_keeps_financials_out_of_the_price_release(tmp_path, monkeypatch):
     from tests.helpers.r2_store import MemoryR2Store
 
     import baibai_jobs.publication.snapshot_publication as publication
@@ -199,7 +199,8 @@ def test_market_publication_derives_financials_and_prices_from_same_l1(tmp_path,
         sqlite_path=database, mirror_root=mirror, store=store, release_id="both-from-l1"
     ) as prepared:
         l1 = prepared.export.datasets["jquants.source_pages"].manifest
-        for name in names[1:]:
+        assert "jquants.fin_summaries" not in prepared.export.datasets
+        for name in ("jquants.daily_bars",):
             manifest = prepared.export.datasets[name].manifest
             assert all(
                 ref.kind == "l1_dataset" and ref.build_id == l1.build_id

@@ -458,7 +458,7 @@ uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TI
 <a id="jquants-native-operations"></a>
 ## J-Quants native L1
 
-7sourceは取得・原本保持とL2再生成を分ける。財務・日足・master・calendarは既定/Actionsともtrue、alerts/short-saleは既定falseで本番切替未実施、margin-interestは明示CLIだけである。現在の設定は各cutover ownerとActionsを確認し、flagやmergeを移行完了としない。切替済み4sourceのfalseは旧入力の有限検証用で本番rollbackには使わない。
+7sourceは取得・原本保持とL2再生成を分ける。財務の通常経路はnative L1だけを使い、環境変数で旧writerへ戻さない。日足・master・calendarは既定/Actionsともtrue、alerts/short-saleは既定falseで本番切替未実施、margin-interestは明示CLIだけである。残る設定は各cutover ownerとActionsを確認し、flagやmergeを移行完了としない。切替済みsourceのfalseは旧入力の有限検証用で本番rollbackには使わない。
 
 `jquants-<source>-native initialize`は新規の空namespaceだけに一度行う。plan/acquireは新directory、応答不明はresume、保存済みattemptは同じdirectoryのcommit-workを使う。head消失や移行失敗を空初期化で迂回しない。
 
@@ -477,13 +477,13 @@ rebuild-<source>-nativeは--work-directory / --start / --end / --outputから新
 **日足。** [取得owner](src/baibai_jobs/acquisition/jquants_price_native.py)の期間/訂正規則を使い、旧bootstrap-cache/backfill-historyでは取得しない。保存inputs.priceを使う。正常空L1と公開policyの価格0行拒否は別。native暦で休場と証明できる未試行日だけ公開coverageから除き、raw未取得は不足として残す。旧v1へ遡及しない。初回はidentity・補正係数・coverage/lineage、月契約の日別objectによるrelease全体のobject数/manifest容量を確認し、旧objectを消さない。
 
 <a id="financial-native-l1"></a>
-**財務。** [取得](src/baibai_jobs/acquisition/jquants_financial_native.py)・[固定reader](src/baibai_jobs/integration/financial_native.py)を使う。旧stage resume/replay-copy・bootstrap/backfillを使わず、未移行原本を保持して回復する。保存JSONのinputs.generation.inputs.financial（generation headerはinputs.financial）をdescriptor付きで渡す。旧inline/共有固定入力も同readerで読み、旧Selectionを再署名しない。通常Operation再開は保存モデルで、cold再計算とは別。旧pendingは新取得を止め、大きすぎるrequestも空初期化で通さない。
+**財務。** [取得](src/baibai_jobs/acquisition/jquants_financial_native.py)・[固定reader](src/baibai_jobs/integration/financial_native.py)を使う。旧stageの作成/再開・bootstrap/backfillによる取得は拒否する。未移行原本は保持して回復し、旧SQL/Parquetの明示固定reader・cold再生成は残す。旧financial modeや旧財務handoffを含む統合planは新規作成し直す。保存JSONのinputs.generation.inputs.financial（generation headerはinputs.financial）をdescriptor付きで渡す。旧inline/共有固定入力も同readerで読み、旧Selectionを再署名しない。通常Operation再開は保存モデルで、cold再計算とは別。native head内の未完了commitは明示回復し、大きすぎるrequestも空初期化で通さない。
 
 <a id="master-native-l1"></a>
 **master。** [疎なsnapshot](../engine/src/baibai_engine/data_collection/providers/jquants/master_native.py)で、受領済み非空日を通常再GETしない。保存inputs.masterと暦で再生する。旧bootstrapの代わりにbackfill-master/native CLIを使い、月末cohort日のbackfillだけ既存bars gridを要求する。TradingView/外部評価はGET前にnative masterを固定して元bindingで再開し、空/failed/heldを旧masterで埋めない。休場判定前の取得なので休日GETも確認する。
 
 <a id="calendar-native-l1"></a>
-**calendar。** 通常モデル/公開への切替は旧exporter依存を残さないため財務・日足・masterと同時に有効化する。明示取得は他source/L2/release不要。[range原本と補修計画](../engine/src/baibai_engine/data_collection/providers/jquants/calendar_native.py)を使い、未知HolDiv・不正日・partialを休場としない。不足時はmaster休日basisを確認する。commit-workは実受領を再確認し、空/partialを成功へ変えない。
+**calendar。** 通常モデル/公開はnative日足・masterと組み合わせる。明示取得は他source/L2/release不要。[range原本と補修計画](../engine/src/baibai_engine/data_collection/providers/jquants/calendar_native.py)を使い、未知HolDiv・不正日・partialを休場としない。不足時はmaster休日basisを確認する。commit-workは実受領を再確認し、空/partialを成功へ変えない。
 
 ```bash
 uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>

@@ -298,7 +298,6 @@ def test_incomplete_handoff_manifest_is_local_and_other_source_still_integrates(
     ("source", "metadata"),
     [
         ("jquants-market", {}),
-        ("jquants-financial", {"request_ids": [{}]}),
         ("jpx-regulations", {}),
         ("jpx-earnings", {"bundle_ids": "not-an-id-list"}),
         ("tradingview", {"symbols": [], "receipt_ids": [], "master_request_ids": []}),

@@ -51,7 +51,6 @@ def native_margin_replay_proofs(monkeypatch):
 def native_flags(monkeypatch):
     monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
 
 
@@ -266,7 +265,6 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
             directory / "plan.json",
             {
                 "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-                "financial_native": False,
                 "price_native": True,
                 "master_native": master_native,
                 "handoffs": available_handoffs(store, source="jquants-market"),
@@ -304,7 +302,6 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
 
 @pytest.mark.parametrize("command", ["replay-copy", "resume", "apply"])
 def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monkeypatch, command):
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "true")
     page = JQuantsPage(
         "financial_summaries",
         {"date": DAY.isoformat()},
@@ -339,11 +336,8 @@ def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monke
                 "handoffs": available_handoffs(store, source="jquants-financial"),
             },
         )
-        outcome = integration.apply(store, directory, market=market, asof=DAY)["handoffs"]
-        assert len(outcome) == 1
-        assert outcome[0]["failed"] is True
-        assert outcome[0]["applied"] is False
-        assert outcome[0]["recovery"] is True
+        with pytest.raises(ValueError, match="legacy financial handoff in fixed integration plan"):
+            integration.apply(store, directory, market=market, asof=DAY)
     else:
         assert (
             handoff.main(
@@ -375,7 +369,6 @@ def test_apply_without_market_stages_does_not_read_native_price_head(tmp_path):
         tmp_path / "plan.json",
         {
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-            "financial_native": False,
             "master_native": False,
             "price_native": True,
             "handoffs": [],
@@ -518,7 +511,6 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
         write_json_atomic(
             directory / "plan.json",
             {
-                "financial_native": False,
                 "price_native": True,
                 "master_native": True,
                 "calendar_native": True,
