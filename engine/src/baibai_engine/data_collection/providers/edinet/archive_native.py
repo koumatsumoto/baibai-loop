@@ -189,10 +189,14 @@ class FixedEdinetArchives:
         entry = self.metadata(doc_id, source_type)
         if entry is None:
             raise ValueError("retained EDINET archive is unavailable")
-        saved = _read(self._store, _body_key(entry.sha256))
-        if saved is None or _digest(saved[0]) != entry.sha256 or len(saved[0]) != entry.size:
+        # 固定headがbytesの正本。同じbytesのETag/metadata差は原本の変更と扱わない。
+        try:
+            body = self._store.get_bytes(_body_key(entry.sha256))
+        except KeyError as exc:
+            raise LakePublishError("retained EDINET archive is missing or changed") from exc
+        if _digest(body) != entry.sha256 or len(body) != entry.size:
             raise LakePublishError("retained EDINET archive is missing or changed")
-        return saved[0]
+        return body
 
     def read_csv_zip(self, doc_id: str) -> bytes:
         return self.read_archive(doc_id, 5)
