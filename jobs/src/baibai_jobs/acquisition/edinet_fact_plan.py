@@ -58,8 +58,3 @@ def needs_archive(document: dict[str, Any], *, asof: date) -> bool:
     except ValueError:
         return False
     return date.fromisoformat(identity.disclosed_on) <= asof and usable_document(document)
-
-
-def enable_fact_acquisition(database: Path, *, asof: date) -> None:
-    with closing(open_connection(database)) as connection, connection:
-        merge_scope(connection, FactsScope(since=asof))

@@ -5,12 +5,14 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from tests.helpers.edinet_metrics import _edinet_document
 from tests.helpers.edinet_research_sources import source_zip
+from tests.jobs.acquisition.test_edinet_archive_native_acquisition import setup
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.data_collection.providers.edinet.archives import (
     read_source_archive,
     retain_source_archive,
@@ -39,9 +41,9 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, 
 from baibai_jobs.acquisition.edinet_fact_plan import prepare_fact_acquisition
 from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_jobs.integration.edinet_handoff import export_handoff, import_handoff
+from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.source_cache_merge import merge_stores
 from baibai_jobs.maintenance.edinet_extraction import refresh_edinet_facts_command
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 DAY = date(2026, 11, 5)
 AT = datetime(2026, 11, 5, 12, tzinfo=UTC)
@@ -236,58 +238,66 @@ def test_selected_unavailable_and_failed_ids_survive_family_change_and_handoff(t
 
 
 @pytest.mark.parametrize("ticker_only", [False, True])
-def test_raw_success_not_l2_success_enables_scope_and_ticker_stays_local(tmp_path, ticker_only):
-    body = source_zip()
+def test_raw_success_not_l2_success_enables_scope_and_ticker_stays_local(
+    tmp_path, monkeypatch, ticker_only
+):
     path = tmp_path / "market.sqlite"
-    save_list(path, [filing("S100CURRENT", 2026)])
+    owner, acquisition, _, _ = setup(tmp_path, [filing("S100CURRENT", 2026)])
+    body = acquisition.fetch_archive.return_value.body
+    owner.store.close = Mock()
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.edinet_extraction.Boto3R2Store", lambda **_: owner.store
+    )
     # Archive is valid ZIP but later L2 read fails. This cannot undo source scope.
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        http.return_value.fetch_archive.return_value = EdinetResponse(received_at=AT, body=body)
-        acquisition = EDINETRefresh("synthetic", sqlite_path=path)
-        reader = Mock()
-        reader.read_xbrl_zip.side_effect = ValueError("synthetic L2 failure")
-        assert (
-            refresh_edinet_facts_command(
-                asof=DAY,
-                sqlite_path=path,
-                reader=reader,
-                acquisition=acquisition,
-                initialize=True,
-                tickers=("7203",) if ticker_only else (),
-                stdout=io.StringIO(),
-            )
-            == 1
+    monkeypatch.setattr(
+        FixedEdinetArchives, "read_xbrl_zip", Mock(side_effect=ValueError("synthetic L2 failure"))
+    )
+    assert (
+        refresh_edinet_facts_command(
+            asof=DAY,
+            sqlite_path=path,
+            acquisition=acquisition,
+            initialize=True,
+            tickers=("7203",) if ticker_only else (),
+            stdout=io.StringIO(),
         )
-        acquisition.close()
+        == 1
+    )
     assert scope(path).since == (None if ticker_only else DAY)
     assert scope(path).doc_ids == frozenset({"S100CURRENT"})
+    assert owner.freeze().scope == scope(path)
+    assert owner.freeze().read_archive("S100CURRENT", 1) == body
     assert EDINETReader(path).read_xbrl_zip("S100CURRENT") == body
 
 
-def test_initial_partial_raw_failure_keeps_ids_and_zip_without_enabling(tmp_path):
+def test_initial_partial_raw_failure_keeps_ids_and_zip_without_enabling(tmp_path, monkeypatch):
     body = source_zip()
     path = tmp_path / "market.sqlite"
-    save_list(path, [filing("S100FIRST", 2026), filing("S100NEXT", 2026, ticker="83060")])
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        http.return_value.fetch_archive.side_effect = [
-            EdinetResponse(received_at=AT, body=body),
-            EdinetRateLimitError("synthetic 429"),
-        ]
-        acquisition = EDINETRefresh("synthetic", sqlite_path=path)
-        assert (
-            refresh_edinet_facts_command(
-                asof=DAY,
-                sqlite_path=path,
-                reader=EDINETReader(path),
-                acquisition=acquisition,
-                initialize=True,
-                stdout=io.StringIO(),
-            )
-            == 1
+    owner, acquisition, _, _ = setup(
+        tmp_path, [filing("S100FIRST", 2026), filing("S100NEXT", 2026, ticker="83060")]
+    )
+    owner.store.close = Mock()
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.edinet_extraction.Boto3R2Store", lambda **_: owner.store
+    )
+    acquisition.fetch_archive.side_effect = [
+        EdinetResponse(received_at=AT, body=body),
+        EdinetRateLimitError("synthetic 429"),
+    ]
+    assert (
+        refresh_edinet_facts_command(
+            asof=DAY,
+            sqlite_path=path,
+            acquisition=acquisition,
+            initialize=True,
+            stdout=io.StringIO(),
         )
-        acquisition.close()
+        == 1
+    )
     assert scope(path).since is None
     assert scope(path).doc_ids == frozenset({"S100FIRST", "S100NEXT"})
+    assert owner.freeze().scope == scope(path)
+    assert owner.freeze().read_xbrl_zip("S100FIRST") == body
     assert EDINETReader(path).read_xbrl_zip("S100FIRST") == body
 
 
@@ -324,14 +334,17 @@ def test_stale_scope_union_never_narrows_date_or_loses_provenance(tmp_path):
     )
 
 
-def test_missing_raw_get_failure_does_not_relabel_reusable_l2_as_extraction_failure(tmp_path):
+def test_missing_raw_get_failure_does_not_relabel_reusable_l2_as_extraction_failure(
+    tmp_path, monkeypatch
+):
     from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
     from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
         extraction_status,
     )
 
     path = tmp_path / "market.sqlite"
-    save_list(path, [filing("S100CURRENT", 2026)])
+    owner, acquisition, _, lists = setup(tmp_path, [filing("S100CURRENT", 2026)])
+    materialize_lists(lists, path)
     reader = Mock()
     reader.read_xbrl_zip.return_value = source_zip()
     assert (
@@ -343,15 +356,20 @@ def test_missing_raw_get_failure_does_not_relabel_reusable_l2_as_extraction_fail
     with closing(open_connection(path)) as connection, connection:
         merge_scope(connection, FactsScope(since=DAY, doc_ids=frozenset({"S100CURRENT"})))
     before = extraction_status(path)
-    acquisition = Mock()
-    acquisition.download_xbrl_zip.side_effect = EdinetAcquisitionError("synthetic unavailable")
+    owner.publish((), scope=scope(path))
+    owner.store.close = Mock()
+    monkeypatch.setattr(
+        "baibai_jobs.maintenance.edinet_extraction.Boto3R2Store", lambda **_: owner.store
+    )
+    acquisition.fetch_archive.side_effect = EdinetAcquisitionError("synthetic unavailable")
     assert (
         refresh_edinet_facts_command(
-            asof=DAY, sqlite_path=path, reader=reader, acquisition=acquisition, stdout=io.StringIO()
+            asof=DAY, sqlite_path=path, acquisition=acquisition, stdout=io.StringIO()
         )
         == 1
     )
     assert extraction_status(path) == before
+    acquisition.fetch_archive.assert_called_once_with("S100CURRENT", 1)
     assert reader.read_xbrl_zip.call_count == 1
 
 

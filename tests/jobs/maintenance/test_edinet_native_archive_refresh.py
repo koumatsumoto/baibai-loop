@@ -53,7 +53,6 @@ def test_manual_facts_publishes_native_scope_before_http_and_keeps_it_after_l2_f
     assert refresh.refresh_edinet_facts_command(
         asof=DAY,
         sqlite_path=database,
-        reader=Mock(),
         acquisition=client,
         initialize=True,
         tickers=tickers,
@@ -80,7 +79,6 @@ def test_unconfirmed_scope_never_changes_the_manual_sql_copy_or_starts_http(tmp_
         refresh.refresh_edinet_facts_command(
             asof=DAY,
             sqlite_path=database,
-            reader=Mock(),
             acquisition=client,
             initialize=True,
             stdout=io.StringIO(),

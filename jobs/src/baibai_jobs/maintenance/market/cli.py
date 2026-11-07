@@ -388,7 +388,6 @@ def main(argv: list[str] | None = None) -> int:
             return refresh_edinet_facts_command(
                 asof=_parse_iso_date(args.asof),
                 sqlite_path=facts_path,
-                reader=EDINETReader(facts_path),
                 acquisition=facts_edinet,
                 initialize=args.initialize,
                 tickers=tuple(args.ticker),
