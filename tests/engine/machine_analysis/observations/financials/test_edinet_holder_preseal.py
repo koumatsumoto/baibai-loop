@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.observations.financials import edinet_holder
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
@@ -187,6 +188,24 @@ def test_earlier_native_day_still_makes_intervening_edit_unproven(monkeypatch):
             known_at=known_at,
             seal=seal,
         ) == ({}, "partial")
+
+
+def test_preparation_and_read_accept_the_generation_read_only_row_factory(tmp_path, monkeypatch):
+    path = tmp_path / "market.sqlite"
+    with closing(open_connection(path)) as connection:
+        body = seed(connection)
+    _store, archives = native_for({"S100TEST": body})
+    with closing(connect_read_only(path)) as connection:
+        assert connection.row_factory is sqlite3.Row
+        prepared = prepare(monkeypatch, connection, archives)
+        observed, coverage = read(
+            connection,
+            archives=archives,
+            prepared=prepared,
+            seal=datetime(2026, 11, 3, 7, tzinfo=UTC),
+        )
+        assert observed["1234"]
+        assert coverage == "all_retained_considered"
 
 
 def test_real_seal_can_hold_only_the_list_projection_not_archive_bytes(tmp_path):

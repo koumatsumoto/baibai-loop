@@ -71,7 +71,7 @@ def _holder_evidence(
         "WHERE doc_date<=? AND selected_received_at_utc IS NOT NULL ORDER BY doc_date",
         (as_of.isoformat(),),
     ).fetchall()
-    return documents, receipts
+    return documents, [tuple(row) for row in receipts]
 
 
 def _evidence_identity(evidence: tuple[list[dict[str, Any]], list[tuple[Any, ...]]]) -> str:
