@@ -139,7 +139,7 @@ class NativeL1SourceRef(_SourceRefBase):
         return self
 
 
-# Legacy snapshots use SQLite; rebuilt outputs name their exact retained L1 selection.
+# Raw L1/legacy L2 use SQLite; rebuilt L2 names its exact lake or retained native L1.
 type SourceRef = Annotated[
     SQLiteSnapshotSourceRef | L1DatasetSourceRef | NativeL1SourceRef, Field(discriminator="kind")
 ]
@@ -302,20 +302,12 @@ class DatasetManifest(BaseModel):
             raise ValueError("lake datasets keep lineage on each partition")
         if any(not partition.sources for partition in self.partitions):
             raise ValueError("each lake partition requires source lineage")
-        if self.layer == "l1_source":
-            sources = {source for partition in self.partitions for source in partition.sources}
-            native = {source for source in sources if isinstance(source, NativeL1SourceRef)}
-            # Reader-first wire migration for this existing raw representation only.
-            # Other L1 datasets still require the legacy SQLite provenance contract.
-            if native:
-                if (
-                    self.dataset != "edinet.source_archives"
-                    or len(sources) != 1
-                    or next(iter(native)).namespace != "edinet"
-                ):
-                    raise ValueError("native raw archives require one fixed EDINET selection")
-            elif any(source.kind != "sqlite_snapshot" for source in sources):
-                raise ValueError("L1 source partitions cannot depend on a derived dataset")
+        if self.layer == "l1_source" and any(
+            source.kind != "sqlite_snapshot"
+            for partition in self.partitions
+            for source in partition.sources
+        ):
+            raise ValueError("L1 source partitions cannot depend on a derived dataset")
         partition_identities: set[tuple[tuple[str, PartitionValue], ...]] = set()
         object_keys: set[str] = set()
         object_count = 0
@@ -694,7 +686,7 @@ def validate_release_policy(
 def validate_source_generations(
     release: ReleaseManifest, manifests: Mapping[str, DatasetManifest]
 ) -> None:
-    """Legacy reads share a seal; native raw/L2 keep one exact retained selection."""
+    """Legacy reads share a seal; rebuilt L2 names exact lake or retained native L1."""
     seals: set[tuple[str, str, int]] = set()
     for manifest in manifests.values():
         sources = {source for partition in manifest.partitions for source in partition.sources}
@@ -703,15 +695,8 @@ def validate_source_generations(
         }
         l1_sources = {source for source in sources if isinstance(source, L1DatasetSourceRef)}
         native_sources = {source for source in sources if isinstance(source, NativeL1SourceRef)}
-        native_raw = (
-            manifest.layer == "l1_source"
-            and manifest.dataset == "edinet.source_archives"
-            and all(source.namespace == "edinet" for source in native_sources)
-        )
-        if native_sources and (
-            (manifest.layer != "l2_processed" and not native_raw) or len(native_sources) != 1
-        ):
-            raise ValueError("native output must reference exactly one fixed selection")
+        if native_sources and (manifest.layer != "l2_processed" or len(native_sources) != 1):
+            raise ValueError("native L2 must reference exactly one fixed selection")
         if sum(bool(group) for group in (sqlite_sources, l1_sources, native_sources)) > 1:
             raise ValueError(f"{manifest.dataset} mixes SQLite and L1 source generations")
         if sqlite_sources:
