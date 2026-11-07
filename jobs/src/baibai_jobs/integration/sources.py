@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from baibai_engine.data_collection.receipts.articles.store import validate_receipt_schema
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.edinet_inputs import (
+    read_edinet_input,
+    retain_edinet_input,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview import (
     observations as observations_owner,
 )
@@ -79,10 +84,15 @@ def apply(
         raise ValueError("calendar cutover mode differs from the fixed integration plan")
     if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
         raise ValueError("EDINET list mode differs from the fixed integration plan")
-    if edinet_list_native_enabled() and plan.get("edinet_archive_head") is None:
-        raise ValueError("EDINET archive head is absent from the fixed integration plan")
+    if edinet_list_native_enabled() and plan.get("edinet_input") is None:
+        raise ValueError("fixed EDINET input is absent; create a new integration plan")
     if any(not entry["market"] for entry in plan["handoffs"]):
         raise ValueError("economic handoffs require the independent L1 integration")
+    edinet_input = (
+        read_edinet_input(store, InputSnapshot.model_validate(plan["edinet_input"]))
+        if edinet_list_native_enabled()
+        else None
+    )
     margin_alerts_fingerprints = None
     if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
@@ -173,17 +183,12 @@ def apply(
         validate_market_schema(conn)
     native_lists = None
     native_archives = None
-    if edinet_list_native_enabled():
-        from baibai_engine.data_collection.providers.edinet.archive_native import (
-            FixedEdinetArchives,
-        )
-        from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
+    if edinet_input is not None:
         from baibai_jobs.integration.edinet_archive_native import materialize_archives
         from baibai_jobs.integration.edinet_list_native import materialize_lists
 
-        archives = FixedEdinetArchives(store, plan["edinet_archive_head"])
-        native_archives = materialize_archives(archives, market)
-        native_lists = materialize_lists(FixedEdinetLists(store, plan["edinet_list_head"]), market)
+        native_archives = materialize_archives(edinet_input.archives, market)
+        native_lists = materialize_lists(edinet_input.lists, market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):
         packet = directory / f"receipt-{index:05d}"
@@ -276,7 +281,9 @@ def apply(
     external = (
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
-    extractions = extract_saved_edinet(market, asof=asof)
+    extractions = extract_saved_edinet(
+        market, asof=asof, metric_archives=edinet_input.archives if edinet_input else None
+    )
     if native_lists is not None:
         extractions["native_lists"] = native_lists
     if native_archives is not None:
@@ -292,6 +299,7 @@ def apply(
         "asof": asof.isoformat(),
         "handoffs": outcomes,
         "extractions": extractions,
+        "edinet_input": edinet_input.identity.model_dump(mode="json") if edinet_input else None,
         "external": external,
         "external_failed": plan.get("external_failed", []),
     }
@@ -409,18 +417,18 @@ def main(argv: list[str] | None = None) -> int:
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
-            edinet_head = None
-            archive_head = None
+            edinet_input = None
             if edinet_list_native_enabled():
                 from baibai_engine.data_collection.providers.edinet.archive_native import (
                     EdinetArchiveL1,
                 )
                 from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
 
-                edinet_head = EdinetListL1(store, directory / "edinet-native").freeze().value()
-                archive_head = (
-                    EdinetArchiveL1(store, directory / "edinet-archives-native").freeze().value()
-                )
+                lists = EdinetListL1(store, directory / "edinet-native").freeze()
+                archives = EdinetArchiveL1(store, directory / "edinet-archives-native").freeze()
+                edinet_input = retain_edinet_input(
+                    store, lists, archives, selected_at=datetime.now(UTC)
+                ).model_dump(mode="json")
             write_json_atomic(
                 directory / "plan.json",
                 {
@@ -443,8 +451,7 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     ],
                     "edinet_list_native": edinet_list_native_enabled(),
-                    "edinet_list_head": edinet_head,
-                    "edinet_archive_head": archive_head,
+                    "edinet_input": edinet_input,
                     "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
