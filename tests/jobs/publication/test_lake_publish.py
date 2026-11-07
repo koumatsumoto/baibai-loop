@@ -53,6 +53,21 @@ from baibai_jobs.publication.snapshot_release import (
 
 
 @pytest.fixture(autouse=True)
+def _native_short_publication_inputs(monkeypatch):
+    from tests.helpers.native_margin_sources import seed_short_reports
+
+    prepare = market_publish_module.prepare_market_lake
+
+    def with_native_short(**kwargs):
+        seed_short_reports(
+            kwargs["store"], kwargs["sqlite_path"], kwargs["mirror_root"] / "fixture-short"
+        )
+        return prepare(**kwargs)
+
+    monkeypatch.setattr(market_publish_module, "prepare_market_lake", with_native_short)
+
+
+@pytest.fixture(autouse=True)
 def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     narrow_release_policy(monkeypatch)
 
@@ -60,6 +75,14 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = datetime(2026, 1, 7, tzinfo=UTC)
+    from baibai_jobs.publication import l1_short_sale_reports_export
+
+    export_native = l1_short_sale_reports_export.export_dataset_snapshot
+    monkeypatch.setattr(
+        l1_short_sale_reports_export,
+        "export_dataset_snapshot",
+        lambda **kwargs: export_native(created_at=fixed_now, **kwargs),
+    )
     create_release = market_publish_module.create_lake_release
     monkeypatch.setattr(
         market_publish_module,

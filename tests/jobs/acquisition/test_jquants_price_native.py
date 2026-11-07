@@ -98,11 +98,30 @@ def test_price_partial_or_no_page_failure_is_durable_and_recoverable(tmp_path, n
     assert fresh.fixed().value()["scopes"][DAY.isoformat()]["failure"] is None
 
 
-def test_price_commits_before_an_unavailable_legacy_market_release(tmp_path, monkeypatch):
+def native_market_dependencies(store, tmp_path, monkeypatch):
+    from tests.helpers.margin_interest_native import calendar
+
+    from baibai_jobs.acquisition import jquants_calendar_native, jquants_master_native
+
+    calendar(store, tmp_path / "calendar", DAY, DAY)
+    for source in ("PRICE", "MASTER", "CALENDAR"):
+        monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", "true")
+    monkeypatch.setattr(jquants_calendar_native, "calendar_window", lambda *a: (DAY, DAY))
+    for module, name in (
+        (jquants_calendar_native, "acquire_calendar_native"),
+        (jquants_master_native, "acquire_master_native"),
+    ):
+        monkeypatch.setattr(
+            module, name, lambda *a, **kw: {"failed": 0, "held": 0, "incomplete": 0}
+        )
+
+
+def test_price_commits_before_an_independent_source_failure(tmp_path, monkeypatch):
     import baibai_engine.data_collection.providers.jquants.http as http
     import baibai_engine.primitives.market_windows as windows
     import baibai_engine.storage.snapshots.objects as objects
     import baibai_jobs.integration.source_handoff as handoff
+    from baibai_jobs.acquisition import jquants_margin_alerts_native
 
     class Store(MemoryR2Store):
         def close(self):
@@ -110,16 +129,17 @@ def test_price_commits_before_an_unavailable_legacy_market_release(tmp_path, mon
 
     store = Store()
     PriceL1(store, tmp_path / "init").initialize()
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
+    native_market_dependencies(store, tmp_path, monkeypatch)
     monkeypatch.setattr(windows, "FINANCIAL_HISTORY_DAYS", 0)
     monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(http, "JQuantsHTTP", lambda _: Client())
 
-    def fail_legacy(**_):
-        raise ValueError("legacy market release unavailable")
+    def fail_source(*args, **kwargs):
+        raise ValueError("independent source unavailable")
 
-    monkeypatch.setattr(objects, "open_lake", fail_legacy)
-    with pytest.raises(ValueError, match="legacy market release unavailable"):
+    monkeypatch.setattr(jquants_margin_alerts_native, "acquire_margin_alerts_native", fail_source)
+    monkeypatch.setattr(objects, "open_lake", lambda **_: pytest.fail("legacy lake was opened"))
+    with pytest.raises(ValueError, match="independent source unavailable"):
         handoff._acquire_market_l1(DAY, tmp_path / "acquire")
     fixed = PriceL1(store, tmp_path / "cold-reader").fixed()
     assert next(fixed.requests(store, days=[DAY])).request.records()[0]["C"] == 100
@@ -202,7 +222,7 @@ def test_price_cli_acquisition_replay_and_fixed_head_rebuild(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("conflict", [False, True])
-def test_native_storage_or_writer_failure_stops_before_legacy_acquisition(
+def test_native_storage_or_writer_failure_stops_before_other_sources(
     tmp_path, monkeypatch, conflict
 ):
     import baibai_engine.data_collection.providers.jquants.http as http
@@ -215,8 +235,9 @@ def test_native_storage_or_writer_failure_stops_before_legacy_acquisition(
         def close(self):
             pass
 
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
-    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: Store())
+    store = Store()
+    native_market_dependencies(store, tmp_path, monkeypatch)
+    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(http, "JQuantsHTTP", lambda _: Client())
     failure = LakeCASConflict if conflict else R2Error
 
@@ -224,6 +245,13 @@ def test_native_storage_or_writer_failure_stops_before_legacy_acquisition(
         raise failure("storage failed")
 
     monkeypatch.setattr(acquisition, "acquire_price_native", failed)
+    from baibai_jobs.acquisition import jquants_master_native
+
+    monkeypatch.setattr(
+        jquants_master_native,
+        "acquire_master_native",
+        lambda *a, **kw: pytest.fail("another source started after global storage failure"),
+    )
     monkeypatch.setattr(
         objects, "open_lake", lambda **_: pytest.fail("legacy started after global storage failure")
     )

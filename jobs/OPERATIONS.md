@@ -469,7 +469,7 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 
 <a id="margin-alerts-native-l1"></a>
 <a id="short-sale-reports-native-l1"></a>
-**日々公表銘柄/空売り報告。** 両sourceは通常source/dailyのflagを一組で切り替え、旧maintenance writerを使わない。旧market/L2の品質をGET条件にせず、8暦日の公表確認と保持範囲の不足を調べる。休日の追加GET・provider予算を確認する。固定selection/sealをreader・モデル入力・公開lineageへ渡し、次hydrateまで読戻す。
+**日々公表銘柄/空売り報告。** 両sourceの通常source/dailyはnative L1だけを使う。maintain-marketのbootstrap/backfillは両sourceを扱わず、上記native取得入口を使う。旧market/L2の品質をGET条件にせず、8暦日の公表確認と保持範囲の不足を調べる。休日の追加GET・provider予算を確認する。固定selection/sealをreader・モデル入力・公開lineageへ渡し、次hydrateまで読戻す。
 
 [cache](src/baibai_jobs/integration/native_projection_cache.py)はcompleteかつParquet/SQLite全行一致時だけ再利用し、欠損/改変/partialは固定L1から作る。取得側にcache依存や毎日の全履歴copyを加えない。固定readerの全履歴0行は正常空だが、現manifestは観測行を要求するため公開不可。両sourceの切替は非空旧履歴の有限移行が前提で、架空行で通さない。
 
@@ -477,7 +477,7 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 - [short-sale投影](src/baibai_jobs/integration/short_sale_reports_native.py)はDiscDate/CalcDate・page/行順/重複・開示日別coverage/確認時計、inputs.short_sale_reportsを保つ。同値確認でrawを再読せず、source_coverageはpaired machineが保持する。alertsのidentityや全銘柄信用残へ読み替えない。
 
 <a id="margin-interest-native-l1"></a>
-**週次/全銘柄日次信用残。** 有限移行のverify/2dataset compare後、通常source/dailyを同じBAIBAI_MARGIN_INTEREST_NATIVE=trueで切り替える（既定false）。native暦が必須で、旧maintenance writerは使わない。必要なnative暦を先に保持し、通常初回53日窓だけで週次230日/日次2026-09-25以降を充足したとしない。unknown_calendar_days/unknown_incomplete_requestsを休場へ変えない。
+**週次/全銘柄日次信用残。** 通常source/dailyはnative L1だけを使い、移行flagを持たない。有限移行のverify/2dataset compareと後着受領の移送が未完なら通常公開へ進めない。native暦が必須で、旧maintenance writerは使わない。必要なnative暦を先に保持し、通常初回53日窓だけで週次230日/日次2026-09-25以降を充足したとしない。unknown_calendar_days/unknown_incomplete_requestsを休場へ変えない。
 
 週次は230日窓、ISO週最終取引日、2営業日公表lagで2026-09-18残高まで。空の充足には実確認JST日より前の後続2営業日の暦が必要。公表日前の空と最終週を再確認し、最終週は終端後の暦がなくても公表日以降に再確認してrebuild/compareで未充足を残す。有限backfillから今日までの全暦は要求しない。
 
@@ -554,7 +554,7 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 1. 実bucketの原本/共有固定input prefixについて必要read/write権限と期限削除対象外を確認する。設定未読を初回読戻し成功で代用しない。
 2. 対象旧writer/daily/queuedを止め、旧release ID/hash・UTC境界と統合済みを含む全stageを固定する。prepareのblockedを解消して原本・宣言ID・scopeを照合し、後着stageがあれば境界を固定し直す。
 3. 空targetを一度initializeし、同じplanでapply→全pack cold verify→旧投影compare。対象sourceだけ移し、mixed stageの他sourceを保つ。差/coverage不足を確認し、意味差の採用は明示する。
-4. 全writer/consumer設定を揃え、初回公開の固定input・coverage/native lineageと次hydrateを読戻してcronを再開する。異常時は止め、確定head/plan/旧releaseから再開先を決める。flagだけ戻して旧writerを走らせない。
+4. 全writer/consumer設定を揃え、初回公開の固定input・coverage/native lineageと次hydrateを読戻してcronを再開する。異常時は止め、確定head/plan/旧releaseから再開先を決める。通常経路へ旧writerを戻さない。
 
 ```bash
 uv run baibai-jobs margin-alerts-native-cutover prepare --directory <PLAN_DIR> \
