@@ -18,7 +18,6 @@ from baibai_engine.storage.snapshots.objects import open_lake
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_jobs.maintenance import (
-    margin_alerts_native_cutover,
     margin_interest_native_cutover,
 )
 
@@ -28,7 +27,6 @@ AT = datetime(2026, 11, 3, tzinfo=UTC)
 @pytest.mark.parametrize(
     ("source", "cutover"),
     [
-        ("margin_alerts", margin_alerts_native_cutover),
         ("margin_interest", margin_interest_native_cutover),
     ],
 )

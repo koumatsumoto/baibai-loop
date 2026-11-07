@@ -489,7 +489,7 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 <a id="short-sale-reports-native-l1"></a>
 **日々公表銘柄/空売り報告。** 両sourceの通常source/dailyはnative L1だけを使う。maintain-marketのbootstrap/backfillは両sourceを扱わず、上記native取得入口を使う。旧market/L2の品質をGET条件にせず、8暦日の公表確認と保持範囲の不足を調べる。休日の追加GET・provider予算を確認する。固定selection/sealをreader・モデル入力・公開lineageへ渡し、次hydrateまで読戻す。
 
-[cache](src/baibai_jobs/integration/native_projection_cache.py)はcompleteかつParquet/SQLite全行一致時だけ再利用し、欠損/改変/partialは固定L1から作る。取得側にcache依存や毎日の全履歴copyを加えない。固定readerの全履歴0行は正常空だが、現manifestは観測行を要求するため公開不可。両sourceの切替は非空旧履歴の有限移行が前提で、架空行で通さない。
+[cache](src/baibai_jobs/integration/native_projection_cache.py)はcompleteかつParquet/SQLite全行一致時だけ再利用し、欠損/改変/partialは固定L1から作る。取得側にcache依存や毎日の全履歴copyを加えない。固定readerの全履歴0行は正常空だが、現manifestは観測行を要求するため公開不可。原本・旧release・stage・移行planは保持し、架空行で公開条件を通さない。
 
 - [alerts投影](src/baibai_jobs/integration/margin_alerts_native.py)は変更公表日を投影し、year/v2の月objectを内容共有する。PubDate/AppDate・正常空訂正・局所partial、inputs.margin_alertsを確認する。
 - [short-sale投影](src/baibai_jobs/integration/short_sale_reports_native.py)はDiscDate/CalcDate・page/行順/重複・開示日別coverage/確認時計、inputs.short_sale_reportsを保つ。同値確認でrawを再読せず、source_coverageはpaired machineが保持する。alertsのidentityや全銘柄信用残へ読み替えない。
@@ -567,7 +567,7 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 
 以下は完了が確認できた環境へ再適用しない。writer停止/drain、原本・旧release/stage・planの保全、固定候補の公開/readback、consumer/inputの切替、次通常実行までを一組で確認する。codeの既定値/合成testだけでこの手順を撤去しない。
 
-### J-Quantsの共通切替
+### 信用残の有限切替
 
 1. 実bucketの原本/共有固定input prefixについて必要read/write権限と期限削除対象外を確認する。設定未読を初回読戻し成功で代用しない。
 2. 対象旧writer/daily/queuedを止め、旧release ID/hash・UTC境界と統合済みを含む全stageを固定する。prepareのblockedを解消して原本・宣言ID・scopeを照合し、後着stageがあれば境界を固定し直す。
@@ -575,18 +575,17 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 4. 全writer/consumer設定を揃え、初回公開の固定input・coverage/native lineageと次hydrateを読戻してcronを再開する。異常時は止め、確定head/plan/旧releaseから再開先を決める。通常経路へ旧writerを戻さない。
 
 ```bash
-uv run baibai-jobs margin-alerts-native-cutover prepare --directory <PLAN_DIR> \
+uv run baibai-jobs margin-interest-native-cutover prepare --directory <PLAN_DIR> \
   --work-directory <NEW_MIRROR> --release <FIXED_OLD_RELEASE> \
   --manifest-sha256 <FIXED_OLD_SHA256> --known-at <UTC_BOUNDARY>
-uv run baibai-jobs margin-alerts-native-cutover apply --directory <PLAN_DIR> --work-directory <APPLY_WORK>
-uv run baibai-jobs margin-alerts-native-cutover verify --directory <PLAN_DIR> --work-directory <COLD_WORK>
+uv run baibai-jobs margin-interest-native-cutover apply --directory <PLAN_DIR> --work-directory <APPLY_WORK>
+uv run baibai-jobs margin-interest-native-cutover verify --directory <PLAN_DIR> --work-directory <COLD_WORK>
 ```
 
-未完sourceのcutover名へ置き換える。compareも同directoryと別workを使い、alerts/short-saleは初回日--asof、margin-interestは比較終端--asofと固定--calendar-headを加える。切替後mixed stageのskipは全page fingerprint/bytes・宣言ID一致時だけで、未移行/不足/改変は止める。
+compareも同directoryと別workを使い、比較終端--asofと固定--calendar-headを加える。切替後mixed stageのskipは全page fingerprint/bytes・宣言ID一致時だけで、未移行/不足/改変は止める。
 
 | source | 共通手順に加える確認 |
 | --- | --- |
-| alerts / short-sale | 全market stageと予定日までの保持履歴、非空公開条件。alertsはPubDate/AppDate、short-saleは開示日/行順でcompare。初回の独立head前進と旧stage対象sourceの除外。 |
 | margin-interest | 全source_pages partition/market stage。境界後・filtered request・page/宣言ID欠落・未知失敗scopeはblocked。daily_margin_incompleteは実在空/partial原本を要す。固定旧release/暦を使い、UTC境界後の確認を拒否して週次/日次全行とcoverageを別比較。通常writer接続/本番実行は別途。 |
 
 <a id="market-schema-484950の限定cutover"></a>
