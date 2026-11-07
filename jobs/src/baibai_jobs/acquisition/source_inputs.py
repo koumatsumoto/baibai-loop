@@ -36,7 +36,6 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff, stage_prefix
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.inputs import export_source_input as export_market_source_input
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 
 
 class GuardedInputStore:
@@ -100,8 +99,7 @@ def publish_inputs(
     groups = list(SOURCE_INPUT_GROUPS) + [
         "economic-" + group for group in economic_acquisition_groups()
     ]
-    if edinet_list_native_enabled():
-        groups = [group for group in groups if not group.startswith("edinet-")]
+    groups = [group for group in groups if not group.startswith("edinet-")]
     if only_group is not None:
         if only_group not in groups:
             raise ValueError("unsupported source input group")

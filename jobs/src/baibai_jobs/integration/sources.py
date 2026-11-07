@@ -494,11 +494,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("--identity and --asof are required")
                 input_report: dict[str, Any] = {"updated": [], "failed": []}
                 groups = (
-                    tuple(
-                        group
-                        for group in SOURCE_INPUT_GROUPS
-                        if not (edinet_list_native_enabled() and group.startswith("edinet-"))
-                    )
+                    tuple(group for group in SOURCE_INPUT_GROUPS if not group.startswith("edinet-"))
                     if args.group is None
                     else (args.group,)
                 )
