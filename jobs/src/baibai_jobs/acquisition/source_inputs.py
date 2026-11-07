@@ -143,6 +143,7 @@ def _publish_one(
         elif group in {
             "economic-umich_sca",
             "economic-ecb_fx",
+            "economic-estat",
             "economic-mof_jgb",
             "economic-frb_h15",
             "economic-yahoo",

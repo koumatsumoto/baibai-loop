@@ -15,6 +15,7 @@ from baibai_engine.data_collection.acquisition.policy import (
     explicit_recovery_ranges,
     recent_start,
     recovery_ranges,
+    source_policy,
 )
 from baibai_engine.data_collection.catalog import load_sources, require_source
 from baibai_engine.data_collection.receipts.native_sources import store
@@ -78,6 +79,12 @@ CASES = (
         "yahoo-acquisition-input-v1",
         "economic_yahoo_gc_f_input_days",
     ),
+    (
+        "economic-estat",
+        "estat-cpi",
+        "estat-acquisition-input-v1",
+        "economic_estat_cpi_input_days",
+    ),
 )
 
 
@@ -126,7 +133,7 @@ def _seed(path, source):
 
 def _planning_copy(canonical, target, case):
     """Construct the reviewed v1 wire contract, not a new production exporter."""
-    _, source, _, table = case
+    group, source, _, table = case
     export_receipts(canonical, target, source_ids=[], since=WHEN)
     with (
         closing(sqlite3.connect(canonical)) as received,
@@ -156,9 +163,9 @@ def _planning_copy(canonical, target, case):
                 [
                     (item.source_id, "economic_" + item.source_id.replace("-", "_") + "_input_days")
                     for item in load_sources().values()
-                    if item.provider == require_source(source).provider
+                    if source_policy(item).acquisition_group == group.removeprefix("economic-")
                 ]
-                if source.startswith(("yahoo-", "multpl-", "cftc-", "nikkei-"))
+                if source.startswith(("yahoo-", "multpl-", "cftc-", "nikkei-", "estat-"))
                 else [(source, table)]
             )
             for owner, table in scopes:

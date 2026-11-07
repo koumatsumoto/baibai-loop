@@ -22,6 +22,7 @@ _PLANNING_INPUT_GROUPS = {
     "pmi-acquisition-input-v1": "economic-spglobal_pmi",
     "umich-acquisition-input-v1": "economic-umich_sca",
     "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
+    "estat-acquisition-input-v1": "economic-estat",
     "mof-jgb-acquisition-input-v1": "economic-mof_jgb",
     "frb-h15-acquisition-input-v1": "economic-frb_h15",
     "yahoo-acquisition-input-v1": "economic-yahoo",
