@@ -4,6 +4,10 @@ from decimal import Decimal
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
 
+from baibai_engine.investment_judgment.stock_assessment.calculation import (
+    CalculationInput,
+    calculate,
+)
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInput
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
@@ -73,6 +77,43 @@ def test_decimal_price_limit_boundary(limit, expected):
     result = evaluate(proposed_limit_yen=Decimal(limit))
     assert result.quantity == expected
     assert ("limit_above_pmax" in codes(result)) is (expected == 0)
+
+
+def test_paper_price_comparison_does_not_pass_pmax_or_no_add_gates():
+    payload, _ = pair_payload()
+    payload["valuation"].update(horizon_months=24, required_annual_return_pct=12)
+    payload["valuation"]["base"].update(
+        terminal_value_per_share_yen="7439.5959595959595959595959595959595959595959595958",
+        cash_distribution_per_share_yen=0,
+    )
+    document = StockAssessmentDocument.model_validate(payload)
+    before = evaluate(
+        document, proposed_limit_yen=Decimal(6000), available_cash_yen=Decimal(900000)
+    )
+    numbers = calculate(
+        CalculationInput.model_validate(
+            {
+                "input_snapshot": payload["input_snapshot"],
+                "valuation": payload["valuation"],
+                "price_comparison": {"price_yen": 6000, "hypothetical_quantity": 100},
+            }
+        )
+    )["price_comparison_numbers"]
+    assert numbers["base"]["annualized_return_pct"] == pytest.approx(11.3522635573)
+    after = evaluate(document, proposed_limit_yen=Decimal(6000), available_cash_yen=Decimal(900000))
+    assert after == before
+    assert "limit_above_pmax" in codes(after)
+    assert after.quantity == 0
+    assert after.capital_comparison is None
+    held = evaluate(
+        document,
+        proposed_limit_yen=Decimal(4000),
+        available_cash_yen=Decimal(900000),
+        held_quantity=100,
+    )
+    assert "already_held" in codes(held)
+    assert held.quantity == 0
+    assert held.capital_comparison is None
 
 
 def test_cash_is_checked_at_recommended_limit_and_guide_is_not_a_hard_cap():

@@ -24,6 +24,7 @@ from baibai_engine.investment_judgment.contracts import AssessmentError
 from baibai_engine.investment_judgment.draft_files import load_draft
 from baibai_engine.investment_judgment.stock_assessment.document import (
     StockAssessmentDocument,
+    assessment_core_hash,
 )
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
@@ -41,6 +42,7 @@ from baibai_engine.investment_judgment.workflow.workspace import (
     scaffold_review,
 )
 from baibai_engine.investment_judgment.workflow.workspace import scaffold as scaffold_module
+from baibai_engine.primitives.json import canonical_json
 
 NOW = datetime.fromisoformat("2026-10-14T17:00:00+09:00")
 
@@ -254,6 +256,70 @@ def test_promote_records_exact_assessment_for_new_target_and_retry_preserves_id(
     assert status["cases"][0]["status"] == "published"
     assert (workspace / "domain-inputs.yaml").read_bytes() == inputs
     with closing(sqlite3.connect(db)) as connection, connection:
+        assert connection.execute("SELECT COUNT(*) FROM stock_assessment").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM ledger_event").fetchone()[0] == 0
+
+
+def test_legacy_price_clock_pair_remains_readable_and_retryable_but_not_newly_publishable(case):
+    db, workspace, _ = case
+    scaffold(case)
+    document, review = author(case)
+    document["input_snapshot"]["facts"][0]["price_basis"] = "realtime"
+    document["input_snapshot"]["facts"][0]["observed_at"] = "2026-10-14T14:00:00+09:00"
+    next(
+        source for source in document["input_snapshot"]["sources"] if source["source_id"] == "price"
+    )["retrieved_at"] = "2026-10-14T10:00:00+09:00"
+    update_review_hash(document, review)
+    identity_path = workspace / "1234/assessment-publication.yaml"
+    identity = yaml.safe_load(identity_path.read_text())
+    saved_id = identity["assessment_id"]
+    draft_path = workspace / "1234/assessment-draft.yaml"
+    review_path = workspace / "1234/assessment-review.yaml"
+    draft_path.write_text(yaml.safe_dump(document))
+    review_path.write_text(yaml.safe_dump(review))
+    core_hash = assessment_core_hash(StockAssessmentDocument.model_validate(document))
+    # Fixed historical rows: the prior authoring check accepted this exact pair.
+    # Do not use the new writer to assert that legacy content is newly publishable.
+    with closing(sqlite3.connect(db)) as connection, connection:
+        connection.execute(
+            "INSERT INTO stock_assessment(assessment_id,ticker,as_of,stance,published_at,"
+            "supersedes_id,payload,core_sha256) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                saved_id,
+                "1234",
+                "2026-10-14",
+                document["conclusion"]["stance"],
+                NOW.isoformat(),
+                None,
+                canonical_json(document),
+                core_hash,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO stock_assessment_review(review_id,assessment_id,reviewed_at,payload) "
+            "VALUES (?,?,?,?)",
+            (review["review_id"], saved_id, review["reviewed_at"], canonical_json(review)),
+        )
+        saved = load_reviewed_assessment(connection, saved_id)
+        assert saved.core_sha256 == core_hash
+        assert saved.document.model_dump(mode="json") == document
+    assert (
+        AssessmentStoreService(db, clock=lambda: NOW).publish_reviewed_assessment(
+            saved_id, document, review
+        )
+        == saved
+    )
+    assert compute_status(workspace, db_path=db, now=NOW)["cases"][0]["status"] == "published"
+    promoted = promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
+    assert promote(workspace=workspace, ticker="1234", db_path=db, now=NOW) == promoted
+    assert promoted.assessment_sha256 == core_hash
+    identity_path.write_text(
+        yaml.safe_dump({"assessment_id": assessment_id(99), "supersedes_id": saved_id})
+    )
+    with pytest.raises(ResearchWorkspaceDataError, match="postdates all cited source retrievals"):
+        promote(workspace=workspace, ticker="1234", db_path=db, now=NOW)
+    with closing(sqlite3.connect(db)) as connection:
+        assert load_reviewed_assessment(connection, saved_id) == saved
         assert connection.execute("SELECT COUNT(*) FROM stock_assessment").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM ledger_event").fetchone()[0] == 0
 

@@ -876,18 +876,6 @@ def main(argv: list[str] | None = None) -> int:
                 Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             ) as store:
                 load_input(store, args.source, args.database, directory)
-                if (
-                    args.source in {"edinet-metrics", "edinet-facts"}
-                    and edinet_list_native_enabled()
-                ):
-                    from baibai_engine.data_collection.providers.edinet.list_native import (
-                        EdinetListL1,
-                    )
-                    from baibai_jobs.integration.edinet_list_native import materialize_lists
-
-                    edinet_fixed = EdinetListL1(store, directory / "native-list").freeze()
-                    result = materialize_lists(edinet_fixed, args.database)
-                    print(json.dumps({"native_list_input": result}, sort_keys=True))
         elif args.command == "resume":
             from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed
 

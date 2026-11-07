@@ -40,7 +40,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
-    select_pdf_financials,
+    prepare_pdf_financials,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import PdfStatement
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -107,7 +107,9 @@ def generate_financial_and_price_models(
         (bar for bar in adjusted_bars if bar.traded_at <= as_of), key=lambda bar: bar.traded_at
     )
     latest = bars[-1] if bars else None
-    pdf_selection = select_pdf_financials(documents, pdf_statements, as_of=as_of)
+    pdf_input = prepare_pdf_financials(documents, pdf_statements, as_of=as_of)
+    pdf_selection = pdf_input.selection if pdf_input is not None else None
+    pdf_supplement = pdf_input.supplement if pdf_input is not None else None
     earnings = earnings_price(
         documents,
         adjusted_price=latest,
@@ -149,7 +151,7 @@ def generate_financial_and_price_models(
         input_release=input_release,
         start=growth_start,
         comparisons=comparisons,
-        pdf_statements=pdf_statements,
+        pdf_input=pdf_input,
     )
     # The growth query's display window must not narrow the financial model.
     reported = tuple(
@@ -159,8 +161,8 @@ def generate_financial_and_price_models(
     )
     if reported:
         financial["reported_comparisons"] = [item.model_dump(mode="json") for item in reported]
-    if growth.pdf_supplement is not None:
-        financial["pdf_supplement"] = growth.pdf_supplement.model_dump(mode="json")
+    if pdf_supplement is not None:
+        financial["pdf_supplement"] = pdf_supplement.model_dump(mode="json")
     if pdf_selection is not None:
         financial["pdf_selection"] = pdf_selection.model_dump(mode="json")
     technical = generate_technical_analysis(
@@ -172,12 +174,12 @@ def generate_financial_and_price_models(
             subject=ticker,
             calculation_revision=(
                 f"{VALUATION_CALCULATION_REVISION}-observations-v12-pdf-restated-jp"
-                if growth.pdf_supplement is not None
+                if pdf_supplement is not None
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v9-edinet-comparisons"
                 if reported
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             )
-            + "-accounting-flags-v1-provider-capital-v1-holder-evidence-v1",
+            + "-accounting-flags-v1-provider-capital-v1-holder-evidence-v1-cf-details-v1",
             payload=json.loads(
                 canonical_json(
                     {
