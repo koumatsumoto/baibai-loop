@@ -85,6 +85,12 @@ CASES = (
         "estat-acquisition-input-v1",
         "economic_estat_cpi_input_days",
     ),
+    (
+        "economic-boj",
+        "boj-mblong",
+        "boj-acquisition-input-v1",
+        "economic_boj_mblong_input_days",
+    ),
 )
 
 
@@ -165,7 +171,7 @@ def _planning_copy(canonical, target, case):
                     for item in load_sources().values()
                     if source_policy(item).acquisition_group == group.removeprefix("economic-")
                 ]
-                if source.startswith(("yahoo-", "multpl-", "cftc-", "nikkei-", "estat-"))
+                if source.startswith(("yahoo-", "multpl-", "cftc-", "nikkei-", "estat-", "boj-"))
                 else [(source, table)]
             )
             for owner, table in scopes:
@@ -405,6 +411,7 @@ def test_only_registered_groups_publish_planning_envelopes(tmp_path):
             remote.get_bytes(f"coordination/source-inputs/{name}-reader-only/handoff.json")
         )
         planning_formats = {case[0]: case[2] for case in CASES}
+        planning_formats["economic-jquants"] = "jquants-acquisition-input-v1"
         if name in planning_formats:
             assert manifest["receipt_format"] == planning_formats[name]
             assert "planning_key" in manifest

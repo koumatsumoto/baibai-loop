@@ -19,10 +19,12 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_jobs.acquisition.dependencies import save_dependencies
 
 _PLANNING_INPUT_GROUPS = {
+    "boj-acquisition-input-v1": "economic-boj",
     "pmi-acquisition-input-v1": "economic-spglobal_pmi",
     "umich-acquisition-input-v1": "economic-umich_sca",
     "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
     "estat-acquisition-input-v1": "economic-estat",
+    "jquants-acquisition-input-v1": "economic-jquants",
     "mof-jgb-acquisition-input-v1": "economic-mof_jgb",
     "frb-h15-acquisition-input-v1": "economic-frb_h15",
     "yahoo-acquisition-input-v1": "economic-yahoo",
@@ -141,6 +143,8 @@ def load_handoff(
     planning_group = (
         _PLANNING_INPUT_GROUPS.get(receipt_format) if isinstance(receipt_format, str) else None
     )
+    if isinstance(manifest, dict) and "receipt_format" in manifest and planning_group is None:
+        raise ValueError("invalid source handoff manifest: unsupported receipt format")
     if planning_group is not None:
         if (
             market

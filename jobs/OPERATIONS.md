@@ -273,7 +273,7 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 
 共有[source input](src/baibai_jobs/acquisition/source_inputs.py)・記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。inputは原本履歴/coverageに基づく再生成物で、正本ではない。移管後も元bindingで再開し、欠落を全DB取得/空seedで迂回せず、部分storeにfull lake originを付けない。
 
-経済planning inputは計画用の範囲/成功失敗/確認を持ち、原文/URL/実時計はhandoff、同値/訂正/遅着の受入はcanonical原本が担う。Matsuiの現在pageとFREDの完全CSVは明示空seed、TSRはrun/coverage（latest成功日だけに縮めない）、PMIはURL/月/phase、UMich/ECB/e-Stat/MOF JGB/FRB H.15/Yahoo/Multpl/CFTC/Nikkei PER・PBRはsource別の受領日集合を使う。空seedを原本/input欠落の自動初期化にしない。
+経済planning inputは計画用の範囲/成功失敗/確認を持ち、原文/URL/実時計はhandoff、同値/訂正/遅着の受入はcanonical原本が担う。Matsuiの現在pageとFREDの完全CSVは明示空seed、TSRはrun/coverage（latest成功日だけに縮めない）、PMIはURL/月/phase、BOJ/UMich/ECB/e-Stat/MOF JGB/FRB H.15/Yahoo/Multpl/CFTC/Nikkei PER・PBRと経済J-Quantsはsource別の受領日集合を使う。optionsのall-historyも受領済み旧日（正常空を含む）を維持し、未受領/直近14日の平日を取得する。空seedを原本/input欠落の自動初期化にしない。
 
 新形式inputの配布は両形式readerを先行させ、非対応の実行中/queued runを終えてから行う。旧SHAで再実行しない。全15経済groupは受領なしでも再発行し、group失敗は旧pointerを保って次cycleへ。旧input/stageを削除せず、形式移管をFRED schema切替と一括にしない。
 

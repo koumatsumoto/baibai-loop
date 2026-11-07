@@ -141,9 +141,11 @@ def _publish_one(
         if group == "economic-tsr_bankruptcies":
             export_tsr_input(economic, path)
         elif group in {
+            "economic-boj",
             "economic-umich_sca",
             "economic-ecb_fx",
             "economic-estat",
+            "economic-jquants",
             "economic-mof_jgb",
             "economic-frb_h15",
             "economic-yahoo",
