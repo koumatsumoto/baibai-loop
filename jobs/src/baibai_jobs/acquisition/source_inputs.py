@@ -150,6 +150,7 @@ def _publish_one(
             "economic-yahoo",
             "economic-multpl",
             "economic-cftc",
+            "economic-nikkei_indexes",
         }:
             export_day_input(economic, path, group=group)
         elif group.startswith("economic-"):

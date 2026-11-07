@@ -27,6 +27,7 @@ _PLANNING_INPUT_GROUPS = {
     "yahoo-acquisition-input-v1": "economic-yahoo",
     "multpl-acquisition-input-v1": "economic-multpl",
     "cftc-acquisition-input-v1": "economic-cftc",
+    "nikkei-indexes-acquisition-input-v1": "economic-nikkei_indexes",
 }
 _PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 
