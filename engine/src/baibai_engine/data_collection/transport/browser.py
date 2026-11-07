@@ -77,6 +77,41 @@ def _browser_environment(
     return {name: value for name, value in environment.items() if name in _BROWSER_ENV_ALLOWLIST}
 
 
+def _download_content_type(value: str) -> str:
+    media_type = value.partition(";")[0].strip().lower()
+    if not media_type:
+        return "missing"
+    if media_type in {
+        "text/html",
+        "text/plain",
+        "text/csv",
+        "application/csv",
+        "application/pdf",
+        "application/octet-stream",
+    }:
+        return media_type
+    return "other"
+
+
+def _navigation_error_description(error: PlaywrightError) -> str:
+    if isinstance(error, PlaywrightTimeoutError):
+        return "PlaywrightTimeoutError"
+    # Playwright messages include navigation URLs and call logs. Only a known
+    # leading Chromium error code belongs in this additional diagnostic.
+    words = str(error).removeprefix("Page.goto: ").split(maxsplit=1)
+    if words and words[0] in {
+        "net::ERR_NAME_NOT_RESOLVED",
+        "net::ERR_CONNECTION_REFUSED",
+        "net::ERR_CONNECTION_RESET",
+        "net::ERR_CONNECTION_CLOSED",
+        "net::ERR_CONNECTION_TIMED_OUT",
+        "net::ERR_INTERNET_DISCONNECTED",
+        "net::ERR_ABORTED",
+    }:
+        return f"PlaywrightError ({words[0]})"
+    return "PlaywrightError"
+
+
 class BrowserFetcher:
     """Shared browser for public downloads and rendered HTML.
 
@@ -153,18 +188,34 @@ class BrowserFetcher:
     def _fetch_download(self, url: str, *, max_bytes: int) -> bytes:
         context = self._ensure_context()
         page = context.new_page()
+        navigation_outcome = "navigation returned no response"
         try:
             try:
-                with (
-                    page.expect_download(timeout=_NAV_TIMEOUT_MS) as download_info,
-                    suppress(PlaywrightError),
-                ):
-                    page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+                with page.expect_download(timeout=_NAV_TIMEOUT_MS) as download_info:
+                    try:
+                        response = page.goto(
+                            url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS
+                        )
+                        if response is not None:
+                            content_type = _download_content_type(
+                                response.headers.get("content-type", "")
+                            )
+                            navigation_outcome = (
+                                f"navigation returned HTTP {response.status} "
+                                f"(content-type {content_type!r})"
+                            )
+                    except PlaywrightError as exc:
+                        # A download can abort navigation successfully. If none
+                        # starts, retain a bounded navigation outcome instead of
+                        # misreporting every outcome as a navigation timeout.
+                        navigation_outcome = (
+                            f"navigation failed: {_navigation_error_description(exc)}"
+                        )
                 download = download_info.value
             except PlaywrightTimeoutError as exc:
                 raise IndicatorsProviderError(
                     f"browser could not download from {url}: "
-                    "navigation timed out before a download started"
+                    f"no download started within {_NAV_TIMEOUT_MS} ms; {navigation_outcome}"
                 ) from exc
             path = download.path()
             size = Path(path).stat().st_size
