@@ -126,28 +126,32 @@ def test_expired_takeover_and_race() -> None:
 def test_only_new_daily_leases_receive_the_longer_budget(purpose: str) -> None:
     store = MemoryStore()
     handle, _ = lease.acquire(store, purpose, now=NOW)
-    expected = timedelta(minutes=180 if purpose == "daily" else 120)
+    expected = timedelta(minutes=220 if purpose == "daily" else 120)
     assert handle.expires_at_utc - handle.acquired_at_utc == expected
     lease.verify_held(store, handle, now=handle.expires_at_utc - timedelta(seconds=1))
     with pytest.raises(lease.LeaseError, match="expired or replaced"):
         lease.verify_held(store, handle, now=handle.expires_at_utc)
 
 
-def test_new_daily_still_excludes_a_competitor_after_the_old_expiry() -> None:
+@pytest.mark.parametrize("elapsed_minutes", [121, 181, 219])
+def test_new_daily_still_excludes_a_competitor_after_the_old_expiry(elapsed_minutes: int) -> None:
     store = MemoryStore()
     handle, _ = lease.acquire(store, "daily", now=NOW)
     before = store.body, store.etag, list(store.writes)
     with pytest.raises(lease.LeaseBusy):
-        lease.acquire(store, "operator", now=NOW + timedelta(minutes=121))
-    lease.verify_held(store, handle, now=NOW + timedelta(minutes=170))
+        lease.acquire(store, "operator", now=NOW + timedelta(minutes=elapsed_minutes))
+    lease.verify_held(store, handle, now=NOW + timedelta(minutes=elapsed_minutes))
     assert (store.body, store.etag, store.writes) == before
 
 
 @pytest.mark.parametrize("state", ["held", "released"])
-def test_old_daily_lease_and_handle_keep_their_exact_expiry(state: str, tmp_path: Path) -> None:
+@pytest.mark.parametrize("minutes", [120, 180])
+def test_old_daily_lease_and_handle_keep_their_exact_expiry(
+    state: str, minutes: int, tmp_path: Path
+) -> None:
     store = MemoryStore()
     old = lease.PublicationLease(
-        state, "local:" + "a" * 32, "daily", NOW, NOW + timedelta(minutes=120)
+        state, "local:" + "a" * 32, "daily", NOW, NOW + timedelta(minutes=minutes)
     )
     store._set(lease._encode(old))
     handle = lease.PublicationLeaseHandle(
@@ -157,41 +161,76 @@ def test_old_daily_lease_and_handle_keep_their_exact_expiry(state: str, tmp_path
     lease._save_handle(path, handle)
     assert lease._load_handle(path) == handle
     assert lease._decode(store.body or b"") == old
+    before_expiry = old.expires_at_utc - timedelta(seconds=1)
     if state == "held":
-        lease.verify_held(store, handle, now=NOW + timedelta(minutes=119))
+        lease.verify_held(store, handle, now=before_expiry)
         with pytest.raises(lease.LeaseBusy):
-            lease.acquire(store, "daily", now=NOW + timedelta(minutes=119))
+            lease.acquire(store, "daily", now=before_expiry)
         assert store.writes == []
         lease.release(store, handle)
         assert lease._decode(store.body or b"").expires_at_utc == old.expires_at_utc
-    newer, expired = lease.acquire(store, "daily", now=NOW + timedelta(minutes=119))
+    newer, expired = lease.acquire(store, "daily", now=before_expiry)
     assert not expired
-    assert newer.expires_at_utc == NOW + timedelta(minutes=299)
+    assert newer.expires_at_utc == before_expiry + timedelta(minutes=220)
 
 
-def test_old_daily_lease_can_be_taken_over_at_its_original_expiry() -> None:
+@pytest.mark.parametrize("minutes", [120, 180])
+def test_old_daily_lease_can_be_taken_over_at_its_original_expiry(minutes: int) -> None:
     store = MemoryStore()
     old = lease.PublicationLease(
-        "held", "local:" + "a" * 32, "daily", NOW, NOW + timedelta(minutes=120)
+        "held", "local:" + "a" * 32, "daily", NOW, NOW + timedelta(minutes=minutes)
     )
     store._set(lease._encode(old))
     old_etag = store.etag
+    old_handle = lease.PublicationLeaseHandle(
+        old.owner, old.purpose, old_etag, old.acquired_at_utc, old.expires_at_utc
+    )
+    with pytest.raises(lease.LeaseError, match="expired or replaced"):
+        lease.verify_held(store, old_handle, now=old.expires_at_utc)
     newer, expired = lease.acquire(store, "daily", now=old.expires_at_utc)
     assert expired
     assert store.writes == [(old_etag, False)]
-    assert newer.expires_at_utc == NOW + timedelta(minutes=300)
+    assert newer.expires_at_utc == old.expires_at_utc + timedelta(minutes=220)
+    with pytest.raises(lease.LeaseError, match="another owner"):
+        lease.release(store, old_handle)
+    assert lease._decode(store.body or b"").owner == newer.owner
 
 
 @pytest.mark.parametrize(
     ("purpose", "minutes"),
-    [("daily", 121), ("daily", 181), ("operator", 180), ("tradingview", 180), ("materialize", 180)],
+    [
+        *(("daily", minutes) for minutes in (119, 121, 179, 181, 219, 221)),
+        *(
+            (purpose, minutes)
+            for purpose in ("operator", "tradingview", "materialize")
+            for minutes in (180, 220)
+        ),
+    ],
 )
-def test_longer_budget_is_not_an_arbitrary_ttl(purpose: str, minutes: int) -> None:
+@pytest.mark.parametrize("state", ["held", "released"])
+def test_longer_budget_is_not_an_arbitrary_ttl(
+    purpose: str, minutes: int, state: str, tmp_path: Path
+) -> None:
     store = MemoryStore()
     invalid = lease.PublicationLease(
-        "held", "local:" + "a" * 32, purpose, NOW, NOW + timedelta(minutes=minutes)
+        state, "local:" + "a" * 32, purpose, NOW, NOW + timedelta(minutes=minutes)
     )
     store._set(lease._encode(invalid))
+    with pytest.raises(lease.LeaseError, match="invalid publication lease TTL"):
+        lease._decode(store.body or b"")
+    path = tmp_path / "invalid-handle.json"
+    lease._save_handle(
+        path,
+        lease.PublicationLeaseHandle(
+            invalid.owner,
+            invalid.purpose,
+            store.etag,
+            invalid.acquired_at_utc,
+            invalid.expires_at_utc,
+        ),
+    )
+    with pytest.raises(lease.LeaseError, match="invalid publication lease TTL"):
+        lease._load_handle(path)
     with pytest.raises(lease.LeaseError, match="invalid publication lease TTL"):
         lease.acquire(store, "daily", now=NOW)
     assert store.writes == []

@@ -33,7 +33,7 @@ def by_id(steps):
 def test_common_integration_runs_including_weekends_without_acquisition(workflow):
     assert declared_schedule(WORKFLOW_PATH.read_text()) == [{"cron": "43 13 * * *"}]
     job = workflow["jobs"]["daily"]
-    assert int(job["timeout-minutes"]) == 170
+    assert int(job["timeout-minutes"]) == 210
     assert timedelta(minutes=int(job["timeout-minutes"])) == DAILY_LEASE_TTL - timedelta(minutes=10)
     assert "needs" not in job
     for secret in ("JQUANTS_API_KEY", "EDINET_API_KEY", "ESTAT_APP_ID"):

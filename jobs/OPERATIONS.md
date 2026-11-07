@@ -115,7 +115,11 @@ with_publication_lease() (
 
 releaseを保証するため関数内でset -eを使わない。busyはowner/expiry/runを確認し、release失敗はhandleを保つ。cloud-publish queueだけではlocal writerを排除しない。malformed leaseは自動修復せず、全active/pending writer不在を確認した明示復旧だけexact lease keyを調べて削除→通常acquireとする。prefix削除/手書きJSONはしない。
 
-日次は準備・生成後の公開と後処理にも時間を残すため、job枠170分・新daily lease180分とする。他purposeの120分leaseは延ばさない。旧120分のlease/handleも元の期限のまま読取・releaseできる。旧codeはreleased後も新180分leaseを読めないため、切替前に旧writerの新規起動を止め、旧active/queued runの完了とleaseを確認してから修正mainの新runを起動する。手動/local operatorも修正codeへ揃え、途中更新・旧runのrerun・強制unlockで延長しない。hard cancelでreleaseできなければ元のexpiryまでbusyが残り得る。これは速度改善や完走保証ではなく、共通queueの占有が最長60分伸びる。中断時は下記の部分公開を読戻してから再開する。
+日次は生成後のmachine反映・seal/inputにも時間を残すため、job枠210分・新daily lease220分とする。他purposeは120分だけを許可する。旧120分と旧daily180分のlease/handleは元の期限のまま読取・releaseでき、途中延長はしない。これは速度改善や完走保証ではなく、従来の170/180分から共通queueの占有が最長40分伸びる。
+
+旧codeはreleased状態でも新220分leaseを受け入れない。切替前に共通leaseを使う全writer（日次・経済統合・TradingView公開・Web生成・手動/local operator）の旧codeによる新規起動を止め、旧active/queued runを完了または取り消してdrainし、held leaseが残っていないことを確認する。全writerを修正codeへ揃えてから、修正mainの新runを起動する。旧runのrerun・実行中codeの差替え・強制unlockで時間を延ばさない。hard cancelでreleaseできなければ元のexpiryまでbusyが残り得る。
+
+中断時はlogと現objectを先に読戻す。lakeだけ進み旧market/runsの両ETagがmachine receiptと一致する場合は、receipt削除・旧store復元をせず、新しい通常日次を前向きに実行する。消失したrunner-localモデルへ元ID/hashを付けて再生成しない。通常日次は保存原本から再計算し、provider取得workflowを再実行する必要はない。片方のstoreだけ進んだ場合は下記の部分公開へ進む。
 
 | 変更 | 反映経路 |
 | --- | --- |
