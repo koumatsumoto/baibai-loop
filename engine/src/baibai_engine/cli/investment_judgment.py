@@ -94,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="read comparison models from the same generation without selecting them",
     )
+    context_parser.add_argument(
+        "--include-pricing-gaps",
+        action="store_true",
+        help="inspect pricing gaps in the saved screening universe without reselecting",
+    )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
     context_parser.add_argument("--generation-id")
     context_parser.add_argument("--screening-selection-id")
@@ -258,6 +263,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     runs_path=args.runs_path,
                     db_path=args.db,
                     comparison_tickers=tuple(args.compare_ticker),
+                    include_pricing_gaps=args.include_pricing_gaps,
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:

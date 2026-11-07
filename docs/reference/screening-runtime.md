@@ -24,6 +24,8 @@
 
 [原典の時点・欠測](model-observations.md#source-owners)と[期間/株式basis](model-observations.md#financial-periods)を守る。不足は該当材料/経路に局所化し、候補数のために0や別期の好値で埋めない。取得coverageは成功した要求範囲で全銘柄の入力充足ではなく、入力不足による候補減少を機会減少としない。
 
+候補外の価格・株数不足を調べる時は `investment-judgment selection-context --include-pricing-gaps` を使う。保存Selectionの母集団と同じGenerationのCompany Financialsだけを追加で読み、現行の価格条件を満たさない銘柄と保存値・欠測理由をコード順で返す。過去の除外理由の再現や候補順位ではなく、価格日不一致と株数不足の重複も残す。確認対象は同じ `--screening-selection-id` と `--compare-ticker` で詳細を読める。株数の補完・再選定・保存物の変更は行わない。
+
 ## 保存と読取
 
 ModelGenerationとScreeningSelectionは別identity。同じモデルの政策変更は再生成ではない。候補0件も正常に公開し、過去の非空候補へ戻さない。保存/時点選択は[store](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)と[query](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)、L3再開/cache寿命は[保存責務](../architecture.md#store-authority)、取得/retry/発行/整理は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)へ。
