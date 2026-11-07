@@ -425,24 +425,39 @@ def test_unsealed_recheck_uses_complete_response_proof_and_next_acquisition_adva
     for key, body in immutable.items():
         assert store.get_bytes(key) == body
 
-    # The next source starts from its published input. The empty FRED envelope
-    # still carries the generation binding; canonical retains every original.
+    # Both acquisition inputs omit old bodies; BOJ retains the exact day and
+    # confirmation metadata while canonical keeps every adopted original.
     input_db = tmp_path / "source-input.sqlite"
     metadata = load_input(store, "economic-" + group, input_db, tmp_path / "input")
     assert metadata["canonical_generations"] == {
         "economic_etag": store.head("indicators.sqlite").etag
     }
+    input_confirmation = None
     with closing(sqlite3.connect(input_db)) as conn:
-        assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == (
-            2 if recovery else 0
-        )
+        assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM economic_source_documents").fetchone()[0] == 0
         if recovery:
-            assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == (
-                {"value": "B"},
-            )
+            assert conn.execute(
+                "SELECT observed_at FROM economic_boj_bank_lending_yoy_input_days"
+            ).fetchall() == [(DAY.isoformat(),)]
+            input_confirmation = conn.execute(
+                "SELECT * FROM economic_source_record_confirmations WHERE source_id=?",
+                (source,),
+            ).fetchone()
+            assert input_confirmation is not None
+            assert datetime.fromisoformat(input_confirmation[2]) == AT + timedelta(hours=2)
+            assert datetime.fromisoformat(input_confirmation[3]) == AT + timedelta(hours=2)
     with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
         assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == ({"value": "B"},)
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 2
+        if recovery:
+            assert (
+                conn.execute(
+                    "SELECT * FROM economic_source_record_confirmations WHERE source_id=?",
+                    (source,),
+                ).fetchone()
+                == input_confirmation
+            )
     packet = tmp_path / "next-stage"
     packet.mkdir()
     clock = AT + timedelta(hours=3)

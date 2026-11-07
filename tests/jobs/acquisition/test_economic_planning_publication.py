@@ -19,6 +19,7 @@ from tests.jobs.acquisition.test_economic_planning_readers import (
 )
 
 import baibai_jobs.acquisition.source_inputs as inputs
+from baibai_engine.data_collection.acquisition.policy import source_policy
 from baibai_engine.data_collection.catalog import load_sources
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.documents import (
@@ -80,15 +81,9 @@ def test_export_keeps_native_plans_metadata_and_originals(tmp_path, case):
         [
             item.source_id
             for item in load_sources().values()
-            if item.provider == group.removeprefix("economic-")
+            if source_policy(item).acquisition_group == group.removeprefix("economic-")
         ]
-        if group
-        in {
-            "economic-yahoo",
-            "economic-multpl",
-            "economic-cftc",
-            "economic-nikkei_indexes",
-        }
+        if group != "economic-spglobal_pmi"
         else [source]
     )
     with closing(store.open_connection(canonical)) as connection, connection:

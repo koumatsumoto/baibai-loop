@@ -9,6 +9,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
+from baibai_engine.data_collection.receipts.native_sources.planning_inputs import covered_input_days
 from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_unchanged
 
 # A complete source response grouped by its native observation dates.
@@ -92,8 +93,8 @@ def store_snapshot(
 def stored_days(
     connection: sqlite3.Connection, start: date, end: date, *, source_id: str
 ) -> set[date]:
-    """Completed source days, including empty responses, with no calculation claim."""
-    return {
+    """Completed days, including fixed-seed empty days, without creating receipts."""
+    return set(covered_input_days(connection, source_id, start, end)) | {
         date.fromisoformat(row[0])
         for row in connection.execute(
             "SELECT DISTINCT observed_at FROM economic_source_records "

@@ -15,8 +15,42 @@ from baibai_engine.data_collection.receipts.native_sources.documents import (
 )
 
 _DAY_INPUTS = {
+    "economic-boj": (
+        ("boj-bank-lending-yoy", "economic_boj_bank_lending_yoy_input_days"),
+        ("boj-cai", "economic_boj_cai_input_days"),
+        ("boj-cgpi", "economic_boj_cgpi_input_days"),
+        ("boj-export-price", "economic_boj_export_price_input_days"),
+        ("boj-import-price", "economic_boj_import_price_input_days"),
+        ("boj-mblong", "economic_boj_mblong_input_days"),
+        ("boj-reri", "economic_boj_reri_input_days"),
+        ("boj-tankan-lmfg", "economic_boj_tankan_lmfg_input_days"),
+        ("boj-tankan-lnonmfg", "economic_boj_tankan_lnonmfg_input_days"),
+        ("boj-timeseries-strdclucon", "economic_boj_timeseries_strdclucon_input_days"),
+    ),
     "economic-umich_sca": (("umich-sca-ics", "economic_umich_input_days"),),
     "economic-ecb_fx": (("ecb-fx", "economic_ecb_input_days"),),
+    "economic-estat": (
+        ("estat-consumer-confidence-ci", "economic_estat_consumer_confidence_ci_input_days"),
+        ("estat-cpi", "economic_estat_cpi_input_days"),
+        ("estat-cpi-core", "economic_estat_cpi_core_input_days"),
+        ("estat-cpi-core-yoy", "economic_estat_cpi_core_yoy_input_days"),
+        ("estat-cpi-services", "economic_estat_cpi_services_input_days"),
+        (
+            "estat-dashboard-nominal-wage-index",
+            "economic_estat_dashboard_nominal_wage_index_input_days",
+        ),
+        ("estat-dashboard-real-wage-index", "economic_estat_dashboard_real_wage_index_input_days"),
+        ("estat-dashboard-unemployment-sa", "economic_estat_dashboard_unemployment_sa_input_days"),
+        ("estat-iip-ci", "economic_estat_iip_ci_input_days"),
+        ("estat-job-openings-ci", "economic_estat_job_openings_ci_input_days"),
+        ("estat-machinery-orders-core", "economic_estat_machinery_orders_core_input_days"),
+        ("estat-watcher-current-di", "economic_estat_watcher_current_di_input_days"),
+    ),
+    "economic-jquants": (
+        ("jquants-indices-topix", "economic_jquants_indices_topix_input_days"),
+        ("jquants-options-n225", "economic_jquants_options_n225_input_days"),
+        ("jquants-trades-spec", "economic_jquants_trades_spec_input_days"),
+    ),
     "economic-mof_jgb": (("mof-jgbcm-all", "economic_mof_jgb_input_days"),),
     "economic-frb_h15": (("fed-h15", "economic_frb_h15_input_days"),),
     "economic-cftc": (
