@@ -12,6 +12,7 @@ import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 
+from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS, load_sources
 from baibai_engine.data_collection.receipts.native_sources.receipt_policy import retain_unchanged
 from baibai_engine.data_collection.receipts.native_sources.records import (
     NativeRecords,
@@ -20,6 +21,15 @@ from baibai_engine.data_collection.receipts.native_sources.records import (
 
 TABLE = "economic_source_record_confirmations"
 COLUMNS = ("source_id", "observed_at", "checked_at", "adopted_fetched_at", "content_sha256")
+
+
+def scoped_record_sources() -> frozenset[str]:
+    """Sources whose completed record days do not prove a full-source replacement."""
+    return frozenset(
+        source.source_id
+        for source in load_sources().values()
+        if source.provider not in DOCUMENT_PROVIDERS and source.provider != "fred_csv"
+    )
 
 
 def confirm_snapshot(
@@ -196,11 +206,19 @@ def confirm_source_response(
 
 
 def validate_collection_confirmations(connection: sqlite3.Connection) -> None:
-    if connection.execute(
-        "SELECT DISTINCT source_id FROM economic_source_record_confirmations "
-        "EXCEPT SELECT source_id FROM economic_source_collection_confirmations"
-    ).fetchone():
-        raise ValueError("period confirmation requires an explicit complete source recheck")
+    scoped = scoped_record_sources()
+    for source, checked, adopted, digest, payload in connection.execute(
+        "SELECT c.source_id,c.checked_at,c.adopted_fetched_at,c.content_sha256,r.payload "
+        "FROM economic_source_record_confirmations c "
+        "LEFT JOIN economic_source_records r ON r.source_id=c.source_id "
+        "AND r.observed_at=c.observed_at AND r.fetched_at=c.adopted_fetched_at "
+        "WHERE NOT EXISTS (SELECT 1 FROM economic_source_collection_confirmations complete "
+        "WHERE complete.source_id=c.source_id)"
+    ):
+        if source not in scoped:
+            raise ValueError("period confirmation requires an explicit complete source recheck")
+        if checked < adopted or payload is None or hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError("scoped confirmation lost its period anchor")
     for source_id, checked, digest in connection.execute(
         "SELECT * FROM economic_source_collection_confirmations"
     ):
