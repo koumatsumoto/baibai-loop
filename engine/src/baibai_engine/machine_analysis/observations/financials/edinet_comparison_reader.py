@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Collection, Iterator, Sequence
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     _canonicalize_document_events,
 )
@@ -36,12 +37,15 @@ def read_comparison_population(
     as_of: date,
     tickers: Sequence[str] | None = None,
     known_at: datetime | None = None,
+    archives: FixedEdinetArchives | None = None,
 ) -> dict[str, tuple[FilingComparisons, ...]]:
     """Already received type=1 only. No missing ZIP can trigger a fetch or fallback.
 
     Every docID is a labelled vintage, including unsupported/missing inputs. Its
     current and comparative operands can only come from that same ZIP. Corrections
     remain separate vintages; they never rewrite an earlier document or J-Quants.
+    Explicit archives belong to the caller's saved list/archive pair; a missing
+    member cannot be filled from the SQL copy or a later native head.
     """
     if known_at is not None and known_at.tzinfo is None:
         raise ValueError("comparison cutoff requires an aware datetime")
@@ -92,37 +96,24 @@ def read_comparison_population(
             reason=reason,
         )
     received: set[str] = set()
-    if observations:
-        statement = "SELECT doc_id, zip_content FROM edinet_source_archives WHERE source_type = 1"
-        parameters: tuple[str, ...] = ()
-        if tickers is not None and len(tickers) == 1:
-            # A company query must not materialize every issuer's native BLOBs.
-            # Eligibility still comes from the folded, key-preserving observations
-            # above; this is only an exact-docID restriction of the byte read.
-            statement += " AND doc_id IN (SELECT doc_id FROM edinet_documents WHERE sec_code = ?)"
-            parameters = (tickers[0] + "0",)
-        cursor = connection.execute(statement, parameters)
-        while batch := cursor.fetchmany(8):
-            for doc_id, content in batch:
-                if doc_id not in observations:
-                    continue
-                received.add(doc_id)
-                base = observations[doc_id]
-                if doc_id not in ready:
-                    observations[doc_id] = base.model_copy(
-                        update={"source_sha256": hashlib.sha256(bytes(content)).hexdigest()}
-                    )
-                    continue
-                extracted = extract_comparisons(
-                    content=bytes(content),
-                    ticker=base.ticker,
-                    doc_id=doc_id,
-                    submitted=ready[doc_id],
-                    document_type=base.document_type,
-                )
-                observations[doc_id] = extracted.model_copy(
-                    update={"parent_doc_id": base.parent_doc_id}
-                )
+    for doc_id, content in _archive_contents(
+        connection, doc_ids=observations.keys(), tickers=tickers, archives=archives
+    ):
+        received.add(doc_id)
+        base = observations[doc_id]
+        if doc_id not in ready:
+            observations[doc_id] = base.model_copy(
+                update={"source_sha256": hashlib.sha256(content).hexdigest()}
+            )
+            continue
+        extracted = extract_comparisons(
+            content=content,
+            ticker=base.ticker,
+            doc_id=doc_id,
+            submitted=ready[doc_id],
+            document_type=base.document_type,
+        )
+        observations[doc_id] = extracted.model_copy(update={"parent_doc_id": base.parent_doc_id})
     # Absent unrelated archives are outside this optional capability. A missing
     # correction remains visible when its family has an actual archived input.
     neighbors: dict[str, set[str]] = {}
@@ -146,3 +137,33 @@ def read_comparison_population(
     ):
         population.setdefault(item.ticker, []).append(item)
     return {ticker: tuple(items) for ticker, items in population.items()}
+
+
+def _archive_contents(
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    *,
+    doc_ids: Collection[str],
+    tickers: Sequence[str] | None,
+    archives: FixedEdinetArchives | None,
+) -> Iterator[tuple[str, bytes]]:
+    if not doc_ids:
+        return
+    if archives is not None:
+        retained = archives.archive_keys
+        for doc_id in doc_ids:
+            if (doc_id, 1) in retained:
+                # Blocked vintages still require the real bytes, not a metadata
+                # hash that could hide a missing or damaged retained original.
+                yield doc_id, archives.read_xbrl_zip(doc_id)
+        return
+    statement = "SELECT doc_id, zip_content FROM edinet_source_archives WHERE source_type = 1"
+    parameters: tuple[str, ...] = ()
+    if tickers is not None and len(tickers) == 1:
+        # Eligibility comes from the folded observations, not this byte-read filter.
+        statement += " AND doc_id IN (SELECT doc_id FROM edinet_documents WHERE sec_code = ?)"
+        parameters = (tickers[0] + "0",)
+    cursor = connection.execute(statement, parameters)
+    while batch := cursor.fetchmany(8):
+        for doc_id, content in batch:
+            if doc_id in doc_ids:
+                yield doc_id, bytes(content)

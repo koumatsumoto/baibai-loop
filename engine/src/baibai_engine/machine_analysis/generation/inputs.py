@@ -167,7 +167,11 @@ def read_and_generate_models(
             documents[row.ticker].append(row)
         phase_started = _phase_progress("edinet_comparisons")
         comparisons = read_comparison_population(
-            connection, as_of=as_of, tickers=subjects, known_at=evaluation_time
+            connection,
+            as_of=as_of,
+            tickers=subjects,
+            known_at=evaluation_time,
+            archives=edinet_input.archives if edinet_input is not None else None,
         )
         _phase_progress("edinet_comparisons", phase_started)
         phase_started = _phase_progress("pdf_financials")
