@@ -55,6 +55,12 @@ CASES = (
         "economic_frb_h15_input_days",
     ),
     (
+        "economic-cftc",
+        "cftc-cot-jpy",
+        "cftc-acquisition-input-v1",
+        "economic_cftc_cot_jpy_input_days",
+    ),
+    (
         "economic-multpl",
         "multpl-shiller-pe",
         "multpl-acquisition-input-v1",
@@ -146,7 +152,7 @@ def _planning_copy(canonical, target, case):
                     for item in load_sources().values()
                     if item.provider == require_source(source).provider
                 ]
-                if source.startswith(("yahoo-", "multpl-"))
+                if source.startswith(("yahoo-", "multpl-", "cftc-"))
                 else [(source, table)]
             )
             for owner, table in scopes:
