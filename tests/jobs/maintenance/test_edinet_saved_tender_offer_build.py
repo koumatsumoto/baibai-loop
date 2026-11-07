@@ -327,7 +327,10 @@ def test_second_required_read_failure_and_retry_keep_order_without_partial_store
     assert capsys.readouterr().err
     save.assert_not_called()
     assert read_tender_offer_exit_values(case.market) == case.expected[0]
-    assert [key for key in case.store.get_keys if key.endswith(".zip")] == [_body_key(case, RESULT)]
+    assert [key for key in case.store.get_keys if key.endswith(".zip")] == [
+        _body_key(case, RESULT),
+        _body_key(case, OFFER),
+    ]
     case.store.values[key] = original
     _clear_trace(case)
     assert cli.main(_argv(case)) == 0
