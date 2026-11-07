@@ -41,6 +41,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_comparison_re
     read_comparison_population,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+    read_fixed_holder_capital,
     read_holder_capital,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
@@ -185,14 +186,24 @@ def read_and_generate_models(
         _phase_progress("pdf_financials", phase_started)
         phase_started = _phase_progress("holder_capital")
         try:
-            holder_capital, holder_coverage = read_holder_capital(
-                connection,
-                as_of=as_of,
-                tickers=subjects,
-                known_at=evaluation_time,
-                snapshot_sealed_at=market_snapshot.sealed_at,
-                archives=edinet_input.archives if edinet_input is not None else None,
-            )
+            if edinet_input is None:
+                holder_capital, holder_coverage = read_holder_capital(
+                    connection,
+                    as_of=as_of,
+                    tickers=subjects,
+                    known_at=evaluation_time,
+                    snapshot_sealed_at=market_snapshot.sealed_at,
+                )
+            else:
+                holder_capital, holder_coverage = read_fixed_holder_capital(
+                    connection,
+                    as_of=as_of,
+                    tickers=subjects,
+                    known_at=evaluation_time,
+                    snapshot_sealed_at=market_snapshot.sealed_at,
+                    archives=edinet_input.archives,
+                    selected_at=edinet_input.selected_at,
+                )
         except (sqlite3.Error, EDINETProviderError, LakePublishError, ValueError, OSError) as error:
             # A failed supplemental read must not erase independent market/financial data.
             logging.getLogger(__name__).warning(
