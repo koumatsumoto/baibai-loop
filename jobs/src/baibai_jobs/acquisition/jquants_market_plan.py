@@ -115,6 +115,7 @@ def freeze_market_originals(
     include_calendar: bool = True,
     include_margin_alerts: bool = True,
     include_short_sales: bool = True,
+    include_margin_interest: bool = True,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> FixedMarketIndexes:
     """Freeze L1 and pending market originals once; never consult an L2 input."""
@@ -136,6 +137,8 @@ def freeze_market_originals(
         sources = tuple(source for source in sources if source != "margin_alerts")
     if not include_short_sales:
         sources = tuple(source for source in sources if source != "short_sale_reports")
+    if not include_margin_interest:
+        sources = tuple(source for source in sources if source != "margin_interest")
     cutoff = clock()
     if cutoff.utcoffset() is None:
         raise ValueError("clock requires a timezone")
@@ -225,6 +228,7 @@ def plan_market_from_originals(
     include_calendar: bool = True,
     include_margin_alerts: bool = True,
     include_short_sales: bool = True,
+    include_margin_interest: bool = True,
 ) -> MarketPlans:
     """Plan each source from original receipts; unavailable scopes stay explicit."""
 
@@ -266,13 +270,17 @@ def plan_market_from_originals(
             asof=asof,
             final_balance_date=LEGACY_WEEKLY_LAST_BALANCE_DATE,
             final_publication_date=LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
-        ),
+        )
+        if include_margin_interest
+        else MarginAcquisitionPlan((), (), ()),
         daily_margin=plan_daily_margin(
             indexes["margin_interest"],
             calendar,
             first_balance_date=ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
             asof=asof,
-        ),
+        )
+        if include_margin_interest
+        else MarginAcquisitionPlan((), (), ()),
         margin_alerts=refresh_tail("margin_alerts")
         if include_margin_alerts
         else NativeAcquisitionPlan((), ()),

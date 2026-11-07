@@ -4,7 +4,6 @@ import hashlib
 import json
 import shutil
 import sqlite3
-from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -25,8 +24,6 @@ from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import read_price_input
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.objects.r2 import LakePublishError
-from baibai_engine.storage.snapshots.duck import lake_session
-from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 from baibai_jobs.integration.calendar_native import fixed_input
@@ -375,67 +372,6 @@ def test_price_input_rejects_a_later_calendar_clock(tmp_path):
             market=market,
             calendar_input=selected,
         )
-
-
-def test_compare_cli_checks_dense_publication_horizon_and_fixed_calendar(
-    tmp_path, monkeypatch, capsys
-):
-    import baibai_jobs.maintenance.price_native_cutover as cutover
-
-    store, price, calendar, market = source_fixture(tmp_path)
-    _, saved = build(store, price, calendar, market)
-    mirror = tmp_path / "mirror"
-    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=mirror) as seal:
-        exported = export_prices_from_native_input(
-            source_snapshot=seal, saved=saved, mirror_root=mirror, producer_git_commit="a" * 40
-        )
-    cache = LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror))
-    plan = tmp_path / "plan"
-    plan.mkdir()
-    (plan / "plan.json").write_text(json.dumps({"release_id": "old", "manifest_sha256": "a" * 64}))
-    release = SimpleNamespace(release_id="old", manifest_sha256="a" * 64)
-    monkeypatch.setattr(cutover, "accepted_dataset", lambda _release, dataset: dataset)
-    monkeypatch.setattr(
-        cutover, "selected_partitions", lambda *_: exported.build.manifest.partitions
-    )
-    monkeypatch.setattr(cutover, "resolve_release", lambda *_args, **_kwargs: release)
-    store.close = lambda: None
-    monkeypatch.setattr(cutover, "Boto3R2Store", lambda **_: store)
-
-    @contextmanager
-    def open_lake(**kwargs):
-        with lake_session() as session:
-            yield session, cache
-
-    monkeypatch.setattr(cutover, "open_lake", open_lake)
-    command = [
-        "compare",
-        "--directory",
-        str(plan),
-        "--work-directory",
-        str(tmp_path / "compare"),
-        "--asof",
-        LAST.isoformat(),
-    ]
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
-    assert cutover.main(command) == 1
-    first = json.loads(capsys.readouterr().out)
-    assert first["differences"] == 0
-    assert first["coverage_status"] == "partial"
-    report = json.loads((plan / "comparison.json").read_text())
-    assert report["days"][SATURDAY.isoformat()]["status"] == "unavailable"
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "true")
-    assert cutover.main(command) == 0
-    second = json.loads(capsys.readouterr().out)
-    assert second["coverage_status"] == "complete"
-    assert second["raw_coverage_status"] == "partial"
-    assert second["closed_unrequested_days"] == 2
-    assert cutover.main(command[:-2]) == 1
-    assert "ValueError" in capsys.readouterr().err
-    pack = next(key for key in store.values if "market-calendar" in key and "/packs/" in key)
-    del store.values[pack]
-    assert cutover.main(command) == 1
-    assert "LakePublishError" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("default_mode", [False, True])

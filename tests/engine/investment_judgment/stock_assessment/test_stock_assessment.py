@@ -371,6 +371,56 @@ def test_jst_date_uses_same_instant_for_utc_and_jst_clocks():
     )
 
 
+@pytest.mark.parametrize("basis", ["realtime", "last_close_unadjusted"])
+def test_new_price_observation_cannot_follow_every_cited_retrieval(connection, basis):
+    document, review = pair_payload()
+    fact = document["input_snapshot"]["facts"][0]
+    fact["price_basis"] = basis
+    fact["observed_at"] = "2026-10-14T14:00:00+09:00"
+    price_source = next(
+        source for source in document["input_snapshot"]["sources"] if source["source_id"] == "price"
+    )
+    price_source["retrieved_at"] = "2026-10-14T10:00:00+09:00"
+    error = f"market_price {fact['fact_id']} postdates all cited source retrievals"
+    assert error in evaluation(document, review).errors
+    # The unrelated primary source was read at 16:00; it is not price evidence.
+    with pytest.raises(ResearchValidationError, match="postdates all cited"):
+        publish(connection, document, review)
+    assert connection.execute("SELECT COUNT(*) FROM stock_assessment").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("basis", "observed_at", "retrieved_at"),
+    [
+        ("realtime", "2026-10-14T01:00:00Z", "2026-10-14T10:00:00+09:00"),
+        ("last_close_unadjusted", "2026-10-14T10:00:00+09:00", "2026-10-14T16:00:00+09:00"),
+        ("last_close_unadjusted", None, "2026-10-14T16:00:00+09:00"),
+    ],
+)
+def test_price_clock_accepts_equal_instants_final_trade_time_and_no_invented_close_clock(
+    basis, observed_at, retrieved_at
+):
+    document, review = pair_payload()
+    fact = document["input_snapshot"]["facts"][0]
+    fact.update(price_basis=basis, observed_at=observed_at)
+    next(
+        source for source in document["input_snapshot"]["sources"] if source["source_id"] == "price"
+    )["retrieved_at"] = retrieved_at
+    assert evaluation(document, review).errors == ()
+
+
+def test_one_later_cited_source_can_support_price_despite_an_earlier_context_source():
+    document, review = pair_payload()
+    price = next(
+        source for source in document["input_snapshot"]["sources"] if source["source_id"] == "price"
+    )
+    context = {**price, "source_id": "earlier_context", "retrieved_at": "2026-10-14T10:00:00+09:00"}
+    document["input_snapshot"]["sources"].append(context)
+    document["input_snapshot"]["facts"][0]["source_ids"].append("earlier_context")
+    review["checked_source_ids"].append("earlier_context")
+    assert evaluation(document, review).errors == ()
+
+
 @pytest.mark.parametrize("bad", [True, "NaN", "Infinity", -1])
 def test_decimal_valuation_rejects_nonfinite_bool_and_negative(bad):
     document, _ = pair_payload()

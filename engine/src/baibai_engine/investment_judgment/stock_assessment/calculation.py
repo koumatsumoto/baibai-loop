@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal, localcontext
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,6 +20,7 @@ from baibai_engine.investment_judgment.stock_assessment.document import (
     ratio_value_from_facts,
 )
 from baibai_engine.investment_judgment.stock_assessment.scenario import (
+    Projection,
     maximum_entry_price,
     project_return,
 )
@@ -62,11 +64,82 @@ class RatioInputs(BaseModel):
         return _tuple(value)
 
 
+class PriceComparisonInput(BaseModel):
+    """観測や注文条件とは別の比較価格と、任意の仮数量。"""
+
+    model_config = _CONFIG
+    price_yen: Annotated[Decimal, Field(gt=0)]
+    hypothetical_quantity: Annotated[int, Field(gt=0)] | None = None
+
+    @field_validator("price_yen", mode="before")
+    @classmethod
+    def _price(cls, value: object) -> Decimal:
+        return finite_decimal(value)
+
+
 class CalculationInput(BaseModel):
     model_config = _CONFIG
     input_snapshot: InputSnapshot
     derived: RatioInputs = Field(default_factory=RatioInputs)
     valuation: Valuation | None = None
+    price_comparison: PriceComparisonInput | None = None
+
+
+def _projection_numbers(
+    projection: Projection, *, price: Decimal, months: int, rate: Decimal
+) -> dict[str, object]:
+    returns = project_return(projection, price_yen=price, horizon_months=months)
+    return {
+        "total_value_yen": decimal_to_number(returns.total_value_yen),
+        "total_return_pct": decimal_to_number(returns.total_return_pct),
+        "annualized_return_pct": decimal_to_number(returns.annualized_return_pct),
+        "pmax_raw_yen": decimal_to_number(
+            maximum_entry_price(projection, horizon_months=months, required_annual_return_pct=rate)
+        ),
+    }
+
+
+def _price_comparison(inputs: CalculationInput) -> dict[str, object]:
+    comparison, valuation = inputs.price_comparison, inputs.valuation
+    assert comparison is not None
+    assert valuation is not None
+    assert valuation.horizon_months is not None
+    assert valuation.required_annual_return_pct is not None
+    result: dict[str, object] = {
+        "price_context": "hypothetical_entry",
+        "valuation_as_of": inputs.input_snapshot.as_of.isoformat(),
+        "price_yen": decimal_to_number(comparison.price_yen),
+        "horizon_months": valuation.horizon_months,
+        "required_annual_return_pct": decimal_to_number(valuation.required_annual_return_pct),
+        "return_basis": "conditional_pretax_without_reinvestment",
+        "execution_assumption": "full_fill_at_comparison_price",
+        "investor_taxes_and_fees_included": False,
+        "order_readiness_assessed": False,
+    }
+    quantity = comparison.hypothetical_quantity
+    with localcontext() as arithmetic:
+        arithmetic.prec = 50
+        if quantity is not None:
+            result["hypothetical_quantity"] = quantity
+            result["hypothetical_outlay_yen"] = str(comparison.price_yen * quantity)
+        for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
+            assert projection is not None
+            row = _projection_numbers(
+                projection,
+                price=comparison.price_yen,
+                months=valuation.horizon_months,
+                rate=valuation.required_annual_return_pct,
+            )
+            if quantity is not None:
+                # 仮の必要資金と損益だけ。口座cash・単元・購入可能量は推定しない。
+                total = (
+                    projection.terminal_value_per_share_yen
+                    + projection.cash_distribution_per_share_yen
+                ) * quantity
+                row["investment_total_value_yen"] = str(total)
+                row["profit_loss_yen"] = str(total - comparison.price_yen * quantity)
+            result[name] = row
+    return result
 
 
 def calculate(inputs: CalculationInput) -> dict[str, object]:
@@ -94,6 +167,10 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
         )
         results.append(result.model_dump(mode="json"))
     valuation = inputs.valuation
+    if inputs.price_comparison is not None and (
+        valuation is None or valuation.status != "resolved"
+    ):
+        raise ValueError("price comparison requires a resolved valuation")
     result_payload: dict[str, object] = {
         "derived": {"metrics": results},
         "valuation": None if valuation is None else valuation.model_dump(mode="json"),
@@ -128,21 +205,12 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
     reviewed = []
     for name, projection in (("base", valuation.base), ("downside", valuation.downside)):
         assert projection is not None
-        returns = project_return(
-            projection, price_yen=price, horizon_months=valuation.horizon_months
+        context[name] = _projection_numbers(
+            projection,
+            price=price,
+            months=valuation.horizon_months,
+            rate=valuation.required_annual_return_pct,
         )
-        context[name] = {
-            "total_value_yen": decimal_to_number(returns.total_value_yen),
-            "total_return_pct": decimal_to_number(returns.total_return_pct),
-            "annualized_return_pct": decimal_to_number(returns.annualized_return_pct),
-            "pmax_raw_yen": decimal_to_number(
-                maximum_entry_price(
-                    projection,
-                    horizon_months=valuation.horizon_months,
-                    required_annual_return_pct=valuation.required_annual_return_pct,
-                )
-            ),
-        }
         reviewed.append(
             {
                 "name": name,
@@ -156,4 +224,6 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
         )
     result_payload["recalculated_projections"] = reviewed
     result_payload["projection_numbers"] = context
+    if inputs.price_comparison is not None:
+        result_payload["price_comparison_numbers"] = _price_comparison(inputs)
     return result_payload

@@ -27,7 +27,6 @@ from baibai_engine.investment_judgment.workflow.workspace.files import (
     _parse_date,
 )
 from baibai_engine.investment_judgment.workflow.workspace.validation import (
-    _case_eligibility,
     _read_case,
     _research_ticker_dir,
     _validate_editable_drafts,
@@ -69,7 +68,8 @@ def promote(
 
     manifest_asof = _parse_date(str(manifest.get("research_as_of")), label="manifest as_of")
     case = _read_case(workspace, ticker, manifest_asof)
-    assessment_errors, review_errors = _case_eligibility(case, now=now)
+    # The writer validates a new pair; an exact retry reads its historical publication.
+    assessment_errors, review_errors = case.assessment_errors, case.review_errors
     if assessment_errors or review_errors:
         raise ResearchWorkspaceDataError("; ".join([*assessment_errors, *review_errors]))
     document, review = case.assessment, case.review
