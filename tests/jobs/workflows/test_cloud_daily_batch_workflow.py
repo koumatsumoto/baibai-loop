@@ -54,6 +54,7 @@ def test_core_order_and_source_receipts_survive_without_web(steps, by_id):
         assert ids.index(first) < ids.index(second)
     assert "uv run baibai-jobs model-integration" in by_id["batch"]["run"]
     assert "--lease-handle" in by_id["batch"]["run"]
+    assert '--integration-report "$RUNNER_TEMP/integration/applied.json"' in by_id["batch"]["run"]
     assert "publish-lake" not in by_id  # no second export/release after model generation
     assert "publish-serving" not in by_id
     assert "upload-serving" not in str(by_id["upload-stores"])

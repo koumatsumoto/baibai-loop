@@ -1,4 +1,5 @@
 import hashlib
+import json
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -92,6 +93,11 @@ def integration(tmp_path, monkeypatch):
                     ),
                     "economic": fixed.identity,
                     "calendar": kwargs["calendar_identity"],
+                    **(
+                        {"edinet": kwargs["edinet_input"].identity}
+                        if kwargs["edinet_input"]
+                        else {}
+                    ),
                 },
                 subject_plan={
                     "1234": GenerationSubject(
@@ -289,3 +295,59 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
         job.integrate_models(**arguments)
     assert "publish" not in events
     assert ModelGenerationStore(arguments["runs"]).read("models-new-release") is None
+
+
+def test_models_retain_applied_edinet_input_without_current_heads(integration, tmp_path):
+    from tests.jobs.integration.test_edinet_metric_rebuild import AT, sources
+
+    from baibai_engine.data_collection.providers.edinet.archive_native import HEAD_KEY as ARCHIVES
+    from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY as LISTS
+    from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
+
+    arguments, _ = integration
+    store, _, _, lists, archives = sources(tmp_path / "edinet")
+    saved = retain_edinet_input(store, lists, archives, selected_at=AT)
+    del store.values[LISTS]
+    del store.values[ARCHIVES]
+    store.get_keys.clear()
+    result = job.integrate_models(**{**arguments, "store": store}, edinet_input=saved)
+    generated = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
+    assert generated.inputs["edinet"] == saved
+    assert LISTS not in store.get_keys
+    assert ARCHIVES not in store.get_keys
+    assert not any(key.endswith((".zip", ".body.gz")) for key in store.get_keys)
+
+
+@pytest.mark.parametrize("same_date", [True, False])
+def test_cli_passes_the_applied_edinet_input_only_for_its_date(tmp_path, monkeypatch, same_date):
+    from tests.jobs.integration.test_edinet_metric_rebuild import AT, sources
+
+    from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
+
+    store, _, _, lists, archives = sources(tmp_path / "edinet")
+    saved = retain_edinet_input(store, lists, archives, selected_at=AT)
+    report = tmp_path / "applied.json"
+    report.write_text(
+        json.dumps({"asof": "2026-10-23", "edinet_input": saved.model_dump(mode="json")})
+    )
+    seen = []
+    monkeypatch.setattr(job, "Boto3R2Store", lambda **_: store)
+    monkeypatch.setattr(
+        job,
+        "integrate_models",
+        lambda **kwargs: seen.append(kwargs["edinet_input"]) or {"models_ready": True},
+    )
+    result = job.main(
+        [
+            "--asof",
+            "2026-10-23" if same_date else "2026-10-24",
+            "--lease-handle",
+            str(tmp_path / "lease"),
+            "--notice-output",
+            str(tmp_path / "notice.json"),
+            "--integration-report",
+            str(report),
+        ]
+    )
+    assert result == (0 if same_date else 1)
+    assert seen == ([saved] if same_date else [])

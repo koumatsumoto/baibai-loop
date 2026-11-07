@@ -408,3 +408,54 @@ def test_saved_economic_clocks_must_match_generation(tmp_path, changed):
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1301",),
         )
+
+
+@pytest.mark.parametrize("late", [None, "seal", "evaluation"])
+def test_generation_binds_edinet_selection_clock_without_changing_sql_readers(tmp_path, late):
+    from tests.helpers.r2_store import MemoryR2Store
+
+    from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
+    from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
+    from baibai_engine.machine_analysis.generation.edinet_inputs import (
+        read_edinet_input,
+        retain_edinet_input,
+    )
+
+    store = MemoryR2Store()
+    lists = FixedEdinetLists(store, {"format": "edinet-list-native-v1", "receipts": []})
+    archives = FixedEdinetArchives(
+        store,
+        {
+            "format": "edinet-archive-native-v1",
+            "archives": [],
+            "acquisition_scope": {"since": None, "doc_ids": [], "legacy_origins": []},
+        },
+    )
+    market = market_store(tmp_path / "market.sqlite")
+    before = market.read_bytes()
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
+        at = snapshot.sealed_at
+        saved = retain_edinet_input(store, lists, archives, selected_at=at)
+        fixed = read_edinet_input(store, saved)
+        if late == "seal":
+            from dataclasses import replace
+
+            snapshot = replace(snapshot, sealed_at=at - timedelta(microseconds=1))
+        arguments = dict(
+            generation_id="native-edinet",
+            market_snapshot=snapshot,
+            market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
+            economic_input=None,
+            edinet_input=fixed,
+            as_of=at.date(),
+            evaluation_time=at - timedelta(microseconds=1) if late == "evaluation" else at,
+            ttm_rules=DEFAULT_TTM_RULES,
+            tickers=("1301",),
+        )
+        if late:
+            with pytest.raises(ValueError, match="EDINET input was selected after"):
+                generation_reader.read_and_generate_models(**arguments)
+        else:
+            result = generation_reader.read_and_generate_models(**arguments).materialize()
+            assert result.inputs["edinet"] == saved
+    assert market.read_bytes() == before

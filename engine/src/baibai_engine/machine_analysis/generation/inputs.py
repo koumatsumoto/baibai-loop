@@ -16,6 +16,7 @@ from math import isfinite
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream
 from baibai_engine.machine_analysis.generation.economic_inputs import EconomicModelInput
+from baibai_engine.machine_analysis.generation.edinet_inputs import EdinetModelInput
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
     prepare_market_context_from_bars,
@@ -103,6 +104,7 @@ def read_and_generate_models(
     tickers: Sequence[str] | None = None,
     growth_start: date | None = None,
     financial_input: FinancialModelInput | None = None,
+    edinet_input: EdinetModelInput | None = None,
     price_identity: InputSnapshot | None = None,
     master_identity: InputSnapshot | None = None,
     calendar_identity: InputSnapshot | None = None,
@@ -119,6 +121,11 @@ def read_and_generate_models(
         economic_input.as_of != as_of or economic_input.evaluation_time != evaluation_time
     ):
         raise ValueError("economic input clocks differ from the generation")
+    if edinet_input is not None and (
+        edinet_input.selected_at > market_snapshot.sealed_at
+        or edinet_input.selected_at > evaluation_time
+    ):
+        raise ValueError("EDINET input was selected after the generation seal or clock")
     path = market_snapshot.path
     master_as_of: date | None = as_of
     if master_identity is not None and master_identity.descriptor is not None:
@@ -314,6 +321,7 @@ def read_and_generate_models(
                 sha256=market_release.manifest_sha256,
             ),
             **({"economic": economic_input.identity} if economic_input is not None else {}),
+            **({"edinet": edinet_input.identity} if edinet_input is not None else {}),
             **({"calendar": calendar_identity} if calendar_identity is not None else {}),
             **(
                 {"margin_alerts": margin_alerts_identity}
