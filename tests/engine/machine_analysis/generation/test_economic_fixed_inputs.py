@@ -9,6 +9,7 @@ import pytest
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview_market import CLOCK, capture
 
+import baibai_engine.machine_analysis.generation.economic_inputs as economic_inputs
 from baibai_engine.data_collection.providers.tradingview.market_receipts import (
     retain_market_capture,
 )
@@ -19,6 +20,8 @@ from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
     store_document,
 )
+from baibai_engine.data_collection.receipts.native_sources.handoff import accept_rechecks
+from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.economic_inputs import (
@@ -31,6 +34,7 @@ from baibai_engine.machine_analysis.observations.prices.tradingview_market impor
     stored_market_context,
 )
 from baibai_engine.storage.objects.r2 import LakePublishError
+from baibai_jobs.integration.native_source_merge import merge_stores
 
 ASOF = date(2026, 1, 5)
 EVALUATED = CLOCK + timedelta(hours=1)
@@ -132,6 +136,64 @@ def test_same_response_changes_only_root_not_period_metadata_or_body(tmp_path):
     count = len(store.put_keys)
     assert freeze(store, path) == second
     assert len(store.put_keys) == count
+
+
+def test_scoped_confirmation_has_an_independent_saved_clock_and_cold_read(tmp_path, monkeypatch):
+    path = tmp_path / "economic.sqlite"
+    store = MemoryR2Store()
+    with closing(initialize_database(path)):
+        pass
+    saved = []
+    expected = []
+    for hour, value in ((0, "2.01"), (3, "2.01"), (4, "3.01")):
+        raw, accepted = tmp_path / f"raw{hour}", tmp_path / f"accepted{hour}"
+        with closing(initialize_database(raw)) as connection, connection:
+            store_snapshot(
+                connection,
+                source_id="nikkei-pbr",
+                observed_at=PERIOD,
+                fetched_at=CLOCK + timedelta(hours=hour),
+                records=[
+                    {"date_text": "2026.01.01", "weighted_text": value, "index_based_text": "2.80"}
+                ],
+            )
+        assert not accept_rechecks(raw, path, accepted)["late_recovery_required"]
+        merge_stores(accepted, path)
+        saved.append(freeze(store, path))
+        expected.append(current(path))
+    assert expected[0] == expected[1]
+    assert expected[1] != expected[2]
+    assert root(store, saved[1])["confirmations"]["nikkei-pbr"] is None
+    assert root(store, saved[0])["months"] != root(store, saved[1])["months"]
+
+    inspected = []
+
+    def read_projection(projection, **kwargs):
+        with closing(sqlite3.connect(projection)) as connection:
+            inspected.append(
+                connection.execute(
+                    "SELECT checked_at,adopted_fetched_at FROM economic_source_record_confirmations WHERE source_id='nikkei-pbr'"
+                ).fetchone()
+            )
+            assert not connection.execute(
+                "SELECT 1 FROM economic_source_collection_confirmations"
+            ).fetchone()
+        return reading_snapshot(projection, **kwargs)
+
+    monkeypatch.setattr(economic_inputs, "reading_snapshot", read_projection)
+    original = path.read_bytes()
+    for selection, context in zip(saved, expected, strict=True):
+        assert rebuild_economic_input(store, path, selection).context == context
+    assert inspected == [
+        tuple((CLOCK + timedelta(hours=hour)).isoformat(timespec="microseconds") for hour in pair)
+        for pair in ((0, 0), (3, 0), (4, 4))
+    ]
+    assert path.read_bytes() == original
+
+
+def test_old_receipt_metadata_has_no_new_null_field():
+    wire = {"key": ["source", "day", "clock"], "sha256": "a" * 64, "confirmed": True}
+    assert economic_inputs._Receipt.model_validate(wire).model_dump(mode="json") == wire
 
 
 def test_absent_run_and_empty_source_do_not_acquire_later_evidence(tmp_path):

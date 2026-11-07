@@ -304,7 +304,9 @@ FREDは全CSV比較で同値なら確認時計だけを進める。本文変更�
 with_publication_lease jobs/scripts/r2_transfer.sh push-indicators --recheck-source <FRED_SOURCE_ID>
 ```
 
-同じ受領で確認を作りGET/run/countを増やさず、失敗時は両copyを保つ。採用履歴消失時に復元できるのは現値/完全応答/実確認時計/保持原本で、過去の採用順やlast-changeではない。他sourceへこの確認方式を広げない。
+同じ受領で確認を作りGET/run/countを増やさず、失敗時は両copyを保つ。採用履歴消失時に復元できるのは現値/完全応答/実確認時計/保持原本で、過去の採用順やlast-changeではない。他sourceへ全source置換proofやFRED専用recheckを広げない。
+
+FRED以外の登録済record sourceは、受入時に観測日ごとの実確認時計と採用原本参照を残す。同値本文を複写せず、後着別値と同時計衝突をその時計で判定する。これは取得済range内の確認であり、source全体の置換・providerの明示nullを証明しない。旧rawの実時計を使い、過去に捨てた確認時計をrun終了時刻から補わない。保持stageからの有限回復は通常取得と分ける。新しい確認を保存・固定する前に、受入・merge・固定入力readerを揃え、旧codeのactive/queued実行を終える。旧input/stage・原本は保持する。
 
 current-onlyだけは遅延時の実取得日を使い、他source/handoff対象日は動かさない。松井の過去asofを現在pageで埋めない。options all-historyは保存古日を再利用するため、古い訂正は期間を明示する。rolling提供不能/正常空/途中失敗を分ける。
 
