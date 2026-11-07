@@ -9,7 +9,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsRateLimitError,
@@ -19,7 +18,6 @@ from baibai_engine.data_collection.providers.jquants.market_rules import (
     CALENDAR_LOOKBACK_DAYS,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
@@ -324,20 +322,14 @@ def bootstrap_cache_command(
     groups = {
         "jquants-market": _bootstrap_market_cache,
         "jquants-financial": _bootstrap_financial_cache,
-        "edinet-list": _bootstrap_edinet_cache,
         "jpx": _bootstrap_jpx_cache,
         "jpx-earnings": _bootstrap_jpx_earnings,
         "jpx-regulations": _bootstrap_jpx_regulations,
     }
     if source_group != "all" and source_group not in groups:
         raise ValueError("unsupported acquisition source group")
-    if source_group == "edinet-list" and providers.edinet_refresh is None:
-        print("EDINET acquisition is not configured", file=sys.stderr)
-        return 1
     selected = (
-        ("jquants-market", "jquants-financial", "edinet-list", "jpx")
-        if source_group == "all"
-        else (source_group,)
+        ("jquants-market", "jquants-financial", "jpx") if source_group == "all" else (source_group,)
     )
     jquants_rate_limited = False
     for group in selected:
@@ -350,8 +342,6 @@ def bootstrap_cache_command(
         except (
             JQuantsAcquisitionError,
             JQuantsProviderError,
-            EDINETProviderError,
-            EdinetAcquisitionError,
             JPXProviderError,
             sqlite3.Error,
         ) as exc:
@@ -447,34 +437,6 @@ def _bootstrap_financial_cache(
     )
 
 
-def _bootstrap_edinet_cache(
-    asof_date: date,
-    providers: ProviderBundle,
-    sqlite_path: Path,
-    out: TextIO,
-) -> None:
-    fin_start = asof_date - timedelta(days=FIN_INPUT_WINDOW_DAYS)
-    if providers.edinet_refresh is not None:
-        print(
-            "bootstrap-cache edinet documents: "
-            f"{fin_start.isoformat()}..{asof_date.isoformat()} start",
-            file=out,
-            flush=True,
-        )
-        edinet_result = providers.edinet_refresh.bootstrap_cache(fin_start, asof_date)
-        print(
-            "bootstrap-cache edinet documents: "
-            + ", ".join(f"{key}={value}" for key, value in sorted(edinet_result.items())),
-            file=out,
-            flush=True,
-        )
-    else:
-        print(
-            "note: EDINET provider is not configured; skipping EDINET bootstrap",
-            file=sys.stderr,
-        )
-
-
 def _bootstrap_jpx_cache(
     asof_date: date,
     providers: ProviderBundle,
@@ -509,28 +471,3 @@ def _bootstrap_jpx_regulations(
         raise JPXProviderError("JPX maintenance provider is not configured")
     result = providers.jpx_refresh.refresh_regulation_snapshot(asof_date)
     print(f"JPX regulations: {len(result.flags_by_ticker)} ticker(s)", file=out, flush=True)
-
-
-def refresh_edinet_documents_command(
-    *,
-    asof_date: date,
-    providers: ProviderBundle,
-    stdout: TextIO | None = None,
-) -> int:
-    """Refresh current EDINET list state independently of broad cache coverage."""
-    out = stdout if stdout is not None else sys.stdout
-    if providers.edinet_refresh is None:
-        print("EDINET provider is not configured", file=sys.stderr)
-        return 1
-    try:
-        result = providers.edinet_refresh.refresh_document_state(asof_date)
-    except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
-    print(
-        "refresh-edinet-documents: "
-        + ", ".join(f"{key}={value}" for key, value in sorted(result.items())),
-        file=out,
-        flush=True,
-    )
-    return 0

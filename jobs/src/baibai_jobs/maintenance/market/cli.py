@@ -46,7 +46,6 @@ from baibai_jobs.maintenance.market.cache import (
     backfill_master_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
-    refresh_edinet_documents_command,
 )
 from baibai_jobs.maintenance.market.config import (
     DEFAULT_SQLITE_CACHE_DIR,
@@ -59,7 +58,6 @@ from baibai_jobs.maintenance.market.delisting_cli import (
     refresh_tender_offer_exits_command,
 )
 from baibai_jobs.maintenance.market.disclosures_cli import (
-    backfill_edinet_identity_command,
     refresh_tse_capital_policy_command,
 )
 from baibai_jobs.maintenance.market.providers import ProviderBundle
@@ -90,21 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
             "all",
             "jquants-market",
             "jquants-financial",
-            "edinet-list",
             "jpx-earnings",
             "jpx-regulations",
         ),
         help="acquire only one independent source group",
-    )
-
-    refresh_edinet_parser = subparsers.add_parser(
-        "refresh-edinet-documents",
-        help="refresh mutable and unresolved EDINET document-list state",
-    )
-    refresh_edinet_parser.add_argument(
-        "--asof",
-        required=True,
-        help="target date (YYYY-MM-DD); refreshes current source state, not a point-in-time view",
     )
 
     rebuild_lists_parser = subparsers.add_parser(
@@ -210,13 +197,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
         help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
     )
-
-    identity_parser = subparsers.add_parser(
-        "backfill-edinet-identity",
-        help="re-list EDINET days so stored rows carry submitter and target company codes",
-    )
-    identity_parser.add_argument("--start", required=True, help="first day to re-list (YYYY-MM-DD)")
-    identity_parser.add_argument("--end", required=True, help="last day to re-list (YYYY-MM-DD)")
 
     delistings_parser = subparsers.add_parser(
         "refresh-jpx-delistings",
@@ -427,19 +407,8 @@ def main(argv: list[str] | None = None) -> int:
         if jquants_refresh is not None:
             resources.callback(jquants_refresh.close)
         edinet_refresh = (
-            EDINETRefresh(
-                config.edinet_api_key,
-                sqlite_path=sqlite_path,
-            )
-            if config.edinet_api_key
-            and (args.command != "bootstrap-cache" or args.source_group in {"all", "edinet-list"})
-            and args.command
-            in {
-                "bootstrap-cache",
-                "refresh-edinet-documents",
-                "backfill-edinet-identity",
-                "refresh-edinet-metrics",
-            }
+            EDINETRefresh(config.edinet_api_key, sqlite_path=sqlite_path)
+            if config.edinet_api_key and args.command == "refresh-edinet-metrics"
             else None
         )
         if edinet_refresh is not None:
@@ -465,19 +434,6 @@ def main(argv: list[str] | None = None) -> int:
                 providers=providers,
                 sqlite_path=sqlite_path,
                 source_group=args.source_group,
-            )
-
-        if args.command == "refresh-edinet-documents":
-            return refresh_edinet_documents_command(
-                asof_date=_parse_iso_date(args.asof),
-                providers=providers,
-            )
-
-        if args.command == "backfill-edinet-identity":
-            return backfill_edinet_identity_command(
-                start=_parse_iso_date(args.start),
-                end=_parse_iso_date(args.end),
-                providers=providers,
             )
 
         if args.command == "backfill-history":

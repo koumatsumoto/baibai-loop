@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -45,13 +45,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
 from baibai_jobs.maintenance.market.cache import (
-    FIN_INPUT_WINDOW_DAYS,
     FIN_SUMMARY_REVISION_OVERLAP_DAYS,
     NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-    refresh_edinet_documents_command,
 )
-from baibai_jobs.maintenance.market.disclosures_cli import backfill_edinet_identity_command
-from baibai_jobs.maintenance.market.providers import ProviderBundle
 
 # The store path every command below derives from the working directory.
 _STORE = Path("stores/market/market.sqlite")
@@ -59,20 +55,12 @@ _STORE = Path("stores/market/market.sqlite")
 
 @dataclass
 class _SeamEDINETProvider(FakeEDINETProvider):
-    """The shared EDINET fake plus the document-state refresh the CLI seam calls."""
+    """The shared EDINET acquisition fake with explicit client lifetime."""
 
-    refresh_calls: list[date] = field(default_factory=list)
     close_count: int = 0
 
     def close(self) -> None:
         self.close_count += 1
-
-    def refresh_document_state(self, asof_date: date) -> dict[str, int]:
-        self.refresh_calls.append(asof_date)
-        return {"listed": 3, "refreshed": 3}
-
-    def backfill_document_identity(self, start: date, end: date) -> dict[str, int]:
-        return {"days": (end - start).days + 1, "documents": 0}
 
 
 @dataclass
@@ -187,7 +175,8 @@ def test_main_bootstrap_cache_fetches_each_source_window_around_the_argv_asof() 
         asof - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
         asof,
     ) in jquants.calls
-    assert edinet.bootstrap_calls == [(asof - timedelta(days=FIN_INPUT_WINDOW_DAYS), asof)]
+    assert edinet.bootstrap_calls == []
+    assert edinet.close_count == 0
     assert jpx.bootstrap_calls == [asof]
     assert jpx.close_count == 1
     assert "bootstrap-cache done" in result.stdout
@@ -251,36 +240,9 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
     assert jpx_factory.call_args.kwargs["sqlite_path"].name == "market.sqlite"
 
 
-def test_main_refresh_edinet_documents_refreshes_document_state_for_the_argv_asof() -> None:
-    edinet = _SeamEDINETProvider()
-
-    result = _run_cli(
-        ["refresh-edinet-documents", "--asof", "2026-05-08"],
-        jquants=FakeJQuantsProvider(),
-        edinet=edinet,
-        jpx=FakeJPXProvider(),
-    )
-
-    assert result.exit_code == 0, result.stderr
-    assert edinet.refresh_calls == [date(2026, 5, 8)]
-    assert edinet.close_count == 1
-    assert "refresh-edinet-documents: listed=3, refreshed=3" in result.stdout
-
-
 @pytest.mark.parametrize(
     ("argv", "handler", "provider_arg"),
     [
-        (["bootstrap-cache", "--asof", "2026-05-08"], "bootstrap_cache_command", "providers"),
-        (
-            ["refresh-edinet-documents", "--asof", "2026-05-08"],
-            "refresh_edinet_documents_command",
-            "providers",
-        ),
-        (
-            ["backfill-edinet-identity", "--start", "2026-05-07", "--end", "2026-05-08"],
-            "backfill_edinet_identity_command",
-            "providers",
-        ),
         (
             ["refresh-edinet-metrics", "--asof", "2026-05-08", "--lookback-days", "0"],
             "refresh_edinet_metrics_command",
@@ -303,23 +265,6 @@ def test_main_explicit_edinet_commands_pass_and_close_maintenance_provider(
     routed = command.call_args.kwargs[provider_arg]
     assert (routed if provider_arg == "acquisition" else routed.edinet_refresh) is edinet
     assert edinet.close_count == 1
-
-
-def test_maintenance_commands_do_not_fall_back_to_the_reader(tmp_path: Path) -> None:
-    providers = ProviderBundle()
-    stderr = io.StringIO()
-    with contextlib.redirect_stderr(stderr):
-        assert (
-            refresh_edinet_documents_command(asof_date=date(2026, 5, 8), providers=providers) == 1
-        )
-        assert (
-            backfill_edinet_identity_command(
-                start=date(2026, 5, 7), end=date(2026, 5, 8), providers=providers
-            )
-            == 1
-        )
-    assert stderr.getvalue().count("EDINET provider is not configured") == 2
-    assert not (tmp_path / "market.sqlite").exists()
 
 
 def test_main_refresh_edinet_facts_closes_provider_on_exception() -> None:

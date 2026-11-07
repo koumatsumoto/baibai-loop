@@ -7,10 +7,9 @@ import os
 import zipfile
 from collections.abc import Mapping
 from contextlib import closing
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from zoneinfo import ZoneInfo
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
     EdinetArchiveL1,
@@ -47,8 +46,6 @@ from baibai_engine.storage.sqlite.source_cache.schema import connect_current, op
 
 if TYPE_CHECKING:
     import requests
-
-_JST = ZoneInfo("Asia/Tokyo")
 
 
 class EDINETRefresh:
@@ -134,58 +131,6 @@ class EDINETRefresh:
         if projection.error is not None:
             raise EDINETProviderError(projection.error)
         return list(projection.documents)
-
-    def bootstrap_cache(self, start: date, end: date) -> dict[str, int]:
-        fetched = self._refresh_document_state(end)
-        cursor = start
-        while cursor <= end:
-            if cursor not in fetched:
-                fetched[cursor] = len(self.list_documents(cursor))
-            cursor += timedelta(days=1)
-        return {"documents": sum(fetched.values())}
-
-    def refresh_document_state(self, asof_date: date) -> dict[str, int]:
-        """Refresh the target day, then recheck older days lacking source proof."""
-        fetched = self._refresh_document_state(asof_date)
-        return {"documents": sum(fetched.values())}
-
-    def backfill_document_identity(self, start: date, end: date) -> dict[str, int]:
-        """Re-list every day in the window so stored rows carry submitter and target codes.
-
-        The cached rows are otherwise complete, so this bypasses the cache deliberately
-        rather than dropping coverage: a day whose coverage were deleted would read as
-        an unobserved day to every consumer until the whole window finished.
-        """
-        days = 0
-        documents = 0
-        today = datetime.now(_JST).date()
-        today_documents = self.list_documents(today, force_refresh=True)
-        cursor = start
-        while cursor <= end:
-            documents += len(
-                today_documents
-                if cursor == today
-                else self.list_documents(cursor, force_refresh=True)
-            )
-            days += 1
-            cursor += timedelta(days=1)
-        return {"days": days, "documents": documents}
-
-    def _refresh_document_state(self, end: date) -> dict[date, int]:
-        today = datetime.now(_JST).date()
-        today_documents = self.list_documents(today, force_refresh=True)
-        fetched = {
-            end: len(
-                today_documents if end == today else self.list_documents(end, force_refresh=True)
-            ),
-        }
-        from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
-            read_unrechecked_edinet_document_dates,
-        )
-
-        for unresolved in read_unrechecked_edinet_document_dates(self._sqlite_path, before=end):
-            fetched[unresolved] = len(self.list_documents(unresolved, force_refresh=True))
-        return fetched
 
     def download_csv_zip(self, doc_id: str) -> bytes:
         return self._download_document_zip(doc_id, source_type=5)
