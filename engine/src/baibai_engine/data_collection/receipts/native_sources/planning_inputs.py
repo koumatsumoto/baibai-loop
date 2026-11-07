@@ -15,61 +15,75 @@ from baibai_engine.data_collection.receipts.native_sources.documents import (
 )
 
 _DAY_INPUTS = {
-    "economic-umich_sca": ("umich-sca-ics", "economic_umich_input_days"),
-    "economic-ecb_fx": ("ecb-fx", "economic_ecb_input_days"),
-    "economic-mof_jgb": ("mof-jgbcm-all", "economic_mof_jgb_input_days"),
-    "economic-frb_h15": ("fed-h15", "economic_frb_h15_input_days"),
+    "economic-umich_sca": (("umich-sca-ics", "economic_umich_input_days"),),
+    "economic-ecb_fx": (("ecb-fx", "economic_ecb_input_days"),),
+    "economic-mof_jgb": (("mof-jgbcm-all", "economic_mof_jgb_input_days"),),
+    "economic-frb_h15": (("fed-h15", "economic_frb_h15_input_days"),),
+    "economic-yahoo": (
+        ("yahoo-2516t", "economic_yahoo_2516t_input_days"),
+        ("yahoo-acwx", "economic_yahoo_acwx_input_days"),
+        ("yahoo-eem", "economic_yahoo_eem_input_days"),
+        ("yahoo-gc-f", "economic_yahoo_gc_f_input_days"),
+        ("yahoo-hg-f", "economic_yahoo_hg_f_input_days"),
+        ("yahoo-move", "economic_yahoo_move_input_days"),
+        ("yahoo-rut", "economic_yahoo_rut_input_days"),
+        ("yahoo-si-f", "economic_yahoo_si_f_input_days"),
+        ("yahoo-sox", "economic_yahoo_sox_input_days"),
+        ("yahoo-stoxx600", "economic_yahoo_stoxx600_input_days"),
+    ),
 }
 
 
 def export_day_input(source: Path, output: Path, *, group: str) -> None:
-    """Acquisition planning needs covered days and runs, not previous values.
+    """Range acquisition needs covered days and runs, not previous values.
 
     Keep empty days and the exact confirmation metadata; they are not synthetic
     receipts. Only newly fetched originals leave this disposable input.
     """
-    source_id, table = _DAY_INPUTS[group]
+    inputs = _DAY_INPUTS[group]
     if output.exists():
         raise FileExistsError(output)
     with closing(store.open_read_only_connection(source)) as received:
         store.validate_current_schema(received)
         with closing(store.initialize_database(output)) as target, target:
-            target.execute(f"CREATE TABLE {table}(observed_at TEXT NOT NULL PRIMARY KEY)")  # nosec B608
-            target.executemany(
-                f"INSERT INTO {table} VALUES (?)",  # nosec B608
-                received.execute(
-                    "SELECT DISTINCT observed_at FROM economic_source_records "
-                    "WHERE source_id=? ORDER BY observed_at",
-                    (source_id,),
-                ),
-            )
-            for metadata in ("economic_source_runs", *store.CONFIRMATION_TABLES):
-                rows = received.execute(
-                    f"SELECT * FROM {metadata} WHERE source_id=?",  # nosec B608
-                    (source_id,),
-                )
-                placeholders = ",".join("?" for _ in rows.description or ())
+            for source_id, table in inputs:
+                target.execute(f"CREATE TABLE {table}(observed_at TEXT NOT NULL PRIMARY KEY)")  # nosec B608
                 target.executemany(
-                    f"INSERT INTO {metadata} VALUES ({placeholders})",  # nosec B608
-                    rows,
+                    f"INSERT INTO {table} VALUES (?)",  # nosec B608
+                    received.execute(
+                        "SELECT DISTINCT observed_at FROM economic_source_records "
+                        "WHERE source_id=? ORDER BY observed_at",
+                        (source_id,),
+                    ),
                 )
+                for metadata in ("economic_source_runs", *store.CONFIRMATION_TABLES):
+                    rows = received.execute(
+                        f"SELECT * FROM {metadata} WHERE source_id=?",  # nosec B608
+                        (source_id,),
+                    )
+                    placeholders = ",".join("?" for _ in rows.description or ())
+                    target.executemany(
+                        f"INSERT INTO {metadata} VALUES ({placeholders})",  # nosec B608
+                        rows,
+                    )
 
 
 def covered_input_days(
     connection: sqlite3.Connection, source_id: str, first: date, last: date
 ) -> Iterator[date]:
     """Fixed-seed days supplement this execution's real, possibly empty receipts."""
-    for source, table in _DAY_INPUTS.values():
-        if source != source_id:
-            continue
-        if connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-        ).fetchone():
-            for (day,) in connection.execute(
-                f"SELECT observed_at FROM {table} WHERE observed_at BETWEEN ? AND ?",  # nosec B608
-                (first.isoformat(), last.isoformat()),
-            ):
-                yield date.fromisoformat(day)
+    for inputs in _DAY_INPUTS.values():
+        for source, table in inputs:
+            if source != source_id:
+                continue
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone():
+                for (day,) in connection.execute(
+                    f"SELECT observed_at FROM {table} WHERE observed_at BETWEEN ? AND ?",  # nosec B608
+                    (first.isoformat(), last.isoformat()),
+                ):
+                    yield date.fromisoformat(day)
 
 
 def validate_planning_input(path: Path, group: str) -> None:
@@ -85,16 +99,19 @@ def validate_planning_input(path: Path, group: str) -> None:
             if connection.execute("SELECT 1 FROM economic_source_documents LIMIT 1").fetchone():
                 raise ValueError("PMI acquisition input must not contain document receipt bodies")
             return
-        source, table = _DAY_INPUTS[group]
-        info = connection.execute(f"PRAGMA table_info({table})").fetchall()  # nosec B608
-        if len(info) != 1 or info[0][1] != "observed_at" or info[0][5] != 1:
-            raise ValueError("invalid acquisition coverage table")
+        inputs = _DAY_INPUTS[group]
+        for _, table in inputs:
+            info = connection.execute(f"PRAGMA table_info({table})").fetchall()  # nosec B608
+            if len(info) != 1 or info[0][1] != "observed_at" or info[0][5] != 1:
+                raise ValueError("invalid acquisition coverage table")
         for original in ("economic_source_records", "economic_source_documents"):
             if connection.execute(f"SELECT 1 FROM {original} LIMIT 1").fetchone():  # nosec B608
                 raise ValueError("acquisition planning input must not contain original bodies")
+        sources = tuple(source for source, _ in inputs)
+        placeholders = ",".join("?" for _ in sources)
         for metadata in ("economic_source_runs", *store.CONFIRMATION_TABLES):
             if connection.execute(
-                f"SELECT 1 FROM {metadata} WHERE source_id!=? LIMIT 1",  # nosec B608
-                (source,),
+                f"SELECT 1 FROM {metadata} WHERE source_id NOT IN ({placeholders}) LIMIT 1",  # nosec B608
+                sources,
             ).fetchone():
                 raise ValueError("acquisition planning input contains another source")
