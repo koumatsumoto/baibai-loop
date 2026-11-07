@@ -18,9 +18,9 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
     FixedEdinetArchives,
     NativeArchive,
 )
+from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
     FactsScope,
-    merge_scope,
     read_scope,
 )
 from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY as LIST_HEAD
@@ -38,7 +38,10 @@ from baibai_engine.machine_analysis.observations.financials.edinet_reader import
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration import sources as integration
-from baibai_jobs.integration.edinet_archive_native import materialize_archives
+from baibai_jobs.integration.edinet_archive_native import (
+    materialize_archives,
+    project_archive_scope,
+)
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.edinet_metric_rebuild import rebuild_fixed_edinet_metrics
 
@@ -76,7 +79,7 @@ def project(work, fixed, name, *, sql_zip=False, initialized=True):
         materialize_archives(fixed.archives, path)
     elif initialized:
         with closing(open_connection(path)) as connection, connection:
-            merge_scope(connection, fixed.archives.scope)
+            project_archive_scope(fixed.archives, connection)
     return path
 
 
@@ -104,6 +107,54 @@ def run(path, fixed=None, *, asof=BASE):
 
 def forbid_sql(*args):
     pytest.fail("facts attempted an SQL ZIP read")
+
+
+@pytest.mark.parametrize("supply_metrics", [False, True])
+@pytest.mark.parametrize("supply_facts", [False, True])
+def test_fixed_readers_use_independent_inventory_and_only_missing_readers_query_sql(
+    work, monkeypatch, supply_metrics, supply_facts
+):
+    _, _, archive_owner, fixed = setup(work, mode="partial")
+    archives = archive_owner.publish(
+        [NativeArchive.from_response("S100FACT1", 5, EdinetResponse(AT, _edinet_csv_zip()))]
+    )
+    path = project(work, fixed, "mixed.sqlite")
+    # Deliberately disjoint inventories expose accidental fixed/SQL cross-routing.
+    with closing(open_connection(path)) as connection, connection:
+        retain_source_archive(connection, "S100FACT2", 1, source_zip(), stored_on=BASE)
+        retain_source_archive(connection, "S100FACT2", 5, _edinet_csv_zip(), stored_on=BASE)
+    sql_inventory = Mock(
+        side_effect=AssertionError("both fixed readers must not query SQL archive inventory")
+        if supply_metrics and supply_facts
+        else None,
+        wraps=owner.archive_keys,
+    )
+    metric_extraction = Mock(wraps=owner.extract_edinet_metrics_from_plan)
+    monkeypatch.setattr(owner, "archive_keys", sql_inventory)
+    monkeypatch.setattr(owner, "extract_edinet_metrics_from_plan", metric_extraction)
+    report = owner.extract_saved_edinet(
+        path,
+        asof=BASE,
+        lookback_days=0,
+        metric_archives=archives if supply_metrics else None,
+        fact_archives=archives if supply_facts else None,
+    )
+    if supply_metrics and supply_facts:
+        sql_inventory.assert_not_called()
+    else:
+        sql_inventory.assert_called_once()
+    metric_extraction.assert_called_once()
+    assert metric_extraction.call_args.kwargs["unavailable_doc_ids"] == frozenset(
+        {"S100FACT2" if supply_metrics else "S100FACT1"}
+    )
+    selected_reader = metric_extraction.call_args.kwargs["reader"]
+    if supply_metrics:
+        assert selected_reader is archives
+    else:
+        assert isinstance(selected_reader, EDINETReader)
+    assert set(extraction_status(path)) == {"S100FACT1" if supply_facts else "S100FACT2"}
+    assert report["edinet-facts"]["missing_archive_count"] == 1
+    assert report["edinet-metrics"]["missing_archive_count"] == 1
 
 
 @pytest.mark.parametrize(
@@ -217,8 +268,6 @@ def test_referenced_body_damage_is_fatal_even_with_sql_copy(work, monkeypatch, d
 
 
 def test_sql_only_archive_cannot_fill_a_missing_fixed_native_member(work, monkeypatch):
-    from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-
     _, _, _, fixed = setup(work, mode="partial")
     path = project(work, fixed, "native.sqlite")
     with closing(open_connection(path)) as connection, connection:

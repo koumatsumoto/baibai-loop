@@ -272,7 +272,11 @@ def test_unmigrated_or_changed_local_original_stops_without_modifying_it(tmp_pat
     assert store.get_keys == []
 
 
-def test_missing_fixed_object_rolls_back_partial_sql_and_never_resolves_current(tmp_path):
+def test_missing_fixed_object_rolls_back_partial_sql_and_never_resolves_current(
+    tmp_path, monkeypatch
+):
+    from baibai_jobs.integration import edinet_archive_native
+
     store, _, _, _, archives, _ = fixtures(tmp_path)
     database = tmp_path / "market.sqlite"
     with closing(open_connection(database)):
@@ -281,10 +285,13 @@ def test_missing_fixed_object_rolls_back_partial_sql_and_never_resolves_current(
     metadata = archives.metadata(*sorted(archives.archive_keys)[-1])
     del store.values[f"l1/edinet/archives/v1/objects/{metadata.sha256}.zip"]
     store.get_keys.clear()
+    projection = Mock(wraps=edinet_archive_native.project_archive_scope)
+    monkeypatch.setattr(edinet_archive_native, "project_archive_scope", projection)
     with pytest.raises(LakePublishError, match="missing or changed"):
         materialize_archives(archives, database)
     assert database.read_bytes() == before
     assert ARCHIVE_HEAD not in store.get_keys
+    projection.assert_not_called()
 
 
 @pytest.mark.parametrize("command", ["input", "resume"])
