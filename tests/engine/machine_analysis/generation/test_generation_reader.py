@@ -411,7 +411,7 @@ def test_saved_economic_clocks_must_match_generation(tmp_path, changed):
 
 
 @pytest.mark.parametrize("late", [None, "seal", "evaluation"])
-def test_generation_binds_edinet_selection_clock_without_changing_sql_readers(tmp_path, late):
+def test_generation_binds_edinet_clock_and_passes_fixed_comparison_archives(tmp_path, late, mocker):
     from tests.helpers.r2_store import MemoryR2Store
 
     from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
@@ -421,6 +421,7 @@ def test_generation_binds_edinet_selection_clock_without_changing_sql_readers(tm
         retain_edinet_input,
     )
 
+    comparison_read = mocker.spy(generation_reader, "read_comparison_population")
     store = MemoryR2Store()
     lists = FixedEdinetLists(store, {"format": "edinet-list-native-v1", "receipts": []})
     archives = FixedEdinetArchives(
@@ -458,4 +459,5 @@ def test_generation_binds_edinet_selection_clock_without_changing_sql_readers(tm
         else:
             result = generation_reader.read_and_generate_models(**arguments).materialize()
             assert result.inputs["edinet"] == saved
+            assert comparison_read.call_args.kwargs["archives"] is fixed.archives
     assert market.read_bytes() == before
