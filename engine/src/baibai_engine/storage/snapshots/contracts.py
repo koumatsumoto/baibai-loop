@@ -63,6 +63,8 @@ class LakeDataset:
     layer: LakeLayer
     contract_version: int = 1
     partition_grain: PartitionGrain = "month"
+    object_date_grain: Literal["day", "month"] | None = None
+    """Optional physical split inside each unchanged logical partition."""
     coverage_authority: CoverageAuthority = "source_coverage"
     coverage_source: str | None = None
     """The `source_coverage.source` that records this dataset's fetches.

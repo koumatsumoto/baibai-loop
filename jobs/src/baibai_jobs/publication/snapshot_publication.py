@@ -7,9 +7,9 @@ copied independently and therefore cannot prove which rows the export is reading
 
 Native prices and master snapshots use this execution's rebuilt projection and fixed L1
 identity. Legacy financial and price observations use newly exported originals; other
-datasets remain on the legacy store path during migration. The serving release is read
-for two facts only — the origin the store must be bound to, and the history floor the
-new release must still reach — and none of its partitions are carried.
+datasets remain on the legacy store path during migration. The serving release fixes
+the store origin and history floor. Its physical grouping is retained only when this
+seal regenerates the identical object; none of its rows are carried.
 """
 
 from __future__ import annotations
@@ -391,6 +391,7 @@ def prepare_market_lake(
             producer_git_commit=git_commit,
             expected_store_origin=_pointer_origin(previous),
             catalog=catalog,
+            previous=serving_release.dataset_manifests if serving_release is not None else None,
             allow_empty=native_calendar_enabled
             or native_master_enabled
             or native_price_enabled
