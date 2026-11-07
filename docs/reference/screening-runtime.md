@@ -20,6 +20,10 @@
 
 カードは原数値・符号・対象期・反対材料を保つ。L3は一次資料・複数モデル・必要な少数の候補外対照で価値獲得経路と反証、一過性利益を評価する。外部評価・テクニカル・共有環境は比較材料で、保存市場判断/portfolioは機械順位を変えない。[保存旧成果](estimate-calibration.md)も現在の採否へ読み替えない。
 
+同じ比較の詳細を `selection-context --compare-ticker` で再読する時は、返されたSelection ID・`research_as_of`・`input_known_at`を保ち、`--screening-selection-id`・`--research-asof`・timezone付きの`--known-at`へ渡す。Selection IDはモデル世代を固定し、Research・市場判断は各保存/公開時刻をcutoffと照合して読む。`--known-at`省略時は実行時刻を使う。
+
+cutoffだけでcontext全体は固定されない。保有は現在の台帳を発生時刻でreplayするため、過去の注文/約定の後追記で同じcutoffでも保有と依頼対象が変わり得る。contextの再読を保存Operationの固定入力からの再開と区別する。古いcutoffの指定は、後で取得した原本を当時既知だった証拠に変えない。
+
 ## 入力不足と品質
 
 [原典の時点・欠測](model-observations.md#source-owners)と[期間/株式basis](model-observations.md#financial-periods)を守る。不足は該当材料/経路に局所化し、候補数のために0や別期の好値で埋めない。取得coverageは成功した要求範囲で全銘柄の入力充足ではなく、入力不足による候補減少を機会減少としない。

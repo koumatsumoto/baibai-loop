@@ -100,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="inspect pricing gaps in the saved screening universe without reselecting",
     )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
+    context_parser.add_argument("--known-at", type=datetime.fromisoformat)
     context_parser.add_argument("--generation-id")
     context_parser.add_argument("--screening-selection-id")
     context_parser.add_argument("--db", type=Path)
@@ -259,7 +260,7 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     research_as_of=args.research_asof,
                     generation_id=args.generation_id,
                     screening_selection_id=args.screening_selection_id,
-                    known_at=resolved_now,
+                    known_at=args.known_at or resolved_now,
                     runs_path=args.runs_path,
                     db_path=args.db,
                     comparison_tickers=tuple(args.compare_ticker),
