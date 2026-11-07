@@ -93,8 +93,10 @@ def extract_saved_edinet(
         covered = available is not None and range_covered(
             conn, "edinet_documents", available - timedelta(days=lookback_days), available
         )
-    with closing(connect_read_only(database)) as archive_connection:
-        retained = archive_keys(archive_connection)
+    retained: Set[tuple[str, int]] = frozenset()
+    if metric_archives is None or fact_archives is None:
+        with closing(connect_read_only(database)) as archive_connection:
+            retained = archive_keys(archive_connection)
     retained_metrics = metric_archives.archive_keys if metric_archives is not None else retained
     retained_facts = fact_archives.archive_keys if fact_archives is not None else retained
     reader = EDINETReader(database)

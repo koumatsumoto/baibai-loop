@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
@@ -15,7 +16,11 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
     FixedEdinetArchives,
     NativeArchive,
 )
-from baibai_engine.data_collection.providers.edinet.facts_scope import merge_scope, read_scope
+from baibai_engine.data_collection.providers.edinet.facts_scope import (
+    FactsScope,
+    merge_scope,
+    read_scope,
+)
 from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.json import write_json_atomic
@@ -65,6 +70,17 @@ def export_pending_handoff(
     return True
 
 
+def project_archive_scope(
+    archives: FixedEdinetArchives, connection: sqlite3.Connection
+) -> FactsScope:
+    """Join requested scope in the caller's transaction without reading ZIP bodies.
+
+    Requests may have no received archive. Projection does not create archive
+    inventory, receipt clocks or extraction success, and never commits the copy.
+    """
+    return merge_scope(connection, archives.scope)
+
+
 def materialize_archives(archives: FixedEdinetArchives, database: Path) -> dict[str, object]:
     """Reuse verified execution-copy bytes; fetch only missing fixed originals.
 
@@ -110,7 +126,7 @@ def materialize_archives(archives: FixedEdinetArchives, database: Path) -> dict[
                     archives.read_archive(doc_id, source_type),
                 ),
             )
-        merge_scope(connection, archives.scope)
+        project_archive_scope(archives, connection)
     return {
         "exit_code": 0,
         "status": "completed",
