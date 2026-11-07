@@ -115,7 +115,7 @@ with_publication_lease() (
 
 releaseを保証するため関数内でset -eを使わない。busyはowner/expiry/runを確認し、release失敗はhandleを保つ。cloud-publish queueだけではlocal writerを排除しない。malformed leaseは自動修復せず、全active/pending writer不在を確認した明示復旧だけexact lease keyを調べて削除→通常acquireとする。prefix削除/手書きJSONはしない。
 
-日次は準備・生成後の公開と後処理にも時間を残すため、job枠170分・新daily lease180分とする。他purposeとEDINET有限移送の120分leaseは延ばさない。旧120分のlease/handleも元の期限のまま読取・releaseできる。旧codeはreleased後も新180分leaseを読めないため、切替前に旧writerの新規起動を止め、旧active/queued runの完了とleaseを確認してから修正mainの新runを起動する。手動/local operatorも修正codeへ揃え、途中更新・旧runのrerun・強制unlockで延長しない。hard cancelでreleaseできなければ元のexpiryまでbusyが残り得る。これは速度改善や完走保証ではなく、共通queueの占有が最長60分伸びる。中断時は下記の部分公開を読戻してから再開する。
+日次は準備・生成後の公開と後処理にも時間を残すため、job枠170分・新daily lease180分とする。他purposeの120分leaseは延ばさない。旧120分のlease/handleも元の期限のまま読取・releaseできる。旧codeはreleased後も新180分leaseを読めないため、切替前に旧writerの新規起動を止め、旧active/queued runの完了とleaseを確認してから修正mainの新runを起動する。手動/local operatorも修正codeへ揃え、途中更新・旧runのrerun・強制unlockで延長しない。hard cancelでreleaseできなければ元のexpiryまでbusyが残り得る。これは速度改善や完走保証ではなく、共通queueの占有が最長60分伸びる。中断時は下記の部分公開を読戻してから再開する。
 
 | 変更 | 反映経路 |
 | --- | --- |
@@ -377,7 +377,7 @@ facts scopeは取得範囲のoperational stateで、L2品質からglobal開始�
 uv run baibai-jobs maintain-market refresh-edinet-facts --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
 ```
 
-再抽出だけならextract-edinet-facts。stored_onは初回保存UTC日で公表/利用可能時刻でない。未対応0行とfailedを分け、文書期間/訂正/snapshot時刻で鮮度を見る。market上のZIP/scopeと一覧L2公開依存はまだ残り、独立一覧だけで全EDINET独立化を完了としない。
+再抽出だけならextract-edinet-facts。stored_onは初回保存UTC日で公表/利用可能時刻でない。未対応0行とfailedを分け、文書期間/訂正/snapshot時刻で鮮度を見る。通常取得とSQL投影/固定consumerの境界は[独立L1](#edinet-list-native-l1)に従う。
 
 <a id="edinet-metrics-revision"></a>
 抽出/選択の意味変更時だけmetric revisionを更新し、facts revisionと分ける。配置/import/retryでは変えず、旧値/時計/hashを付け替えない。producer commitを各行の元抽出commitと同一視しない。隔離コピーで保存CSVを再抽出・比較後、同じleaseでfresh pull/hydrate→backup→extract-edinet-metrics→publish-lake→push-market→固定readback。取得が必要なときだけrefreshする。期待外差/失敗は止め、変更後hydrateや旧copyの本番復元をしない。
@@ -501,6 +501,10 @@ uv run baibai-jobs rebuild-margin-interest-native --work-directory <NEW_READ_WOR
 
 日次は開始時headを固定し、全受領から一覧/文書を作る。不正dayを報告しつつ正常投影を保ち、metrics/facts plannerは必要範囲で不足を判定する。archive/L2失敗は一覧L1を取り消さない。releaseへlist_responsesを複写せず、dehydrate/次hydrateで全cache UUID・日付・時刻・gzipを原本照合した場合だけ空にする。この検証はofflineでも--bucketを指定する。他dataset/旧release/stageの保持は変えない。
 
+一覧headの欠落を空のinitializeで埋めない。edinet-list-native initializeは既存原本を持たない新環境だけで使う。
+
+旧EDINETRefresh.list_documentsはHTTP前に拒否する。必要な一覧はedinet-list-native acquire --start <DATE> --asof <DATE> --directory <NEW_WORK>、続けてrefresh-edinet-metrics --lookback-days Nで不足CSVを取得する。Nは0/540日超を含め任意で、一覧未取得を成功へ補わない。保存原本再抽出はextractを使い、旧flagへ戻さない。
+
 ### 一覧公開失敗の再開
 
 同workのedinet-list-native commit-workで保存attemptを公開/readbackする。workflowがstage_ready=trueを報告して失敗終了した場合は、private failure stage IDを確認し、次で同じUUIDの原本・読戻し・integrated markerを完了する。
@@ -509,11 +513,11 @@ uv run baibai-jobs rebuild-margin-interest-native --work-directory <NEW_READ_WOR
 uv run baibai-jobs edinet-list-native commit-stage --stage-id <ID> --directory <NEW_WORK>
 ```
 
-旧形式stageは有限cutoverを使う。PUT成功後の応答不明も同UUIDで確認する。kill・disk故障・private stage保存失敗の回復までは保証せず、失敗を成功通知へ変えない。CSV/XBRL ZIP・facts scopeも独立ownerへ保存し、通常取得は旧source-input/L2公開を待たない。既存SQL consumerとlake原本Parquetは移行中の読取経路として残る。全L2のcold再生成・原本の重複配布解消・過去PIT保証は別で、残作業は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)に残る。
+旧形式stageは原本を保全し、固定native headとの不足を調査する。PUT成功後の応答不明も同UUIDで確認する。kill・disk故障・private stage保存失敗の回復までは保証せず、失敗を成功通知へ変えない。CSV/XBRL ZIP・facts scopeも独立ownerへ保存し、通常取得は旧source-input/L2公開を待たない。既存SQL consumerとlake原本Parquetは移行中の読取経路として残る。全L2のcold再生成・原本の重複配布解消・過去PIT保証は別で、残作業は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)に残る。
 
 ### ZIP/scopeの通常取得と固定consumer
 
-通常切替前に、旧取得/共通統合writerを止めた同じ区間で、下記有限移送により固定releaseと全旧stageの原本/scopeを移して本文・保存日をverifyする。移送開始から切替まで旧定期/手動writerを新規起動しない。既存BAIBAI_EDINET_LIST_NATIVE=trueが一覧とZIP/scopeの両方を選ぶため、code統合は即通常route切替になる。空head作成やdaily初期化で移送を代用せず、旧一覧だけのplanは作り直す。以下の新規取得検証は原本を持たない隔離環境だけで行う。
+原本を持たない隔離環境だけで次の新規取得検証を行う。本番の既存headをinitializeで置き換えず、失ったheadを部分workから再作成しない。一覧とZIP/scopeは同じBAIBAI_EDINET_LIST_NATIVEで選び、新native受領後に旧writerだけへ戻さない。
 
 ```bash
 uv run baibai-jobs edinet-archives-native initialize --bucket <ISOLATED_BUCKET> --directory <NEW_WORK>
@@ -525,36 +529,13 @@ uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --di
 uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET> --directory <SAME_WORK>
 ```
 
-[planner](src/baibai_jobs/acquisition/edinet_archive_native.py)は固定一覧/scopeを使い、旧market/L2成功/全ZIP本文を要求しない。input.jsonの両headを保持し、各ZIPを次GET前に確定する。[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は初回bytes/stored_onを保ち、新取得だけ実UTCを持つ。pendingがあれば新HTTPを止め、同workのcommit-workへ戻る。CASは最新headとのunionで明示再試行し、部分workから失ったheadを再作成しない。通常workflowの公開失敗は未確定ZIP/実UTC/scopeだけを既存private handoffへ保全する。edinet-archives-native commit-stage --bucket <BUCKET> --directory <NEW_WORK> --stage-id <ID>で同受領を公開/readbackし、その後だけstageを確定する。通常L2は未確定stageをsealせず、旧形式stageは有限移送へ戻す。killやlocal/private両保存失敗まで回復を保証しない。
+[planner](src/baibai_jobs/acquisition/edinet_archive_native.py)は固定一覧/scopeを使い、旧market/L2成功/全ZIP本文を要求しない。input.jsonの両headを保持し、各ZIPを次GET前に確定する。[保存owner](../engine/src/baibai_engine/data_collection/providers/edinet/archive_native.py)は初回bytes/stored_onを保ち、新取得だけ実UTCを持つ。pendingがあれば新HTTPを止め、同workのcommit-workへ戻る。CASは最新headとのunionで明示再試行し、部分workから失ったheadを再作成しない。通常workflowの公開失敗は未確定ZIP/実UTC/scopeだけを既存private handoffへ保全する。edinet-archives-native commit-stage --bucket <BUCKET> --directory <NEW_WORK> --stage-id <ID>で同受領を公開/readbackし、その後だけstageを確定する。通常L2は未確定stageをsealせず、旧形式stageは原本を保全して停止・調査する。killやlocal/private両保存失敗まで回復を保証しない。
 
 手動metrics/TOBもZIPをnativeへ先に確定し、factsはscopeと原本の確定後にSQLへ投影する。--initialize/--tickerと任意lookbackを保ち、明示annual refreshへ日次holder batchを追加しない。
 
-共通統合はplanで一覧/archive両headを固定し、途中で最新headを補わない。実行copyの既存ZIP bytes・stored_on・scopeを照合し、不足ZIPだけを取り込み、comparison/holder/TOB/factsへ同じSQLを渡す。移送でstage保存日がcanonicalより早ければ同bytesの実行copyだけ最早日に揃える。未知原本/広すぎるscopeは消さず切替未完として止める。L2失敗はnative取得を妨げない。全原本cold copyはしないが、既存BLOB全hashとlake原本Parquet再exportの費用は残る。
+共通統合はplanで一覧/archive両headを固定し、途中で最新headを補わない。実行copyの既存ZIP bytes・stored_on・scopeを照合し、不足ZIPだけを取り込み、comparison/holder/TOB/factsへ同じSQLを渡す。同bytesで固定headの保存日が実行copyより早い場合だけ、copyの日付を揃える。固定head外の原本/scopeは消さず停止する。L2失敗はnative取得を妨げない。全原本cold copyはしないが、既存BLOB全hashとlake原本Parquet再exportの費用は残る。
 
-有限移行では旧EDINET archive取得・手動更新・market統合と移行先archive writerをdrainし、schema50 canonicalとrelease ID/digestを固定する。canonicalはそのreleaseの全EDINET archiveをhydrate済みにする。移行入口はorigin一致と期待行数で脱水・部分hydrateを拒否するが、同数の別bytesまでreleaseと照合するものではない。source inputのinventoryやL2断面を全原本の代わりに渡さない。
-
-```bash
-uv run baibai-jobs edinet-archives-native prepare-import --bucket <bucket> --directory <new-import-dir> \
-  --legacy-database <hydrated-market.sqlite> --release <fixed-release> --manifest-sha256 <digest>
-uv run baibai-jobs edinet-archives-native initialize --bucket <bucket> --directory <import-dir>
-uv run baibai-jobs edinet-archives-native apply-import --bucket <bucket> --directory <import-dir>
-uv run baibai-jobs edinet-archives-native verify-import --bucket <bucket> --directory <import-dir>
-```
-
-`prepare-import`はremoteを書かず、canonicalと全edinet-list/metrics/facts handoff（統合済み・late・要回復を含む）の原本/scopeを固定する。旧schema48/49 stageはdownload原本を保持したまま既存converterでlocal copyだけをschema50へ変換し、旧stageのinitialized開始日はglobal scopeへ昇格させない。同identityの異なるbytesは停止し、同bytesの重複は最早stored_onを採り、受領UTCは不明のまま保つ。現在のmetrics採用・lookbackで原本を削らない。
-
-移行先は未作成から明示initializeした空head、または同じ計画の部分/完了headを使う。別取得・異なるmetadata/scopeを混ぜず、停止後は入力とworkを保って同じ`apply-import`で再開する。既存nativeの保存日を修復しない。`verify-import`は全移行原本のbytesとmetadata/scopeを読戻す。旧canonical/release/stageと準備fileを保持し、この成功を通常writer切替や旧原本削除の許可にしない。本文はhashで共有し、通常dailyへ移行やDB全体copyを追加しない。
-
-一時的なActions実行先には [import-edinet-archives-once](../.github/workflows/import-edinet-archives-once.yml) を使う。provider取得・通常公開・削除・切替は行わず、既存bucketとmainの固定commitに限定する。通常ZIP経路の切替前に次を終える。
-
-1. `inspect` はmetadataだけを読む。releaseとmanifest、canonicalのmetadata SHA（存在時）、一覧/archive headのwire SHA、全3sourceのstage件数/bytes、空き容量を確認する。これはraw完全性・drainの証明ではない。
-2. 旧EDINET定期/手動writerと日次統合を停止し、既存runをdrainする。`cloud-market-sources` と `cloud-daily-batch` は手動無効化を維持する。入口はこの状態とqueued等の残runをGET確認し、既存の共通統合・EDINET取得concurrencyとoperator publication leaseを使う。別run間と切替後受入までの連続停止は実施者が維持する。
-3. `plan` に固定code/release/manifest/一覧headと、観測したarchive head SHAまたは`absent`を渡す。canonical SHAは既知なら指定する。脱水canonicalのEDINET原本が0行の場合だけ、同originのreleaseからarchive datasetを補完する。非空canonical、invalid handoff、未参照receiptや件数不一致は個別確認へ戻し、原本を無視して進まない。出力の実canonical SHAとplan SHAを保持する。
-4. 同じ入力・codeの `apply` にその二つのSHAを指定する。headが本当に未作成の初回だけ `initialize_archive_head=true`。既存/消失したheadの再作成に使わず、GitHub rerunの2回目以降もinitializeを拒否する。全原本を既存ownerへ移し、同じ実行内で全bytes/metadata/scopeをverifyする。`verified_not_cut_over` は通常経路の切替完了ではない。
-5. runner消失後は旧原本を保持したまま `inspect` し、現在のarchive head SHAを取り直す。新しい手動runでinitialize=false、**前回と同じplan SHA**を渡す。固定絶対pathへ再download・変換・prepareしたplan bytesが一致する場合だけ再開する。stageの消失/追加・入力変更で一致しなければ停止し、SHAを新しいplanへ黙って置換しない。独立 `verify` も同じplanと現在headを指定し、nativeを書かない。
-6. 移送verify後も停止を維持したまま通常経路を切り替え、固定両head consumer、初回native取得・公開、次hydrate後のconsumer再構築を確認してから定期writerを戻す。新native受領後は旧writerへ単純rollbackしない。移送前なら旧入力を保持して旧経路を再開できるが、その場合はこの移送の固定境界を破棄して改めて計画する。
-
-容量は圧縮Parquet bytesだけで見積もらない。canonical＋hydrate copy、Parquet cache、旧48→49→50の変換copyに加え、prepare後の全unique ZIP＋最大1ZIPのatomic書換分と1GiBの余裕を確認する。これは時間・RAM・展開量の完全な保証ではない。110分job/既存120分leaseを延長せず、途中失敗は旧原本と同planから回復する。公開ログはphase・件数・bytes・digest・結果だけとし、raw/plan本文・ETag・例外本文は0600の一時captureへ隔離し、artifactや通知へ送らない。native write直前のphaseが出た後に中断したrunは、書込結果未確定としてheadを読み直す。この入口は移送と受入後に撤去し、通常dailyへ残さない。
+旧canonical/release/stageと移送・受入の証拠は保持する。未移送原本や旧形式stageを通常経路へ混ぜず、固定headと原本を照合して対処を決める。
 
 固定consumerは保存両headと新規outputだけを使い、原本欠落/改変なら公開しない。
 
@@ -564,7 +545,7 @@ uv run baibai-jobs edinet-archives-native verify-import --bucket <bucket> --dire
 一覧とmetricsを別々に確認する。過去正常一覧で計算できても最新一覧失敗は残り、quarantined_eventsのidentityを保つ。旧metricsだけの銘柄対応を推測せず、partial採用日/匿名操作隔離などwarmとの差を比較する。再計算時計を過去へ付替えず、候補生成を通常公開への採用としない。
 
 <a id="cutovers"></a>
-## 未完の有限移行
+## 有限移行と旧受領の回復
 
 以下は完了が確認できた環境へ再適用しない。writer停止/drain、原本・旧release/stage・planの保全、固定候補の公開/readback、consumer/inputの切替、次通常実行までを一組で確認する。codeの既定値/合成testだけでこの手順を撤去しない。
 
@@ -576,40 +557,19 @@ uv run baibai-jobs edinet-archives-native verify-import --bucket <bucket> --dire
 4. 全writer/consumer設定を揃え、初回公開の固定input・coverage/native lineageと次hydrateを読戻してcronを再開する。異常時は止め、確定head/plan/旧releaseから再開先を決める。flagだけ戻して旧writerを走らせない。
 
 ```bash
-uv run baibai-jobs price-native-cutover prepare --directory <PLAN_DIR> \
+uv run baibai-jobs margin-alerts-native-cutover prepare --directory <PLAN_DIR> \
   --work-directory <NEW_MIRROR> --release <FIXED_OLD_RELEASE> \
   --manifest-sha256 <FIXED_OLD_SHA256> --known-at <UTC_BOUNDARY>
-uv run baibai-jobs price-native-cutover apply --directory <PLAN_DIR> --work-directory <APPLY_WORK>
-uv run baibai-jobs price-native-cutover verify --directory <PLAN_DIR> --work-directory <COLD_WORK>
+uv run baibai-jobs margin-alerts-native-cutover apply --directory <PLAN_DIR> --work-directory <APPLY_WORK>
+uv run baibai-jobs margin-alerts-native-cutover verify --directory <PLAN_DIR> --work-directory <COLD_WORK>
 ```
 
-対象sourceのcutover名へ置き換える。compareも同directoryと別workを使い、price/alerts/short-saleは初回日--asof、margin-interestは比較終端--asofと固定--calendar-headを加える。他3sourceに追加日付はない。切替後mixed stageのskipは全page fingerprint/bytes・宣言ID一致時だけで、未移行/不足/改変は止める。
+未完sourceのcutover名へ置き換える。compareも同directoryと別workを使い、alerts/short-saleは初回日--asof、margin-interestは比較終端--asofと固定--calendar-headを加える。切替後mixed stageのskipは全page fingerprint/bytes・宣言ID一致時だけで、未移行/不足/改変は止める。
 
 | source | 共通手順に加える確認 |
 | --- | --- |
-| price | 全market stage request ID、通常calendar設定、取得窓より古い不足、休場未試行と失敗。 |
-| financial | 全financial stage、旧のみ/新のみ/内容差/日別不足。現行consumer/query/maintenanceの切替範囲。初回dailyの除去は取得copyの旧table/coverageだけで、L1/旧release/applicationではない。財務identity・upload copyのdehydrate/次hydrate。 |
-| master | market/TV writerと全stage、両系統のmaster/receipt ID、全取得日/Code。 |
-| calendar | market/TV全pageと別保存dependency JSONを固定manifest/digestで照合。旧bootstrap writerを専用CLIへ替える。 |
 | alerts / short-sale | 全market stageと予定日までの保持履歴、非空公開条件。alertsはPubDate/AppDate、short-saleは開示日/行順でcompare。初回の独立head前進と旧stage対象sourceの除外。 |
 | margin-interest | 全source_pages partition/market stage。境界後・filtered request・page/宣言ID欠落・未知失敗scopeはblocked。daily_margin_incompleteは実在空/partial原本を要す。固定旧release/暦を使い、UTC境界後の確認を拒否して週次/日次全行とcoverageを別比較。通常writer接続/本番実行は別途。 |
-
-### EDINET一覧の切替
-
-schema50を先に完了し、一覧通常/手動refresh/bootstrap/backfill、metrics/facts、daily/publicationを止める。旧code/release/hash/UTC境界、全履歴partitionと全edinet-list/metrics/facts stage（integrated/late/要確認も含む）を固定する。
-
-```bash
-uv run baibai-jobs edinet-list-cutover prepare --directory <NEW_PLAN> \
-  --work-directory <WORK> --release <FIXED_RELEASE> --manifest-sha256 <DIGEST> --known-at <UTC_BOUNDARY>
-uv run baibai-jobs edinet-list-cutover apply --directory <PLAN> --work-directory <APPLY_WORK>
-uv run baibai-jobs edinet-list-cutover verify --directory <PLAN> --work-directory <COLD_WORK>
-```
-
-blocked/missing_raw_days、UUID/gzip/時計/文書identity・再確認proof不足、同UUID異内容、境界後受領なら止める。今日のGETや手動copyを失った過去受領へ置換しない。別copyの原本は旧正規経路へ保全してprepareし直す。新取得が混ざったtargetへ古いplanを上書きせず、mixed stageのZIP/scope/結果を変えない。原本なしの新環境だけedinet-list-native initializeを使う。
-
-同じdrain区間でZIP/scopeの有限移送とverifyも完了してから全writerをtrueへ揃える。このflagは一覧とarchiveの両方を切り替える。全旧EDINET stageは原本として保持し、通常統合で再適用せず、旧source-inputも発行しない。独立acquire→固定両head再構築→market公開→dehydrate/pull/hydrate→再構築を確認して再開する。
-
-旧EDINETRefresh.list_documentsはHTTP前に拒否する。必要な一覧はedinet-list-native acquire --start <DATE> --asof <DATE> --directory <NEW_WORK>、続けてrefresh-edinet-metrics --lookback-days Nで不足CSVを取得する。Nは0/540日超を含め任意で、一覧未取得を成功へ補わない。保存原本再抽出はextractを使い、旧flagへ戻さない。
 
 <a id="market-schema-484950の限定cutover"></a>
 ### market 48/49→50
@@ -650,35 +610,9 @@ uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_W
 optional新datasetも旧reader/catalogは拒否する。新公開後は50/catalogを保つ前向き修正とし、新モデル停止の際も保持記事を落とさない。通常push/専用cutoverを混ぜず、停止/drain/変換/公開/machine/seal/inputを別記録する。
 
 
-<a id="fred確認stateと経済schema-1213の切替"></a>
-### FRED schema12→13の一回切替
+### 経済単独公開と失敗再開
 
-通常open/daily/merge/pushは旧schemaを移行しない。確認tableのない旧draft13も補完せず、保持schema12から新receipt/outputを作る。draftだけにある未公開原本は別に保全する。経済単独公開への切替前に行い、完了環境へ再適用しない。
-
-1. 共通条件に従いwriterを停止/drainする。旧codeのpull-machineでmanifestと一致する3 store/ETagを取得し、閉じたschema12原本を保つ。
-2. prepare-copyで別schema13 copyを作り、実FRED取得後に不足を確認してfreezeする。過去確認時計を作らない。一部失敗でも保持原本の公開は可能だが、未確認の既存期間への後着受入は保留し、そのsourceの回復/通常経路確認まで切替完了にしない。unconfirmed_native_periodsだけを合否にしない。
-3. 同じlease内で対応code、専用push、全group input発行へ進む。
-
-```bash
-uv run python -m baibai_jobs.maintenance.economic_cutover prepare-copy \
-  --source <SCHEMA12_COPY> --output <SCHEMA13_COPY> --receipt <CUTOVER_RECEIPT> \
-  --generation-directory <PULLED_GENERATION_DIRECTORY>
-uv run baibai-jobs acquire-economic refresh --group fred_csv --recent --end <ACTUAL_DATE> --db <SCHEMA13_COPY>
-uv run python -m baibai_jobs.maintenance.economic_cutover freeze --receipt <CUTOVER_RECEIPT>
-jobs/scripts/r2_transfer.sh push-economic-cutover <CUTOVER_RECEIPT>
-uv run python -m baibai_jobs.maintenance.economic_cutover reissue-inputs \
-  --receipt <CUTOVER_RECEIPT> --lease-handle "$PUBLICATION_LEASE_HANDLE"
-```
-
-専用pushは元3 ETag/正本/manifestを照合し、経済DBだけを条件付き公開・全bytes読戻しした後、他2 storeの未変更を確認してmanifestを更新する。L2生成は前提でない。inputは同じ公開経済bytesから再発行する。
-
-応答不明/manifest前停止は元copy・固定upload・receipt・候補manifestを保って同じ専用pushを再開する。第三の値/peer変更は停止。lease失効ならwriter停止のまま再取得し、ETag手修正・通常push・freeze後copy編集で迂回しない。freeze前の未登録uploadはremote未変更を確認し、新receipt/outputで準備する。input途中失敗は同commandで再開する。
-
-fresh pullのschema13・全group inputのschema/ETag・旧pending処置を確認して再開する。通常FRED取得→受入→同値時本文不増加/変更消失時反映→L2再生成/readbackを確認した後だけ、converter/専用publisherとこの手順を撤去する。
-
-### 経済単独公開への切替と失敗再開
-
-FRED切替と旧article cutover/部分machine pushを先に完了・整理する。全writer/consumerを同時に新codeへ替え、market/runsだけの2key bundleと既存indicators.sqlite単独正本へ移る。旧manifestの経済欄は次の正常market公開で省かれるが、旧bytes/stage/backupは削除しない。旧3key切替receiptを新2keyへ読み替えない。
+経済正本はindicators.sqlite、machine bundleはmarket/runsの2key。旧bytes/stage/backupと切替receiptは保持し、旧3key切替receiptを通常の2key公開へ読み替えない。
 
 通常経済公開はfresh正本＋固定handoffを受入→1世代backup→条件付きPUT/全bytes読戻し→seal→15取得group inputの順。TradingView明示MCP原本も受入れるが取得groupは増やさない。seal/input直前にも同じETag/leaseを確認し、読戻し経済入力からモデルを作る。後段L2失敗で経済L1を再PUT/rollbackしない。
 

@@ -185,7 +185,7 @@ def _replay(
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
 
     if source in _EDINET_SOURCES and edinet_list_native_enabled():
-        raise ValueError("native EDINET stages require commit-stage or finite import")
+        raise ValueError("EDINET stages cannot be replayed into a native execution copy")
     if source in ARTICLE_SOURCES:
         return import_article_handoff(source, database, directory)
     if source not in SOURCES:

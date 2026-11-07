@@ -363,7 +363,7 @@ def test_legacy_stage_replay_and_export_cannot_write_outside_native_head(
 ):
     monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     target = tmp_path / "absent.sqlite"
-    with pytest.raises(ValueError, match="commit-stage or finite import"):
+    with pytest.raises(ValueError, match="cannot be replayed into a native execution copy"):
         source_handoff._replay(group, target, tmp_path / "absent-stage")
     with pytest.raises(ValueError, match="does not export legacy"):
         source_handoff._export(group, DAY, AT, target, tmp_path / "absent-stage")

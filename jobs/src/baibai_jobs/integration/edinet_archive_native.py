@@ -68,9 +68,9 @@ def export_pending_handoff(
 def materialize_archives(archives: FixedEdinetArchives, database: Path) -> dict[str, object]:
     """Reuse verified execution-copy bytes; fetch only missing fixed originals.
 
-    The finite import can select an earlier stage receipt day than the canonical
-    copy held. Reconcile that day only in this disposable copy, never in L1.
-    Unknown originals/scope require finishing the finite import before cutover.
+    An older execution copy can hold a later receipt day than the fixed head.
+    Reconcile that day only in this disposable copy, never in L1.
+    Reject originals or scope that are outside the fixed head.
     """
     retained = set()
     adjusted = []
