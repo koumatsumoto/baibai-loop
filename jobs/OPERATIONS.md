@@ -302,6 +302,22 @@ with_publication_lease jobs/scripts/r2_transfer.sh push-indicators --recheck-sou
 
 FRED以外の登録済record sourceは、受入時に観測日ごとの実確認時計と採用原本参照を残す。同値本文を複写せず、後着別値と同時計衝突をその時計で判定する。これは取得済range内の確認であり、source全体の置換・providerの明示nullを証明しない。旧rawの実時計を使い、過去に捨てた確認時計をrun終了時刻から補わない。保持stageからの有限回復は通常取得と分ける。新しい確認を保存・固定する前に、受入・merge・固定入力readerを揃え、旧codeのactive/queued実行を終える。旧input/stage・原本は保持する。
 
+同値確認欠落の候補は[local診断](../tools/diagnostics/inspect_economic_confirmation_gaps.py)で調べる。実R2/providerへの接続や回復入口はない。閉じたschema13 canonicalと、明示stageごとの元handoff.json・receipts.sqlite・取得済みならintegrated.jsonを私有directoryへ固定し、元のSHAを渡す。stageはintegrated済みも選ぶ。通常dailyの未統合stage一覧だけでは過去欠落を拾えない。marker未供給は未統合の証明ではない。
+
+固定copyがまだない場合のread-only取得コマンドと既存ownerの入出力は[一回実行例](../tools/diagnostics/economic_confirmation_readonly.md)を使う。実行例の検証は合成fixtureだけであり、本番実行の記録ではない。
+
+```bash
+uv run python -m tools.diagnostics.inspect_economic_confirmation_gaps \
+  --canonical <LOCAL_CANONICAL> --canonical-sha256 <FIXED_SHA256> \
+  --stage <STAGE_ID> <MANIFEST_SHA256> <LOCAL_PACKET_DIRECTORY> \
+  --source-id nikkei-pbr --start <OBSERVED_DATE> --end <OBSERVED_DATE> \
+  --received-since <RECEIVED_AT_WITH_ZONE> --received-until <CUTOFF_WITH_ZONE>
+```
+
+stage指定は必要分だけ繰り返す。終了0は診断読取の完了だけを示す。出力は指定source/day・受領時計窓内の候補であり、全stage収集済みや本番影響の認定ではない。確認がないcanonicalのfetched_atは既知の下限であり、失われた確認時計の復元ではない。実行前後のfile同一性を検証するが、remote headの現在性は検証しない。原本/確認時計をそのまま比較し、欠落日を空応答にせず、同時計衝突は要確認として返す。古い候補より新しいcanonicalを戻さず、窓外や未供給の原本・保存済みL2への過去影響は別に確認する。
+
+回復を進める場合だけ、対象source/dayのcanonical確認時計以降から固定cutoffまでのstage欠落・未完・後続受領を人が確認する。原本が揃い一意なら再取得せず既存accept_rechecks/merge/verifyで別copyを準備できる。不足時の限定再取得は現在の実確認であり、過去時計の復元ではない。衝突を新取得で解消済み扱いにしない。実公開は対応codeへの切替後、lease/CAS・backup・全bytes読戻し・取得input再発行を別に計画し、元stage/marker・保存済みL2/L3を変更しない。
+
 current-onlyだけは遅延時の実取得日を使い、他source/handoff対象日は動かさない。松井の過去asofを現在pageで埋めない。options all-historyは保存古日を再利用するため、古い訂正は期間を明示する。rolling提供不能/正常空/途中失敗を分ける。
 
 <a id="pmi-public-articles"></a>
