@@ -10,17 +10,28 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      operation:
+        description: "通常quality、または移送受入後の11/07 alertsだけの一回取得"
+        type: choice
+        required: true
+        default: quality
+        options:
+          - quality
+          - margin-alerts-20261107-dayonly
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
+  group: ${{ inputs.operation == 'margin-alerts-20261107-dayonly' && 'market-source-jquants-market' || github.event_name == 'pull_request' && format('{0}-pr-{1}', github.workflow, github.event.pull_request.number) || format('{0}-{1}', github.workflow, github.run_id) }}
+  queue: max
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Python gates share one dependency setup.
   quality:
+    if: ${{ inputs.operation != 'margin-alerts-20261107-dayonly' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -148,3 +159,235 @@ jobs:
           PY
           uv run pip-audit \
             -r /tmp/baibai-loop-build-requirements.txt
+
+  # 一回用ops branchだけ。移送受入head未確定の間は最初のstepで停止する。
+  margin-alerts-dayonly:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.operation == 'margin-alerts-20261107-dayonly' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      EXPECTED_MIGRATED_HEAD: f7ad7b4ca7bf7baa4c147a8be9cdf5d25dade80ec1cc1950c59a150c39f8b7cc
+    concurrency:
+      group: source-acquire-jquants
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Require the accepted late8 head before credentials or provider access
+        run: |
+          test "$GITHUB_REPOSITORY" = koumatsumoto/baibai-loop
+          test "$GITHUB_REF" = refs/heads/ops/margin-alerts-20261107-dayonly
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD^)" = 13264883631b8539350b852305cdc488aebdd9e9
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = .github/workflows/ci.yml
+          if [[ ! "$EXPECTED_MIGRATED_HEAD" =~ ^[0-9a-f]{64}$ ]]; then
+            echo 'STOP: accepted late8 head is not fixed' >&2
+            exit 2
+          fi
+      - name: Require the legacy source workflow to stay disabled and drained
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          workflow="repos/$GITHUB_REPOSITORY/actions/workflows/cloud-market-sources.yml"
+          test "$(gh api "$workflow" --jq .state)" = disabled_manually
+          for state in queued in_progress waiting pending requested; do
+            test "$(gh api "$workflow/runs?status=$state&per_page=1" --jq .total_count)" = 0
+          done
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Acquire publication lease before the single-day operation
+        id: lease-acquire
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease acquire --purpose operator --handle "$RUNNER_TEMP/publication-lease-handle.json"
+      - name: Acquire only the unrecorded 2026-11-07 alert day and verify its saved original
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          JQUANTS_API_KEY: ${{ secrets.JQUANTS_API_KEY }}
+        run: |
+          umask 077
+          uv run python - <<'PY'
+          """移送受入済みheadから11/07だけを一度取得する一回用job。"""
+          import base64
+          import gzip
+          import hashlib
+          import json
+          import os
+          import tempfile
+          import re
+          import time
+          from contextlib import closing
+          from datetime import UTC, date, datetime
+          from pathlib import Path
+
+          from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+              MarginAlertsAttempt,
+              MarginAlertsL1,
+              plan_margin_alert_days,
+          )
+          from baibai_engine.storage.objects.r2 import Boto3R2Store
+          from baibai_jobs.acquisition import jquants_margin_alerts_native as acquisition
+          from baibai_jobs.publication.lease import _load_handle, verify_held
+
+          DAY = date(2026, 11, 7)
+          EXPECTED_RECEIPTS = 3796
+
+
+          class GuardFailure(ValueError):
+              pass
+
+
+          def require(condition, reason):
+              if not condition:
+                  raise GuardFailure(reason)
+
+
+          def save(store, name, value):
+              body = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+              require(0 < len(body) <= 4 * 1024 * 1024, "evidence_size_exceeds_finite_limit")
+              compressed = gzip.compress(body, mtime=0)
+              digest = hashlib.sha256(compressed).hexdigest()
+              raw_digest = hashlib.sha256(body).hexdigest()
+              key = f"coordination/cutovers/margin-alerts-20261107-dayonly/{os.environ['GITHUB_RUN_ID']}/{name}-{digest}.json.gz"
+              with tempfile.TemporaryDirectory(prefix="alerts-evidence-") as temporary:
+                  path = Path(temporary) / "evidence.json.gz"
+                  path.write_bytes(compressed)
+                  path.chmod(0o600)
+                  saved = store.put_file(
+                      key, path, sha256=digest,
+                      content_md5=base64.b64encode(hashlib.md5(compressed, usedforsecurity=False).digest()).decode(),
+                      content_type="application/gzip", if_none_match=True,
+                  )
+              received = store.get_bytes(key)
+              require(hashlib.sha256(received).hexdigest() == digest and received == compressed,
+                      "evidence_readback_failed")
+              require(gzip.decompress(received) == body, "evidence_readback_failed")
+              after = store.head(key)
+              require(after is not None and after.etag == saved.etag and after.size == len(compressed)
+                      and after.metadata.get("sha256") == digest, "evidence_readback_failed")
+              print(json.dumps({"evidence": name, "key": key, "sha256": digest,
+                                "uncompressed_sha256": raw_digest, "uncompressed_bytes": len(body),
+                                "stored_bytes": len(compressed)}, sort_keys=True))
+
+
+          def preflight(fixed, expected_head):
+              prior = fixed.value()
+              # 既に失敗/部分受領があっても、自動で別IDのGETへ進まない。
+              require(DAY.isoformat() not in prior["scopes"], "target_day_already_recorded_no_get")
+              require(fixed.content_id == expected_head, "accepted_migration_head_changed")
+              require(len(prior["receipts"]) == EXPECTED_RECEIPTS, "baseline_count_changed")
+              require(plan_margin_alert_days(fixed, start=DAY, asof=DAY) == (DAY,), "plan_not_one_day")
+              return prior
+
+
+          def verify_preserved(prior, after, identity):
+              require(identity not in prior["receipts"] and len(after["receipts"]) == len(prior["receipts"]) + 1,
+                      "new_receipt_count_changed")
+              require(set(after["receipts"]) == set(prior["receipts"]) | {identity}, "receipt_set_changed")
+              require(all(after["receipts"][key] == value for key, value in prior["receipts"].items()),
+                      "prior_receipt_changed")
+              require({key: value for key, value in after["scopes"].items() if key != DAY.isoformat()}
+                      == prior["scopes"], "unselected_scope_changed")
+
+
+          def main():
+              expected_head = os.environ.get("EXPECTED_MIGRATED_HEAD", "")
+              require(re.fullmatch(r"[0-9a-f]{64}", expected_head) is not None,
+                      "accepted_migration_head_placeholder_stop")
+              root = Path(os.environ["RUNNER_TEMP"])
+              work = root / "alerts-20261107-acquire"
+              result = {"accepted": False, "acquire_attempted": False, "outcome_uncertain": False,
+                        "target_day": DAY.isoformat(), "flags_changed": False, "canonical_writes": False}
+              phase = "preflight"
+              with closing(Boto3R2Store(bucket="baibai-stores")) as store:
+                  try:
+                      lease = _load_handle(root / "publication-lease-handle.json")
+                      verify_held(store, lease)
+                      baseline = MarginAlertsL1(store, root / "alerts-20261107-before").fixed()
+                      result.update(before_head_sha256=baseline.content_id,
+                                    before_receipts=len(baseline.value()["receipts"]))
+                      prior = preflight(baseline, expected_head)
+                      save(store, "baseline", prior)
+                      require(MarginAlertsL1(store, root / "alerts-20261107-check").fixed().content_id ==
+                              baseline.content_id, "head_changed_before_get")
+                      verify_held(store, lease)
+                      phase = "acquire"
+                      os.environ["BAIBAI_ACQUISITION_DEADLINE"] = str(time.time() + 600)
+                      result.update(acquire_attempted=True, outcome_uncertain=True)
+                      status = acquisition.main([
+                          "acquire", "--directory", str(work),
+                          "--start", DAY.isoformat(), "--asof", DAY.isoformat(),
+                      ])
+                      result["cli_exit"] = status
+                      phase = "readback"
+                      attempts = list(work.glob("attempt-*.json"))
+                      require(len(attempts) == 1, "attempt_count_not_one")
+                      attempt = MarginAlertsAttempt.from_value(json.loads(attempts[0].read_bytes()))
+                      require(attempt.day == DAY, "attempt_day_changed")
+                      save(store, "attempt", attempt.value())
+                      fixed = MarginAlertsL1(store, root / "alerts-20261107-after").fixed()
+                      after = fixed.value()
+                      result.update(head_sha256=fixed.content_id, receipts=len(after["receipts"]),
+                                    request_id=attempt.request_id, logical_requests=1, pages=len(attempt.pages))
+                      save(store, "head", after)
+                      verify_preserved(prior, after, attempt.request_id)
+                      fingerprint = hashlib.sha256(json.dumps(attempt.value(), ensure_ascii=False,
+                          sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                      require(after["receipts"][attempt.request_id]["fingerprint"] == fingerprint,
+                              "received_original_not_persisted")
+                      retained = list(fixed.requests(store, days=(DAY,)))
+                      require(len(retained) == 1 and retained[0].request_id == attempt.request_id,
+                              "cold_original_identity_changed")
+                      require(MarginAlertsL1(store, root / "alerts-20261107-stable").fixed().content_id ==
+                              fixed.content_id, "head_changed_after_readback")
+                      result.update(originals_persisted=True, prior_metadata_preserved=True,
+                                    outcome_uncertain=False)
+                      verify_held(store, lease)
+                      scope = after["scopes"][DAY.isoformat()]
+                      require(status == 0 and not scope.get("failure") and not scope.get("held") and
+                              scope.get("adopted") == attempt.request_id, "target_scope_not_accepted")
+                      require(retained[0].request is not None and retained[0].error is None,
+                              "target_original_incomplete")
+                      result.update(accepted=True, target_scope_complete=True,
+                                    raw_records=len(retained[0].request.records()))
+                  except Exception as error:
+                      result.update(error_type=type(error).__name__, failed_phase=phase)
+                      if isinstance(error, GuardFailure):
+                          result["blocked_reason"] = str(error)
+                  save(store, "outcome", result)
+                  print(json.dumps(result, sort_keys=True))
+                  return int(not result["accepted"])
+
+
+          if __name__ == "__main__":
+              try:
+                  code = main()
+              except Exception as error:
+                  result = {"accepted": False, "error_type": type(error).__name__}
+                  if isinstance(error, GuardFailure):
+                      result["blocked_reason"] = str(error)
+                  print(json.dumps(result, sort_keys=True))
+                  code = 1
+              raise SystemExit(code)
+          PY
+      - name: Release publication lease
+        if: ${{ always() && steps.lease-acquire.outputs.acquired == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
