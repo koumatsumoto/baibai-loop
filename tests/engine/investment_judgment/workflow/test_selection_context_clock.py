@@ -1,11 +1,14 @@
-"""候補外の再読でも、保存モデルとResearchの情報境界を同じまま選べる。"""
+"""context再読のcutoffを渡し、固定入力からの再開との違いを保つ。"""
 
 import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
+from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.model_generation import empty_selection, generation
 
 from baibai_engine.cli.investment_judgment import main
@@ -13,6 +16,7 @@ from baibai_engine.investment_judgment.company_research.document import Research
 from baibai_engine.investment_judgment.company_research.store import ResearchStoreService
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
 NOW = datetime(2026, 10, 25, 0, 2, tzinfo=UTC)
 
@@ -46,9 +50,7 @@ def seed(tmp_path):
 
 
 @pytest.mark.parametrize("cutoff", ["2026-10-25T00:02:00+00:00", "2026-10-25T09:02:00+09:00"])
-def test_explicit_cutoff_reuses_prior_context_without_selecting_later_research(
-    tmp_path, capsys, cutoff
-):
+def test_explicit_cutoff_excludes_later_recorded_research(tmp_path, capsys, cutoff):
     runs, app, arguments = seed(tmp_path)
     document = {
         "ticker": "1234",
@@ -85,6 +87,36 @@ def test_explicit_cutoff_reuses_prior_context_without_selecting_later_research(
         "later"
     )
     assert current["model_inputs"] == original["model_inputs"]
+    assert (runs.read_bytes(), app.read_bytes()) == before
+
+
+def test_same_cutoff_does_not_freeze_late_reported_ledger_events(tmp_path, capsys):
+    runs, app, arguments = seed(tmp_path)
+    source = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    initial = source.model_copy(update={"events": source.events[:1]})
+    seed_ledger(app, initial)
+    arguments[arguments.index("discover_new")] = "review_positions"
+    arguments += ["--known-at", NOW.isoformat()]
+    assert main(arguments, now=NOW) == 0
+    original = json.loads(capsys.readouterr().out)
+    assert original["held_tickers"] == original["requested_tickers"] == []
+
+    # 発生時刻がcutoff以前でも、最初の読取後に届く取引事実はある。
+    later_now = NOW + timedelta(days=1)
+    writer = LedgerStoreService(app)
+    writer.apply_document(
+        expected_head=writer.append_head(),
+        expected_document=initial,
+        replacement=source.model_copy(update={"as_of": later_now}),
+    )
+    before = runs.read_bytes(), app.read_bytes()
+    assert main(arguments, now=later_now) == 0
+    repeated = json.loads(capsys.readouterr().out)
+    assert repeated["input_known_at"] == original["input_known_at"]
+    assert repeated["research_as_of"] == original["research_as_of"]
+    assert repeated["generation_id"] == original["generation_id"]
+    assert repeated["screening_selection_id"] == original["screening_selection_id"]
+    assert repeated["held_tickers"] == repeated["requested_tickers"] == ["2331"]
     assert (runs.read_bytes(), app.read_bytes()) == before
 
 
