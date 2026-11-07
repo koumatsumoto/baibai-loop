@@ -559,10 +559,11 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 
 旧canonical/release/stageと移送・受入の証拠は保持する。未移送原本や旧形式stageを通常経路へ混ぜず、固定headと原本を照合して対処を決める。
 
-固定consumerは保存両headと新規outputだけを使い、原本欠落/改変なら公開しない。
+固定consumerは保存両headを使い、原本欠落/改変なら結果を反映しない。
 
 - [SQL adapter](src/baibai_jobs/integration/edinet_archive_native.py)のrebuild_fixed_edinet_inputは全ZIP・stored_on・scopeと一覧を再構成し、EDINETReader/comparison/holder/TOBへ渡す。全ZIPを読むためplannerには使わない。L2/成功履歴を複写せず、日付変換を時計精度向上としない。
 - [metrics比較](src/baibai_jobs/integration/edinet_metric_rebuild.py)は保存InputSnapshotを明示した`uv run baibai-jobs rebuild-edinet-metrics --saved-input <INPUT.json> --output <NEW.sqlite> --asof <DATE> --lookback-days <N>`で作る。選択CSVだけを読み、旧metrics/facts scope/全ZIP複写を入力にしない。completed/partialだけoutputを作り、全未取得/一覧不足は延期、parse失敗は失敗、宣言原本破損は例外とする。
+- `maintain-market build-tender-offer-exits --saved-input <INPUT.json>`は同じ保存pairの一覧と必要なtype=5原本だけを読み、指定marketのJPX上場廃止観測から退出proxyを更新する。marketの新しいEDINET一覧・SQL ZIP・最新native headは補わない。原本欠損・破損・CSV decode失敗では既存退出値を保つ。`--asof`は既存の提出日/上場廃止日のcutoffで、受領時点のPIT再現ではない。引数なしの旧SQL読取とrefresh取得は別経路として残す。
 
 一覧とmetricsを別々に確認する。過去正常一覧で計算できても最新一覧失敗は残り、quarantined_eventsのidentityを保つ。旧metricsだけの銘柄対応を推測せず、partial採用日/匿名操作隔離などwarmとの差を比較する。再計算時計を過去へ付替えず、候補生成を通常公開への採用としない。
 

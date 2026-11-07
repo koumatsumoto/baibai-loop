@@ -53,6 +53,7 @@ from baibai_jobs.maintenance.market.config import (
     SourceMaintenanceConfig,
 )
 from baibai_jobs.maintenance.market.delisting_cli import (
+    build_saved_tender_offer_exits_command,
     build_tender_offer_exits_command,
     refresh_jpx_delistings_command,
     refresh_tender_offer_exits_command,
@@ -223,6 +224,12 @@ def build_parser() -> argparse.ArgumentParser:
             default=str(DEFAULT_SQLITE_CACHE_DIR / "market.sqlite"),
             help=f"SQLite cache path (default: {DEFAULT_SQLITE_CACHE_DIR}/market.sqlite)",
         )
+        if name == "build-tender-offer-exits":
+            exits_parser.add_argument(
+                "--saved-input",
+                type=Path,
+                help="saved EDINET InputSnapshot JSON; omitted reads legacy SQL inputs",
+            )
 
     invalidate_parser = subparsers.add_parser(
         "invalidate-coverage",
@@ -336,6 +343,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "build-tender-offer-exits":
         exits_path = Path(args.sqlite_path)
+        if args.saved_input is not None:
+            return build_saved_tender_offer_exits_command(
+                sqlite_path=exits_path,
+                asof_date=_parse_iso_date(args.asof),
+                saved_input=args.saved_input,
+            )
         return build_tender_offer_exits_command(
             sqlite_path=exits_path,
             asof_date=_parse_iso_date(args.asof),

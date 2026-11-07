@@ -273,11 +273,15 @@ def derive_tender_offer_exit_values(
     *,
     read_blocks: Callable[[str], Mapping[str, str]],
     asof: date,
+    edinet_sqlite_path: Path | None = None,
 ) -> tuple[tuple[TenderOfferExitValue, ...], TenderOfferExitSummary]:
     """Investigate candidate mechanisms in their established document request order."""
-    connection = connect_current(sqlite_path)
+    # A saved native pair can supply a disposable list projection separately
+    # from JPX delistings, without mixing in newer market EDINET observations.
+    document_path = edinet_sqlite_path if edinet_sqlite_path is not None else sqlite_path
+    connection = connect_current(document_path)
     if connection is None:
-        raise TenderOfferError(f"market store is not readable: {sqlite_path}")
+        raise TenderOfferError(f"market store is not readable: {document_path}")
     try:
         connection.execute("BEGIN")
         ticker_by_code = edinet_code_to_ticker(connection, through=asof)
