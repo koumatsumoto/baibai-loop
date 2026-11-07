@@ -36,7 +36,6 @@ _COMMANDS = {
     "rebuild-short-sale-reports-native": "baibai_jobs.integration.short_sale_reports_native",
     "jquants-margin-interest-native": "baibai_jobs.acquisition.jquants_margin_interest_native",
     "rebuild-margin-interest-native": "baibai_jobs.integration.margin_interest_native",
-    "margin-interest-native-cutover": "baibai_jobs.maintenance.margin_interest_native_cutover",
     "rebuild-price-native": "baibai_jobs.integration.price_native",
     "rebuild-financial-native": "baibai_jobs.integration.financial_native",
     "financial-pdf-source": "baibai_jobs.acquisition.financial_pdfs",
