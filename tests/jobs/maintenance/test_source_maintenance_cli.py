@@ -22,11 +22,13 @@ import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
+from tests.helpers.edinet_native import native_edinet_store
+from tests.helpers.http_doubles import FakeSession, response
 from tests.helpers.market_maintenance import (
     FakeEDINETProvider,
     FakeJPXProvider,
@@ -35,7 +37,7 @@ from tests.helpers.market_maintenance import (
 from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store import (
     read_edinet_metrics,
 )
@@ -61,21 +63,6 @@ class _SeamEDINETProvider(FakeEDINETProvider):
 
     def close(self) -> None:
         self.close_count += 1
-
-
-@dataclass
-class _StoredSeamEDINETProvider(_SeamEDINETProvider):
-    def list_documents(self, on_date: date) -> list[dict[str, object]]:
-        documents = super().list_documents(on_date)
-        store_edinet_documents(_STORE, on_date, documents)
-        return documents
-
-    def download_csv_zip(self, doc_id: str) -> bytes:
-        content = super().download_csv_zip(doc_id)
-        with contextlib.closing(open_connection(_STORE)) as connection:
-            return retain_source_archive(
-                connection, doc_id, 5, content, stored_on=date(2026, 4, 24)
-            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,30 +384,37 @@ def test_main_rejects_negative_metric_lookback(command: str) -> None:
     assert "--lookback-days must be zero or greater" in result.stderr
 
 
-def test_main_refresh_edinet_metrics_acquires_only_needed_archive() -> None:
-    edinet = _StoredSeamEDINETProvider(
-        documents=[{**_edinet_document(ticker="96820", doc_id="S100TEST"), "seqNumber": 1}],
-        zip_by_doc_id={"S100TEST": _edinet_csv_zip()},
+def test_main_refresh_edinet_metrics_acquires_only_needed_archive(tmp_path, monkeypatch) -> None:
+    native_edinet_store(
+        tmp_path,
+        monkeypatch,
+        {date(2026, 4, 24): [_edinet_document(ticker="96820", doc_id="S100TEST")]},
     )
+    edinet = app.EDINETRefresh(
+        "synthetic", sqlite_path=_STORE, session=FakeSession(response(_edinet_csv_zip()))
+    )
+    download = Mock(wraps=edinet.download_csv_zip)
+    close = Mock(wraps=edinet.close)
+    monkeypatch.setattr(edinet, "download_csv_zip", download)
+    monkeypatch.setattr(edinet, "close", close)
     result = _run_cli(
         ["refresh-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
         edinet=edinet,
     )
     assert result.exit_code == 0, result.stderr
-    assert edinet.download_calls == ["S100TEST"]
-    assert edinet.close_count == 1
+    download.assert_called_once_with("S100TEST")
+    close.assert_called_once_with()
     payload = read_edinet_metrics(_STORE, date(2026, 4, 24))
     assert payload is not None
     assert payload["9682"].net_cash == 600.0
 
 
-def test_main_refresh_edinet_metrics_reports_source_acquisition_failure() -> None:
-    class FailingEDINET(_SeamEDINETProvider):
-        def list_documents(self, on_date: date) -> list[dict[str, object]]:
-            del on_date
-            raise EdinetAcquisitionError("EDINET request failed with status 403")
-
-    edinet = FailingEDINET()
+def test_main_refresh_edinet_metrics_reports_source_acquisition_failure(
+    tmp_path, monkeypatch
+) -> None:
+    store, _, _ = native_edinet_store(tmp_path, monkeypatch, {date(2026, 4, 24): []})
+    del store.values[HEAD_KEY]
+    edinet = _SeamEDINETProvider()
     result = _run_cli(
         ["refresh-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
         jquants=FakeJQuantsProvider(),
@@ -428,7 +422,7 @@ def test_main_refresh_edinet_metrics_reports_source_acquisition_failure() -> Non
         jpx=FakeJPXProvider(),
     )
     assert result.exit_code == 1
-    assert "EdinetAcquisitionError" in result.stderr
+    assert "LakePublishError" in result.stderr
     assert edinet.close_count == 1
 
 

@@ -119,8 +119,8 @@ def _wire_refresh(
 
     def extract(**kwargs):
         assert kwargs["plan"] is plan
-        assert kwargs["reader"] is (native_reader if native and needs_body else sql_reader)
-        if native and needs_body:
+        assert kwargs["reader"] is (native_reader if needs_body else sql_reader)
+        if needs_body:
             assert events[-1] == ("reader",)
         if error is not None:
             raise error
@@ -140,16 +140,13 @@ def _wire_refresh(
     )
     assert result == int(invalid_plan)
     planner.assert_called_once()
-    assert client.retained_archives.call_count == int(native and needs_body and not invalid_plan)
+    assert client.retained_archives.call_count == int(needs_body and not invalid_plan)
     if invalid_plan:
         extractor.assert_not_called()
     else:
         extractor.assert_called_once()
-    if native:
-        client.list_documents.assert_not_called()
-        store.close.assert_called_once_with()
-    else:
-        client.list_documents.assert_called_once_with(DAY)
+    client.list_documents.assert_not_called()
+    store.close.assert_called_once_with()
     return client
 
 

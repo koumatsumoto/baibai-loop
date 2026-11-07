@@ -240,6 +240,8 @@ def test_identical_bodies_at_same_time_choose_stable_provenance_only() -> None:
 @pytest.mark.parametrize(
     ("payload", "error_fragment"),
     [
+        ([], "object"),
+        ({"results": []}, "metadata"),
         (_payload([_origin(seqNumber=True)]), "seqNumber"),
         (_payload([_origin(seqNumber=0)]), "seqNumber"),
         (_payload([_origin(seqNumber="１２")]), "seqNumber"),
@@ -253,6 +255,8 @@ def test_identical_bodies_at_same_time_choose_stable_provenance_only() -> None:
         (_payload([_origin(docID="invalid")]), "docID"),
     ],
     ids=[
+        "non-object-payload",
+        "missing-metadata",
         "boolean-sequence",
         "zero-sequence",
         "non-ascii-sequence",

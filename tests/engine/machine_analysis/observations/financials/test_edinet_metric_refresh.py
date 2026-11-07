@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import io
-import json
 import sqlite3
-from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from tests.helpers.edinet_metrics import (
@@ -16,15 +15,13 @@ from tests.helpers.edinet_metrics import (
     _edinet_csv_zip,
     _edinet_document,
 )
+from tests.helpers.edinet_native import native_edinet_store
 
-from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
+from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY
 from baibai_engine.data_collection.providers.edinet.models import (
-    EdinetAcquisitionError,
     EdinetRateLimitError,
-)
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
-from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
-    rebuild_edinet_document_day,
+    EdinetResponse,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
     select_document_candidates,
@@ -41,61 +38,40 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
     store_edinet_metrics,
 )
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_metrics_command,
 )
+from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 
 @dataclass
-class _Acquisition:
+class _Acquisition(EDINETRefresh):
     database: Path
     reader: FakeEDINETMetricReader
     documents: list[dict[str, object]]
     archives: dict[str, bytes]
     fail_at: str | None = None
-    list_calls: list[date] = field(default_factory=list)
     download_calls: list[str] = field(default_factory=list)
 
-    def list_documents(self, on_date: date) -> list[dict[str, object]]:
-        self.list_calls.append(on_date)
-        if self.fail_at == "list":
-            raise EdinetAcquisitionError("document source unavailable")
-        # Match production's retained-list and projection contract; the memory
-        # reader still tracks the independent L2 read/parse calls below.
-        body = json.dumps(
-            {
-                "metadata": {"resultset": {"count": len(self.documents)}},
-                "results": [
-                    {"seqNumber": i, **document} for i, document in enumerate(self.documents, 1)
-                ],
-            }
-        ).encode()
-        with closing(open_connection(self.database)) as connection:
-            retain_list_response(
-                connection,
-                doc_date=on_date,
-                received_at=datetime(2026, 4, 24, tzinfo=UTC),
-                body=body,
-            )
-        rebuild_edinet_document_day(self.database, on_date)
+    def __post_init__(self):
+        super().__init__("synthetic", sqlite_path=self.database)
         self.reader.documents = self.documents
-        return self.documents
+        self._http = Mock()
+        self._http.fetch_archive.side_effect = lambda doc_id, kind: EdinetResponse(
+            datetime(2026, 4, 24, tzinfo=UTC), self.archives[doc_id]
+        )
 
     def download_csv_zip(self, doc_id: str) -> bytes:
         self.download_calls.append(doc_id)
         if self.fail_at == "archive":
             raise EdinetRateLimitError("too many requests")
-        content = self.archives[doc_id]
-        with closing(open_connection(self.database)) as connection:
-            retain_source_archive(connection, doc_id, 5, content, stored_on=date(2026, 4, 24))
-        if self.reader.zip_by_doc_id is None:
-            self.reader.zip_by_doc_id = {}
-        self.reader.zip_by_doc_id[doc_id] = content
-        return content
+        return super().download_csv_zip(doc_id)
 
 
-def test_refresh_acquires_source_selected_archives_before_l2_reuse_and_quarantine(tmp_path) -> None:
+def test_refresh_acquires_source_selected_archives_before_l2_reuse_and_quarantine(
+    tmp_path, monkeypatch
+) -> None:
     asof = date(2026, 4, 24)
     db = tmp_path / "market.sqlite"
     documents = [
@@ -155,6 +131,15 @@ def test_refresh_acquires_source_selected_archives_before_l2_reuse_and_quarantin
         },
     )
 
+    native_edinet_store(tmp_path, monkeypatch, {asof: documents})
+    read_calls = []
+    read_csv = FixedEdinetArchives.read_csv_zip
+
+    def read(fixed, doc_id):
+        read_calls.append(doc_id)
+        return read_csv(fixed, doc_id)
+
+    monkeypatch.setattr(FixedEdinetArchives, "read_csv_zip", read)
     assert (
         refresh_edinet_metrics_command(
             asof_date=asof,
@@ -166,10 +151,10 @@ def test_refresh_acquires_source_selected_archives_before_l2_reuse_and_quarantin
         )
         == 0
     )
-    assert acquisition.list_calls == [asof]
     assert reader.list_calls == [asof]
     assert acquisition.download_calls == ["S100CURRENT2", "S100NEEDED", "S100REUSE"]
-    assert reader.read_calls == ["S100NEEDED"]
+    assert reader.read_calls == []
+    assert read_calls == ["S100NEEDED"]
     saved = read_edinet_metrics(db, asof)
     assert saved is not None
     assert saved["9682"].sales_ttm == 123.0
@@ -179,7 +164,9 @@ def test_refresh_acquires_source_selected_archives_before_l2_reuse_and_quarantin
 
 
 @pytest.mark.parametrize("fail_at", ["list", "archive"])
-def test_refresh_source_failure_preserves_previous_metrics(tmp_path, capsys, fail_at) -> None:
+def test_refresh_source_failure_preserves_previous_metrics(
+    tmp_path, monkeypatch, capsys, fail_at
+) -> None:
     asof = date(2026, 4, 24)
     db = tmp_path / "market.sqlite"
     store_edinet_metrics(
@@ -196,6 +183,9 @@ def test_refresh_source_failure_preserves_previous_metrics(tmp_path, capsys, fai
         fail_at=fail_at,
     )
 
+    store, _, _ = native_edinet_store(tmp_path, monkeypatch, {asof: acquisition.documents})
+    if fail_at == "list":
+        del store.values[HEAD_KEY]
     assert (
         refresh_edinet_metrics_command(
             asof_date=asof,
@@ -209,7 +199,7 @@ def test_refresh_source_failure_preserves_previous_metrics(tmp_path, capsys, fai
     )
     error = capsys.readouterr().err
     if fail_at == "list":
-        assert "EDINET source preparation failed: EdinetAcquisitionError" in error
+        assert "EDINET source preparation failed: LakePublishError" in error
         assert reader.list_calls == []
         assert acquisition.download_calls == []
     else:

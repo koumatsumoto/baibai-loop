@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 from tests.helpers.edinet_research_sources import FIXTURES, facts, source_zip
 from tests.helpers.http_doubles import FakeSession, response
-from tests.jobs.acquisition.test_edinet_archive_native_acquisition import DAY, setup
+from tests.jobs.acquisition.test_edinet_archive_native_acquisition import DAY, filing, setup
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
@@ -45,6 +45,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl im
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_facts_command,
@@ -584,18 +585,64 @@ def test_retained_annual_family_receives_later_corrections():
     assert {d["docID"] for d in selected} == {"S100TEST", "S100NEXT", "S100CORR"}
 
 
-def test_provider_raw_zip_cache_and_nonzip_rate_limit(tmp_path, monkeypatch):
-    session = FakeSession(response(b'{"StatusCode":429}'), response(source_zip()))
-    provider = EDINETRefresh("test-key", sqlite_path=tmp_path / "market.sqlite", session=session)
+def test_native_xbrl_acquisition_retries_rate_limit_and_reuses_raw_zip(tmp_path, monkeypatch):
+    owner, _, _, lists = setup(tmp_path, [filing("S100YR5P")])
+    old_file = tmp_path / "edinet/xbrl_zips/S100YR5P.zip"
+    old_file.parent.mkdir(parents=True)
+    old_file.write_bytes(b"obsolete non-ZIP file")
+    content = source_zip()
+    session = FakeSession(response(b'{"StatusCode":429}'), response(content))
     monkeypatch.setattr(
         "baibai_engine.data_collection.providers.edinet.http.time.sleep", lambda _: None
     )
-    data = provider.download_xbrl_zip("S100YR5P")
-    assert provider.download_xbrl_zip("S100YR5P") == data
-    assert len(session.calls) == 2
-    assert "type=1" in session.calls[-1]
-    with pytest.raises(EDINETProviderError):
-        provider.download_xbrl_zip("../secret")
+    with closing(
+        EDINETRefresh("test-key", sqlite_path=tmp_path / "absent.sqlite", session=session)
+    ) as provider:
+        for _ in range(2):
+            report = acquire_archives(
+                owner,
+                provider,
+                lists,
+                group="edinet-facts",
+                asof=DAY,
+                initialize_facts=True,
+                include_holder_archives=False,
+            )
+            assert report["status"] == "received"
+        assert owner.freeze().read_xbrl_zip("S100YR5P") == content
+        assert len(session.calls) == 2
+        assert "type=1" in session.calls[-1]
+        with pytest.raises(ValueError, match="normalized document id"):
+            provider.fetch_archive("../secret", 1)
+    assert old_file.read_bytes() == b"obsolete non-ZIP file"
+    assert not (tmp_path / "absent.sqlite").exists()
+
+
+@pytest.mark.parametrize("body", [b"invalid zip", b'{"StatusCode":401}', b'{"StatusCode":403}'])
+def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body):
+    owner, _, _, lists = setup(tmp_path, [filing("S100YR5P")])
+    old_file = tmp_path / "edinet/xbrl_zips/S100YR5P.zip"
+    old_file.parent.mkdir(parents=True)
+    old_file.write_bytes(source_zip())
+    session = FakeSession(response(body))
+    with closing(
+        EDINETRefresh("test-key", sqlite_path=tmp_path / "absent.sqlite", session=session)
+    ) as provider:
+        report = acquire_archives(
+            owner,
+            provider,
+            lists,
+            group="edinet-facts",
+            asof=DAY,
+            initialize_facts=True,
+            include_holder_archives=False,
+        )
+    assert report["status"] == "failed"
+    assert report["failed"] == [{"doc_id": "S100YR5P", "reason": "ValueError"}]
+    assert not owner.freeze().archive_keys
+    assert len(session.calls) == 1
+    assert old_file.read_bytes() == source_zip()
+    assert not (tmp_path / "absent.sqlite").exists()
 
 
 def test_store_keeps_vintages_and_coverage_reasons(tmp_path):

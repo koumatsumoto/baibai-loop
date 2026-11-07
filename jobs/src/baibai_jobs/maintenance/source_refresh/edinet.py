@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import os
 import zipfile
-from collections.abc import Mapping
 from contextlib import closing
-from datetime import UTC, date
+from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from baibai_engine.data_collection.providers.edinet.archive_native import (
     EdinetArchiveL1,
@@ -17,7 +15,6 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
     NativeArchive,
 )
 from baibai_engine.data_collection.providers.edinet.archives import (
-    read_source_archive,
     retain_source_archive,
 )
 from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
@@ -25,24 +22,13 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
     EdinetResponse,
 )
-from baibai_engine.data_collection.providers.edinet.receipts import (
-    read_list_responses,
-    retain_list_response,
-)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     parse_doc_id,
-)
-from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
-    rebuild_edinet_document_day,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-    safe_error_value,
-    text_or_none,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
-from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 if TYPE_CHECKING:
     import requests
@@ -96,76 +82,12 @@ class EDINETRefresh:
             self._http = EDINETHTTP(self._require_api_key(operation), session=self._session)
         return self._http
 
-    def list_documents(
-        self,
-        on_date: date,
-        *,
-        force_refresh: bool = False,
-    ) -> list[dict[str, Any]]:
-        from baibai_jobs.edinet_cutover import edinet_list_native_enabled
-
-        if edinet_list_native_enabled():
-            raise EdinetAcquisitionError(
-                "EDINET list writer moved to edinet-list-native; "
-                "acquire there before metric refresh or saved extraction"
-            )
-        sqlite_path = self._sqlite_path
-        if not force_refresh and sqlite_path.exists():
-            connection = connect_current(sqlite_path)
-            if connection is not None:
-                with closing(connection):
-                    receipts = read_list_responses(connection, doc_date=on_date)
-                if receipts:
-                    projection = rebuild_edinet_document_day(sqlite_path, on_date)
-                    if projection.error is None:
-                        return list(projection.documents)
-        received = self._http_client("list_documents").fetch_list(on_date)
-        with closing(open_connection(sqlite_path)) as connection:
-            retain_list_response(
-                connection,
-                doc_date=on_date,
-                received_at=received.received_at,
-                body=received.body,
-            )
-        projection = rebuild_edinet_document_day(sqlite_path, on_date)
-        if projection.error is not None:
-            raise EDINETProviderError(projection.error)
-        return list(projection.documents)
-
     def download_csv_zip(self, doc_id: str) -> bytes:
-        return self._download_document_zip(doc_id, source_type=5)
-
-    def download_xbrl_zip(self, doc_id: str) -> bytes:
-        return self._download_document_zip(doc_id, source_type=1)
+        return self._download_native_zip(parse_doc_id(doc_id), source_type=5)
 
     def fetch_archive(self, doc_id: str, source_type: int) -> EdinetResponse:
         """The native acquisition owner retains this actual response before L2 work."""
         return self._http_client("download_document_zip").fetch_archive(doc_id, source_type)
-
-    def _download_document_zip(self, doc_id: str, *, source_type: int) -> bytes:
-        safe_id = parse_doc_id(doc_id)
-        from baibai_jobs.edinet_cutover import edinet_list_native_enabled
-
-        if edinet_list_native_enabled():
-            return self._download_native_zip(safe_id, source_type=source_type)
-        source_name = "csv" if source_type == 5 else "xbrl"
-        if self._sqlite_path.exists():
-            with closing(connect_read_only(self._sqlite_path)) as connection:
-                retained = read_source_archive(connection, safe_id, source_type)
-            if retained is not None:
-                if not _is_zip_bytes(retained):
-                    raise EDINETProviderError(f"stored EDINET {source_name} archive is not a ZIP")
-                return retained
-        received = self._http_client("download_document_zip").fetch_archive(safe_id, source_type)
-        content = received.body
-        if not _is_zip_bytes(content):
-            raise EDINETProviderError(
-                f"EDINET {source_name.upper()} ZIP response was not a zip: "
-                f"{_non_zip_response_message(content)}"
-            )
-        return self._retain_document_zip(
-            safe_id, source_type, content, stored_on=received.received_at.astimezone(UTC).date()
-        )
 
     def _download_native_zip(self, doc_id: str, *, source_type: int) -> bytes:
         """Explicit metrics/facts/TOB refresh retains L1 before its SQL consumer copy."""
@@ -236,20 +158,3 @@ class EDINETRefresh:
 
 def _is_zip_bytes(content: bytes) -> bool:
     return zipfile.is_zipfile(io.BytesIO(content))
-
-
-def _non_zip_response_message(content: bytes) -> str:
-    try:
-        payload = json.loads(content.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return "zip_invalid"
-    if not isinstance(payload, Mapping):
-        return "zip_invalid"
-    raw_status = payload.get("StatusCode") or payload.get("statusCode") or payload.get("status")
-    status = str(raw_status) if raw_status not in (None, "") else None
-    message = text_or_none(payload.get("message")) or text_or_none(payload.get("Message"))
-    if status and message:
-        return f"StatusCode={status} message={safe_error_value(message)}"
-    if status:
-        return f"StatusCode={status}"
-    return "zip_invalid"

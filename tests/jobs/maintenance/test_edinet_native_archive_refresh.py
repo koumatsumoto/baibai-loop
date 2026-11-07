@@ -90,12 +90,16 @@ def test_unconfirmed_scope_never_changes_the_manual_sql_copy_or_starts_http(tmp_
     assert (tmp_path / "edinet-archive-work/pending.json").is_file()
 
 
+@pytest.mark.parametrize("native", ["true", "false", None])
 def test_explicit_tob_zip_refresh_publishes_original_before_sql_and_reuses_it(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, native
 ):
     owner, _, _, _ = setup(tmp_path, [])
     owner.store.close = Mock()
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    if native is None:
+        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     monkeypatch.setattr(
         "baibai_jobs.maintenance.source_refresh.edinet.Boto3R2Store", lambda **_: owner.store
     )

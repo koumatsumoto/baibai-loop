@@ -23,7 +23,6 @@ from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_jobs.integration.edinet_handoff import import_handoff
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.source_handoff import main as handoff_main
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 DAY = date(2026, 11, 2)
 AT = datetime(2026, 11, 2, tzinfo=UTC)
@@ -207,15 +206,6 @@ def test_unknown_legacy_receipt_blocks_materialization_without_dropping_anything
     with pytest.raises(ValueError, match="outside the fixed"):
         materialize_lists(owner.freeze(), database)
     assert database.read_bytes() == before
-
-
-def test_native_mode_stops_old_live_list_writer_before_http(tmp_path, native_mode):
-    with (
-        closing(EDINETRefresh("unused", sqlite_path=tmp_path / "market.sqlite")) as client,
-        pytest.raises(RuntimeError, match="writer moved"),
-    ):
-        client.list_documents(DAY)
-    assert not (tmp_path / "market.sqlite").exists()
 
 
 @pytest.mark.parametrize("native", ["true", "false", None])

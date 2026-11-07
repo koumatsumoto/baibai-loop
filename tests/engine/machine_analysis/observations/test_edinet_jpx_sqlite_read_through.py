@@ -14,6 +14,9 @@ from baibai_engine.data_collection.providers.edinet.receipts import retain_list_
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
 )
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    rebuild_edinet_document_day,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
     select_document_candidates,
 )
@@ -30,7 +33,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 
 def _add_source_coverage(
@@ -248,8 +250,8 @@ class JPXSQLiteReaderTests(unittest.TestCase):
             self.assertTrue(has_jpx_regulation_data(sqlite_path, date(2026, 4, 24)))
 
 
-class EDINETRefreshReadThroughTests(unittest.TestCase):
-    def test_list_documents_uses_sqlite_when_available(self) -> None:
+class EDINETSavedReadThroughTests(unittest.TestCase):
+    def test_rebuild_list_uses_saved_receipt_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sqlite_path = Path(tmp) / "cache" / "market.sqlite"
             conn = open_connection(sqlite_path)
@@ -269,13 +271,11 @@ class EDINETRefreshReadThroughTests(unittest.TestCase):
             )
             conn.close()
 
-            provider = EDINETRefresh("api-key", sqlite_path=sqlite_path)
-
             with patch(
                 "baibai_engine.data_collection.providers.edinet.http.requests.Session",
                 side_effect=AssertionError("offline replay attempted HTTP"),
             ):
-                docs = provider.list_documents(date(2026, 4, 24))
+                docs = rebuild_edinet_document_day(sqlite_path, date(2026, 4, 24)).documents
 
             self.assertEqual(len(docs), 1)
             self.assertEqual(docs[0]["docID"], "S100B")

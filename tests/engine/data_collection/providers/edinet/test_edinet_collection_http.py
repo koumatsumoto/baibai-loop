@@ -286,54 +286,33 @@ def test_provider_creates_http_only_when_acquiring_and_closes_owned_session(tmp_
     created: list[Session] = []
 
     def new_session() -> Session:
-        session = Session(response(b'{"metadata":{"resultset":{"count":0}},"results":[]}'))
+        session = Session(response(b"source archive"))
         created.append(session)
         return session
 
     monkeypatch.setattr(http.requests, "Session", new_session)
     provider = EDINETRefresh(KEY, sqlite_path=tmp_path / "market.sqlite")
     assert created == []
-    assert provider.list_documents(DAY) == []
+    assert provider.fetch_archive("S100TEST", 5).body == b"source archive"
     assert len(created) == 1
     provider.close()
     provider.close()
     assert created[0].close_count == 1
 
 
-def test_refresh_rebuilds_saved_list_without_creating_http_session(tmp_path, monkeypatch):
+def test_unused_provider_closes_without_creating_http_session(tmp_path, monkeypatch):
     def unexpected_session() -> None:
-        pytest.fail("read-only EDINET path constructed an HTTP session")
+        pytest.fail("unused EDINET refresh constructed an HTTP session")
 
     monkeypatch.setattr(http.requests, "Session", unexpected_session)
-    sqlite_path = tmp_path / "market.sqlite"
-    from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
-    from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-
-    connection = open_connection(sqlite_path)
-    try:
-        retain_list_response(
-            connection,
-            doc_date=DAY,
-            received_at=datetime(2026, 10, 14, 12, tzinfo=UTC),
-            body=b'{"metadata":{"resultset":{"count":1}},"results":[{"seqNumber":1,"docID":"S100TEST"}]}',
-        )
-    finally:
-        connection.close()
-    provider = EDINETRefresh(KEY, sqlite_path=sqlite_path)
-    documents = provider.list_documents(DAY)
-    assert len(documents) == 1
-    assert {key: documents[0][key] for key in ("seqNumber", "docID", "doc_date")} == {
-        "seqNumber": 1,
-        "docID": "S100TEST",
-        "doc_date": DAY.isoformat(),
-    }
+    provider = EDINETRefresh(KEY, sqlite_path=tmp_path / "market.sqlite")
     provider.close()
 
 
 def test_provider_does_not_close_injected_session_after_acquisition(tmp_path):
-    session = Session(response(b'{"metadata":{"resultset":{"count":0}},"results":[]}'))
+    session = Session(response(b"source archive"))
     provider = EDINETRefresh(KEY, session=session, sqlite_path=tmp_path / "market.sqlite")
-    assert provider.list_documents(DAY) == []
+    assert provider.fetch_archive("S100TEST", 5).body == b"source archive"
     provider.close()
     assert session.close_count == 0
 

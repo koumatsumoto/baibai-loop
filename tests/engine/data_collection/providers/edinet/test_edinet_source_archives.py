@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pyarrow.parquet as pq
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_native import native_edinet_store
 from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -55,12 +56,8 @@ def _retain_stored_archive(path, doc_id, source_type, content, *, stored_on):
         return retain_source_archive(connection, doc_id, source_type, content, stored_on=stored_on)
 
 
-@pytest.mark.parametrize(
-    ("source_type", "method"), [(1, "download_xbrl_zip"), (5, "download_csv_zip")]
-)
-def test_downloaded_bytes_are_available_from_selected_store_without_http(
-    tmp_path, source_type, method
-):
+def test_downloaded_bytes_are_available_from_selected_store_without_http(tmp_path, monkeypatch):
+    native_edinet_store(tmp_path, monkeypatch)
     content = _zip(b"original units, missing facts, and unselected fields")
     reply = response(content)
     provider = EDINETRefresh(
@@ -68,30 +65,22 @@ def test_downloaded_bytes_are_available_from_selected_store_without_http(
         session=FakeSession(reply),
         sqlite_path=tmp_path / "market.sqlite",
     )
-    assert getattr(provider, method)("S100TEST") == content
+    assert provider.download_csv_zip("S100TEST") == content
     assert reply.close_count == 1
-    assert _read_stored_archive(tmp_path / "market.sqlite", "S100TEST", source_type) == content
+    assert _read_stored_archive(tmp_path / "market.sqlite", "S100TEST", 5) == content
     offline = EDINETRefresh(
         None,
         session=ExplodingSession(),
         sqlite_path=tmp_path / "market.sqlite",
     )
-    assert getattr(offline, method)("S100TEST") == content
+    assert offline.download_csv_zip("S100TEST") == content
 
 
-@pytest.mark.parametrize(
-    ("kind", "source_type", "method"),
-    [
-        ("csv", 5, "download_csv_zip"),
-        ("xbrl", 1, "download_xbrl_zip"),
-    ],
-)
-def test_old_local_zip_is_ignored_and_response_bytes_use_capture_date(
-    tmp_path, monkeypatch, kind, source_type, method
-):
+def test_old_local_zip_is_ignored_and_response_bytes_use_capture_date(tmp_path, monkeypatch):
+    native_edinet_store(tmp_path, monkeypatch)
     old_content = _zip(b"old machine's archive")
     content = _zip(b"selected store's new response")
-    cache = tmp_path / "cache" / "edinet" / f"{kind}_zips" / "S100TEST.zip"
+    cache = tmp_path / "cache" / "edinet" / "csv_zips" / "S100TEST.zip"
     cache.parent.mkdir(parents=True)
     cache.write_bytes(old_content)
     captured = datetime(2026, 2, 3, 23, 59, tzinfo=UTC)
@@ -109,31 +98,29 @@ def test_old_local_zip_is_ignored_and_response_bytes_use_capture_date(
         session=session,
         sqlite_path=path,
     )
-    assert getattr(provider, method)("S100TEST") == content
+    assert provider.download_csv_zip("S100TEST") == content
     assert len(session.calls) == 1
-    assert _read_stored_archive(path, "S100TEST", source_type) == content
+    assert _read_stored_archive(path, "S100TEST", 5) == content
     with closing(sqlite3.connect(path)) as connection:
         assert connection.execute(
             "SELECT stored_on FROM edinet_source_archives WHERE doc_id = ? AND source_type = ?",
-            ("S100TEST", source_type),
+            ("S100TEST", 5),
         ).fetchone() == ("2026-02-03",)
     assert cache.read_bytes() == old_content
 
 
-@pytest.mark.parametrize(
-    ("kind", "method"), [("csv", "download_csv_zip"), ("xbrl", "download_xbrl_zip")]
-)
-def test_failed_archive_fetch_does_not_import_old_local_zip(tmp_path, kind, method):
+def test_failed_archive_fetch_does_not_import_old_local_zip(tmp_path, monkeypatch):
+    native_edinet_store(tmp_path, monkeypatch)
     old_content = _zip(b"old machine's archive")
-    cache = tmp_path / "cache" / "edinet" / f"{kind}_zips" / "S100TEST.zip"
+    cache = tmp_path / "cache" / "edinet" / "csv_zips" / "S100TEST.zip"
     cache.parent.mkdir(parents=True)
     cache.write_bytes(old_content)
     path = tmp_path / "selected.sqlite"
     provider = EDINETRefresh(
         "test-key", sqlite_path=path, session=FakeSession(response(b"not a ZIP"))
     )
-    with pytest.raises(EDINETProviderError, match="not a zip"):
-        getattr(provider, method)("S100TEST")
+    with pytest.raises(EDINETProviderError, match="not a ZIP"):
+        provider.download_csv_zip("S100TEST")
     assert cache.read_bytes() == old_content
     assert not path.exists()
 
@@ -266,7 +253,8 @@ def test_binary_source_archives_survive_lake_export_and_hydration(tmp_path, monk
         assert _read_stored_archive(target, "S100TEST", source_type) == content
 
 
-def test_existing_broken_store_is_not_treated_as_a_network_cache_miss(tmp_path):
+def test_existing_broken_store_is_not_treated_as_a_network_cache_miss(tmp_path, monkeypatch):
+    native_edinet_store(tmp_path, monkeypatch)
     path = tmp_path / "market.sqlite"
     path.write_bytes(b"not a SQLite database")
     provider = EDINETRefresh(
@@ -279,7 +267,8 @@ def test_existing_broken_store_is_not_treated_as_a_network_cache_miss(tmp_path):
     assert path.read_bytes() == b"not a SQLite database"
 
 
-def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
+def test_non_zip_response_cannot_replace_retained_inputs(tmp_path, monkeypatch):
+    native_edinet_store(tmp_path, monkeypatch)
     path = tmp_path / "market.sqlite"
     original = _zip(b"retained filing")
     _retain_stored_archive(path, "S100KEPT", 5, original, stored_on=date(2026, 1, 1))
@@ -288,7 +277,7 @@ def test_non_zip_response_cannot_replace_retained_inputs(tmp_path):
         session=FakeSession(response(b"not a ZIP")),
         sqlite_path=path,
     )
-    with pytest.raises(EDINETProviderError, match="not a zip"):
+    with pytest.raises(EDINETProviderError, match="not a ZIP"):
         provider.download_csv_zip("S100BAD")
     assert _read_stored_archive(path, "S100KEPT", 5) == original
     assert _read_stored_archive(path, "S100BAD", 5) is None

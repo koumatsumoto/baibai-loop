@@ -8,7 +8,6 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
-from tests.helpers.http_doubles import FakeSession, json_response
 
 from baibai_engine.data_collection.providers.edinet.receipts import (
     read_list_responses,
@@ -22,7 +21,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 12, tzinfo=UTC)
@@ -77,7 +75,7 @@ def test_offline_rebuild_uses_raw_receipt_over_derived_state(tmp_path, derived_s
     assert _coverage(path) == ("ok", 1)
 
 
-def test_pending_malformed_receipt_blocks_old_success_until_valid_acquisition(tmp_path):
+def test_pending_malformed_receipt_blocks_old_success_until_valid_receipt(tmp_path):
     path = tmp_path / "market.sqlite"
     valid = b'{"metadata":{"resultset":{"count":1}},"results":[{"seqNumber":1,"docID":"S100GOOD"}]}'
     _retain(path, valid, seconds=1)
@@ -89,19 +87,10 @@ def test_pending_malformed_receipt_blocks_old_success_until_valid_acquisition(tm
     assert _coverage(path) == ("failed", 1)
     assert read_edinet_documents(path, DAY) is None
 
-    acquired = EDINETRefresh(
-        "key",
-        sqlite_path=path,
-        session=FakeSession(
-            json_response(
-                {
-                    "metadata": {"resultset": {"count": 1}},
-                    "results": [{"seqNumber": 1, "docID": "S100GOOD"}],
-                }
-            )
-        ),
-    )
-    assert [item["docID"] for item in acquired.list_documents(DAY)] == ["S100GOOD"]
+    _retain(path, valid, seconds=3)
+    assert [item["docID"] for item in rebuild_edinet_document_day(path, DAY).documents] == [
+        "S100GOOD"
+    ]
     assert _coverage(path) == ("ok", 1)
     with closing(open_connection(path)) as connection:
         assert len(read_list_responses(connection, doc_date=DAY)) == 3
