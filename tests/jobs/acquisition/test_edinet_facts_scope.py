@@ -11,7 +11,10 @@ import pytest
 from tests.helpers.edinet_metrics import _edinet_document
 from tests.helpers.edinet_research_sources import source_zip
 
-from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.archives import (
+    read_source_archive,
+    retain_source_archive,
+)
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
     FactsScope,
     merge_scope,
@@ -33,7 +36,6 @@ from baibai_engine.storage.sqlite.source_cache.facts_scope_upgrade import (
     upgrade_facts_scope_working_copy,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
-from baibai_jobs.acquisition.edinet_archives import acquire_archives
 from baibai_jobs.acquisition.edinet_fact_plan import prepare_fact_acquisition
 from baibai_jobs.acquisition.inputs import export_source_input
 from baibai_jobs.integration.edinet_handoff import export_handoff, import_handoff
@@ -102,7 +104,7 @@ def legacy(path, *, initialized='{"since":"2025-01-01"}', ids=("S100OLD", "S100L
 
 
 @pytest.mark.parametrize("raw_only", [False, True])
-def test_migration_keeps_scope_and_all_originals_then_l2_cannot_change_gets(tmp_path, raw_only):
+def test_migration_keeps_scope_and_all_originals_independently_of_l2(tmp_path, raw_only):
     old, new = tmp_path / "old.sqlite", tmp_path / "new.sqlite"
     legacy(old)
     if raw_only:
@@ -129,19 +131,16 @@ def test_migration_keeps_scope_and_all_originals_then_l2_cannot_change_gets(tmp_
         connection.execute(
             "INSERT INTO source_coverage VALUES ('edinet_research_facts','initialized',NULL,NULL,'bad',0,'ok','not-json')"
         )
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        http.return_value.fetch_archive.return_value = EdinetResponse(
-            received_at=AT, body=source_zip()
-        )
-        report = acquire_archives(
-            new, group="edinet-facts", asof=DAY, api_key="synthetic", retained=set()
-        )
-        assert report["status"] == "received"
-        assert [call.args for call in http.return_value.fetch_archive.call_args_list] == [
-            ("S100OLD", 1),
-            ("S100SINCE", 1),
-            ("S100LATEST", 1),
-        ]
+    selected = prepare_fact_acquisition(new, asof=DAY)
+    assert {doc["docID"] for doc in selected} == (
+        {"S100OLD", "S100SINCE", "S100LATEST"} | ({"S100UNRELATED"} if raw_only else set())
+    )
+    # Arrival of retained originals is independent of the migrated L2 status.
+    with closing(open_connection(new)) as connection:
+        for document in selected:
+            doc_id = document["docID"]
+            if read_source_archive(connection, doc_id, 1) is None:
+                retain_source_archive(connection, doc_id, 1, source_zip(), stored_on=DAY)
     before_scope = scope(new)
     with sqlite3.connect(new) as connection:
         connection.execute("DELETE FROM edinet_segment_facts")
