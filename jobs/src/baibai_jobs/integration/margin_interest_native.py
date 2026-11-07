@@ -6,11 +6,12 @@ import argparse
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import JsonValue
 
@@ -23,15 +24,18 @@ from baibai_engine.data_collection.providers.jquants.margin_interest_native impo
     MarginInterestL1,
     balance_days,
     read_margin_interest_requests,
+    verify_migrated_margin_interest_receipts,
 )
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_BALANCE_DATE,
     LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
+    WEEKLY_BALANCE_LOOKBACK_DAYS,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
     INPUT_FORMAT,
+    margin_interest_input_interval,
     read_margin_interest_input,
     retain_margin_interest_input,
 )
@@ -45,13 +49,19 @@ from baibai_engine.machine_analysis.observations.trading_activity.jquants_contra
     all_issues_daily_margin_coverage_key,
     weekly_margin_coverage_key,
 )
+from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
+    JQUANTS_ALL_ISSUES_DAILY_MARGIN,
+    JQUANTS_WEEKLY_MARGIN,
+)
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+from baibai_engine.storage.snapshots.models import DatasetManifest
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.calendar_native import fixed_input as fixed_calendar_input
 from baibai_jobs.integration.calendar_native import materialize_saved_input as materialize_calendar
+from baibai_jobs.integration.native_projection_cache import verified_cached_scopes
 
 
 def _days(start: date, end: date) -> tuple[date, ...]:
@@ -170,6 +180,47 @@ def materialize_saved_input(
     summary = descriptor["summary"]
     if not isinstance(summary, dict):
         raise ValueError("margin input requires its selection summary")
+    calendar = InputSnapshot.model_validate(summary["calendar_input"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("xb"):
+        pass
+    try:
+        with closing(open_connection(output)):
+            pass
+        calendar_result = materialize_calendar(store, calendar, market=output, days=days)
+        with closing(open_connection(output)) as connection, connection:
+            result = _project_selection(
+                store,
+                saved,
+                connection,
+                output=output,
+                start=start,
+                end=end,
+                calendar_result=calendar_result,
+            )
+    except BaseException:
+        output.unlink(missing_ok=True)
+        raise
+    return result
+
+
+def _project_selection(
+    store: ObjectStore,
+    saved: InputSnapshot,
+    connection: sqlite3.Connection,
+    *,
+    output: Path,
+    start: date,
+    end: date,
+    calendar_result: dict[str, Any],
+    reusable: frozenset[date] = frozenset(),
+) -> dict[str, Any]:
+    """Reuse proven rows only; coverage always follows the fixed calendar and clock."""
+    days = _days(start, end)
+    descriptor = _descriptor(saved)
+    summary = descriptor["summary"]
+    if not isinstance(summary, dict):
+        raise ValueError("margin input requires its selection summary")
     stamp = summary.get("evaluated_at")
     raw_expected = summary.get("expected_days")
     if not isinstance(stamp, str) or not isinstance(raw_expected, list):
@@ -181,7 +232,6 @@ def materialize_saved_input(
         evaluated_at.astimezone(timezone(timedelta(hours=9))).date()
         >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
     )
-    calendar = InputSnapshot.model_validate(summary["calendar_input"])
     selected = read_margin_interest_input(store, descriptor, days=days)
     scopes = selected["scopes"]
     _validate_clock(scopes, evaluated_at)
@@ -191,121 +241,262 @@ def materialize_saved_input(
         if isinstance(day, str) and start.isoformat() <= day <= end.isoformat()
     }
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("xb"):
-        pass
-    try:
-        with closing(open_connection(output)):
-            pass
-        calendar_result = materialize_calendar(store, calendar, market=output, days=days)
-        with closing(open_connection(output)) as connection:
-            connection.execute("BEGIN")
-            found, unsupported = set(), set()
-            for item in read_margin_interest_requests(
-                store, scopes=scopes, receipts=selected["receipts"], days=days
-            ):
-                if item.last_received_at is not None and item.last_received_at > evaluated_at:
-                    raise ValueError("margin original is later than the evaluation clock")
-                if (day := adopted.get(item.request_id)) is None:
-                    continue
-                if item.request is None or item.error is not None:
-                    raise ValueError("adopted margin original is incomplete")
-                request = item.request
-                if (
-                    request.source != "margin_interest"
-                    or set(request.params) != {"date"}
-                    or date.fromisoformat(request.params["date"]) != date.fromisoformat(day)
-                ):
-                    raise ValueError("margin original differs from its fixed balance day")
-                found.add(item.request_id)
-                balance = date.fromisoformat(day)
-                if _coverage(balance) is None:
-                    unsupported.add(day)
-                    continue
-                fetched_at = scopes[day].get("confirmed_at") or request.received_at.isoformat()
-                if balance <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
-                    store_jquants_weekly_margin(
-                        output,
-                        request.records(),
-                        week_end=balance,
-                        fetched_at_utc=fetched_at,
-                        connection=connection,
-                    )
-                else:
-                    store_jquants_all_issues_daily_margin(
-                        output,
-                        request.records(),
-                        balance_date=balance,
-                        fetched_at_utc=fetched_at,
-                        connection=connection,
-                    )
-            if found != set(adopted):
-                raise ValueError("margin selection lacks an adopted original")
-            required = expected | {day for day, scope in scopes.items() if scope}
-            unresolved = []
-            for day in sorted(required):
-                scope = scopes[day]
-                contract = _coverage(date.fromisoformat(day))
-                if contract is None:
-                    unsupported.add(day)
-                    continue
-                source, key = contract
-                if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
-                    query = (
-                        "SELECT COUNT(*) FROM jquants_weekly_margin WHERE week_end=?"
-                        if source == WEEKLY_MARGIN_SOURCE
-                        else "SELECT COUNT(*) FROM jquants_all_issues_daily_margin "
-                        "WHERE balance_date=?"
-                    )
-                    count = connection.execute(query, (day,)).fetchone()[0]
-                    record_source_coverage(
-                        connection,
-                        source=source,
-                        coverage_key=key,
-                        coverage_start=day,
-                        coverage_end=day,
-                        record_count=count,
-                        status="partial" if scope.get("adopted") else "unavailable",
-                        error="native acquisition unresolved",
-                        fetched_at_utc=scope.get("last_attempt_at") or evaluated_at.isoformat(),
-                    )
-                row = connection.execute(
-                    "SELECT status,record_count FROM source_coverage "
-                    "WHERE source=? AND coverage_key=?",
-                    (source, key),
-                ).fetchone()
-                if (
-                    row is None
-                    or row[0] != "ok"
-                    or (source == ALL_ISSUES_DAILY_MARGIN_SOURCE and not row[1])
-                    or (
-                        day == LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()
-                        and final_week_due
-                        and not scope.get("record_count")
-                    )
-                ):
-                    unresolved.append(day)
-            result = {
-                "weekly_rows": connection.execute(
-                    "SELECT COUNT(*) FROM jquants_weekly_margin"
-                ).fetchone()[0],
-                "daily_rows": connection.execute(
-                    "SELECT COUNT(*) FROM jquants_all_issues_daily_margin"
-                ).fetchone()[0],
-                "expected_balance_days": len(expected),
-                "unresolved_days": unresolved,
-                "unsupported_days": sorted(unsupported),
-                "calendar_unavailable_days": calendar_result["unavailable_days"],
-                "coverage_status": "partial"
-                if unresolved or unsupported or calendar_result["coverage_status"] != "complete"
-                else "complete",
-                "input_sha256": saved.sha256,
-            }
-            connection.commit()
-    except BaseException:
-        output.unlink(missing_ok=True)
-        raise
-    return result
+    changed = tuple(day for day in days if day not in reusable)
+    for table, column in (
+        ("jquants_weekly_margin", "week_end"),
+        ("jquants_all_issues_daily_margin", "balance_date"),
+    ):
+        connection.executemany(
+            f"DELETE FROM {table} WHERE {column}=?",  # nosec B608 -- fixed owner tables
+            ((day.isoformat(),) for day in changed),
+        )
+    for cached_day in sorted(reusable):
+        contract = _coverage(cached_day)
+        assert contract is not None
+        source, key = contract
+        table, column = (
+            ("jquants_weekly_margin", "week_end")
+            if source == WEEKLY_MARGIN_SOURCE
+            else ("jquants_all_issues_daily_margin", "balance_date")
+        )
+        count = connection.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE {column}=?",  # nosec B608
+            (cached_day.isoformat(),),
+        ).fetchone()[0]
+        record_source_coverage(
+            connection,
+            source=source,
+            coverage_key=key,
+            coverage_start=cached_day.isoformat(),
+            coverage_end=cached_day.isoformat(),
+            record_count=count,
+            status="ok",
+            error=None,
+            fetched_at_utc=scopes[cached_day.isoformat()]["confirmed_at"],
+        )
+    found, unsupported = set(), set()
+    for item in read_margin_interest_requests(
+        store, scopes=scopes, receipts=selected["receipts"], days=changed
+    ):
+        if item.last_received_at is not None and item.last_received_at > evaluated_at:
+            raise ValueError("margin original is later than the evaluation clock")
+        if (day := adopted.get(item.request_id)) is None:
+            continue
+        if item.request is None or item.error is not None:
+            raise ValueError("adopted margin original is incomplete")
+        request = item.request
+        if (
+            request.source != "margin_interest"
+            or set(request.params) != {"date"}
+            or date.fromisoformat(request.params["date"]) != date.fromisoformat(day)
+        ):
+            raise ValueError("margin original differs from its fixed balance day")
+        found.add(item.request_id)
+        balance = date.fromisoformat(day)
+        if _coverage(balance) is None:
+            unsupported.add(day)
+            continue
+        fetched_at = scopes[day].get("confirmed_at") or request.received_at.isoformat()
+        if balance <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
+            store_jquants_weekly_margin(
+                output,
+                request.records(),
+                week_end=balance,
+                fetched_at_utc=fetched_at,
+                connection=connection,
+            )
+        else:
+            store_jquants_all_issues_daily_margin(
+                output,
+                request.records(),
+                balance_date=balance,
+                fetched_at_utc=fetched_at,
+                connection=connection,
+            )
+    if found != {
+        identity for identity, day in adopted.items() if date.fromisoformat(day) not in reusable
+    }:
+        raise ValueError("margin selection lacks an adopted original")
+    required = expected | {day for day, scope in scopes.items() if scope}
+    unresolved = []
+    for day in sorted(required):
+        scope = scopes[day]
+        contract = _coverage(date.fromisoformat(day))
+        if contract is None:
+            unsupported.add(day)
+            continue
+        source, key = contract
+        if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
+            query = (
+                "SELECT COUNT(*) FROM jquants_weekly_margin WHERE week_end=?"
+                if source == WEEKLY_MARGIN_SOURCE
+                else "SELECT COUNT(*) FROM jquants_all_issues_daily_margin WHERE balance_date=?"
+            )
+            count = connection.execute(query, (day,)).fetchone()[0]
+            record_source_coverage(
+                connection,
+                source=source,
+                coverage_key=key,
+                coverage_start=day,
+                coverage_end=day,
+                record_count=count,
+                status="partial" if scope.get("adopted") else "unavailable",
+                error="native acquisition unresolved",
+                fetched_at_utc=scope.get("last_attempt_at") or evaluated_at.isoformat(),
+            )
+        row = connection.execute(
+            "SELECT status,record_count FROM source_coverage WHERE source=? AND coverage_key=?",
+            (source, key),
+        ).fetchone()
+        if (
+            row is None
+            or row[0] != "ok"
+            or (source == ALL_ISSUES_DAILY_MARGIN_SOURCE and not row[1])
+            or (
+                day == LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat()
+                and final_week_due
+                and not scope.get("record_count")
+            )
+        ):
+            unresolved.append(day)
+    return {
+        "weekly_rows": connection.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone()[
+            0
+        ],
+        "daily_rows": connection.execute(
+            "SELECT COUNT(*) FROM jquants_all_issues_daily_margin"
+        ).fetchone()[0],
+        "expected_balance_days": len(expected),
+        "unresolved_days": unresolved,
+        "unsupported_days": sorted(unsupported),
+        "calendar_unavailable_days": calendar_result["unavailable_days"],
+        "coverage_status": "partial"
+        if unresolved or unsupported or calendar_result["coverage_status"] != "complete"
+        else "complete",
+        "weekly_coverage_status": "partial"
+        if any(day <= LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat() for day in unresolved)
+        or unsupported
+        or calendar_result["coverage_status"] != "complete"
+        else "complete",
+        "daily_coverage_status": "partial"
+        if any(day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE.isoformat() for day in unresolved)
+        or unsupported
+        or calendar_result["coverage_status"] != "complete"
+        else "complete",
+        "input_sha256": saved.sha256,
+    }
+
+
+def model_input(
+    store: ObjectStore,
+    fixed: FixedMarginInterestL1,
+    calendar: FixedCalendarL1,
+    *,
+    as_of: date,
+    evaluated_at: datetime,
+    market: Path,
+    mirror_root: Path,
+    previous: dict[str, DatasetManifest] | None = None,
+) -> InputSnapshot:
+    """Project all retained balances from fixed L1; old L2 is optional acceleration."""
+    head = fixed.value()
+    retained = [date.fromisoformat(day) for day in head["scopes"]]
+    first = min([as_of - timedelta(days=WEEKLY_BALANCE_LOOKBACK_DAYS), *retained])
+    last = max([as_of, *retained])
+    saved = fixed_input(store, fixed, calendar, start=first, end=last, evaluated_at=evaluated_at)
+    days = _days(first, last)
+    scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
+    reusable: set[date] = set()
+    for dataset in (JQUANTS_WEEKLY_MARGIN, JQUANTS_ALL_ISSUES_DAILY_MARGIN):
+        cached = verified_cached_scopes(
+            store,
+            (previous or {}).get(dataset.name),
+            market=market,
+            mirror_root=mirror_root,
+            dataset=dataset,
+            namespace="jquants-margin-interest",
+            input_format=INPUT_FORMAT,
+            read_scopes=lambda descriptor: cast(
+                dict[str, Any],
+                read_margin_interest_input(
+                    store,
+                    descriptor,
+                    days=_days(*margin_interest_input_interval(store, descriptor)),
+                )["scopes"],
+            ),
+        )
+        reusable.update(
+            day
+            for day in days
+            if (
+                day <= LEGACY_WEEKLY_LAST_BALANCE_DATE
+                if dataset == JQUANTS_WEEKLY_MARGIN
+                else day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE
+            )
+            and scopes[day.isoformat()].get("adopted")
+            and scopes[day.isoformat()].get("adopted")
+            == cached.get(day.isoformat(), {}).get("adopted")
+        )
+    summary = _descriptor(saved)["summary"]
+    assert isinstance(summary, dict)
+    calendar_result = materialize_calendar(
+        store,
+        InputSnapshot.model_validate(summary["calendar_input"]),
+        market=market,
+        days=days,
+        replace_all=False,
+    )
+    with closing(open_connection(market)) as connection, connection:
+        retained_ids = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT DISTINCT request_id FROM jquants_source_pages "
+                "WHERE source='margin_interest'"
+            )
+        )
+        verify_migrated_margin_interest_receipts(
+            connection,
+            retained_ids,
+            {identity: receipt["fingerprint"] for identity, receipt in head["receipts"].items()},
+        )
+        connection.execute("DELETE FROM jquants_source_pages WHERE source='margin_interest'")
+        connection.execute(
+            "DELETE FROM source_coverage WHERE source IN (?,?)",
+            (WEEKLY_MARGIN_SOURCE, ALL_ISSUES_DAILY_MARGIN_SOURCE),
+        )
+        for table, column in (
+            ("jquants_weekly_margin", "week_end"),
+            ("jquants_all_issues_daily_margin", "balance_date"),
+        ):
+            connection.execute(
+                f"DELETE FROM {table} WHERE {column} < ? OR {column} > ?",  # nosec B608
+                (first.isoformat(), last.isoformat()),
+            )
+        result = _project_selection(
+            store,
+            saved,
+            connection,
+            output=market,
+            start=first,
+            end=last,
+            calendar_result=calendar_result,
+            reusable=frozenset(reusable),
+        )
+    descriptor = dict(_descriptor(saved))
+    descriptor["summary"] = {
+        **summary,
+        **{
+            name: result[name]
+            for name in ("coverage_status", "weekly_coverage_status", "daily_coverage_status")
+        },
+    }
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    return InputSnapshot(
+        kind="native_l1",
+        reference="jquants-margin-interest-" + digest,
+        sha256=digest,
+        descriptor=descriptor,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

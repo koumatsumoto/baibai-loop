@@ -13,6 +13,7 @@ EQUITY_WEB_SOURCE_RESPONSES = LakeDataset(
     layer="l1_source",
     sqlite_table="equity_web_source_responses",
     date_column="received_on",
+    object_date_grain="day",
     coverage_authority="unproven",
     population_column=None,
     columns=(

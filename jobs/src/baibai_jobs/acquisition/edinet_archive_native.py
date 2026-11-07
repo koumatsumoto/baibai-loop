@@ -55,6 +55,7 @@ def acquire_archives(
     lookback_days: int = 540,
     initialize_facts: bool = False,
     tickers: tuple[str, ...] = (),
+    include_holder_archives: bool = True,
 ) -> dict[str, object]:
     if group not in {"edinet-metrics", "edinet-facts"}:
         raise ValueError("unsupported EDINET archive group")
@@ -73,6 +74,7 @@ def acquire_archives(
             "lookback_days": lookback_days,
             "initialize_facts": initialize_facts,
             "tickers": list(tickers),
+            "include_holder_archives": include_holder_archives,
             "list_head": lists.value(),
             "archive_head": fixed.value(),
         },
@@ -111,13 +113,15 @@ def acquire_archives(
             documents = [
                 (str(doc["docID"]), 1) for doc in (selected or []) if needs_archive(doc, asof=asof)
             ]
-            try:
-                holder_pending, quarantined = holder_archive_candidates(
-                    database, asof=asof, retained=retained
-                )
-            except (sqlite3.Error, EDINETProviderError, ValueError, OSError):
-                holder_pending, quarantined = [], 0
-                holder_planning_failed = True
+            holder_pending: list[str] = []
+            quarantined = 0
+            if include_holder_archives:
+                try:
+                    holder_pending, quarantined = holder_archive_candidates(
+                        database, asof=asof, retained=retained
+                    )
+                except (sqlite3.Error, EDINETProviderError, ValueError, OSError):
+                    holder_planning_failed = True
             holder_ids = set(holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
             documents.extend((doc_id, 1) for doc_id in holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
             report.update(

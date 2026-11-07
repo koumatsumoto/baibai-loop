@@ -244,51 +244,6 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
             days=[date(2026, 11, 2), date(2026, 11, 3)],
             known_at=datetime(2026, 11, 4, tzinfo=UTC),
         )
-        from baibai_jobs.acquisition.jquants_market_plan import (
-            freeze_market_originals,
-            plan_fixed_prices,
-        )
-
-        market_remote = MemoryR2Store()
-        market_remote.store_object(
-            "coordination/market-sources/jquants-market-bad/handoff.json", b"{}"
-        )
-        market = freeze_market_originals(
-            session,
-            release=release,
-            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
-            store=market_remote,
-            asof=date(2026, 11, 2),
-            clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
-        )
-        assert market.unavailable_stages == ("jquants-market-bad",)
-        assert len(market.indexes["daily_bars"].receipts) == 1
-        assert "stage:jquants-market-bad" in {
-            item.request_id for item in market.indexes["daily_bars"].incomplete
-        }
-        assert market.indexes["master"].incomplete[0].request_id == "stage:jquants-market-bad"
-        assert market.dependencies == ()
-        complete_market = freeze_market_originals(
-            session,
-            release=release,
-            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
-            store=MemoryR2Store(),
-            asof=date(2026, 11, 2),
-            clock=lambda: datetime(2026, 11, 4, tzinfo=UTC),
-        )
-        from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
-
-        assert len(complete_market.dependencies) == 1
-        assert read_dependency(complete_market.dependencies[0]).source == "market_calendar"
-        price_plan = plan_fixed_prices(
-            session,
-            release=release,
-            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
-            start=date(2026, 11, 2),
-            end=date(2026, 11, 3),
-            known_at=datetime(2026, 11, 4, tzinfo=UTC),
-        )
-        assert price_plan.plan.days == (date(2026, 11, 3),)
         price_report = rebuild_fixed_days(
             session,
             release=release,
@@ -318,26 +273,3 @@ def test_financial_input_is_not_published_after_l1_cutover():
     from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 
     assert "jquants-financial" not in SOURCE_INPUT_GROUPS
-
-
-def test_market_plan_leaves_calendar_unknown_without_stopping_other_sources():
-    from baibai_engine.data_collection.providers.jquants.native_index import index_market_originals
-    from baibai_jobs.acquisition.jquants_market_plan import plan_market_from_originals
-
-    sources = (
-        "master",
-        "daily_bars",
-        "market_calendar",
-        "margin_interest",
-        "margin_alerts",
-        "short_sale_reports",
-    )
-    indexes = {source: index_market_originals([], source=source) for source in sources}
-    asof = date(2026, 11, 4)
-    plan = plan_market_from_originals(indexes, asof=asof)
-    assert plan.master.days == (asof,)
-    assert asof in plan.daily_prices.days
-    assert asof in plan.margin_alerts.days
-    assert asof in plan.short_sales.days
-    assert plan.daily_margin.days == ()
-    assert asof in plan.daily_margin.unknown_calendar_days

@@ -235,6 +235,9 @@ def test_old_mixed_stage_master_is_verified_but_does_not_block_other_source_proj
     from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
 
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     page = JQuantsPage("master", {"date": DAY.isoformat()}, AT, body([]))
     old = MasterAttempt("old-empty", DAY, None, (page,))
     owner = MasterL1(store, tmp_path / "native")
@@ -274,7 +277,15 @@ def test_old_mixed_stage_master_is_verified_but_does_not_block_other_source_proj
         for identity, receipt in owner.fixed().value()["receipts"].items()
     }
     target = tmp_path / "target.sqlite"
-    result = _replay("jquants-market", target, packet, master_fingerprints=fingerprints)
+    result = _replay(
+        "jquants-market",
+        target,
+        packet,
+        master_fingerprints=fingerprints,
+        margin_alerts_fingerprints={},
+        short_sale_reports_fingerprints={},
+        margin_interest_fingerprints={},
+    )
     assert result.complete
     assert result.report["migrated_master_requests"] == ["old-empty"]
     with sqlite3.connect(target) as conn:
@@ -285,7 +296,15 @@ def test_old_mixed_stage_master_is_verified_but_does_not_block_other_source_proj
             ("market_calendar",)
         ]
     with pytest.raises(ValueError, match="differs from the native cutover"):
-        _replay("jquants-market", tmp_path / "bad.sqlite", packet, master_fingerprints={})
+        _replay(
+            "jquants-market",
+            tmp_path / "bad.sqlite",
+            packet,
+            master_fingerprints={},
+            margin_alerts_fingerprints={},
+            short_sale_reports_fingerprints={},
+            margin_interest_fingerprints={},
+        )
 
 
 def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):

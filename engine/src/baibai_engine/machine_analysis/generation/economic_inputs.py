@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS
 from baibai_engine.data_collection.providers.tradingview.market_models import MARKET_SOURCE_ID
@@ -83,6 +83,8 @@ class _Receipt(_Fixed):
     key: tuple[str, ...]
     sha256: Digest
     confirmed: bool = False
+    # Scoped days need their own real clock; FRED keeps its shared collection clock.
+    checked_at: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class _Block(_Fixed):
@@ -250,7 +252,13 @@ def retain_economic_input(
         # projection is not a bounded-capture-I/O guarantee for these sources.
         validate_collection_confirmations(connection)
 
-        def remember(kind: str, row: tuple[Any, ...], *, confirmed: bool = False) -> None:
+        def remember(
+            kind: str,
+            row: tuple[Any, ...],
+            *,
+            confirmed: bool = False,
+            checked_at: str | None = None,
+        ) -> None:
             key = tuple(row[:3])
             # A selected record has at most one receipt per native day. Year
             # blocks reduce round trips while keeping unchanged years reusable.
@@ -262,7 +270,11 @@ def retain_economic_input(
             else:
                 period = "documents"
             block = blocks.setdefault(key[0] + "/" + period, {"records": [], "documents": []})
-            block[kind].append(_Receipt(key=key, sha256=_row_digest(row), confirmed=confirmed))
+            block[kind].append(
+                _Receipt(
+                    key=key, sha256=_row_digest(row), confirmed=confirmed, checked_at=checked_at
+                )
+            )
 
         for source_id in sources:
             state = connection.execute(
@@ -291,15 +303,18 @@ def retain_economic_input(
                     connection, *record_ranges[source_id], source_id=source_id
                 ):
                     key = tuple(row[:3])
-                    confirmed = (
-                        connection.execute(
-                            "SELECT 1 FROM economic_source_record_confirmations "
-                            "WHERE source_id=? AND observed_at=?",
-                            key[:2],
-                        ).fetchone()
-                        is not None
+                    check = connection.execute(
+                        "SELECT checked_at FROM economic_source_record_confirmations "
+                        "WHERE source_id=? AND observed_at=?",
+                        key[:2],
+                    ).fetchone()
+                    complete = confirmations[source_id] is not None
+                    remember(
+                        "records",
+                        row,
+                        confirmed=check is not None and complete,
+                        checked_at=str(check[0]) if check is not None and not complete else None,
                     )
-                    remember("records", row, confirmed=confirmed)
 
         # This is the same pre-interpretation boundary as stored_market_context:
         # 201st receipt proves truncation; failed/invalid/tied receipts are inputs.
@@ -404,15 +419,24 @@ def rebuild_economic_input(
             for block in workers.map(read_block, selection.months.values(), buffersize=8):
                 for reference in block.records:
                     row = copy("records", reference)
+                    checked_at = reference.checked_at
                     if reference.confirmed:
+                        if checked_at is not None:
+                            raise ValueError(
+                                "fixed period has both scoped and complete confirmation"
+                            )
                         state = selection.confirmations.get(reference.key[0])
                         if state is None:
                             raise ValueError("fixed period has no complete confirmation")
+                        checked_at = state[0]
+                    if checked_at is not None:
+                        if checked_at < reference.key[2]:
+                            raise ValueError("fixed confirmation predates its source receipt")
                         projection.execute(
                             "INSERT INTO economic_source_record_confirmations VALUES (?,?,?,?,?)",
                             (
                                 *reference.key[:2],
-                                state[0],
+                                checked_at,
                                 reference.key[2],
                                 hashlib.sha256(row[4]).hexdigest(),
                             ),

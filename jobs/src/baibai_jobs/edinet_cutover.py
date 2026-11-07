@@ -1,4 +1,4 @@
-"""有限移行済みの一覧writerとconsumerを揃える通常設定。"""
+"""一覧・ZIP/scopeのwriterとconsumerを揃える設定。既存env名を維持する。"""
 
 import os
 

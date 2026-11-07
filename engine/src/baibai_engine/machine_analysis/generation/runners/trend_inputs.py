@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 
 from baibai_engine.machine_analysis.observations.trends.contracts import (
     SelectedArtifact,
@@ -39,6 +39,9 @@ class TrendGenerationInputs(Value):
     industries: tuple[IndustryInput, ...]
     social: FixedTrendInputs
     industry_links: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    industry_membership_basis: dict[str, str] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def unique_scopes(self) -> Self:
@@ -48,6 +51,10 @@ class TrendGenerationInputs(Value):
         link_scopes = [scope for scope, _ in self.industry_links]
         if len(set(link_scopes)) != len(link_scopes) or set(link_scopes) - set(scopes):
             raise ValueError("industry links refer to an unknown scope")
+        if self.industry_membership_basis is not None and set(self.industry_membership_basis) - set(
+            link_scopes
+        ):
+            raise ValueError("membership basis must refer to a linked industry scope")
         return self
 
 
@@ -207,4 +214,10 @@ def read_trend_inputs(
         industry_links=tuple(
             (plan.definition.scope_id, plan.related_tickers) for plan in industries
         ),
+        industry_membership_basis={
+            plan.definition.scope_id: plan.membership_basis
+            for plan in industries
+            if plan.membership_basis is not None
+        }
+        or None,
     )
