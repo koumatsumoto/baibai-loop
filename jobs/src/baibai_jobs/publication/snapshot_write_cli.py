@@ -35,7 +35,7 @@ from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.retention import LakeRetentionError, apply_gc, plan_gc
 from baibai_engine.storage.snapshots.writer import export_market_store
 from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -198,8 +198,11 @@ def _resolve_release_target(
 
 
 def _clear_independent_list_cache(args: argparse.Namespace, release: FixedRelease) -> None:
-    if not edinet_list_native_enabled() or "edinet.list_responses" in release.dataset_names():
+    if "edinet.list_responses" in release.dataset_names() or not args.store.exists():
         return
+    with closing(connect_read_only(args.store)) as connection:
+        if connection.execute("SELECT 1 FROM edinet_list_responses LIMIT 1").fetchone() is None:
+            return
     from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
     from baibai_engine.storage.objects.r2 import Boto3R2Store
     from baibai_jobs.integration.edinet_list_native import clear_verified_receipt_cache

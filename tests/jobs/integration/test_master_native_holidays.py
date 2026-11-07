@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.jobs.integration.test_master_native_models import AT, attempt, records, setup_native
 
@@ -176,6 +177,7 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
     initialize_database(economic).close()
     result = job.integrate_models(
         store=store,
+        edinet_input=empty_edinet_input(store, tmp_path),
         market=market,
         economic=economic,
         runs=tmp_path / "runs",

@@ -1,4 +1,4 @@
-"""手動取得用の合成native原本。HTTPやSQL writerの代用はしない。"""
+"""EDINET原本と通常Jobsの固定pairを作る合成入力。"""
 
 import json
 from datetime import UTC, datetime
@@ -9,6 +9,7 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
     NativeListReceipt,
 )
 from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
+from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
 from baibai_jobs.maintenance import edinet_extraction
 from baibai_jobs.maintenance.source_refresh import edinet
 from tests.helpers.r2_store import MemoryR2Store
@@ -36,3 +37,15 @@ def native_edinet_store(tmp_path, monkeypatch, documents_by_day=None):
     archives = EdinetArchiveL1(store, tmp_path / "fixture-archives")
     archives.initialize()
     return store, lists, archives
+
+
+def empty_edinet_input(store, tmp_path):
+    """通常Jobsの固定pairを、EDINET文書を持たない合成storeへ保存する。"""
+    lists = EdinetListL1(store, tmp_path / "empty-edinet-lists")
+    lists.freeze(False)
+    fixed_lists = lists.publish(())
+    archives = EdinetArchiveL1(store, tmp_path / "empty-edinet-archives")
+    archives.initialize()
+    return retain_edinet_input(
+        store, fixed_lists, archives.freeze(), selected_at=datetime(2000, 1, 1, tzinfo=UTC)
+    )

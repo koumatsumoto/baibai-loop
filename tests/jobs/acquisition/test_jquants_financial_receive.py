@@ -5,6 +5,7 @@ import sqlite3
 from datetime import UTC, date, datetime
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
@@ -282,7 +283,14 @@ def test_source_only_handoff_passes_common_integration(tmp_path, monkeypatch) ->
     save_handoff(store, "jquants-financial-test", stage, market=True)
     directory = tmp_path / "integration"
     directory.mkdir()
-    (directory / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
+    (directory / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": available_handoffs(store),
+                "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
+            }
+        )
+    )
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     with closing(open_connection(market)), closing(initialize_database(economic)):
         pass
@@ -343,7 +351,14 @@ def test_common_integration_retains_partial_native_pages(tmp_path, monkeypatch) 
     )
     directory = tmp_path / "integration"
     directory.mkdir()
-    (directory / "plan.json").write_text(json.dumps({"handoffs": entries}))
+    (directory / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": entries,
+                "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
+            }
+        )
+    )
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     with closing(open_connection(market)), closing(initialize_database(economic)):
         pass

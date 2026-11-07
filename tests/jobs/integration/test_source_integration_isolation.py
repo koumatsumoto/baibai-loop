@@ -4,6 +4,7 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jquants_receipts import FIRST_AT, body, calendar, receive
 from tests.helpers.native_handoff import integrate_economic, stage
 from tests.helpers.r2_store import MemoryR2Store
@@ -34,6 +35,7 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
     tmp_path, monkeypatch
 ):
     store = MemoryR2Store()
+    saved_edinet = empty_edinet_input(store, tmp_path)
     from tests.helpers.native_margin_sources import initialize_margin_sources
 
     initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
@@ -69,7 +71,9 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
     entries.sort(key=lambda entry: not entry["market"])
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"handoffs": entries}))
+    (work / "plan.json").write_text(
+        json.dumps({"handoffs": entries, "edinet_input": saved_edinet.model_dump(mode="json")})
+    )
     economic = tmp_path / "economic.sqlite"
     with closing(initialize_database(economic)):
         pass
@@ -111,6 +115,7 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
     tmp_path, monkeypatch, projection_failed
 ):
     store = MemoryR2Store()
+    saved_edinet = empty_edinet_input(store, tmp_path)
     from tests.helpers.native_margin_sources import initialize_margin_sources
 
     initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
@@ -131,7 +136,14 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
     save_handoff(store, "jpx-partial", packet, market=True)
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
+    (work / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": available_handoffs(store),
+                "edinet_input": saved_edinet.model_dump(mode="json"),
+            }
+        )
+    )
     monkeypatch.setattr(
         "baibai_jobs.integration.sources._replay",
         lambda *args, **kwargs: ReplayResult(
@@ -162,6 +174,7 @@ def test_incomplete_market_projection_preserves_explicit_recovery_and_watermark(
 
 def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False, market_report=None):
     store = MemoryR2Store()
+    saved_edinet = empty_edinet_input(store, tmp_path)
     from tests.helpers.native_margin_sources import initialize_margin_sources
 
     initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
@@ -180,21 +193,22 @@ def _mixed_handoffs(tmp_path, monkeypatch, *, corrupt_market=False, market_repor
         json.dumps(
             market_report
             or {
-                "source": "edinet-list",
+                "source": "jpx-regulations",
                 "asof": "2026-10-24",
                 "started_at": FIRST_AT.isoformat(),
-                "list_receipts": [],
-                "archives": [],
+                "bundle_ids": [],
             }
         )
     )
-    save_handoff(store, "edinet-list-fault", packet, market=True)
+    save_handoff(store, "jpx-regulations-fault", packet, market=True)
     stage(store, tmp_path / "good", "fred_csv-good", "fred_csv", value="independent receipt")
     entries = available_handoffs(store)
     entries.sort(key=lambda entry: not entry["market"])
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"handoffs": entries}))
+    (work / "plan.json").write_text(
+        json.dumps({"handoffs": entries, "edinet_input": saved_edinet.model_dump(mode="json")})
+    )
     monkeypatch.setattr(
         "baibai_jobs.integration.sources.extract_saved_edinet", lambda *args, **kwargs: {}
     )
@@ -257,13 +271,15 @@ def test_incomplete_handoff_manifest_is_local_and_other_source_still_integrates(
     tmp_path, monkeypatch, field
 ):
     store, work, market, economic = _mixed_handoffs(tmp_path, monkeypatch)
-    key = "coordination/market-sources/edinet-list-fault/handoff.json"
+    key = "coordination/market-sources/jpx-regulations-fault/handoff.json"
     manifest = json.loads(store.values[key].body)
     del manifest[field]
     store.store_object(key, json.dumps(manifest).encode())
     entries = available_handoffs(store)
     entries.sort(key=lambda entry: not entry["market"])
-    (work / "plan.json").write_text(json.dumps({"handoffs": entries}))
+    plan = json.loads((work / "plan.json").read_text())
+    plan["handoffs"] = entries
+    (work / "plan.json").write_text(json.dumps(plan))
 
     report = apply(store, work, market=market, economic=economic, asof=date(2026, 10, 24))
     bad, good = report["handoffs"]

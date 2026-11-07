@@ -9,11 +9,6 @@ import pytest
 from tests.helpers.edinet_csv_zip import _edinet_csv_zip
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.facts_scope import (
-    FactsScope,
-    merge_scope,
-    read_scope,
-)
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
@@ -22,7 +17,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import edinet_archives as subject
-from baibai_jobs.acquisition.inputs import export_source_input
 
 ASOF = date(2026, 11, 5)
 START = ASOF - timedelta(days=540)
@@ -207,52 +201,6 @@ def test_native_quarantine_isolated_but_metric_only_issuer_identity_is_not_infer
             (str(ASOF), "8306", "S100UNKNOWN", "120"),
         )
     assert subject.metric_archive_candidates(path, asof=ASOF) == (["S100SAFE"], 2)
-
-
-def test_new_input_excludes_metric_l2_and_keeps_native_identity_and_facts_coverage(tmp_path):
-    canonical, scoped = tmp_path / "canonical.sqlite", tmp_path / "scoped.sqlite"
-    save_list(canonical, ASOF, [filing()])
-    complete_window(canonical)
-    with closing(open_connection(canonical)) as connection:
-        retain_source_archive(connection, "S100CURRENT", 5, b"unchanged bytes", stored_on=START)
-        connection.execute(
-            "INSERT INTO edinet_metrics(asof_date,ticker,failure_reasons) VALUES (?,?,?)",
-            (str(ASOF), "7203", "not-json"),
-        )
-        for source in ("edinet_metrics", "edinet_research_facts"):
-            record_source_coverage(
-                connection,
-                source=source,
-                coverage_key="initialized",
-                coverage_start=str(START),
-                coverage_end=str(ASOF),
-                record_count=1,
-            )
-        merge_scope(connection, FactsScope(since=START, doc_ids=frozenset({"S100CURRENT"})))
-        connection.commit()
-    report = export_source_input(canonical, scoped, group="edinet-metrics", asof=ASOF)
-    assert "edinet_metrics" not in report["rows"]
-    assert report["archive_keys"] == [("S100CURRENT", 5)]
-    with sqlite3.connect(scoped) as connection:
-        assert connection.execute("SELECT count(*) FROM edinet_metrics").fetchone()[0] == 0
-        assert (
-            connection.execute(
-                "SELECT count(*) FROM source_coverage WHERE source='edinet_metrics'"
-            ).fetchone()[0]
-            == 0
-        )
-        assert connection.execute("SELECT count(*) FROM edinet_list_responses").fetchone()[0] == 1
-    assert subject.metric_archive_candidates(scoped, asof=ASOF) == (["S100CURRENT"], 0)
-    facts = tmp_path / "facts.sqlite"
-    export_source_input(canonical, facts, group="edinet-facts", asof=ASOF)
-    with sqlite3.connect(facts) as connection:
-        assert (
-            connection.execute(
-                "SELECT coverage_key FROM source_coverage WHERE source='edinet_research_facts'"
-            ).fetchall()
-            == []
-        )
-        assert read_scope(connection) == FactsScope(since=START, doc_ids=frozenset({"S100CURRENT"}))
 
 
 def test_old_parent_withdrawal_excludes_current_correction_without_losing_saved_zip(tmp_path):

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pyarrow.parquet as pq
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
@@ -220,6 +221,7 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     store.get_keys.clear()
     result = job.integrate_models(
         store=store,
+        edinet_input=empty_edinet_input(store, tmp_path),
         market=market,
         economic=economic,
         runs=tmp_path / "runs",

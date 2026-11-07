@@ -83,7 +83,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     read_lake_store_origin,
 )
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.calendar_native import model_input as native_calendar_model_input
 from baibai_jobs.integration.margin_alerts_native import model_input as native_alerts_model_input
@@ -189,10 +188,7 @@ def prepare_market_lake(
     edinet_input: InputSnapshot | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
-    native_lists = edinet_list_native_enabled()
     fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
-    if fixed_edinet is not None and not native_lists:
-        raise ValueError("fixed EDINET publication requires native list mode")
     native_financial = financial_native_enabled()
     native_price = price_native_enabled()
     native_master = master_native_enabled()
@@ -270,7 +266,7 @@ def prepare_market_lake(
             and not (native_price and name == "jquants.daily_bars")
             and not (native_master and name == "jquants.master_snapshots")
             and not (native_calendar and name == "jquants.market_calendar")
-            and not (native_lists and name == "edinet.list_responses")
+            and name != "edinet.list_responses"
             and not (native_alerts and name == "jquants.margin_alerts")
             and not (native_shorts and name == "jquants.short_sale_reports")
             and not (
@@ -395,7 +391,7 @@ def prepare_market_lake(
             for name, item in LAKE_DATASETS.items()
             if name not in derived_names
             and not (native_financial and name == "jquants.fin_summaries")
-            and not (native_lists and name == "edinet.list_responses")
+            and name != "edinet.list_responses"
             and not (fixed_edinet is not None and name == "edinet.source_archives")
         }
         git_commit = lake_verified_git_commit()

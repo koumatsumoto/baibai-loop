@@ -306,7 +306,6 @@ def test_normal_apply_passes_the_same_pair_to_metrics_and_facts_without_sql_zip_
     work, monkeypatch
 ):
     store, _, _, fixed = setup(work)
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
     monkeypatch.setattr(integration, "Boto3R2Store", lambda **_: store)
     directory = work / "integration"
     assert integration.main(["plan", "--directory", str(directory)]) == 0

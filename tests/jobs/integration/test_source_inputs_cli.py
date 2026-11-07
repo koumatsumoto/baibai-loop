@@ -26,11 +26,7 @@ from baibai_jobs.publication.lease import _save_handle, acquire
 GENERATIONS = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
 
 
-def _input_cli(tmp_path, monkeypatch, native):
-    if native is None:
-        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
+def _input_cli(tmp_path, monkeypatch):
     remote = MemoryR2Store()
     monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
     market = market_store(tmp_path / "market.sqlite", 2)
@@ -85,12 +81,11 @@ def _input_cli(tmp_path, monkeypatch, native):
     return remote, market, command
 
 
-@pytest.mark.parametrize("native", ["true", "false", None])
 def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generation(
-    tmp_path, monkeypatch, capsys, native
+    tmp_path, monkeypatch, capsys
 ):
-    remote, _, command = _input_cli(tmp_path, monkeypatch, native)
-    expected = [group for group in SOURCE_INPUT_GROUPS if not group.startswith("edinet-")]
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
+    expected = list(SOURCE_INPUT_GROUPS)
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
     assert report == {"updated": expected + list(ARTICLE_SOURCES), "failed": []}
@@ -110,12 +105,10 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
     assert not any("economic-" in key for key in remote.put_keys)
 
 
-@pytest.mark.parametrize("native", ["true", "false", None])
-def test_explicit_list_input_is_rejected_even_with_old_false_environment(
-    tmp_path, monkeypatch, capsys, native
-):
-    remote, _, command = _input_cli(tmp_path, monkeypatch, native)
-    assert sources.main([*command, "--group", "edinet-list"]) == 1
+@pytest.mark.parametrize("group", ["edinet-list", "edinet-metrics", "edinet-facts"])
+def test_explicit_edinet_input_is_rejected(tmp_path, monkeypatch, capsys, group):
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
+    assert sources.main([*command, "--group", group]) == 1
     assert "ValueError" in capsys.readouterr().err
     assert remote.put_keys == []
 
@@ -123,7 +116,7 @@ def test_explicit_list_input_is_rejected_even_with_old_false_environment(
 def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     tmp_path, monkeypatch, capsys
 ):
-    remote, market, command = _input_cli(tmp_path, monkeypatch, "true")
+    remote, market, command = _input_cli(tmp_path, monkeypatch)
     assert sources.main(command) == 0
     capsys.readouterr()
     prior = remote.values[input_key("tradingview")]
@@ -133,25 +126,18 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     assert sources.main(command) == 1
     report = json.loads(capsys.readouterr().out)
     assert report == {
-        "updated": [
-            group
-            for group in SOURCE_INPUT_GROUPS
-            if not group.startswith("edinet-") and group != "tradingview"
-        ]
+        "updated": [group for group in SOURCE_INPUT_GROUPS if group != "tradingview"]
         + list(ARTICLE_SOURCES),
         "failed": [{"group": "tradingview", "reason": "ValueError"}],
     }
     assert remote.values[input_key("tradingview")] == prior
-    assert input_key("edinet-list") not in remote.values
-    for group in ("edinet-metrics", "edinet-facts"):
-        assert input_key(group) not in remote.values
+    assert not any(key.startswith("coordination/source-inputs/edinet-") for key in remote.values)
 
 
-@pytest.mark.parametrize("native", ["true", "false", None])
 def test_daily_input_publication_leaves_retired_source_inputs_untouched(
-    tmp_path, monkeypatch, capsys, native
+    tmp_path, monkeypatch, capsys
 ):
-    remote, _, command = _input_cli(tmp_path, monkeypatch, native)
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
     previous = {}
     for group in (
         "jpx-earnings",
@@ -183,7 +169,7 @@ def test_daily_input_publication_leaves_retired_source_inputs_untouched(
 def test_native_cli_does_not_publish_inputs_against_a_partial_machine_bundle(
     tmp_path, monkeypatch, capsys, changed_key
 ):
-    remote, _, command = _input_cli(tmp_path, monkeypatch, "true")
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
     remote.store_object(changed_key, b"partial replacement")
     assert sources.main(command) == 1
     assert "LakePublishError" in capsys.readouterr().err

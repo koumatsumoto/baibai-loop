@@ -39,8 +39,6 @@ from baibai_engine.storage.sqlite.source_cache.facts_scope_upgrade import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 from baibai_jobs.acquisition.edinet_fact_plan import prepare_fact_acquisition
-from baibai_jobs.acquisition.inputs import export_source_input
-from baibai_jobs.integration.edinet_handoff import export_handoff, import_handoff
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.source_cache_merge import merge_stores
 from baibai_jobs.maintenance.edinet_extraction import refresh_edinet_facts_command
@@ -200,7 +198,7 @@ def test_uninitialized_and_stage_scope_never_enable_global(tmp_path):
     assert scope(out).doc_ids == frozenset({"S100RAW"})
 
 
-def test_selected_unavailable_and_failed_ids_survive_family_change_and_handoff(tmp_path):
+def test_selected_unavailable_and_failed_ids_survive_family_change_and_merge(tmp_path):
     local, canonical = tmp_path / "local.sqlite", tmp_path / "canonical.sqlite"
     old = filing("S100OLD", 2025, xbrlFlag="0")
     save_list(local, [old])
@@ -214,9 +212,7 @@ def test_selected_unavailable_and_failed_ids_survive_family_change_and_handoff(t
         "S100LATEST",
     }
     open_connection(canonical).close()
-    handoff = tmp_path / "handoff.sqlite"
-    export_handoff(local, handoff, since=AT, archives=set())
-    import_handoff(handoff, canonical)
+    merge_stores(local, canonical)
     assert scope(canonical) == scope(local)
     older = tmp_path / "older.sqlite"
     open_connection(older).close()
@@ -225,16 +221,6 @@ def test_selected_unavailable_and_failed_ids_survive_family_change_and_handoff(t
     merge_stores(older, canonical)
     assert scope(canonical).since == DAY
     assert scope(canonical).doc_ids == frozenset({"S100OLD", "S100LATEST", "S100FAILED"})
-    scoped = tmp_path / "input.sqlite"
-    export_source_input(canonical, scoped, group="edinet-facts", asof=DAY)
-    assert scope(scoped) == scope(canonical)
-    with sqlite3.connect(scoped) as connection:
-        assert (
-            connection.execute(
-                "SELECT * FROM source_coverage WHERE source='edinet_research_facts'"
-            ).fetchall()
-            == []
-        )
 
 
 @pytest.mark.parametrize("ticker_only", [False, True])

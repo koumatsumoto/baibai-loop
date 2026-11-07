@@ -4,7 +4,7 @@ import hashlib
 import json
 import shutil
 from contextlib import closing
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_handoff_inputs import DAY, STAMP, projection_state, receive
@@ -12,8 +12,14 @@ from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+from baibai_engine.data_collection.providers.edinet.list_native import (
+    EdinetListL1,
+    NativeListReceipt,
+)
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
     read_observed_documents,
@@ -68,9 +74,23 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     asof = bad_day + timedelta(days=1)
     if new_day:
         receive(bad_source, "S100GOOD", STAMP + timedelta(days=2), day=asof)
-    bad_packet = tmp_path / "bad-packet"
-    _export("edinet-list", asof, STAMP, bad_source, bad_packet)
-    save_handoff(store, "edinet-list-bad", bad_packet, market=True)
+    lists = EdinetListL1(store, tmp_path / "native-lists")
+    lists.freeze(False)
+    originals = []
+    for path in (market, bad_source):
+        with closing(open_connection(path)) as conn:
+            originals.extend(
+                NativeListReceipt(
+                    identity, date.fromisoformat(day), datetime.fromisoformat(at), body
+                )
+                for identity, day, at, body in conn.execute("SELECT * FROM edinet_list_responses")
+            )
+    fixed_lists = lists.publish(originals)
+    archives = EdinetArchiveL1(store, tmp_path / "native-archives")
+    archives.initialize()
+    saved_edinet = retain_edinet_input(
+        store, fixed_lists, archives.freeze(), selected_at=STAMP + timedelta(days=3)
+    ).model_dump(mode="json")
     good_source = tmp_path / "good.sqlite"
     calendar(good_source, DAY.isoformat(), asof.isoformat(), 1, STAMP + timedelta(hours=2))
     good_packet = tmp_path / "good-packet"
@@ -78,13 +98,13 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     save_handoff(store, "jquants-market-good", good_packet, market=True)
     work = tmp_path / "integration"
     work.mkdir()
-    (work / "plan.json").write_text(json.dumps({"handoffs": available_handoffs(store)}))
+    (work / "plan.json").write_text(
+        json.dumps({"handoffs": available_handoffs(store), "edinet_input": saved_edinet})
+    )
     report = apply(store, work, market=market, asof=asof)
     outcomes = {item["entry"]["source"]: item for item in report["handoffs"]}
-    assert outcomes["edinet-list"]["applied"] is True
-    assert outcomes["edinet-list"]["failed"] is True
-    assert outcomes["edinet-list"]["recovery"] is True
-    assert outcomes["edinet-list"]["result"]["failed_days"] == [bad_day.isoformat()]
+    assert "edinet-list" not in outcomes
+    assert report["extractions"]["native_lists"]["failed_days"] == [bad_day.isoformat()]
     assert outcomes["jquants-market"]["failed"] is False
     expected = projection_state(market)
     if new_day:
@@ -213,7 +233,7 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     assert available_handoffs(store) == []
     resume = tmp_path / "no-new-handoff"
     resume.mkdir()
-    (resume / "plan.json").write_text(json.dumps({"handoffs": []}))
+    (resume / "plan.json").write_text(json.dumps({"handoffs": [], "edinet_input": saved_edinet}))
     resumed = apply(store, resume, market=restored, asof=asof)
     assert resumed["handoffs"] == []
     assert resumed["extractions"]["edinet-list"]["failed_days"] == [bad_day.isoformat()]

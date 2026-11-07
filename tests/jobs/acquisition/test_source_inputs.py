@@ -1,22 +1,10 @@
 from contextlib import closing
 from datetime import date
 
-from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import master_coverage_key
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.inputs import export_source_input
-
-
-def test_edinet_facts_acquisition_input_has_inventory_without_zip_payloads(tmp_path):
-    canonical, scoped = tmp_path / "canonical.sqlite", tmp_path / "scoped.sqlite"
-    with closing(open_connection(canonical)) as conn:
-        retain_source_archive(conn, "S100XBRL", 1, b"large xbrl", stored_on=date(2026, 10, 15))
-        retain_source_archive(conn, "S100CSV", 5, b"large csv", stored_on=date(2026, 10, 15))
-    report = export_source_input(canonical, scoped, group="edinet-facts", asof=date(2026, 10, 15))
-    assert report["archive_keys"] == [("S100XBRL", 1)]
-    with closing(open_connection(scoped)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM edinet_source_archives").fetchone()[0] == 0
 
 
 def test_tradingview_input_uses_calendar_basis_even_with_a_weekend_master(tmp_path):
@@ -72,3 +60,4 @@ def test_market_l1_acquisition_does_not_publish_scoped_l2_input():
 
     assert "jquants-market" not in SOURCE_INPUT_GROUPS
     assert "jquants-financial" not in SOURCE_INPUT_GROUPS
+    assert not any(group.startswith("edinet-") for group in SOURCE_INPUT_GROUPS)

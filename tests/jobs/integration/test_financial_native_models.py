@@ -5,6 +5,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -210,6 +211,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     initialize_database(economic).close()
     result = job.integrate_models(
         store=store,
+        edinet_input=empty_edinet_input(store, tmp_path),
         market=market,
         economic=economic,
         runs=tmp_path / "runs",

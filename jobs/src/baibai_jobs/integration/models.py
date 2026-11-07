@@ -44,7 +44,6 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
@@ -79,9 +78,9 @@ def integrate_models(
     handle = _load_handle(lease_handle)
     verify_held(store, handle)
     mirror.mkdir(parents=True, exist_ok=True)
-    if edinet_list_native_enabled() and edinet_input is None:
+    if edinet_input is None:
         raise ValueError("normal model integration requires its fixed EDINET input")
-    fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
+    fixed_edinet = read_edinet_input(store, edinet_input)
     evaluated_at = datetime.now(UTC)
     financial_input = None
     if financial_native_enabled():
@@ -140,7 +139,7 @@ def integrate_models(
                 ),
                 runs=runs,
             )
-            if fixed_edinet is not None and prepared.serving.pointer is not None
+            if prepared.serving.pointer is not None
             else None,
             price_identity=prepared.price_identity,
             master_identity=prepared.master_identity,

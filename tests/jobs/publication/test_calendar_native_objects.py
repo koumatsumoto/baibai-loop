@@ -13,6 +13,7 @@ from tests.engine.data_collection.providers.jquants.test_calendar_native import 
     attempt,
     owner,
 )
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.jobs.integration.test_master_native_models import attempt as master_attempt
@@ -187,6 +188,7 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
     store.get_keys.clear()
     result = job.integrate_models(
         store=store,
+        edinet_input=empty_edinet_input(store, tmp_path),
         market=market,
         economic=economic,
         runs=tmp_path / "runs",
