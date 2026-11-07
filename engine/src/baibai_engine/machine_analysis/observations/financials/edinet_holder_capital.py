@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element  # nosec B405 -- type annotation only
 
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
     XBRLI,
     Context,
@@ -105,12 +106,14 @@ def read_holder_capital(
     known_at: datetime,
     tickers: tuple[str, ...],
     snapshot_sealed_at: datetime | None = None,
+    archives: FixedEdinetArchives | None = None,
 ) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
     """Use only already-retained originals; absence is not proof of no change.
 
     Archive retention currently records a calendar day, not an intraday receipt
     timestamp. Treat the result as research evidence, not a point-in-time
-    backtest or an issuer-certified capital state.
+    backtest or an issuer-certified capital state. Fixed native bytes still use
+    the receipt evidence in the same, verified full-raw SQL seal.
     """
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
         _canonicalize_document_events,
@@ -228,16 +231,20 @@ def read_holder_capital(
         if not proven_by_snapshot and stored_on >= min(as_of, known_at.astimezone(UTC).date()):
             missing += 1
             continue
-        row = connection.execute(
-            "SELECT zip_content FROM edinet_source_archives WHERE doc_id=? AND source_type=1",
-            (doc_id,),
-        ).fetchone()
-        if row is None:
-            unsupported += 1
-            continue
+        if archives is None:
+            row = connection.execute(
+                "SELECT zip_content FROM edinet_source_archives WHERE doc_id=? AND source_type=1",
+                (doc_id,),
+            ).fetchone()
+            if row is None:
+                unsupported += 1
+                continue
+            content = bytes(row[0])
+        else:
+            content = archives.read_xbrl_zip(doc_id)
         try:
             fact = extract_holder_capital(
-                bytes(row[0]), document_id=doc_id, submitted_at=submitted, known_at=known_at
+                content, document_id=doc_id, submitted_at=submitted, known_at=known_at
             )
         except SourceFormatError:
             unsupported += 1
