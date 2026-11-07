@@ -17,13 +17,14 @@ from baibai_jobs.integration import edinet_list_native as list_copy
 from baibai_jobs.maintenance import edinet_extraction as refresh
 
 
+@pytest.mark.parametrize("native", [None, "false", "true"])
 @pytest.mark.parametrize(("initialize", "tickers"), [(False, ()), (True, ("7203",))])
 @pytest.mark.parametrize(
     ("report_status", "extract_exit"),
     [("received", 0), ("failed", 0), ("received", 1), ("failed", 1)],
 )
 def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
-    tmp_path, monkeypatch, initialize, tickers, report_status, extract_exit
+    tmp_path, monkeypatch, native, initialize, tickers, report_status, extract_exit
 ):
     owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
     buffer = io.BytesIO()
@@ -79,7 +80,10 @@ def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
     selected_owner.freeze.side_effect = freeze
     list_owner = Mock()
     list_owner.freeze.return_value = lists
-    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    if native is None:
+        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     monkeypatch.setattr(refresh, "Boto3R2Store", lambda **_: owner.store)
     monkeypatch.setattr(archive_native, "EdinetArchiveL1", Mock(return_value=selected_owner))
     monkeypatch.setattr(list_native, "EdinetListL1", Mock(return_value=list_owner))
@@ -88,12 +92,10 @@ def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
     list_materialize = Mock()
     monkeypatch.setattr(list_copy, "materialize_lists", list_materialize)
     monkeypatch.setattr(refresh, "extract_edinet_facts_command", extract)
-    sql_reader = Mock()
     out = io.StringIO()
     result = refresh.refresh_edinet_facts_command(
         asof=DAY,
         sqlite_path=tmp_path / "unused.sqlite",
-        reader=sql_reader,
         acquisition=client,
         initialize=initialize,
         tickers=tickers,
@@ -102,7 +104,6 @@ def test_manual_facts_shares_post_acquisition_head_until_extraction_finishes(
     assert result == max(int(report_status == "failed"), extract_exit)
     assert events == ["acquire", "freeze", "materialize", "extract"]
     selected_owner.freeze.assert_called_once_with()
-    sql_reader.read_xbrl_zip.assert_not_called()
     owner.store.close.assert_called_once_with()
 
 
@@ -123,7 +124,6 @@ def test_manual_facts_closes_store_when_native_extraction_raises(tmp_path, monke
     args = {
         "asof": DAY,
         "sqlite_path": tmp_path / "unused.sqlite",
-        "reader": Mock(),
         "acquisition": Mock(),
         "stdout": io.StringIO(),
     }
