@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter
+from collections.abc import Set
 from contextlib import closing
 from dataclasses import asdict
 from datetime import date, timedelta
@@ -33,6 +34,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.selecti
     annual_documents,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
+    XbrlReader,
     finish_edinet_facts,
     process_edinet_fact_item,
 )
@@ -62,6 +64,7 @@ def extract_saved_edinet(
     asof: date,
     lookback_days: int = 540,
     metric_archives: FixedEdinetArchives | None = None,
+    fact_archives: FixedEdinetArchives | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Use saved source dates; never turn missing acquisition into extraction failure.
 
@@ -70,6 +73,7 @@ def extract_saved_edinet(
     Validation/parse/storage failures are not classified as missing acquisition.
     An explicit fixed metric archive input reads selected ZIPs without copying
     them into SQLite. It does not alter the existing warm baseline contract.
+    A separate fixed facts reader does not initialize the SQL acquisition scope.
     """
     baseline = read_edinet_metric_baseline(database, asof)
     with closing(connect_read_only(database)) as conn:
@@ -92,6 +96,7 @@ def extract_saved_edinet(
     with closing(connect_read_only(database)) as archive_connection:
         retained = archive_keys(archive_connection)
     retained_metrics = metric_archives.archive_keys if metric_archives is not None else retained
+    retained_facts = fact_archives.archive_keys if fact_archives is not None else retained
     reader = EDINETReader(database)
     metrics: dict[str, Any] = {
         "exit_code": 0,
@@ -161,7 +166,12 @@ def extract_saved_edinet(
     results = {
         "edinet-metrics": metrics,
         "edinet-facts": _extract_saved_facts(
-            database, asof, available, documents, retained, reader
+            database,
+            asof,
+            available,
+            documents,
+            retained_facts,
+            fact_archives if fact_archives is not None else reader,
         ),
     }
     if failed_list_days:
@@ -179,8 +189,8 @@ def _extract_saved_facts(
     asof: date,
     available: date | None,
     documents: list[dict[str, Any]],
-    retained: set[tuple[str, int]],
-    reader: EDINETReader,
+    retained: Set[tuple[str, int]],
+    reader: XbrlReader,
 ) -> dict[str, Any]:
     statuses = extraction_status(database)
     result: dict[str, Any] = {

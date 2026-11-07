@@ -282,7 +282,10 @@ def apply(
         merge_ready(store, plan["external"], database=market) if plan.get("external") else None
     )
     extractions = extract_saved_edinet(
-        market, asof=asof, metric_archives=edinet_input.archives if edinet_input else None
+        market,
+        asof=asof,
+        metric_archives=edinet_input.archives if edinet_input else None,
+        fact_archives=edinet_input.archives if edinet_input else None,
     )
     if native_lists is not None:
         extractions["native_lists"] = native_lists
