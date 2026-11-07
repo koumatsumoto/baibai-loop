@@ -47,6 +47,9 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     tmp_path, monkeypatch, new_day, other_partial
 ):
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     receive(market, "S100OLD", STAMP)
     rebuild_edinet_document_day(market, DAY)

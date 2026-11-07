@@ -184,27 +184,6 @@ class FakeJQuantsProvider:
             start, end, revision_overlap_days=revision_overlap_days, progress=progress
         )
 
-    def ensure_weekly_margin(self, day: date) -> int:
-        return len(self.get_mkt_margin_interest_week(day))
-
-    def refresh_weekly_margin(self, day: date) -> int:
-        return len(self.refresh_mkt_margin_interest_week(day))
-
-    def ensure_all_issues_daily_margin(self, day: date) -> int:
-        return len(self.get_mkt_all_issues_daily_margin(day))
-
-    def ensure_margin_alerts(self, start: date, end: date) -> int:
-        return len(self.get_mkt_margin_alert_range(start, end))
-
-    def refresh_margin_alerts(self, start: date, end: date) -> int:
-        return len(self.refresh_mkt_margin_alert_range(start, end))
-
-    def ensure_short_sale_reports(self, start: date, end: date) -> int:
-        return len(self.get_mkt_short_sale_report_range(start, end))
-
-    def refresh_short_sale_reports(self, start: date, end: date) -> int:
-        return len(self.refresh_mkt_short_sale_report_range(start, end))
-
     def close(self) -> None:
         pass
 

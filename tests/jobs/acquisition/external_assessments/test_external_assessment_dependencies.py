@@ -7,7 +7,6 @@ import pytest
 from tests.helpers.external_assessment_stages import wire_success
 from tests.helpers.external_assessment_universe import build_master_lake
 from tests.helpers.jquants_receipts import body, receive
-from tests.helpers.screening_sqlite import make_master_records
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
 from baibai_engine.data_collection.providers.jquants.dependencies import read_dependency
@@ -152,100 +151,6 @@ def test_previous_lake_and_ready_today_dependencies_initialize_then_acquire(
         == plan
     )
     assert store.get_keys == [f"coordination/external-assessment/{plan.run_id}/plan.json"]
-
-
-def test_l1_calendar_tail_extension_retains_ready_dependency_for_external_assessment(
-    tmp_path, monkeypatch
-):
-    from baibai_engine.data_collection.providers.jquants.contracts import (
-        JQuantsPage,
-        RetainedRequest,
-        complete_request,
-    )
-    from baibai_engine.data_collection.providers.jquants.dependencies import dependency_from_request
-    from baibai_engine.data_collection.providers.jquants.native_index import index_market_originals
-    from baibai_jobs.acquisition import jquants_market_plan as planning
-    from baibai_jobs.acquisition.jquants_market_plan import FixedMarketIndexes
-    from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
-
-    store, _, _ = build_master_lake(
-        tmp_path,
-        monkeypatch,
-        snapshot=PREVIOUS,
-        calendar=[("2026-10-16", 1), ("2026-10-17", 0), ("2026-10-18", 0)],
-    )
-    monkeypatch.setattr(planning, "FINANCIAL_HISTORY_DAYS", 0)
-    monkeypatch.setattr(planning, "WEEKLY_BALANCE_LOOKBACK_DAYS", 0)
-    monkeypatch.setattr(planning, "MARKET_REVISION_OVERLAP_DAYS", 0)
-    monkeypatch.setattr(planning, "ALL_ISSUES_DAILY_FIRST_BALANCE_DATE", DAY)
-    start, end = DAY - timedelta(days=7), DAY + timedelta(days=45)
-    prior_end = end - timedelta(days=1)
-    prior_records = [
-        {"Date": (start + timedelta(days=offset)).isoformat(), "HolDiv": "1"}
-        for offset in range((prior_end - start).days + 1)
-    ]
-    page = JQuantsPage(
-        "market_calendar",
-        {"from": start.strftime("%Y%m%d"), "to": prior_end.strftime("%Y%m%d")},
-        RECEIVED - timedelta(days=1),
-        body(prior_records),
-    )
-    prior = complete_request([page])
-    names = (
-        "master",
-        "daily_bars",
-        "market_calendar",
-        "margin_interest",
-        "margin_alerts",
-        "short_sale_reports",
-    )
-    indexes = {name: index_market_originals([], source=name) for name in names}
-    indexes["market_calendar"] = index_market_originals(
-        [RetainedRequest("prior-calendar", prior, None)], source="market_calendar"
-    )
-    fixed = FixedMarketIndexes(
-        "release",
-        "0" * 64,
-        "partial",
-        RECEIVED,
-        indexes,
-        (),
-        (dependency_from_request("prior-calendar", prior),),
-    )
-
-    class Client:
-        def pages(self, source, params):
-            if source == "master":
-                records = make_master_records(DAY)
-            elif source == "market_calendar":
-                first, last = date.fromisoformat(params["from"]), date.fromisoformat(params["to"])
-                records = [
-                    {"Date": (first + timedelta(days=i)).isoformat(), "HolDiv": "1"}
-                    for i in range((last - first).days + 1)
-                ]
-            else:
-                records = []
-            yield JQuantsPage(source, params, RECEIVED, body(records))
-
-    directory = tmp_path / "l1-ready"
-    assert receive_market_handoff(
-        directory, fixed, asof=DAY, client=Client(), clock=lambda: RECEIVED
-    )
-    dependencies = [json.loads(path.read_text()) for path in directory.glob("dependency-*.json")]
-    calendar = next(value for value in dependencies if value["source"] == "market_calendar")
-    assert calendar["request_id"] == "prior-calendar"
-    save_handoff(store, f"jquants-market-{DAY.isoformat()}-l1", directory, market=True)
-    result = daily.initialize(
-        store,
-        run_id="monex-l1-tail-extension",
-        source="monex",
-        master_asof=None,
-        observation_date=DAY,
-        mirror=tmp_path / "l1-plan",
-    )
-    binding = json.loads(result.universe_binding)
-    assert binding["calendar_receipt"]["request_id"] == "prior-calendar"
-    assert len(result.tickers) == 2500
 
 
 @pytest.mark.parametrize("fault", ["old", "partial", "wrong_date"])

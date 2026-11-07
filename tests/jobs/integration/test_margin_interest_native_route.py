@@ -14,47 +14,20 @@ from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPag
 from baibai_engine.data_collection.providers.jquants.margin_interest_native import MarginInterestL1
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
-from baibai_jobs.margin_interest_cutover import margin_interest_native_enabled
 
 
-def test_mode_defaults_off_and_fixed_plan_cannot_change(tmp_path, monkeypatch):
-    from baibai_jobs.integration.sources import apply
-
-    monkeypatch.delenv("BAIBAI_MARGIN_INTEREST_NATIVE", raising=False)
-    assert not margin_interest_native_enabled()
-    monkeypatch.setenv("BAIBAI_MARGIN_INTEREST_NATIVE", "yes")
-    with pytest.raises(ValueError, match="true or false"):
-        margin_interest_native_enabled()
-    monkeypatch.setenv("BAIBAI_MARGIN_INTEREST_NATIVE", "true")
-    for name in (
-        "FINANCIAL",
-        "PRICE",
-        "MASTER",
-        "CALENDAR",
-        "EDINET_LIST",
-        "MARGIN_ALERTS",
-        "SHORT_SALE_REPORTS",
-    ):
-        monkeypatch.setenv(f"BAIBAI_{name}_NATIVE", "false")
-    (tmp_path / "plan.json").write_text(json.dumps({"handoffs": []}))
-    with pytest.raises(
-        ValueError, match="margin interest mode differs from the fixed integration plan"
-    ):
-        apply(MemoryR2Store(), tmp_path, market=tmp_path / "not-opened", asof=DAY)
-    assert not (tmp_path / "not-opened").exists()
-
-
-def test_all_native_market_commits_margin_without_legacy_lake_or_stage(tmp_path, monkeypatch):
+@pytest.mark.parametrize("obsolete_value", [None, "false", "yes"])
+def test_native_market_ignores_retired_flags_and_never_opens_legacy_lake(
+    tmp_path, monkeypatch, obsolete_value
+):
     from tests.jobs.acquisition.test_jquants_margin_interest_native import Client
 
     from baibai_engine.data_collection.providers.jquants import http
     from baibai_engine.storage.snapshots import objects
     from baibai_jobs.acquisition import (
         jquants_calendar_native,
-        jquants_margin_alerts_native,
         jquants_master_native,
         jquants_price_native,
-        jquants_short_sale_reports_native,
     )
     from baibai_jobs.integration import source_handoff as route
 
@@ -62,18 +35,36 @@ def test_all_native_market_commits_margin_without_legacy_lake_or_stage(tmp_path,
         "PRICE",
         "MASTER",
         "CALENDAR",
-        "MARGIN_ALERTS",
-        "SHORT_SALE_REPORTS",
-        "MARGIN_INTEREST",
     ):
         monkeypatch.setenv(f"BAIBAI_{name}_NATIVE", "true")
+    for source in ("MARGIN_ALERTS", "SHORT_SALE_REPORTS", "MARGIN_INTEREST"):
+        if obsolete_value is None:
+            monkeypatch.delenv(f"BAIBAI_{source}_NATIVE", raising=False)
+        else:
+            monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", obsolete_value)
     store = MemoryR2Store()
     store.close = lambda: None
     asof = date(2026, 9, 28)
     first = asof - timedelta(days=230)
     fixed_calendar = calendar(store, tmp_path / "calendar", first, asof)
     MarginInterestL1(store, tmp_path / "init").initialize()
-    client = Client()
+    from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
+    from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+        ShortSaleReportsL1,
+    )
+
+    MarginAlertsL1(store, tmp_path / "alerts").initialize()
+    ShortSaleReportsL1(store, tmp_path / "shorts").initialize()
+
+    class MarketClient(Client):
+        def pages(self, source, query):
+            if source == "margin_interest":
+                yield from super().pages(source, query)
+            else:
+                self.calls.append((source, query))
+                yield JQuantsPage(source, query, AT, b'{"data":[]}')
+
+    client = MarketClient()
     monkeypatch.setattr(http, "JQuantsHTTP", lambda *_: client)
     monkeypatch.setattr(route, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(jquants_calendar_native, "calendar_window", lambda *a: (first, asof))
@@ -81,8 +72,6 @@ def test_all_native_market_commits_margin_without_legacy_lake_or_stage(tmp_path,
         (jquants_calendar_native, "acquire_calendar_native"),
         (jquants_master_native, "acquire_master_native"),
         (jquants_price_native, "acquire_price_native"),
-        (jquants_margin_alerts_native, "acquire_margin_alerts_native"),
-        (jquants_short_sale_reports_native, "acquire_short_sale_reports_native"),
     ):
         monkeypatch.setattr(
             module, name, lambda *a, **kw: {"failed": 0, "held": 0, "incomplete": 0}
@@ -110,9 +99,18 @@ def test_all_native_market_commits_margin_without_legacy_lake_or_stage(tmp_path,
     assert output.read_text() == "stage_ready=false\nnative_l1=true\n"
     assert not (directory / "receipts.sqlite").exists()
     assert client.calls
-    assert all(
-        source == "margin_interest" and len(query["date"]) == 8 for source, query in client.calls
-    )
+    assert {source for source, _ in client.calls} == {
+        "margin_interest",
+        "margin_alerts",
+        "short_sale_reports",
+    }
+    for source, query in client.calls:
+        if source == "margin_interest":
+            assert len(query["date"]) == 8
+        else:
+            assert len(query["disc_date" if source == "short_sale_reports" else "date"]) == 10
+    assert len(MarginAlertsL1(store, tmp_path / "cold-alerts").fixed().value()["scopes"]) == 8
+    assert len(ShortSaleReportsL1(store, tmp_path / "cold-shorts").fixed().value()["scopes"]) == 8
     report = json.loads((directory / "result.json").read_bytes())
     interest = report["independent_l1"]["margin_interest"]
     assert interest["calendar_sha256"] == fixed_calendar.content_id
@@ -126,59 +124,6 @@ def test_all_native_market_commits_margin_without_legacy_lake_or_stage(tmp_path,
         .fixed()
         .value()["scopes"][DAY.isoformat()]["adopted"]
     )
-
-
-def test_legacy_market_excludes_only_native_margin(tmp_path, monkeypatch):
-    from tests.jobs.acquisition.test_jquants_market_receive import ASOF, Client
-    from tests.jobs.acquisition.test_jquants_market_receive import AT as RECEIVED
-
-    from baibai_engine.data_collection.providers.jquants.native_index import index_market_originals
-    from baibai_jobs.acquisition import jquants_market_plan as planning
-    from baibai_jobs.acquisition.jquants_market_receive import receive_market_handoff
-
-    for name in (
-        "FINANCIAL_HISTORY_DAYS",
-        "CALENDAR_LOOKBACK_DAYS",
-        "CALENDAR_FORWARD_DAYS",
-        "MARKET_REVISION_OVERLAP_DAYS",
-    ):
-        monkeypatch.setattr(planning, name, 0)
-    fixed = planning.FixedMarketIndexes(
-        "release",
-        "a" * 64,
-        "partial",
-        RECEIVED,
-        {
-            name: index_market_originals([], source=name)
-            for name in MARKET_SOURCES
-            if name != "margin_interest"
-        },
-        (),
-        (),
-    )
-    calls = []
-
-    class RecordingClient(Client):
-        def pages(self, source, params):
-            calls.append(source)
-            yield from super().pages(source, params)
-
-    assert receive_market_handoff(
-        tmp_path / "legacy",
-        fixed,
-        asof=ASOF,
-        client=RecordingClient(),
-        clock=lambda: RECEIVED,
-        include_margin_interest=False,
-    )
-    assert "margin_interest" not in calls
-    assert {
-        "master",
-        "daily_bars",
-        "market_calendar",
-        "margin_alerts",
-        "short_sale_reports",
-    } <= set(calls)
 
 
 @pytest.mark.parametrize("damage", [None, "absent", "body", "clock"])
@@ -233,20 +178,18 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
             ).fetchall() == [("short_sale_reports",)]
 
 
-def test_native_margin_requires_calendar_and_blocks_old_writer_before_http(tmp_path, monkeypatch):
-    from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-    from baibai_jobs.integration.source_handoff import _acquire_market_l1
-    from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
+@pytest.mark.parametrize(
+    "disabled", [("PRICE",), ("MASTER",), ("CALENDAR",), ("PRICE", "MASTER", "CALENDAR")]
+)
+def test_market_native_dependencies_never_fall_back_to_legacy(tmp_path, monkeypatch, disabled):
+    from baibai_jobs.integration import source_handoff
 
-    monkeypatch.setenv("BAIBAI_MARGIN_INTEREST_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
-    with pytest.raises(ValueError, match="requires native calendar"):
-        _acquire_market_l1(DAY, tmp_path)
-    refresh = object.__new__(JQuantsRefresh)
-    for method in (
-        refresh.ensure_weekly_margin,
-        refresh.refresh_weekly_margin,
-        refresh.ensure_all_issues_daily_margin,
-    ):
-        with pytest.raises(JQuantsProviderError, match="legacy margin interest writer is disabled"):
-            method(DAY)
+    for name in ("PRICE", "MASTER", "CALENDAR"):
+        monkeypatch.setenv(f"BAIBAI_{name}_NATIVE", "false" if name in disabled else "true")
+    monkeypatch.setattr(
+        source_handoff,
+        "Boto3R2Store",
+        lambda **kw: pytest.fail("dependency failure must precede store access"),
+    )
+    with pytest.raises(ValueError, match="requires native calendar, master and prices"):
+        source_handoff._acquire_market_l1(DAY, tmp_path)

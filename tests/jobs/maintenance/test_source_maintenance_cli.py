@@ -32,7 +32,7 @@ from tests.helpers.market_maintenance import (
     FakeJPXProvider,
     FakeJQuantsProvider,
 )
-from tests.helpers.screening_sqlite import add_source_coverage, insert_daily_bars_from_closes
+from tests.helpers.screening_sqlite import add_source_coverage
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
@@ -323,11 +323,6 @@ def test_main_refresh_tender_offer_exits_uses_the_requested_store_and_acquisitio
 
 
 def test_main_backfill_history_covers_every_range_source_over_the_argv_window() -> None:
-    # The weekly margin balance dates are derived from stored trading days, so the
-    # window needs a store that already prices it; without one the command reports
-    # the empty week list as a failure rather than as a backfill that fetched nothing.
-    for friday in (date(2026, 1, 9), date(2026, 1, 16), date(2026, 1, 23), date(2026, 1, 30)):
-        insert_daily_bars_from_closes(_STORE, "7203", [1.0] * 5, end_date=friday)
     jquants = FakeJQuantsProvider()
 
     result = _run_cli(
@@ -341,11 +336,7 @@ def test_main_backfill_history_covers_every_range_source_over_the_argv_window() 
     window = (date(2026, 1, 5), date(2026, 1, 30))
     for source in ("get_eq_bars_daily_range", "get_fin_summary_range", "get_mkt_calendar"):
         assert [call[1:] for call in jquants.calls if call[0] == source] == [window]
-    # This is a historical acquisition window, not the publication clock.
-    # Its final Friday remains eligible without a later week in the cache.
-    assert [
-        week_end for name, week_end, _ in jquants.calls if name == "get_mkt_margin_interest_week"
-    ] == [date(2026, 1, 9), date(2026, 1, 16), date(2026, 1, 23), date(2026, 1, 30)]
+    assert not any("margin" in name or "short_sale" in name for name, _, _ in jquants.calls)
     assert "backfill-history done: 2026-01-05..2026-01-30" in result.stdout
 
 

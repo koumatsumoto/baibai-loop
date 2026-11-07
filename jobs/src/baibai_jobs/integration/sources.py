@@ -54,14 +54,11 @@ from baibai_jobs.integration.jquants_handoff import (
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
-from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
-from baibai_jobs.margin_interest_cutover import margin_interest_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
-from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
 
 
 def apply(
@@ -84,16 +81,10 @@ def apply(
         raise ValueError("EDINET list mode differs from the fixed integration plan")
     if edinet_list_native_enabled() and plan.get("edinet_archive_head") is None:
         raise ValueError("EDINET archive head is absent from the fixed integration plan")
-    if bool(plan.get("margin_alerts_native", False)) != margin_alerts_native_enabled():
-        raise ValueError("margin alerts mode differs from the fixed integration plan")
-    if bool(plan.get("short_sale_reports_native", False)) != short_sale_reports_native_enabled():
-        raise ValueError("short-sale reports mode differs from the fixed integration plan")
-    if bool(plan.get("margin_interest_native", False)) != margin_interest_native_enabled():
-        raise ValueError("margin interest mode differs from the fixed integration plan")
+    if any(not entry["market"] for entry in plan["handoffs"]):
+        raise ValueError("economic handoffs require the independent L1 integration")
     margin_alerts_fingerprints = None
-    if margin_alerts_native_enabled() and any(
-        entry["source"] == "jquants-market" for entry in plan["handoffs"]
-    ):
+    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
             MarginAlertsL1,
         )
@@ -106,9 +97,7 @@ def apply(
             .items()
         }
     short_sale_reports_fingerprints = None
-    if short_sale_reports_native_enabled() and any(
-        entry["source"] == "jquants-market" for entry in plan["handoffs"]
-    ):
+    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
             ShortSaleReportsL1,
         )
@@ -123,9 +112,7 @@ def apply(
             .items()
         }
     margin_interest_fingerprints = None
-    if margin_interest_native_enabled() and any(
-        entry["source"] == "jquants-market" for entry in plan["handoffs"]
-    ):
+    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
             MarginInterestL1,
         )
@@ -181,8 +168,6 @@ def apply(
             as_of=asof,
             evaluated_at=datetime.now(UTC),
         )
-    if any(not entry["market"] for entry in plan["handoffs"]):
-        raise ValueError("economic handoffs require the independent L1 integration")
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
@@ -464,9 +449,6 @@ def main(argv: list[str] | None = None) -> int:
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
                     "calendar_native": calendar_native_enabled(),
-                    "margin_alerts_native": margin_alerts_native_enabled(),
-                    "short_sale_reports_native": short_sale_reports_native_enabled(),
-                    "margin_interest_native": margin_interest_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },

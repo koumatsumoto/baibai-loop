@@ -20,10 +20,6 @@ from tests.helpers.market_maintenance import (
 )
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_writer import (
-    store_jquants_daily_bars,
-    store_jquants_weekly_margin,
-)
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
 from baibai_engine.machine_analysis.observations.stocks.models import SecurityMaster
 from baibai_engine.primitives.time import JST
@@ -130,102 +126,9 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             ("get_mkt_calendar", asof - timedelta(days=7), asof + timedelta(days=45)),
             jquants.calls,
         )
-        self.assertIn(
-            ("refresh_mkt_short_sale_report_range", asof - timedelta(days=7), asof),
-            jquants.calls,
-        )
+        self.assertNotIn("refresh_mkt_short_sale_report_range", [call[0] for call in jquants.calls])
         self.assertEqual(edinet.bootstrap_calls, [])
         self.assertEqual(jpx.bootstrap_calls, [asof])
-
-    def test_bootstrap_refreshes_the_final_legacy_week_after_publication(self) -> None:
-        asof = date(2026, 9, 25)
-        jquants = FakeJQuantsProvider()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            trading_days = (
-                date(2026, 9, 14),
-                date(2026, 9, 15),
-                date(2026, 9, 16),
-                date(2026, 9, 17),
-                date(2026, 9, 18),
-                date(2026, 9, 22),
-                date(2026, 9, 24),
-                date(2026, 9, 25),
-            )
-            store_jquants_daily_bars(
-                sqlite_path,
-                [{"Date": day.isoformat(), "Code": "72030", "C": 100.0} for day in trading_days],
-                requested_start=trading_days[0],
-                requested_end=trading_days[-1],
-            )
-
-            exit_code = bootstrap_cache_command(
-                asof_date=asof,
-                providers=ProviderBundle(
-                    edinet_refresh=FakeEDINETProvider(),
-                    jpx_refresh=FakeJPXProvider(),
-                    jquants_refresh=jquants,
-                ),
-                sqlite_path=sqlite_path,
-                stdout=io.StringIO(),
-            )
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn(
-            (
-                "refresh_mkt_margin_interest_week",
-                date(2026, 9, 18),
-                date(2026, 9, 18),
-            ),
-            jquants.calls,
-        )
-
-    def test_bootstrap_repairs_an_empty_week_cached_before_publication(self) -> None:
-        asof = date(2026, 8, 5)
-        week_end = date(2026, 7, 31)
-        jquants = FakeJQuantsProvider()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            trading_days = (
-                week_end,
-                date(2026, 8, 3),
-                date(2026, 8, 4),
-                asof,
-            )
-            store_jquants_daily_bars(
-                sqlite_path,
-                [{"Date": day.isoformat(), "Code": "72030", "C": 100.0} for day in trading_days],
-                requested_start=trading_days[0],
-                requested_end=trading_days[-1],
-            )
-            store_jquants_weekly_margin(sqlite_path, [], week_end=week_end)
-            conn = open_connection(sqlite_path)
-            try:
-                conn.execute(
-                    "UPDATE source_coverage SET fetched_at_utc = ? "
-                    "WHERE source = 'jquants_weekly_margin'",
-                    ("2026-08-04T07:00:00+00:00",),
-                )
-                conn.commit()
-            finally:
-                conn.close()
-
-            exit_code = bootstrap_cache_command(
-                asof_date=asof,
-                providers=ProviderBundle(
-                    edinet_refresh=FakeEDINETProvider(),
-                    jpx_refresh=FakeJPXProvider(),
-                    jquants_refresh=jquants,
-                ),
-                sqlite_path=sqlite_path,
-                stdout=io.StringIO(),
-            )
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn(
-            ("refresh_mkt_margin_interest_week", week_end, week_end),
-            jquants.calls,
-        )
 
     def test_backfill_master_fetches_only_the_master_for_each_date(self) -> None:
         # 1 cohort あたり 1 request だけを使うことが、この命令の存在理由である。
@@ -419,28 +322,6 @@ def _seed_trading_days(sqlite_path: Path, start: date, end: date) -> None:
 
 
 class BackfillHistoryTests(unittest.TestCase):
-    def test_normal_backfill_fetches_daily_margin_after_the_source_boundary(self) -> None:
-        provider = FakeJQuantsProvider()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _seed_trading_days(sqlite_path, date(2026, 9, 25), date(2026, 9, 28))
-            code = backfill_history_command(
-                start=date(2026, 9, 24),
-                end=date(2026, 9, 28),
-                providers=ProviderBundle(jquants_refresh=provider),
-                sqlite_path=sqlite_path,
-                stdout=io.StringIO(),
-            )
-
-        self.assertEqual(code, 0)
-        self.assertEqual(
-            [call for call in provider.calls if call[0] == "get_mkt_all_issues_daily_margin"],
-            [
-                ("get_mkt_all_issues_daily_margin", date(2026, 9, 25), date(2026, 9, 25)),
-                ("get_mkt_all_issues_daily_margin", date(2026, 9, 28), date(2026, 9, 28)),
-            ],
-        )
-
     def test_each_range_source_is_fetched_over_the_named_window(self) -> None:
         # The window is stated once rather than derived from an as-of, so a decade of
         # history costs one pass instead of one 1200-day re-fetch per cohort date.
@@ -473,52 +354,9 @@ class BackfillHistoryTests(unittest.TestCase):
         ]
         self.assertEqual(by_source["get_eq_bars_daily_range"], year_spans)
         self.assertEqual(by_source["get_fin_summary_range"], year_spans)
-        self.assertEqual(by_source["get_mkt_short_sale_report_range"], year_spans)
+        self.assertNotIn("get_mkt_short_sale_report_range", by_source)
         self.assertEqual(by_source["get_mkt_calendar"], [(date(2016, 8, 1), date(2018, 3, 1))])
         self.assertIn("backfill-history done", output.getvalue())
-
-    def test_a_historical_window_keeps_its_final_week_without_later_cached_bars(self) -> None:
-        # `end` here is a named past boundary, not today, so its week is complete
-        # and holds a real balance date. Treating it as in-progress would drop the
-        # only candidate and report a backfill that fetched nothing as success.
-        provider = FakeJQuantsProvider()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 24))
-            output = io.StringIO()
-            code = backfill_history_command(
-                start=date(2026, 7, 20),
-                end=date(2026, 7, 24),
-                providers=ProviderBundle(jquants_refresh=provider),
-                sqlite_path=sqlite_path,
-                stdout=output,
-            )
-
-        self.assertEqual(code, 0)
-        weeks = [
-            start for name, start, _ in provider.calls if name == "get_mkt_margin_interest_week"
-        ]
-        self.assertEqual(weeks, [date(2026, 7, 24)])
-
-    def test_a_window_with_no_trading_days_fails_rather_than_reporting_success(self) -> None:
-        provider = FakeJQuantsProvider()
-        errors = io.StringIO()
-        with tempfile.TemporaryDirectory() as tmp:
-            sqlite_path = Path(tmp) / "market.sqlite"
-            _seed_trading_days(sqlite_path, date(2026, 7, 1), date(2026, 7, 31))
-            with contextlib.redirect_stderr(errors):
-                code = backfill_history_command(
-                    start=date(2026, 7, 25),
-                    end=date(2026, 7, 26),
-                    providers=ProviderBundle(
-                        jquants_refresh=provider,
-                    ),
-                    sqlite_path=sqlite_path,
-                    stdout=io.StringIO(),
-                )
-
-        self.assertEqual(code, 1)
-        self.assertIn("no weekly margin balance date candidates", errors.getvalue())
 
     def test_a_source_that_fails_does_not_stop_the_others(self) -> None:
         # A provider that cannot answer for one source says nothing about the rest,
@@ -568,7 +406,7 @@ def test_bootstrap_financial_failure_does_not_prevent_market_or_jpx(tmp_path: Pa
     )
     names = [call[0] for call in jquants.calls]
     assert "get_mkt_calendar" in names
-    assert "refresh_mkt_short_sale_report_range" in names
+    assert "refresh_mkt_short_sale_report_range" not in names
     assert edinet.bootstrap_calls == []
     assert len(jpx.bootstrap_calls) == 1
 

@@ -36,14 +36,10 @@ def native_source(request):
 
 @pytest.fixture
 def native_margin_release(tmp_path, monkeypatch, native_source):
-    names = ("jquants.source_pages", "jquants.short_sale_reports")
-    if native_source == "margin_alerts":
-        names += ("jquants.margin_alerts",)
+    names = ("jquants.source_pages", f"jquants.{native_source}")
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
-    monkeypatch.setenv("BAIBAI_MARGIN_ALERTS_NATIVE", "false")
-    monkeypatch.setenv("BAIBAI_SHORT_SALE_REPORTS_NATIVE", "false")
 
     def create(remaining=(), *, migrated=True, both=False):
         store = MemoryR2Store()
@@ -104,25 +100,54 @@ def native_margin_release(tmp_path, monkeypatch, native_source):
                     ),
                 )
         mirror = tmp_path / "mirror"
-        with publication.prepare_market_lake(
-            sqlite_path=market, mirror_root=mirror, store=store, release_id="old-margin"
-        ) as prepared:
-            publication.publish_prepared_market_lake(prepared, store=store)
+        # A historical release is made from the old SQLite projection, without
+        # invoking the current native-only publication route.
+        from baibai_engine.storage.snapshots.release import create_release
+        from baibai_engine.storage.snapshots.writer import export_market_store
+        from baibai_jobs.publication.policy import release_policy_for_profile
+        from baibai_jobs.publication.snapshot_release import publish_release
+
+        exported = export_market_store(
+            sqlite_path=market,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            catalog=publication.LAKE_DATASETS,
+            expected_store_origin=None,
+        )
+        release_path, _ = create_release(
+            dataset_manifest_paths=[item.manifest_path for item in exported.datasets.values()],
+            mirror_root=mirror,
+            release_id="old-margin",
+            catalog=publication.LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
+        publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+        from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+            LakeStoreOrigin,
+            write_lake_store_origin,
+        )
+        from baibai_jobs.publication.snapshot_publication import _serving_pointer
+
+        pointer = _serving_pointer(store).pointer
+        with sqlite3.connect(market) as connection:
+            write_lake_store_origin(
+                connection,
+                LakeStoreOrigin(
+                    release_id=pointer.release_id, release_manifest_sha256=pointer.manifest_sha256
+                ),
+            )
         originals = {key: item.body for key, item in store.values.items() if key != POINTER}
         return store, market, mirror, originals
 
     return create
 
 
-def enable_native(monkeypatch, native_source):
-    monkeypatch.setenv(f"BAIBAI_{native_source.upper()}_NATIVE", "true")
-
-
 def test_margin_cutover_uses_remaining_floor_and_preserves_originals(
     native_margin_release, native_source, monkeypatch
 ):
-    store, market, mirror, originals = native_margin_release([("margin_interest", "2026-10-02")])
-    enable_native(monkeypatch, native_source)
+    store, market, mirror, originals = native_margin_release(
+        [("financial_summaries", "2026-10-02")]
+    )
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="native-margin"
     ) as prepared:
@@ -133,25 +158,22 @@ def test_margin_cutover_uses_remaining_floor_and_preserves_originals(
     assert all(store.values[key].body == body for key, body in originals.items())
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT source FROM jquants_source_pages").fetchall() == [
-            ("margin_interest",)
+            ("financial_summaries",)
         ]
 
 
-@pytest.mark.parametrize("lost_source", ["margin_interest", "other_margin", "master"])
+@pytest.mark.parametrize("lost_source", ["financial_summaries", "master"])
 @pytest.mark.parametrize("lose_all", [False, True])
 def test_margin_cutover_does_not_exempt_remaining_originals(
     native_margin_release, native_source, monkeypatch, lost_source, lose_all
 ):
-    if lost_source == "other_margin":
-        lost_source = "short_sale_reports" if native_source == "margin_alerts" else "margin_alerts"
     rows = [(lost_source, "2026-10-02")]
     if not lose_all:
-        rows.append(("financial_summaries", "2026-10-03"))
+        rows.append(("daily_bars", "2026-10-03"))
     store, market, mirror, _ = native_margin_release(rows)
     pointer = store.values[POINTER].body
     with sqlite3.connect(market) as connection:
         connection.execute("DELETE FROM jquants_source_pages WHERE source=?", (lost_source,))
-    enable_native(monkeypatch, native_source)
     message = "historical dataset" if lose_all else "coverage starts 2026-10-03"
     with (
         pytest.raises(ValueError, match=message),
@@ -167,7 +189,6 @@ def test_margin_native_only_pages_may_leave_optional_dataset(
     native_margin_release, native_source, monkeypatch
 ):
     store, market, mirror, originals = native_margin_release()
-    enable_native(monkeypatch, native_source)
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="only-native"
     ) as prepared:
@@ -176,27 +197,13 @@ def test_margin_native_only_pages_may_leave_optional_dataset(
     assert all(store.values[key].body == body for key, body in originals.items())
 
 
-def test_disabled_margin_flag_keeps_legacy_floor(native_margin_release, native_source):
-    store, market, mirror, _ = native_margin_release([("margin_interest", "2026-10-02")])
-    with sqlite3.connect(market) as connection:
-        connection.execute("DELETE FROM jquants_source_pages WHERE source=?", (native_source,))
-    with (
-        pytest.raises(ValueError, match="coverage starts 2026-10-02"),
-        publication.prepare_market_lake(
-            sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="legacy-loss"
-        ),
-    ):
-        pytest.fail("a disabled native flag cannot exempt original history")
-
-
 def test_unmigrated_margin_receipt_still_blocks_before_history_adjustment(
     native_margin_release, native_source, monkeypatch
 ):
     store, market, mirror, _ = native_margin_release(
-        [("margin_interest", "2026-10-02")], migrated=False
+        [("financial_summaries", "2026-10-02")], migrated=False
     )
     pointer = store.values[POINTER].body
-    enable_native(monkeypatch, native_source)
     with (
         pytest.raises(ValueError, match="absent from or differs from the native cutover"),
         publication.prepare_market_lake(
@@ -209,23 +216,3 @@ def test_unmigrated_margin_receipt_still_blocks_before_history_adjustment(
         assert connection.execute(
             "SELECT COUNT(*) FROM jquants_source_pages WHERE source=?", (native_source,)
         ).fetchone() == (1,)
-
-
-@pytest.mark.parametrize("remaining", [(), (("margin_interest", "2026-10-02"),)])
-def test_both_margin_flags_adjust_only_their_migrated_categories(
-    native_margin_release, monkeypatch, remaining
-):
-    store, market, mirror, originals = native_margin_release(remaining, both=True)
-    for source in ("margin_alerts", "short_sale_reports"):
-        enable_native(monkeypatch, source)
-    with publication.prepare_market_lake(
-        sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="both-native"
-    ) as prepared:
-        if remaining:
-            assert prepared.export.datasets["jquants.source_pages"].manifest.coverage_start == date(
-                2026, 10, 2
-            )
-        else:
-            assert "jquants.source_pages" not in prepared.release.datasets
-        publication.publish_prepared_market_lake(prepared, store=store)
-    assert all(store.values[key].body == body for key, body in originals.items())

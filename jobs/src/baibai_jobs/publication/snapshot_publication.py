@@ -7,9 +7,9 @@ copied independently and therefore cannot prove which rows the export is reading
 
 Native prices and master snapshots use this execution's rebuilt projection and fixed L1
 identity. Legacy financial and price observations use newly exported originals; other
-datasets remain on the legacy store path during migration. The serving release fixes
-the store origin and history floor. Its physical grouping is retained only when this
-seal regenerates the identical object; none of its rows are carried.
+datasets remain on the legacy store path during migration. The serving release is read
+for two facts only — the origin the store must be bound to, and the history floor the
+new release must still reach — and none of its partitions are carried.
 """
 
 from __future__ import annotations
@@ -94,8 +94,6 @@ from baibai_jobs.integration.price_native import model_input as native_price_mod
 from baibai_jobs.integration.short_sale_reports_native import (
     model_input as native_shorts_model_input,
 )
-from baibai_jobs.margin_alerts_cutover import margin_alerts_native_enabled
-from baibai_jobs.margin_interest_cutover import margin_interest_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -121,7 +119,6 @@ from baibai_jobs.publication.snapshot_release import (
     publish_release,
     read_pointer_snapshot,
 )
-from baibai_jobs.short_sale_reports_cutover import short_sale_reports_native_enabled
 
 
 def _phase_progress(phase: str, started: float | None = None) -> float:
@@ -195,9 +192,13 @@ def prepare_market_lake(
     native_price = price_native_enabled()
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
-    native_alerts = margin_alerts_native_enabled()
-    native_shorts = short_sale_reports_native_enabled()
-    native_interest = margin_interest_native_enabled()
+    policy = release_policy_for_profile("production")
+    policy_names = {item.dataset for item in policy.datasets}
+    native_alerts = "jquants.margin_alerts" in policy_names
+    native_shorts = "jquants.short_sale_reports" in policy_names
+    native_interest = bool(
+        {"jquants.weekly_margin", "jquants.all_issues_daily_margin"} & policy_names
+    )
     if native_interest and not native_calendar:
         raise ValueError("native margin interest publication requires native calendar")
     if native_calendar and not (native_financial and native_price and native_master):
@@ -343,8 +344,6 @@ def prepare_market_lake(
         _phase_progress("native_margin_interest", phase_started)
     base_finished = time.perf_counter()
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
-        policy = release_policy_for_profile("production")
-        policy_names = {item.dataset for item in policy.datasets}
         finance_enabled = "jquants.fin_summaries" in policy_names and not native_financial
         price_enabled = {"jquants.source_pages", "jquants.daily_bars"} <= policy_names
         native_calendar_enabled = native_calendar and "jquants.market_calendar" in policy_names

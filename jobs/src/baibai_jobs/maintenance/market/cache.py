@@ -16,18 +16,11 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 from baibai_engine.data_collection.providers.jquants.market_rules import (
     CALENDAR_FORWARD_DAYS,
     CALENDAR_LOOKBACK_DAYS,
-    MARKET_REVISION_OVERLAP_DAYS,
-    WEEKLY_BALANCE_LOOKBACK_DAYS,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
-)
-from baibai_engine.machine_analysis.observations.trading_activity.margin_publication import (
-    ALL_ISSUES_DAILY_FIRST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_BALANCE_DATE,
-    LEGACY_WEEKLY_LAST_PUBLICATION_DATE,
 )
 from baibai_engine.primitives.market_windows import (
     FINANCIAL_HISTORY_DAYS,
@@ -42,13 +35,6 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 from baibai_jobs.maintenance.market.providers import JQuantsMaintenance, ProviderBundle
-from baibai_jobs.maintenance.source_refresh.jquants import (
-    all_issues_daily_margin_backfill_candidate_dates,
-    all_issues_daily_margin_candidate_dates,
-    final_legacy_week_requires_refresh,
-    weekly_margin_candidate_dates,
-    weekly_margin_empty_requires_refresh,
-)
 
 # 明示bootstrapで使う既存入力窓。通常生成の必要窓とは独立に維持する。
 BARS_INPUT_WINDOW_DAYS = 1200
@@ -191,10 +177,7 @@ def backfill_history_command(
         ("daily_bars", refresh.ensure_daily_bars, True),
         ("fin_summaries", refresh.ensure_fin_summaries, True),
         ("market_calendar", refresh.ensure_market_calendar, False),
-        ("short_sale_reports", refresh.ensure_short_sale_reports, True),
-        ("margin_alerts", refresh.ensure_margin_alerts, True),
     )
-    weekly_margin_source = "weekly_margin"
     failures: list[str] = []
     for name, fetch, by_year in sources:
         print(f"backfill-history {name}: {window} start", file=out, flush=True)
@@ -219,60 +202,6 @@ def backfill_history_command(
                 return 1
             continue
         print(f"backfill-history {name}: {count} row(s)", file=out, flush=True)
-    if start <= LEGACY_WEEKLY_LAST_BALANCE_DATE:
-        print(f"backfill-history {weekly_margin_source}: {window} start", file=out, flush=True)
-        try:
-            weeks = weekly_margin_candidate_dates(sqlite_path, start, end)
-            if not weeks:
-                raise JQuantsProviderError(
-                    f"no weekly margin balance date candidates in {window}; "
-                    "the window holds no eligible stored trading days"
-                )
-            margin_rows = sum(refresh.ensure_weekly_margin(week) for week in weeks)
-        except (
-            JQuantsAcquisitionError,
-            JQuantsProviderError,
-            SQLiteSchemaError,
-            sqlite3.Error,
-        ) as exc:
-            print(
-                f"backfill-history {weekly_margin_source}: {type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            failures.append(weekly_margin_source)
-            if isinstance(exc, JQuantsRateLimitError):
-                return 1
-        else:
-            print(
-                f"backfill-history {weekly_margin_source}: {len(weeks)} week(s), "
-                f"{margin_rows} row(s)",
-                file=out,
-                flush=True,
-            )
-    daily_margin_source = "all_issues_daily_margin"
-    if end >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE:
-        print(f"backfill-history {daily_margin_source}: {window} start", file=out, flush=True)
-        try:
-            dates = all_issues_daily_margin_backfill_candidate_dates(sqlite_path, start, end)
-            daily_margin_rows = sum(refresh.ensure_all_issues_daily_margin(day) for day in dates)
-        except (
-            JQuantsAcquisitionError,
-            JQuantsProviderError,
-            SQLiteSchemaError,
-            sqlite3.Error,
-        ) as exc:
-            print(
-                f"backfill-history {daily_margin_source}: {type(exc).__name__}: {exc}",
-                file=sys.stderr,
-            )
-            failures.append(daily_margin_source)
-        else:
-            print(
-                f"backfill-history {daily_margin_source}: {len(dates)} day(s), "
-                f"{daily_margin_rows} row(s)",
-                file=out,
-                flush=True,
-            )
     if failures:
         print(
             f"backfill-history: {len(failures)} source(s) failed: {', '.join(failures)}",
@@ -282,12 +211,6 @@ def backfill_history_command(
     print(f"backfill-history done: {window}", file=out, flush=True)
     return 0
 
-
-# The delta axis reaches back 26 balance dates, so an incremental bootstrap has to
-# hold at least that many weeks. The slack absorbs the weeks the exchange skips.
-_WEEKLY_MARGIN_BOOTSTRAP_DAYS = WEEKLY_BALANCE_LOOKBACK_DAYS
-_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS = MARKET_REVISION_OVERLAP_DAYS
-_MARGIN_ALERT_REVISION_OVERLAP_DAYS = MARKET_REVISION_OVERLAP_DAYS
 
 FIN_SUMMARY_REVISION_OVERLAP_DAYS = FINANCIAL_REVISION_OVERLAP_DAYS
 """How far back a bootstrap re-reads financial summaries it already has.
@@ -472,83 +395,6 @@ def _bootstrap_market_cache(
     calendar_rows = refresh.ensure_market_calendar(calendar_start, calendar_end)
     print(
         f"bootstrap-cache jquants market_calendar: {calendar_rows} row(s)",
-        file=out,
-        flush=True,
-    )
-    # Balance dates come from the stored trading calendar, so the bars fetch
-    # above has to have happened first; on a store with no bars this proposes
-    # nothing and the source stays empty rather than guessing Fridays.
-    margin_weeks = weekly_margin_candidate_dates(
-        sqlite_path,
-        asof_date - timedelta(days=_WEEKLY_MARGIN_BOOTSTRAP_DAYS),
-        asof_date,
-        publication_asof=asof_date,
-    )
-    print(
-        f"bootstrap-cache jquants weekly_margin: {len(margin_weeks)} week(s) start",
-        file=out,
-        flush=True,
-    )
-    margin_rows = 0
-    for week_end in margin_weeks:
-        if weekly_margin_empty_requires_refresh(sqlite_path, week_end, asof=asof_date) or (
-            week_end == LEGACY_WEEKLY_LAST_BALANCE_DATE
-            and asof_date >= LEGACY_WEEKLY_LAST_PUBLICATION_DATE
-            and final_legacy_week_requires_refresh(sqlite_path)
-        ):
-            # An older checkout may have cached an empty response before the
-            # final legacy week was published. Re-read this one boundary row
-            # after its official publication date so the transition cannot
-            # inherit that false-empty claim.
-            margin_rows += refresh.refresh_weekly_margin(week_end)
-        else:
-            margin_rows += refresh.ensure_weekly_margin(week_end)
-    print(
-        f"bootstrap-cache jquants weekly_margin: {margin_rows} row(s)",
-        file=out,
-        flush=True,
-    )
-    alert_start = asof_date - timedelta(days=_MARGIN_ALERT_REVISION_OVERLAP_DAYS)
-    print(
-        "bootstrap-cache jquants margin_alerts: "
-        f"{alert_start.isoformat()}..{asof_date.isoformat()} start",
-        file=out,
-        flush=True,
-    )
-    margin_alert_rows = refresh.refresh_margin_alerts(alert_start, asof_date)
-    print(
-        f"bootstrap-cache jquants margin_alerts: {margin_alert_rows} row(s)",
-        file=out,
-        flush=True,
-    )
-    daily_margin_dates = all_issues_daily_margin_candidate_dates(
-        sqlite_path, ALL_ISSUES_DAILY_FIRST_BALANCE_DATE, asof_date
-    )
-    print(
-        f"bootstrap-cache jquants all_issues_daily_margin: {len(daily_margin_dates)} day(s) start",
-        file=out,
-        flush=True,
-    )
-    daily_margin_rows = sum(
-        refresh.ensure_all_issues_daily_margin(balance_date) for balance_date in daily_margin_dates
-    )
-    print(
-        f"bootstrap-cache jquants all_issues_daily_margin: {daily_margin_rows} row(s)",
-        file=out,
-        flush=True,
-    )
-    print(
-        "bootstrap-cache jquants short_sale_reports: "
-        f"{(asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS)).isoformat()}"
-        f"..{asof_date.isoformat()} start",
-        file=out,
-        flush=True,
-    )
-    short_report_rows = refresh.refresh_short_sale_reports(
-        asof_date - timedelta(days=_SHORT_SALE_REPORT_REVISION_OVERLAP_DAYS), asof_date
-    )
-    print(
-        f"bootstrap-cache jquants short_sale_reports: {short_report_rows} row(s)",
         file=out,
         flush=True,
     )

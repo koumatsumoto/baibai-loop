@@ -229,7 +229,6 @@ def test_normal_publication_fixes_one_head_for_seal_reader_and_lineage(tmp_path,
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     store, owner, market, mirror = fixture(tmp_path)
-    monkeypatch.setenv("BAIBAI_MARGIN_ALERTS_NATIVE", "true")
     name = "jquants.margin_alerts"
     narrow_release_policy(monkeypatch, datasets=(name,))
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name]})

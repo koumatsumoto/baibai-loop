@@ -72,7 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
-        help="bootstrap canonical SQLite inputs for a source as-of date",
+        help="bootstrap legacy SQLite inputs; native margin sources use their acquisition commands",
     )
     bootstrap_parser.add_argument(
         "--asof",
@@ -115,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     backfill_history_parser = subparsers.add_parser(
         "backfill-history",
-        help=("fetch range sources and margin balances over an explicit window"),
+        help="fetch legacy prices, financials and calendar over an explicit window",
     )
     backfill_history_parser.add_argument(
         "--start", required=True, help="first date the window covers (YYYY-MM-DD)"
