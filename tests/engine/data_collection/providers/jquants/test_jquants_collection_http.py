@@ -498,7 +498,6 @@ def test_rate_limit_exhaustion_stops_next_endpoint_or_day_in_same_pass(
     maintenance = JQuantsRefresh(database, None, client=client)
     edinet = Mock()
     jpx = Mock()
-    edinet.bootstrap_cache.return_value = {"ok": 1}
     jpx.bootstrap_cache.return_value = {"ok": 1}
     providers = ProviderBundle(jquants_refresh=maintenance, edinet_refresh=edinet, jpx_refresh=jpx)
     target = date(2026, 10, 16)
@@ -530,11 +529,10 @@ def test_rate_limit_exhaustion_stops_next_endpoint_or_day_in_same_pass(
     error = capsys.readouterr().err
     assert "JQuantsRateLimitError" in error
     assert "synthetic-test-key" not in error
+    assert edinet.mock_calls == []
     if command == "bootstrap-cache":
-        edinet.bootstrap_cache.assert_called_once()
         jpx.bootstrap_cache.assert_called_once_with(target)
     else:
-        edinet.bootstrap_cache.assert_not_called()
         jpx.bootstrap_cache.assert_not_called()
 
 
