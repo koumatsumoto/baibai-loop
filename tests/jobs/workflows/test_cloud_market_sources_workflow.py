@@ -120,7 +120,7 @@ def test_workflow_crons_match_supported_market_source_slots():
         ("43 8 * * *", "2026-10-26T15:29:01Z", "2026-10-26", ["edinet-metrics"]),
         ("13 9 * * *", "2026-10-26T16:08:24Z", "2026-10-26", ["edinet-facts"]),
         ("43 7 * * *", "2026-10-24T00:05:00Z", "2026-10-23", INPUT_SOURCES),
-        ("43 7 * * *", "2026-10-26T00:05:00Z", "2026-10-25", ["edinet-list"]),
+        ("43 7 * * *", "2026-10-26T00:05:00Z", "2026-10-25", ["jquants-market", "edinet-list"]),
     ],
 )
 def test_delayed_schedule_preserves_slot_date_and_weekday(
@@ -130,6 +130,15 @@ def test_delayed_schedule_preserves_slot_date_and_weekday(
     assert result.returncode == 0, result.stderr
     assert output["asof"] == expected_day
     assert _planned_sources(output) == expected_sources
+    assert output["edinet_all"] == "false"
+
+
+@pytest.mark.parametrize("day", ["2026-11-07", "2026-11-08"])
+def test_weekend_market_receipts_are_acquired_before_daily_publication(tmp_path, day):
+    result, output = _run_plan(tmp_path, created_at=f"{day}T07:43:00Z", schedule="43 7 * * *")
+    assert result.returncode == 0, result.stderr
+    assert output["asof"] == day
+    assert _planned_sources(output) == ["jquants-market", "edinet-list"]
     assert output["edinet_all"] == "false"
 
 
