@@ -11,6 +11,7 @@ import logging
 import re
 import sqlite3
 from collections.abc import Mapping
+from copy import copy
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from types import MappingProxyType
@@ -53,7 +54,7 @@ class HolderReportedCapital:
 class _HolderCapitalContent:
     ticker: str
     reference_date: date
-    total_stocks: int
+    total_stocks: int | ValueError
     original_sha256: str
 
 
@@ -118,8 +119,8 @@ def prepare_holder_capital(
 def _prepare_holder_content(
     archives: FixedEdinetArchives, doc_id: str
 ) -> _HolderCapitalContent | Exception | None:
-    # A fresh error retains the existing failure boundary without its reader
-    # frame, ZIP buffer, or XML tree. Only final eligible documents raise it.
+    # Defer parse failures without their reader frames; an unused filing must
+    # not fail the whole preparation before final eligibility is known.
     try:
         return _extract_holder_content(archives.read_xbrl_zip(doc_id))
     except SourceFormatError:
@@ -130,6 +131,9 @@ def _prepare_holder_content(
         return OSError(str(error))
     except ValueError as error:
         return ValueError(str(error))
+    except Exception as error:
+        error.__traceback__ = error.__context__ = error.__cause__ = None
+        return error
 
 
 def extract_holder_capital(
@@ -150,6 +154,8 @@ def _attribute_holder_content(
 ) -> HolderReportedCapital | None:
     if content is None or content.reference_date > submitted_at.astimezone(JST).date():
         return None
+    if isinstance(content.total_stocks, ValueError):
+        raise copy(content.total_stocks)
     return HolderReportedCapital(
         content.ticker,
         content.reference_date,
@@ -194,11 +200,22 @@ def _extract_holder_content(content: bytes) -> _HolderCapitalContent | None:
     if not common_code or code_context.period_end != total_context.period_end:
         return None
     reference = date.fromisoformat(total_context.period_end)
-    if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
+    if not raw.isascii() or not raw.isdigit():
         return None
-    if total.get("unitRef") not in share_units or total.get("decimals") not in {"0", "INF"}:
+    try:
+        total_stocks: int | ValueError = int(raw)
+    except ValueError as error:
+        # The reference date used to exclude future facts before this conversion.
+        total_stocks = ValueError(str(error))
+    if isinstance(total_stocks, int) and (
+        total_stocks <= 0
+        or total.get("unitRef") not in share_units
+        or total.get("decimals") not in {"0", "INF"}
+    ):
         return None
-    return _HolderCapitalContent(ticker, reference, int(raw), hashlib.sha256(content).hexdigest())
+    return _HolderCapitalContent(
+        ticker, reference, total_stocks, hashlib.sha256(content).hexdigest()
+    )
 
 
 def read_holder_capital(
@@ -341,7 +358,7 @@ def read_holder_capital(
         if prepared_capital is not None:
             prepared_content = prepared_capital.results[doc_id][1]
             if isinstance(prepared_content, Exception):
-                raise type(prepared_content)(str(prepared_content))
+                raise copy(prepared_content)
             fact = _attribute_holder_content(
                 prepared_content, document_id=doc_id, submitted_at=submitted
             )

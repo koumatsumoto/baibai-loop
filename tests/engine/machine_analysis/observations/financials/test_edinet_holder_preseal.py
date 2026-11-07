@@ -2,7 +2,9 @@
 
 import io
 import sqlite3
+import struct
 import zipfile
+import zlib
 from contextlib import closing
 from datetime import UTC, date, datetime
 
@@ -374,3 +376,98 @@ def test_preparsed_unneeded_failure_does_not_hide_another_good_document(monkeypa
         connection.execute("DROP TABLE edinet_source_archives")
         assert read(connection, archives=archives, prepared=prepared, seal=seal) == expected
         assert expected[0]["1234"]
+
+
+def damaged_original(kind):
+    body = bytearray(original())
+    local = body.index(b"PK\x03\x04")
+    central = body.index(b"PK\x01\x02")
+    with zipfile.ZipFile(io.BytesIO(body)) as archive:
+        info = archive.infolist()[0]
+        xml = archive.read(info)
+        offset = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
+    if kind == "crc":
+        body[offset + 20] ^= 1
+    elif kind == "encrypted":
+        struct.pack_into("<H", body, local + 6, 1)
+        struct.pack_into("<H", body, central + 8, 1)
+    elif kind == "compression":
+        struct.pack_into("<H", body, local + 8, 99)
+        struct.pack_into("<H", body, central + 10, 99)
+    else:
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(info.filename, xml)
+        body = bytearray(out.getvalue())
+        body[30 + len(info.filename.encode())] = 255
+    return bytes(body)
+
+
+@pytest.mark.parametrize(
+    ("damage", "failure"),
+    [
+        ("crc", zipfile.BadZipFile),
+        ("encrypted", RuntimeError),
+        ("compression", NotImplementedError),
+        ("deflate", zlib.error),
+    ],
+)
+@pytest.mark.parametrize("eligible", [True, False])
+def test_zip_read_errors_wait_for_eligibility_without_retaining_failed_payload(
+    monkeypatch, damage, failure, eligible
+):
+    with closing(sqlite3.connect(":memory:")) as connection:
+        good = seed(connection, doc_id="S100GOOD")
+        bad = seed(connection, doc_id="S100FAIL", seq=2, body=damaged_original(damage))
+        if not eligible:
+            connection.execute(
+                "UPDATE edinet_documents SET withdrawal_status='1' WHERE doc_id='S100FAIL'"
+            )
+        seal = datetime(2026, 11, 3, 7, tzinfo=UTC)
+        if eligible:
+            with pytest.raises(failure) as expected_error:
+                read(connection, seal=seal)
+        else:
+            expected = read(connection, seal=seal)
+        store, archives = native_for({"S100GOOD": good, "S100FAIL": bad})
+        tracker = track_payloads(monkeypatch, archives)
+        prepared = prepare(monkeypatch, connection, archives)
+        result = prepared.results["S100FAIL"][1]
+        assert type(result) is failure
+        assert tracker["count"] == tracker["bytes"] == 0
+        assert tracker["peak_count"] == 1
+        connection.execute("DROP TABLE edinet_source_archives")
+        if eligible:
+            with pytest.raises(failure) as actual_error:
+                read(connection, archives=archives, prepared=prepared, seal=seal)
+            assert str(actual_error.value) == str(expected_error.value)
+        else:
+            assert read(connection, archives=archives, prepared=prepared, seal=seal) == expected
+            assert expected[0]["1234"]
+        assert result.__traceback__ is result.__context__ is result.__cause__ is None
+        assert len(store.get_keys) == 2
+
+
+@pytest.mark.parametrize("period", ["2026-10-28", "2026-11-01"])
+@pytest.mark.parametrize("unit", ["xbrli:shares", "xbrli:pure"])
+def test_stock_conversion_error_waits_for_the_reference_date_guard(monkeypatch, period, unit):
+    facts = (
+        '<h:SecurityCodeOfIssuer contextRef="FilingDateInstant">1234</h:SecurityCodeOfIssuer>'
+        '<h:TotalNumberOfOutstandingStocksEtc contextRef="FilingDateInstant" '
+        'unitRef="u1" decimals="0">' + "1" * 4400 + "</h:TotalNumberOfOutstandingStocksEtc>"
+    )
+    with closing(sqlite3.connect(":memory:")) as connection:
+        body = seed(connection, body=original(period=period, unit=unit, facts=facts))
+        _store, archives = native_for({"S100TEST": body})
+        tracker = track_payloads(monkeypatch, archives)
+        prepared = prepare(monkeypatch, connection, archives)
+        result = prepared.results["S100TEST"][1]
+        assert isinstance(result.total_stocks, ValueError)
+        assert tracker["count"] == tracker["bytes"] == 0
+        args = dict(archives=archives, prepared=prepared, seal=datetime(2026, 11, 3, 7, tzinfo=UTC))
+        if period == "2026-11-01":
+            assert read(connection, **args) == ({}, "partial")
+        else:
+            with pytest.raises(ValueError, match="integer string conversion"):
+                read(connection, **args)
+        assert result.total_stocks.__traceback__ is None
