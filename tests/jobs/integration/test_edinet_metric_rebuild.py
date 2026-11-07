@@ -35,6 +35,10 @@ from baibai_engine.machine_analysis.observations.financials.edinet_reader import
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.integration import edinet_metric_rebuild
 from baibai_jobs.integration.edinet_archive_native import rebuild_fixed_edinet_input
+from baibai_jobs.integration.edinet_list_native import (
+    clear_verified_receipt_cache,
+    materialize_lists,
+)
 from baibai_jobs.integration.edinet_metric_rebuild import rebuild_fixed_edinet_metrics
 
 BASE = date(2026, 4, 24)
@@ -470,3 +474,196 @@ def test_retained_pair_reuses_cold_metric_reader_without_sql_archives(tmp_path, 
         assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
         assert connection.execute("SELECT count(*) FROM edinet_segment_facts").fetchone() == (0,)
     assert store.values == before
+
+
+@pytest.mark.parametrize("current_filings", ["replacement_and_healthy", "healthy", "none"])
+def test_omitted_origin_receipt_quarantines_anonymous_withdrawal_on_cold_and_warm_stores(
+    tmp_path, current_filings
+):
+    store, owner, _, initial, archives = sources(
+        tmp_path,
+        bodies={
+            ("S100ONE", 5): _edinet_csv_zip(),
+            ("S100OTHER", 5): _edinet_csv_zip(),
+        },
+    )
+    warm = tmp_path / "warm.sqlite"
+    materialize_lists(initial, warm)
+    edinet_integration.extract_saved_edinet(
+        warm, asof=BASE, lookback_days=0, metric_archives=archives, fact_archives=archives
+    )
+    assert metrics(warm).rows["7203"].record.cash == 1000
+    event = {
+        "docID": "S100WITHDRAW",
+        "parentDocID": "S100ONE",
+        "withdrawalStatus": "1",
+        "legalStatus": "0",
+        "disclosureStatus": "0",
+        "docInfoEditStatus": "0",
+    }
+    documents = [event]
+    if current_filings != "none":
+        documents.append(document("S100OTHER", "83060"))
+    if current_filings == "replacement_and_healthy":
+        # No CSV for the newly selected same-ticker filing: quarantine must
+        # precede missing-archive planning, not parse it or claim a deferral.
+        documents.append(document("S100NEW", "72030"))
+    fixed = owner.publish(
+        [
+            receipt(BASE, [], 20, received_at=AT + timedelta(seconds=1)),
+            receipt(TARGET, documents, 21, received_at=AT + timedelta(seconds=2)),
+        ]
+    )
+    materialize_lists(fixed, warm)
+    warm_report = edinet_integration.extract_saved_edinet(
+        warm, asof=TARGET, lookback_days=0, metric_archives=archives, fact_archives=archives
+    )
+    expected = metrics(warm).rows
+    if current_filings == "none":
+        assert warm_report["edinet-metrics"]["status"] == "deferred_input"
+        assert warm_report["edinet-metrics"]["deferred_inputs"] == ["no_selected_filings"]
+        assert expected["7203"].record.cash == 1000
+        assert metrics(warm).asof_date == BASE
+    else:
+        assert warm_report["edinet-metrics"]["status"] == "completed"
+    original_warm = warm.read_bytes()
+    del store.values[LIST_HEAD]
+    del store.values[ARCHIVE_HEAD]
+    original_source = dict(store.values)
+    store.get_keys.clear()
+    output = tmp_path / "cold.sqlite"
+    report = run(fixed, archives, output, asof=TARGET)
+    assert report["output_written"]
+    assert report["edinet-metrics"]["status"] == "completed"
+    assert report["edinet-metrics"]["deferred_inputs"] == []
+    rows = metrics(output).rows
+    affected = rows["7203"].record
+    assert affected.source_doc_id == "S100ONE"
+    assert affected.cash is None
+    assert affected.failure_reasons == ("document_event_quarantined:withdrawal:S100WITHDRAW",)
+    if current_filings != "none":
+        assert affected.failure_reasons == expected["7203"].record.failure_reasons
+    if current_filings == "replacement_and_healthy":
+        assert rows == expected
+    else:
+        # Raw identity alone cannot recreate the lost prior extraction's metadata.
+        assert affected.document_type is None
+        assert affected.source_submit_datetime is None
+        assert affected.source_period_start is None
+        assert affected.source_period_end is None
+    wanted = {"7203"} if current_filings == "none" else {"7203", "8306"}
+    assert set(rows) == wanted
+    healthy = archives.metadata("S100OTHER", 5)
+    assert [key for key in store.get_keys if key.endswith(".zip")] == (
+        [] if current_filings == "none" else [f"l1/edinet/archives/v1/objects/{healthy.sha256}.zip"]
+    )
+    with sqlite3.connect(output) as connection:
+        assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
+        assert connection.execute(
+            "SELECT count(*) FROM edinet_documents WHERE doc_id='S100ONE'"
+        ).fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM edinet_list_responses").fetchone() == (3,)
+    eligible = set() if current_filings == "none" else {"8306"}
+    assert set(EDINETReader(output).load_metric_records(TARGET)) == eligible
+    # Once the explicit extraction has saved quarantine, its ordinary baseline
+    # identity/reasons keep the affected value ineligible even without the cache.
+    assert clear_verified_receipt_cache(fixed, output) == 3
+    assert set(EDINETReader(output).load_metric_records(TARGET)) == eligible
+    assert warm.read_bytes() == original_warm
+    assert store.values == original_source
+
+
+def test_manual_extraction_uses_the_same_original_identity_without_metric_baseline(tmp_path):
+    from tests.helpers.edinet_metrics import FakeEDINETMetricReader
+
+    _, owner, _, _, _ = sources(tmp_path)
+    event = {
+        "docID": "S100WITHDRAW",
+        "parentDocID": "S100ONE",
+        "withdrawalStatus": "1",
+        "legalStatus": "0",
+        "disclosureStatus": "0",
+        "docInfoEditStatus": "0",
+    }
+    fixed = owner.publish(
+        [
+            receipt(BASE, [], 20, received_at=AT + timedelta(seconds=1)),
+            receipt(
+                TARGET,
+                [event, document("S100OTHER", "83060")],
+                21,
+                received_at=AT + timedelta(seconds=2),
+            ),
+        ]
+    )
+    database = tmp_path / "manual.sqlite"
+    materialize_lists(fixed, database)
+    assert read_edinet_metric_baseline(database, TARGET) is None
+    reader = FakeEDINETMetricReader(
+        documents=[event, document("S100OTHER", "83060")],
+        zip_by_doc_id={"S100OTHER": _edinet_csv_zip()},
+    )
+    assert (
+        service.extract_edinet_metrics_command(
+            asof_date=TARGET, lookback_days=0, reader=reader, sqlite_path=database
+        )
+        == 0
+    )
+    assert reader.read_calls == ["S100OTHER"]
+    assert metrics(database).rows["7203"].record.failure_reasons == (
+        "document_event_quarantined:withdrawal:S100WITHDRAW",
+    )
+
+
+def test_read_eligibility_checks_retained_identity_before_the_next_extraction(tmp_path):
+    store, owner, _, _, archives = sources(
+        tmp_path,
+        bodies={
+            ("S100NEW", 5): _edinet_csv_zip(),
+            ("S100OTHER", 5): _edinet_csv_zip(),
+        },
+    )
+    fixed = owner.publish(
+        [
+            receipt(
+                BASE,
+                [document("S100NEW", "72030"), document("S100OTHER", "83060")],
+                20,
+                received_at=AT + timedelta(seconds=1),
+            ),
+        ]
+    )
+    database = tmp_path / "market.sqlite"
+    materialize_lists(fixed, database)
+    report = edinet_integration.extract_saved_edinet(
+        database, asof=BASE, lookback_days=0, metric_archives=archives, fact_archives=archives
+    )
+    assert report["edinet-metrics"]["status"] == "completed"
+    assert metrics(database).rows["7203"].record.source_doc_id == "S100NEW"
+    assert set(EDINETReader(database).load_metric_records(BASE)) == {"7203", "8306"}
+    fixed = owner.publish(
+        [
+            receipt(
+                TARGET,
+                [{"docID": "S100WITHDRAW", "parentDocID": "S100ONE", "withdrawalStatus": "1"}],
+                21,
+                received_at=AT + timedelta(seconds=2),
+            ),
+        ]
+    )
+    materialize_lists(fixed, database)
+    before = database.read_bytes()
+    assert set(EDINETReader(database).load_metric_records(TARGET)) == {"8306"}
+    assert database.read_bytes() == before
+    # Eligibility is read-only. The prior successful snapshot is still retained.
+    assert metrics(database).rows["7203"].record.cash == 1000
+    assert clear_verified_receipt_cache(fixed, database) == 3
+    store.get_keys.clear()
+    # A generic post-hydrate SQL reader has no raw receipt history. It still uses
+    # the legacy fallback, which cannot link this old target to the different
+    # selected document. Do not hide this boundary behind an implicit R2 read.
+    assert set(EDINETReader(database).load_metric_records(TARGET)) == {"7203", "8306"}
+    assert store.get_keys == []
+    # The already-supported explicit fixed materialization restores the evidence.
+    materialize_lists(fixed, database)
+    assert set(EDINETReader(database).load_metric_records(TARGET)) == {"8306"}

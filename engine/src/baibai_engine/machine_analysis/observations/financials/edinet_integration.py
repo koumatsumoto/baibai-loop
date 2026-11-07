@@ -43,6 +43,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.store i
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import (
     make_metric_extraction_plan,
+    read_retained_metric_document_tickers,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     EDINET_METRIC_REVISION,
@@ -123,7 +124,12 @@ def extract_saved_edinet(
             origin_start=window_start,
         )
         plan = make_metric_extraction_plan(
-            selection=selection, baseline=baseline, extractor_revision=EDINET_METRIC_REVISION
+            selection=selection,
+            baseline=baseline,
+            extractor_revision=EDINET_METRIC_REVISION,
+            retained_tickers_by_doc=read_retained_metric_document_tickers(
+                database, selection=selection, through=available
+            ),
         )
         if selection.quarantined_events:
             metrics["quarantined_events"] = [
@@ -134,7 +140,10 @@ def extract_saved_edinet(
             for item in plan.archive_candidates
             if (item.doc_id, 5) not in retained_metrics
         ]
-        if not selection.candidates:
+        # A fresh cold candidate can represent known quarantine without pretending
+        # that empty/missing input is success. Do not replace a warm good snapshot
+        # merely because no current filing is selectable.
+        if not selection.candidates and (baseline is not None or not plan.events_by_ticker):
             metrics["deferred_inputs"].append("no_selected_filings")
         elif missing and len(missing) == len(plan.archive_candidates):
             metrics["deferred_inputs"].append("csv_archives_unavailable")

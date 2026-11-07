@@ -16,6 +16,7 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_selection im
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.planning import (
     can_reuse_edinet_metric,
     make_metric_extraction_plan,
+    read_retained_metric_document_tickers,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     EDINET_METRIC_REVISION,
@@ -46,7 +47,12 @@ def read_eligible_edinet_metrics(
             read_observed_documents(connection, through=asof_date), origin_start=None
         )
     plan = make_metric_extraction_plan(
-        selection=selection, baseline=baseline, extractor_revision=EDINET_METRIC_REVISION
+        selection=selection,
+        baseline=baseline,
+        extractor_revision=EDINET_METRIC_REVISION,
+        retained_tickers_by_doc=read_retained_metric_document_tickers(
+            sqlite_path, selection=selection, through=asof_date
+        ),
     )
     return {
         ticker: replace(

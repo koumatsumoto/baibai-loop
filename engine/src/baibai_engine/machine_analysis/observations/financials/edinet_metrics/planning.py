@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import closing
 from dataclasses import dataclass
+from datetime import date
+from itertools import groupby
+from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.list_projection import project_document_list
+from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     QuarantinedDocumentEvent,
 )
@@ -13,6 +19,10 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_selection im
     DocumentSelection,
     EdinetDocumentCandidate,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+    parse_sec_code,
+    text_or_none,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     DEFERRED_CSV_REASON,
 )
@@ -20,6 +30,8 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
     EDINETMetricBaseline,
     EDINETMetricBaselineRow,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,26 +56,81 @@ class MetricExtractionPlan:
         return tuple(result)
 
 
+def read_retained_metric_document_tickers(
+    sqlite_path: Path, *, selection: DocumentSelection, through: date
+) -> dict[str, frozenset[str]]:
+    """Identify unresolved targets from original receipts, never revive omitted filings.
+
+    A refreshed day can omit a formerly observed origin while a later withdrawal
+    names only its docID. Its old receipt still establishes the affected ticker,
+    not present eligibility, financial values or a past extraction timestamp.
+    Read history only for unresolved targets; the normal no-event path is free.
+    """
+    targets = {
+        event.target_doc_id
+        for event in selection.quarantined_events
+        if event.target_doc_id is not None
+    }
+    if not targets or not sqlite_path.is_file():
+        return {}
+    tickers: dict[str, set[str]] = {}
+    with closing(connect_read_only(sqlite_path)) as connection:
+        connection.execute("BEGIN")
+        days = connection.execute(
+            "SELECT DISTINCT doc_date FROM edinet_list_responses "
+            "WHERE doc_date <= ? ORDER BY doc_date",
+            (through.isoformat(),),
+        ).fetchall()
+        for (day,) in days:
+            receipts = read_list_responses(connection, doc_date=date.fromisoformat(day))
+            ordered = sorted(receipts, key=lambda receipt: receipt.received_at)
+            for _, group in groupby(ordered, key=lambda receipt: receipt.received_at):
+                same_time = tuple(group)
+                # Match the source projection: a conflicting same-time group
+                # makes later ordering unknowable, rather than ordering by UUID.
+                if len({receipt.body for receipt in same_time}) != 1:
+                    break
+                projection = project_document_list(same_time)
+                for document in projection.documents:
+                    doc_id = str(document["docID"])
+                    if (
+                        doc_id not in targets
+                        or text_or_none(document.get("docTypeCode")) not in TARGET_DOC_TYPE_CODES
+                    ):
+                        continue
+                    try:
+                        ticker = parse_sec_code(document.get("secCode"))
+                    except EDINETProviderError:
+                        continue
+                    tickers.setdefault(doc_id, set()).add(ticker)
+    return {doc_id: frozenset(values) for doc_id, values in tickers.items()}
+
+
 def make_metric_extraction_plan(
     *,
     selection: DocumentSelection,
     baseline: EDINETMetricBaseline | None,
     extractor_revision: str,
+    retained_tickers_by_doc: Mapping[str, frozenset[str]] | None = None,
 ) -> MetricExtractionPlan:
     events: dict[str, set[QuarantinedDocumentEvent]] = {}
     for event in selection.quarantined_events:
         if event.ticker is not None and event.document_type in TARGET_DOC_TYPE_CODES:
             events.setdefault(event.ticker, set()).add(event)
+    tickers_by_doc = {
+        doc_id: set(values) for doc_id, values in (retained_tickers_by_doc or {}).items()
+    }
     if baseline is not None:
-        tickers_by_doc: dict[str, set[str]] = {}
+        # Retained receipts need not include a legacy baseline's original input.
+        # Preserve that existing safety evidence even when L1 names another ticker.
         for ticker, row in baseline.rows.items():
             record = row.record
             if record.source_doc_id is not None and record.document_type in TARGET_DOC_TYPE_CODES:
                 tickers_by_doc.setdefault(record.source_doc_id, set()).add(ticker)
-        for event in selection.quarantined_events:
-            if event.target_doc_id is not None:
-                for ticker in tickers_by_doc.get(event.target_doc_id, ()):
-                    events.setdefault(ticker, set()).add(event)
+    for event in selection.quarantined_events:
+        if event.target_doc_id is not None:
+            for ticker in tickers_by_doc.get(event.target_doc_id, ()):
+                events.setdefault(ticker, set()).add(event)
     return MetricExtractionPlan(
         selection=selection,
         baseline=baseline,
