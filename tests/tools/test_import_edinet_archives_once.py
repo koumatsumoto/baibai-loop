@@ -26,6 +26,7 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
     NativeListReceipt,
 )
 from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
+from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -105,7 +106,17 @@ def test_plan_apply_and_verify_reconstruct_exact_plan_with_all_old_schema_stages
     report = {}
     before_apply = dict(store.values)
     apply = replace(request, mode="apply", plan=digest, initialize=True)
-    entry.execute(apply, handle, report, lambda: None)
+    verify = Mock(wraps=entry.verify_import)
+    monkeypatch.setattr(entry, "verify_import", verify)
+    phases = []
+    store.get_keys.clear()
+    entry.execute(apply, handle, report, lambda: phases.append(report.get("phase")))
+    verify.assert_not_called()
+    assert phases[-2:] == ["native_apply", "final_checks"]
+    body_keys = {key for key in store.values if key.endswith(".zip")}
+    assert len(body_keys) == 2
+    # The owner's PUT readback and apply's final readback both remain.
+    assert {key: store.get_keys.count(key) for key in body_keys} == dict.fromkeys(body_keys, 2)
     assert report["verified"] is True
     assert report["status"] == "verified_not_cut_over"
     owner = EdinetArchiveL1(store, tmp_path / "readback")
@@ -118,9 +129,18 @@ def test_plan_apply_and_verify_reconstruct_exact_plan_with_all_old_schema_stages
     target = report["observed"]["native_archives"]["wire_sha256"]
     shutil.rmtree(work)
     puts = list(store.put_keys)
+    store.get_keys.clear()
+    report, phases = {}, []
     entry.execute(
-        replace(request, mode="verify", archives=target, plan=digest), handle, {}, lambda: None
+        replace(request, mode="verify", archives=target, plan=digest),
+        handle,
+        report,
+        lambda: phases.append(report.get("phase")),
     )
+    verify.assert_called_once()
+    assert phases[-2:] == ["verify_all_originals", "final_checks"]
+    assert {key: store.get_keys.count(key) for key in body_keys} == dict.fromkeys(body_keys, 1)
+    assert report["verified"] is True
     assert store.put_keys == puts
 
 
@@ -171,33 +191,75 @@ def test_existing_canonical_raw_is_not_overwritten_by_hydrate(tmp_path, monkeypa
     assert store.values == before
 
 
-def test_changed_target_after_verify_is_not_reported_as_verified(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["apply", "verify"])
+def test_changed_target_after_readback_is_not_reported_as_verified(tmp_path, monkeypatch, mode):
     store, request, handle, work = fixture(tmp_path, monkeypatch)
     report = {}
     entry.execute(request, handle, report, lambda: None)
     digest = report["plan_sha256"]
     shutil.rmtree(work)
-    verify = entry.verify_import
+    request = replace(request, mode="apply", plan=digest, initialize=True)
+    if mode == "verify":
+        entry.execute(request, handle, report, lambda: None)
+        request = replace(
+            request,
+            mode=mode,
+            archives=report["observed"]["native_archives"]["wire_sha256"],
+            initialize=False,
+        )
+        shutil.rmtree(work)
+    operation = getattr(entry, mode + "_import")
 
     def move(owner, *, directory):
-        verify(owner, directory=directory)
+        result = operation(owner, directory=directory)
         EdinetArchiveL1(store, tmp_path / "other-writer").publish(
             [
                 NativeArchive.from_response("S100LATER", 1, EdinetResponse(AT, b"later raw")),
             ]
         )
+        return result
 
-    monkeypatch.setattr(entry, "verify_import", move)
+    monkeypatch.setattr(entry, mode + "_import", move)
     report = {}
-    with pytest.raises(entry.ImportGuardError, match="head changed after"):
+    reason = "head changed after" if mode == "apply" else "fixed import inputs moved"
+    with pytest.raises(entry.ImportGuardError, match=reason):
+        entry.execute(request, handle, report, lambda: None)
+    assert bool(report.get("native_write_may_have_occurred")) == (mode == "apply")
+    assert not report.get("verified")
+
+
+@pytest.mark.parametrize("damage", ["missing", "corrupt"])
+def test_apply_final_original_readback_is_still_required(tmp_path, monkeypatch, damage):
+    store, request, handle, work = fixture(tmp_path, monkeypatch)
+    report = {}
+    entry.execute(request, handle, report, lambda: None)
+    digest = report["plan_sha256"]
+    shutil.rmtree(work)
+    publish = EdinetArchiveL1.publish
+
+    def damage_after_publish(owner, *args, **kwargs):
+        fixed = publish(owner, *args, **kwargs)
+        key = next(key for key in store.values if key.endswith(".zip"))
+        if damage == "missing":
+            del store.values[key]
+        else:
+            # Valid object metadata cannot conceal different bytes at the expected hash key.
+            store.store_object(key, b"different original")
+        return fixed
+
+    monkeypatch.setattr(EdinetArchiveL1, "publish", damage_after_publish)
+    report = {}
+    with pytest.raises(LakePublishError, match="missing or changed"):
         entry.execute(
             replace(request, mode="apply", plan=digest, initialize=True),
             handle,
             report,
             lambda: None,
         )
+    assert report["phase"] == "native_apply"
     assert report["native_write_may_have_occurred"] is True
     assert not report.get("verified")
+    assert not (work / "import" / "imported.json").exists()
 
 
 def test_inspect_never_downloads_originals_or_initializes(tmp_path, monkeypatch):
