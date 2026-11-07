@@ -32,7 +32,6 @@ from baibai_engine.storage.objects.r2 import (
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
-from baibai_jobs.acquisition.edinet_archives import acquire_archives as acquire_edinet_archives
 from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.integration.edinet_handoff import export_handoff as export_edinet_handoff
@@ -977,11 +976,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in {"acquire", "export"}:
             if args.asof is None or (args.command == "export" and args.since is None):
                 raise ValueError("--asof and export --since are required")
-            if (
-                args.command == "acquire"
-                and args.source in _EDINET_SOURCES
-                and edinet_list_native_enabled()
-            ):
+            if args.command == "acquire" and args.source in _EDINET_SOURCES:
                 ok = (
                     _acquire_edinet_lists(args.asof, directory)
                     if args.source == "edinet-list"
@@ -1028,23 +1023,6 @@ def main(argv: list[str] | None = None) -> int:
                     and market_calendar_business_day(args.database, args.asof) is False
                 ):
                     acquisition_report = {"status": "skipped_non_business_day"}
-                elif args.source in {"edinet-metrics", "edinet-facts"}:
-                    if args.input_directory is None:
-                        raise ValueError(
-                            "EDINET archive acquisition requires its scoped input manifest"
-                        )
-                    saved = json.loads((args.input_directory / "result.json").read_text())
-                    result = acquire_edinet_archives(
-                        args.database,
-                        group=args.source,
-                        asof=args.asof,
-                        api_key=os.environ.get("EDINET_API_KEY", ""),
-                        retained={(str(key[0]), int(key[1])) for key in saved["archive_keys"]}
-                        | before,
-                    )
-                    print(json.dumps(result, sort_keys=True))
-                    acquisition_report = result
-                    status = int(result["status"] == "failed")
                 else:
                     status = subprocess.run(
                         _command(args.source, args.asof, database=args.database), check=False

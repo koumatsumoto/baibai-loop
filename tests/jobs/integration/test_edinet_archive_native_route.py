@@ -91,10 +91,15 @@ def native_cli(tmp_path, monkeypatch, *, group="edinet-facts", documents=None):
 
 
 @pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
+@pytest.mark.parametrize("native", ["true", "false", None])
 def test_workflow_acquires_without_input_market_l2_or_retained_body_get(
-    tmp_path, monkeypatch, group
+    tmp_path, monkeypatch, group, native
 ):
     owner, client, directory, output, argv, _ = native_cli(tmp_path, monkeypatch, group=group)
+    if native is None:
+        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     assert source_handoff.main(argv) == 0
     assert client.fetch_archive.call_count == 2
     assert output.read_text().splitlines() == ["stage_ready=false", "native_l1=true"]

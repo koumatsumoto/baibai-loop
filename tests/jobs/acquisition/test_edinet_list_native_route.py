@@ -218,7 +218,12 @@ def test_native_mode_stops_old_live_list_writer_before_http(tmp_path, native_mod
     assert not (tmp_path / "market.sqlite").exists()
 
 
-def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkeypatch, native_mode):
+@pytest.mark.parametrize("native", ["true", "false", None])
+def test_native_source_acquire_bypasses_input_and_legacy_export(tmp_path, monkeypatch, native):
+    if native is None:
+        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     monkeypatch.setattr(
         "baibai_jobs.integration.source_handoff._acquire_edinet_lists", lambda *a: True
     )
