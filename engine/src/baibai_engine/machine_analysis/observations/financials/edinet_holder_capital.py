@@ -21,6 +21,7 @@ from baibai_engine.data_collection.providers.edinet.archive_native import FixedE
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
     XBRLI,
     Context,
+    SourceFormatError,
     expand_qname,
     local_name,
     read_instance,
@@ -49,13 +50,21 @@ class HolderReportedCapital:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedHolderArchives:
-    """One operation's verified holder bytes, never a persisted receipt clock."""
+class _HolderCapitalContent:
+    ticker: str
+    reference_date: date
+    total_stocks: int
+    original_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedHolderCapital:
+    """One operation's extracted content, never a persisted receipt clock."""
 
     archive_identity: str
     projection_identity: str
     completed_at: datetime
-    originals: Mapping[str, tuple[date, bytes | Exception]]
+    results: Mapping[str, tuple[date, _HolderCapitalContent | Exception | None]]
 
 
 def _holder_evidence(
@@ -80,34 +89,47 @@ def _evidence_identity(evidence: tuple[list[dict[str, Any]], list[tuple[Any, ...
     ).hexdigest()
 
 
-def prepare_holder_archives(
+def prepare_holder_capital(
     connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
     *,
     as_of: date,
     archives: FixedEdinetArchives,
-) -> PreparedHolderArchives:
-    """Read only potential holder originals before taking the market seal.
+) -> PreparedHolderCapital:
+    """Extract one potential holder original at a time before the market seal.
 
     Failures remain per-document until the unchanged eligibility rules use that
     document. A future cutoff or withdrawal may make a prefetched body irrelevant.
     """
     evidence = _holder_evidence(connection, as_of)
-    originals: dict[str, tuple[date, bytes | Exception]] = {}
+    results: dict[str, tuple[date, _HolderCapitalContent | Exception | None]] = {}
     for doc_id in sorted({str(doc["docID"]) for doc in evidence[0]}):
         metadata = archives.metadata(doc_id, 1)
         if metadata is None:
             continue
-        try:
-            body: bytes | Exception = archives.read_xbrl_zip(doc_id)
-        except (LakePublishError, ValueError, OSError) as error:
-            body = error
-        originals[doc_id] = metadata.stored_on, body
-    return PreparedHolderArchives(
+        results[doc_id] = metadata.stored_on, _prepare_holder_content(archives, doc_id)
+    return PreparedHolderCapital(
         archives.identity,
         _evidence_identity(evidence),
         datetime.now(UTC),
-        MappingProxyType(originals),
+        MappingProxyType(results),
     )
+
+
+def _prepare_holder_content(
+    archives: FixedEdinetArchives, doc_id: str
+) -> _HolderCapitalContent | Exception | None:
+    # A fresh error retains the existing failure boundary without its reader
+    # frame, ZIP buffer, or XML tree. Only final eligible documents raise it.
+    try:
+        return _extract_holder_content(archives.read_xbrl_zip(doc_id))
+    except SourceFormatError:
+        return None
+    except LakePublishError as error:
+        return LakePublishError(str(error))
+    except OSError as error:
+        return OSError(str(error))
+    except ValueError as error:
+        return ValueError(str(error))
 
 
 def extract_holder_capital(
@@ -118,6 +140,27 @@ def extract_holder_capital(
         raise ValueError("disclosure and knowledge timestamps require timezones")
     if submitted_at > known_at:
         return None
+    return _attribute_holder_content(
+        _extract_holder_content(content), document_id=document_id, submitted_at=submitted_at
+    )
+
+
+def _attribute_holder_content(
+    content: _HolderCapitalContent | None, *, document_id: str, submitted_at: datetime
+) -> HolderReportedCapital | None:
+    if content is None or content.reference_date > submitted_at.astimezone(JST).date():
+        return None
+    return HolderReportedCapital(
+        content.ticker,
+        content.reference_date,
+        submitted_at,
+        document_id,
+        content.total_stocks,
+        content.original_sha256,
+    )
+
+
+def _extract_holder_content(content: bytes) -> _HolderCapitalContent | None:
     instance = read_instance(content, include_labels=False)
     share_units = set()
     for unit in instance.root.findall(f"{{{XBRLI}}}unit"):
@@ -151,18 +194,11 @@ def extract_holder_capital(
     if not common_code or code_context.period_end != total_context.period_end:
         return None
     reference = date.fromisoformat(total_context.period_end)
-    if (
-        reference > submitted_at.astimezone(JST).date()
-        or not raw.isascii()
-        or not raw.isdigit()
-        or int(raw) <= 0
-    ):
+    if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
         return None
     if total.get("unitRef") not in share_units or total.get("decimals") not in {"0", "INF"}:
         return None
-    return HolderReportedCapital(
-        ticker, reference, submitted_at, document_id, int(raw), hashlib.sha256(content).hexdigest()
-    )
+    return _HolderCapitalContent(ticker, reference, int(raw), hashlib.sha256(content).hexdigest())
 
 
 def read_holder_capital(
@@ -173,7 +209,7 @@ def read_holder_capital(
     tickers: tuple[str, ...],
     snapshot_sealed_at: datetime | None = None,
     archives: FixedEdinetArchives | None = None,
-    prepared_archives: PreparedHolderArchives | None = None,
+    prepared_capital: PreparedHolderCapital | None = None,
 ) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
     """Use only already-retained originals; absence is not proof of no change.
 
@@ -189,9 +225,6 @@ def read_holder_capital(
     from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
         is_usable_filing_status,
     )
-    from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
-        SourceFormatError,
-    )
 
     if known_at.utcoffset() is None or (
         snapshot_sealed_at is not None and snapshot_sealed_at.utcoffset() is None
@@ -200,12 +233,12 @@ def read_holder_capital(
     selected = set(tickers)
     evidence = _holder_evidence(connection, as_of)
     documents, receipt_rows = evidence
-    if prepared_archives is not None and (
+    if prepared_capital is not None and (
         archives is None
-        or prepared_archives.archive_identity != archives.identity
+        or prepared_capital.archive_identity != archives.identity
         or snapshot_sealed_at is None
-        or prepared_archives.completed_at > snapshot_sealed_at
-        or prepared_archives.projection_identity != _evidence_identity(evidence)
+        or prepared_capital.completed_at > snapshot_sealed_at
+        or prepared_capital.projection_identity != _evidence_identity(evidence)
     ):
         raise ValueError("prepared holder originals differ from the sealed EDINET input")
     # A retained list may have been acquired after the requested cutoff. Keep
@@ -242,8 +275,8 @@ def read_holder_capital(
     # Read the small identity inventory once. Query original bytes only for a
     # retained eligible filing, not once for every missing historical filing.
     archive_days = (
-        {doc_id: item[0] for doc_id, item in prepared_archives.originals.items()}
-        if prepared_archives is not None
+        {doc_id: item[0] for doc_id, item in prepared_capital.results.items()}
+        if prepared_capital is not None
         else {
             str(doc_id): stored_on
             for doc_id, stored_on in connection.execute(
@@ -305,29 +338,33 @@ def read_holder_capital(
         if not proven_by_snapshot and stored_on >= min(as_of, known_at.astimezone(UTC).date()):
             missing += 1
             continue
-        if prepared_archives is not None:
-            prepared_body = prepared_archives.originals[doc_id][1]
-            if isinstance(prepared_body, Exception):
-                raise prepared_body
-            content = prepared_body
-        elif archives is None:
-            row = connection.execute(
-                "SELECT zip_content FROM edinet_source_archives WHERE doc_id=? AND source_type=1",
-                (doc_id,),
-            ).fetchone()
-            if row is None:
+        if prepared_capital is not None:
+            prepared_content = prepared_capital.results[doc_id][1]
+            if isinstance(prepared_content, Exception):
+                raise type(prepared_content)(str(prepared_content))
+            fact = _attribute_holder_content(
+                prepared_content, document_id=doc_id, submitted_at=submitted
+            )
+        else:
+            if archives is None:
+                row = connection.execute(
+                    "SELECT zip_content FROM edinet_source_archives "
+                    "WHERE doc_id=? AND source_type=1",
+                    (doc_id,),
+                ).fetchone()
+                if row is None:
+                    unsupported += 1
+                    continue
+                content = bytes(row[0])
+            else:
+                content = archives.read_xbrl_zip(doc_id)
+            try:
+                fact = extract_holder_capital(
+                    content, document_id=doc_id, submitted_at=submitted, known_at=known_at
+                )
+            except SourceFormatError:
                 unsupported += 1
                 continue
-            content = bytes(row[0])
-        else:
-            content = archives.read_xbrl_zip(doc_id)
-        try:
-            fact = extract_holder_capital(
-                content, document_id=doc_id, submitted_at=submitted, known_at=known_at
-            )
-        except SourceFormatError:
-            unsupported += 1
-            continue
         if fact is None:
             unsupported += 1
             continue
