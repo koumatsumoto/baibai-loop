@@ -18,6 +18,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
 from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
+from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.economic_inputs import (
     rebuild_economic_input,
@@ -131,6 +132,16 @@ def integrate_models(
             growth_start=growth_start,
             financial_input=financial_input,
             edinet_input=fixed_edinet,
+            comparison_evidence=SavedComparisonEvidence(
+                market=InputSnapshot(
+                    kind="lake_release",
+                    reference=prepared.serving.pointer.release_id,
+                    sha256=prepared.serving.pointer.manifest_sha256,
+                ),
+                runs=runs,
+            )
+            if fixed_edinet is not None and prepared.serving.pointer is not None
+            else None,
             price_identity=prepared.price_identity,
             master_identity=prepared.master_identity,
             calendar_identity=prepared.calendar_identity,

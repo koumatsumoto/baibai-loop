@@ -9,7 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
     filing_identity,
@@ -84,6 +84,89 @@ class FilingComparisons(Contract):
     current_period_end: date | None = None
     pairs: tuple[ComparativeOperands, ...] = ()
     reason: str | None = None
+
+
+def _finite_amount(value: str) -> bool:
+    try:
+        return Decimal(value).is_finite()
+    except InvalidOperation:
+        return False
+
+
+def _prior_period_matches(
+    prior_start: date, prior_end: date, current_start: date, current_end: date
+) -> bool:
+    return prior_year_dates_match(
+        prior_start,
+        prior_end,
+        current_start,
+        current_end,
+        length_tolerance_ratio=0.1,
+        end_tolerance_days=7,
+    )
+
+
+def successful_comparison_seed(value: dict[str, JsonValue]) -> FilingComparisons | None:
+    """保存された完全な成功観測だけを読む。既定値で旧/不完全形式を補わない。"""
+    if value.get("extractor_revision") != REVISION or value.get("reason") is not None:
+        return None
+    try:
+        seed = FilingComparisons.model_validate(value)
+    except ValidationError:
+        return None
+    if (
+        seed.model_dump(mode="json") != value
+        or seed.source_sha256 is None
+        or seed.accounting_standard != "IFRS"
+        or seed.statement_basis is None
+        or seed.current_period_start is None
+        or seed.current_period_end is None
+        or seed.current_period_start > seed.current_period_end
+        or seed.current_period_end > seed.source_submit_datetime.date()
+        or tuple(pair.metric for pair in seed.pairs)
+        != tuple(
+            metric
+            for metric in _CONCEPTS
+            if metric != "parent_profit" or seed.statement_basis == "consolidated"
+        )
+    ):
+        return None
+    for pair in seed.pairs:
+        complete = (
+            pair.current is not None
+            and pair.comparative is not None
+            and pair.current.amount is not None
+            and pair.comparative.amount is not None
+        )
+        if (pair.reason is None) != complete:
+            return None
+        for amount in (pair.current, pair.comparative):
+            if amount is not None and (
+                not amount.locators
+                or (amount.amount is not None and not _finite_amount(amount.amount))
+                or amount.period_start > amount.period_end
+                or amount.period_end > seed.source_submit_datetime.date()
+            ):
+                return None
+        if pair.current is not None and (
+            pair.current.period_start != seed.current_period_start
+            or pair.current.period_end != seed.current_period_end
+        ):
+            return None
+        if pair.comparative is not None and not _prior_period_matches(
+            pair.comparative.period_start,
+            pair.comparative.period_end,
+            seed.current_period_start,
+            seed.current_period_end,
+        ):
+            return None
+        if (
+            pair.current is not None
+            and pair.comparative is not None
+            and pair.current.issuer_id != pair.comparative.issuer_id
+        ):
+            return None
+    return seed
 
 
 def _dei(instance: Instance, name: str) -> str:
@@ -164,12 +247,8 @@ def _amount(
             raise SourceFormatError("comparison_currency_unsupported")
         nil = element.get(f"{{{XSI}}}nil") in {"true", "1"}
         amount = None if nil else (element.text or "").strip()
-        if amount is not None:
-            try:
-                if not Decimal(amount).is_finite():
-                    raise InvalidOperation
-            except InvalidOperation as exc:
-                raise SourceFormatError("comparison_amount_invalid") from exc
+        if amount is not None and not _finite_amount(amount):
+            raise SourceFormatError("comparison_amount_invalid")
         values.add((element.tag, amount, element.get("decimals"), unit))
     if len(values) != 1:
         raise SourceFormatError("comparison_fact_conflict")
@@ -236,13 +315,11 @@ def extract_comparisons(
         assert prior.period_start is not None
         if (
             current.issuer_id != prior.issuer_id
-            or not prior_year_dates_match(
+            or not _prior_period_matches(
                 date.fromisoformat(prior.period_start),
                 date.fromisoformat(prior.period_end),
                 date.fromisoformat(current.period_start),
                 date.fromisoformat(current.period_end),
-                length_tolerance_ratio=0.1,
-                end_tolerance_days=7,
             )
             or date.fromisoformat(current.period_end) > base.source_submit_datetime.date()
         ):

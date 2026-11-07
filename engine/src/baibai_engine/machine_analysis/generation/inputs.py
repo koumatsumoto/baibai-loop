@@ -14,6 +14,7 @@ from datetime import date, datetime
 from math import isfinite
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
+from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream
 from baibai_engine.machine_analysis.generation.economic_inputs import EconomicModelInput
 from baibai_engine.machine_analysis.generation.edinet_inputs import EdinetModelInput
@@ -107,6 +108,7 @@ def read_and_generate_models(
     growth_start: date | None = None,
     financial_input: FinancialModelInput | None = None,
     edinet_input: EdinetModelInput | None = None,
+    comparison_evidence: SavedComparisonEvidence | None = None,
     price_identity: InputSnapshot | None = None,
     master_identity: InputSnapshot | None = None,
     calendar_identity: InputSnapshot | None = None,
@@ -174,6 +176,11 @@ def read_and_generate_models(
             tickers=subjects,
             known_at=evaluation_time,
             archives=edinet_input.archives if edinet_input is not None else None,
+            prior_observations=comparison_evidence.observations(
+                tickers=subjects, as_of=as_of, known_at=evaluation_time
+            )
+            if comparison_evidence is not None
+            else (),
         )
         _phase_progress("edinet_comparisons", phase_started)
         phase_started = _phase_progress("pdf_financials")
