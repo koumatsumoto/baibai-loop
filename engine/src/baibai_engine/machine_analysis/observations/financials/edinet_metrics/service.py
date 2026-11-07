@@ -23,6 +23,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.plann
     MetricExtractionPlan,
     can_reuse_edinet_metric,
     make_metric_extraction_plan,
+    read_retained_metric_document_tickers,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     DEFERRED_CSV_REASON,
@@ -133,6 +134,9 @@ def prepare_edinet_metric_plan(
                     read_observed_documents(connection, through=start - timedelta(days=1))
                 )
         selection = select_document_candidates(documents, origin_start=start)
+        retained_tickers = read_retained_metric_document_tickers(
+            sqlite_path, selection=selection, through=asof_date
+        )
     except (EDINETProviderError, SQLiteSchemaError, sqlite3.Error, OSError, ValueError) as exc:
         message = f"EDINET document selection failed: {type(exc).__name__}: {exc}"
         _record_edinet_extraction_failure(sqlite_path, asof_date, message)
@@ -168,6 +172,7 @@ def prepare_edinet_metric_plan(
         selection=selection,
         baseline=baseline,
         extractor_revision=extractor_revision,
+        retained_tickers_by_doc=retained_tickers,
     )
 
 
