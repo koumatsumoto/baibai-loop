@@ -42,6 +42,12 @@ CASES = (
         "economic_umich_input_days",
     ),
     ("economic-ecb_fx", "ecb-fx", "ecb-fx-acquisition-input-v1", "economic_ecb_input_days"),
+    (
+        "economic-mof_jgb",
+        "mof-jgbcm-all",
+        "mof-jgb-acquisition-input-v1",
+        "economic_mof_jgb_input_days",
+    ),
 )
 
 
@@ -328,7 +334,7 @@ def test_acquisition_exports_only_actual_receipts_from_planning_seed(tmp_path, m
         assert seen
 
 
-def test_only_three_of_fifteen_publishers_emit_planning_envelopes(tmp_path):
+def test_only_registered_groups_publish_planning_envelopes(tmp_path):
     canonical = tmp_path / "canonical.sqlite"
     for case in CASES:
         _seed(canonical, case[1])

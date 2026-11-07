@@ -17,6 +17,7 @@ from baibai_engine.data_collection.receipts.native_sources.documents import (
 _DAY_INPUTS = {
     "economic-umich_sca": ("umich-sca-ics", "economic_umich_input_days"),
     "economic-ecb_fx": ("ecb-fx", "economic_ecb_input_days"),
+    "economic-mof_jgb": ("mof-jgbcm-all", "economic_mof_jgb_input_days"),
 }
 
 
