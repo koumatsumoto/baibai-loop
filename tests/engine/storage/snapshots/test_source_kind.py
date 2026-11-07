@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -8,10 +10,12 @@ import pyarrow.parquet as pq
 import pytest
 from tests.helpers.lake_release import market_store
 
+from baibai_engine.data_collection.providers.edinet.snapshot_contracts import EDINET_SOURCE_ARCHIVES
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_DAILY_BARS,
 )
 from baibai_engine.storage.snapshots.models import (
+    DatasetManifest,
     L1DatasetSourceRef,
     NativeL1SourceRef,
     SourceRef,
@@ -21,6 +25,7 @@ from baibai_engine.storage.snapshots.models import (
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import materialize_partitions
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 _SQLITE = SQLiteSnapshotSourceRef(
     kind="sqlite_snapshot",
@@ -45,6 +50,14 @@ _NATIVE = NativeL1SourceRef(
     key=f"fixed-inputs/example/v1/selections/{'c' * 64}.json",
 )
 
+_EDINET_NATIVE = NativeL1SourceRef(
+    kind="native_l1",
+    source_id=f"native-l1-{'c' * 24}",
+    sha256="c" * 64,
+    namespace="edinet",
+    key=f"fixed-inputs/edinet/v1/selections/{'c' * 64}.json",
+)
+
 
 @pytest.mark.parametrize(
     ("sources", "expected"),
@@ -53,6 +66,7 @@ _NATIVE = NativeL1SourceRef(
         ((_SQLITE,), "legacy_sqlite_import"),
         ((_L1,), "l1_derived"),
         ((_NATIVE,), "l1_derived"),
+        ((_EDINET_NATIVE,), "l1_derived"),
         ((_SQLITE, _L1), "l1_derived"),
         ((_NATIVE, _SQLITE), "l1_derived"),
         ((_L1, _NATIVE), "l1_derived"),
@@ -65,7 +79,7 @@ def test_parquet_source_kind_depends_on_lineage(
     assert parquet_source_kind(iter(sources)) == expected
 
 
-@pytest.mark.parametrize("native_source", [None, _NATIVE])
+@pytest.mark.parametrize("native_source", [None, _NATIVE, _EDINET_NATIVE])
 def test_l2_writer_parity_and_reader_agree_on_source_kind(
     tmp_path: Path, native_source: NativeL1SourceRef | None
 ) -> None:
@@ -91,3 +105,30 @@ def test_l2_writer_parity_and_reader_agree_on_source_kind(
     assert paths
     for path in paths:
         assert pq.read_schema(path).metadata[b"baibai.source_kind"] == expected
+
+
+@pytest.mark.parametrize(
+    "sources", [(_NATIVE,), (_EDINET_NATIVE,), (_EDINET_NATIVE, _SQLITE), (_L1,)]
+)
+def test_raw_l1_rejects_native_or_derived_lineage(tmp_path, sources):
+    source = market_store(tmp_path / "source.sqlite")
+    with closing(open_connection(source)) as connection, connection:
+        connection.execute(
+            "INSERT INTO edinet_source_archives VALUES (?,?,?,?)",
+            ("S0000001", 5, "2026-02-01", b"opaque provider bytes"),
+        )
+    mirror = tmp_path / "mirror"
+    with sealed_sqlite_snapshot(sqlite_path=source, mirror_root=mirror) as snapshot:
+        raw = export_dataset_snapshot(
+            dataset=EDINET_SOURCE_ARCHIVES,
+            source_snapshot=snapshot,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            build_id="raw",
+            created_at=datetime(2026, 2, 4, tzinfo=UTC),
+        )
+    payload = raw.manifest.model_dump(mode="json")
+    for partition in payload["partitions"]:
+        partition["sources"] = [ref.model_dump(mode="json") for ref in sources]
+    with pytest.raises(ValueError, match="L1 source partitions"):
+        DatasetManifest.model_validate_json(json.dumps(payload))
