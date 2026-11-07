@@ -323,7 +323,7 @@ def test_explicit_zip_refresh_requires_native_head_before_http_or_sql(tmp_path, 
         closing(EDINETRefresh("unused", sqlite_path=path)) as client,
         pytest.raises(LakePublishError, match="head is missing"),
     ):
-        client.download_xbrl_zip("S100ONE")
+        client.download_csv_zip("S100ONE")
     assert not path.exists()
 
 

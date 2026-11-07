@@ -3,19 +3,21 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
-import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
-from tests.helpers.http_doubles import FakeSession, json_response
 
-from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
+from baibai_engine.data_collection.providers.edinet.receipts import (
+    read_list_responses,
+    retain_list_response,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    rebuild_edinet_document_day,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 
 
 def _saved_response(path):
@@ -26,7 +28,7 @@ def _saved_response(path):
         ).fetchone()[0]
 
 
-def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
+def test_rebuild_keeps_native_fields_without_invented_request_date(tmp_path):
     payload = {
         "metadata": {"resultset": {"count": 1}, "processDateTime": "2026-10-15 12:00"},
         "results": [
@@ -40,12 +42,16 @@ def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
         "futureMetadata": [False, ""],
     }
     path = tmp_path / "market.sqlite"
-    provider = EDINETRefresh(
-        "test-key",
-        session=FakeSession(json_response(payload)),
-        sqlite_path=path,
-    )
-    documents = provider.list_documents(date(2026, 10, 15))
+    with closing(open_connection(path)) as connection:
+        retain_list_response(
+            connection,
+            doc_date=date(2026, 10, 15),
+            received_at=datetime(2026, 10, 15, 3, tzinfo=UTC),
+            body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        )
+    projection = rebuild_edinet_document_day(path, date(2026, 10, 15))
+    assert projection.error is None
+    documents = projection.documents
     assert documents[0]["doc_date"] == "2026-10-15"
     original = json.loads(_saved_response(path))
     assert original == payload
@@ -53,7 +59,7 @@ def test_listing_keeps_native_fields_without_invented_request_date(tmp_path):
     assert "periodStart" not in original["results"][0]
 
 
-def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_path):
+def test_rebuild_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_path):
     path = tmp_path / "market.sqlite"
     payloads = [
         {
@@ -66,13 +72,16 @@ def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_
         },
         {"metadata": {"resultset": {"count": 0}}, "results": []},
     ]
-    provider = EDINETRefresh(
-        "test-key",
-        session=FakeSession(*(json_response(value) for value in payloads)),
-        sqlite_path=path,
-    )
     for index, payload in enumerate(payloads):
-        provider.list_documents(date(2026, 10, 15), force_refresh=True)
+        with closing(open_connection(path)) as connection:
+            retain_list_response(
+                connection,
+                doc_date=date(2026, 10, 15),
+                received_at=datetime(2026, 10, 15, 3, tzinfo=UTC) + timedelta(seconds=index),
+                body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            )
+        projection = rebuild_edinet_document_day(path, date(2026, 10, 15))
+        assert projection.error is None
         assert json.loads(_saved_response(path)) == payload
         if index == 1:
             with closing(sqlite3.connect(path)) as connection:
@@ -81,18 +90,24 @@ def test_refresh_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_
                 ).fetchone() == (None,)
 
 
-def test_invalid_refresh_retains_raw_and_blocks_stale_success(tmp_path):
+def test_invalid_receipt_retains_raw_and_blocks_stale_success(tmp_path):
     path = tmp_path / "market.sqlite"
     valid = {"metadata": {"resultset": {"count": 0}}, "results": []}
     invalid = {"metadata": {"resultset": {"count": 1}}, "results": []}
-    provider = EDINETRefresh(
-        "test-key",
-        session=FakeSession(json_response(valid), json_response(invalid)),
-        sqlite_path=path,
-    )
-    provider.list_documents(date(2026, 10, 15))
-    with pytest.raises(EDINETProviderError, match="does not match"):
-        provider.list_documents(date(2026, 10, 15), force_refresh=True)
+    for index, payload in enumerate((valid, invalid)):
+        with closing(open_connection(path)) as connection:
+            retain_list_response(
+                connection,
+                doc_date=date(2026, 10, 15),
+                received_at=datetime(2026, 10, 15, 3, tzinfo=UTC) + timedelta(seconds=index),
+                body=json.dumps(payload).encode("utf-8"),
+            )
+        projection = rebuild_edinet_document_day(path, date(2026, 10, 15))
+        if index == 0:
+            assert projection.error is None
+        else:
+            assert projection.error is not None
+            assert "does not match" in projection.error
     assert json.loads(_saved_response(path)) == valid
     with closing(open_connection(path)) as connection:
         assert len(read_list_responses(connection, doc_date=date(2026, 10, 15))) == 2

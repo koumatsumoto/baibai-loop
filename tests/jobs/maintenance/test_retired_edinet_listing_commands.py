@@ -29,6 +29,9 @@ def test_retired_list_commands_fail_before_environment_or_provider_access(monkey
 
 def test_removed_writer_methods_do_not_remove_saved_list_rebuild():
     for name in (
+        "list_documents",
+        "download_xbrl_zip",
+        "_download_document_zip",
         "bootstrap_cache",
         "refresh_document_state",
         "backfill_document_identity",

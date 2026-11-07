@@ -7,9 +7,9 @@ import os
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
-from typing import Any, Protocol, TextIO
+from typing import Protocol, TextIO
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
 from baibai_engine.data_collection.providers.edinet.models import (
@@ -28,12 +28,9 @@ from baibai_engine.machine_analysis.observations.financials.edinet_models import
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_jobs.acquisition.edinet_archives import metric_archive_candidates
-from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 
 
 class EdinetMetricAcquisition(Protocol):
-    def list_documents(self, on_date: date) -> list[dict[str, Any]]: ...
-
     def download_csv_zip(self, doc_id: str) -> bytes: ...
 
     def retained_archives(self) -> FixedEdinetArchives: ...
@@ -50,21 +47,15 @@ def refresh_edinet_metrics_command(
 ) -> int:
     out = stdout if stdout is not None else sys.stdout
     try:
-        if edinet_list_native_enabled():
-            from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
-            from baibai_jobs.integration.edinet_list_native import materialize_lists
+        from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+        from baibai_jobs.integration.edinet_list_native import materialize_lists
 
-            with closing(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
-            ) as store:
-                fixed = EdinetListL1(store, sqlite_path.parent / "edinet-list-read").freeze()
-                result = materialize_lists(fixed, sqlite_path)
-                print(json.dumps({"native_list_input": result}, sort_keys=True), file=out)
-        else:
-            cursor = asof_date - timedelta(days=lookback_days)
-            while cursor <= asof_date:
-                acquisition.list_documents(cursor)
-                cursor += timedelta(days=1)
+        with closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store:
+            fixed = EdinetListL1(store, sqlite_path.parent / "edinet-list-read").freeze()
+            result = materialize_lists(fixed, sqlite_path)
+            print(json.dumps({"native_list_input": result}, sort_keys=True), file=out)
     except (
         EdinetAcquisitionError,
         EDINETProviderError,
@@ -101,11 +92,7 @@ def refresh_edinet_metrics_command(
     )
     if plan is None:
         return 1
-    archive_reader = (
-        acquisition.retained_archives()
-        if edinet_list_native_enabled() and plan.archive_candidates
-        else reader
-    )
+    archive_reader = acquisition.retained_archives() if plan.archive_candidates else reader
     return extract_edinet_metrics_from_plan(
         asof_date=asof_date,
         plan=plan,

@@ -71,12 +71,17 @@ def native_input(tmp_path, monkeypatch, lookback):
     return store, owner
 
 
+@pytest.mark.parametrize("native", ["true", "false", None])
 @pytest.mark.parametrize("lookback", [0, 2, 600])
 @pytest.mark.parametrize("fail_l2", [False, True])
 def test_native_refresh_preserves_window_csv_bytes_and_reuse(
-    tmp_path, monkeypatch, lookback, fail_l2
+    tmp_path, monkeypatch, lookback, fail_l2, native
 ):
     store, owner = native_input(tmp_path, monkeypatch, lookback)
+    if native is None:
+        monkeypatch.delenv("BAIBAI_EDINET_LIST_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", native)
     database = tmp_path / "market.sqlite"
     zip_content = _edinet_csv_zip()
     calls = []

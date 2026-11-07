@@ -515,13 +515,13 @@ uv run baibai-jobs rebuild-margin-interest-native --work-directory <NEW_READ_WOR
 <a id="edinet-list-native-l1"></a>
 ## EDINETの独立L1
 
-通常sourceの一覧とZIP/scope取得はnative L1だけを使い、旧source-inputを再公開しない。手動refresh-edinet-factsもflagにかかわらずnative L1だけを使う。共通統合・その他の手動refresh・公開は既定/ActionsともBAIBAI_EDINET_LIST_NATIVE=true。falseは保存旧入力の有限検証だけで、本番旧writerを並行稼働させない。[取得](src/baibai_jobs/acquisition/edinet_list_native.py)・[保存](../engine/src/baibai_engine/data_collection/providers/edinet/list_native.py)が日別CAS・UUID/実受領時計・同値gzipを管理する。旧normalized値から原本を作らない。
+通常sourceの一覧とZIP/scope取得はnative L1だけを使い、旧source-inputを再公開しない。手動refresh-edinet-metrics/facts・TOBのZIP取得もflagにかかわらずnative L1だけを使う。共通統合・公開は既定/ActionsともBAIBAI_EDINET_LIST_NATIVE=true。falseは保存旧入力の有限検証だけで、本番旧writerを並行稼働させない。[取得](src/baibai_jobs/acquisition/edinet_list_native.py)・[保存](../engine/src/baibai_engine/data_collection/providers/edinet/list_native.py)が日別CAS・UUID/実受領時計・同値gzipを管理する。旧normalized値から原本を作らない。
 
 日次は開始時headを固定し、全受領から一覧/文書を作る。不正dayを報告しつつ正常投影を保ち、metrics/facts plannerは必要範囲で不足を判定する。archive/L2失敗は一覧L1を取り消さない。releaseへlist_responsesを複写せず、dehydrate/次hydrateで全cache UUID・日付・時刻・gzipを原本照合した場合だけ空にする。この検証はofflineでも--bucketを指定する。他dataset/旧release/stageの保持は変えない。
 
 一覧headの欠落を空のinitializeで埋めない。edinet-list-native initializeは既存原本を持たない新環境だけで使う。
 
-旧一覧取得のrefresh-edinet-documents、backfill-edinet-identity、bootstrap-cacheのedinet-list groupは撤去した。旧EDINETRefresh.list_documentsはnative設定でHTTP前に拒否する。必要な一覧はedinet-list-native acquire --start <DATE> --asof <DATE> --directory <NEW_WORK>、続けてrefresh-edinet-metrics --lookback-days Nで不足CSVを取得する。Nは0/540日超を含め任意で、一覧未取得を成功へ補わない。保存原本再抽出はextractを使い、旧flagへ戻さない。
+旧一覧取得のrefresh-edinet-documents、backfill-edinet-identity、bootstrap-cacheのedinet-list groupは撤去した。旧EDINETRefresh.list_documentsとSQLだけへ保存する手動ZIP writerも撤去した。必要な一覧はedinet-list-native acquire --start <DATE> --asof <DATE> --directory <NEW_WORK>、続けてrefresh-edinet-metrics --lookback-days Nで不足CSVを取得する。Nは0/540日超を含め任意で、一覧未取得を成功へ補わない。保存原本再抽出はextractを使い、旧flagへ戻さない。
 
 ### 一覧公開失敗の再開
 
@@ -535,7 +535,7 @@ uv run baibai-jobs edinet-list-native commit-stage --stage-id <ID> --directory <
 
 ### ZIP/scopeの通常取得と固定consumer
 
-原本を持たない隔離環境だけで次の新規取得検証を行う。本番の既存headをinitializeで置き換えず、失ったheadを部分workから再作成しない。refresh-edinet-facts以外の手動refresh・共通統合・公開では一覧とZIP/scopeを同じBAIBAI_EDINET_LIST_NATIVEで選び、新native受領後に旧writerだけへ戻さない。
+原本を持たない隔離環境だけで次の新規取得検証を行う。本番の既存headをinitializeで置き換えず、失ったheadを部分workから再作成しない。共通統合・公開では一覧とZIP/scopeを同じBAIBAI_EDINET_LIST_NATIVEで選び、新native受領後に旧writerだけへ戻さない。
 
 ```bash
 uv run baibai-jobs edinet-archives-native initialize --bucket <ISOLATED_BUCKET> --directory <NEW_WORK>

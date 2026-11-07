@@ -18,6 +18,9 @@ from baibai_engine.data_collection.providers.edinet.receipts import (
     read_list_responses,
     retain_list_response,
 )
+from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
+    rebuild_edinet_document_day,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
@@ -26,7 +29,6 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -106,20 +108,22 @@ def test_receipt_refuses_pending_transaction(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
 
 
-def test_same_day_refetch_retains_both_received_bodies(tmp_path):
+def test_same_day_receipts_retain_both_received_bodies(tmp_path):
     path = tmp_path / "market.sqlite"
     first = {"metadata": {"resultset": {"count": 0}}, "results": [], "revision": 1}
     second = {"metadata": {"resultset": {"count": 0}}, "results": [], "revision": 2}
     bodies = (_wire(first), _wire(second))
-    provider = EDINETRefresh(
-        "test-key",
-        session=FakeSession(
-            response(bodies[0], payload=first), response(bodies[1], payload=second)
-        ),
-        sqlite_path=path,
-    )
-    assert provider.list_documents(_DAY) == []
-    assert provider.list_documents(_DAY, force_refresh=True) == []
+    with closing(open_connection(path)) as conn:
+        for index, body in enumerate(bodies):
+            retain_list_response(
+                conn,
+                doc_date=_DAY,
+                received_at=datetime(2026, 10, 15, 3, tzinfo=UTC) + timedelta(seconds=index),
+                body=body,
+            )
+            projection = rebuild_edinet_document_day(path, _DAY)
+            assert projection.error is None
+            assert projection.documents == ()
     ids = _stored_ids(path)
     assert len(ids) == len(set(ids)) == 2
     with closing(sqlite3.connect(path)) as conn:
@@ -139,9 +143,14 @@ def test_documents_are_decoded_from_retained_bytes_without_response_json(tmp_pat
     )
     reply = NoJsonResponse(content=wire, _payload={"results": []})
     path = tmp_path / "market.sqlite"
-    provider = EDINETRefresh("test-key", session=FakeSession(reply), sqlite_path=path)
-
-    documents = provider.list_documents(_DAY)
+    received = http.EDINETHTTP("test-key", session=FakeSession(reply)).fetch_list(_DAY)
+    with closing(open_connection(path)) as conn:
+        retain_list_response(
+            conn, doc_date=_DAY, received_at=received.received_at, body=received.body
+        )
+    projection = rebuild_edinet_document_day(path, _DAY)
+    assert projection.error is None
+    documents = list(projection.documents)
     with closing(sqlite3.connect(path)) as conn:
         saved = read_list_response(conn, _stored_ids(path)[0])
         assert saved is not None
@@ -156,13 +165,13 @@ def test_documents_are_decoded_from_retained_bytes_without_response_json(tmp_pat
 @pytest.mark.parametrize("body", [b"{not valid JSON test-key", b"\xff\xfe\xff"])
 def test_invalid_json_or_encoding_is_retained_with_failed_coverage(tmp_path, body):
     path = tmp_path / "market.sqlite"
-    provider = EDINETRefresh("test-key", session=FakeSession(response(body)), sqlite_path=path)
-    with pytest.raises(EDINETProviderError) as caught:
-        provider.list_documents(_DAY)
-    assert str(caught.value).startswith("EDINET list projection failed:")
-    assert "test-key" not in str(caught.value)
-    assert caught.value.__cause__ is None
-    assert caught.value.__context__ is None
+    with closing(open_connection(path)) as conn:
+        retain_list_response(
+            conn, doc_date=_DAY, received_at=datetime(2026, 10, 15, 3, tzinfo=UTC), body=body
+        )
+    projection = rebuild_edinet_document_day(path, _DAY)
+    assert projection.error is not None
+    assert "test-key" not in projection.error
     with closing(sqlite3.connect(path)) as conn:
         saved = read_list_response(conn, _stored_ids(path)[0])
         assert saved is not None
@@ -179,7 +188,6 @@ def test_invalid_json_or_encoding_is_retained_with_failed_coverage(tmp_path, bod
 def test_invalid_projection_still_retains_received_body(tmp_path, failure):
     if failure == "malformed_json":
         body = b"{not valid JSON"
-        reply = response(body)
     else:
         results = {
             "count_mismatch": [],
@@ -192,15 +200,17 @@ def test_invalid_projection_still_retains_received_body(tmp_path, failure):
             "results": results,
         }
         body = _wire(payload)
-        reply = response(body, payload=payload)
     path = tmp_path / "market.sqlite"
-    provider = EDINETRefresh("test-key", session=FakeSession(reply), sqlite_path=path)
-    with pytest.raises(EDINETProviderError) as caught:
-        provider.list_documents(_DAY)
+    with closing(open_connection(path)) as conn:
+        retain_list_response(
+            conn, doc_date=_DAY, received_at=datetime(2026, 10, 15, 3, tzinfo=UTC), body=body
+        )
+    projection = rebuild_edinet_document_day(path, _DAY)
+    assert projection.error is not None
     if failure == "missing_doc_id":
-        assert "invalid EDINET docID" in str(caught.value)
+        assert "invalid EDINET docID" in projection.error
     elif failure == "invalid_seq":
-        assert "EDINET seqNumber must be a positive integer" in str(caught.value)
+        assert "EDINET seqNumber must be a positive integer" in projection.error
     ids = _stored_ids(path)
     assert len(ids) == 1
     with closing(sqlite3.connect(path)) as conn:
@@ -291,12 +301,16 @@ def test_received_time_is_recorded_once_before_decoding(tmp_path, monkeypatch):
     monkeypatch.setattr(http, "datetime", Clock)
     path = tmp_path / "market.sqlite"
     payload = {"metadata": {"resultset": {"count": 0}}, "results": []}
-    provider = EDINETRefresh(
-        "test-key",
-        session=FakeSession(response(_wire(payload), payload=payload)),
-        sqlite_path=path,
-    )
-    assert provider.list_documents(_DAY) == []
+    received = http.EDINETHTTP(
+        "test-key", session=FakeSession(response(_wire(payload), payload=payload))
+    ).fetch_list(_DAY)
+    with closing(open_connection(path)) as conn:
+        retain_list_response(
+            conn, doc_date=_DAY, received_at=received.received_at, body=received.body
+        )
+    projection = rebuild_edinet_document_day(path, _DAY)
+    assert projection.error is None
+    assert projection.documents == ()
     assert calls == [UTC]
     with closing(sqlite3.connect(path)) as conn:
         saved = read_list_response(conn, _stored_ids(path)[0])
@@ -312,11 +326,18 @@ def test_receipt_write_failure_stops_l2_and_is_not_success(tmp_path):
             "BEGIN SELECT RAISE(ABORT, 'synthetic receipt write failure'); END"
         )
     payload = {"metadata": {"resultset": {"count": 0}}, "results": []}
-    reply = response(_wire(payload), payload=payload)
-    provider = EDINETRefresh("test-key", session=FakeSession(reply), sqlite_path=path)
-    with pytest.raises(sqlite3.DatabaseError, match="synthetic receipt write failure"):
-        provider.list_documents(_DAY)
-    assert reply.close_count == 1
+    with (
+        closing(open_connection(path)) as conn,
+        pytest.raises(sqlite3.DatabaseError, match="synthetic receipt write failure"),
+    ):
+        retain_list_response(
+            conn,
+            doc_date=_DAY,
+            received_at=datetime(2026, 10, 15, 3, tzinfo=UTC),
+            body=_wire(payload),
+        )
+    with pytest.raises(EDINETProviderError, match="EDINET list receipts are missing"):
+        rebuild_edinet_document_day(path, _DAY)
     assert _stored_ids(path) == []
     with closing(sqlite3.connect(path)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone() == (0,)
