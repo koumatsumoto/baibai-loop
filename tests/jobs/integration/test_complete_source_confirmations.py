@@ -280,12 +280,12 @@ def test_recovery_does_not_adopt_an_old_local_change_clock_as_the_new_baseline(
         )
 
 
-def test_schema12_same_value_recheck_keeps_one_body_set_and_one_actual_fetch(tmp_path, monkeypatch):
-    from baibai_jobs.maintenance.migrate_economic_store import migrate
-
-    old, canonical, local = (tmp_path / name for name in ("old", "canonical", "local"))
+def test_unconfirmed_same_value_recheck_keeps_one_body_set_and_one_actual_fetch(
+    tmp_path, monkeypatch
+):
+    canonical, local = (tmp_path / name for name in ("canonical", "local"))
     days = [DAY - timedelta(days=offset) for offset in range(100)]
-    with closing(initialize_database(old)) as connection, connection:
+    with closing(initialize_database(canonical)) as connection, connection:
         for day in days:
             store_snapshot(
                 connection,
@@ -294,11 +294,9 @@ def test_schema12_same_value_recheck_keeps_one_body_set_and_one_actual_fetch(tmp
                 fetched_at=STAMP,
                 records=[{"value": "A"}],
             )
-        connection.execute("DROP TABLE economic_source_record_confirmations")
-        connection.execute("DROP TABLE economic_source_collection_confirmations")
-        connection.execute("PRAGMA user_version=12")
-    old_bytes = old.read_bytes()
-    migrate(old, canonical)
+        connection.execute("DELETE FROM economic_source_record_confirmations")
+        connection.execute("DELETE FROM economic_source_collection_confirmations")
+    canonical_bytes = canonical.read_bytes()
     with closing(initialize_database(local)):
         pass
     source = SourceDefinition(SOURCE, "fred_csv", "https://example.test/complete", "daily", "TEST")
@@ -319,7 +317,7 @@ def test_schema12_same_value_recheck_keeps_one_body_set_and_one_actual_fetch(tmp
     monkeypatch.setattr(acquisition, "fetch_native_records", fetch)
     publication.reconcile_stores(canonical, local, recheck_sources=(SOURCE,))
     assert calls == ["GET"]
-    assert old.read_bytes() == old_bytes
+    assert canonical.read_bytes() == canonical_bytes
     with closing(initialize_database(local)) as connection:
         assert (
             connection.execute("SELECT COUNT(*) FROM economic_source_records").fetchone()[0] == 100

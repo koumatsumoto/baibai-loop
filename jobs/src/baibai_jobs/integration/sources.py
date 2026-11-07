@@ -83,7 +83,7 @@ def apply(
     if bool(plan.get("edinet_list_native", False)) != edinet_list_native_enabled():
         raise ValueError("EDINET list mode differs from the fixed integration plan")
     if edinet_list_native_enabled() and plan.get("edinet_archive_head") is None:
-        raise ValueError("EDINET archive head is absent; fix a new plan after finite import")
+        raise ValueError("EDINET archive head is absent from the fixed integration plan")
     if bool(plan.get("margin_alerts_native", False)) != margin_alerts_native_enabled():
         raise ValueError("margin alerts mode differs from the fixed integration plan")
     if bool(plan.get("short_sale_reports_native", False)) != short_sale_reports_native_enabled():
