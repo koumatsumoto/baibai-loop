@@ -57,6 +57,15 @@ def _reported_flows(record: EdinetMetricRecord | None) -> dict[str, object] | No
             "ebitda": record.ebitda_ttm,
             "capex": record.capex_ttm,
             "free_cash_flow": record.fcf_ttm,
+            # 部分内訳は総額の説明材料。合算や正常化をせず、欠測と報告符号を保持する。
+            "ocf_receivables_cash_effect": record.ocf_receivables_cash_effect,
+            "ocf_inventories_cash_effect": record.ocf_inventories_cash_effect,
+            "ocf_payables_cash_effect": record.ocf_payables_cash_effect,
+            "ocf_contract_liabilities_cash_effect": record.ocf_contract_liabilities_cash_effect,
+            "ocf_advances_received_cash_effect": record.ocf_advances_received_cash_effect,
+            "ocf_other_payables_cash_effect": record.ocf_other_payables_cash_effect,
+            "capex_ppe_reported": record.capex_ppe_reported,
+            "capex_intangible_reported": record.capex_intangible_reported,
         },
         # 既存metricはcontext日付を持たず、年度metadataのexactを実測期間へ読み替えない。
         "measurement_period": {

@@ -52,7 +52,11 @@ def read_research_model_inputs(
 
 @contextmanager
 def stream_generation_subjects(
-    generation_id: str, *, subjects: Sequence[str], path: Path | None = None
+    generation_id: str,
+    *,
+    subjects: Sequence[str],
+    model_ids: Sequence[str] | None = None,
+    path: Path | None = None,
 ) -> Iterator[tuple[GenerationMetadata, Iterator[tuple[str, tuple[GeneratedModel, ...]]]] | None]:
     """同一断面の対象別モデル列。with内で消費し、未生成の対象は返さない。"""
     with closing(connect_read_only(path)) as connection:
@@ -61,18 +65,31 @@ def stream_generation_subjects(
         if metadata is None:
             yield None
             return
-        with closing(_subject_models(connection, generation_id, tuple(subjects))) as companies:
+        with closing(
+            _subject_models(
+                connection,
+                generation_id,
+                tuple(subjects),
+                None if model_ids is None else tuple(model_ids),
+            )
+        ) as companies:
             yield metadata, companies
 
 
 def _subject_models(
-    connection: sqlite3.Connection, generation_id: str, subjects: Sequence[str]
+    connection: sqlite3.Connection,
+    generation_id: str,
+    subjects: Sequence[str],
+    model_ids: Sequence[str] | None,
 ) -> Generator[tuple[str, tuple[GeneratedModel, ...]]]:
     # 並べ替えるのは対象のキーだけ。payloadは同じ読取断面から主キーで個別に読む。
+    model_scope = None if model_ids is None else canonical_json(tuple(model_ids))
     keys = connection.execute(
         "SELECT subject,model_id FROM generated_model WHERE generation_id=? "
-        "AND subject IN (SELECT value FROM json_each(?)) ORDER BY subject,model_id",
-        (generation_id, canonical_json(tuple(subjects))),
+        "AND subject IN (SELECT value FROM json_each(?)) "
+        "AND (? IS NULL OR model_id IN (SELECT value FROM json_each(?))) "
+        "ORDER BY subject,model_id",
+        (generation_id, canonical_json(tuple(subjects)), model_scope, model_scope),
     )
     for subject, group in groupby(keys, key=lambda item: item[0]):
         models: list[GeneratedModel] = []

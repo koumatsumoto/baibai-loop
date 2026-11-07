@@ -28,6 +28,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 )
 from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
     PREFIX,
+    FixedMarginAlertsL1,
     MarginAlertsAttempt,
     MarginAlertsL1,
 )
@@ -95,6 +96,7 @@ def prepare_migration(
     store: ReceiptStore,
     known_at: datetime,
     directory: Path,
+    baseline: FixedMarginAlertsL1 | None = None,
 ) -> dict[str, Any]:
     """Read-only remote preparation. Unknown originals block apply, never become empty success."""
     if known_at.utcoffset() is None:
@@ -233,19 +235,50 @@ def prepare_migration(
         ),
         "blocked": blocked,
     }
+    if baseline is not None:
+        baseline.value()
+        (directory / "baseline-head.json").write_bytes(baseline.payload)
+        plan["baseline_head_sha256"] = baseline.content_id
     write_json_atomic(directory / "plan.json", plan)
     return plan
 
 
+def _baseline(plan: dict[str, Any], directory: Path) -> dict[str, Any] | None:
+    digest = plan.get("baseline_head_sha256")
+    if digest is None:
+        return None
+    body = (directory / "baseline-head.json").read_bytes()
+    if hashlib.sha256(body).hexdigest() != digest:
+        raise ValueError("prepared margin alerts baseline changed")
+    return FixedMarginAlertsL1(body, "").value()
+
+
+def _check_target(
+    head: dict[str, Any], plan: dict[str, Any], baseline: dict[str, Any] | None
+) -> None:
+    expected = {item["request_id"]: item["sha256"] for item in plan["attempts"]}
+    prior = baseline["receipts"] if baseline is not None else {}
+    if set(head["receipts"]) - (prior.keys() | expected.keys()):
+        raise ValueError("target already contains acquisitions outside this migration")
+    if any(head["receipts"].get(identity) != receipt for identity, receipt in prior.items()):
+        raise ValueError("native margin alerts baseline receipt changed")
+    for identity in expected.keys() & head["receipts"].keys():
+        if head["receipts"][identity]["fingerprint"] != expected[identity]:
+            raise ValueError("prepared margin alerts identity conflicts with the native target")
+    if baseline is not None:
+        days = {item["day"] for item in plan["attempts"]}
+        if {day: scope for day, scope in head["scopes"].items() if day not in days} != {
+            day: scope for day, scope in baseline["scopes"].items() if day not in days
+        }:
+            raise ValueError("native margin alerts unselected scope changed")
+
+
 def apply_migration(owner: MarginAlertsL1, *, directory: Path) -> dict[str, int]:
-    """Apply only the inspected finite plan to an initialized, otherwise unused target."""
+    """Apply the finite plan, optionally preserving its explicitly fixed native baseline."""
     plan = json.loads((directory / "plan.json").read_bytes())
     if plan["format"] != "jquants-margin-alerts-cutover-v1" or plan["blocked"]:
         raise ValueError("migration has unresolved original/scope blockers")
-    fixed = owner.resume()
-    identities = {item["request_id"] for item in plan["attempts"]}
-    if set(fixed.value()["receipts"]) - identities:
-        raise ValueError("target already contains acquisitions outside this migration")
+    baseline = _baseline(plan, directory)
     # Verify the whole prepared plan before the first write.
     for item in plan["attempts"]:
         path = directory / item["file"]
@@ -260,31 +293,51 @@ def apply_migration(owner: MarginAlertsL1, *, directory: Path) -> dict[str, int]
             or attempt.order_time.isoformat() != item["order_time"]
         ):
             raise ValueError("prepared margin alerts identity/order changed")
+        if baseline is not None:
+            item["day"] = attempt.day.isoformat()
+    fixed = owner.resume()
+    _check_target(fixed.value(), plan, baseline)
+    prior = baseline["receipts"] if baseline is not None else {}
+    pending = [item for item in plan["attempts"] if item["request_id"] not in prior]
     totals = dict.fromkeys(("changed", "equal", "failed", "held", "retried"), 0)
-    for offset in range(0, len(plan["attempts"]), 31):
+    totals["retried"] = len(plan["attempts"]) - len(pending)
+    for offset in range(0, len(pending), 31):
         batch = [
             MarginAlertsAttempt.from_value(json.loads((directory / item["file"]).read_bytes()))
-            for item in plan["attempts"][offset : offset + 31]
+            for item in pending[offset : offset + 31]
         ]
         for key, values in owner.commit(batch).items():
             totals[key] += len(values)
     verify_migration(owner, directory=directory)
     result = owner.fixed()
+    if baseline is not None:
+        totals["baseline_receipts"] = len(prior)
     write_json_atomic(directory / "applied.json", {"head_sha256": result.content_id, **totals})
     return totals
 
 
 def verify_migration(owner: MarginAlertsL1, *, directory: Path) -> None:
-    """Cold-read every migrated pack, including superseded and partial originals."""
+    """Read planned packs; reuse the previously accepted baseline without re-downloading it."""
     plan = json.loads((directory / "plan.json").read_bytes())
+    baseline = _baseline(plan, directory)
+    if baseline is not None:
+        for item in plan["attempts"]:
+            body = (directory / item["file"]).read_bytes()
+            if hashlib.sha256(body).hexdigest() != item["sha256"]:
+                raise ValueError("prepared margin alerts original changed")
+            item["day"] = MarginAlertsAttempt.from_value(json.loads(body)).day.isoformat()
     head = owner.fixed().value()
+    if baseline is not None:
+        _check_target(head, plan, baseline)
     expected = {item["request_id"]: item["sha256"] for item in plan["attempts"]}
     for identity, digest in expected.items():
         if head["receipts"].get(identity, {}).get("fingerprint") != digest:
             raise ValueError("migration readback lacks a prepared request identity")
+    prior = baseline["receipts"] if baseline is not None else {}
+    additions = expected.keys() - prior.keys()
     packs = {
         head["receipts"][identity]["pack"]
-        for identity in expected
+        for identity in additions
         if "pack" in head["receipts"][identity]
     }
     found = set()
@@ -298,7 +351,9 @@ def verify_migration(owner: MarginAlertsL1, *, directory: Path) -> None:
                 if hashlib.sha256(_encoded(raw)).hexdigest() != expected[identity]:
                     raise ValueError("migrated original differs from its prepared bytes")
                 found.add(identity)
-    if any("pack" in head["receipts"][identity] and identity not in found for identity in expected):
+    if any(
+        "pack" in head["receipts"][identity] and identity not in found for identity in additions
+    ):
         raise ValueError("migrated pack lacks a prepared original")
 
 
@@ -382,6 +437,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-directory", type=Path, required=True)
     parser.add_argument("--release")
     parser.add_argument("--manifest-sha256")
+    parser.add_argument(
+        "--baseline-head-sha256", help="prepare against this previously accepted native head"
+    )
     parser.add_argument("--known-at", type=datetime.fromisoformat)
     parser.add_argument(
         "--asof", type=date.fromisoformat, help="first normal publication date for compare"
@@ -392,6 +450,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.baseline_head_sha256 and args.command != "prepare":
+            raise ValueError("the native baseline is fixed only when preparing a new plan")
         bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
         with closing(Boto3R2Store(bucket=bucket)) as store:
             if args.command == "verify":
@@ -404,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
                     MarginAlertsL1(store, args.work_directory), directory=args.directory
                 )
                 print(json.dumps(result, sort_keys=True))
-                return int(bool(result["held"]))
+                return int(bool(result["held"]) and "baseline_receipts" not in result)
             if args.command == "compare":
                 if args.asof is None:
                     raise ValueError("compare requires --asof for the intended daily publication")
@@ -437,6 +497,13 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(
                     "prepare requires the exact release, digest and migration boundary"
                 )
+            baseline = None
+            if args.baseline_head_sha256:
+                baseline = MarginAlertsL1(store, args.work_directory).fixed()
+                if baseline.content_id != args.baseline_head_sha256:
+                    raise ValueError(
+                        "native margin alerts baseline differs from the requested head"
+                    )
             with open_lake(mirror=args.work_directory, bucket=bucket) as (session, cache):
                 release = resolve_release(
                     cache.source, args.release, manifest_sha256=args.manifest_sha256
@@ -448,6 +515,7 @@ def main(argv: list[str] | None = None) -> int:
                     store=store,
                     known_at=args.known_at,
                     directory=args.directory,
+                    baseline=baseline,
                 )
             print(
                 json.dumps(

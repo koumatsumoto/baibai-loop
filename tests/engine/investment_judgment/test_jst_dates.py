@@ -84,7 +84,11 @@ def test_assessment_same_calendar_day_outside_utc_midnight_window():
     review["reviewed_at"] = "2026-10-14T22:15:00+09:00"
     for stamp in ("2026-10-14T21:00:00+09:00", "2026-10-14T12:00:00Z"):
         candidate = deepcopy(assessment)
-        candidate["input_snapshot"]["sources"][0]["retrieved_at"] = stamp
+        next(
+            source
+            for source in candidate["input_snapshot"]["sources"]
+            if source["source_id"] == "price"
+        )["retrieved_at"] = stamp
         candidate["input_snapshot"]["facts"][0]["observed_at"] = stamp
         assert _evaluate(candidate, review, now="2026-10-14T23:00:00+09:00").errors == ()
 
