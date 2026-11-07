@@ -34,10 +34,6 @@ _COMMANDS = {
     ),
     "rebuild-margin-alerts-native": "baibai_jobs.integration.margin_alerts_native",
     "rebuild-short-sale-reports-native": "baibai_jobs.integration.short_sale_reports_native",
-    "margin-alerts-native-cutover": "baibai_jobs.maintenance.margin_alerts_native_cutover",
-    "short-sale-reports-native-cutover": (
-        "baibai_jobs.maintenance.short_sale_reports_native_cutover"
-    ),
     "jquants-margin-interest-native": "baibai_jobs.acquisition.jquants_margin_interest_native",
     "rebuild-margin-interest-native": "baibai_jobs.integration.margin_interest_native",
     "margin-interest-native-cutover": "baibai_jobs.maintenance.margin_interest_native_cutover",
