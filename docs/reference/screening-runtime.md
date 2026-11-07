@@ -22,6 +22,8 @@
 
 カードは原数値・符号・対象期・反対材料を保つ。Investment Judgmentは複数モデル・一次資料・必要な少数の候補外対照を比較し、価値獲得経路と反証を自ら評価する。外部評価・テクニカル・共有環境は比較材料であり、保存市場判断やportfolioで機械順位を変更しない。旧成果は[保存reader](estimate-calibration.md)に従う。
 
+同じ比較の詳細を `selection-context --compare-ticker` で再読する時は、返されたSelection ID・`research_as_of`・`input_known_at`を保ち、`--screening-selection-id`・`--research-asof`・timezone付きの`--known-at`へ渡す。Selection IDはモデル世代を固定するが、既存Research・評価・保有の文脈はcutoffでも選ばれる。`--known-at`省略時は実行時刻を使う。古いcutoffの指定は、後で取得した原本を当時既知だった証拠に変えない。
+
 ## 入力不足と品質
 
 [時点・欠測](model-observations.md#source-owners)の共通条件に従う。取得coverageは成功した要求範囲で、全銘柄の入力充足ではない。入力不足で候補が少ないことを、投資機会が少ないという結論へ置き換えない。価格/株数basisと期間比較は[開示と会計比較](model-observations.md#financial-periods)に従う。
