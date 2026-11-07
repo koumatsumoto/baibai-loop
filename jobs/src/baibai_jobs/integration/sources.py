@@ -71,7 +71,7 @@ def apply(
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
     if "financial_native" in plan and plan["financial_native"] is not True:
         raise ValueError("legacy financial mode in fixed integration plan; create a new plan")
-    if any(entry["source"] == "jquants-financial" for entry in plan["handoffs"]):
+    if any(entry.get("source") == "jquants-financial" for entry in plan["handoffs"]):
         raise ValueError("legacy financial handoff in fixed integration plan; create a new plan")
     if bool(plan.get("price_native", False)) != price_native_enabled():
         raise ValueError("price cutover mode differs from the fixed integration plan")
