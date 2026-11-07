@@ -45,6 +45,7 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     ShortSaleReportsL1,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
@@ -185,9 +186,13 @@ def prepare_market_lake(
     store: ObjectStore,
     release_id: str | None = None,
     as_of: date | None = None,
+    edinet_input: InputSnapshot | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
     native_lists = edinet_list_native_enabled()
+    fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
+    if fixed_edinet is not None and not native_lists:
+        raise ValueError("fixed EDINET publication requires native list mode")
     native_financial = financial_native_enabled()
     native_price = price_native_enabled()
     native_master = master_native_enabled()
@@ -274,6 +279,15 @@ def prepare_market_lake(
             )
         }
     _phase_progress("base_resolve", phase_started)
+    if fixed_edinet is not None:
+        from baibai_jobs.integration.edinet_archive_native import prepare_archive_execution
+
+        if read_lake_store_origin(sqlite_path) != _pointer_origin(previous):
+            raise LakePublishError("fixed EDINET publication requires the serving store origin")
+        phase_started = _phase_progress("retain_edinet_archives")
+        prepare_archive_execution(fixed_edinet.archives, sqlite_path)
+        published_coverage_start.pop("edinet.source_archives", None)
+        _phase_progress("retain_edinet_archives", phase_started)
     alerts_identity = None
     if native_alerts:
         phase_started = _phase_progress("native_margin_alerts")
@@ -382,6 +396,7 @@ def prepare_market_lake(
             if name not in derived_names
             and not (native_financial and name == "jquants.fin_summaries")
             and not (native_lists and name == "edinet.list_responses")
+            and not (fixed_edinet is not None and name == "edinet.source_archives")
         }
         git_commit = lake_verified_git_commit()
         export = export_market_snapshot(
@@ -612,10 +627,15 @@ def publish_market_lake(
     release_id: str | None = None,
     before_pointer_switch: Callable[[], None] | None = None,
     verified_readback_root: Path | None = None,
+    edinet_input: InputSnapshot | None = None,
 ) -> MarketLakePublishReport:
     """単独公開の入口。共通統合はprepareとpublishの間でモデルを生成する。"""
     with prepare_market_lake(
-        sqlite_path=sqlite_path, mirror_root=mirror_root, store=store, release_id=release_id
+        sqlite_path=sqlite_path,
+        mirror_root=mirror_root,
+        store=store,
+        release_id=release_id,
+        edinet_input=edinet_input,
     ) as prepared:
         return publish_prepared_market_lake(
             prepared,
@@ -758,6 +778,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bucket", default="baibai-stores")
     parser.add_argument("--release-id")
     parser.add_argument("--lease-handle", type=Path, required=True)
+    parser.add_argument("--saved-edinet-input", type=Path)
     return parser
 
 
@@ -773,11 +794,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             store=store,
             release_id=args.release_id,
             before_pointer_switch=lambda: verify_held(store, handle),
+            edinet_input=(
+                InputSnapshot.model_validate_json(args.saved_edinet_input.read_bytes())
+                if args.saved_edinet_input is not None
+                else None
+            ),
         )
     except LakeBuildError as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    except (LakePublishError, LeaseError) as error:
+    except (LakePublishError, LeaseError, OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     print(json.dumps(report.as_dict(), sort_keys=True))
