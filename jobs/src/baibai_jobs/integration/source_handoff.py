@@ -103,8 +103,8 @@ def _export(
 ) -> None:
     if source not in SOURCES:
         raise ValueError("unsupported market handoff source")
-    if source == "edinet-list" and edinet_list_native_enabled():
-        raise ValueError("EDINET list native mode does not export legacy stages")
+    if source in _EDINET_SOURCES and edinet_list_native_enabled():
+        raise ValueError("EDINET native mode does not export legacy stages")
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "receipts.sqlite"
     report: dict[str, object] = {
@@ -182,6 +182,8 @@ def _replay(
     from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES
     from baibai_jobs.integration.article_handoff import import_handoff as import_article_handoff
 
+    if source in _EDINET_SOURCES and edinet_list_native_enabled():
+        raise ValueError("native EDINET stages require commit-stage or finite import")
     if source in ARTICLE_SOURCES:
         return import_article_handoff(source, database, directory)
     if source not in SOURCES:
@@ -338,6 +340,44 @@ def _acquire_edinet_lists(asof: date, directory: Path) -> bool:
             raise
     print(json.dumps(report, sort_keys=True))
     return not bool(report["failed"])
+
+
+def _acquire_edinet_archives(source: str, asof: date, directory: Path) -> bool:
+    from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+    from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
+    from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+    from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
+    from baibai_jobs.integration.edinet_archive_native import export_pending_handoff
+
+    if source not in {"edinet-metrics", "edinet-facts"}:
+        raise ValueError("unsupported native EDINET archive group")
+    with (
+        closing(
+            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+        ) as store,
+        closing(EDINETHTTP(os.environ.get("EDINET_API_KEY", ""))) as client,
+    ):
+        owner = EdinetArchiveL1(store, directory)
+        lists = EdinetListL1(store, directory / "lists").freeze()
+        started = datetime.now(UTC)
+        try:
+            report = acquire_archives(
+                owner,
+                client,
+                lists,
+                group="edinet-metrics" if source == "edinet-metrics" else "edinet-facts",
+                asof=asof,
+            )
+            owner.require_clean_work()
+        except Exception:
+            if export_pending_handoff(owner, source=source, asof=asof, started_at=started) and (
+                output := os.environ.get("GITHUB_OUTPUT")
+            ):
+                with Path(output).open("a", encoding="utf-8") as stream:
+                    print("stage_ready=true", file=stream)
+            raise
+    print(json.dumps(report, sort_keys=True))
+    return report["status"] != "failed"
 
 
 def _acquire_financial_l1(asof: date, directory: Path) -> bool:
@@ -792,6 +832,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     directory = args.directory
     try:
+        if (
+            args.command in {"input", "resume"}
+            and args.source in {"edinet-metrics", "edinet-facts"}
+            and edinet_list_native_enabled()
+        ):
+            raise ValueError("native EDINET archives acquire directly from fixed L1 heads")
         if args.command == "replay-copy":
             packet = json.loads((directory / "result.json").read_bytes())
             from baibai_jobs.master_cutover import master_native_enabled
@@ -830,18 +876,6 @@ def main(argv: list[str] | None = None) -> int:
                 Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
             ) as store:
                 load_input(store, args.source, args.database, directory)
-                if (
-                    args.source in {"edinet-metrics", "edinet-facts"}
-                    and edinet_list_native_enabled()
-                ):
-                    from baibai_engine.data_collection.providers.edinet.list_native import (
-                        EdinetListL1,
-                    )
-                    from baibai_jobs.integration.edinet_list_native import materialize_lists
-
-                    edinet_fixed = EdinetListL1(store, directory / "native-list").freeze()
-                    result = materialize_lists(edinet_fixed, args.database)
-                    print(json.dumps({"native_list_input": result}, sort_keys=True))
         elif args.command == "resume":
             from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed
 
@@ -959,10 +993,14 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--asof and export --since are required")
             if (
                 args.command == "acquire"
-                and args.source == "edinet-list"
+                and args.source in _EDINET_SOURCES
                 and edinet_list_native_enabled()
             ):
-                ok = _acquire_edinet_lists(args.asof, directory)
+                ok = (
+                    _acquire_edinet_lists(args.asof, directory)
+                    if args.source == "edinet-list"
+                    else _acquire_edinet_archives(args.source, args.asof, directory)
+                )
                 if output := os.environ.get("GITHUB_OUTPUT"):
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print("stage_ready=false\nnative_l1=true", file=stream)

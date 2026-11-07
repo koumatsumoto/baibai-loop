@@ -92,7 +92,9 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch, native)
     expected = [
-        group for group in SOURCE_INPUT_GROUPS if native == "false" or group != "edinet-list"
+        group
+        for group in SOURCE_INPUT_GROUPS
+        if native == "false" or not group.startswith("edinet-")
     ]
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
@@ -154,7 +156,9 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     report = json.loads(capsys.readouterr().out)
     assert report == {
         "updated": [
-            group for group in SOURCE_INPUT_GROUPS if group not in {"edinet-list", "tradingview"}
+            group
+            for group in SOURCE_INPUT_GROUPS
+            if not group.startswith("edinet-") and group != "tradingview"
         ]
         + list(ARTICLE_SOURCES),
         "failed": [{"group": "tradingview", "reason": "ValueError"}],
@@ -162,7 +166,7 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     assert remote.values[input_key("tradingview")] == prior
     assert input_key("edinet-list") not in remote.values
     for group in ("edinet-metrics", "edinet-facts"):
-        assert json.loads(remote.values[input_key(group)].body)["stage_id"] == f"{group}-retry"
+        assert input_key(group) not in remote.values
 
 
 def test_daily_input_publication_leaves_retired_jpx_inputs_untouched(tmp_path, monkeypatch, capsys):

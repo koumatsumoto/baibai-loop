@@ -271,11 +271,12 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert financial["edinet_snapshot_asof"] == "2026-07-01"
     assert financial["edinet_source_period_end"] == "2026-03-31"
     assert missing[0].payload["financial"]["debt"] is None
+    assert missing[0].payload["financial"]["edinet_reported_flows"] is None
     assert present[0].payload["earnings_price"] == missing[0].payload["earnings_price"]
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v1-provider-capital-v1-holder-evidence-v1"
+        "observations-v8-reported-flow-periods-accounting-flags-v1-provider-capital-v1-holder-evidence-v1-cf-details-v1"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -357,7 +358,7 @@ def test_missing_or_invalid_price_keeps_financial_observations_and_only_nulls_pr
     assert result["earnings_price"]["price_yen"] == price
 
 
-def reported_edinet(*, kind, start, end, ocf, capex, doc_id="S100SYNTHETIC"):
+def reported_edinet(*, kind, start, end, ocf, capex, doc_id="S100SYNTHETIC", detail_rows=()):
     context = "CurrentYearDuration" if kind in {"120", "130"} else "InterimDuration"
     instant = "CurrentYearInstant" if kind in {"120", "130"} else "InterimInstant"
     rows = [
@@ -368,6 +369,7 @@ def reported_edinet(*, kind, start, end, ocf, capex, doc_id="S100SYNTHETIC"):
         f"jppfs_cor:ShortTermLoansPayable\t{instant}\tJPY\t100",
         f"jppfs_cor:OperatingIncome\t{context}\tJPY\t100000000",
         f"jppfs_cor:DepreciationAndAmortizationOpeCF\t{context}\tJPY\t10000000",
+        *(f"jppfs_cor:{tag}\t{context}\tJPY\t{value}" for tag, value in detail_rows),
     ]
     content = BytesIO()
     with zipfile.ZipFile(content, "w") as archive:
@@ -381,6 +383,68 @@ def reported_edinet(*, kind, start, end, ocf, capex, doc_id="S100SYNTHETIC"):
         period_end=end,
         submit_datetime="2026-08-07T09:00:00+09:00",
     )
+
+
+@pytest.mark.parametrize("kind", ["120", "130", "160", "170"])
+def test_reported_cf_details_keep_sign_null_scope_and_totals_through_generation(kind):
+    arguments = dict(
+        kind=kind,
+        start=date(2025, 4, 1),
+        end=date(2026, 3, 31),
+        ocf=100.0,
+        capex=30.0,
+        doc_id="S100DETAIL",
+    )
+    baseline_record = reported_edinet(**arguments)
+    record = reported_edinet(
+        **arguments,
+        detail_rows=(
+            ("DecreaseIncreaseInNotesAndAccountsReceivableTradeOpeCF", "-10"),
+            ("DecreaseIncreaseInInventoriesOpeCF", "0"),
+            ("IncreaseDecreaseInNotesAndAccountsPayableTradeOpeCF", "5"),
+            ("IncreaseDecreaseInContractLiabilitiesOpeCF", "6"),
+            ("IncreaseDecreaseInAdvancesReceivedOpeCF", "7"),
+            ("PurchaseOfPropertyPlantAndEquipmentInvCF", "-20"),
+        ),
+    )
+    expected = {
+        "ocf_receivables_cash_effect": -10.0,
+        "ocf_inventories_cash_effect": 0.0,
+        "ocf_payables_cash_effect": 5.0,
+        "ocf_contract_liabilities_cash_effect": 6.0,
+        "ocf_advances_received_cash_effect": 7.0,
+        "ocf_other_payables_cash_effect": None,
+        "capex_ppe_reported": 20.0,
+        "capex_intangible_reported": None,
+    }
+    if kind in {"160", "170"}:
+        expected = dict.fromkeys(expected)
+    inputs = dict(documents=(document(),), bars=(PriceBar(ASOF, 10.0, None),))
+    baseline = generate(**inputs, edinet=baseline_record)
+    generated = generate(**inputs, edinet=record)
+    saved = GeneratedModel.model_validate_json(generated[0].model_dump_json())
+    flows = saved.payload["financial"]["edinet_reported_flows"]
+    assert {field: flows["amounts"][field] for field in expected} == expected
+    assert {field: getattr(record, field) for field in expected} == expected
+    assert flows["amounts"]["operating_cash_flow"] == 100.0
+    assert flows["amounts"]["capex"] == 30.0
+    assert flows["amounts"]["free_cash_flow"] == 70.0
+    assert flows["source_doc_id"] == "S100DETAIL"
+    assert flows["consolidation_basis"] == "consolidated"
+    assert flows["amount_unit"] == "JPY"
+    assert flows["period_kind"] == ("annual" if kind in {"120", "130"} else "interim")
+    assert flows["measurement_period"] == {
+        "start": None,
+        "end": None,
+        "reason": "fact_dates_not_retained",
+    }
+    assert flows["filing_fiscal_period"] == {"start": "2025-04-01", "end": "2026-03-31"}
+    assert generated[1:] == baseline[1:]
+    # 他の金額・倍率・品質は完全一致し、内訳から総額や正常cashを作らない。
+    for field in expected:
+        assert baseline[0].payload["financial"]["edinet_reported_flows"]["amounts"][field] is None
+        flows["amounts"][field] = None
+    assert saved.payload == baseline[0].payload
 
 
 @pytest.mark.parametrize(

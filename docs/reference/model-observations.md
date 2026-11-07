@@ -50,6 +50,8 @@ EDINETは同じmarket sealの文書/訂正/revisionに適格な任意入力で�
 
 大量保有報告は第三者申告で、発行会社確認/変更日確定でない。基準日・提出日・hashを保ち、時価総額/順位を自動補正しない。受領UTC日しかなければ翌日以降に扱い、評価前の固定snapshotにある場合だけ同日利用をその固定時刻まで認める。
 
+[発行会社の資本注記reader](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_issuer_capital_reader.py)は固定一覧・原本の最新年次/訂正から、同じ普通株表の期末表示だけを読む。提出日contextの発行数や議決権表を接合せず、株/千株・連結範囲・原文位置を残す。信託・分割等の注記は未照合で、現在株数や価格分母には補完しない。未対応の表や最新訂正の欠測から旧数値を復活させない。
+
 [価格換算](../../engine/src/baibai_engine/machine_analysis/observations/prices/price_basis.py)はraw closeを同じ基準へ揃え、別取得世代の調整価格をつながない。rights issueを含む価格調整と、確定分割/併合だけの株数/配当換算を分け、価格から株数を逆算しない。
 
 実績DPSの原単位/分割換算を確かめ、期不明・逆転・未来終了・不明actionを解決済みにしない。四半期末を基準日、総額÷期末株数を換算値とせず、factor相殺で変更を消さない。無配と未解決を分け、欠けた年度を飛ばして増配streakを復活させない。予想/原額は残し、旧carryを実現配当としない。
@@ -60,7 +62,7 @@ EDINETは同じmarket sealの文書/訂正/revisionに適格な任意入力で�
 
 - **残高**: 現預金と現金同等物を分け、抽出債務を網羅としない。証券は税/拘束/換金性等未反映の帳簿額。net cashは時点残高、非金融のasset-backed ratioはgross調査proxyで清算価値でなく、金融業へ流用しない。
 - **EBITDA**: 同書類の対応償却を使い、異なるCF加算子の省略や、のれん償却による減価償却補完をしない。負EV/負EBITDAを分け、負倍率を割安としない。
-- **OCF/capex**: J-Quants OCFとの混合FCFを作らず、内訳0の感応度を正常FCF/維持投資としない。
+- **OCF/capex**: 年次120/130で取得した運転資金・設備支出の部分内訳は、Company Financialsの`edinet_reported_flows`へ同じ出典・scopeとともに渡す。OCF内訳はCFへの寄与符号、設備支出内訳は正の支出額で、欠測を0補完せず、合算CapExを推定分解しない。J-Quants OCFと混ぜてFCFを作らず、内訳0の感応度を正常FCF/維持投資としない。税・契約債務・必要資金を網羅する内訳ではなく、半期の取得対象も広げない。
 - **期間**: annual exactは年度metadataで最新TTM/実測context/持続性の保証でない。半期・変則/不明年度を年率化せず、context日を年度/提出日で補わない。短信OCF TTMとの精度差を保ち、異期間FCF/CFOを差し引かない。
 
 短信との規模照合は範囲ずれ検知で同時点/連結範囲の証明でなく、BS時点/debt scopeも開示日・期末・carry lagから推定しない。

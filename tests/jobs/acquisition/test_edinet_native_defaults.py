@@ -31,14 +31,9 @@ def test_acquisition_and_daily_callers_ignore_old_false_repository_vars(filename
     monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", workflow["env"]["BAIBAI_EDINET_LIST_NATIVE"])
     assert edinet_list_native_enabled() is True
     if filename == "cloud-market-source.yml":
-        steps = {step.get("name"): step for step in workflow["jobs"]["acquire"]["steps"]}
-        for name in (
-            "Load only the assigned source input",
-            "Read own confirmed originals and required EDINET list receipts",
-        ):
-            assert steps[name]["if"] == (
-                '${{ contains(fromJSON(\'["edinet-metrics","edinet-facts"]\'), inputs.source) }}'
-            )
+        names = {step.get("name") for step in workflow["jobs"]["acquire"]["steps"]}
+        assert "Load only the assigned source input" not in names
+        assert "Read own confirmed originals and required EDINET list receipts" not in names
 
 
 def test_no_edinet_native_repository_var_reader_is_left_in_workflows():

@@ -58,23 +58,6 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked
-      - name: Load only the assigned source input
-        if: ${{ contains(fromJSON('["edinet-metrics","edinet-facts"]'), inputs.source) }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          SOURCE: ${{ inputs.source }}
-        run: uv run python -m baibai_jobs.integration.source_handoff input --source "$SOURCE" --directory "$RUNNER_TEMP/source-input"
-      - name: Read own confirmed originals and required EDINET list receipts
-        if: ${{ contains(fromJSON('["edinet-metrics","edinet-facts"]'), inputs.source) }}
-        env:
-          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          SOURCE: ${{ inputs.source }}
-          ASOF: ${{ inputs.asof }}
-        run: uv run python -m baibai_jobs.integration.source_handoff resume --source "$SOURCE" --asof "$ASOF" --directory "$RUNNER_TEMP/source-input"
       - name: Acquire only this source and export received originals
         id: acquire
         env:
@@ -87,9 +70,6 @@ jobs:
           EDINET_API_KEY: ${{ startsWith(inputs.source, 'edinet-') && secrets.EDINET_API_KEY || '' }}
         run: |
           args=(acquire --source "$SOURCE" --asof "$ASOF" --directory "$RUNNER_TEMP/source-handoff")
-          case "$SOURCE" in
-            edinet-metrics|edinet-facts) args+=(--input-directory "$RUNNER_TEMP/source-input") ;;
-          esac
           uv run python -m baibai_jobs.integration.source_handoff "${args[@]}"
       - name: Save successful and partial originals in private staging
         id: stage

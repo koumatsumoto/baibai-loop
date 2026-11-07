@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import sqlite3
 import unittest
 import zipfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -1074,13 +1075,15 @@ class ControlEventExitBuildTest(unittest.TestCase):
 
             acquisition.download_csv_zip.side_effect = acquire
             output = io.StringIO()
-            result = delisting_cli.refresh_tender_offer_exits_command(
-                sqlite_path=sqlite_path,
-                asof_date=self.ASOF,
-                reader=EDINETReader(sqlite_path),
-                acquisition=acquisition,
-                stdout=output,
-            )
+            with patch.object(
+                EDINETReader, "read_csv_zip", side_effect=AssertionError("SQL body reread")
+            ):
+                result = delisting_cli.refresh_tender_offer_exits_command(
+                    sqlite_path=sqlite_path,
+                    asof_date=self.ASOF,
+                    acquisition=acquisition,
+                    stdout=output,
+                )
             self.assertEqual(result, 0)
             self.assertEqual(
                 [call.args[0] for call in acquisition.download_csv_zip.call_args_list],
@@ -1112,7 +1115,6 @@ class ControlEventExitBuildTest(unittest.TestCase):
                     result = delisting_cli.refresh_tender_offer_exits_command(
                         sqlite_path=sqlite_path,
                         asof_date=self.ASOF,
-                        reader=EDINETReader(sqlite_path),
                         acquisition=acquisition,
                         stdout=io.StringIO(),
                     )
@@ -1121,6 +1123,70 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 acquisition.download_csv_zip.assert_called_once_with("SRES")
                 save.assert_not_called()
                 self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
+
+    def test_refresh_non_zip_response_does_not_fall_back_to_sql_or_replace_old_exit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+            old = self._old_exit()
+            store_tender_offer_exit_values(sqlite_path, (old,))
+            self._retain_archives(sqlite_path, {"SRES": _archive({_OUTCOME: _SUCCESS})})
+            acquisition = Mock()
+            acquisition.download_csv_zip.return_value = b"not a ZIP"
+            stderr = io.StringIO()
+            with (
+                patch.object(delisting_cli, "store_tender_offer_exit_values") as save,
+                patch.object(
+                    EDINETReader, "read_csv_zip", side_effect=AssertionError("SQL body fallback")
+                ),
+                redirect_stderr(stderr),
+            ):
+                result = delisting_cli.refresh_tender_offer_exits_command(
+                    sqlite_path=sqlite_path,
+                    asof_date=self.ASOF,
+                    acquisition=acquisition,
+                    stdout=io.StringIO(),
+                )
+            self.assertEqual(result, 1)
+            self.assertIn("EDINETProviderError:", stderr.getvalue())
+            acquisition.download_csv_zip.assert_called_once_with("SRES")
+            save.assert_not_called()
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
+
+    def test_refresh_keeps_acquired_sources_when_l2_store_fails(self) -> None:
+        with TemporaryDirectory() as tmp:
+            sqlite_path = self._store(tmp, self._registration_and_result(), reason="公開買付け")
+            old = self._old_exit()
+            store_tender_offer_exit_values(sqlite_path, (old,))
+            archives = {
+                "SRES": _archive({_OUTCOME: _SUCCESS}),
+                "SREG": _archive({_PRICE: "株券１株につき金1,300円", _FUNDING: _CASH_ONLY}),
+            }
+            acquisition = Mock()
+
+            def acquire(doc_id: str) -> bytes:
+                content = archives[doc_id]
+                self._retain_archives(sqlite_path, {doc_id: content})
+                return content
+
+            acquisition.download_csv_zip.side_effect = acquire
+            with (
+                patch.object(
+                    delisting_cli,
+                    "store_tender_offer_exit_values",
+                    side_effect=sqlite3.OperationalError("injected store failure"),
+                ),
+                redirect_stderr(io.StringIO()),
+            ):
+                result = delisting_cli.refresh_tender_offer_exits_command(
+                    sqlite_path=sqlite_path,
+                    asof_date=self.ASOF,
+                    acquisition=acquisition,
+                    stdout=io.StringIO(),
+                )
+            self.assertEqual(result, 1)
+            self.assertEqual(read_tender_offer_exit_values(sqlite_path), (old,))
+            for doc_id, content in archives.items():
+                self.assertEqual(EDINETReader(sqlite_path).read_csv_zip(doc_id), content)
 
 
 class DocumentBlocksTest(unittest.TestCase):
