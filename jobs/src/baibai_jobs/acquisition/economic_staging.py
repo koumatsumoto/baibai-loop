@@ -24,6 +24,7 @@ _PLANNING_INPUT_GROUPS = {
     "ecb-fx-acquisition-input-v1": "economic-ecb_fx",
     "mof-jgb-acquisition-input-v1": "economic-mof_jgb",
     "frb-h15-acquisition-input-v1": "economic-frb_h15",
+    "yahoo-acquisition-input-v1": "economic-yahoo",
 }
 _PLANNING_INPUT_FORMATS = {group: wire for wire, group in _PLANNING_INPUT_GROUPS.items()}
 

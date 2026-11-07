@@ -16,7 +16,7 @@ from baibai_engine.data_collection.acquisition.policy import (
     recent_start,
     recovery_ranges,
 )
-from baibai_engine.data_collection.catalog import require_source
+from baibai_engine.data_collection.catalog import load_sources, require_source
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     PMI_INPUT_TABLE,
@@ -53,6 +53,12 @@ CASES = (
         "fed-h15",
         "frb-h15-acquisition-input-v1",
         "economic_frb_h15_input_days",
+    ),
+    (
+        "economic-yahoo",
+        "yahoo-gc-f",
+        "yahoo-acquisition-input-v1",
+        "economic_yahoo_gc_f_input_days",
     ),
 )
 
@@ -128,14 +134,24 @@ def _planning_copy(canonical, target, case):
                 ),
             )
         else:
-            output.execute(f"CREATE TABLE {table}(observed_at TEXT NOT NULL PRIMARY KEY)")
-            output.executemany(
-                f"INSERT INTO {table} VALUES (?)",
-                received.execute(
-                    "SELECT DISTINCT observed_at FROM economic_source_records WHERE source_id=?",
-                    (source,),
-                ),
+            scopes = (
+                [
+                    (item.source_id, "economic_" + item.source_id.replace("-", "_") + "_input_days")
+                    for item in load_sources().values()
+                    if item.provider == "yahoo"
+                ]
+                if source.startswith("yahoo-")
+                else [(source, table)]
             )
+            for owner, table in scopes:
+                output.execute(f"CREATE TABLE {table}(observed_at TEXT NOT NULL PRIMARY KEY)")
+                output.executemany(
+                    f"INSERT INTO {table} VALUES (?)",
+                    received.execute(
+                        "SELECT DISTINCT observed_at FROM economic_source_records WHERE source_id=?",
+                        (owner,),
+                    ),
+                )
 
 
 def _upload(remote, directory, case, *, planning):

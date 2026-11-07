@@ -19,6 +19,7 @@ from tests.jobs.acquisition.test_economic_planning_readers import (
 )
 
 import baibai_jobs.acquisition.source_inputs as inputs
+from baibai_engine.data_collection.catalog import load_sources
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     read_document_metadata,
@@ -75,6 +76,11 @@ def test_export_keeps_native_plans_metadata_and_originals(tmp_path, case):
     group, source, _, table = case
     canonical = tmp_path / "canonical.sqlite"
     first = _seed(canonical, source)
+    owners = (
+        [item.source_id for item in load_sources().values() if item.provider == "yahoo"]
+        if group == "economic-yahoo"
+        else [source]
+    )
     with closing(store.open_connection(canonical)) as connection, connection:
         for revision in range(4):
             when = WHEN + timedelta(minutes=revision + 1)
@@ -85,13 +91,14 @@ def test_export_keeps_native_plans_metadata_and_originals(tmp_path, case):
                     replace(_document(source, first.replace(day=1), when), payload=payload),
                 )
             else:
-                store_snapshot(
-                    connection,
-                    source_id=source,
-                    observed_at=first + timedelta(days=8),
-                    fetched_at=when,
-                    records=[{"original": payload.hex()}],
-                )
+                for owner in owners:
+                    store_snapshot(
+                        connection,
+                        source_id=owner,
+                        observed_at=first + timedelta(days=8),
+                        fetched_at=when,
+                        records=[{"original": payload.hex()}],
+                    )
         store_snapshot(
             connection,
             source_id="fred-us-unemployment-rate",
