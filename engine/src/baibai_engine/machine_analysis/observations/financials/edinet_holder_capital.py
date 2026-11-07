@@ -6,12 +6,15 @@ A large holder's report is not an issuer attestation or proof of a change date.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import Element  # nosec B405 -- type annotation only
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
@@ -24,6 +27,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl im
 )
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 from baibai_engine.primitives.time import JST
+from baibai_engine.storage.objects.r2 import LakePublishError
 
 if TYPE_CHECKING:
     import duckdb
@@ -42,6 +46,68 @@ class HolderReportedCapital:
     total_stocks: int
     original_sha256: str
     source_kind: str = "third_party_holder_report_not_issuer_attestation"
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedHolderArchives:
+    """One operation's verified holder bytes, never a persisted receipt clock."""
+
+    archive_identity: str
+    projection_identity: str
+    completed_at: datetime
+    originals: Mapping[str, tuple[date, bytes | Exception]]
+
+
+def _holder_evidence(
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection, as_of: date
+) -> tuple[list[dict[str, Any]], list[tuple[Any, ...]]]:
+    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+        read_observed_documents,
+    )
+
+    documents = read_observed_documents(connection, through=as_of, holder_only=True)
+    receipts = connection.execute(
+        "SELECT doc_date,selected_received_at_utc FROM edinet_document_lists "
+        "WHERE doc_date<=? AND selected_received_at_utc IS NOT NULL ORDER BY doc_date",
+        (as_of.isoformat(),),
+    ).fetchall()
+    return documents, receipts
+
+
+def _evidence_identity(evidence: tuple[list[dict[str, Any]], list[tuple[Any, ...]]]) -> str:
+    return hashlib.sha256(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+
+
+def prepare_holder_archives(
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    *,
+    as_of: date,
+    archives: FixedEdinetArchives,
+) -> PreparedHolderArchives:
+    """Read only potential holder originals before taking the market seal.
+
+    Failures remain per-document until the unchanged eligibility rules use that
+    document. A future cutoff or withdrawal may make a prefetched body irrelevant.
+    """
+    evidence = _holder_evidence(connection, as_of)
+    originals: dict[str, tuple[date, bytes | Exception]] = {}
+    for doc_id in sorted({str(doc["docID"]) for doc in evidence[0]}):
+        metadata = archives.metadata(doc_id, 1)
+        if metadata is None:
+            continue
+        try:
+            body: bytes | Exception = archives.read_xbrl_zip(doc_id)
+        except (LakePublishError, ValueError, OSError) as error:
+            body = error
+        originals[doc_id] = metadata.stored_on, body
+    return PreparedHolderArchives(
+        archives.identity,
+        _evidence_identity(evidence),
+        datetime.now(UTC),
+        MappingProxyType(originals),
+    )
 
 
 def extract_holder_capital(
@@ -107,19 +173,18 @@ def read_holder_capital(
     tickers: tuple[str, ...],
     snapshot_sealed_at: datetime | None = None,
     archives: FixedEdinetArchives | None = None,
+    prepared_archives: PreparedHolderArchives | None = None,
 ) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
     """Use only already-retained originals; absence is not proof of no change.
 
     Archive retention currently records a calendar day, not an intraday receipt
     timestamp. Treat the result as research evidence, not a point-in-time
-    backtest or an issuer-certified capital state. Fixed native bytes still use
-    the receipt evidence in the same, verified full-raw SQL seal.
+    backtest or an issuer-certified capital state. Native bytes use the same
+    verified full-raw SQL seal, or originals prepared before that seal and bound
+    to its unchanged list evidence.
     """
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
         _canonicalize_document_events,
-    )
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
-        read_observed_documents,
     )
     from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
         is_usable_filing_status,
@@ -133,15 +198,20 @@ def read_holder_capital(
     ):
         raise ValueError("knowledge cutoff and snapshot clock require timezones")
     selected = set(tickers)
-    documents = read_observed_documents(connection, through=as_of, holder_only=True)
+    evidence = _holder_evidence(connection, as_of)
+    documents, receipt_rows = evidence
+    if prepared_archives is not None and (
+        archives is None
+        or prepared_archives.archive_identity != archives.identity
+        or snapshot_sealed_at is None
+        or prepared_archives.completed_at > snapshot_sealed_at
+        or prepared_archives.projection_identity != _evidence_identity(evidence)
+    ):
+        raise ValueError("prepared holder originals differ from the sealed EDINET input")
     # A retained list may have been acquired after the requested cutoff. Keep
     # only days with a verified native receipt known by both clocks.
     valid_days = set()
-    for day, received in connection.execute(
-        "SELECT doc_date,selected_received_at_utc FROM edinet_document_lists "
-        "WHERE doc_date<=? AND selected_received_at_utc IS NOT NULL",
-        (as_of.isoformat(),),
-    ).fetchall():
+    for day, received in receipt_rows:
         try:
             receipt = datetime.fromisoformat(str(received))
         except ValueError:
@@ -171,12 +241,16 @@ def read_holder_capital(
     observations: dict[str, list[HolderReportedCapital]] = {}
     # Read the small identity inventory once. Query original bytes only for a
     # retained eligible filing, not once for every missing historical filing.
-    archive_days = {
-        str(doc_id): stored_on
-        for doc_id, stored_on in connection.execute(
-            "SELECT doc_id,stored_on FROM edinet_source_archives WHERE source_type=1"
-        ).fetchall()
-    }
+    archive_days = (
+        {doc_id: item[0] for doc_id, item in prepared_archives.originals.items()}
+        if prepared_archives is not None
+        else {
+            str(doc_id): stored_on
+            for doc_id, stored_on in connection.execute(
+                "SELECT doc_id,stored_on FROM edinet_source_archives WHERE source_type=1"
+            ).fetchall()
+        }
+    )
     considered = missing = unsupported = 0
     for document in origins:
         if str(document.get("docTypeCode")) not in {"350", "360"}:
@@ -231,7 +305,12 @@ def read_holder_capital(
         if not proven_by_snapshot and stored_on >= min(as_of, known_at.astimezone(UTC).date()):
             missing += 1
             continue
-        if archives is None:
+        if prepared_archives is not None:
+            prepared_body = prepared_archives.originals[doc_id][1]
+            if isinstance(prepared_body, Exception):
+                raise prepared_body
+            content = prepared_body
+        elif archives is None:
             row = connection.execute(
                 "SELECT zip_content FROM edinet_source_archives WHERE doc_id=? AND source_type=1",
                 (doc_id,),
