@@ -29,6 +29,10 @@ _DAY_INPUTS = {
         ("multpl-sp500-ey", "economic_multpl_sp500_ey_input_days"),
         ("multpl-sp500-pe", "economic_multpl_sp500_pe_input_days"),
     ),
+    "economic-nikkei_indexes": (
+        ("nikkei-pbr", "economic_nikkei_pbr_input_days"),
+        ("nikkei-per", "economic_nikkei_per_input_days"),
+    ),
     "economic-yahoo": (
         ("yahoo-2516t", "economic_yahoo_2516t_input_days"),
         ("yahoo-acwx", "economic_yahoo_acwx_input_days"),

@@ -67,6 +67,12 @@ CASES = (
         "economic_multpl_shiller_pe_input_days",
     ),
     (
+        "economic-nikkei_indexes",
+        "nikkei-pbr",
+        "nikkei-indexes-acquisition-input-v1",
+        "economic_nikkei_pbr_input_days",
+    ),
+    (
         "economic-yahoo",
         "yahoo-gc-f",
         "yahoo-acquisition-input-v1",
@@ -152,7 +158,7 @@ def _planning_copy(canonical, target, case):
                     for item in load_sources().values()
                     if item.provider == require_source(source).provider
                 ]
-                if source.startswith(("yahoo-", "multpl-", "cftc-"))
+                if source.startswith(("yahoo-", "multpl-", "cftc-", "nikkei-"))
                 else [(source, table)]
             )
             for owner, table in scopes:
