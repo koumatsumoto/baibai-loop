@@ -48,7 +48,7 @@ EDINETは同じmarket sealの文書/訂正/revisionに適格な任意入力で�
 
 期末株数と遡及分割EPS/BPSの混在は[資本補正](../../engine/src/baibai_engine/machine_analysis/models/company_financials/metrics/capital.py)の裏付けで扱い、数値一致だけで誤転記にしない。JPX PDFの転換も完了日/普通株総数/受領時計/hashを確認し、新発行済数と旧自己株を混ぜない。
 
-大量保有報告は第三者申告で、発行会社確認/変更日確定でない。基準日・提出日・hashを保ち、時価総額/順位を自動補正しない。受領UTC日しかなければ翌日以降に扱い、評価前の固定snapshotにある場合だけ同日利用をその固定時刻まで認める。
+大量保有報告は第三者申告で、発行会社確認/変更日確定でない。基準日・提出日・hashを保ち、時価総額/順位を自動補正しない。受領UTC日しかなければ翌日以降に扱い、評価前の固定snapshotにある場合だけ同日利用をその固定時刻まで認める。 通常generationのarchive在庫・受領日は同じ固定EDINET pairのnative metadataを使い、SQL raw実行copyの有無に依存しない。旧SQL/body-only readerはSQL在庫・受領日を保つ。一覧は同じpairから投影したselected receiptを使い、latest確認時刻やnativeの精密時計でcoarse dayの採否を広げない。
 
 [発行会社の資本注記reader](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_issuer_capital_reader.py)は固定一覧・原本の最新年次/訂正から、同じ普通株表の期末表示だけを読む。提出日contextの発行数や議決権表を接合せず、株/千株・連結範囲・原文位置を残す。信託・分割等の注記は未照合で、現在株数や価格分母には補完しない。未対応の表や最新訂正の欠測から旧数値を復活させない。
 

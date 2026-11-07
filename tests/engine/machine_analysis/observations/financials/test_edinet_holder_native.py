@@ -346,7 +346,12 @@ def test_generation_injects_only_the_fixed_holder_input_and_keeps_optional_failu
 
     def holder(actual, **kwargs):
         assert actual is connection
-        assert kwargs["archives"] is (None if fixed is None else archive_reader)
+        if fixed is None:
+            assert "archives" not in kwargs
+            assert "selected_at" not in kwargs
+        else:
+            assert kwargs["archives"] is archive_reader
+            assert kwargs["selected_at"] == fixed.selected_at
         assert kwargs["snapshot_sealed_at"] == seal
         assert kwargs["known_at"] == evaluation
         calls.append("holder")
@@ -366,6 +371,7 @@ def test_generation_injects_only_the_fixed_holder_input_and_keeps_optional_failu
     monkeypatch.setattr(inputs, "read_pdf_statements", lambda *a, **k: {})
     monkeypatch.setattr(inputs, "read_capital_actions", lambda *a, **k: {})
     monkeypatch.setattr(inputs, "read_holder_capital", holder)
+    monkeypatch.setattr(inputs, "read_fixed_holder_capital", holder)
     monkeypatch.setattr(inputs, "read_price_calendar", following)
     arguments = dict(
         generation_id="holder-input",
@@ -492,3 +498,38 @@ def test_saved_pair_uses_the_same_materialized_receipts_after_current_heads_move
         assert store.values == before_objects
         assert len(store.get_keys) == 1
         assert not any(key.endswith("head.json") for key in store.get_keys + store.head_keys)
+
+        # The normal reader needs only the same pair's list projection, even on
+        # a cold execution copy with no raw archive inventory or BLOBs.
+        from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+            read_fixed_holder_capital,
+        )
+
+        cold = directory / "cold.sqlite"
+        materialize_lists(fixed.lists, cold)
+        with closing(sqlite3.connect(cold)) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM edinet_source_archives").fetchone() == (
+                0,
+            )
+        store.get_keys.clear()
+        store.head_keys.clear()
+        with closing(sqlite3.connect(cold)) as connection:
+            queries = []
+            connection.set_trace_callback(queries.append)
+            assert (
+                read_fixed_holder_capital(
+                    connection,
+                    as_of=DAY,
+                    known_at=KNOWN,
+                    tickers=("1234",),
+                    snapshot_sealed_at=KNOWN,
+                    archives=fixed.archives,
+                    selected_at=fixed.selected_at,
+                )
+                == expected
+            )
+            assert not any("edinet_source_archives" in query for query in queries)
+        assert fixed.identity == saved
+        assert len(store.get_keys) == 1
+        assert not any(key.endswith("head.json") for key in store.get_keys + store.head_keys)
+        assert store.values == before_objects

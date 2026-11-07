@@ -9,6 +9,7 @@ import hashlib
 import logging
 import re
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
@@ -108,13 +109,87 @@ def read_holder_capital(
     snapshot_sealed_at: datetime | None = None,
     archives: FixedEdinetArchives | None = None,
 ) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
-    """Use only already-retained originals; absence is not proof of no change.
+    """Read legacy SQL receipt inventory, optionally using fixed native bytes.
 
-    Archive retention currently records a calendar day, not an intraday receipt
-    timestamp. Treat the result as research evidence, not a point-in-time
-    backtest or an issuer-certified capital state. Fixed native bytes still use
-    the receipt evidence in the same, verified full-raw SQL seal.
+    Supplying ``archives`` only replaces the body reader. SQL membership and
+    coarse receipt day remain authoritative for finite legacy/saved inputs.
     """
+    _validate_clocks(known_at, snapshot_sealed_at)
+    archive_days = {
+        str(doc_id): stored_on
+        for doc_id, stored_on in connection.execute(
+            "SELECT doc_id,stored_on FROM edinet_source_archives WHERE source_type=1"
+        ).fetchall()
+    }
+    return _read_holder_capital(
+        connection,
+        as_of=as_of,
+        known_at=known_at,
+        tickers=tickers,
+        snapshot_sealed_at=snapshot_sealed_at,
+        archives=archives,
+        archive_days=archive_days,
+    )
+
+
+def read_fixed_holder_capital(
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    *,
+    as_of: date,
+    known_at: datetime,
+    tickers: tuple[str, ...],
+    snapshot_sealed_at: datetime | None,
+    archives: FixedEdinetArchives,
+    selected_at: datetime,
+) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
+    """Read the normal fixed-pair inventory, not a SQL archive execution copy.
+
+    The caller supplies the list projection and archives from the same retained
+    EDINET pair. Its selection must predate the execution-copy seal. Selection
+    and precise native receipts do not upgrade coarse archive days to intraday
+    proof: same-day acceptance still requires the original snapshot seal.
+    """
+    _validate_clocks(known_at, snapshot_sealed_at)
+    if selected_at.utcoffset() is None:
+        raise ValueError("EDINET selection clock requires a timezone")
+    if selected_at > known_at or (
+        snapshot_sealed_at is not None and selected_at > snapshot_sealed_at
+    ):
+        raise ValueError("EDINET input was selected after the holder cutoff or seal")
+    archive_days = {}
+    for doc_id, source_type in archives.archive_keys:
+        if source_type == 1:
+            metadata = archives.metadata(doc_id, source_type)
+            assert metadata is not None
+            archive_days[doc_id] = metadata.stored_on.isoformat()
+    return _read_holder_capital(
+        connection,
+        as_of=as_of,
+        known_at=known_at,
+        tickers=tickers,
+        snapshot_sealed_at=snapshot_sealed_at,
+        archives=archives,
+        archive_days=archive_days,
+    )
+
+
+def _validate_clocks(known_at: datetime, snapshot_sealed_at: datetime | None) -> None:
+    if known_at.utcoffset() is None or (
+        snapshot_sealed_at is not None and snapshot_sealed_at.utcoffset() is None
+    ):
+        raise ValueError("knowledge cutoff and snapshot clock require timezones")
+
+
+def _read_holder_capital(
+    connection: sqlite3.Connection | duckdb.DuckDBPyConnection,
+    *,
+    as_of: date,
+    known_at: datetime,
+    tickers: tuple[str, ...],
+    snapshot_sealed_at: datetime | None,
+    archives: FixedEdinetArchives | None,
+    archive_days: Mapping[str, object],
+) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
         _canonicalize_document_events,
     )
@@ -128,10 +203,6 @@ def read_holder_capital(
         SourceFormatError,
     )
 
-    if known_at.utcoffset() is None or (
-        snapshot_sealed_at is not None and snapshot_sealed_at.utcoffset() is None
-    ):
-        raise ValueError("knowledge cutoff and snapshot clock require timezones")
     selected = set(tickers)
     documents = read_observed_documents(connection, through=as_of, holder_only=True)
     # A retained list may have been acquired after the requested cutoff. Keep
@@ -169,14 +240,6 @@ def read_holder_capital(
             edited_on[key] = max(edited_on.get(key, ""), str(document.get("doc_date") or ""))
     origins, quarantined = _canonicalize_document_events(documents, origin_start=None)
     observations: dict[str, list[HolderReportedCapital]] = {}
-    # Read the small identity inventory once. Query original bytes only for a
-    # retained eligible filing, not once for every missing historical filing.
-    archive_days = {
-        str(doc_id): stored_on
-        for doc_id, stored_on in connection.execute(
-            "SELECT doc_id,stored_on FROM edinet_source_archives WHERE source_type=1"
-        ).fetchall()
-    }
     considered = missing = unsupported = 0
     for document in origins:
         if str(document.get("docTypeCode")) not in {"350", "360"}:
