@@ -503,7 +503,7 @@ uv run baibai-jobs rebuild-margin-interest-native --work-directory <NEW_READ_WOR
 
 一覧headの欠落を空のinitializeで埋めない。edinet-list-native initializeは既存原本を持たない新環境だけで使う。
 
-旧EDINETRefresh.list_documentsはHTTP前に拒否する。必要な一覧はedinet-list-native acquire --start <DATE> --asof <DATE> --directory <NEW_WORK>、続けてrefresh-edinet-metrics --lookback-days Nで不足CSVを取得する。Nは0/540日超を含め任意で、一覧未取得を成功へ補わない。保存原本再抽出はextractを使い、旧flagへ戻さない。
+旧一覧取得のrefresh-edinet-documents、backfill-edinet-identity、bootstrap-cacheのedinet-list groupは撤去した。旧EDINETRefresh.list_documentsはnative設定でHTTP前に拒否する。必要な一覧はedinet-list-native acquire --start <DATE> --asof <DATE> --directory <NEW_WORK>、続けてrefresh-edinet-metrics --lookback-days Nで不足CSVを取得する。Nは0/540日超を含め任意で、一覧未取得を成功へ補わない。保存原本再抽出はextractを使い、旧flagへ戻さない。
 
 ### 一覧公開失敗の再開
 

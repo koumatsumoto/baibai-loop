@@ -1,23 +1,20 @@
-"""Maintenance commands for TSE policy observations and EDINET filing identities."""
+"""Maintenance commands for TSE policy observations."""
 
 from __future__ import annotations
 
 import sqlite3
 import sys
 from contextlib import closing
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
 from baibai_engine.machine_analysis.observations.disclosures.capital_policy import (
     CapitalPolicyError,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
-from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 
@@ -51,36 +48,4 @@ def refresh_tse_capital_policy_command(
     return 0
 
 
-def backfill_edinet_identity_command(
-    *,
-    start: date,
-    end: date,
-    providers: ProviderBundle,
-    stdout: TextIO | None = None,
-) -> int:
-    """Re-list a window of EDINET days so its rows carry submitter and target codes."""
-    out = stdout if stdout is not None else sys.stdout
-    if providers.edinet_refresh is None:
-        print("EDINET provider is not configured", file=sys.stderr)
-        return 1
-    if start > end:
-        print(f"--start {start.isoformat()} is after --end {end.isoformat()}", file=sys.stderr)
-        return 1
-    try:
-        result = providers.edinet_refresh.backfill_document_identity(start, end)
-    except (EdinetAcquisitionError, EDINETProviderError, sqlite3.Error) as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
-    print(
-        f"backfill-edinet-identity: {start.isoformat()}..{end.isoformat()}, "
-        + ", ".join(f"{key}={value}" for key, value in sorted(result.items())),
-        file=out,
-        flush=True,
-    )
-    return 0
-
-
-__all__ = (
-    "backfill_edinet_identity_command",
-    "refresh_tse_capital_policy_command",
-)
+__all__ = ("refresh_tse_capital_policy_command",)

@@ -109,7 +109,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("bootstrap-cache jquants daily_bars", buffer.getvalue())
-        self.assertIn("bootstrap-cache edinet documents", buffer.getvalue())
+        self.assertNotIn("bootstrap-cache edinet documents", buffer.getvalue())
         self.assertIn("bootstrap-cache done", buffer.getvalue())
         self.assertIn(("get_eq_master", asof, asof), jquants.calls)
         self.assertIn(("get_eq_bars_daily_range", asof - timedelta(days=2200), asof), jquants.calls)
@@ -134,7 +134,7 @@ class SourceMaintenanceCliTests(unittest.TestCase):
             ("refresh_mkt_short_sale_report_range", asof - timedelta(days=7), asof),
             jquants.calls,
         )
-        self.assertEqual(edinet.bootstrap_calls, [(asof - timedelta(days=730), asof)])
+        self.assertEqual(edinet.bootstrap_calls, [])
         self.assertEqual(jpx.bootstrap_calls, [asof])
 
     def test_bootstrap_refreshes_the_final_legacy_week_after_publication(self) -> None:
@@ -545,7 +545,7 @@ class BackfillHistoryTests(unittest.TestCase):
         self.assertIn("daily_bars", errors.getvalue())
 
 
-def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_path: Path) -> None:
+def test_bootstrap_financial_failure_does_not_prevent_market_or_jpx(tmp_path: Path) -> None:
     class FailingFinancial(FakeJQuantsProvider):
         def refresh_fin_summary_range(self, *args, **kwargs):
             raise JQuantsProviderError("financial HTTP failure")
@@ -569,10 +569,11 @@ def test_bootstrap_financial_failure_does_not_prevent_market_edinet_or_jpx(tmp_p
     names = [call[0] for call in jquants.calls]
     assert "get_mkt_calendar" in names
     assert "refresh_mkt_short_sale_report_range" in names
-    assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
+    assert edinet.bootstrap_calls == []
+    assert len(jpx.bootstrap_calls) == 1
 
 
-def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_path: Path) -> None:
+def test_bootstrap_market_failure_does_not_prevent_financial_or_jpx(tmp_path: Path) -> None:
     jquants = _CorruptSQLiteJQuantsProvider()
     edinet = FakeEDINETProvider()
     jpx = FakeJPXProvider()
@@ -592,4 +593,5 @@ def test_bootstrap_market_failure_does_not_prevent_financial_edinet_or_jpx(tmp_p
     names = [call[0] for call in jquants.calls]
     assert names.count("refresh_fin_summary_range") == 1
     assert "get_fy_summary_range" not in names
-    assert len(edinet.bootstrap_calls) == len(jpx.bootstrap_calls) == 1
+    assert edinet.bootstrap_calls == []
+    assert len(jpx.bootstrap_calls) == 1
