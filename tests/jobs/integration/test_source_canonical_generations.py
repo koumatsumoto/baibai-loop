@@ -76,7 +76,7 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
 
     def publish(*_args, **kwargs):
         published.append(kwargs["generations"])
-        return {"updated": ["edinet-list"], "failed": []}
+        return {"updated": ["tradingview"], "failed": []}
 
     monkeypatch.setattr(sources, "publish_inputs", publish)
     remote.store_object("indicators.sqlite", b"same logical economic rows, resealed bytes")
@@ -92,7 +92,7 @@ def test_inputs_cli_stops_before_publishing_when_machine_receipt_is_stale(
         "--identity",
         "synthetic",
         "--group",
-        "edinet-list",
+        "tradingview",
     ]
     assert sources.main(command) == 0
     assert "economic_etag" not in published[0]

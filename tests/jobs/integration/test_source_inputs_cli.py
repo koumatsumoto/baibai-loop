@@ -1,4 +1,4 @@
-"""Daily input dispatch reaches the real scoped publishers in both cutover modes."""
+"""Daily input dispatch never republishes retired EDINET planning inputs."""
 
 import gzip
 import json
@@ -12,7 +12,6 @@ from tests.helpers.tradingview import store as market_store
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
     FactsScope,
     merge_scope,
-    read_scope,
 )
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key, release_manifest_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
@@ -91,11 +90,7 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
     tmp_path, monkeypatch, capsys, native
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch, native)
-    expected = [
-        group
-        for group in SOURCE_INPUT_GROUPS
-        if native == "false" or not group.startswith("edinet-")
-    ]
+    expected = [group for group in SOURCE_INPUT_GROUPS if not group.startswith("edinet-")]
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
     assert report == {"updated": expected + list(ARTICLE_SOURCES), "failed": []}
@@ -110,36 +105,19 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
         assert result["canonical_generations"] == GENERATIONS
         assert result["group"] == group
         assert result["asof"] == str(DAY)
-        if group.startswith("edinet-"):
-            with closing(open_connection(database)) as conn:
-                assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (
-                    1 if native == "false" else 0,
-                )
-                if group == "edinet-facts":
-                    assert read_scope(conn).doc_ids == frozenset({"S100XBRL"})
-            if group in {"edinet-metrics", "edinet-facts"}:
-                assert result["archive_keys"] == (
-                    [["S100CSV", 5]] if group == "edinet-metrics" else [["S100XBRL", 1]]
-                )
     for source in ARTICLE_SOURCES:
         assert load_planning(remote, source)[0].generations == GENERATIONS
     assert not any("economic-" in key for key in remote.put_keys)
 
 
 @pytest.mark.parametrize("native", ["true", "false", None])
-def test_explicit_list_input_is_rejected_only_after_native_cutover(
+def test_explicit_list_input_is_rejected_even_with_old_false_environment(
     tmp_path, monkeypatch, capsys, native
 ):
     remote, _, command = _input_cli(tmp_path, monkeypatch, native)
-    assert sources.main([*command, "--group", "edinet-list"]) == (0 if native == "false" else 1)
-    output = capsys.readouterr()
-    if native != "false":
-        assert "ValueError" in output.err
-        assert remote.put_keys == []
-    else:
-        assert json.loads(output.out) == {"updated": ["edinet-list"], "failed": []}
-        assert input_key("edinet-list") in remote.put_keys
-        assert not any("article-planning" in key for key in remote.put_keys)
+    assert sources.main([*command, "--group", "edinet-list"]) == 1
+    assert "ValueError" in capsys.readouterr().err
+    assert remote.put_keys == []
 
 
 def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
@@ -169,11 +147,19 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
         assert input_key(group) not in remote.values
 
 
-def test_daily_input_publication_leaves_retired_jpx_inputs_untouched(tmp_path, monkeypatch, capsys):
-    remote, _, command = _input_cli(tmp_path, monkeypatch, "true")
+@pytest.mark.parametrize("native", ["true", "false", None])
+def test_daily_input_publication_leaves_retired_source_inputs_untouched(
+    tmp_path, monkeypatch, capsys, native
+):
+    remote, _, command = _input_cli(tmp_path, monkeypatch, native)
     previous = {}
-    for group in ("jpx-earnings", "jpx-regulations"):
-        assert group not in SOURCE_INPUT_GROUPS
+    for group in (
+        "jpx-earnings",
+        "jpx-regulations",
+        "edinet-list",
+        "edinet-metrics",
+        "edinet-facts",
+    ):
         for key in (
             f"coordination/source-inputs/{group}.json",
             f"coordination/source-inputs/{group}-old/handoff.json",
@@ -185,9 +171,9 @@ def test_daily_input_publication_leaves_retired_jpx_inputs_untouched(tmp_path, m
     remote.put_keys.clear()
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
-    assert not any(group.startswith("jpx-") for group in report["updated"])
+    assert not any(group.startswith(("jpx-", "edinet-")) for group in report["updated"])
     assert not any(
-        key.startswith("coordination/source-inputs/jpx-")
+        key.startswith(("coordination/source-inputs/jpx-", "coordination/source-inputs/edinet-"))
         for key in remote.head_keys + remote.get_keys + remote.put_keys
     )
     assert {key: remote.values[key] for key in previous} == previous
