@@ -12,6 +12,9 @@ from baibai_engine.machine_analysis.models.company_growth.models import CompanyG
 from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
     read_fixed_financial_documents,
 )
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    prepare_pdf_financials,
+)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.storage.snapshots.objects import LakeObjectError
@@ -73,6 +76,6 @@ def company_growth(
         end=end,
         comparisons=fixed.comparisons,
         comparison_input_reason=fixed.comparison_input_reason,
-        pdf_statements=fixed.pdf_statements,
+        pdf_input=prepare_pdf_financials(fixed.documents, fixed.pdf_statements, as_of=as_of),
         pdf_input_reason=fixed.pdf_input_reason,
     )
