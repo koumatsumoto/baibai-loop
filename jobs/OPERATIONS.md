@@ -495,9 +495,9 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 - [short-sale投影](src/baibai_jobs/integration/short_sale_reports_native.py)はDiscDate/CalcDate・page/行順/重複・開示日別coverage/確認時計、inputs.short_sale_reportsを保つ。同値確認でrawを再読せず、source_coverageはpaired machineが保持する。alertsのidentityや全銘柄信用残へ読み替えない。
 
 <a id="margin-interest-native-l1"></a>
-**週次/全銘柄日次信用残。** 通常source/dailyはnative L1だけを使い、移行flagを持たない。有限移行のverify/2dataset compareと後着受領の移送が未完なら通常公開へ進めない。native暦が必須で、旧maintenance writerは使わない。必要なnative暦を先に保持し、通常初回53日窓だけで週次230日/日次2026-09-25以降を充足したとしない。unknown_calendar_days/unknown_incomplete_requestsを休場へ変えない。
+**週次/全銘柄日次信用残。** 通常source/dailyはnative L1だけを使い、移行flagを持たない。native暦が必須で、旧maintenance writerは使わない。必要なnative暦を先に保持し、通常初回53日窓だけで週次230日/日次2026-09-25以降を充足したとしない。unknown_calendar_days/unknown_incomplete_requestsを休場へ変えない。
 
-週次は230日窓、ISO週最終取引日、2営業日公表lagで2026-09-18残高まで。空の充足には実確認JST日より前の後続2営業日の暦が必要。公表日前の空と最終週を再確認し、最終週は終端後の暦がなくても公表日以降に再確認してrebuild/compareで未充足を残す。有限backfillから今日までの全暦は要求しない。
+週次は230日窓、ISO週最終取引日、2営業日公表lagで2026-09-18残高まで。空の充足には実確認JST日より前の後続2営業日の暦が必要。公表日前の空と最終週を再確認し、最終週は終端後の暦がなくても公表日以降に再確認してrebuildで未充足を残す。有限backfillから今日までの全暦は要求しない。
 
 日次は2026-09-25〜asofの取引日、後続1営業日を待ち、空は未充足。7日overlap/230日へ狭めず9月19〜24日の系列を作らない。[planner](../engine/src/baibai_engine/data_collection/providers/jquants/margin_interest_native.py)は固定暦・実確認時計・raw件数を使い、非空のL2 partialをGET条件へ戻さない。plan.json/calendar-fixed.jsonをcommit-workでも保ち、同値確認は時計だけを更新して元HTTP時計を変えない。
 
@@ -567,26 +567,7 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 
 以下は完了が確認できた環境へ再適用しない。writer停止/drain、原本・旧release/stage・planの保全、固定候補の公開/readback、consumer/inputの切替、次通常実行までを一組で確認する。codeの既定値/合成testだけでこの手順を撤去しない。
 
-### 信用残の有限切替
-
-1. 実bucketの原本/共有固定input prefixについて必要read/write権限と期限削除対象外を確認する。設定未読を初回読戻し成功で代用しない。
-2. 対象旧writer/daily/queuedを止め、旧release ID/hash・UTC境界と統合済みを含む全stageを固定する。prepareのblockedを解消して原本・宣言ID・scopeを照合し、後着stageがあれば境界を固定し直す。
-3. 空targetを一度initializeし、同じplanでapply→全pack cold verify→旧投影compare。対象sourceだけ移し、mixed stageの他sourceを保つ。差/coverage不足を確認し、意味差の採用は明示する。
-4. 全writer/consumer設定を揃え、初回公開の固定input・coverage/native lineageと次hydrateを読戻してcronを再開する。異常時は止め、確定head/plan/旧releaseから再開先を決める。通常経路へ旧writerを戻さない。
-
-```bash
-uv run baibai-jobs margin-interest-native-cutover prepare --directory <PLAN_DIR> \
-  --work-directory <NEW_MIRROR> --release <FIXED_OLD_RELEASE> \
-  --manifest-sha256 <FIXED_OLD_SHA256> --known-at <UTC_BOUNDARY>
-uv run baibai-jobs margin-interest-native-cutover apply --directory <PLAN_DIR> --work-directory <APPLY_WORK>
-uv run baibai-jobs margin-interest-native-cutover verify --directory <PLAN_DIR> --work-directory <COLD_WORK>
-```
-
-compareも同directoryと別workを使い、比較終端--asofと固定--calendar-headを加える。切替後mixed stageのskipは全page fingerprint/bytes・宣言ID一致時だけで、未移行/不足/改変は止める。
-
-| source | 共通手順に加える確認 |
-| --- | --- |
-| margin-interest | 全source_pages partition/market stage。境界後・filtered request・page/宣言ID欠落・未知失敗scopeはblocked。daily_margin_incompleteは実在空/partial原本を要す。固定旧release/暦を使い、UTC境界後の確認を拒否して週次/日次全行とcoverageを別比較。通常writer接続/本番実行は別途。 |
+完了したJ-Quantsの有限移行入口は撤去し、原本・旧release/stage・移行planは保持する。通常の旧mixed stage受入は全page fingerprint/bytes・宣言ID一致時だけ対象receiptを除外し、未移送・不足・改変なら停止する。実行SQLの旧raw除去前の原本保全確認も維持する。
 
 <a id="market-schema-484950の限定cutover"></a>
 ### market 48/49→50
