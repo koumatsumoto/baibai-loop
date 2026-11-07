@@ -11,7 +11,6 @@ from tests.helpers.edinet_metrics import _edinet_csv_zip
 from tests.helpers.edinet_saved_inputs import BASE, TARGET, _next_listing, _seed
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
@@ -39,7 +38,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.edinet_archives import acquire_archives
+from baibai_jobs.acquisition.edinet_archives import metric_archive_candidates
 
 
 def _mixed_inputs(path, content):
@@ -247,7 +246,7 @@ def test_metric_planner_resolves_retained_context_without_listing_outside_window
     assert [candidate.doc_id for candidate in plan.archive_candidates] == ["S100NEXT"]
 
 
-def test_archive_acquisition_recovers_artificial_quarantine_without_fetching_history(tmp_path):
+def test_retained_archive_arrival_recovers_artificial_quarantine_without_fetching_history(tmp_path):
     path = tmp_path / "market.sqlite"
     _recent_operation_on_old_filing(path, "edit")
     original = read_edinet_metric_baseline(path, BASE)
@@ -291,26 +290,13 @@ def test_archive_acquisition_recovers_artificial_quarantine_without_fetching_his
             status="ok",
             error=None,
         )
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        http.return_value.fetch_archive.return_value = EdinetResponse(
-            received_at=datetime(2026, 4, 27, tzinfo=UTC), body=_edinet_csv_zip()
-        )
-        acquired = acquire_archives(
-            path, group="edinet-metrics", asof=TARGET, api_key="synthetic-key", retained=set()
-        )
-        assert [call.args for call in http.return_value.fetch_archive.call_args_list] == [
-            ("S100SAVED", 5),
-            ("S100OTHER", 5),
-        ]
-        http.return_value.fetch_list.assert_not_called()
-    assert acquired == {
-        "status": "received",
-        "downloaded": 2,
-        "retained_archives_reused": 0,
-        "failed": [],
-        "document_events_quarantined": 0,
-    }
-    # Acquisition only retains bytes. Saved integration performs the L2 recovery.
+    candidates, quarantined = metric_archive_candidates(path, asof=TARGET)
+    assert candidates == ["S100SAVED", "S100OTHER"]
+    assert quarantined == 0
+    with closing(open_connection(path)) as connection:
+        for doc_id in candidates:
+            retain_source_archive(connection, doc_id, 5, _edinet_csv_zip(), stored_on=TARGET)
+    # Saved integration performs L2 recovery only after the originals arrive.
     assert set(EDINETReader(path).load_metric_records(TARGET)) == {"8306"}
     with patch(
         "baibai_engine.machine_analysis.observations.financials.edinet_metrics.service.parse_csv_zip_metric_record",

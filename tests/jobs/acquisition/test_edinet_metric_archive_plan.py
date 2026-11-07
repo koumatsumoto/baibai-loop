@@ -1,10 +1,9 @@
-"""CSV acquisition keeps its source scope independently of extracted metric state."""
+"""CSV候補計画は抽出済みmetric状態に依存せず、保存原本を変えない。"""
 
 import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
-from unittest.mock import patch
 
 import pytest
 from tests.helpers.edinet_csv_zip import _edinet_csv_zip
@@ -15,11 +14,11 @@ from baibai_engine.data_collection.providers.edinet.facts_scope import (
     merge_scope,
     read_scope,
 )
-from baibai_engine.data_collection.providers.edinet.models import EdinetResponse
 from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import edinet_archives as subject
@@ -83,7 +82,7 @@ def l2_rows(path):
 
 @pytest.mark.parametrize("metric_state", ["missing", "ok", "failed", "corrupt", "old_revision"])
 @pytest.mark.parametrize("retained", [False, True])
-def test_metric_state_never_controls_archive_get_or_changes_during_acquisition(
+def test_metric_state_never_controls_archive_candidates_or_changes_during_planning(
     tmp_path, monkeypatch, metric_state, retained
 ):
     path = tmp_path / "source.sqlite"
@@ -130,27 +129,12 @@ def test_metric_state_never_controls_archive_get_or_changes_during_acquisition(
         return connection
 
     monkeypatch.setattr(subject, "connect_read_only", without_metric_reads)
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        http.return_value.fetch_archive.return_value = EdinetResponse(received_at=AT, body=body)
-        report = subject.acquire_archives(
-            path,
-            group="edinet-metrics",
-            asof=ASOF,
-            api_key="synthetic",
-            retained={("S100CURRENT", 5)} if retained else set(),
-        )
-        assert http.return_value.fetch_archive.call_count == int(not retained)
-        if not retained:
-            http.return_value.fetch_archive.assert_called_once_with("S100CURRENT", 5)
-        http.return_value.fetch_list.assert_not_called()
-    assert report["status"] == "received"
-    assert report["downloaded"] == int(not retained)
-    assert report["retained_archives_reused"] == int(retained)
+    assert subject.metric_archive_candidates(path, asof=ASOF) == (["S100CURRENT"], 0)
     assert l2_rows(path) == before
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT doc_id,source_type,stored_on,zip_content FROM edinet_source_archives"
-        ).fetchall() == [("S100CURRENT", 5, str(START if retained else AT.date()), body)]
+        ).fetchall() == ([("S100CURRENT", 5, str(START), body)] if retained else [])
 
 
 def test_window_is_inclusive_and_old_origins_only_resolve_operations(tmp_path):
@@ -195,12 +179,8 @@ def test_incomplete_or_empty_selection_fails_without_get_or_l2_failure_write(tmp
                 error="source list unavailable",
             )
     before = path.read_bytes()
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        report = subject.acquire_archives(
-            path, group="edinet-metrics", asof=ASOF, api_key="synthetic", retained=set()
-        )
-        http.assert_not_called()
-    assert report == {"status": "failed", "failed": ["selection"]}
+    with pytest.raises(EDINETProviderError):
+        subject.metric_archive_candidates(path, asof=ASOF)
     assert path.read_bytes() == before
 
 
@@ -301,30 +281,3 @@ def test_old_parent_withdrawal_excludes_current_correction_without_losing_saved_
     before = path.read_bytes()
     assert subject.metric_archive_candidates(path, asof=ASOF) == (["S100SAFE"], 0)
     assert path.read_bytes() == before
-
-
-def test_xbrl_identity_does_not_satisfy_csv_original(tmp_path):
-    path = tmp_path / "source.sqlite"
-    save_list(path, ASOF, [filing()])
-    complete_window(path)
-    body = _edinet_csv_zip([])
-    with closing(open_connection(path)) as connection:
-        retain_source_archive(connection, "S100CURRENT", 1, b"existing xbrl", stored_on=START)
-    with patch("baibai_jobs.maintenance.source_refresh.edinet.EDINETHTTP") as http:
-        http.return_value.fetch_archive.return_value = EdinetResponse(received_at=AT, body=body)
-        report = subject.acquire_archives(
-            path,
-            group="edinet-metrics",
-            asof=ASOF,
-            api_key="synthetic",
-            retained={("S100CURRENT", 1)},
-        )
-        http.return_value.fetch_archive.assert_called_once_with("S100CURRENT", 5)
-    assert report["downloaded"] == 1
-    with sqlite3.connect(path) as connection:
-        assert connection.execute(
-            "SELECT source_type,zip_content FROM edinet_source_archives ORDER BY source_type"
-        ).fetchall() == [
-            (1, b"existing xbrl"),
-            (5, body),
-        ]

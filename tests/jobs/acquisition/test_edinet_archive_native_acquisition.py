@@ -13,7 +13,10 @@ from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
 from tests.helpers.edinet_research_sources import source_zip
 from tests.helpers.r2_store import MemoryR2Store
 
-from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+from baibai_engine.data_collection.providers.edinet.archive_native import (
+    EdinetArchiveL1,
+    NativeArchive,
+)
 from baibai_engine.data_collection.providers.edinet.facts_scope import FactsScope, merge_scope
 from baibai_engine.data_collection.providers.edinet.list_native import (
     EdinetListL1,
@@ -328,3 +331,21 @@ def test_fixed_native_xbrl_reader_supports_fresh_fact_extraction(tmp_path):
             outputs.append(rows)
     assert outputs[0] == outputs[1]
     assert owner.freeze().identity == fixed.identity
+
+
+def test_xbrl_identity_does_not_satisfy_csv_original(tmp_path):
+    owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
+    xbrl = EdinetResponse(AT - timedelta(days=1), source_zip())
+    owner.publish([NativeArchive.from_response("S100ONE", 1, xbrl)])
+    csv = _edinet_csv_zip()
+    client.fetch_archive.return_value = EdinetResponse(AT, csv)
+    report = acquire_archives(
+        owner, client, lists, group="edinet-metrics", asof=DAY, lookback_days=0
+    )
+    client.fetch_archive.assert_called_once_with("S100ONE", 5)
+    assert report["downloaded"] == 1
+    fixed = owner.freeze()
+    assert fixed.archive_keys == frozenset({("S100ONE", 1), ("S100ONE", 5)})
+    assert fixed.read_archive("S100ONE", 1) == xbrl.body
+    assert fixed.metadata("S100ONE", 1).received_at_utc == xbrl.received_at
+    assert fixed.read_archive("S100ONE", 5) == csv
