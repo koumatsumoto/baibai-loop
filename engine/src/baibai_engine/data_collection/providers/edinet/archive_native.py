@@ -229,7 +229,6 @@ class EdinetArchiveL1:
         self, archives: Iterable[NativeArchive], *, scope: FactsScope | None = None
     ) -> FixedEdinetArchives:
         self.require_clean_work()
-        self.freeze()
         return self._start(archives, scope or FactsScope(), create=False)
 
     def _start(

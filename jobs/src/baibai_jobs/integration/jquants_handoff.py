@@ -20,6 +20,9 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
     verify_migrated_margin_alert_receipts,
 )
+from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
+    verify_migrated_margin_interest_receipts,
+)
 from baibai_engine.data_collection.providers.jquants.master_native import (
     verify_migrated_master_receipts,
 )
@@ -216,6 +219,7 @@ def import_handoff(
     price_fingerprints: Mapping[str, str] | None = None,
     margin_alerts_fingerprints: Mapping[str, str] | None = None,
     short_sale_reports_fingerprints: Mapping[str, str] | None = None,
+    margin_interest_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Union original pages, then use the existing source projections for L2.
 
@@ -262,6 +266,13 @@ def import_handoff(
             if short_sale_reports_fingerprints is not None
             else set()
         )
+        migrated_interest = (
+            verify_migrated_margin_interest_receipts(
+                original, request_ids, margin_interest_fingerprints
+            )
+            if margin_interest_fingerprints is not None
+            else set()
+        )
         active_ids = tuple(
             identity
             for identity in request_ids
@@ -271,6 +282,7 @@ def import_handoff(
             | migrated_price
             | migrated_alerts
             | migrated_shorts
+            | migrated_interest
         )
         incoming = [
             scope for scope in _headers(original, set(sources)) if scope.request_id in active_ids
@@ -313,6 +325,11 @@ def import_handoff(
     return ReplayResult(
         report={
             "raw_pages_added": added,
+            **(
+                {"migrated_margin_interest_requests": sorted(migrated_interest)}
+                if margin_interest_fingerprints is not None
+                else {}
+            ),
             "replayed_requests": replayed,
             "incomplete_requests": incomplete,
             **(

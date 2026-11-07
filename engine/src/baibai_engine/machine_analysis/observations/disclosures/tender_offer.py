@@ -214,9 +214,8 @@ def read_document_blocks(content: bytes) -> dict[str, str]:
     return blocks
 
 
-def read_tender_offer_blocks(reader: TenderOfferDocumentReader, doc_id: str) -> Mapping[str, str]:
-    """Read a retained EDINET archive; missing or non-ZIP source is fatal."""
-    content = reader.read_csv_zip(doc_id)
+def read_tender_offer_blocks(content: bytes) -> Mapping[str, str]:
+    """Parse retained EDINET bytes; a non-ZIP source is fatal."""
     if not zipfile.is_zipfile(io.BytesIO(content)):
         raise EDINETProviderError("stored EDINET tender-offer archive is not a ZIP")
     return read_document_blocks(content)
@@ -264,7 +263,7 @@ def build_tender_offer_exit_values(
     """Derive exit proxies from retained EDINET archives without acquisition."""
     return derive_tender_offer_exit_values(
         sqlite_path,
-        read_blocks=lambda doc_id: read_tender_offer_blocks(reader, doc_id),
+        read_blocks=lambda doc_id: read_tender_offer_blocks(reader.read_csv_zip(doc_id)),
         asof=asof,
     )
 

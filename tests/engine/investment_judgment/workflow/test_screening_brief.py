@@ -2,8 +2,17 @@
 
 import json
 from copy import deepcopy
+from datetime import date
+
+import pytest
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
+from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    forecast_source_trace,
+)
+from baibai_engine.machine_analysis.observations.financials.jquants_models import (
+    JQuantsFinancialSummary,
+)
 
 
 def card():
@@ -57,6 +66,57 @@ def card():
 
 def result(company):
     return {"policy": {"method": "best-economic-path-v1"}, "eligible_count": 1, "cards": [company]}
+
+
+@pytest.mark.parametrize("unresolved", [False, True])
+def test_brief_keeps_forecast_document_clock_field_sources_and_conflicts(unresolved):
+    row = JQuantsFinancialSummary(
+        ticker="1234",
+        disclosed_at=date(2026, 10, 23),
+        disclosure_number=None if unresolved else "20261023150001",
+        disclosed_time=None if unresolved else "15:00:00",
+        document_type="EarnForecastRevision",
+        document_payload="{}",
+        fiscal_period="2Q",
+        period_start=date(2026, 4, 1),
+        period_end=date(2026, 9, 30),
+        forecast_period_start=date(2026, 4, 1),
+        forecast_period_end=date(2027, 3, 31),
+        forecast_basis="consolidated",
+        forecast_target_basis="consolidated",
+        forecast_status="unresolved" if unresolved else "confirmed",
+        forecast_source_documents=("20261023150001", "20261023160001"),
+        forecast_field_sources=(
+            ("forecast_profit", ("record-profit",)),
+            ("forecast_eps", ("record-eps",)),
+        ),
+        forecast_scope_conflict_sources=("record-half-year",) if unresolved else (),
+    )
+    trace = forecast_source_trace(row)
+    company = card()
+    company["context"]["financial"].update(
+        earnings_forecast_source=trace,
+        forecast_profit_yen=None if unresolved else 100.0,
+        forecast_eps_yen=10.0,
+    )
+    before = deepcopy(company)
+    brief = economic_screening_brief(result(company))["cards"][0]
+    financial = brief["context"]["financial"]
+    assert financial["earnings_forecast_source"] == trace
+    assert financial["forecast_profit_yen"] == before["context"]["financial"]["forecast_profit_yen"]
+    assert financial["forecast_eps_yen"] == 10.0
+    for key in ("rank", "priority", "strongest_path"):
+        assert brief[key] == before[key]
+    financial["earnings_forecast_source"]["disclosure_number"] = "edited-display"
+    assert company == before
+
+
+@pytest.mark.parametrize("financial", [{}, {"earnings_forecast_source": None}])
+def test_brief_does_not_invent_missing_forecast_lineage(financial):
+    company = card()
+    company["context"]["financial"] = financial
+    brief = economic_screening_brief(result(company))["cards"][0]["context"]["financial"]
+    assert brief == financial
 
 
 def test_ttm_basis_failure_reason_survives_the_bounded_l3_brief():

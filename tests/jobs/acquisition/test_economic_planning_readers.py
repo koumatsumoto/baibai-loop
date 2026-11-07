@@ -43,6 +43,12 @@ CASES = (
     ),
     ("economic-ecb_fx", "ecb-fx", "ecb-fx-acquisition-input-v1", "economic_ecb_input_days"),
     (
+        "economic-mof_jgb",
+        "mof-jgbcm-all",
+        "mof-jgb-acquisition-input-v1",
+        "economic_mof_jgb_input_days",
+    ),
+    (
         "economic-frb_h15",
         "fed-h15",
         "frb-h15-acquisition-input-v1",

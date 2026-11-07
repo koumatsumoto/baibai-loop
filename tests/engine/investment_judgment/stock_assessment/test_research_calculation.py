@@ -5,6 +5,7 @@ import socket
 import sqlite3
 from copy import deepcopy
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import pair_payload
@@ -165,6 +166,138 @@ def test_projection_numbers_use_recorded_price_horizon_rate(
     assert numbers["base"]["total_return_pct"] == pytest.approx(total)
     assert numbers["base"]["annualized_return_pct"] == pytest.approx(annual)
     assert numbers["base"]["pmax_raw_yen"] == pytest.approx(pmax)
+
+
+def test_comparison_keeps_observation_and_review_materials_and_uses_hypothetical_quantity():
+    payload = inputs_payload()
+    payload["input_snapshot"]["facts"][0]["value"] = 8511
+    payload["valuation"].update(horizon_months=24, required_annual_return_pct=12)
+    payload["valuation"]["base"].update(
+        terminal_value_per_share_yen="7439.5959595959595959595959595959595959595959595958",
+        cash_distribution_per_share_yen=0,
+    )
+    payload["valuation"]["downside"].update(
+        terminal_value_per_share_yen="2459.797979797979797979797979797979797979797979798",
+        cash_distribution_per_share_yen=0,
+    )
+    before = deepcopy(payload)
+    original = calculate(CalculationInput.model_validate(payload))
+    payload["price_comparison"] = {"price_yen": 6000, "hypothetical_quantity": 100}
+    result = calculate(CalculationInput.model_validate(payload))
+    comparison = result.pop("price_comparison_numbers")
+    assert result == original
+    assert payload["input_snapshot"] == before["input_snapshot"]
+    assert payload["valuation"] == before["valuation"]
+    assert comparison["price_context"] == "hypothetical_entry"
+    assert comparison["price_yen"] == 6000
+    assert "price_as_of" not in comparison
+    assert "price_basis" not in comparison
+    assert comparison["hypothetical_quantity"] == 100
+    assert comparison["hypothetical_outlay_yen"] == "600000"
+    assert comparison["base"]["annualized_return_pct"] == pytest.approx(11.3522635573)
+    assert comparison["downside"]["annualized_return_pct"] == pytest.approx(-35.9713868676)
+    assert float(comparison["base"]["profit_loss_yen"]) == pytest.approx(143959.5959596)
+    assert float(comparison["downside"]["profit_loss_yen"]) == pytest.approx(-354020.2020202)
+    assert (
+        comparison["base"]["pmax_raw_yen"] == original["projection_numbers"]["base"]["pmax_raw_yen"]
+    )
+    assert comparison["base"]["pmax_raw_yen"] < 6000
+    assert comparison["execution_assumption"] == "full_fill_at_comparison_price"
+    assert comparison["investor_taxes_and_fees_included"] is False
+    assert comparison["return_basis"] == "conditional_pretax_without_reinvestment"
+    assert comparison["order_readiness_assessed"] is False
+    assert not {"available_cash_yen", "unspent_cash_yen", "maximum_quantity"} & comparison.keys()
+
+
+def test_comparison_without_quantity_does_not_invent_capital_or_sizing():
+    payload = inputs_payload()
+    payload["price_comparison"] = {"price_yen": 1000}
+    result = calculate(CalculationInput.model_validate(payload))
+    comparison = result["price_comparison_numbers"]
+    assert "hypothetical_quantity" not in comparison
+    assert "hypothetical_outlay_yen" not in comparison
+    for name in ("base", "downside"):
+        assert comparison[name] == result["projection_numbers"][name]
+        assert "profit_loss_yen" not in comparison[name]
+
+
+def test_comparison_is_not_a_board_lot_rule_and_counts_distribution_once():
+    payload = inputs_payload()
+    payload["price_comparison"] = {"price_yen": "999.999", "hypothetical_quantity": 1}
+    payload["valuation"]["base"].update(
+        terminal_value_per_share_yen="1000.125", cash_distribution_per_share_yen="100.875"
+    )
+    payload["valuation"]["downside"].update(
+        terminal_value_per_share_yen=0, cash_distribution_per_share_yen=0
+    )
+    comparison = calculate(CalculationInput.model_validate(payload))["price_comparison_numbers"]
+    assert comparison["hypothetical_outlay_yen"] == "999.999"
+    assert Decimal(comparison["base"]["investment_total_value_yen"]) == Decimal(1101)
+    assert Decimal(comparison["base"]["profit_loss_yen"]) == Decimal("101.001")
+    assert Decimal(comparison["downside"]["profit_loss_yen"]) == Decimal("-999.999")
+    assert comparison["downside"]["annualized_return_pct"] == -100
+
+
+@pytest.mark.parametrize("price", [0, -1, True, "bad", float("nan"), float("inf")])
+def test_invalid_comparison_price_is_rejected(price):
+    payload = inputs_payload()
+    payload["price_comparison"] = {"price_yen": price}
+    with pytest.raises(ValueError, match="price_yen"):
+        calculate(CalculationInput.model_validate(payload))
+
+
+@pytest.mark.parametrize("quantity", [0, -1, True, 1.5, "100", Decimal(100)])
+def test_comparison_quantity_is_an_explicit_positive_integer(quantity):
+    payload = inputs_payload()
+    payload["price_comparison"] = {"price_yen": 1000, "hypothetical_quantity": quantity}
+    with pytest.raises(ValueError, match="hypothetical_quantity"):
+        calculate(CalculationInput.model_validate(payload))
+
+
+@pytest.mark.parametrize("valuation", [None, "unresolved"])
+def test_comparison_requires_projections_without_creating_or_adopting_them(valuation):
+    payload = inputs_payload()
+    payload["price_comparison"] = {"price_yen": 1000}
+    payload["valuation"] = (
+        None
+        if valuation is None
+        else {
+            "status": "unresolved",
+            "market_price_fact_id": None,
+            "horizon_months": None,
+            "required_annual_return_pct": None,
+            "base": None,
+            "downside": None,
+            "unresolved_reason": "未採択",
+        }
+    )
+    with pytest.raises(ValueError, match="price comparison requires a resolved valuation"):
+        calculate(CalculationInput.model_validate(payload))
+
+
+def test_comparison_does_not_replace_an_invalid_observed_price_basis():
+    payload = inputs_payload()
+    payload["input_snapshot"]["facts"][0]["price_basis"] = "last_close_adjusted"
+    payload["price_comparison"] = {"price_yen": 1000}
+    with pytest.raises(ValueError, match="numeric unadjusted market_price"):
+        calculate(CalculationInput.model_validate(payload))
+
+
+def test_cli_comparison_does_not_change_input_or_create_files(tmp_path, capsys):
+    payload = inputs_payload()
+    payload["price_comparison"] = {"price_yen": 900, "hypothetical_quantity": 100}
+    path = tmp_path / "inputs.json"
+    path.write_text(json.dumps(payload))
+    before = path.read_bytes()
+    paths_before = set(tmp_path.rglob("*"))
+    assert main([str(path)]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = json.loads(captured.out)
+    assert result["projection_numbers"]["price_yen"] == 1000
+    assert result["price_comparison_numbers"]["hypothetical_outlay_yen"] == "90000"
+    assert path.read_bytes() == before
+    assert set(tmp_path.rglob("*")) == paths_before
 
 
 @pytest.mark.parametrize(

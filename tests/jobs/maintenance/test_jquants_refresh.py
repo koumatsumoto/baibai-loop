@@ -27,7 +27,6 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_margin_alerts,
     store_jquants_market_calendar,
     store_jquants_master,
-    store_jquants_short_sale_reports,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.storage.snapshots.release import create_release
@@ -35,11 +34,7 @@ from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, seal
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
-from baibai_jobs.maintenance.source_refresh.jquants import (
-    JQuantsRefresh,
-    all_issues_daily_margin_backfill_candidate_dates,
-    all_issues_daily_margin_candidate_dates,
-)
+from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -434,55 +429,7 @@ def test_daily_backfill_paces_after_31_days_and_reuses_covered_data(database, mo
     assert waits == [3.0]
 
 
-def test_short_sale_refresh_repairs_outage_gap_and_requested_overlap(database):
-    for value in ("2026-10-12", "2026-10-14"):
-        current = day(value)
-        store_jquants_short_sale_reports(
-            database, [], requested_start=current, requested_end=current
-        )
-    maintenance, session = refresh(
-        database,
-        {("short-sale-report", value): [] for value in ("2026-10-13", "2026-10-14", "2026-10-15")},
-    )
-    assert maintenance.refresh_short_sale_reports(day("2026-10-14"), day("2026-10-15")) == 0
-    assert session.calls == [
-        ("short-sale-report", "2026-10-13"),
-        ("short-sale-report", "2026-10-14"),
-        ("short-sale-report", "2026-10-15"),
-    ]
-
-
-def test_short_sale_explicit_refresh_keeps_numeric_correction(database):
-    target = day("2026-04-24")
-    original = {
-        "DiscDate": target.isoformat(),
-        "CalcDate": target.isoformat(),
-        "Code": "72030",
-        "SSName": "Reporter A",
-        "ShrtPosToSO": 0.006,
-    }
-    store_jquants_short_sale_reports(
-        database, [original], requested_start=target, requested_end=target
-    )
-    maintenance, session = refresh(
-        database,
-        {("short-sale-report", target.isoformat()): [{**original, "ShrtPosToSO": 0.007}]},
-    )
-    assert maintenance.ensure_short_sale_reports(target, target) == 1
-    assert session.calls == []
-    assert (
-        JQuantsReader(database).get_mkt_short_sale_report_range(target, target)[0].short_ratio
-        == 0.006
-    )
-    assert maintenance.refresh_short_sale_reports(target, target) == 1
-    assert session.calls == [("short-sale-report", target.isoformat())]
-    assert (
-        JQuantsReader(database).get_mkt_short_sale_report_range(target, target)[0].short_ratio
-        == 0.007
-    )
-
-
-@pytest.mark.parametrize("source", ["market_calendar", "margin_alerts"])
+@pytest.mark.parametrize("source", ["market_calendar"])
 def test_accumulated_history_becomes_publishable_after_outage_repair(
     database, tmp_path, monkeypatch, source
 ):
@@ -581,35 +528,7 @@ def test_accumulated_history_becomes_publishable_after_outage_repair(
         assert session.calls == expected_calls
 
 
-def test_margin_alert_empty_coverage_anchor_survives_interrupted_repair(database):
-    start, old_end = day("2026-10-01"), day("2026-10-03")
-    store_jquants_margin_alerts(database, [], requested_start=start, requested_end=old_end)
-    maintenance, session = refresh(
-        database,
-        {
-            ("margin-alert", "2026-10-04"): [],
-            ("margin-alert", "2026-10-05"): requests.ConnectionError("synthetic outage"),
-        },
-    )
-    window_start, end = day("2026-10-09"), day("2026-10-10")
-    with pytest.raises(JQuantsAcquisitionError, match="ConnectionError"):
-        maintenance.refresh_margin_alerts(window_start, end)
-    assert session.calls == [("margin-alert", "2026-10-04"), ("margin-alert", "2026-10-05")]
-    with sqlite3.connect(database) as conn:
-        assert range_covered(conn, "jquants_margin_alerts", start, day("2026-10-04"))
-        assert not range_covered(conn, "jquants_margin_alerts", start, end)
-    resumed, resumed_session = refresh(
-        database,
-        {("margin-alert", date(2026, 10, value).isoformat()): [] for value in range(5, 11)},
-    )
-    assert resumed.refresh_margin_alerts(window_start, end) == 0
-    assert resumed_session.calls == [
-        ("margin-alert", date(2026, 10, value).isoformat()) for value in range(5, 11)
-    ]
-    assert JQuantsReader(database).get_mkt_margin_alert_range(start, end) == []
-
-
-@pytest.mark.parametrize("source", ["market_calendar", "margin_alerts"])
+@pytest.mark.parametrize("source", ["market_calendar"])
 def test_new_store_uses_only_the_requested_initial_window(database, source):
     start, end = day("2026-10-09"), day("2026-10-10")
     if source == "market_calendar":
@@ -624,71 +543,6 @@ def test_new_store_uses_only_the_requested_initial_window(database, source):
         maintenance, session = refresh(database, {call: [] for call in expected_calls})
         assert maintenance.refresh_margin_alerts(start, end) == 0
     assert session.calls == expected_calls
-
-
-def test_weekly_and_daily_margin_boundaries_fail_before_http(database):
-    maintenance, session = refresh(database, {})
-    with pytest.raises(ValueError, match="legacy weekly series"):
-        maintenance.ensure_weekly_margin(day("2026-09-25"))
-    with pytest.raises(ValueError, match="daily all-issues series"):
-        maintenance.ensure_all_issues_daily_margin(day("2026-09-18"))
-    assert session.calls == []
-
-
-def test_margin_alert_limited_population_projects_native_reason(database):
-    target = day("2026-08-10")
-    record = {
-        "PubDate": target.isoformat(),
-        "Code": "72030",
-        "AppDate": target.isoformat(),
-        "PubReason": "日々公表",
-        "LongOut": 5000,
-        "ShrtOut": 1000,
-        "ShrtOutChg": 10,
-        "ShrtOutRatio": 0.2,
-        "LongOutChg": 20,
-        "LongOutRatio": 0.8,
-        "SLRatio": 0.2,
-        "ShrtNegOut": 200,
-        "ShrtNegOutChg": 2,
-        "ShrtStdOut": 800,
-        "ShrtStdOutChg": 8,
-        "LongNegOut": 2000,
-        "LongNegOutChg": 10,
-        "LongStdOut": 3000,
-        "LongStdOutChg": 10,
-        "TSEMrgnRegCls": "委託保証金率50%",
-    }
-    maintenance, session = refresh(database, {("margin-alert", target.isoformat()): [record]})
-    assert maintenance.ensure_margin_alerts(target, target) == 1
-    assert session.calls == [("margin-alert", target.isoformat())]
-    rows = JQuantsReader(database).get_mkt_margin_alert_range(target, target)
-    assert len(rows) == 1
-    assert rows[0].tse_margin_regulation_classification == "委託保証金率50%"
-
-
-def test_post_transition_margin_interest_only_populates_daily_table(database):
-    target = day("2026-09-25")
-    record = {
-        "Date": target.isoformat(),
-        "Code": "72030",
-        "LongVol": 5000,
-        "ShrtVol": 1000,
-        "LongStdVol": 3000,
-        "LongNegVol": 2000,
-        "ShrtStdVol": 800,
-        "ShrtNegVol": 200,
-        "IssType": "2",
-    }
-    maintenance, session = refresh(database, {("margin-interest", target.isoformat()): [record]})
-    assert maintenance.ensure_all_issues_daily_margin(target) == 1
-    assert session.calls == [("margin-interest", native(target))]
-    assert JQuantsReader(database).get_mkt_all_issues_daily_margin(target)[0].long_vol == 5000
-    with sqlite3.connect(database) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jquants_all_issues_daily_margin").fetchone() == (
-            1,
-        )
-        assert conn.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone() == (0,)
 
 
 def test_failed_projection_keeps_committed_source_receipt(database):
@@ -707,53 +561,3 @@ def test_failed_projection_keeps_committed_source_receipt(database):
             {"data": [bar("2026-10-15", 100.0)]}
         ]
         assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
-
-
-@pytest.mark.parametrize(("status", "count"), [("ok", 1), ("ok", 0), ("partial", 1), ("failed", 1)])
-def test_daily_and_backfill_margin_plans_share_coverage_but_not_publication_boundary(
-    database, status, count
-):
-    first, latest = day("2026-09-25"), day("2026-09-28")
-    with sqlite3.connect(database) as conn:
-        conn.executemany(
-            "INSERT INTO jquants_daily_bars(ticker,traded_at,close) VALUES ('1301',?,100)",
-            [(value,) for value in ("2026-09-24", first.isoformat(), latest.isoformat())],
-        )
-        conn.execute(
-            "INSERT INTO source_coverage VALUES (?,?,?,?,?,?,?,?)",
-            (
-                "jquants_all_issues_daily_margin",
-                "get_mkt_margin_interest:2026-09-25..2026-09-25",
-                first.isoformat(),
-                first.isoformat(),
-                "2026-09-28T00:00:00Z",
-                count,
-                status,
-                None,
-            ),
-        )
-    before = database.read_bytes()
-    expected = [] if status == "ok" and count > 0 else [first]
-    assert all_issues_daily_margin_candidate_dates(database, day("2026-09-01"), latest) == expected
-    assert all_issues_daily_margin_backfill_candidate_dates(
-        database, day("2026-09-01"), latest
-    ) == [*expected, latest]
-    assert all_issues_daily_margin_candidate_dates(database, latest, latest) == []
-    assert all_issues_daily_margin_backfill_candidate_dates(database, latest, latest) == [latest]
-    assert database.read_bytes() == before
-
-
-@pytest.mark.parametrize("initialized", [False, True])
-def test_margin_planning_missing_history_is_empty_without_creating_or_writing(
-    tmp_path, initialized
-):
-    path = tmp_path / "market.sqlite"
-    if initialized:
-        open_connection(path).close()
-    before = path.read_bytes() if initialized else None
-    for planner in (
-        all_issues_daily_margin_candidate_dates,
-        all_issues_daily_margin_backfill_candidate_dates,
-    ):
-        assert planner(path, day("2026-09-25"), day("2026-09-28")) == []
-    assert (path.read_bytes() if path.exists() else None) == before

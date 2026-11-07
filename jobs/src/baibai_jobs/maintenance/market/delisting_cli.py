@@ -71,15 +71,14 @@ def refresh_tender_offer_exits_command(
     *,
     sqlite_path: Path,
     asof_date: date,
-    reader: TenderOfferDocumentReader,
     acquisition: EDINETMaintenance,
     stdout: TextIO | None = None,
 ) -> int:
     """Acquire each requested archive before deriving tender-offer exit proxies."""
 
     def acquire_and_read(doc_id: str) -> Mapping[str, str]:
-        acquisition.download_csv_zip(doc_id)
-        return read_tender_offer_blocks(reader, doc_id)
+        # The returned bytes are already retained; a separate reader can predate acquisition.
+        return read_tender_offer_blocks(acquisition.download_csv_zip(doc_id))
 
     return _store_and_report_exits(
         sqlite_path=sqlite_path,

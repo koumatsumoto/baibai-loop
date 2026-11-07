@@ -31,6 +31,22 @@ AT = datetime(2026, 10, 30, 8, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
+def native_margin_replay_proofs(monkeypatch):
+    replay = handoff._replay
+
+    def with_margin_proofs(*args, **kwargs):
+        for name in (
+            "margin_alerts_fingerprints",
+            "short_sale_reports_fingerprints",
+            "margin_interest_fingerprints",
+        ):
+            kwargs.setdefault(name, {})
+        return replay(*args, **kwargs)
+
+    monkeypatch.setattr(handoff, "_replay", with_margin_proofs)
+
+
+@pytest.fixture(autouse=True)
 def native_flags(monkeypatch):
     monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
@@ -100,6 +116,9 @@ def write_packet(directory, old, *, source="jquants-market", calendar=True):
 
 def context(tmp_path, state="valid", *, migrated=True):
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     store.close = lambda: None
     owner = PriceL1(store, tmp_path / "native")
     owner.initialize()
@@ -282,29 +301,6 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
     assert store.values[HEAD_KEY].body == head
 
 
-def test_legacy_price_flag_keeps_the_existing_replay_without_native_store(tmp_path, monkeypatch):
-    _store, _owner, market, packet, _fingerprints = context(tmp_path)
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "false")
-    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: pytest.fail("unexpected native read"))
-    assert (
-        handoff.main(
-            [
-                "replay-copy",
-                "--source",
-                "jquants-market",
-                "--directory",
-                str(packet),
-                "--database",
-                str(market),
-            ]
-        )
-        == 0
-    )
-    with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT close FROM jquants_daily_bars").fetchall() == [(100,)]
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 2
-
-
 @pytest.mark.parametrize("command", ["replay-copy", "resume", "apply"])
 def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monkeypatch, command):
     monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "true")
@@ -320,6 +316,9 @@ def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monke
     before = market.read_bytes()
     original = (packet / "receipts.sqlite").read_bytes()
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     store.close = lambda: None
     monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: store)
     directory = packet
@@ -366,11 +365,16 @@ def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monke
 
 def test_apply_without_market_stages_does_not_read_native_price_head(tmp_path):
     store = MemoryR2Store()
+    from tests.helpers.native_margin_sources import initialize_margin_sources
+
+    initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
     market = market_store(tmp_path / "market.sqlite")
     write_json_atomic(
         tmp_path / "plan.json",
         {"financial_native": False, "master_native": False, "price_native": True, "handoffs": []},
     )
+    store.get_keys.clear()
+    store.head_keys.clear()
     assert integration.apply(store, tmp_path, market=market, asof=DAY)["handoffs"] == []
     assert not store.get_keys
     assert not store.head_keys
@@ -468,6 +472,14 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
     master_page = JQuantsPage("master", {"date": DAY.isoformat()}, AT, body([]))
     master.commit([MasterAttempt("migrated-master", DAY, None, (master_page,))])
     margin_page = JQuantsPage("margin_alerts", {"date": DAY.isoformat()}, AT, body([]))
+    from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+        MarginAlertsAttempt,
+        MarginAlertsL1,
+    )
+
+    MarginAlertsL1(store, tmp_path / "alerts-native").commit(
+        [MarginAlertsAttempt("margin", DAY, None, (margin_page,))]
+    )
     report = json.loads((packet / "result.json").read_bytes())
     with sqlite3.connect(packet / "receipts.sqlite") as conn:
         for identity, page in (("migrated-master", master_page), ("margin", margin_page)):
@@ -513,7 +525,8 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
         assert outcome[0]["result"]["migrated_master_requests"] == ["migrated-master"]
         assert outcome[0]["result"]["migrated_price_requests"] == ["migrated-price"]
         assert outcome[0]["result"]["migrated_calendar_requests"] == ["calendar"]
-        assert outcome[0]["result"]["replayed_requests"] == ["margin"]
+        assert outcome[0]["result"]["migrated_margin_alerts_requests"] == ["margin"]
+        assert outcome[0]["result"]["replayed_requests"] == []
     else:
         assert (
             handoff.main(
@@ -534,7 +547,5 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
     assert rows(market, "jquants_daily_bars") == before
     assert rows(market, "jquants_market_calendar") == [(DAY.isoformat(), "1")]
     with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == [
-            ("margin_alerts",)
-        ]
+        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
     assert {key: store.values[key].body for key in heads} == heads

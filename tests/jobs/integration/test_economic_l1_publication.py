@@ -76,7 +76,9 @@ def test_l1_and_every_input_publish_without_market_runs_lake_or_models(tmp_path,
     assert result["canonical_generations"] == {
         "economic_etag": store.head("indicators.sqlite").etag
     }
-    with sqlite3.connect(tmp_path / "input.sqlite") as conn:
+    with closing(sqlite3.connect(tmp_path / "input.sqlite")) as conn:
+        assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 0
+    with closing(sqlite3.connect(tmp_path / "run.sqlite")) as conn:
         assert next(read_snapshots(conn, DAY, DAY, source_id=SOURCE)).records == ({"value": "A"},)
     assert not any(
         key.startswith("lake/") or key in {"market.sqlite", "runs.sqlite", "machine-manifest.json"}
@@ -84,7 +86,7 @@ def test_l1_and_every_input_publish_without_market_runs_lake_or_models(tmp_path,
     )
     # A later model failure cannot undo already-retained L1 or the next cycle's input.
     run(tmp_path, setup, "next")
-    with sqlite3.connect(tmp_path / "next.sqlite") as conn:
+    with closing(sqlite3.connect(tmp_path / "next.sqlite")) as conn:
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 1
 
 
@@ -138,7 +140,7 @@ def test_fresh_runner_recovers_after_publication_without_refetch_or_new_original
     result = run(tmp_path, setup, "retry")
     assert result["l1_sealed"]
     assert len(result["inputs_updated"]) == 15
-    with sqlite3.connect(tmp_path / "retry.sqlite") as conn:
+    with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 1
 
 
@@ -335,7 +337,7 @@ def test_retained_acquisition_failure_is_a_gap_not_failed_publication(tmp_path, 
 @pytest.mark.parametrize(
     ("group", "source"), [("fred_csv", SOURCE), ("boj", "boj-bank-lending-yoy")]
 )
-def test_unsealed_deduplicated_stage_is_flagged_but_next_input_and_acquisition_advance(
+def test_unsealed_recheck_uses_complete_response_proof_and_next_acquisition_advances(
     tmp_path, setup, monkeypatch, capsys, group, source
 ):
     from baibai_engine.data_collection.receipts.native_sources.handoff import export_receipts
@@ -403,27 +405,42 @@ def test_unsealed_deduplicated_stage_is_flagged_but_next_input_and_acquisition_a
     monkeypatch.setattr(store, "put_file", real)
     retried = run(tmp_path, setup, "retry")
     failed = [item for item in retried["handoffs"] if item["failed"]]
-    assert [item["entry"]["stage_id"] for item in failed] == [group + "-1"]
-    assert failed[0]["result"]["late_recovery_required"]
-    assert check(["check", "--directory", str(tmp_path / "retry")]) == 1
-    assert json.loads(capsys.readouterr().out)["integration_status"] == "failed"
-    assert render_source_failures(retried)
+    # FRED proves the old A recheck against A before the later B. A generic
+    # scoped receipt lacks that complete-response proof and remains recoverable.
+    recovery = group != "fred_csv"
+    assert [item["entry"]["stage_id"] for item in failed] == ([group + "-1"] if recovery else [])
+    if recovery:
+        assert failed[0]["result"]["late_recovery_required"]
+    assert check(["check", "--directory", str(tmp_path / "retry")]) == int(recovery)
+    assert json.loads(capsys.readouterr().out)["integration_status"] == (
+        "failed" if recovery else "completed"
+    )
+    assert bool(render_source_failures(retried)) is recovery
     marker = "coordination/economic-sources/" + group + "-1/integrated.json"
-    assert json.loads(store.get_bytes(marker))["status"] == "needs_explicit_recovery"
+    marker_status = "needs_explicit_recovery" if recovery else "integrated"
+    assert json.loads(store.get_bytes(marker))["status"] == marker_status
     assert retried["l1_published"]
     assert retried["l1_sealed"]
     assert len(retried["inputs_updated"]) == 15
     for key, body in immutable.items():
         assert store.get_bytes(key) == body
 
-    # The real next source starts from the published scoped input. Its new
-    # receipt progresses normally; it cannot retroactively prove the old stage.
+    # The next source starts from its published input. The empty FRED envelope
+    # still carries the generation binding; canonical retains every original.
     input_db = tmp_path / "source-input.sqlite"
     metadata = load_input(store, "economic-" + group, input_db, tmp_path / "input")
     assert metadata["canonical_generations"] == {
         "economic_etag": store.head("indicators.sqlite").etag
     }
-    with sqlite3.connect(input_db) as conn:
+    with closing(sqlite3.connect(input_db)) as conn:
+        assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == (
+            2 if recovery else 0
+        )
+        if recovery:
+            assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == (
+                {"value": "B"},
+            )
+    with closing(sqlite3.connect(tmp_path / "retry.sqlite")) as conn:
         assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == ({"value": "B"},)
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 2
     packet = tmp_path / "next-stage"
@@ -437,10 +454,10 @@ def test_unsealed_deduplicated_stage_is_flagged_but_next_input_and_acquisition_a
     assert not next_report["handoffs"][0]["failed"]
     assert next_report["l1_sealed"]
     assert len(next_report["inputs_updated"]) == 15
-    with sqlite3.connect(tmp_path / "next.sqlite") as conn:
+    with closing(sqlite3.connect(tmp_path / "next.sqlite")) as conn:
         assert next(read_snapshots(conn, DAY, DAY, source_id=source)).records == ({"value": "C"},)
         assert conn.execute("SELECT count(*) FROM economic_source_records").fetchone()[0] == 3
-    assert json.loads(store.get_bytes(marker))["status"] == "needs_explicit_recovery"
+    assert json.loads(store.get_bytes(marker))["status"] == marker_status
 
 
 @pytest.mark.parametrize("initial_read_fails", [False, True])

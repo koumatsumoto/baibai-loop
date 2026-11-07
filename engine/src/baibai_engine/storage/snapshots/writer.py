@@ -194,6 +194,7 @@ def export_dataset_snapshot(
     native_source: NativeL1SourceRef | None = None,
     native_coverage_status: CoverageStatus | None = None,
     object_date_grain: Literal["day", "month"] | None = None,
+    previous: DatasetManifest | None = None,
     unavailable_dates: tuple[date, ...] = (),
 ) -> LakeBuildReport:
     """Derive every partition of one dataset from the sealed snapshot.
@@ -202,11 +203,10 @@ def export_dataset_snapshot(
     operation, and one export writes every dataset from one seal. Native lineage
     is supplied only for projections rebuilt from that fixed input in this operation.
 
-    Nothing is carried from an earlier build. An object is addressed by the digest of
-    its own bytes, so a partition whose rows did not move lands on the key it already
-    has and costs no new object; what a full derivation buys is that the manifest is
-    proved against SQLite in whole on every run, with no notion of a base whose
-    generation could disagree with this one.
+    Every byte is derived again. A previous single-object partition only keeps its
+    physical shape when this seal regenerates the identical object. Otherwise the
+    requested split applies. The manifest is proved against SQLite in whole, without
+    treating a previous build as a source of rows.
     """
 
     started = _phase_progress(f"export.{dataset.name}")
@@ -214,8 +214,7 @@ def export_dataset_snapshot(
         raise ValueError("native lineage and its coverage must be provided together")
     if native_source is not None and dataset.layer != "l2_processed":
         raise ValueError("native lineage requires a derived L2 dataset")
-    if object_date_grain is not None and dataset.date_column not in dataset.primary_key:
-        raise ValueError("date-split objects require the date in the primary key")
+    object_date_grain = object_date_grain or dataset.object_date_grain
     if object_date_grain == "month" and dataset.primary_key[:1] != (dataset.date_column,):
         raise ValueError("month-split objects require the date as the first primary key")
     now = (created_at or datetime.now(UTC)).astimezone(UTC)
@@ -234,8 +233,22 @@ def export_dataset_snapshot(
             if not periods:
                 raise LakeBuildError("dataset holds no rows")
             built = []
+            previous_parts = _manifest_partitions(previous) if previous is not None else {}
             date_index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
             for period in periods:
+                prior = previous_parts.get(period)
+                if object_date_grain == "day" and prior is not None and len(prior.objects) == 1:
+                    whole = _build_period(
+                        dataset=dataset,
+                        period=period,
+                        staging_root=staging_root,
+                        rows=_period_rows(connection, dataset, period),
+                        sources=(native_source or snapshot.ref,),
+                    )
+                    if whole.manifest.objects == prior.objects:
+                        built.append(whole)
+                        continue
+                    whole.staged_path.unlink()
                 rows = _period_rows(
                     connection, dataset, period, date_first=object_date_grain == "day"
                 )
@@ -479,6 +492,7 @@ def export_market_store(
     producer_git_commit: str,
     expected_store_origin: LakeStoreOrigin | None,
     created_at: datetime | None = None,
+    previous: Mapping[str, DatasetManifest] | None = None,
 ) -> LakeExportReport:
     """Export every lake dataset from one sealed SQLite generation."""
     catalog = freeze_catalog(catalog)
@@ -490,6 +504,7 @@ def export_market_store(
             expected_store_origin=expected_store_origin,
             catalog=catalog,
             created_at=created_at,
+            previous=previous,
         )
 
 
@@ -502,6 +517,7 @@ def export_market_snapshot(
     expected_store_origin: LakeStoreOrigin | None,
     created_at: datetime | None = None,
     allow_empty: bool = False,
+    previous: Mapping[str, DatasetManifest] | None = None,
 ) -> LakeExportReport:
     """同じsealをモデル生成にも渡せるよう、snapshotの寿命はcallerが所有する。"""
     catalog = freeze_catalog(catalog)
@@ -529,6 +545,7 @@ def export_market_snapshot(
             producer_git_commit=producer_git_commit,
             source_snapshot=snapshot,
             created_at=created_at,
+            previous=previous.get(dataset_name) if previous is not None else None,
         )
         for dataset_name in populated
     }
@@ -568,29 +585,21 @@ def validate_snapshot_parity(
         if source_periods != set(partitions):
             raise LakeBuildError("SQLite and manifest partition inventories differ")
         for period, partition in partitions.items():
-            # A date can follow the ticker in the logical key. Daily physical
-            # objects then overlap in key ranges, while their rows remain key-sorted.
-            # Read their actual date bounds so old whole-month objects keep the
-            # original order, including when their endpoint keys share one date.
-            date_index = (
-                dataset.primary_key.index(dataset.date_column)
-                if dataset.date_column in dataset.primary_key
-                else 0
-            )
-            date_first = bool(
-                date_index
-                and len(partition.objects) > 1
-                and all(
-                    _single_date_object(mirror_root / obj.key, dataset=dataset)
+            # Day bounds matter only when the logical key is not already date ordered.
+            # Whole-month objects keep their legacy key order.
+            days = (
+                {
+                    obj.key: _object_date(mirror_root / obj.key, dataset=dataset)
                     for obj in partition.objects
-                )
+                }
+                if len(partition.objects) > 1 and dataset.primary_key[:1] != (dataset.date_column,)
+                else {}
             )
+            date_first = bool(days) and all(day is not None for day in days.values())
             rows = _period_rows(connection, dataset, period, date_first=date_first)
             objects = sorted(
                 partition.objects,
-                key=lambda item: (
-                    (item.min_key[date_index], item.min_key) if date_first else ("", item.min_key)
-                ),
+                key=lambda item: (days[item.key] if date_first else "", item.min_key),
             )
             for obj in objects:
                 _validate_parquet(
@@ -824,8 +833,8 @@ def _period_rows(
         yield tuple(row)
 
 
-def _single_date_object(path: Path, *, dataset: LakeDataset) -> bool:
-    """Recognize daily objects without changing the existing manifest contract."""
+def _object_date(path: Path, *, dataset: LakeDataset) -> str | None:
+    """Read a daily object's actual date without changing the manifest contract."""
     index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
     try:
         with pq.ParquetFile(path, pre_buffer=False) as parquet:
@@ -833,14 +842,14 @@ def _single_date_object(path: Path, *, dataset: LakeDataset) -> bool:
             for group in range(parquet.metadata.num_row_groups):
                 statistics = parquet.metadata.row_group(group).column(index).statistics
                 if statistics is None or not statistics.has_min_max or statistics.null_count:
-                    return False
+                    return None
                 if statistics.min != statistics.max:
-                    return False
+                    return None
                 days.add(statistics.min)
-            return len(days) == 1
+            return str(next(iter(days))) if len(days) == 1 else None
     except (OSError, ValueError):
         # The normal object verification below owns missing/corrupt-file errors.
-        return False
+        return None
 
 
 def _validate_sqlite_contract(connection: sqlite3.Connection, dataset: LakeDataset) -> None:

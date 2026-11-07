@@ -1098,6 +1098,43 @@ def test_reported_flow_and_ttm_period_context_is_not_relabelled_as_one_interval(
     assert financial["ocf_ttm"] == -1_422_368_000.0
 
 
+def test_reported_cf_details_reach_l3_brief_without_changing_candidate_paths():
+    inputs = payloads()
+    baseline = project(inputs)
+    reported = {
+        "period_kind": "annual",
+        "amount_unit": "JPY",
+        "amounts": {
+            "operating_cash_flow": 100.0,
+            "capex": 30.0,
+            "free_cash_flow": 70.0,
+            "ocf_receivables_cash_effect": -10.0,
+            "ocf_inventories_cash_effect": 0.0,
+            "ocf_payables_cash_effect": 5.0,
+            "ocf_contract_liabilities_cash_effect": 6.0,
+            "ocf_advances_received_cash_effect": 7.0,
+            "ocf_other_payables_cash_effect": None,
+            "capex_ppe_reported": 20.0,
+            "capex_intangible_reported": None,
+        },
+        "source_doc_id": "S100DETAIL",
+        "consolidation_basis": "consolidated",
+        "measurement_period": {"start": None, "end": None, "reason": "fact_dates_not_retained"},
+        "filing_fiscal_period": {"start": "2025-01-01", "end": "2025-12-31"},
+        "annual_quality": {"free_cash_flow": "exact"},
+    }
+    inputs["company_financials"]["financial"]["edinet_reported_flows"] = reported
+    original = deepcopy(inputs)
+    projected = project(inputs)
+    assert projected.paths == baseline.paths
+    assert projected.context["financial"]["edinet_reported_flows"] == reported
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
+    assert brief["edinet_reported_flows"] == reported
+    assert inputs == original
+
+
 @pytest.mark.parametrize("flag", ["true", "false", "", None])
 def test_accounting_change_notice_reaches_brief_without_disabling_paths(flag):
     data = payloads()
