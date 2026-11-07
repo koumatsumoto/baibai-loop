@@ -55,6 +55,7 @@ def receive_market_handoff(
     include_calendar: bool = True,
     include_margin_alerts: bool = True,
     include_short_sales: bool = True,
+    include_margin_interest: bool = True,
     provider_halted: bool = False,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
@@ -119,6 +120,7 @@ def receive_market_handoff(
                 include_calendar=include_calendar,
                 include_margin_alerts=include_margin_alerts,
                 include_short_sales=include_short_sales,
+                include_margin_interest=include_margin_interest,
             )
 
         unknown: set[str] = set(fixed.unavailable_stages)
@@ -142,15 +144,19 @@ def receive_market_handoff(
                         for first, last in _ranges(calendar.days)
                     ),
                 )
-                weekly = plan().weekly_margin
-                receive(
-                    "margin_interest", ({"date": day.strftime("%Y%m%d")} for day in weekly.days)
-                )
+                if include_margin_interest:
+                    weekly = plan().weekly_margin
+                    receive(
+                        "margin_interest", ({"date": day.strftime("%Y%m%d")} for day in weekly.days)
+                    )
                 if include_margin_alerts:
                     alerts = plan().margin_alerts
                     receive("margin_alerts", ({"date": day.isoformat()} for day in alerts.days))
-                daily = plan().daily_margin
-                receive("margin_interest", ({"date": day.strftime("%Y%m%d")} for day in daily.days))
+                if include_margin_interest:
+                    daily = plan().daily_margin
+                    receive(
+                        "margin_interest", ({"date": day.strftime("%Y%m%d")} for day in daily.days)
+                    )
                 if include_short_sales:
                     shorts = plan().short_sales
                     receive(
