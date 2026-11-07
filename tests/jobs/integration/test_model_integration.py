@@ -3,6 +3,7 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from pydantic import TypeAdapter
@@ -297,7 +298,9 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
     assert ModelGenerationStore(arguments["runs"]).read("models-new-release") is None
 
 
-def test_models_retain_applied_edinet_input_without_current_heads(integration, tmp_path):
+def test_models_retain_applied_edinet_input_without_current_heads(
+    integration, tmp_path, monkeypatch
+):
     from tests.jobs.integration.test_edinet_metric_rebuild import AT, sources
 
     from baibai_engine.data_collection.providers.edinet.archive_native import HEAD_KEY as ARCHIVES
@@ -310,12 +313,28 @@ def test_models_retain_applied_edinet_input_without_current_heads(integration, t
     del store.values[LISTS]
     del store.values[ARCHIVES]
     store.get_keys.clear()
+    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    prepare = Mock(wraps=job.prepare_market_lake)
+    monkeypatch.setattr(job, "prepare_market_lake", prepare)
     result = job.integrate_models(**{**arguments, "store": store}, edinet_input=saved)
+    assert prepare.call_args.kwargs["edinet_input"] == saved
     generated = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
     assert generated.inputs["edinet"] == saved
     assert LISTS not in store.get_keys
     assert ARCHIVES not in store.get_keys
     assert not any(key.endswith((".zip", ".body.gz")) for key in store.get_keys)
+
+
+def test_native_models_require_the_applied_pair_before_preparing_any_release(
+    integration, monkeypatch
+):
+    arguments, events = integration
+    monkeypatch.setenv("BAIBAI_EDINET_LIST_NATIVE", "true")
+    with pytest.raises(ValueError, match="requires its fixed EDINET input"):
+        job.integrate_models(**arguments)
+    assert "prepare" not in events
+    assert "generate" not in events
+    assert "publish" not in events
 
 
 @pytest.mark.parametrize("same_date", [True, False])

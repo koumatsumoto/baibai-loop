@@ -49,6 +49,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.service
     extract_edinet_facts_command,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (
+    read_fixed_holder_capital,
     read_holder_capital,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
@@ -196,7 +197,7 @@ def fixtures(tmp_path):
     return store, list_owner, archive_owner, lists, archives, items
 
 
-def consumer_outputs(database):
+def consumer_outputs(database, *, fixed=None):
     reader = EDINETReader(database)
     store_jpx_delistings(
         database,
@@ -210,16 +211,36 @@ def consumer_outputs(database):
             )
         ],
     )
-    exits = build_tender_offer_exit_values(database, reader=reader, asof=ASOF)
+    exits = build_tender_offer_exit_values(
+        database, reader=fixed.archives if fixed is not None else reader, asof=ASOF
+    )
     assert exits[0][0].offer_price_yen == 2000
     with closing(open_connection(database)) as connection:
-        comparisons = read_comparison_population(connection, as_of=ASOF)
+        comparisons = read_comparison_population(
+            connection, as_of=ASOF, archives=fixed.archives if fixed is not None else None
+        )
         assert comparisons["436A"][0].pairs
-        holders = read_holder_capital(connection, as_of=ASOF, known_at=KNOWN, tickers=("1234",))
+        holders = (
+            read_fixed_holder_capital(
+                connection,
+                as_of=ASOF,
+                known_at=max(KNOWN, fixed.selected_at),
+                tickers=("1234",),
+                snapshot_sealed_at=max(KNOWN, fixed.selected_at),
+                archives=fixed.archives,
+                selected_at=fixed.selected_at,
+            )
+            if fixed is not None
+            else read_holder_capital(connection, as_of=ASOF, known_at=KNOWN, tickers=("1234",))
+        )
         assert holders[0]["1234"][0].total_stocks == 2500000
     assert (
         extract_edinet_facts_command(
-            asof=ASOF, sqlite_path=database, reader=reader, tickers=("1873",), stdout=io.StringIO()
+            asof=ASOF,
+            sqlite_path=database,
+            reader=fixed.archives if fixed is not None else reader,
+            tickers=("1873",),
+            stdout=io.StringIO(),
         )
         == 0
     )

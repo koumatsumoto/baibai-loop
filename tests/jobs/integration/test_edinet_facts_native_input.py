@@ -302,7 +302,7 @@ def test_native_byte_route_keeps_retained_annual_operations(work, monkeypatch, e
     assert rows(native) == expected_rows
 
 
-def test_normal_apply_passes_the_same_pair_to_metrics_and_facts_and_keeps_sql_raw(
+def test_normal_apply_passes_the_same_pair_to_metrics_and_facts_without_sql_zip_copy(
     work, monkeypatch
 ):
     store, _, _, fixed = setup(work)
@@ -321,7 +321,7 @@ def test_normal_apply_passes_the_same_pair_to_metrics_and_facts_and_keeps_sql_ra
     assert spy.call_args.kwargs["fact_archives"].identity == fixed.archives.identity
     assert report["extractions"]["edinet-facts"]["counts"]["extracted"] == 2
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (3,)
+        assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
     assert (
         json.loads((directory / "applied.json").read_bytes())["edinet_input"]
         == report["edinet_input"]

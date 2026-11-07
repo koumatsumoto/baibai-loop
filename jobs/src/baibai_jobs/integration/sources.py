@@ -184,10 +184,10 @@ def apply(
     native_lists = None
     native_archives = None
     if edinet_input is not None:
-        from baibai_jobs.integration.edinet_archive_native import materialize_archives
+        from baibai_jobs.integration.edinet_archive_native import project_archive_execution
         from baibai_jobs.integration.edinet_list_native import materialize_lists
 
-        native_archives = materialize_archives(edinet_input.archives, market)
+        native_archives = project_archive_execution(edinet_input.archives, market)
         native_lists = materialize_lists(edinet_input.lists, market)
     outcomes: list[dict[str, Any]] = []
     for index, entry in enumerate(plan["handoffs"]):

@@ -43,6 +43,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH, RUNS_DB_PATH
+from baibai_jobs.edinet_cutover import edinet_list_native_enabled
 from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.financial_native import model_input as native_financial_model_input
 from baibai_jobs.maintenance.model_cache import prune_model_cache
@@ -77,6 +78,8 @@ def integrate_models(
     handle = _load_handle(lease_handle)
     verify_held(store, handle)
     mirror.mkdir(parents=True, exist_ok=True)
+    if edinet_list_native_enabled() and edinet_input is None:
+        raise ValueError("normal model integration requires its fixed EDINET input")
     fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
     evaluated_at = datetime.now(UTC)
     financial_input = None
@@ -96,7 +99,11 @@ def integrate_models(
             connection.execute("DELETE FROM source_coverage WHERE source='jquants_fin_summaries'")
         _phase_progress("native_financial", phase_started)
     with prepare_market_lake(
-        sqlite_path=market, mirror_root=mirror, store=store, as_of=as_of
+        sqlite_path=market,
+        mirror_root=mirror,
+        store=store,
+        as_of=as_of,
+        edinet_input=edinet_input,
     ) as prepared:
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
         phase_started = _phase_progress("economic_input")

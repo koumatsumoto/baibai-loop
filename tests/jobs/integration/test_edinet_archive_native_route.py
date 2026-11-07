@@ -222,12 +222,10 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     assert LIST_HEAD not in store.get_keys
     cold = tmp_path / "cold.sqlite"
     rebuild_fixed_edinet_input(lists, archives, cold)
-    assert consumer_outputs(market) == consumer_outputs(cold)
+    assert consumer_outputs(market, fixed=fixed) == consumer_outputs(cold)
     with closing(open_connection(market)) as connection:
         assert read_scope(connection) == archives.scope
-        assert connection.execute(
-            "SELECT count(*) FROM edinet_source_archives WHERE doc_id='S100LATER'"
-        ).fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM edinet_source_archives").fetchone() == (0,)
 
 
 def test_same_head_reuses_all_bytes_and_reconciles_only_execution_copy_receipt_day(tmp_path):
