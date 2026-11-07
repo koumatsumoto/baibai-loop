@@ -38,11 +38,13 @@ def xml_root(content: bytes) -> tuple[ET.Element, dict[str, str]]:
         if re.search(r"<!\s*(?:DOCTYPE|ENTITY)\b", text, re.IGNORECASE):
             raise SourceFormatError("xml_dtd_forbidden")
         namespaces: dict[str, str] = {}
-        for _, (prefix, uri) in ET.iterparse(io.StringIO(text), events=("start-ns",)):  # nosec B314
+        parser = ET.iterparse(io.StringIO(text), events=("start-ns",))  # nosec B314
+        for _, (prefix, uri) in parser:
             if prefix in namespaces and namespaces[prefix] != uri:
                 raise SourceFormatError("namespace_rebinding_unsupported")
             namespaces[prefix] = uri
-        return ET.fromstring(text), namespaces  # nosec B314 -- no DTD or entities
+        # typeshed omits iterparse's documented root attribute.
+        return parser.root, namespaces  # type: ignore[attr-defined]
     except (UnicodeError, ET.ParseError) as exc:
         raise SourceFormatError("xml_invalid") from exc
 
