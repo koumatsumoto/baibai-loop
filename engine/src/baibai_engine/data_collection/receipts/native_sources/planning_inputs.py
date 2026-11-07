@@ -19,6 +19,11 @@ _DAY_INPUTS = {
     "economic-ecb_fx": (("ecb-fx", "economic_ecb_input_days"),),
     "economic-mof_jgb": (("mof-jgbcm-all", "economic_mof_jgb_input_days"),),
     "economic-frb_h15": (("fed-h15", "economic_frb_h15_input_days"),),
+    "economic-multpl": (
+        ("multpl-shiller-pe", "economic_multpl_shiller_pe_input_days"),
+        ("multpl-sp500-ey", "economic_multpl_sp500_ey_input_days"),
+        ("multpl-sp500-pe", "economic_multpl_sp500_pe_input_days"),
+    ),
     "economic-yahoo": (
         ("yahoo-2516t", "economic_yahoo_2516t_input_days"),
         ("yahoo-acwx", "economic_yahoo_acwx_input_days"),

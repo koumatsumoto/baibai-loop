@@ -148,6 +148,7 @@ def _publish_one(
             "economic-mof_jgb",
             "economic-frb_h15",
             "economic-yahoo",
+            "economic-multpl",
         }:
             export_day_input(economic, path, group=group)
         elif group.startswith("economic-"):
