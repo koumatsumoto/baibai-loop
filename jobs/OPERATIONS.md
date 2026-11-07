@@ -557,6 +557,12 @@ uv run baibai-jobs edinet-archives-native commit-work --bucket <ISOLATED_BUCKET>
 
 共通統合はplanで一覧/archive両headを固定し、途中で最新headを補わない。実行copyの既存ZIP bytes・stored_on・scopeを照合し、不足ZIPだけを取り込み、comparison/holder/TOB/factsへ同じSQLを渡す。同bytesで固定headの保存日が実行copyより早い場合だけ、copyの日付を揃える。固定head外の原本/scopeは消さず停止する。L2失敗はnative取得を妨げない。全原本cold copyはしないが、既存BLOB全hashとlake原本Parquet再exportの費用は残る。
 
+公開raw表の[直接adapter](src/baibai_jobs/publication/l1_edinet_archive_export.py)はreader先行配置用で、通常publisher・daily・hydrate・uploadには未接続。保存pairだけから同じdoc_id/type/stored_on/ZIP bytesを日objectへ書き、出力を固定metadataのhash/size/日付/全membershipと照合する。previous manifestは入力にせず、各buildで全選択ZIPを各1回読み、全Parquetを生成・検査する。既存content keyの再利用は永続objectの重複を避けるだけで、全履歴GET/CPU/IOの差分化ではない。opaqueな原本を再ZIP/parseせず、coverageはpartial、requested scopeは別の原本状態のまま保持する。取得済行からscopeを推測しない。
+
+新表現は既存NativeL1SourceRefで固定edinet selectionを示す。raw列とcontract v1は同じだが、partition provenanceとParquetのsource_kind=l1_derivedはwire上の変更であり、旧readerは拒否する。旧SQLite由来の月/日objectはそのまま読める。外部のquery/describe/catalog/triage readerへの先行配布・受入を確認してから、別変更で新producerを接続する。offline fixtureの成功はlive pluginの確認ではない。初回の新表現にはmetadata変更によるobject再生成が必要で、原本や旧releaseを削除しない。
+
+通常接続の残件は、同じ保存pairを一覧/scope投影・metrics/facts・holder・公開まで渡すことと、そのpairで同値を証明した実行copyだけのraw hydrate省略・空raw dehydrateである。現行のorigin/rowcount検査を一般に緩めない。旧SQLite由来releaseの移行は有限のfull hydrateと原本照合を通し、固定head外のbytes/scopeがあれば消さず止める。既存公開raw配布を保つ限りnative＋Parquetの恒久二表現は残り、直接adapterだけで通常SQL copy削減を達成したとは扱わない。
+
 旧canonical/release/stageと移送・受入の証拠は保持する。未移送原本や旧形式stageを通常経路へ混ぜず、固定headと原本を照合して対処を決める。
 
 固定consumerは保存両headを使い、原本欠落/改変なら結果を反映しない。
