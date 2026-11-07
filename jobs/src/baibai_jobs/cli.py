@@ -20,6 +20,7 @@ _COMMANDS = {
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "edinet-list-native": "baibai_jobs.maintenance.edinet_list_native",
     "edinet-archives-native": "baibai_jobs.maintenance.edinet_archive_native",
+    "rebuild-edinet-metrics": "baibai_jobs.integration.edinet_metric_rebuild",
     "jquants-financial-native": "baibai_jobs.acquisition.jquants_financial_native",
     "rebuild-calendar-native": "baibai_jobs.integration.calendar_native",
     "jquants-calendar-native": "baibai_jobs.acquisition.jquants_calendar_native",
