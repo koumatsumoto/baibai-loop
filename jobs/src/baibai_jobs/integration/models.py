@@ -123,6 +123,7 @@ def integrate_models(
             master_identity=prepared.master_identity,
             calendar_identity=prepared.calendar_identity,
             margin_alerts_identity=prepared.margin_alerts_identity,
+            margin_interest_identity=prepared.margin_interest_identity,
             short_sale_reports_identity=prepared.short_sale_reports_identity,
         )
         _phase_progress("model_inputs", phase_started)

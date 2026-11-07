@@ -477,7 +477,7 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 - [short-sale投影](src/baibai_jobs/integration/short_sale_reports_native.py)はDiscDate/CalcDate・page/行順/重複・開示日別coverage/確認時計、inputs.short_sale_reportsを保つ。同値確認でrawを再読せず、source_coverageはpaired machineが保持する。alertsのidentityや全銘柄信用残へ読み替えない。
 
 <a id="margin-interest-native-l1"></a>
-**週次/全銘柄日次信用残。** 明示CLIだけで通常market writer・maintenanceは未接続。必要なnative暦を先に保持し、通常初回53日窓だけで週次230日/日次2026-09-25以降を充足したとしない。unknown_calendar_days/unknown_incomplete_requestsを休場へ変えない。
+**週次/全銘柄日次信用残。** 有限移行のverify/2dataset compare後、通常source/dailyを同じBAIBAI_MARGIN_INTEREST_NATIVE=trueで切り替える（既定false）。native暦が必須で、旧maintenance writerは使わない。必要なnative暦を先に保持し、通常初回53日窓だけで週次230日/日次2026-09-25以降を充足したとしない。unknown_calendar_days/unknown_incomplete_requestsを休場へ変えない。
 
 週次は230日窓、ISO週最終取引日、2営業日公表lagで2026-09-18残高まで。空の充足には実確認JST日より前の後続2営業日の暦が必要。公表日前の空と最終週を再確認し、最終週は終端後の暦がなくても公表日以降に再確認してrebuild/compareで未充足を残す。有限backfillから今日までの全暦は要求しない。
 
@@ -491,6 +491,8 @@ uv run baibai-jobs rebuild-margin-interest-native --work-directory <NEW_READ_WOR
 ```
 
 終端を含む有限copy、coverage、input.json/result.jsonを確認する。saved-inputは固定margin/calendarだけを読み、最新head/旧releaseや歴史promptの完全再現を意味しない。
+
+通常consumerは同じ固定margin/calendarから両tableを投影し、同sealを公開・inputs.margin_interestへ渡す。completeな前公開の全行parityが成立した残高日は行を再利用するが、coverageは固定暦・確認/評価時計から毎回判定する。L2欠損/改変は固定L1から再生成し、旧mixed stageは移送済みreceiptのUUID/時計/全bytes一致時だけ除外する。全market sourceのnative化後は旧release/handoffを取得条件にしない。初回公開と次hydrateを読戻し、原本・旧release・stageは保持する。
 
 <a id="edinet-list-native-l1"></a>
 ## EDINETの独立L1

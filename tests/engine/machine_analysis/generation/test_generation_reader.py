@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -7,6 +8,7 @@ from tests.helpers.edinet_saved_inputs import BASE, RECORDED, TARGET, _seed
 from tests.helpers.lake_release import market_store
 
 import baibai_engine.machine_analysis.generation.inputs as generation_reader
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.generation.runners.technical_analysis import technical_analysis
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -20,7 +22,20 @@ from baibai_engine.machine_analysis.observations.prices.price_observation import
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
 
 
-def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(tmp_path, mocker):
+@pytest.mark.parametrize("native_margin", [False, True])
+def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
+    tmp_path, mocker, native_margin
+):
+    margin_identity = (
+        InputSnapshot(
+            kind="native_l1",
+            reference="fixed-margin",
+            descriptor={},
+            sha256=hashlib.sha256(b"{}").hexdigest(),
+        )
+        if native_margin
+        else None
+    )
     path = market_store(tmp_path / "market.sqlite", daily_bars=(("1234", "2026-01-05", 10.0, 1.0),))
     spies = [
         mocker.spy(generation_reader, name)
@@ -39,6 +54,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
         result = generation_reader.read_and_generate_models(
             generation_id="generated-from-new-release",
+            margin_interest_identity=margin_identity,
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="new-release", manifest_sha256="a" * 64),
             economic_input=None,
@@ -54,6 +70,9 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(t
         )
     assert result.subjects == ("1234", "5678")
     result = result.materialize()
+    assert result.inputs.get("margin_interest") == margin_identity
+    restored = ModelGeneration.model_validate_json(result.model_dump_json())
+    assert restored.inputs == result.inputs
     assert result.inputs["market_snapshot"].sha256 == snapshot.ref.sha256
     assert result.inputs["market_snapshot"].reference == snapshot.ref.source_id
     company_model_ids = {
