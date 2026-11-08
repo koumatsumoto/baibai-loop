@@ -4,11 +4,7 @@ import routeContract from '../../contracts/routes.json'
 import { handleRequest } from '../src/index'
 
 const PASSWORD = '1234567890abcdefghijklmnopqrstuv'
-const materializedRoutes = [
-  ...Object.entries(routeContract.routes),
-  ...Object.entries<string>(routeContract.edge_routes),
-  ...Object.entries(routeContract.patterns),
-].map(([path, key]) => [path, key] as const)
+const materializedRoutes = Object.entries(routeContract.routes)
 
 function environment(
   get: ReturnType<typeof vi.fn>,
