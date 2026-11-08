@@ -100,7 +100,18 @@ def _latest_actual_row(
             or any(getattr(summary, field_name) is not None for field_name in required)
         )
     ]
-    return _latest_consistent_actual(candidates, required if field_names else ())
+    selected = _latest_consistent_actual(candidates, required if field_names else ())
+    if selected is not None and field_names and not set(field_names) <= _ISSUER_CAPITAL_FIELDS:
+        # Partial corrections may omit this field while changing its basis.
+        # Check the source period, not a newer quarter that legitimately carries it.
+        period_rows = [
+            row
+            for row in summaries
+            if accounting_period_identity(row) == accounting_period_identity(selected)
+        ]
+        if not latest_reporting_basis_matches(period_rows, selected):
+            return None
+    return selected
 
 
 def _latest_actual_row_by_field_priority(
@@ -216,14 +227,6 @@ def _prior_year_summary(
     )
     if latest is None:
         return None
-    if field_name is not None and field_name != "shares_outstanding":
-        period_rows = [
-            row
-            for row in summaries
-            if accounting_period_identity(row) == accounting_period_identity(latest)
-        ]
-        if not latest_reporting_basis_matches(period_rows, latest):
-            return None
     # Native accounting dates own comparability; FY/Q labels cannot replace them.
     prior = _matched_prior_period_summary(
         summaries,

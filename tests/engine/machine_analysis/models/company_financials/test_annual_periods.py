@@ -394,3 +394,127 @@ def test_same_time_dividend_notice_does_not_revoke_actual_statement_basis(notice
     reported = next(item for item in state.observations if item.measurement == "reported")
     assert reported.metrics["parent_profit"].value == 100.0
     assert reported.accounting_standard == "JP"
+
+
+@pytest.mark.parametrize(
+    "revision_type",
+    ["FYFinancialStatements_Consolidated_IFRS", "FYFinancialStatements_NonConsolidated_JP"],
+)
+@pytest.mark.parametrize("same_day", [False, True])
+def test_partial_basis_correction_cannot_revive_old_balance_sheet(revision_type, same_day):
+    annual = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
+        disclosed_time="15:00:00",
+        bps=5.0,
+        total_assets=1000.0,
+        equity_to_asset_ratio=0.5,
+        cash_eq=100.0,
+        shares_outstanding=100.0,
+        treasury_shares=0.0,
+    )
+    correction = replace(
+        annual,
+        disclosed_at=annual.disclosed_at + timedelta(days=0 if same_day else 1),
+        disclosed_time="16:00:00",
+        disclosure_number="partial-basis-correction",
+        document_type=revision_type,
+        bps=None,
+        total_assets=None,
+        equity_to_asset_ratio=None,
+        cash_eq=None,
+        shares_outstanding=None,
+        treasury_shares=None,
+    )
+    rows = [annual, correction]
+    for field in ("bps", "total_assets", "equity_to_asset_ratio", "cash_eq"):
+        assert _latest_non_null_row(rows, field) is None
+    result = build_financial_snapshot(
+        10.0, rows, None, DEFAULT_TTM_RULES, adjustment_events=(), asof_date=date(2025, 6, 1)
+    )
+    assert result.same_state_equity_yen is None
+    assert result.total_assets is None
+    assert result.cash_eq is None
+    assert result.equity_ratio is None
+    assert result.pbr is None
+    assert result.market_cap == 1000.0
+    if not same_day:
+        before_correction = build_financial_snapshot(
+            10.0,
+            rows,
+            None,
+            DEFAULT_TTM_RULES,
+            adjustment_events=(),
+            asof_date=annual.disclosed_at,
+        )
+        assert before_correction.pbr == 2.0
+        assert before_correction.cash_eq == 100.0
+    assert annual.bps == 5.0
+    assert annual.total_assets == 1000.0
+
+
+@pytest.mark.parametrize(
+    "revision_type",
+    ["FYFinancialStatements_Consolidated_JP", "EarnForecastRevision", "DividendForecastRevision"],
+)
+def test_same_basis_partial_revision_and_notices_keep_balance_carry(revision_type):
+    annual = replace(document(date(2024, 4, 1), date(2025, 3, 31), 100.0), bps=5.0)
+    correction = replace(
+        annual,
+        disclosed_at=annual.disclosed_at + timedelta(days=1),
+        disclosure_number="same-basis-partial",
+        document_type=revision_type,
+        bps=None,
+    )
+    assert _latest_non_null_row([annual, correction], "bps") == annual
+    result = build_financial_snapshot(
+        10.0,
+        [annual, correction],
+        None,
+        DEFAULT_TTM_RULES,
+        adjustment_events=(),
+        asof_date=date(2025, 6, 1),
+    )
+    assert result.bs_carry_forward_fields == "bps"
+    assert result.bs_carry_forward_lag_days == 1
+
+
+def test_balance_carry_checks_source_period_not_newer_quarter_basis():
+    annual = replace(document(date(2024, 4, 1), date(2025, 3, 31), 100.0), bps=5.0)
+    quarter = replace(
+        document(
+            date(2025, 4, 1),
+            date(2025, 6, 30),
+            20.0,
+            fiscal_period="1Q",
+            fiscal_year_end=date(2026, 3, 31),
+        ),
+        document_type="1QFinancialStatements_Consolidated_IFRS",
+    )
+    # A new quarter does not withdraw the older period's reported balance sheet.
+    assert _latest_non_null_row([annual, quarter], "bps") == annual
+    correction = replace(
+        annual,
+        disclosed_at=quarter.disclosed_at + timedelta(days=1),
+        disclosure_number="delayed-annual-basis-correction",
+        document_type="FYFinancialStatements_Consolidated_IFRS",
+        bps=None,
+    )
+    assert _latest_non_null_row([annual, quarter, correction], "bps") is None
+
+
+@pytest.mark.parametrize("correction_time", ["15:00:00", None])
+def test_ambiguous_same_day_basis_revision_does_not_revive_bps(correction_time):
+    annual = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), 100.0),
+        bps=5.0,
+        disclosed_time="15:00:00",
+    )
+    correction = replace(
+        annual,
+        document_type="FYFinancialStatements_Consolidated_IFRS",
+        disclosure_number="ambiguous-basis-correction",
+        disclosed_time=correction_time,
+        bps=None,
+    )
+    for rows in ([annual, correction], [correction, annual]):
+        assert _latest_non_null_row(rows, "bps") is None
