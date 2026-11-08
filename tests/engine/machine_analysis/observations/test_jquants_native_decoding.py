@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from datetime import date
 
@@ -75,6 +76,43 @@ def test_native_daily_prices_exclude_non_common_suffix():
     assert normalized.rows == []
     assert normalized.excluded_count == 1
     assert normalized.rejected_count == 0
+
+
+@pytest.mark.parametrize("bad", [10**400, -(10**400)])
+def test_overflowing_numbers_keep_the_current_forecast_period(bad):
+    summary = normalize_financial_summary(
+        {
+            "DiscNo": "synthetic-overflow",
+            "Code": "97150",
+            "DiscDate": "2026-05-13",
+            "CurFYSt": "2026-04-01",
+            "CurFYEn": "2027-03-31",
+            "NxtFYSt": "2027-04-01",
+            "NxtFYEn": "2028-03-31",
+            "FEPS": bad,
+            "FNP": bad,
+            "FOdP": bad,
+            "FDivAnn": bad,
+            "NxFEPS": 120.0,
+            "NxFNp": 2_000_000_000.0,
+            "NxFOdP": 1_800_000_000.0,
+            "NxFDivAnn": 12.0,
+            "Sales": bad,
+            "BPS": 1200.0,
+        }
+    )
+    assert summary is not None
+    assert summary.document_payload is not None
+    assert json.loads(summary.document_payload)["Sales"] == bad
+    projected = project_financial_documents([summary], date(2026, 5, 13))[0]
+    assert projected.forecast_period_start == date(2026, 4, 1)
+    assert projected.forecast_period_end == date(2027, 3, 31)
+    assert projected.forecast_eps is None
+    assert projected.forecast_profit is None
+    assert projected.forecast_ordinary_profit is None
+    assert projected.dps_forecast_annual is None
+    assert projected.sales is None
+    assert projected.bps == 1200.0
 
 
 class JQuantsNativeDecodingTests(unittest.TestCase):
