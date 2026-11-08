@@ -9,6 +9,7 @@ from datetime import date
 from itertools import groupby
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.fields import text_or_none
 from baibai_engine.data_collection.providers.edinet.list_projection import project_document_list
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
@@ -21,7 +22,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_selection im
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     parse_sec_code,
-    text_or_none,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     DEFERRED_CSV_REASON,

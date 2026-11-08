@@ -7,12 +7,8 @@ from typing import Any
 
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_optional_date,
-)
-from baibai_engine.data_collection.providers.edinet.fields import (
-    safe_error_value as safe_error_value,
-)
-from baibai_engine.data_collection.providers.edinet.fields import (
-    text_or_none as text_or_none,
+    safe_error_value,
+    text_or_none,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,

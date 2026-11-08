@@ -15,6 +15,7 @@ from baibai_engine.data_collection.providers.edinet.fields import (
     coalesce_field,
     document_period,
     is_usable_filing_status,
+    text_or_none,
 )
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     QuarantinedDocumentEvent,
@@ -23,7 +24,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_eve
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     parse_sec_code,
-    text_or_none,
 )
 from baibai_engine.primitives.stocks import normalize_ticker
 

@@ -9,7 +9,11 @@ from typing import Any
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.data_collection.providers.edinet.fields import coalesce_field
+from baibai_engine.data_collection.providers.edinet.fields import (
+    coalesce_field,
+    safe_error_value,
+    text_or_none,
+)
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_doc_id as _parse_doc_id,
 )
@@ -18,8 +22,6 @@ from baibai_engine.data_collection.providers.edinet.fields import (
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     parse_sec_code,
-    safe_error_value,
-    text_or_none,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
