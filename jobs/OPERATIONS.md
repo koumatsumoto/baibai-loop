@@ -415,6 +415,8 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 
 [market-evidence](src/baibai_jobs/acquisition/market_context.py)はquote/5分足のprivate原受領で、日次充足・価格master・正式提案終値とは別。prepare→stageで保存し、別sessionは返却ID/hashでdownload/readして同じAssessment入力を使う。未保存captureに耐久参照を付けない。
 
+日次market-dailyはjob上限15分、capture上限5分（TERM後30秒でKILL）。capture timeoutは失敗のまま、完了分を既存partial handoffへ渡してcooldownを保存する。setupを含むjob期限や外部cancelでは後段も停止し得る。
+
 固定economic入力の参照/時計/欠測と、評価時刻/基準JST日末の両cutoffを守る。最新失敗を旧成功で埋めず、前日基準へ当朝夜間受領を加えるなら別入力にする。休場/遅延/限月/basisを揃え、受領時計を取引時計、bar tを最終約定、update_mode不明をリアルタイム、末尾足を確定値にしない。価格で判断を変えるなら新入力/再Reviewへ進める。
 
 <a id="jquants-native-operations"></a>

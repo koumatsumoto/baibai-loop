@@ -42,6 +42,7 @@ def test_market_daily_is_a_separate_private_receipt_without_reducing_snapshots()
     workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
     assert [s["cron"] for s in declared_schedule(path.read_text())] == ["30 21 * * *"]
     assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["jobs"]["capture"]["timeout-minutes"] == "15"
     steps = workflow["jobs"]["capture"]["steps"]
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)
     stage = next(
@@ -50,4 +51,5 @@ def test_market_daily_is_a_separate_private_receipt_without_reducing_snapshots()
     assert "market-evidence stage" in stage["run"]
     capture = next(step for step in steps if step.get("id") == "capture")
     assert "cooldown-check.outputs.allowed == 'true'" in capture["if"]
+    assert "timeout --signal=TERM --kill-after=30s 5m uv run" in capture["run"]
     assert any("tradingview.cooldown record" in step.get("run", "") for step in steps)
