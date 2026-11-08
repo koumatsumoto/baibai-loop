@@ -1,6 +1,6 @@
 # Trade Proposal
 
-[exact評価pair](stock-assessment.md#independent-second-pass)を確認済み価格・cash・保有/注文へ適用する。未評価L2/重要材料は評価/Reviewへ戻し、公開を採用/予約/注文/約定にしない。操作は[skill](../../.agents/skills/investment-judgment/SKILL.md)へ。
+[exact評価pair](stock-assessment.md#independent-second-pass)を確認済み価格・cash・保有/注文へ適用する。未評価の重要材料は評価/Reviewへ戻す。公開と採用/予約/注文/約定は別で、操作は[skill](../../.agents/skills/investment-judgment/SKILL.md)へ。
 
 ## 行動と比較
 
@@ -12,30 +12,30 @@
 | no_action | 完成した経済比較による見送り。 |
 | defer | 調査・入力・判断条件の不足。 |
 
-固定Operation全対象をnew/holding別に被覆する。未調査は理由/参照付きunfinishedに対応する評価参照なしdefer、Review済みuncertain/unresolvedは参照付きdeferにできる。0対象に空提案は作らない。
+固定Operation全対象をnew/holding別に被覆する。未調査はunfinishedの理由/参照に対応する評価参照なしdefer、Review済みuncertain/unresolvedは参照付きdeferにできる。0対象に空提案は作らない。
 
-[経済性](../doctrine.md#economic-return-policy)は下の指値・数量・待機案で比較し、評価本文を再掲せず採用理由/見直し条件へ結ぶ。同じBase年率でも倍率上昇/利益回復への依存は異なり、Pmax内だけで採用しない。
+[経済性](../doctrine.md#economic-return-policy)を指値・数量・待機案で比べ、採用理由/見直し条件へ結ぶ。同じBase年率でも倍率上昇/利益回復への依存は異なり、Pmax内だけで採用しない。
 
 ## 条件付き購入
 
-quote（未調整終値、売気配ではない）・許容価格域・作者limit・実約定を分ける。架空quoteを作らず、評価/権利basisとcashを確認する。許容域は根拠の説明で、必須field/gateではない。
+quoteは未調整終値で売気配ではない。評価/権利basisとcashを確認し、作者limit・実約定と分ける。許容価格域の説明は任意で、架空quoteや追加gateを作らない。
 
-`place_limit`は[上限以下で買う指値](https://www.jpx.co.jp/glossary/sa/174.html)。quote超も可能だがstop/自動上乗せではなく、上限支払やquote近辺の約定を保証しない。`at_current_limit`はcloseの呼値切下げ一致、`wait_limit`はquote未満。
+`place_limit`は[上限以下で買う指値](https://www.jpx.co.jp/glossary/sa/174.html)。quote超も可能だがstop/自動上乗せではなく、上限支払やquote近辺の約定を保証しない。価格分類は[提案契約](../../engine/src/baibai_engine/investment_judgment/trade_proposal/contracts.py)、呼値は[grid owner](../../engine/src/baibai_engine/portfolio/holdings/price_grid.py)が持つ。
 
-PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)からの上限で、期待値/勝率/最適指値ではない。上振れがあってもlimitのBase年率未達は通さず、Base/率/期間の通過用変更で迂回しない。quoteがPmax超でも低いlimitで待てるが、判断未了の監視はbuyにしない。
+PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)からの上限で、期待値/勝率/最適指値ではない。上振れでlimitのBase年率未達を通さない。quoteがPmax超でも低いlimitで待てるが、判断未了の監視はbuyにしない。
 
 [受容理由](stock-assessment.md#uncertainty-and-decision)のあるsupported/resolvedを使う。[no-add](../doctrine.md#investment-strategy)を守り、active買予約への追加や約定済み提案の全売却後再利用もしない。
 
 <a id="limit-selection"></a>
 ### 指値と待機案の選択
 
-見返り・cash/単元・既知イベントで判断が変わる少数案を現金維持/他案と比べ、採用理由・重要差・反転条件をrationale/comparison/forgoneへ残す。全呼値探索や候補数ノルマは不要。
+見返り・cash/単元・既知イベントで判断が変わる少数案を現金維持/他案と比べ、採用理由・重要差・反転条件を残す。全呼値探索や件数ノルマは不要。
 
-[同context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)・[購入算術](../../engine/src/baibai_engine/investment_judgment/trade_proposal/conditions.py)を使い、鮮度は実quote、支出/利回りは作者limitで計算する。価格/株数basisをsnapshotへ揃え、入力変更時は比較を取り直す。
+[同context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)と購入算術を使い、鮮度は実quote、支出/利回りは作者limit、価格/株数basisはsnapshotへ揃える。入力変更時は比較を取り直す。
 
 [資本方針](../doctrine.md#required-return-policy)に従い、小口・上限量・現金維持の損益金額/残cashを比較する。同じ一株returnでも集中・ADV・no-addの放棄利益は異なる。
 
-context/check/previewは同じ未拘束cashで指定数量が指値全量成立する条件例。数量未指定は上限量の試算で採用量ではない。[分配/税費用の算術](stock-assessment.md#scenario-arithmetic)に従い、残cash/現金維持は無利息。全体NAVや約定予測ではなく、待機後の買付・cash利回り・費用が採否を変えるなら同一終期の別案へ反映する。
+context/check/previewは同じ未拘束cashで指値全量成立する条件例で、数量未指定の上限量は採用量でない。[分配/税費用の算術](stock-assessment.md#scenario-arithmetic)に従い残cash/現金維持は無利息。全体NAV/約定予測ではなく、待機後の買付・cash利回り・費用が採否を変えるなら同一終期の別案へ反映する。
 
 待機では逃す利益と保持cash・他機会・回避損失・追加情報を比較する。悪材料時の逆選択/event gapも考え、約定率×Base利益だけで選ばない。価値織込済みの毀損をpenaltyへ重ねず、機会損失を事後最高値としない。ADV/日足から板・queue・impact・精密約定率を創作せず、`low <= limit`も約定保証にしない。確率には[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
@@ -44,7 +44,7 @@ session・前提/イベントと未約定・部分約定・新情報後の確認
 <a id="price-grid"></a>
 ### 具体条件
 
-価格・数量・session・前提を保存する。共通gridはJPX「その他」の保守案で、TOPIX500最良呼値/注文受理を保証しない。分類/確認期間等のterms不足は経済判断と分け、limitを後日quoteで補わず、価格/数量未確定を提案完成としない。
+価格・数量・session・前提を保存する。共通gridはJPX「その他」の保守案でTOPIX500最良呼値/注文受理を保証しない。分類/確認期間等のterms不足は経済判断と分け、limitを後日quoteで補わず価格/数量未確定を完成としない。
 
 session/見直し時点はbroker期限でなく、実期限は人間確認の取引事実。[価格・時間優先と板寄せ/ザラバ](https://www.jpx.co.jp/equities/trading/domestic/04.html)で結果が変わり、即時約定も保証しない。
 
@@ -68,7 +68,7 @@ sell limitは作者の一株回収下限。実quoteの上下とも可能だがgr
 <a id="publication-review"></a>
 ## Review・保存・preview
 
-別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛する。valid/file hashで代用せず、価格・数量・cash・scope・warning等の内容変更は再Review、入力事実変更はsnapshotも取り直す。読取時刻の差だけを事実変更としない。検証は実時刻、公開はエンジンの初回発行時計を保つ。
+別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛し、valid/file hashで代用しない。内容変更は再Review、入力事実変更はsnapshotも取り直す。読取時刻差だけを事実変更にせず、検証は実時刻、公開はエンジンの初回発行時計を保つ。
 
 公開時に固定scope・exact評価pair・現入力を照合する。previewは保存案と現在再試算を分け、旧保存を下限比較済みとせず、現在上限超でもlimit/数量を書換えない。利用不能を当時の誤りと即断せず、過去本文/hashへ現在条件を適用しない。
 
