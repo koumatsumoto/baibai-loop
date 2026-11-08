@@ -93,18 +93,17 @@ def project_generated_inputs(
         for index, model in enumerate(saved.models):
             if model.subject != ticker:
                 continue
-            payload = (
-                _project_market_context(
-                    model.payload, full_result_ref=f"/inputs/generation/models/{index}/payload"
-                )
-                if model.model_id == "market_context"
-                else deepcopy(model.payload)
-            )
             if scope == "stock" and model.model_id == "company_growth":
                 payload = project_company_growth(
-                    payload, ticker=ticker, periods=company_growth_periods
+                    model.payload, ticker=ticker, periods=company_growth_periods
                 )
                 payload["full_result_ref"] = f"/inputs/generation/models/{index}/payload"
+            elif model.model_id == "market_context":
+                payload = _project_market_context(
+                    model.payload, full_result_ref=f"/inputs/generation/models/{index}/payload"
+                )
+            else:
+                payload = deepcopy(model.payload)
             models[model.model_id] = payload
             revisions[model.model_id] = model.calculation_revision
         expected = (

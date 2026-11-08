@@ -118,24 +118,24 @@ def project_company_growth(
         and change.measurement == "reported"
         and change.metric in _METRICS[:-1]
     ]
-    payload = result.model_dump(mode="json")
+    header_fields = (
+        "ticker",
+        "status",
+        "reason",
+        "calculation_method",
+        "read_semantics",
+        "comparison_basis",
+        "input_release",
+        "per",
+        "peer",
+    )
+    payload = result.model_dump(
+        mode="json", include={*header_fields, "requested_start", "requested_end"}
+    )
     return cast(
         dict[str, JsonValue],
         {
-            **{
-                key: payload[key]
-                for key in (
-                    "ticker",
-                    "status",
-                    "reason",
-                    "calculation_method",
-                    "read_semantics",
-                    "comparison_basis",
-                    "input_release",
-                    "per",
-                    "peer",
-                )
-            },
+            **{key: payload[key] for key in header_fields},
             "full_result_ref": f"/inputs/securities_context/{ticker}/company_growth",
             "saved_scope": {
                 "requested_start": payload["requested_start"],

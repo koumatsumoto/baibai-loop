@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import time
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue
 
@@ -42,6 +43,7 @@ def read_comparison_population(
     known_at: datetime | None = None,
     archives: FixedEdinetArchives | None = None,
     prior_observations: Iterable[dict[str, JsonValue]] = (),
+    diagnostics: TextIO | None = None,
 ) -> dict[str, tuple[FilingComparisons, ...]]:
     """Already received type=1 only. No missing ZIP can trigger a fetch or fallback.
 
@@ -101,7 +103,11 @@ def read_comparison_population(
         )
     seeds: dict[str, FilingComparisons] = {}
     duplicates: set[str] = set()
+    seed_candidates = seed_reused = parsed = archive_count = archive_bytes = 0
+    archive_seconds = parse_seconds = 0.0
+    seed_started = time.perf_counter()
     for value in prior_observations if ready else ():
+        seed_candidates += 1
         seed = successful_comparison_seed(value)
         if seed is None:
             continue
@@ -119,10 +125,21 @@ def read_comparison_population(
             duplicates.add(seed.source_doc_id)
         else:
             seeds[seed.source_doc_id] = seed
+    seed_seconds = time.perf_counter() - seed_started
     received: set[str] = set()
-    for doc_id, content in _archive_contents(
+    contents = _archive_contents(
         connection, doc_ids=observations.keys(), tickers=tickers, archives=archives
-    ):
+    )
+    while True:
+        read_started = time.perf_counter()
+        try:
+            doc_id, content = next(contents)
+        except StopIteration:
+            archive_seconds += time.perf_counter() - read_started
+            break
+        archive_seconds += time.perf_counter() - read_started
+        archive_count += 1
+        archive_bytes += len(content)
         received.add(doc_id)
         base = observations[doc_id]
         if doc_id not in ready:
@@ -133,17 +150,20 @@ def read_comparison_population(
         cached = seeds.pop(doc_id, None)
         # The current fixed body's integrity is always checked before reuse. A
         # warm result must not conceal a lost/tampered original or fresh blocking state.
-        extracted = (
-            cached
-            if cached is not None and cached.source_sha256 == hashlib.sha256(content).hexdigest()
-            else extract_comparisons(
+        if cached is not None and cached.source_sha256 == hashlib.sha256(content).hexdigest():
+            extracted = cached
+            seed_reused += 1
+        else:
+            parse_started = time.perf_counter()
+            extracted = extract_comparisons(
                 content=content,
                 ticker=base.ticker,
                 doc_id=doc_id,
                 submitted=ready[doc_id],
                 document_type=base.document_type,
             )
-        )
+            parse_seconds += time.perf_counter() - parse_started
+            parsed += 1
         observations[doc_id] = extracted.model_copy(update={"parent_doc_id": base.parent_doc_id})
     # Absent unrelated archives are outside this optional capability. A missing
     # correction remains visible when its family has an actual archived input.
@@ -167,6 +187,21 @@ def read_comparison_population(
         key=lambda item: (item.source_submit_datetime, item.source_doc_id),
     ):
         population.setdefault(item.ticker, []).append(item)
+    if diagnostics is not None:
+        # Iterator time includes fixed-body GET and size/hash validation (or SQL
+        # reads), not network time alone. Seed time includes local L2 decoding and
+        # validation. Neither measurement belongs in saved input/model identity.
+        print(
+            "model inputs: edinet_comparisons "
+            f"selected={len(observations)} ready={len(ready)} "
+            f"seed_candidates={seed_candidates} seed_reused={seed_reused} parsed={parsed} "
+            f"archive_read_count={archive_count} archive_read_bytes={archive_bytes} "
+            f"archive_read_validate_seconds={archive_seconds:.3f} "
+            f"seed_read_validate_seconds={seed_seconds:.3f} "
+            f"parse_seconds={parse_seconds:.3f}",
+            file=diagnostics,
+            flush=True,
+        )
     return {ticker: tuple(items) for ticker, items in population.items()}
 
 

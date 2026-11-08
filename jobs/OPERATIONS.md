@@ -343,34 +343,14 @@ prepareはprovider取得やcanonical公開をせず、指定一件とその時�
 BOJ/MOFのoffline再発見はregister-discoveryへstage/hashと--receipt-idを渡す。HTTPなしのplanning CAS書込で、同要求はno-op。元受領/validator/slot/未処理workを保ち、登録後に通常取得を続ける。
 
 <a id="edinet-source-archives"></a>
-### JPX PDFとEDINET
+<a id="jpx-pdfとedinet"></a>
+### JPX PDF
 
 JPX決算予定/規制は過去factで取得を止めず、fresh source DBの部分受領をprivate stageへ残す。手動bootstrapは`maintain-market bootstrap-cache --asof <DATE> --source-group jpx-earnings`または`jpx-regulations`だけを指定する。旧all/J-Quants groupやbackfill-historyは使わない。
 
 明示PDFは既知URLで取得済みの原本だけを`financial-pdf-source --receipts <JSON> --directory <NEW_PRIVATE_DIRECTORY>`へ渡し、daily自動取得へ加えない。HTTPなしで実UTC/bytes/hash等を検査するため、mtime/公表日で時計を作らない。生成後はintegration.source_handoff stageへ--source jpx-financial-pdfs（完了転換は--collection capital_actions/--source jpx-capital-actions）を渡す。不対応も原本を保ち、株数/自己株を推定しない。選択/訂正basisは[観測reference](../docs/reference/model-observations.md#reported-comparisons)へ。
 
-EDINET一覧→保存ZIP→L2抽出の順。手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。holder/訂正の未保存分は既存batchを使い、403/認証/制限でも部分原本を保つ。
-
-一覧/archive未到着はdeferred_inputsで適格保存値を使い、到着後に再抽出する。解析失敗/原本破損を延期で隠さず、不正dayは正常投影を保ちながらsource-check失敗を残す。延期だけの継続とpartial/日別成功を分ける。誤orphanは現年度CSVを確保して次統合で回復し、全期間GETを代行しない。
-
-<a id="edinet-research-facts"></a>
-<a id="edinet-factsの取得範囲schema-50"></a>
-<a id="edinet-research-query"></a>
-<a id="edinet-factsの書類選択"></a>
-### EDINET factsの取得と読取
-
-固定releaseから[facts reader](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_facts/)を使い、文書/ticker/対象JST日とusable_documentを確認する。日末cutoffはintraday PITでなく、未選択は書類不存在を意味しない。segment/debtはdocID・期・連結・通貨を揃え、抽出行だけで全債務/資金余命を確定しない。
-
-facts scopeはL1取得範囲。L2品質でglobal開始日/docID集合を狭めず、failed/未提供/交代のfamilyも出所と共に保つ。初回annual取得は明示initialize成功後だけ有効化し、holderは独立。途中失敗は同じrefreshで再開し、ticker限定で他社/globalを置換しない。offline extractのinitializeは将来GETを有効にしない。
-
-```bash
-uv run baibai-jobs maintain-market refresh-edinet-facts --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
-```
-
-再抽出だけならextract-edinet-facts。stored_onは初回保存UTC日で公表時刻でない。未対応0行/failedと鮮度を分ける。
-
-<a id="edinet-metrics-revision"></a>
-metric revisionは抽出/選択の意味変更だけで更新し、配置/import/retryやfacts revisionと分ける。隔離copyで保存CSVを再抽出・比較後、同じleaseでfresh pull/hydrate→backup→extract-edinet-metrics→publish-lake→push-market→固定readback。期待外差/失敗は止め、変更後hydrateや旧copyの本番復元はしない。
+EDINETの取得・facts・再抽出は[独立L1の手順](#edinet-list-native-l1)へ。
 
 <a id="external-assessment-acquisition"></a>
 ### 外部評価
@@ -496,6 +476,29 @@ uv run baibai-jobs edinet-archives-native acquire --bucket <ISOLATED_BUCKET> --d
   --group edinet-facts --asof <DATE> --initialize-facts
 uv run baibai-jobs edinet-archives-native freeze --bucket <ISOLATED_BUCKET> --directory <READ_DIR>
 ```
+
+EDINET一覧→保存ZIP→L2抽出の順。手動source=allは一覧/stage成功後にarchiveへ進む。一覧失敗時はall内archiveを止め、有効一覧を確認できる場合だけ同asofのarchiveを再実行する。保持docID/typeを再GETせず、L2成否/revisionを取得条件にしない。holder/訂正の未保存分は既存batchを使い、403/認証/制限でも部分原本を保つ。
+
+一覧/archive未到着はdeferred_inputsで適格保存値を使い、到着後に再抽出する。解析失敗/原本破損を延期で隠さず、不正dayは正常投影を保ちながらsource-check失敗を残す。延期だけの継続とpartial/日別成功を分ける。誤orphanは現年度CSVを確保して次統合で回復し、全期間GETを代行しない。
+
+<a id="edinet-research-facts"></a>
+<a id="edinet-factsの取得範囲schema-50"></a>
+<a id="edinet-research-query"></a>
+<a id="edinet-factsの書類選択"></a>
+### EDINET factsの取得と読取
+
+固定releaseから[facts reader](../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_facts/)を使い、文書/ticker/対象JST日とusable_documentを確認する。日末cutoffはintraday PITでなく、未選択は書類不存在を意味しない。segment/debtはdocID・期・連結・通貨を揃え、抽出行だけで全債務/資金余命を確定しない。
+
+facts scopeはL1取得範囲。L2品質でglobal開始日/docID集合を狭めず、failed/未提供/交代のfamilyも出所と共に保つ。初回annual取得は明示initialize成功後だけ有効化し、holderは独立。途中失敗は同じrefreshで再開し、ticker限定で他社/globalを置換しない。offline extractのinitializeは将来GETを有効にしない。
+
+```bash
+uv run baibai-jobs maintain-market refresh-edinet-facts --asof <YYYY-MM-DD> --initialize --sqlite-path <STAGED_MARKET_SQLITE>
+```
+
+再抽出だけならextract-edinet-facts。stored_onは初回保存UTC日で公表時刻でない。未対応0行/failedと鮮度を分ける。
+
+<a id="edinet-metrics-revision"></a>
+metric revisionは抽出/選択の意味変更だけで更新し、配置/import/retryやfacts revisionと分ける。隔離copyで保存CSVを再抽出・比較後、同じleaseでfresh pull/hydrate→backup→extract-edinet-metrics→publish-lake→push-market→固定readback。期待外差/失敗は止め、変更後hydrateや旧copyの本番復元はしない。
 
 <a id="一覧公開失敗の再開"></a>
 ### 公開失敗の再開
