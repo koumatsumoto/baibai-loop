@@ -52,10 +52,10 @@ def rakuten_no_estimates_html():
     </div></div></body></body></html>"""
 
 
-def kabumap_html(ticker="130A", *, cheap="1/10"):
+def kabumap_html(ticker="130A", *, cheap="1/10", missing=False):
     rows = "".join(
         f'<li class="scoreBase"><span class="scoreName">{label}</span>'
-        f'<span class="scoreFigure">{score}</span></li>'
+        f'<span class="scoreFigure">{"NA/10" if missing else score}</span></li>'
         for label, score in (
             ("市場トレンド", "6/10"),
             ("割安性", cheap),
@@ -70,8 +70,8 @@ def kabumap_html(ticker="130A", *, cheap="1/10"):
         f'<span id="stockCode">(東証グロース : {ticker})</span>'
         "<h2>クォンツスコア情報 (2026-10-09更新)</h2>"
         f'<div id="scoreTable"><ul>{rows}</ul>'
-        '<ul><li id="totalRow"><strong>42</strong>/100</li>'
-        '<li id="sectorRow"><strong>52</strong>/100</li></ul></div>'
+        f'<ul><li id="totalRow"><strong>{"NA" if missing else "42"}</strong>/100</li>'
+        f'<li id="sectorRow"><strong>{"NA" if missing else "52"}</strong>/100</li></ul></div>'
         "<h2>ファクター情報</h2><table><tr><td>PER</td><td>NA</td></tr></table>"
     )
 

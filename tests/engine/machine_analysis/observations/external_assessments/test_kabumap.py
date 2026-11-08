@@ -18,6 +18,9 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
     ParseError,
     kabumap,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
+    decode_attempt,
+)
 from baibai_engine.machine_analysis.observations.external_assessments.reader import (
     read_observations,
 )
@@ -140,19 +143,20 @@ def test_composite_score_does_not_join_numeric_tokens(score):
 
 
 @pytest.mark.parametrize(
-    "replacement",
+    ("replacement", "missing", "reason"),
     [
-        ("130A)", "8306)"),
-        ("2026-10-09更新", "2026-99-09更新"),
-        ("更新", ""),
-        ("scoreTable", "renamedTable"),
-        ("割安性", "変更された項目"),
-        ("sectorRow", "missingSector"),
+        (("130A)", "8306)"), False, "ticker_identity"),
+        (("2026-10-09更新", "2026-99-09更新"), False, "missing_quants_date"),
+        (("更新", ""), False, "missing_quants_date"),
+        (("2026-10-09更新", ""), True, "missing_quants_date"),
+        (("scoreTable", "renamedTable"), False, "missing_quants_scores"),
+        (("割安性", "変更された項目"), False, "changed_quants_score"),
+        (("sectorRow", "missingSector"), False, "missing_quants_scores"),
     ],
 )
-def test_missing_identity_date_or_score_structure_is_rejected(replacement):
-    with pytest.raises(ParseError):
-        observation(text=html().replace(*replacement))
+def test_missing_identity_date_or_score_structure_is_rejected(replacement, missing, reason):
+    with pytest.raises(ParseError, match=f"^{reason}$"):
+        observation(text=html(missing=missing).replace(*replacement))
 
 
 def test_wrong_source_is_rejected():
@@ -175,27 +179,42 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
         save_observations(path, [first.model_copy(update={"undervaluation_score": 4})])
 
 
-def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect):
-    session = Session([(200, html().encode("shift_jis"), "SHIFT_JIS")])
+@pytest.mark.parametrize("missing", [False, True])
+def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect, missing):
+    payload = html(missing=missing).encode("shift_jis")
+    session = Session([(200, payload, "SHIFT_JIS")])
     connect(session)
     p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
     report = external_assessment_daily.acquire_cohort(store, p, 0)
     saved = stage(store, p)
     assert report["provider_requests"] == 1
-    assert saved.result.entries[0].state == "success"
-    assert isinstance(saved.result.observations[0], QuantsScoreObservation)
+    entry = saved.result.entries[0]
+    assert entry.state == ("normal_null" if missing else "success")
+    assert entry.reason == ("all_values_missing" if missing else None)
+    assert entry.http_status == 200
+    parsed = saved.result.observations[0]
+    assert isinstance(parsed, QuantsScoreObservation)
+    assert parsed.score_as_of_date == date(2026, 10, 9)
+    assert (
+        parsed.growth_score,
+        parsed.undervaluation_score,
+        parsed.size_score,
+        parsed.technical_score,
+        parsed.financial_health_score,
+        parsed.market_trend_score,
+        parsed.composite_score,
+        parsed.industry_average_score,
+    ) == ((None,) * 8 if missing else (2, 1, 3, 4, 5, 6, 42, 52))
     assert read_stages(store, p)[0][0] == saved
     manifest, bodies = read_raw_bundle(store, saved.raw_bundle_keys[0])
     meta, body = manifest["receipts"][0], bodies[0]
     assert body.source == "kabumap"
     assert body.role == "page"
     assert body.attempt_id == saved.result.entries[0].attempt_id
-    assert body.body == html().encode("shift_jis")
-    reparsed = observation(
-        text=body.body.decode(meta["selected_encoding"]),
-        received=datetime.fromisoformat(meta["received_at_utc"]),
-    )
-    assert reparsed == saved.result.observations[0]
+    assert body.body == payload
+    assert body.selected_encoding == meta["selected_encoding"] == "SHIFT_JIS"
+    assert parsed.fetched_at_utc == datetime.fromisoformat(meta["received_at_utc"])
+    assert decode_attempt(bodies) == parsed
     external_assessment_daily.acquire_cohort(store, p, 0)
     assert len(session.calls) == 1
 

@@ -151,7 +151,7 @@ def test_each_captured_source_decodes_its_original_bytes_encoding_and_time(
 
 
 @pytest.mark.parametrize("source", ["monex", "kabumap", "rakuten"])
-def test_verified_normal_null_remains_a_typed_observation(tmp_path, source):
+def test_missing_value_remains_null_in_a_typed_observation(tmp_path, source):
     with closing(open_connection(tmp_path / "market.sqlite")) as conn:
         if source == "rakuten":
             attempt = str(uuid.uuid4())
