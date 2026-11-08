@@ -19,6 +19,7 @@ from baibai_engine.data_collection.providers.tradingview.market_models import Ma
 from baibai_engine.machine_analysis.observations.prices.tradingview_market import (
     read_market_observation,
 )
+from baibai_engine.storage.filesystem import write_text_atomic
 from baibai_jobs.acquisition.tradingview.cli import credential_storage
 from baibai_jobs.observability.tradingview import failure_line
 
@@ -58,7 +59,7 @@ async def collect(session: ClientSession, directory: Path) -> int:
             result=result,
         )
         path = directory / f"{number}.json"
-        path.write_text(capture.model_dump_json(by_alias=True), encoding="utf-8")
+        write_text_atomic(path, capture.model_dump_json(by_alias=True))
         path.chmod(0o600)
         count += 1
         observation = read_market_observation(capture)

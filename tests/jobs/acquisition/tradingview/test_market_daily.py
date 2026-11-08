@@ -12,6 +12,7 @@ import yaml
 from mcp.types import CallToolResult
 from tests.helpers.tradingview_market import capture
 
+from baibai_engine.storage import filesystem
 from baibai_jobs.acquisition import market_context
 from baibai_jobs.acquisition.tradingview import market_daily
 
@@ -46,10 +47,19 @@ def test_daily_receipts_preserve_requested_symbols_and_time(tmp_path, monkeypatc
         assert seconds == 15
 
     monkeypatch.setattr(market_daily.asyncio, "sleep", no_sleep)
+    written = {}
+
+    def retain_bytes(path, content):
+        written[path] = content.encode("utf-8")
+        filesystem.write_text_atomic(path, content)
+
+    monkeypatch.setattr(market_daily, "write_text_atomic", retain_bytes)
     session = Session()
     directory = tmp_path / "captures"
     assert asyncio.run(market_daily.collect(session, directory)) == 3
     paths = sorted(directory.glob("*.json"))
+    assert {path: path.read_bytes() for path in paths} == written
+    assert all(path.stat().st_mode & 0o777 == 0o600 for path in paths)
     report = market_context.prepare(paths, tmp_path / "packet", expected_captures=3)
     assert report["sources"][0]["status"] == "ok"
     assert len(report["market_receipts"]) == 3
@@ -79,6 +89,37 @@ def test_interrupted_collection_preserves_partial_without_claiming_complete(
     else:
         with pytest.raises(RuntimeError, match="synthetic"):
             asyncio.run(run)
+    report = market_context.prepare(
+        sorted(directory.glob("*.json")), tmp_path / "packet", expected_captures=3
+    )
+    assert report["sources"][0]["status"] == "failed"
+    assert len(report["market_receipts"]) == 1
+
+
+def test_interrupted_capture_write_does_not_expose_an_incomplete_final_json(tmp_path, monkeypatch):
+    async def no_sleep(_seconds):
+        pass
+
+    directory = tmp_path / "captures"
+    real_fsync = filesystem.os.fsync
+
+    def interrupted_fsync(descriptor):
+        # The next completed response is still private until its atomic replace.
+        if (directory / "0.json").exists() and not (directory / "1.json").exists():
+            paths = list(directory.iterdir())
+            if len(paths) == 2:
+                assert sorted(path.name for path in directory.glob("*.json")) == ["0.json"]
+                pending = next(path for path in paths if path.name != "0.json")
+                assert pending.suffix != ".json"
+                assert pending.stat().st_mode & 0o777 == 0o600
+                raise KeyboardInterrupt("synthetic interruption before final capture replace")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(market_daily.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(filesystem.os, "fsync", interrupted_fsync)
+    with pytest.raises(KeyboardInterrupt, match="synthetic interruption"):
+        asyncio.run(market_daily.collect(Session(), directory))
+    assert sorted(path.name for path in directory.glob("*.json")) == ["0.json"]
     report = market_context.prepare(
         sorted(directory.glob("*.json")), tmp_path / "packet", expected_captures=3
     )
