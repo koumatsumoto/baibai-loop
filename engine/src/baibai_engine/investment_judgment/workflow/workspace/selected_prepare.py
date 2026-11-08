@@ -38,6 +38,7 @@ from baibai_engine.investment_judgment.workflow.selection_policy import (
 from baibai_engine.investment_judgment.workflow.workspace.admission import workspace_selection
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
+    ResearchWorkspaceError,
     _load_mapping,
     _write_workspace_file,
 )
@@ -300,7 +301,7 @@ def _materialize(
             or _load_mapping(inputs_path, label="domain inputs") != projection
         ):
             raise OSError("workspace projection readback failed")
-    except (OSError, ResearchWorkspaceConflictError) as error:
+    except (OSError, ValueError, ResearchWorkspaceError) as error:
         raise ResearchWorkspaceConflictError(
             f"Operation {operation.operation_id} is saved; resume its projection: {error}"
         ) from error
