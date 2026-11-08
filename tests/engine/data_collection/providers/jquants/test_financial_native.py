@@ -14,8 +14,9 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     PREFIX,
     FinancialAttempt,
     FinancialL1,
-    financial_content_id,
+    FixedFinancialL1,
 )
+from baibai_engine.data_collection.providers.jquants.full_day_native import full_day_content_id
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError, R2Error
 
 DAY = date(2026, 11, 1)
@@ -52,6 +53,7 @@ def packs(owner):
 
 
 def test_complete_request_equivalence_preserves_values_unknowns_and_duplicates():
+    contract = FixedFinancialL1.contract
     a = attempt("a")
     first = a.pages[0]
     records = json.loads(first.body)["data"]
@@ -65,16 +67,24 @@ def test_complete_request_equivalence_preserves_values_unknowns_and_duplicates()
             ),
         )
     )
-    assert financial_content_id(complete_request(a.pages)) == financial_content_id(paged)
+    assert full_day_content_id(complete_request(a.pages), contract) == full_day_content_id(
+        paged, contract
+    )
     for extra in (None, 0, "", False):
         changed = replace(
             first, body=json.dumps({"data": [{**records[0], "Unknown": extra}]}).encode()
         )
-        assert financial_content_id(complete_request((changed,))) != financial_content_id(paged)
+        assert full_day_content_id(complete_request((changed,)), contract) != full_day_content_id(
+            paged, contract
+        )
     duplicate = replace(first, body=json.dumps({"data": records + records}).encode())
-    assert financial_content_id(complete_request((duplicate,))) != financial_content_id(paged)
+    assert full_day_content_id(complete_request((duplicate,)), contract) != full_day_content_id(
+        paged, contract
+    )
     extra_envelope = replace(first, body=json.dumps({"data": records, "Unknown": None}).encode())
-    assert financial_content_id(complete_request((extra_envelope,))) != financial_content_id(paged)
+    assert full_day_content_id(
+        complete_request((extra_envelope,)), contract
+    ) != full_day_content_id(paged, contract)
 
 
 def test_equal_changes_and_return_to_prior_content(owner):

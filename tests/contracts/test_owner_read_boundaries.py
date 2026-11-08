@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
 from tests.helpers.screening_run import seed_saved_run
 
 from baibai_engine.data_collection.receipts.native_sources.store import (
@@ -17,7 +17,6 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
 )
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
@@ -149,7 +148,7 @@ def test_research_readers_reject_noncurrent_or_nonstrict_payload_versions(
             load_reviewed_assessment(connection, case.pair.assessment_id)
     else:
         for reader in (
-            lambda: get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id),
+            lambda: read_saved_proposal(db_path=case.app, proposal_id=proposal.proposal_id),
             lambda: preview_current_terms(
                 db_path=case.app,
                 proposal_id=proposal.proposal_id,

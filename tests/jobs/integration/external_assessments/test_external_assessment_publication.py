@@ -21,6 +21,9 @@ import baibai_jobs.publication.snapshot_publication as publisher
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
     AnalystRatingObservation as ExternalAssessmentAnalystRatingObservation,
 )
+from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    ModelValuationObservation as ExternalAssessmentModelValuationObservation,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_jobs.publication.external_assessment_verification import (
@@ -85,17 +88,46 @@ def test_missing_old_month_history_fails_even_without_current_receipts(publicati
         )
 
 
-@pytest.mark.parametrize("updates", [{"rating": 1}, {"rating_updated_label": None}])
-def test_typed_null_and_metadata_receipts_must_match_all_columns(publication, updates):
+@pytest.mark.parametrize(
+    ("kind", "updates"),
+    [
+        ("rating", {"rating": 1}),
+        ("rating", {"rating_updated_label": None}),
+        ("rating", {"rating_scale_direction": "lower_is_positive"}),
+        ("rating", {"rating_count": 5}),
+        ("rating", {"fetched_at_utc": datetime(2026, 7, 31, 15, microsecond=1, tzinfo=UTC)}),
+        ("model", {"fetched_at_utc": datetime(2026, 7, 31, 15, microsecond=1, tzinfo=UTC)}),
+        ("model", {"source_url": "https://example.test/other"}),
+        ("model", {"parser_version": "synthetic-2"}),
+        ("model", {"currency": "USD"}),
+        ("model", {"unit": "USD/share"}),
+        ("model", {"share_basis": "other-share-basis"}),
+        ("model", {"consensus_target_origin": "other-origin"}),
+        ("model", {"per_consensus_origin": "other-origin"}),
+        ("model", {"per_consensus_updated_label": "other-update"}),
+        ("model", {"per_consensus_count": 5}),
+    ],
+)
+def test_typed_null_and_metadata_receipts_must_match_all_columns(publication, kind, updates):
     fixed, cache, database = fixed_external_assessment_readback(publication)
-    original = ExternalAssessmentAnalystRatingObservation(
-        ticker="6758",
-        fetched_at_utc=datetime(2026, 7, 31, 15, tzinfo=UTC),
-        source_url="https://example.test/synthetic",
-        parser_version="synthetic-1",
-        distributor="rakuten",
-        rating=None,
-        rating_updated_label="synthetic-label",
+    common = {
+        "ticker": "6758",
+        "fetched_at_utc": datetime(2026, 7, 31, 15, tzinfo=UTC),
+        "source_url": "https://example.test/synthetic",
+        "parser_version": "synthetic-1",
+    }
+    original = (
+        ExternalAssessmentAnalystRatingObservation(
+            **common, distributor="rakuten", rating=None, rating_updated_label="synthetic-label"
+        )
+        if kind == "rating"
+        else ExternalAssessmentModelValuationObservation(
+            **common,
+            distributor="monex",
+            consensus_target=0,
+            consensus_target_origin="synthetic-origin",
+            consensus_target_count=0,
+        )
     )
     with lake_session() as session:
         external_assessment_verify_release_history(

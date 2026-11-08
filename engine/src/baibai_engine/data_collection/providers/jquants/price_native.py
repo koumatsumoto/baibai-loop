@@ -8,17 +8,13 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsRequest,
-    RetainedRequest,
-)
+from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
 from baibai_engine.data_collection.providers.jquants.full_day_native import (
     FixedFullDayL1,
     FullDayAttempt,
     FullDayContract,
     FullDayL1,
     FullDayObjectStore,
-    full_day_content_id,
     read_full_day_requests,
     verify_migrated_full_day_receipts,
 )
@@ -39,10 +35,6 @@ class PriceAttempt(FullDayAttempt):
 class FixedPriceL1(FixedFullDayL1):
     contract = _CONTRACT
     attempt_type = PriceAttempt
-
-
-def price_content_id(request: JQuantsRequest) -> str:
-    return full_day_content_id(request, _CONTRACT)
 
 
 def read_price_requests(

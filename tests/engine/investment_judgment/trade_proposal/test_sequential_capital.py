@@ -9,11 +9,10 @@ from functools import partial
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.proposal import PUBLISHED, backend_case, bind_review
+from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, read_saved_proposal
 
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
@@ -197,6 +196,6 @@ def test_sequential_proposals_recollect_cash_without_changing_saved_scope_or_ter
     assert first_row["saved_terms"]["limit_price_yen"] == "1000"
     assert first_row["current_quote_calculation"]["current_price_above_maximum"] is True
     assert (
-        get_investment_proposal(proposal_id=first_proposal.proposal_id, db_path=case.app)
+        read_saved_proposal(proposal_id=first_proposal.proposal_id, db_path=case.app)
         == first_proposal
     )

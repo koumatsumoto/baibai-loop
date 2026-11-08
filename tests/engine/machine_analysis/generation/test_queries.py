@@ -18,9 +18,9 @@ from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.investment_judgment.market_assessment.models import StoredAssessment
 from baibai_engine.investment_judgment.market_assessment.query import (
-    assessment_payload as read_context,
+    assessment_by_id,
+    latest_assessment,
 )
-from baibai_engine.investment_judgment.market_assessment.query import latest_assessment_payload
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (
     build_market_snapshot,
@@ -260,13 +260,15 @@ def test_assessment_cutoff_and_domain_import_do_not_reach_research_or_writers(tm
             ).document,
             supersedes=prior,
         )
-    assert (
-        latest_assessment_payload(
-            path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
-        )["context_id"]
-        == "macro-context-2026-07-19-past"
+    selected = latest_assessment(
+        path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
     )
-    assert read_context(path, context_id="macro-context-2026-07-20-future")["as_of"] == "2026-07-20"
+    assert selected is not None
+    assert selected.document["context_id"] == "macro-context-2026-07-19-past"
+    assert (
+        assessment_by_id(path, context_id="macro-context-2026-07-20-future").document["as_of"]
+        == "2026-07-20"
+    )
     subprocess.run(
         [
             sys.executable,
@@ -329,16 +331,17 @@ def test_domain_reads_have_no_network_or_writes_and_missing_stores_stay_absent(
     assert security(market_path)["price"] is not None
     assert build_market_snapshot(sqlite_path=market_path, asof_date=ASOF)["sectors"]
     assert reading_snapshot(indicators_path, asof=ASOF)["asof"] == ASOF.isoformat()
-    assert latest_assessment_payload(
+    selected = latest_assessment(
         app_path, as_of=date(2026, 7, 19), known_at=datetime(2026, 7, 21, tzinfo=UTC)
-    )["context_id"]
+    )
+    assert selected is not None
+    assert selected.document["context_id"]
     assert before == [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
     missing = tmp_path / "absent.sqlite"
     assert security(missing)["price"] is None
     assert reading_snapshot(missing, asof=ASOF) is None
     assert (
-        latest_assessment_payload(missing, as_of=ASOF, known_at=datetime(2026, 7, 21, tzinfo=UTC))
-        is None
+        latest_assessment(missing, as_of=ASOF, known_at=datetime(2026, 7, 21, tzinfo=UTC)) is None
     )
     assert not missing.exists()
 

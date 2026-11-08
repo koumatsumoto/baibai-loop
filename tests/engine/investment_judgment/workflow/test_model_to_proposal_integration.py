@@ -22,7 +22,13 @@ from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_revi
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.lake_release import publish_market_fixture
 from tests.helpers.master import insert_master_rows
-from tests.helpers.proposal import PREPARED, PROPOSAL_ID, PUBLISHED, bind_review
+from tests.helpers.proposal import (
+    PREPARED,
+    PROPOSAL_ID,
+    PUBLISHED,
+    bind_review,
+    read_saved_proposal,
+)
 from tests.helpers.research_selection import selected_target
 from tests.helpers.screening_sqlite import insert_financial_record, seed_daily_bars
 
@@ -43,7 +49,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
@@ -771,7 +776,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     published = service.publish(proposal)
-    assert get_investment_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
     assert LedgerStoreService(case.app).load() == case.ledger
     before = (case.prepared.workspace / "domain-inputs.yaml").read_bytes()
     with closing(sqlite3.connect(case.market)) as connection, connection:
@@ -825,7 +830,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         now=PUBLISHED + timedelta(minutes=2),
     )
     assert preview.current_inputs.quotes[0].price_yen == Decimal(800)
-    assert get_investment_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
 
 
 @pytest.mark.parametrize("change", ["source_basis", "hypothesis_reason", "countercase"])
@@ -995,7 +1000,7 @@ def test_seven_domains_retain_shared_raw_evidence_through_review_proposal_and_re
         )
         == fixed
     )
-    assert get_investment_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
     assert LedgerStoreService(case.app).load() == case.ledger
 
 
@@ -1146,5 +1151,5 @@ def test_fixed_economic_originals_and_unchanged_ledger_reach_saved_judgment(tmp_
     restored = selection_binding(case.operations.get(case.prepared.operation_id).payload)
     assert restored.inputs.generation == generation
     assert (case.prepared.workspace / "domain-inputs.yaml").read_bytes() == projected
-    assert get_investment_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=PROPOSAL_ID, db_path=case.app) == published
     assert LedgerStoreService(case.app).load() == case.ledger

@@ -61,7 +61,6 @@ from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contr
     JQUANTS_SHORT_SALE_REPORTS,
     JQUANTS_WEEKLY_MARGIN,
 )
-from baibai_engine.storage.snapshots.contracts import LakeDataset
 
 LAKE_DATASETS = MappingProxyType(
     {
@@ -110,11 +109,3 @@ LAKE_DATASETS = MappingProxyType(
         TENDER_OFFER_EXIT_VALUES.name: TENDER_OFFER_EXIT_VALUES,
     }
 )
-
-
-def require_lake_dataset(name: str) -> LakeDataset:
-    try:
-        return LAKE_DATASETS[name]
-    except KeyError as exc:
-        allowed = ", ".join(sorted(LAKE_DATASETS))
-        raise ValueError(f"unsupported lake dataset {name!r}; expected one of: {allowed}") from exc

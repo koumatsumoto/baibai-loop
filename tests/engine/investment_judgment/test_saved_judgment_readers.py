@@ -8,14 +8,20 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, review_id, update_review_hash
-from tests.helpers.proposal import PREPARED, PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import (
+    PREPARED,
+    PUBLISHED,
+    backend_case,
+    read_saved_proposal,
+    reviewed_proposal,
+)
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.scenario import maximum_entry_price
 from baibai_engine.investment_judgment.stock_assessment.store import (
     AssessmentStoreService,
-    load_latest_reviewed_assessment,
+    latest_assessment_id,
     load_reviewed_assessment,
     require_assessment_ref,
 )
@@ -26,7 +32,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
 from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
     load_latest_investment_proposal,
 )
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
@@ -107,7 +112,7 @@ def test_proposal_readers_reject_corrupt_saved_identity_and_reference_closure(tm
         "publication-time": "prepared_at <= reviewed_at <= published_at",
     }[mutation]
     for reader in (
-        lambda: get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id),
+        lambda: read_saved_proposal(db_path=case.app, proposal_id=proposal.proposal_id),
         lambda: preview_current_terms(
             db_path=case.app,
             proposal_id=proposal.proposal_id,
@@ -145,13 +150,13 @@ def test_invalid_latest_publication_is_not_hidden_by_a_valid_old_pair(tmp_path):
         )
     before = case.app.read_bytes()
     with closing(connect_read_only(case.app)) as connection:
+        selected = latest_assessment_id(connection, "1234")
+        assert selected == newer.assessment_id
         with pytest.raises(ValueError, match="要再評価"):
-            load_latest_reviewed_assessment(connection, "1234")
-        with pytest.raises(ValueError, match="要再評価"):
-            load_reviewed_assessment(connection, newer.assessment_id)
+            load_reviewed_assessment(connection, selected)
         old = load_reviewed_assessment(connection, case.pair.assessment_id)
     assert old == case.pair
-    saved = get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id)
+    saved = read_saved_proposal(db_path=case.app, proposal_id=proposal.proposal_id)
     assert saved == proposal
     assert case.app.read_bytes() == before
 
@@ -240,7 +245,7 @@ def test_original_held_assessment_keeps_original_price_and_pair(tmp_path):
         == 1000
     )
     assert original_pair.document == case.pair.document
-    saved = get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id)
+    saved = read_saved_proposal(db_path=case.app, proposal_id=proposal.proposal_id)
     preview = preview_current_terms(
         db_path=case.app,
         proposal_id=proposal.proposal_id,
@@ -249,5 +254,5 @@ def test_original_held_assessment_keeps_original_price_and_pair(tmp_path):
     )
     assert preview.status == "blocked"
     assert preview.items[0]["saved_terms"] == proposal.items[0].terms.model_dump(mode="json")
-    assert get_investment_proposal(db_path=case.app, proposal_id=proposal.proposal_id) == saved
+    assert read_saved_proposal(db_path=case.app, proposal_id=proposal.proposal_id) == saved
     assert case.app.read_bytes() == before

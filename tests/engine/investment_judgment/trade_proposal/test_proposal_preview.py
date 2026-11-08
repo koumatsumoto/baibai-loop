@@ -6,10 +6,15 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import (
+    PUBLISHED,
+    backend_case,
+    bind_review,
+    read_saved_proposal,
+    reviewed_proposal,
+)
 
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 
 
@@ -69,7 +74,7 @@ def test_current_quote_change_does_not_change_saved_terms_hash_or_fixed_adv(tmp_
         preview.items[0]["current_quote_calculation"]["calculation_price_yen"]
     ) == Decimal(900)
     assert preview.current_inputs.quotes[0].price_yen == Decimal(900)
-    saved = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
+    saved = read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
     assert saved == proposal
     assert saved.liquidity_context == proposal.liquidity_context
     assert _snapshot(case.app) == before
@@ -181,7 +186,7 @@ def test_preview_checks_saved_remaining_reward_after_valuation_becomes_old(
     reason_codes = {reason.code for reason in preview.change_reasons}
     assert ("valuation_basis_requires_refresh" in reason_codes) == with_remaining_reward
     assert preview.items[0]["current_quote_calculation"]["current_price_projection"] is None
-    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     assert _snapshot(case.app) == before
 
 
@@ -269,7 +274,7 @@ def test_rate_and_horizon_flow_through_context_publication_and_preview(
             expected_maximum
         )
         assert current["current_price_projection"]["horizon_months"] == horizon_months
-    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     with closing(connect_read_only(case.app)) as connection:
         after_pair = load_reviewed_assessment(connection, case.pair.assessment_id)
     assert after_pair == original_pair
@@ -344,5 +349,5 @@ def test_saved_quantity_is_revalidated_without_resizing_when_cash_changes(
         assert Decimal(capital["unspent_cash_yen"]) == current_cash - selected * 1000
         assert Decimal(capital["cash_only_terminal_value_yen"]) == current_cash
         assert Decimal(capital["base"]["profit_loss_yen"]) == selected * 100
-    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
     assert _snapshot(case.app) == before

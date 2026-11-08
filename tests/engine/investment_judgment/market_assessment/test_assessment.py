@@ -19,7 +19,6 @@ from baibai_engine.investment_judgment.market_assessment.query import (
     assessment_by_id,
     assessment_history,
     latest_assessment,
-    select_assessment,
 )
 from baibai_engine.investment_judgment.market_assessment.service import (
     AssessmentConflictError,
@@ -93,7 +92,7 @@ def test_writer_preserves_old_payload_and_head_across_schemas(tmp_path):
         )
 
 
-def test_known_at_normal_historical_and_weekend_selection():
+def test_known_at_normal_historical_and_weekend_selection(tmp_path):
     friday = stored(
         document(
             context_id="market-context-assessment-2026-07-17-friday",
@@ -101,34 +100,37 @@ def test_known_at_normal_historical_and_weekend_selection():
         )
     )
     weekend = stored(document())
-    records = [friday, weekend]
+    db = tmp_path / "app.sqlite"
+    service = AssessmentService(db)
+    for record in (friday, weekend):
+        service.publish(
+            MarketContextAssessment.model_validate(record.document), expected_head=service.head_id()
+        )
     assert (
-        select_assessment(
-            records, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 13, tzinfo=UTC)
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 18, 13, tzinfo=UTC)
         )
         == weekend
     )
     assert (
-        select_assessment(
-            records, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 19, tzinfo=UTC)
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 19, tzinfo=UTC)
         )
         == friday
     )
     assert (
-        select_assessment(
-            records, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 17, tzinfo=UTC)
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 17, tzinfo=UTC)
         )
         is None
     )
     assert (
-        select_assessment(
-            records, as_of=date(2026, 7, 16), known_at=datetime(2026, 7, 20, tzinfo=UTC)
-        )
+        latest_assessment(db, as_of=date(2026, 7, 16), known_at=datetime(2026, 7, 20, tzinfo=UTC))
         is None
     )
 
 
-def test_selector_orders_real_instants_not_iso_strings():
+def test_selector_orders_real_instants_not_iso_strings(tmp_path):
     early = stored(
         document(
             context_id="market-context-assessment-2026-07-17-early",
@@ -141,15 +143,21 @@ def test_selector_orders_real_instants_not_iso_strings():
             published_at="2026-07-17T08:00:00+00:00",
         )
     )
+    db = tmp_path / "app.sqlite"
+    service = AssessmentService(db)
+    for record in (early, late):
+        service.publish(
+            MarketContextAssessment.model_validate(record.document), expected_head=service.head_id()
+        )
     assert (
-        select_assessment(
-            [early, late], as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 9, tzinfo=UTC)
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime(2026, 7, 17, 9, tzinfo=UTC)
         )
         == late
     )
     with pytest.raises(ValueError, match="timezone"):
-        select_assessment(
-            [], as_of=date(2026, 7, 17), known_at=datetime.fromisoformat("2026-07-17T00:00:00")
+        latest_assessment(
+            db, as_of=date(2026, 7, 17), known_at=datetime.fromisoformat("2026-07-17T00:00:00")
         )
 
 
@@ -228,8 +236,9 @@ def test_cli_new_writer_check_publish_and_history(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("version", [5, 6])
-def test_compact_meaning_survives_history_projection(version):
+def test_compact_meaning_survives_history_projection(tmp_path, version):
     payload = document().payload()
+    payload["published_at"] = document().published_at.isoformat()
     if version == 5:
         payload.update(schema_version=5, context_id="macro-context-2026-07-17-saved")
     record = StoredAssessment.from_payload(payload)
@@ -237,9 +246,11 @@ def test_compact_meaning_survives_history_projection(version):
     assert projected["status"] == "current"
     assert projected["uncertainties"] == payload["uncertainties"]
     assert record.document == payload
+    db = tmp_path / "app.sqlite"
+    seed_history(db, payload)
     assert (
-        select_assessment(
-            [record],
+        latest_assessment(
+            db,
             as_of=date(2026, 7, 17),
             known_at=datetime.fromisoformat(payload["published_at"]),
         )
@@ -316,7 +327,7 @@ def test_latest_broken_selected_body_does_not_fall_back(tmp_path):
         )
 
 
-def test_latest_orders_offset_and_microsecond_publications_like_pure_selector(tmp_path):
+def test_latest_orders_offset_and_microsecond_publications_at_exact_cutoffs(tmp_path):
     db = tmp_path / "app.sqlite"
     documents = [
         document(
@@ -334,9 +345,9 @@ def test_latest_orders_offset_and_microsecond_publications_like_pure_selector(tm
     ]
     for item in documents:
         AssessmentService(db).publish(item, expected_head=AssessmentService(db).head_id())
-    for cutoff in ("2026-07-17T08:00:00.000001+00:00", "2026-07-17T08:00:00.000002+00:00"):
+    for cutoff, expected in (
+        ("2026-07-17T08:00:00.000001+00:00", documents[1]),
+        ("2026-07-17T08:00:00.000002+00:00", documents[2]),
+    ):
         known_at = datetime.fromisoformat(cutoff)
-        expected = select_assessment(
-            [stored(item) for item in documents], as_of=date(2026, 7, 17), known_at=known_at
-        )
-        assert latest_assessment(db, as_of=date(2026, 7, 17), known_at=known_at) == expected
+        assert latest_assessment(db, as_of=date(2026, 7, 17), known_at=known_at) == stored(expected)

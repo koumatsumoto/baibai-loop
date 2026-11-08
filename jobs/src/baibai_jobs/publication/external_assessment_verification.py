@@ -28,7 +28,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.models imp
     Observation,
     QuantsScoreObservation,
 )
-from baibai_engine.machine_analysis.observations.external_assessments.rows import observation_row
 from baibai_engine.machine_analysis.observations.external_assessments.snapshot_contracts import (
     EXTERNAL_ASSESSMENT_ANALYST_FORECAST_OBSERVATIONS,
     EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS,
@@ -48,21 +47,6 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 
 def _row_bytes(row: Sequence[object]) -> bytes:
     return json.dumps(tuple(row), allow_nan=False, separators=(",", ":")).encode() + b"\n"
-
-
-def verify_observations(database: Path, observations: Sequence[Observation]) -> None:
-    # Acquisition checks its exact immutable receipt, not an analytical latest selector.
-    with closing(connect_read_only(database)) as connection:
-        connection.execute("BEGIN")
-        for item in observations:
-            table, columns, _ = observation_row(item)
-            names = ",".join(columns)
-            row = connection.execute(
-                f"SELECT {names} FROM {table} WHERE ticker=? AND fetched_at_utc=?",  # nosec B608
-                (item.ticker, item.fetched_at_utc.isoformat(timespec="microseconds")),
-            ).fetchone()
-            if row is None or type(item).model_validate(dict(row)) != item:
-                raise ValueError("external assessment receipt readback mismatch")
 
 
 def history_digests(

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from datetime import date, datetime
-from pathlib import Path
 
 from baibai_engine.investment_judgment.stock_assessment.store import (
     require_assessment_ref,
@@ -21,7 +19,6 @@ from baibai_engine.investment_judgment.trade_proposal.record_contracts import (
     ProposalRecords,
     ProposalReference,
 )
-from baibai_engine.storage.sqlite.application.read import connect_read_only
 
 
 def has_published_proposal_for_operation(connection: sqlite3.Connection, operation_id: str) -> bool:
@@ -97,12 +94,6 @@ def load_investment_proposal(connection: sqlite3.Connection, proposal_id: str) -
     if [tuple(item) for item in binding] != expected_bindings:
         raise ProposalConflictError("stored proposal buy binding differs from its concrete item")
     return proposal
-
-
-def get_investment_proposal(*, proposal_id: str, db_path: Path | None = None) -> TradeProposal:
-    with closing(connect_read_only(db_path)) as connection:
-        connection.execute("BEGIN")
-        return load_investment_proposal(connection, proposal_id)
 
 
 def load_latest_investment_proposal(connection: sqlite3.Connection) -> TradeProposal | None:

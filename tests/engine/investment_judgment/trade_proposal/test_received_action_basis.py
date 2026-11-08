@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
-from tests.helpers.proposal import backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import backend_case, bind_review, read_saved_proposal, reviewed_proposal
 from tests.helpers.screening_sqlite import seed_daily_bars
 
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
@@ -17,7 +17,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import QuoteInpu
 from baibai_engine.investment_judgment.trade_proposal.entry_policy import evaluate_buy_terms
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
@@ -174,5 +173,5 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
         assert row["current_quote_calculation"]["current_price_projection"] is None
     else:
         assert row["current_quote_calculation"] is None
-    assert get_investment_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert case.app.read_bytes() == before

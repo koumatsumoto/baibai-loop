@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
 
 from baibai_engine.investment_judgment.market_assessment.models import (
     StoredAssessment,
@@ -16,25 +14,6 @@ from baibai_engine.investment_judgment.market_assessment.models import (
 from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.read import is_unwritten_store
-
-
-def select_assessment(
-    records: Iterable[StoredAssessment], *, as_of: date, known_at: datetime
-) -> StoredAssessment | None:
-    """Pure real-instant selector. The caller fixes known_at; no clock is read here."""
-    require_aware(known_at)
-    eligible = [
-        r
-        for r in records
-        if r.schema_version in (3, 4, 5, 6)
-        and r.as_of <= as_of
-        and r.published_at.astimezone(UTC) <= known_at.astimezone(UTC)
-    ]
-    return max(
-        eligible,
-        key=lambda r: (r.published_at.astimezone(UTC), r.as_of, r.context_id),
-        default=None,
-    )
 
 
 def assessment_history(path: Path | None) -> list[StoredAssessment]:
@@ -154,18 +133,3 @@ def latest_assessment(
         return _stored_assessment(selected)
     finally:
         connection.close()
-
-
-def assessment_payload(path: Path | None, *, context_id: str) -> dict[str, Any]:
-    return assessment_by_id(path, context_id=context_id).document
-
-
-def latest_assessment_payload(
-    path: Path | None, *, as_of: date, known_at: datetime
-) -> dict[str, Any] | None:
-    record = latest_assessment(path, as_of=as_of, known_at=known_at)
-    return None if record is None else record.document
-
-
-def list_assessment_payloads(path: Path | None) -> list[dict[str, Any]]:
-    return [record.document for record in assessment_history(path)]

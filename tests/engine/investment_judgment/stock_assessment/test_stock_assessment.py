@@ -32,7 +32,6 @@ from baibai_engine.investment_judgment.stock_assessment.store import (
     ResearchConflictError,
     ResearchValidationError,
     latest_assessment_id,
-    load_latest_reviewed_assessment,
     load_reviewed_assessment,
     publish_reviewed_assessment,
     require_assessment_ref,
@@ -488,7 +487,9 @@ def test_atomic_pair_retry_and_latest_unresolved_has_no_supported_fallback(conne
         connection, document, review, number=3, now=NOW, supersedes=first.assessment_id
     )
     assert publish(connection) == first
-    assert load_latest_reviewed_assessment(connection, "1234") == second
+    selected = latest_assessment_id(connection, "1234")
+    assert selected == second.assessment_id
+    assert load_reviewed_assessment(connection, selected) == second
     assert second.document.input_snapshot.facts == ()
     stored = connection.execute(
         "SELECT payload FROM stock_assessment WHERE assessment_id = ?", (first.assessment_id,)
@@ -580,9 +581,10 @@ def test_latest_is_selected_before_corrupt_content_is_checked(connection):
             "0" * 64,
         ),
     )
-    assert latest_assessment_id(connection, "1234") == assessment_id(10)
+    selected = latest_assessment_id(connection, "1234")
+    assert selected == assessment_id(10)
     with pytest.raises(ResearchValidationError):
-        load_latest_reviewed_assessment(connection, "1234")
+        load_reviewed_assessment(connection, selected)
 
 
 def test_revision_order_uses_absolute_publication_instant(connection):
@@ -592,7 +594,9 @@ def test_revision_order_uses_absolute_publication_instant(connection):
     second = publish(
         connection, document, review, number=3, now=later_utc, supersedes=first.assessment_id
     )
-    assert load_latest_reviewed_assessment(connection, "1234") == second
+    selected = latest_assessment_id(connection, "1234")
+    assert selected == second.assessment_id
+    assert load_reviewed_assessment(connection, selected) == second
     document, review = pair_payload(review_number=6)
     with pytest.raises(ResearchConflictError, match="backwards"):
         publish(connection, document, review, number=5, now=NOW, supersedes=second.assessment_id)
@@ -700,8 +704,9 @@ def test_microsecond_publication_order_precedes_assessment_id_order(connection):
     first = publish(connection, number=8, now=first_time)
     second = publish(connection, number=1, now=second_time, supersedes=first.assessment_id)
     assert first.assessment_id > second.assessment_id
-    assert latest_assessment_id(connection, "1234") == second.assessment_id
-    assert load_latest_reviewed_assessment(connection, "1234") == second
+    selected = latest_assessment_id(connection, "1234")
+    assert selected == second.assessment_id
+    assert load_reviewed_assessment(connection, selected) == second
     stored_times = dict(
         connection.execute("SELECT assessment_id,published_at FROM stock_assessment")
     )
@@ -724,8 +729,9 @@ def test_equal_microsecond_instant_with_different_offsets_uses_id_tiebreak(conne
     assert jst == utc
     first = publish(connection, number=1, now=jst)
     second = publish(connection, number=3, now=utc, supersedes=first.assessment_id)
-    assert latest_assessment_id(connection, "1234") == second.assessment_id
-    assert load_latest_reviewed_assessment(connection, "1234") == second
+    selected = latest_assessment_id(connection, "1234")
+    assert selected == second.assessment_id
+    assert load_reviewed_assessment(connection, selected) == second
     document, review = pair_payload(review_number=5)
     with pytest.raises(ResearchConflictError, match="advance the latest revision order"):
         publish(connection, document, review, number=2, now=jst, supersedes=second.assessment_id)

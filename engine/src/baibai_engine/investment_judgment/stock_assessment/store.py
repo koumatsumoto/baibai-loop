@@ -130,15 +130,6 @@ def load_reviewed_assessment(
     )
 
 
-def load_latest_reviewed_assessment(
-    connection: sqlite3.Connection, ticker: str
-) -> ReviewedAssessment:
-    assessment_id = latest_assessment_id(connection, ticker)
-    if assessment_id is None:
-        raise ResearchValidationError(f"no assessment for {ticker}")
-    return load_reviewed_assessment(connection, assessment_id)
-
-
 def require_assessment_ref(
     connection: sqlite3.Connection, reference: AssessmentRef
 ) -> ReviewedAssessment:

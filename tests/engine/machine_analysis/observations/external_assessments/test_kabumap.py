@@ -33,7 +33,6 @@ from baibai_jobs.acquisition.master_dependencies import (
     fix_master_dependency,
     saved_master_dependency,
 )
-from baibai_jobs.publication.external_assessment_verification import verify_observations
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
 
@@ -172,7 +171,6 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
     assert read_observations(path, "130A", RECEIVED).quants_scores[0].latest == first
     history = read_observations(path, "130A", later.fetched_at_utc).quants_scores[0]
     assert (history.latest, history.previous) == (later, first)
-    verify_observations(path, [first, later])
     with pytest.raises(ObservationConflictError):
         save_observations(path, [first.model_copy(update={"undervaluation_score": 4})])
 

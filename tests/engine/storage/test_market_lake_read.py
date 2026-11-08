@@ -44,6 +44,7 @@ from baibai_engine.storage.snapshots.models import (
     LakeObject,
     LakeReleaseSourceRef,
     canonical_lake_model_bytes,
+    validate_release_policy,
 )
 from baibai_engine.storage.snapshots.objects import (
     MAX_BUFFERED_OBJECT_BYTES,
@@ -605,11 +606,23 @@ class TestFixedRelease:
                 manifest_sha256=_release_digest(lake.mirror, "release-broken"),
             )
 
-    def test_a_dataset_outside_the_publication_catalog_is_rejected(self) -> None:
-        from baibai_jobs.publication.datasets import require_lake_dataset
-
-        with pytest.raises(ValueError, match="unsupported lake dataset"):
-            require_lake_dataset("jquants.daily_bars_v2")
+    def test_a_dataset_outside_the_publication_catalog_is_rejected(self, lake: Lake) -> None:
+        policy = release_policy_for_profile("production")
+        release = resolve_current_release(
+            LocalMirrorSource(lake.mirror), catalog=LAKE_DATASETS, policy=policy
+        )
+        aliased = release.manifest.model_copy(
+            update={
+                "datasets": {
+                    **release.manifest.datasets,
+                    "jquants.daily_bars_v2": release.manifest.datasets["jquants.daily_bars"],
+                }
+            }
+        )
+        with pytest.raises(ValueError, match="outside its profile"):
+            validate_release_policy(
+                aliased, release.dataset_manifests, catalog=LAKE_DATASETS, policy=policy
+            )
 
     def test_a_dataset_manifest_replaced_under_the_same_key_fails_closed(
         self, lake: Lake, tmp_path: Path

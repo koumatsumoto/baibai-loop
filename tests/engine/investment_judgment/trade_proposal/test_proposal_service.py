@@ -13,6 +13,7 @@ from tests.helpers.proposal import (
     PUBLISHED,
     backend_case,
     bind_review,
+    read_saved_proposal,
     reviewed_proposal,
 )
 
@@ -25,7 +26,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
     proposal_draft_sha256,
 )
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.investment_judgment.workflow.operation.progress import progress_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationCompletionError
@@ -84,7 +84,7 @@ def test_real_selection_pair_scope_publish_atomic_and_ledger_unchanged(case):
             "SELECT ticker,origin,source_digest FROM position_decision_reference"
         ).fetchone()
     assert binding == ("1234", "proposal", published.review.draft_sha256)
-    assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
     recorded = case.operations.record_proposal(
         case.operation.operation_id, published.proposal_id, now=PUBLISHED
     )
@@ -136,9 +136,7 @@ def test_published_unbound_unfinished_proposal_cannot_be_skipped(case, monkeypat
             completed_at=PUBLISHED,
         )
     assert get(operation.operation_id) == operation
-    assert get_investment_proposal(
-        proposal_id=proposal.proposal_id, db_path=case.app
-    ).payload() == {
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app).payload() == {
         **proposal.payload(),
         "published_at": PUBLISHED.isoformat(),
     }
@@ -226,7 +224,7 @@ def test_cli_yaml_output_failure_preserves_successful_publication(
             now=PUBLISHED,
         )
     assert capsys.readouterr().out == ""
-    stored = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
+    stored = read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
     assert stored.model_dump(mode="json", exclude={"published_at"}) == proposal.payload()
     assert stored.published_at == PUBLISHED
 
@@ -327,7 +325,7 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
     assert service.check(proposal).valid
     published = service.publish(proposal)
-    assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
     assert published.inputs.quotes[0].price_yen == Decimal(875)
     assert published.items[0].terms.notional_yen == Decimal(264000)
     preview = preview_current_terms(
@@ -350,7 +348,7 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     changed["items"][0]["terms"].update(limit_price_yen="885", notional_yen="265500")
     with pytest.raises(ProposalConflictError, match="content review"):
         service.check(load_proposal_draft(changed))
-    assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
 
 
 def test_same_id_retry_reads_immutable_before_current_clock_latest_or_quote_gates(case):
@@ -594,7 +592,7 @@ def test_late_outcome_does_not_rewrite_saved_scope_but_rejects_stale_new_publica
     case.operations.record_assessment(
         case.operation.operation_id, pair.assessment_id, now=PUBLISHED + timedelta(minutes=2)
     )
-    stored = get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
+    stored = read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app)
     assert stored == published
     assert stored.research_scope.outcomes[1].status == "unfinished"
     raw = proposal.payload()
@@ -673,7 +671,7 @@ def test_author_sell_floor_flows_through_check_publish_get_and_preview(
         assert Decimal(calculation["sell_limit_projection"]["calculation_price_yen"]) == floor
     ledger_before = _ledger_snapshot(case.app)
     published = service.publish(proposal)
-    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
     before_preview = case.app.read_bytes()
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id,
@@ -711,7 +709,7 @@ def test_policy_revision_invalidates_unpublished_draft_not_saved_identity(case, 
     assert current_policy != proposal.inputs.policy_id
     before = case.app.read_bytes()
     assert service.publish(proposal) == published
-    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == published
     preview = preview_current_terms(
         proposal_id=proposal.proposal_id, db_path=case.app, sqlite_path=case.market, now=PUBLISHED
     )
