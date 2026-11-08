@@ -1875,8 +1875,26 @@ def test_transfer_compacts_only_runs_and_never_uploads_failed_snapshots(tmp_path
     creates = [line for line in calls if " create " in line]
     assert len(creates) == 2
     assert all(("--compact" in line) == ("/runs.sqlite" in line) for line in creates)
+    # 初回PUTで変わったETagを取り直し、世代不一致ではなくcompact失敗まで到達させる。
+    pulled = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "pull-machine"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert pulled.returncode == 0, pulled.stderr
+    state = Path(env["AWS_FAKE_STATE"])
+    unchanged_keys = ("runs.sqlite", "machine-manifest.json")
+    before = {
+        name: (state / name).read_bytes()
+        for key in unchanged_keys
+        for name in (f"put-{key}", f"generation-{key}")
+    }
     log.write_text("")
-    env["SNAPSHOT_COMPACT_FAKE_EXIT"] = "1"
+    snapshots.write_text("")
+    env["SNAPSHOT_COMPACT_FAKE_EXIT"] = "17"
     failed = subprocess.run(
         [root / "jobs/scripts/r2_transfer.sh", "push-machine"],
         cwd=root,
@@ -1885,7 +1903,24 @@ def test_transfer_compacts_only_runs_and_never_uploads_failed_snapshots(tmp_path
         capture_output=True,
         text=True,
     )
-    assert failed.returncode != 0
-    assert not any(
-        "put-object" in line or "copy-object" in line for line in _transfer_commands(log)
-    )
+    assert failed.returncode == 17, failed.stderr
+    creates = [line for line in snapshots.read_text().splitlines() if " create " in line]
+    assert len(creates) == 2
+    assert "/market.sqlite" in creates[0]
+    assert "--compact" not in creates[0]
+    assert "/runs.sqlite" in creates[1]
+    assert "--compact" in creates[1]
+    # machineは逐次公開なので先行marketのbackup/PUTは済み、失敗runsとreceiptは進まない。
+    writes = [
+        line
+        for line in _transfer_commands(log)
+        if line.startswith(("s3api put-object ", "s3api copy-object "))
+    ]
+    assert len(writes) == 2
+    assert writes[0].startswith("s3api copy-object ")
+    assert "--key market.sqlite.bak " in writes[0]
+    assert writes[1].startswith("s3api put-object ")
+    assert "--key market.sqlite " in writes[1]
+    assert '--if-match "etag-put-1"' in writes[1]
+    assert (state / "generation-market.sqlite").read_bytes() == b"xx"
+    assert {name: (state / name).read_bytes() for name in before} == before
