@@ -17,13 +17,13 @@ baibai-storesは非公開正本。秘密・endpoint・原文・私有DB/原稿�
 
 | 目的 | 入口 |
 | --- | --- |
-| 日次取得/統合 | [日次](#daily)。source受領と公開世代は別。 |
-| 特定sourceの取得/再抽出 | [source操作](#sources)。正常nullやL2不足を再GETで埋めない。 |
-| 保存Generationへ現政策 | [候補政策だけ](#screening-only)。モデル/旧IDは変えない。 |
-| 固定断面の分析 | [読取](#fixed-release-read)。保存入力と現在quoteを分ける。 |
-| machine/経済の反映・復旧 | [共通公開](#machine-publication)。lake→store→seal/input。 |
-| application更新/復元 | [更新](#application-db-を反映する)・[復元](#application-db-を復元する)。DBと取得ETagは一組。 |
-| 初期化/未完移行・表示 | [移行](#cutovers)・[Web](#web-serving)。空seedで不足を迂回しない。 |
+| 日次取得/統合 | [日次](#daily) |
+| 特定sourceの取得/再抽出 | [source操作](#sources) |
+| 保存Generationへ現政策 | [候補政策だけ](#screening-only) |
+| 固定断面の分析 | [読取](#fixed-release-read) |
+| machine/経済の反映・復旧 | [共通公開](#machine-publication) |
+| application更新/復元 | [更新](#application-db-を反映する)・[復元](#application-db-を復元する) |
+| 初期化/未完移行・表示 | [移行](#cutovers)・[Web](#web-serving) |
 
 <a id="daily"></a>
 <a id="日次実行と結果確認"></a>
@@ -261,7 +261,7 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 <a id="sources"></a>
 ## source取得と再開
 
-独立取得はsource固有原本を使い、全market/applicationをhydrateしない。同source/groupの取得〜stageを直列化し、共有quotaを守る。J-Quantsはnative head、未移行sourceは固定L1/未統合原本から計画する。
+独立取得はsource固有原本を使い、全market/applicationをhydrateしない。L2不足を再GETで埋めず、同source/groupの取得〜stageを直列化し、共有quotaを守る。J-Quantsはnative head、未移行sourceは固定L1/未統合原本から計画する。
 
 共有[source input](src/baibai_jobs/acquisition/source_inputs.py)・記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。inputは再生成可能な計画材料で正本ではない。元bindingで再開し、欠落を全DB取得/空seedで迂回しない。形式切替では対応readerを先行させ、非対応のactive/queued writerをdrainする。旧input/stageは保持する。
 
@@ -623,7 +623,7 @@ uv run baibai-jobs snapshots gc --mirror stores --apply --plan-hash <HASH>
 
 ## 定期maintenance
 
-PMIは公表翌週、TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な公開を行う。全履歴監査を定例化しない。依頼された注文結果だけmeasure_limit_outcomesで測り、価格差を逸失利益や指値規律の因果効果としない。
+TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な公開を行う。全履歴監査を定例化しない。依頼された注文結果だけmeasure_limit_outcomesで測り、価格差を逸失利益や指値規律の因果効果としない。
 
 通知webhookのrotationは新規/再生成→DISCORD_WEBHOOK_URL更新→通常通知確認。旧webhookはDiscord側で消すまで有効。実credential変更は別の依頼範囲に従い、過去Screeningを再実行しない。
 

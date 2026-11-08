@@ -20,15 +20,15 @@
 
 カードは原数値・符号・対象期・反対材料を保つ。L3は一次資料・複数モデル・必要な候補外対照で価値獲得経路と反証を評価する。外部評価・テクニカル・共有環境は比較材料で、保存市場判断/portfolioは機械順位を変えない。[保存旧成果](estimate-calibration.md)も現在の採否へ読み替えない。
 
-同じ比較の詳細を `selection-context --compare-ticker` で再読する時は、返されたSelection ID・`research_as_of`・`input_known_at`を保ち、`--screening-selection-id`・`--research-asof`・timezone付きの`--known-at`へ渡す。Selection IDはモデル世代を固定し、Research・市場判断は各保存/公開時刻をcutoffと照合して読む。`--known-at`省略時は実行時刻を使う。
+詳細の再読は `selection-context --compare-ticker` を使う。返されたSelection ID・`research_as_of`・`input_known_at`を、それぞれ`--screening-selection-id`・`--research-asof`・timezone付き`--known-at`へ渡す。モデル世代とcutoffを保ち、Research・市場判断は各保存/公開時刻をcutoffと照合する。`--known-at`省略時は実行時刻。
 
-cutoffだけでcontext全体は固定されない。保有は現在の台帳を発生時刻でreplayするため、過去の注文/約定の後追記で同じcutoffでも保有と依頼対象が変わり得る。contextの再読を保存Operationの固定入力からの再開と区別する。古いcutoffの指定は、後で取得した原本を当時既知だった証拠に変えない。
+保有は現在台帳を発生時刻でreplayするため、過去の注文/約定の後追記で同じcutoffでも保有と依頼対象が変わり得る。context再読を保存Operationの固定入力からの再開と分け、後日取得を当時既知の証拠にしない。
 
 ## 入力不足と品質
 
-[原典の時点・欠測](model-observations.md#source-owners)と[期間/株式basis](model-observations.md#financial-periods)を守る。不足は該当材料/経路に局所化し、候補数のために0や別期の好値で埋めない。取得coverageは成功した要求範囲で全銘柄の入力充足ではなく、入力不足による候補減少を機会減少としない。
+不足は[観測の規則](model-observations.md#source-owners)に従い局所化し、[期間/株式basis](model-observations.md#financial-periods)を揃える。要求範囲の取得coverageを全銘柄充足、不足による候補減を機会減としない。
 
-候補外の価格/株数不足は `investment-judgment selection-context --include-pricing-gaps` で、同じ保存Selectionの母集団/Generationから読む。同じ `--screening-selection-id` と `--compare-ticker` で詳細を確認できる。これは現行条件での不足診断で、過去の除外理由の再現・順位・株数補完・再選定ではない。
+候補外を含む価格/株数不足は、同じ保存Selectionを指定して `investment-judgment selection-context --include-pricing-gaps` で読む。その母集団/Generationの現行条件診断で、過去理由の再現・順位変更・株数補完・再選定ではない。詳細は前述の`--compare-ticker`へ。
 
 ## 保存と読取
 
@@ -45,4 +45,4 @@ uv run python -m tools.experiments.inspect_decision_cohort \
   --out <NEW_PRIVATE_JSON>
 ```
 
-成果・指値の因果効果・当時PIT・事前登録は証明せず、hash一致も事前固定を意味しない。正式比較の対象/窓/metricは結果を見る前に決める。`baseline_available_at`は完了時計で約定可能時刻ではなく、選定は`screening_published_at`、提案は`proposal_published_at`以後の観測と別々に比べ、取引可能時刻も確認する。後日の訂正・本人報告・取引・Retrospectiveを当時本文に混ぜず、私有出力を公開log/artifactへ出さない。
+成果・指値の因果効果・当時PIT・事前登録は証明せず、hash一致も事前固定を意味しない。正式比較の対象/窓/metricは結果を見る前に決める。完了時計（`baseline_available_at`）を約定可能時刻とせず、選定/提案は各公開以後の観測と別々に比べ、取引可能時刻も確認する。後日の訂正・本人報告・取引・Retrospectiveを当時本文に混ぜず、私有出力を公開log/artifactへ出さない。
