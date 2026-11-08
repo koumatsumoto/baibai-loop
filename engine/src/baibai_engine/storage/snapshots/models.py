@@ -472,9 +472,6 @@ class ReleasePolicy(BaseModel):
         return self
 
 
-type Manifest = DatasetManifest | ReleaseManifest
-
-
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
@@ -518,18 +515,6 @@ def load_lake_model_json[LakeModelT: BaseModel](
 ) -> LakeModelT:
     """Parse one lake wire model with duplicate-key rejection and redacted errors."""
     return _validate_payload(_load_json_object(raw), model)
-
-
-def load_manifest_json(raw: str | bytes) -> Manifest:
-    """Parse one strict manifest without accepting ambiguous or duplicate fields."""
-    payload = _load_json_object(raw)
-    is_dataset = "dataset" in payload
-    is_release = "release_id" in payload
-    if is_dataset == is_release:
-        raise ValueError("manifest must identify exactly one dataset build or lake release")
-    if is_dataset:
-        return _validate_payload(payload, DatasetManifest)
-    return _validate_payload(payload, ReleaseManifest)
 
 
 def canonical_lake_model_bytes(model: BaseModel) -> bytes:
