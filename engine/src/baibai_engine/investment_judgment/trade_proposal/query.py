@@ -167,8 +167,7 @@ def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> Propos
     corrections = load_corrections(connection)
     reports = []
     for row in connection.execute(
-        "SELECT report_id,recorded_at,payload FROM proposal_human_report "
-        "WHERE proposal_id=?",
+        "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
         (proposal_id,),
     ):
         report = HumanProposalReport.model_validate_json(row[2])
