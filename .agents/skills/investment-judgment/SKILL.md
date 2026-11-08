@@ -5,7 +5,7 @@ description: 人間の明示開始から有限対象を選び、Company Research
 
 # Investment Judgment
 
-開始・保存・再開の手順を扱う。採否は[doctrine](../../../docs/doctrine.md)、根拠・価値・独立検証は[Stock Assessment](../../../docs/reference/stock-assessment.md)、行動・条件・内容Reviewは[Trade Proposal](../../../docs/reference/trade-proposal.md)へ。省略したcommandはinvestment-judgmentの子commandで、引数は`--help`、pathは返却値を使う。`<APP_DB>`の準備/保存後反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
+採否は[doctrine](../../../docs/doctrine.md)、根拠・価値・独立検証は[Stock Assessment](../../../docs/reference/stock-assessment.md)、行動・条件・内容Reviewは[Trade Proposal](../../../docs/reference/trade-proposal.md)へ。省略commandはinvestment-judgment配下。引数は`--help`、pathは返却値を使う。`<APP_DB>`の準備/保存後反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
 ## 開始と固定対象
 
@@ -45,7 +45,7 @@ uv run baibai-engine articles exact-evidence \
 
 探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡す。月ごとにprivate index.jsonから選び、続きは同条件のnext_after。公表日時不明は日時検索に入らない。
 
-lookupは元lineageや旧release全体の再読でない。Research source.refに原典URL、used_forにexact descriptorを残し、日付・本文範囲・限定を後続/再開へ引継ぐ。自動exact照合は保証されず、原文を公開logへ転載しない。証拠の[独立性・変化・実施](../../../docs/reference/stock-assessment.md#analysis-domain-integration)を受領だけで認定しない。
+lookupは元lineageや旧release全体の再読でない。Research source.refに原典URL、used_forにexact descriptorを残し、日付・本文範囲・限定を後続/再開へ引継ぐ。自動exact照合は保証されず、原文を公開logへ転載しない。受領だけで独立性・変化・実施を認定しない。
 
 ## Company Research・Stock Assessment・Independent Review
 

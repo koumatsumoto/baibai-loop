@@ -14,8 +14,6 @@
 
 固定Operation全対象をnew/holding別に被覆する。未調査はunfinishedの理由/参照に対応する評価参照なしdefer、Review済みuncertain/unresolvedは参照付きdeferにできる。0対象に空提案は作らない。
 
-[経済性](../doctrine.md#economic-return-policy)を指値・数量・待機案で比べ、採用理由/見直し条件へ結ぶ。同じBase年率でも倍率上昇/利益回復への依存は異なり、Pmax内だけで採用しない。
-
 ## 条件付き購入
 
 quoteは未調整終値で売気配ではない。評価/権利basisとcashを確認し、作者limit・実約定と分ける。許容価格域の説明は任意で、架空quoteや追加gateを作らない。
@@ -29,7 +27,7 @@ PmaxはBase・期間・[要求率](../doctrine.md#required-return-policy)から�
 <a id="limit-selection"></a>
 ### 指値と待機案の選択
 
-見返り・cash/単元・既知イベントで判断が変わる少数案を現金維持/他案と比べ、採用理由・重要差・反転条件を残す。全呼値探索や件数ノルマは不要。
+指値・数量・待機案を[経済比較](../doctrine.md#economic-return-policy)する。cash/単元・既知イベントで判断が変わる少数案を現金維持/他案と比べ、採用理由・重要差・反転条件を残す。全呼値探索や件数ノルマは不要。同じBase年率でも倍率上昇/利益回復への依存は異なり、Pmax内だけで採用しない。
 
 [同context](../../engine/src/baibai_engine/investment_judgment/trade_proposal/inputs.py)と購入算術を使い、鮮度は実quote、支出/利回りは作者limit、価格/株数basisはsnapshotへ揃える。入力変更時は比較を取り直す。
 
@@ -72,7 +70,7 @@ sell limitは作者の一株回収下限。実quoteの上下とも可能だがgr
 
 公開時に固定scope・exact評価pair・現入力を照合する。previewは保存案と現在再試算を分け、旧保存を下限比較済みとせず、現在上限超でもlimit/数量を書換えない。利用不能を当時の誤りと即断せず、過去本文/hashへ現在条件を適用しない。
 
-saved/current warningを分け、人間へ示す。保有quote/権利basis不足でNAVを作らず、既知factor比率が下限ならcoverageを示す。取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)へ別記録する。
+saved/current warningを分け、人間へ示す。既知factor比率が下限ならcoverageを示す。保有時価/NAVと取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)に従う。
 
 ## 提案の訂正と人間の報告
 
