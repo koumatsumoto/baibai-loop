@@ -3,7 +3,7 @@
 import json
 import sqlite3
 from contextlib import closing
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
@@ -113,6 +113,66 @@ def test_correction_report_serving_and_preview_preserve_originals_and_ledger(rec
     assert preview.status == "blocked"
     assert any(x.code == "valuation_basis_requires_refresh" for x in preview.change_reasons)
     assert preview.records["human_reports"][0]["outcome"] == "not_purchased"
+    assert snapshot(case.app) == before
+
+
+def test_human_report_reads_order_by_receipt_instant_without_changing_saved_records(records_case):
+    case, a, b, service, correction = records_case
+    before = snapshot(case.app)
+    corrected = service.correct(correction, expected_latest_ref=ref(b))
+    receipts = [
+        ("report-late", "2026-10-14T09:00:00+00:00"),
+        ("report-early", "2026-10-14T17:30:00+09:00"),
+        ("report-tie-a", "2026-10-14T18:00:00.000001+09:00"),
+        ("report-tie-z", "2026-10-14T09:00:00.000001+00:00"),
+        ("report-micro", "2026-10-14T09:00:00.000002+00:00"),
+    ]
+    drafts, saved = {}, {}
+    for report_id, receipt in receipts:
+        draft = HumanProposalReportDraft(
+            report_id=report_id,
+            proposal_ref=ref(a),
+            outcome="not_purchased",
+            statement="合成の非購入報告。",
+            reported_at=PUBLISHED + timedelta(minutes=10),
+        )
+        drafts[report_id] = draft
+        recorded_at = datetime.fromisoformat(receipt)
+        writer = ProposalRecordService(case.app, clock=lambda at=recorded_at: at)
+        saved[report_id] = writer.report(draft)
+
+    query = (
+        "SELECT report_id,recorded_at,payload FROM proposal_human_report "
+        "WHERE proposal_id=? ORDER BY report_id"
+    )
+    with closing(connect_read_only(case.app)) as connection:
+        stored_before = [
+            tuple(row) for row in connection.execute(query, (a.proposal_id,)).fetchall()
+        ]
+    assert {row[0]: row[1] for row in stored_before} == dict(receipts)
+    expected = ["report-early", "report-late", "report-tie-a", "report-tie-z", "report-micro"]
+    records = service.read(a.proposal_id)
+    assert records["human_reports"] == [
+        saved[report_id].model_dump(mode="json") for report_id in expected
+    ]
+    assert records["corrections"] == [corrected.model_dump(mode="json")]
+    # A retry after later receipts retains its original receipt, even with an older clock.
+    assert service.report(drafts["report-late"]) == saved["report-late"]
+    view = DbProposalSource(case.app).latest()
+    assert view.proposal_id == a.proposal_id
+    assert view.human_reports == [saved[report_id] for report_id in expected]
+    assert view.corrections == [corrected]
+    preview = preview_current_terms(
+        proposal_id=a.proposal_id,
+        db_path=case.app,
+        sqlite_path=case.market,
+        now=PUBLISHED + timedelta(days=1),
+    )
+    assert preview.records == records
+    with closing(connect_read_only(case.app)) as connection:
+        assert [
+            tuple(row) for row in connection.execute(query, (a.proposal_id,)).fetchall()
+        ] == stored_before
     assert snapshot(case.app) == before
 
 
