@@ -39,24 +39,6 @@ def read_edinet_documents(sqlite_path: Path, on_date: date) -> list[dict[str, An
         conn.close()
 
 
-def read_unrechecked_edinet_document_dates(sqlite_path: Path, *, before: date) -> tuple[date, ...]:
-    """Return document-list dates without proof of a later source recheck."""
-    if not sqlite_path.exists():
-        return ()
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return ()
-    try:
-        rows = conn.execute(
-            "SELECT doc_date FROM edinet_document_lists "
-            "WHERE rechecked_asof IS NULL AND doc_date < ? ORDER BY doc_date",
-            (before.isoformat(),),
-        ).fetchall()
-    finally:
-        conn.close()
-    return tuple(date.fromisoformat(str(row[0])) for row in rows)
-
-
 def read_current_filing_documents(
     connection: sqlite3.Connection, *, through: date
 ) -> list[dict[str, Any]]:
