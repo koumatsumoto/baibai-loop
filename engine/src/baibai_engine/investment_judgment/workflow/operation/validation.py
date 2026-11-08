@@ -54,7 +54,14 @@ def validate_selection(
             )
             for target in selection.targets
         }
-        if selection.inputs.saved_company_context != expected:
+        if canonical_json(
+            {
+                ticker: context.model_dump(mode="json")
+                for ticker, context in selection.inputs.saved_company_context.items()
+            }
+        ) != canonical_json(
+            {ticker: context.model_dump(mode="json") for ticker, context in expected.items()}
+        ):
             raise ValueError("saved company context differs from the selected cutoff")
 
 
