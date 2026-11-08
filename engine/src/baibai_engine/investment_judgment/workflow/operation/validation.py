@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
+from baibai_engine.primitives.json import canonical_json
 
 
 def validate_selection(
@@ -40,7 +41,9 @@ def validate_selection(
             if market is None
             else assessment_projection(market, as_of=selection.research_as_of)
         )
-        if selection.inputs.saved_market_context_assessment != market_projection:
+        if canonical_json(selection.inputs.saved_market_context_assessment) != canonical_json(
+            market_projection
+        ):
             raise ValueError("saved Market Assessment differs from the selected cutoff")
         expected = {
             target.ticker: company_context(

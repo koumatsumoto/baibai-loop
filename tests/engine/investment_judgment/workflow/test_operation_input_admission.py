@@ -26,7 +26,20 @@ from baibai_engine.storage.sqlite.application.read import connect_read_only
 NOW = datetime.fromisoformat("2026-10-14T18:00:00+09:00")
 
 
-@pytest.mark.parametrize("change", ["absent", "omitted", "summary", "future", "canonical"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "absent",
+        "omitted",
+        "summary",
+        "future",
+        "false_age",
+        "float_schema",
+        "null_age",
+        "canonical",
+        "reordered",
+    ],
+)
 def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, capsys, change):
     runs, app = tmp_path / "runs", tmp_path / "app"
     document = MarketContextAssessment(
@@ -48,6 +61,14 @@ def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, caps
         supplied["summary"] = "公開本文とは違う判断。"
     if change == "future":
         supplied["published_at"] = (NOW + timedelta(days=1)).isoformat()
+    if change == "false_age":
+        supplied["age_days"] = False
+    if change == "float_schema":
+        supplied["schema_version"] = 6.0
+    if change == "null_age":
+        supplied["age_days"] = None
+    if change == "reordered":
+        supplied = dict(reversed(tuple(canonical.items())))
     raw = selected.model_dump(mode="json")
     raw["inputs"]["saved_market_context_assessment"] = supplied
     payload = tmp_path / "payload.json"
@@ -76,7 +97,7 @@ def test_start_requires_exact_market_judgment_at_selection_cutoff(tmp_path, caps
         ],
         now=NOW,
     )
-    if change != "canonical":
+    if change not in {"canonical", "reordered"}:
         assert result == 1
         assert "saved Market Assessment differs from the selected cutoff" in capsys.readouterr().err
         assert OperationService(app).active() is None
