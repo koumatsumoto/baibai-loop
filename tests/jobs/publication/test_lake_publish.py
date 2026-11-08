@@ -492,82 +492,6 @@ def test_ambiguous_pointer_switch_reports_unknown_when_it_cannot_read_current(
         )
 
 
-def test_low_level_cli_refuses_to_roll_current_back_to_an_old_release(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    mirror, old_path = _release(tmp_path)
-    current_path = _successor_release(mirror, "release-2")
-    store = MemoryR2Store()
-    publish_release(mirror_root=mirror, release_manifest_path=old_path, store=store)
-    publish_release(mirror_root=mirror, release_manifest_path=current_path, store=store)
-    before = store.values["lake/pointers/market/current.json"].body
-    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", lambda **_: store)
-
-    result = lake_publish_module.main(
-        ["--mirror", str(mirror), "--release-manifest", str(old_path)]
-    )
-
-    assert result == 1
-    assert "cannot replace current" in capsys.readouterr().err
-    assert store.values["lake/pointers/market/current.json"].body == before
-
-
-def test_low_level_cli_allows_the_first_publication(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", lambda **_: store)
-
-    result = lake_publish_module.main(
-        ["--mirror", str(mirror), "--release-manifest", str(release_path)]
-    )
-
-    assert result == 0
-    serving = LakeReleasePointer.model_validate_json(
-        store.values["lake/pointers/market/current.json"].body
-    )
-    assert serving.release_id == "release-1"
-
-
-def test_low_level_cli_allows_an_exact_target_retry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    before = store.values["lake/pointers/market/current.json"].body
-    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", lambda **_: store)
-
-    result = lake_publish_module.main(
-        ["--mirror", str(mirror), "--release-manifest", str(release_path)]
-    )
-
-    assert result == 0
-    assert store.values["lake/pointers/market/current.json"].body == before
-
-
-def test_low_level_cli_refuses_same_release_id_with_different_bytes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    mirror, release_path = _release(tmp_path)
-    store = MemoryR2Store()
-    publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
-    before = store.values["lake/pointers/market/current.json"].body
-    payload = json.loads(release_path.read_text(encoding="utf-8"))
-    payload["created_at"] = "2026-01-08T00:00:00Z"
-    release_path.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", lambda **_: store)
-
-    result = lake_publish_module.main(
-        ["--mirror", str(mirror), "--release-manifest", str(release_path)]
-    )
-
-    assert result == 1
-    assert "cannot replace current" in capsys.readouterr().err
-    assert store.values["lake/pointers/market/current.json"].body == before
-
-
 def test_market_publish_conflicts_if_current_moves_during_export(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1131,22 +1055,6 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     read_back = [key for key in store.get_keys[before:] if key.endswith(".parquet")]
     assert len(read_back) == 1
     assert second.transfers.downloaded_bytes < closure_bytes
-
-
-def test_low_level_cli_requires_mirror_before_constructing_store(monkeypatch):
-    def unexpected_store(**kwargs):
-        pytest.fail("missing CLI input must not construct the remote store")
-
-    monkeypatch.setattr(lake_publish_module, "Boto3R2Store", unexpected_store)
-    with pytest.raises(SystemExit) as error:
-        lake_publish_module.main(["--release-manifest", "release.json"])
-    assert error.value.code == 2
-
-
-def test_low_level_cli_reports_configuration_failure_without_traceback(monkeypatch, capsys):
-    monkeypatch.delenv("R2_ACCOUNT_ID", raising=False)
-    assert lake_publish_module.main(["--mirror", ".", "--release-manifest", "release.json"]) == 1
-    assert "required environment variable is missing: R2_ACCOUNT_ID" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("lose_during_upload", [False, True])

@@ -1460,3 +1460,31 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
         assert result.operating_profit_loss_narrowing is None
         assert result.net_share_change_yoy == pytest.approx(-0.1)
         assert result.sales == 200
+
+
+@pytest.mark.parametrize("value", [False, True])
+def test_boolean_native_financial_values_remain_raw_but_not_numeric(tmp_path, value):
+    path = tmp_path / "market.sqlite"
+    record = document(
+        "boolean-values",
+        DocType="FYFinancialStatements_Consolidated_JP",
+        EPS=value,
+        ShOutFY=value,
+        FEPS=value,
+        FNCEPS="99",
+        FDivAnn=value,
+    )
+    start = date(2026, 8, 10)
+    store_jquants_fin_summaries(path, [record], requested_start=start, requested_end=ASOF)
+    rows = read_fin_summaries(path, start, ASOF)
+    assert rows is not None
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.cumulative_eps is None
+    assert row.shares_outstanding is None
+    assert row.forecast_eps is None
+    assert row.dps_forecast_annual is None
+    # The selected primary slot stays unknown; supplemental NC guidance does not win.
+    assert row.forecast_basis == "consolidated"
+    assert ("forecast_eps", ("boolean-values",)) in row.forecast_field_sources
+    assert json.loads(row.document_payload) == record

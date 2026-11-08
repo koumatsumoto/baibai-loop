@@ -86,6 +86,8 @@ class SourceProjectionTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(to_float(value))
                 self.assertIsNone(to_str_or_none(value))
+        self.assertIsNone(to_float(True))
+        self.assertIsNone(to_float(False))
         self.assertEqual(to_float(0), 0.0)
         self.assertEqual(to_str_or_none(0), "0")
 
@@ -1102,6 +1104,31 @@ class RepeatedObservationTest(unittest.TestCase):
             return store, record, "LongVol", "jquants_weekly_margin", "long_vol", 5100
         store = partial(store_jquants_all_issues_daily_margin, db, balance_date=day)
         return store, record, "LongVol", "jquants_all_issues_daily_margin", "long_vol", 5100
+
+    def test_required_margin_booleans_are_rejected_and_literal_zero_is_usable(self):
+        for kind in ("daily", "alerts"):
+            for value in (False, True):
+                with self.subTest(kind=kind, value=value), tempfile.TemporaryDirectory() as tmp:
+                    db = Path(tmp) / "market.sqlite"
+                    store, record, field, table, column, _ = self._case(kind, db)
+                    self.assertEqual(store([dict(record, **{field: value})]), 0)
+                    with closing(sqlite3.connect(db)) as connection:
+                        self.assertEqual(
+                            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone(), (0,)
+                        )
+                        self.assertEqual(
+                            connection.execute("SELECT status FROM source_coverage").fetchone(),
+                            ("partial",),
+                        )
+                    self.assertEqual(store([dict(record, **{field: 0})]), 1)
+                    with closing(sqlite3.connect(db)) as connection:
+                        self.assertEqual(
+                            connection.execute(f"SELECT {column} FROM {table}").fetchone(), (0.0,)
+                        )
+                        self.assertEqual(
+                            connection.execute("SELECT status FROM source_coverage").fetchone(),
+                            ("ok",),
+                        )
 
     def test_identical_records_conflicts_and_later_corrections(self):
         for kind in ("bars", "calendar", "weekly", "daily", "alerts"):

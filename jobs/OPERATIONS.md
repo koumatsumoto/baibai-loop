@@ -535,13 +535,16 @@ publisherは旧SQL原本を固定pairのkey/hash/size/stored_on/scopeと照合�
 <a id="market-schema-484950の限定cutover"></a>
 ### market 48/49→50
 
-daily/open/通常pushは移行しない。全writerを止め、旧codeでfresh machine bundle/ETagと旧releaseをhydrateしたcopyを保つ。旧article cutoverの部分公開は元code/receiptで先に完了する。50対応codeへ替え、同じleaseで進める。
+daily/open/通常pushは移行しない。全writerを止め、旧codeでfresh machine bundle/ETagと旧releaseをhydrateしたcopyを保つ。旧article cutoverの部分公開は元code/receiptで先に完了する。50対応codeへ替え、同じlease・fresh copy・対象日で進め、plan/apply失敗時は停止する。固定EDINET pairを含むapplied.jsonをモデルへ渡し、後段のseal/inputsも同じintegration directoryを使う。
 
 ```bash
 uv run baibai-jobs market-cutover prepare-copy \
   --source <PRESERVED_HYDRATED_SCHEMA48_OR_49_COPY> --output stores/market/market.sqlite \
   --receipt <PRIVATE_CUTOVER_RECEIPT_JSON> --kind canonical
+uv run python -m baibai_jobs.integration.sources plan --directory <PRIVATE_CUTOVER_INTEGRATION_DIRECTORY>
+uv run python -m baibai_jobs.integration.sources apply --asof <YYYY-MM-DD> --directory <PRIVATE_CUTOVER_INTEGRATION_DIRECTORY>
 uv run baibai-jobs model-integration --asof <YYYY-MM-DD> \
+  --integration-report <PRIVATE_CUTOVER_INTEGRATION_DIRECTORY>/applied.json \
   --lease-handle "$PUBLICATION_LEASE_HANDLE" --notice-output <PRIVATE_NOTICE_JSON>
 jobs/scripts/r2_transfer.sh push-market-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
 ```

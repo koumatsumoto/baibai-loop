@@ -42,11 +42,13 @@ class DbLedgerSource:
         now = datetime.now().astimezone()
         try:
             snapshot = current_portfolio(document, sqlite_path=self._market_path, now=now)
-        except (SQLiteSchemaError, sqlite3.Error) as error:
+        except (SQLiteSchemaError, sqlite3.Error):
             # Only this presentation boundary may retain unvalued ledger facts on a
             # market read failure. Judgment readers still reject the broken store.
             state = replay_events_through(document.events, now)
-            return PortfolioRead(summarize_portfolio(document, state, {}), str(error))
+            return PortfolioRead(
+                summarize_portfolio(document, state, {}), "市場評価を読み取れません。"
+            )
         return PortfolioRead(snapshot)
 
 

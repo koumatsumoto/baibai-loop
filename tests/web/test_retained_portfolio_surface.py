@@ -165,6 +165,84 @@ def test_corrupt_ledger_metadata_is_not_presented_as_empty(tmp_path):
     assert dashboard.reservations == []
 
 
+@pytest.mark.parametrize(
+    ("boundary", "error_type"),
+    [
+        ("ledger", ValueError),
+        ("ledger", RuntimeError),
+        ("ledger", sqlite3.OperationalError),
+        ("valuation", SQLiteSchemaError),
+        ("valuation", sqlite3.OperationalError),
+    ],
+)
+def test_dashboard_read_errors_do_not_publish_internal_diagnostics(
+    tmp_path, mocker, boundary, error_type
+):
+    app, market = tmp_path / APPLICATION_DB_PATH, tmp_path / MARKET_DB_PATH
+    seed_ledger(
+        app, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    before = app.read_bytes()
+    diagnostic = "SYNTHETIC_PRIVATE_NOTE /private/SYNTHETIC_PATH SELECT SYNTHETIC_SQL"
+    target = "load_ledger_document" if boundary == "ledger" else "current_portfolio"
+    mocker.patch.object(db_sources, target, side_effect=error_type(diagnostic))
+
+    paths = export_read_models(tmp_path, tmp_path / "export")
+    exported = next(path for path in paths if path.name == "portfolio-dashboard.json")
+    dashboard = json.loads(exported.read_text())
+    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
+        response = client.get("/api/dashboard")
+    assert response.status_code == 200
+    public = response.json()
+    for model in (dashboard, public):
+        assert model["ledger_exists"] is True
+        assert model["ledger_error"] == (
+            "保存済み台帳を読み取れません。" if boundary == "ledger" else None
+        )
+        assert model["valuation_error"] == (
+            "市場評価を読み取れません。" if boundary == "valuation" else None
+        )
+        assert model["total_capital_yen"] is None
+        if boundary == "valuation":
+            assert model["available_cash_yen"] is not None
+            assert model["holdings"][0]["quantity"] == 200
+            assert model["reservations"]
+        else:
+            assert model["available_cash_yen"] is None
+            assert model["holdings"] == model["reservations"] == []
+        assert "SYNTHETIC_" not in json.dumps(model)
+    assert app.read_bytes() == before
+    assert not market.exists()
+
+
+def test_invalid_saved_ledger_payload_does_not_escape_through_dashboard(tmp_path):
+    app, market = tmp_path / APPLICATION_DB_PATH, tmp_path / MARKET_DB_PATH
+    seed_ledger(
+        app, load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    )
+    with closing(sqlite3.connect(app)) as connection, connection:
+        connection.execute(
+            "UPDATE ledger_meta SET payload=? WHERE singleton=1",
+            (json.dumps({"as_of": "SYNTHETIC_PRIVATE_DATE", "note": "SYNTHETIC_PRIVATE_NOTE"}),),
+        )
+    before = app.read_bytes()
+
+    paths = export_read_models(tmp_path, tmp_path / "export")
+    exported = next(path for path in paths if path.name == "portfolio-dashboard.json")
+    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
+        response = client.get("/api/dashboard")
+    assert response.status_code == 200
+    for model in (json.loads(exported.read_text()), response.json()):
+        assert model["ledger_exists"] is True
+        assert model["ledger_error"] == "保存済み台帳を読み取れません。"
+        assert model["available_cash_yen"] is None
+        assert model["holdings"] == model["reservations"] == []
+        assert "SYNTHETIC_" not in json.dumps(model)
+        assert "input_value" not in json.dumps(model)
+    assert app.read_bytes() == before
+    assert not market.exists()
+
+
 @pytest.mark.parametrize("path", ["/api/dashboard", "/api/outcomes", "/api/proposal/latest"])
 def test_local_read_surface_does_not_initialize_sources(tmp_path, path):
     with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
@@ -302,12 +380,7 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     assert dashboard["total_capital_yen"] is None
     assert dashboard["valuation_as_of"] is None
     if valuation_failed:
-        expected_error = (
-            "obsolete market SQLite schema"
-            if failed_source == "valuation_schema"
-            else "file is not a database"
-        )
-        assert expected_error in dashboard["valuation_error"]
+        assert dashboard["valuation_error"] == "市場評価を読み取れません。"
     else:
         assert dashboard["valuation_error"] is None
     if failed_source == "names_date":
