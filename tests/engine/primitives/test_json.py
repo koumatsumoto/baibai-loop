@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.json import canonical_json, encode_json
 
 
 def test_canonical_json_normalizes_supported_representations() -> None:
@@ -25,16 +25,18 @@ def test_canonical_json_normalizes_supported_representations() -> None:
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
-def test_nonfinite_float_cannot_enter_canonical_identity(value):
+@pytest.mark.parametrize("encode", [canonical_json, encode_json])
+def test_nonfinite_float_cannot_enter_canonical_identity(value, encode):
     with pytest.raises(ValueError, match="Out of range float"):
-        canonical_json({"nested": [value]})
+        encode({"nested": [value]})
 
 
-def test_key_order_is_canonical_without_collapsing_null_zero_false_or_text():
+@pytest.mark.parametrize("encode", [canonical_json, encode_json])
+def test_key_order_is_canonical_without_collapsing_null_zero_false_or_text(encode):
     first = {"text": "0", "null": None, "zero": 0, "false": False}
     second = dict(reversed(list(first.items())))
     expected = '{"false":false,"null":null,"text":"0","zero":0}'
-    assert canonical_json(first) == canonical_json(second) == expected
+    assert encode(first) == encode(second) == expected
 
 
 def test_unsupported_bytes_are_not_silently_decoded_or_stringified():

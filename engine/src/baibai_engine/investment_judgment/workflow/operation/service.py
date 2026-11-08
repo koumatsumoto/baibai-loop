@@ -20,7 +20,6 @@ from baibai_engine.investment_judgment.trade_proposal.query import (
     has_published_proposal_for_operation,
     load_investment_proposal,
 )
-from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
 from baibai_engine.investment_judgment.workflow.operation.models import (
     OperationPayload,
     OperationSession,
@@ -46,6 +45,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV4,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
+from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -114,11 +114,14 @@ class OperationService:
         )
         if session_kind != expected_kind or ticker != expected_ticker:
             raise OperationConflictError("Operation kind/ticker differs from Research scope")
-        verify_generated_inputs(
-            selection.inputs.generation,
+        # 共有scopeは元の完全headerから解く。入力sliceの共有モデル欠落を見逃さない。
+        canonical = read_research_model_inputs(
+            selection.inputs.generation.generation_id,
             targets=tuple(target.ticker for target in selection.targets),
-            runs_path=self._runs_path,
+            path=self._runs_path,
         )
+        if canonical != selection.inputs.generation:
+            raise ValueError("model input slice differs from its canonical generation")
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:
             publication = read_publication(

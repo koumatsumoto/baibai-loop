@@ -22,11 +22,16 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialAttempt,
     FinancialL1,
 )
-from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
+from baibai_engine.investment_judgment.company_research.context import CompanyContext, NotFound
+from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
+from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
+    GeneratedResearchInputsV4,
     GeneratedResearchSelectionDraft,
+    GeneratedResearchSelectionV4,
     ResearchRequest,
 )
+from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
 )
@@ -239,7 +244,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     monkeypatch.setattr(FinancialL1, "fixed", forbidden)
     monkeypatch.setattr(store, "get_bytes", forbidden)
     monkeypatch.setattr(
-        "baibai_engine.investment_judgment.workflow.generated_inputs.read_research_model_inputs",
+        "baibai_engine.investment_judgment.workflow.operation.service.read_research_model_inputs",
         forbidden,
     )
     resumed = resume_selected_workspace(
@@ -279,9 +284,30 @@ def test_native_descriptor_and_generation_identity_cannot_be_substituted(tmp_pat
         publish_generation(
             generation.model_copy(update={"inputs": {"financial": changed}}), path=runs
         )
+    altered = GeneratedResearchSelectionV4(
+        request=ResearchRequest(
+            text="固定原本から調査", scope="specified_stocks", requested_tickers=("1234",)
+        ),
+        research_as_of=AS_OF,
+        input_known_at=AT,
+        selection_summary="保存入力の参照を確認",
+        targets=(selected_target("1234"),),
+        capacity=CURRENT_RESEARCH_CAPACITY,
+        inputs=GeneratedResearchInputsV4(
+            generation=fixed.model_copy(update={"inputs": {"financial": changed}}),
+            saved_company_context={
+                "1234": CompanyContext(research=NotFound(), assessment=NotFound())
+            },
+        ),
+    )
+    app = tmp_path / "app"
     with pytest.raises(ValueError, match="differs from its canonical generation"):
-        verify_generated_inputs(
-            fixed.model_copy(update={"inputs": {"financial": changed}}),
-            targets=("1234",),
-            runs_path=runs,
+        OperationService(app, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=AS_OF,
+            started_at=AT,
+            payload=OperationPayload(
+                checkpoint="start", artifacts=(altered.model_dump(mode="json"),)
+            ),
         )
+    assert not app.exists()

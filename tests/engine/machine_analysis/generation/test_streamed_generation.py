@@ -1,5 +1,6 @@
 """逐次生成は保存の原子性・不変identity・候補政策を変えない。"""
 
+import gzip
 import sqlite3
 from contextlib import closing
 
@@ -63,6 +64,70 @@ def test_stream_consumed_once_and_encoded_before_next_row_without_partial_visibi
     assert retry.model_count == len(original.models)
 
 
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_validated_payload_encoding_keeps_canonical_bytes_without_normalizing_again(
+    tmp_path, monkeypatch, schema_version
+):
+    path = tmp_path / "runs.sqlite"
+    original = generation()
+    legacy_payload = (
+        '{"nested":[{"flag":false,"unknown":null,"zero":0}],'
+        '"numbers":[-0.0,1.0,1e-07,1e+20],"日本語":"企業財務/観測"}'
+    )
+    original = original.model_copy(
+        update={
+            "models": (
+                original.models[0].model_copy(
+                    update={
+                        "payload": {
+                            "日本語": "企業財務/観測",
+                            "nested": [{"unknown": None, "zero": 0, "flag": False}],
+                            "numbers": [-0.0, 1.0, 1e-7, 1e20],
+                        }
+                    }
+                ),
+                *original.models[1:],
+            )
+        }
+    )
+    if schema_version == 2:
+        original = original.model_copy(
+            update={
+                "schema_version": 2,
+                "subject_plan": {
+                    "1234": GenerationSubject(
+                        scope="stock", model_ids=("company_financials", "technical_analysis")
+                    ),
+                    "market": GenerationSubject(scope="market", model_ids=("market_context",)),
+                },
+            }
+        )
+    normalized = []
+
+    def record(value):
+        normalized.append(value)
+        return canonical_json(value)
+
+    monkeypatch.setattr(generation_store, "canonical_json", record)
+    store = ModelGenerationStore(path)
+    assert store.publish_stream(stream(original)).created
+    assert len(normalized) == 1  # Only metadata needs domain-value normalization.
+    with closing(sqlite3.connect(path)) as reader:
+        for model in original.models:
+            encoded = reader.execute(
+                "SELECT payload_gzip FROM generated_model "
+                "WHERE generation_id=? AND model_id=? AND subject=?",
+                (original.generation_id, model.model_id, model.subject),
+            ).fetchone()[0]
+            expected = (
+                legacy_payload if model is original.models[0] else canonical_json(model.payload)
+            )
+            assert encoded == gzip.compress(expected.encode(), mtime=0)
+    assert read_generation(original.generation_id, path=path) == original
+    assert not store.publish_stream(stream(original, reversed(original.models))).created
+    assert len(normalized) == 2
+
+
 def test_late_generator_failure_rolls_back_all_rows_and_preserves_previous_generation(tmp_path):
     path = tmp_path / "runs.sqlite"
     store = ModelGenerationStore(path)
@@ -118,9 +183,10 @@ def test_duplicate_fresh_stream_rolls_back(tmp_path):
     assert read_generation(original.generation_id, path=tmp_path / "runs.sqlite") is None
 
 
-def test_nonfinite_last_streamed_model_rolls_back_header_and_previous_rows(tmp_path):
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_last_streamed_model_rolls_back_header_and_previous_rows(tmp_path, value):
     path = tmp_path / "runs.sqlite"
-    original = generation(value=float("nan"))
+    original = generation(value=value)
     consumed = []
 
     def rows():
