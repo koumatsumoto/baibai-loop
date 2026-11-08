@@ -40,6 +40,8 @@ def _price_block(
         bar.turnover_value
         for bar in bars[-_TURNOVER_WINDOW_BARS:]
         if bar.turnover_value is not None
+        and math.isfinite(bar.turnover_value)
+        and bar.turnover_value >= 0
     ]
     return {
         "resolved_date": bars[-1].traded_at.isoformat(),

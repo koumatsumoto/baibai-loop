@@ -40,7 +40,7 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 
 共通統合は全providerを待たず、到着済み受領を固定する。経済L1の公開/readback/seal/input発行→marketのsource別投影/EDINET抽出→固定market releaseと経済selectionによるモデル/候補保存→machine反映/readback・sealの順で進む。source失敗は前回適格投影を保って他sourceを進めるが、モデル/公開失敗は後段反映を止める。model-integrationは外部取得/Web生成を呼ばない。
 
-通常生成は保存列から候補座標を作り、保存DBの再読・gzip再展開を省く。候補外を含む全対象モデルは保存するため、保存量削減ではない。個社投影失敗は新Generationをrollbackして旧世代を保ち、Selection・lakeを発行しない。保存後の政策失敗ではGeneration cacheが残る。`model storage`の件数・`payload_gzip_bytes`は当世代の圧縮payload実量で、集計だけのDB・OS障害は`state=unmeasured`と例外型を記録して続行する。未計測を0と扱わない。
+[通常生成](src/baibai_jobs/integration/models.py)は候補外を含む全対象モデルを保存する。個社投影失敗は新Generationをrollbackして旧世代を保ち、Selection・lakeを発行しない。保存後の政策失敗ではGeneration cacheが残る。容量計測だけの失敗は生成失敗と分けて続行し、未計測を0と扱わない。
 
 停止時は最後の未完phase、store/release・generation/selection・lease解放を確認する。logのdoneや通知成功は反映の証明でなく、限定source成功を全体成功にしない。候補0を投資機会なしとせず、[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。既定読取は発行時計より新しいas_ofを優先する。過去計算はexact IDで読み、古い非空候補へfallbackしない。
 
@@ -463,7 +463,7 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 
 週次の空充足には実確認JST日より前の後続2営業日、日次には後続1営業日の暦を使い、日次空は不足のままにする。最終週は公表日後に再確認し、未充足を残す。有限backfillへ今日までの全暦を要求しない。
 
-margin-alerts / short-sale-reports / margin-interestのL2 cacheは、numeric projection revision・採用原本・object hash・SQL parityが一致するcomplete投影だけを再利用し、marker欠落/旧revisionやpartialは同じfixed L1から再投影する。markerはParquet footerと派生inputに置き、raw L1・Arrow schema・旧readerの保存形式は維持する。
+margin-alerts / short-sale-reports / margin-interestのL2 cacheは[再利用検証](src/baibai_jobs/integration/native_projection_cache.py)に従う。cache不適格/partialは同じfixed L1から再投影し、原本の再GETを要しない。
 
 ```bash
 uv run baibai-jobs jquants-margin-interest-native acquire \

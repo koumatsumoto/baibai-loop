@@ -400,3 +400,24 @@ def test_sector_uses_only_peers_with_exact_target_interval(tmp_path, target_coun
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_negative_saved_turnover_does_not_cancel_valid_liquidity_or_rewrite_source(tmp_path):
+    path = tmp_path / "market.sqlite"
+    _insert_bars(path, "AAAA", [100.0] * 20, end=_ASOF)
+    with closing(open_connection(path)) as conn, conn:
+        conn.execute(
+            "UPDATE jquants_daily_bars SET turnover_value = -200000000 "
+            "WHERE ticker = 'AAAA' AND traded_at = ?",
+            (_ASOF.isoformat(),),
+        )
+    before = path.read_bytes()
+    profile = security_context_from_store(
+        path, ticker="AAAA", as_of=_ASOF, self_range_window_bars=SELF_RANGE_WINDOW_BARS
+    )
+    assert profile["price"]["avg_turnover_20d_oku"] == 2.0
+    assert profile["price"]["resolved_date"] == _ASOF.isoformat()
+    assert profile["price"]["return_5d"] == 0.0
+    bars = read_price_bars(path, tickers=("AAAA",), start=_ASOF, end=_ASOF)
+    assert bars["AAAA"][0].turnover_value == -2e8
+    assert path.read_bytes() == before

@@ -102,3 +102,11 @@ def test_only_explicit_no_trade_can_complete_peak_nonmatch_coverage(values, comp
     assert result["observations"]["G60"]["coverage"]["complete"] is complete
     assert ("G60" in result["annotation"]["evaluated_refs"]) is complete
     assert ("G60" in result["annotation"]["unavailable_refs"]) is not complete
+
+
+@pytest.mark.parametrize("field", ["Vo", "Va"])
+def test_negative_activity_is_retained_as_invalid_not_no_trade(field):
+    result = normalize_daily_bars([{**IDENTITY, **PRICED, field: -1}])
+    assert result.status == "ok"
+    assert result.rows[0][2 + FIELDS.index(field)] == -1.0
+    assert classify_price_day(result.rows[0][2:8]) == "invalid"

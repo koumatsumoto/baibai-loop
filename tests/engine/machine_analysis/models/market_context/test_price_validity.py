@@ -103,3 +103,28 @@ def test_invalid_benchmark_retains_its_target_date_without_a_false_trend(invalid
     assert point["observation_date"] == DAY.isoformat()
     assert point["benchmark_return_20d"] is None
     assert point["benchmark_trend"] == "unknown"
+
+
+@pytest.mark.parametrize("invalid", [-2e8, float("nan"), float("inf"), float("-inf"), None])
+@pytest.mark.parametrize("valid_count", [9, 10])
+@pytest.mark.parametrize("valid_turnover", [0.0, 2e8])
+def test_turnover_average_counts_only_finite_nonnegative_observations(
+    invalid, valid_count, valid_turnover
+):
+    # The oldest valid bar is outside the 20-bar window and cannot fill a gap.
+    turnovers = [2e8] + [valid_turnover] * valid_count + [invalid] * (20 - valid_count)
+    bars = [PriceBar(day, 100.0, value) for day, value in zip(DAYS, turnovers, strict=True)]
+    result = calculate_security_market_context(
+        ticker="1301",
+        bars=bars,
+        master=None,
+        benchmark_ticker="1321",
+        benchmark_prices=dict.fromkeys(DAYS, 100.0),
+        peer_prices=(),
+        self_range_window_bars=750,
+    )
+    price = result["price"]
+    assert price["avg_turnover_20d_oku"] == (valid_turnover / 1e8 if valid_count == 10 else None)
+    assert price["resolved_date"] == DAY.isoformat()
+    assert price["return_20d"] == 0.0
+    assert price["bar_count"] == 21
