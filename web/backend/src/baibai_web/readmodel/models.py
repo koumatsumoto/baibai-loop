@@ -81,4 +81,5 @@ class PortfolioOutcomeView(BaseModel):
 
 
 class OutcomesView(BaseModel):
+    error: str | None
     outcomes: list[PortfolioOutcomeView]

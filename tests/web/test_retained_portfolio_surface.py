@@ -356,3 +356,41 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
     outcomes = json.loads((output / "views/outcomes.json").read_text())
     assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
     assert (app.read_bytes(), market.read_bytes()) == before
+
+
+@pytest.mark.parametrize("damage", ["invalid_payload", "missing_table"])
+def test_outcome_read_failure_does_not_block_independent_views(tmp_path, damage):
+    app = tmp_path / APPLICATION_DB_PATH
+    ledger = load_portfolio_ledger(Path("tests/fixtures/portfolio-ledger/representative.yaml"))
+    seed_ledger(app, ledger)
+    PortfolioOutcomeStore(app).publish(_publication())
+    with sqlite3.connect(app) as connection:
+        if damage == "invalid_payload":
+            connection.execute("UPDATE portfolio_outcome SET payload = '{}' ")
+        else:
+            connection.execute("DROP TABLE portfolio_outcome")
+    before = app.read_bytes()
+
+    output = tmp_path / "export"
+    paths = export_read_models(tmp_path, output)
+
+    assert len(paths) == 3
+    dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
+    assert dashboard["ledger_error"] is None
+    assert dashboard["holdings"][0]["quantity"] == 200
+    outcomes = json.loads((output / "views/outcomes.json").read_text())
+    assert outcomes == {"error": "保存済み運用成績を読み取れません。", "outcomes": []}
+    assert app.read_bytes() == before
+
+
+def test_outcomes_distinguish_absent_store_and_valid_empty_store(tmp_path):
+    from baibai_web.readmodel.builders.outcomes import build_outcomes
+
+    app = tmp_path / "app.sqlite"
+    assert build_outcomes(app).error is not None
+    assert not app.exists()
+    app.touch()
+    assert build_outcomes(app).error is not None
+    assert app.stat().st_size == 0
+    initialize_database(app)
+    assert build_outcomes(app).model_dump() == {"error": None, "outcomes": []}

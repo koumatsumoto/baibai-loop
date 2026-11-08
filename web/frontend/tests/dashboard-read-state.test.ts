@@ -143,3 +143,46 @@ it('still shows the generation stamp when the ledger is absent or unreadable', (
     expect(html).not.toContain('台帳最終記録')
   }
 })
+
+it('does not describe an unavailable saved outcome view as no outcomes', () => {
+  hooks.values.set(0, dashboard())
+  hooks.values.set(1, { error: '保存済み運用成績を読み取れません。', outcomes: [] })
+  const html = render()
+  expect(html).toContain('資産と損益')
+  expect(html).toContain('運用成績を読み込めません')
+  expect(html).toContain('保存済み運用成績を読み取れません。')
+  expect(html).not.toContain('運用成績はまだありません')
+})
+
+it('describes a readable empty outcome store as no outcomes', () => {
+  hooks.values.set(0, dashboard())
+  hooks.values.set(1, { error: null, outcomes: [] })
+  const html = render()
+  expect(html).toContain('運用成績はまだありません')
+  expect(html).not.toContain('運用成績を読み込めません')
+})
+
+
+it.each([undefined, null])('keeps readable legacy and current outcome views visible (error=%s)', error => {
+  hooks.values.set(0, dashboard())
+  hooks.values.set(1, {
+    ...(error === undefined ? {} : { error }),
+    outcomes: [{
+      outcome_id: 'synthetic-outcome', horizon: '1y', period_start_date: '2024-12-31',
+      period_end_date: '2025-12-31', status: 'resolved', reason: null,
+      portfolio_twr_pct: 10.2, benchmark_cumulative_return_pct: 8.2,
+    }],
+  })
+  const html = render()
+  expect(html).toContain('synthetic-outcome')
+  expect(html).toContain('10.2%')
+  expect(html).not.toContain('運用成績を読み込めません')
+})
+
+it('preserves the empty state of a readable legacy outcome view', () => {
+  hooks.values.set(0, dashboard())
+  hooks.values.set(1, { outcomes: [] })
+  const html = render()
+  expect(html).toContain('運用成績はまだありません')
+  expect(html).not.toContain('運用成績を読み込めません')
+})

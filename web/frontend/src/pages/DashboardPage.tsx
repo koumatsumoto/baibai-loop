@@ -416,7 +416,9 @@ export function DashboardPage() {
 
       {outcomesError !== null
         ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomesError}</AlertDescription></Alert>
-        : outcomes && <OutcomeCard outcomes={outcomes.outcomes} />}
+        : outcomes && (outcomes.error != null
+          ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomes.error}</AlertDescription></Alert>
+          : <OutcomeCard outcomes={outcomes.outcomes} />)}
     </PageShell>
   )
 }

@@ -64,6 +64,7 @@ export interface LatestProposalView {
 export type NonEmptyStr = string
 
 export interface OutcomesView {
+  error: string | null
   outcomes: PortfolioOutcomeView[]
 }
 
