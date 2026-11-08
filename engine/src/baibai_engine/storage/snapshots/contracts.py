@@ -11,6 +11,8 @@ import pyarrow as pa  # type: ignore[import-untyped]
 
 from baibai_engine.storage.snapshots.keys import LakeLayer
 
+PROJECTION_REVISION_METADATA_KEY = b"baibai.projection_revision"
+
 PartitionGrain = Literal["year", "month"]
 """How much of one dataset's history a single partition covers.
 

@@ -109,6 +109,55 @@ def test_equal_confirmation_reuses_both_tables_and_recomputes_coverage(tmp_path,
     assert coverage(cold) == coverage(market)
 
 
+@pytest.mark.parametrize("boolean", [True, False])
+@pytest.mark.parametrize("balance", [WEEK, DAY])
+def test_old_boolean_projection_cannot_reuse_weekly_or_daily_rows(
+    tmp_path, monkeypatch, boolean, balance
+):
+    from baibai_engine.machine_analysis.observations import jquants_writer
+
+    store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
+    publication = date(2026, 9, 28) if balance == DAY else None
+    good = {**records(balance, publication=publication)[0], "Code": "72030"}
+    owner.commit(
+        [
+            attempt(
+                "boolean",
+                day=balance,
+                at=AT + timedelta(hours=1),
+                rows=[*records(balance, long=boolean, publication=publication), good],
+            )
+        ]
+    )
+    fixed = owner.fixed()
+    current_float = jquants_writer.to_float
+    with monkeypatch.context() as old:
+        old.setattr(
+            jquants_writer,
+            "to_float",
+            lambda value: float(value) if isinstance(value, bool) else current_float(value),
+        )
+        old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
+        before, previous = build(store, fixed, cal, market, mirror, at=AT + timedelta(hours=1))
+    assert all(manifest.coverage_status == "complete" for manifest in previous.values())
+    old_rows = rows(market)
+    saved, _ = build(
+        store, fixed, cal, market, mirror, at=AT + timedelta(hours=1), previous=previous
+    )
+    cold = tmp_path / "cold.sqlite"
+    projection.materialize_saved_input(store, saved, output=cold)
+    assert rows(market) == rows(cold)
+    assert coverage(market) == coverage(cold)
+    changed = 0 if balance == WEEK else 1
+    assert rows(market)[changed] != old_rows[changed]
+    assert len(rows(market)[changed]) == (2 if balance == WEEK else 1)
+    assert saved.descriptor["summary"]["coverage_status"] == (
+        "complete" if balance == WEEK else "partial"
+    )
+    assert saved.descriptor["selection_sha256"] == before.descriptor["selection_sha256"]
+    assert saved.sha256 != before.sha256
+
+
 @pytest.mark.parametrize("damage", ["row", "absent", "object", "partial"])
 def test_old_l2_is_optional_and_latest_cannot_change_fixed_input(tmp_path, monkeypatch, damage):
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)

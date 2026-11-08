@@ -8,10 +8,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import JsonValue
 
+from baibai_engine.machine_analysis.observations.jquants_decode import (
+    JQUANTS_NUMERIC_PROJECTION_REVISION,
+)
 from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
-from baibai_engine.storage.snapshots.contracts import LakeDataset
+from baibai_engine.storage.snapshots.contracts import (
+    PROJECTION_REVISION_METADATA_KEY,
+    LakeDataset,
+)
 from baibai_engine.storage.snapshots.models import DatasetManifest
 from baibai_engine.storage.snapshots.objects import LakeObjectError, mirror_path
 from baibai_engine.storage.snapshots.sources import sha256_file
@@ -32,7 +39,8 @@ def verified_cached_scopes(
     """Reuse only a complete native projection whose Parquet and SQLite agree.
 
     A missing or damaged prior projection is optional: the source caller falls
-    back to its fixed L1. Counts and mutable SQLite coverage are not cache proof.
+    back to its fixed L1. Counts and mutable SQLite coverage are not cache proof;
+    an older numeric interpretation must also be rebuilt from that same L1.
     """
     if previous is None or previous.coverage_status != "complete":
         return {}
@@ -43,19 +51,22 @@ def verified_cached_scopes(
     if source.kind != "native_l1" or source.namespace != namespace:
         return {}
     descriptor: dict[str, JsonValue] = {"format": input_format, "selection_sha256": source.sha256}
+    objects = tuple(obj for part in previous.partitions for obj in part.objects)
+    if not objects:
+        return {}
     try:
-        for part in previous.partitions:
-            for obj in part.objects:
-                path = mirror_path(mirror_root, obj.key)
-                if not path.is_file() or sha256_file(path) != obj.sha256:
-                    payload = store.get_bytes(obj.key)
-                    if (
-                        len(payload) != obj.bytes
-                        or hashlib.sha256(payload).hexdigest() != obj.sha256
-                    ):
-                        return {}
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(payload)
+        for obj in objects:
+            path = mirror_path(mirror_root, obj.key)
+            if not path.is_file() or sha256_file(path) != obj.sha256:
+                payload = store.get_bytes(obj.key)
+                if len(payload) != obj.bytes or hashlib.sha256(payload).hexdigest() != obj.sha256:
+                    return {}
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            if (pq.read_metadata(path).metadata or {}).get(
+                PROJECTION_REVISION_METADATA_KEY
+            ) != JQUANTS_NUMERIC_PROJECTION_REVISION.encode():
+                return {}
         validate_snapshot_parity(
             dataset=dataset,
             sqlite_path=market,

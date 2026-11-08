@@ -39,6 +39,9 @@ from baibai_engine.machine_analysis.generation.margin_interest_inputs import (
     read_margin_interest_input,
     retain_margin_interest_input,
 )
+from baibai_engine.machine_analysis.observations.jquants_decode import (
+    JQUANTS_NUMERIC_PROJECTION_REVISION,
+)
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_weekly_margin,
@@ -485,6 +488,7 @@ def model_input(
     descriptor = dict(_descriptor(saved))
     descriptor["summary"] = {
         **summary,
+        "projection_revision": JQUANTS_NUMERIC_PROJECTION_REVISION,
         **{
             name: result[name]
             for name in ("coverage_status", "weekly_coverage_status", "daily_coverage_status")

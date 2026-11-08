@@ -18,6 +18,7 @@ from tools.diagnostics.benchmark_lake_export import benchmark
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.snapshots import identity as identity_module
 from baibai_engine.storage.snapshots import writer as writer_module
+from baibai_engine.storage.snapshots.contracts import PROJECTION_REVISION_METADATA_KEY
 from baibai_engine.storage.snapshots.immutable import install_immutable_bytes
 from baibai_engine.storage.snapshots.keys import canonical_object_key, current_release_pointer_key
 from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
@@ -92,6 +93,46 @@ def test_legacy_export_is_byte_deterministic_and_reuses_unchanged_objects(tmp_pa
         manifest=second.manifest,
         dataset=LAKE_DATASETS[second.manifest.dataset],
     )
+
+
+@pytest.mark.parametrize("grain", [None, "day", "month"])
+def test_projection_footer_retags_every_old_object_then_reuses(tmp_path, grain):
+    sqlite_path = market_store(tmp_path / "market.sqlite")
+    mirror = tmp_path / "mirror"
+    options = dict(
+        dataset_name="jquants.short_sale_reports",
+        sqlite_path=sqlite_path,
+        mirror_root=mirror,
+        producer_git_commit=_COMMIT,
+    )
+    old = _export(**options, build_id="untagged")
+    tagged = _export(
+        **options,
+        build_id="tagged",
+        object_date_grain=grain,
+        previous=old.manifest,
+        projection_revision="jquants-numeric-v2",
+    )
+    old_objects = [obj for part in old.manifest.partitions for obj in part.objects]
+    new_objects = [obj for part in tagged.manifest.partitions for obj in part.objects]
+    assert not {obj.key for obj in old_objects} & {obj.key for obj in new_objects}
+    assert tagged.new_objects == len(new_objects)
+    for obj in new_objects:
+        path = mirror / obj.key
+        assert pq.read_metadata(path).metadata[PROJECTION_REVISION_METADATA_KEY] == (
+            b"jquants-numeric-v2"
+        )
+        assert PROJECTION_REVISION_METADATA_KEY not in pq.read_schema(path).metadata
+        assert pq.read_schema(path).equals(pq.read_schema(mirror / old_objects[0].key))
+    reused = _export(
+        **options,
+        build_id="reused",
+        object_date_grain=grain,
+        previous=tagged.manifest,
+        projection_revision="jquants-numeric-v2",
+    )
+    assert reused.new_objects == 0
+    assert [obj for part in reused.manifest.partitions for obj in part.objects] == new_objects
 
 
 def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects(
