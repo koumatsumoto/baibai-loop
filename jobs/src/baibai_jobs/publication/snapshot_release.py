@@ -1,11 +1,9 @@
-"""Bootstrap or retry one sealed lake graph; forward publication uses publish-lake."""
+"""Publish one sealed lake graph under an explicit mutable-pointer precondition."""
 
 from __future__ import annotations
 
-import argparse
 import base64
 import hashlib
-import json
 import os
 import sys
 import tempfile
@@ -17,7 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
-    Boto3R2Store,
     LakeCASConflict,
     LakePublishError,
     ObjectStore,
@@ -619,46 +616,6 @@ def _ensure_immutable(
     return uploaded
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mirror", type=Path, required=True)
-    parser.add_argument("--release-manifest", type=Path, required=True)
-    parser.add_argument("--bucket", default="baibai-stores")
-
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    try:
-        store = Boto3R2Store(bucket=args.bucket)
-        payload = args.release_manifest.read_bytes()
-        release = load_lake_model_json(payload, LakeReleaseManifest)
-        release_sha256 = hashlib.sha256(payload).hexdigest()
-        serving = read_pointer_snapshot(store)
-        if serving.pointer is not None and (
-            serving.pointer.release_id != release.release_id
-            or serving.pointer.manifest_sha256 != release_sha256
-        ):
-            raise LakePublishError(
-                "low-level publication cannot replace current; use "
-                "jobs/scripts/r2_transfer.sh publish-lake for a forward publication"
-            )
-        release_report = publish_release(
-            mirror_root=args.mirror,
-            release_manifest_path=args.release_manifest,
-            expected_release_sha256=release_sha256,
-            store=store,
-            pointer_precondition=serving.precondition,
-        )
-    except (OSError, ValueError, LakePublishError) as error:
-        print(f"error: {error}", file=sys.stderr)
-        return 1
-    print(json.dumps(release_report.as_dict(), sort_keys=True))
-    return 0
-
-
 def _mirror_path(mirror_root: Path, key: str) -> Path:
     root = mirror_root.resolve()
     path = (root / key).resolve()
@@ -716,7 +673,3 @@ def _content_md5(path: Path) -> str:
         for chunk in iter(lambda: source.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return base64.b64encode(digest.digest()).decode()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -16,6 +16,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     ModelGeneration,
     ModelInputSlice,
     research_subjects,
+    validate_model_scope,
 )
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
@@ -71,6 +72,7 @@ def stream_generation_subjects(
                 generation_id,
                 tuple(subjects),
                 None if model_ids is None else tuple(model_ids),
+                metadata=metadata,
             )
         ) as companies:
             yield metadata, companies
@@ -81,6 +83,8 @@ def _subject_models(
     generation_id: str,
     subjects: Sequence[str],
     model_ids: Sequence[str] | None,
+    *,
+    metadata: GenerationMetadata,
 ) -> Generator[tuple[str, tuple[GeneratedModel, ...]]]:
     # 並べ替えるのは対象のキーだけ。payloadは同じ読取断面から主キーで個別に読む。
     model_scope = None if model_ids is None else canonical_json(tuple(model_ids))
@@ -99,7 +103,9 @@ def _subject_models(
                 "WHERE generation_id=? AND model_id=? AND subject=?",
                 (generation_id, model_id, subject),
             ).fetchone()
-            models.append(_decode_model(model_id, subject, saved[0], saved[1]))
+            model = _decode_model(model_id, subject, saved[0], saved[1])
+            validate_model_scope(metadata, model)
+            models.append(model)
         yield subject, tuple(models)
 
 

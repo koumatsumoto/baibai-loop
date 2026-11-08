@@ -66,7 +66,7 @@ def is_missing_scalar(value: Any) -> bool:
 
 
 def to_float(value: Any) -> float | None:
-    if is_missing_scalar(value) or value == "-":
+    if isinstance(value, bool) or is_missing_scalar(value) or value == "-":
         return None
     try:
         result = float(value)

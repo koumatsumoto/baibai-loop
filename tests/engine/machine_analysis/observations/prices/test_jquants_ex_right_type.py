@@ -198,3 +198,31 @@ def test_native_null_close_keeps_adjustment_event_without_inventing_price(
     assert read_adjustment_factor_bars(database, day, day) == [
         JQuantsAdjustmentFactorEvent(ticker="6731", traded_at=day, adjustment_factor=100.0)
     ]
+
+
+@pytest.mark.parametrize("value", [False, True])
+@pytest.mark.parametrize("kind", [None, "1"])
+def test_boolean_factor_is_not_a_numeric_action_or_market_cap(tmp_path, value, kind):
+    day = date(2026, 10, 14)
+    database = tmp_path / "market.sqlite"
+    raw = {
+        "Code": "13010",
+        "Date": day.isoformat(),
+        "C": 100.0,
+        "AdjFactor": value,
+        "ExRT": kind,
+        "MktCap": value,
+    }
+    store_jquants_daily_bars(database, [raw], requested_start=day, requested_end=day)
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute(
+            "SELECT close, adjustment_factor, market_cap_million_yen FROM jquants_daily_bars"
+        ).fetchone() == (100.0, None, None)
+    if kind is not None:
+        with pytest.raises(JQuantsProviderError, match="corrupt adjustment factor"):
+            read_adjustment_factor_bars(database, day, day)
+        with pytest.raises(JQuantsProviderError, match="no usable adjustment factor"):
+            read_price_bars(database, start=day, end=day)
+    else:
+        assert read_adjustment_factor_bars(database, day, day) == []
+        assert read_price_bars(database, start=day, end=day)["1301"][0].price == 100.0

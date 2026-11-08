@@ -39,11 +39,12 @@ def build_dashboard(
 
     try:
         portfolio = ledger.snapshot()
-    except (ValueError, RuntimeError, sqlite3.Error) as error:
+    except (ValueError, RuntimeError, sqlite3.Error):
+        # Reader diagnostics can contain private paths, SQL or stored ledger payloads.
         return _empty_dashboard(
             generated_at=now,
             ledger_exists=True,
-            ledger_error=str(error),
+            ledger_error="保存済み台帳を読み取れません。",
         )
     if portfolio is None:
         return _empty_dashboard(
