@@ -41,6 +41,8 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 
 共通統合は全providerを待たず、到着済み受領を固定する。経済L1の公開/readback/seal/input発行→marketのsource別投影/EDINET抽出→固定market releaseと経済selectionによるモデル/候補保存→machine反映/readback・sealの順で進む。source失敗は前回適格投影を保って他sourceを進めるが、モデル/公開失敗は後段反映を止める。model-integrationは外部取得/Web生成を呼ばない。
 
+通常生成は保存列から候補座標を作り、保存DBの再読・gzip再展開を省く。候補外を含む全対象モデルは保存するため、保存量削減ではない。個社投影失敗は新Generationをrollbackして旧世代を保ち、Selection・lakeを発行しない。保存後の政策失敗ではGeneration cacheが残る。`model storage`の件数・`payload_gzip_bytes`は当世代の圧縮payload実量で、集計だけのDB・OS障害は`state=unmeasured`と例外型を記録して続行する。未計測を0と扱わない。
+
 停止時は最後の未完phase、store/release・generation/selection・lease解放を確認する。logのdoneや通知成功は反映の証明でなく、限定source成功を全体成功にしない。候補0を投資機会なしとせず、[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。既定読取は発行時計より新しいas_ofを優先する。過去計算はexact IDで読み、古い非空候補へfallbackしない。
 
 取得期限にはexport/stageの余白を残す。Retry-Afterを短縮せず、認証/403/解析失敗へretryを広げない。継続不能429は同quota groupのそのpassを止める。H.15のbrowser起動不能とsource拒否を分ける。[watchdog](../.github/workflows/cloud-batch-watchdog.yml)のMISSINGは対象日を固定して調べる。
