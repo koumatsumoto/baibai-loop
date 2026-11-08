@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date
+from html.parser import HTMLParser
 from http import HTTPStatus
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -24,8 +25,8 @@ from baibai_engine.data_collection.transport.context import (
 # Single H.15 package that carries every Treasury constant-maturity series; one
 # download via FetchContext.bytes_cache serves all frb_h15 series in a run.
 _H15_PACKAGE_SERIES = "bf17364827e38702b42a58cf8eaa3f78"
-# The public CSV may return an empty body or HTML rather than data. Headers and
-# a browser response are transport alternatives, not evidence of access policy.
+# An empty body or generic HTML may need rendering. An explicit denial is not
+# a reason to try another transport.
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -77,8 +78,8 @@ def _fetch_h15_csv(
 ) -> str:
     """Try the configured public transport routes and validate the CSV header.
 
-    Only an empty successful response or missing CSV header selects the browser
-    route. HTTP failures, including 403, propagate without another route.
+    An empty successful response or missing CSV header can select the browser
+    route. HTTP failures and an explicit access-denied title never do.
     """
 
     plain_failure: str | None = None
@@ -99,6 +100,12 @@ def _fetch_h15_csv(
         text = ""
     if _has_header(text):
         return text
+    title = _ResponseTitle()
+    title.feed(text)
+    if " ".join("".join(title.parts).split()).casefold() == "access denied":
+        raise ProviderFetchStoppedError(
+            f"FRB H.15 successful response explicitly denies access: {snippet(text)!r}"
+        )
     if context is None:
         return text
     if plain_failure is None:
@@ -114,7 +121,7 @@ def _fetch_h15_csv_via_browser(
     context: FetchContext,
     plain_failure: str,
 ) -> str:
-    """The CSV read through a real browser, after the plain client was turned away.
+    """The CSV read through a browser after a successful plain response lacked data.
 
     Keep both transport outcomes in the error reported by the batch. A missing
     CSV header alone does not identify the cause or prove an access policy.
@@ -171,6 +178,27 @@ def _navigation_url(url: str, params: dict[str, str]) -> str:
 
 def _has_header(text: str) -> bool:
     return any(line.startswith(_HEADER_PREFIXES) for line in text.splitlines())
+
+
+class _ResponseTitle(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.in_title = False
+        self.found_title = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "title" and not self.found_title:
+            self.in_title = True
+            self.found_title = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self.in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_title:
+            self.parts.append(data)
 
 
 def snippet(text: str) -> str:
