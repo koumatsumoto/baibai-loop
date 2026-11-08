@@ -2,8 +2,8 @@
 
 import pytest
 
+from baibai_engine.data_collection.providers.edinet.fields import is_usable_filing_status
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-    is_usable_filing_status,
     normalize_metric_record,
 )
 
