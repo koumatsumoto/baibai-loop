@@ -1,6 +1,7 @@
 """FRED acquisition needs a complete response, not a second native history."""
 
 import gzip
+import hashlib
 import json
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
@@ -70,25 +71,26 @@ def work(tmp_path):
 
 @pytest.fixture
 def harness(monkeypatch):
-    control = SimpleNamespace(clock=WHEN, payload="", requests=[])
+    control = SimpleNamespace(clock=WHEN, payload="", requests=[], clock_reads=0)
 
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
+            control.clock_reads += 1
             return control.clock.astimezone(tz or UTC)
 
     def fetch(_session, url, **kwargs):
         control.requests.append((url, kwargs.get("params")))
         if isinstance(control.payload, Exception):
             raise control.payload
-        return control.payload
+        return control.payload if isinstance(control.payload, bytes) else control.payload.encode()
 
-    for module in (acquisition, native_store, handoff, inputs):
+    for module in (acquisition, native_store, handoff, inputs, fred):
         monkeypatch.setattr(module, "datetime", Clock)
     monkeypatch.setattr(acquisition, "load_sources", lambda: {SOURCE.source_id: SOURCE})
     monkeypatch.setattr(inputs, "load_economic_sources", lambda: {SOURCE.source_id: SOURCE})
     monkeypatch.setattr(handoff, "load_economic_sources", lambda: {SOURCE.source_id: SOURCE})
-    monkeypatch.setattr(fred, "fetch_text", fetch)
+    monkeypatch.setattr(fred, "fetch_bytes", fetch)
     monkeypatch.setattr(
         native_store.uuid,
         "uuid4",
@@ -96,6 +98,7 @@ def harness(monkeypatch):
     )
 
     def acquire(root, seed, mode, hour, payload):
+        clock_reads = control.clock_reads
         root.mkdir()
         control.clock = WHEN + timedelta(hours=hour)
         control.payload = payload
@@ -134,6 +137,7 @@ def harness(monkeypatch):
         handoff.validate_handoff(packet, "fred_csv")
         report = json.loads((packet / "result.json").read_text())
         assert report["sources"][0]["history_recovery_required"] is False
+        acquire.clock_reads = control.clock_reads - clock_reads
         return packet / "receipts.sqlite", status, report, seed_rows
 
     return acquire
@@ -210,6 +214,9 @@ def test_stale_seed_a_b_a_and_canonical_only_disappearance(work, harness):
         "observation_date,TEST\n",
         "observation_date,TEST\n2026-10-01\n",
         "observation_date,TEST,TEST\n2026-10-01,1,2\n",
+        b"\xffnot UTF-8",
+        b'\xef\xbb\xbfTEST,observation_date,unused\r\n"1",2026-10-01\r\n',
+        "observation_date,TEST\n2026-10-01," + "1" * 140_000,
     ],
 )
 def test_failure_keeps_canonical_originals_and_confirmation(work, harness, payload):
@@ -227,11 +234,136 @@ def test_failure_keeps_canonical_originals_and_confirmation(work, harness, paylo
         assert not outcome["late_recovery_required"]
         after = state(canonical)
         for table in TABLES:
-            if table != "economic_source_runs":
+            if table not in {"economic_source_runs", "economic_source_documents"}:
                 assert after[table] == before[table]
         assert after["economic_source_runs"][0][6] == "failed"
+        assert after["economic_source_runs"][0][7] == 0
+        assert not rows(raw, "economic_source_records")
+        assert not rows(raw, "economic_source_collection_confirmations")
+        documents = rows(raw, "economic_source_documents")
+        if isinstance(payload, Exception):
+            assert not documents
+        else:
+            assert len(documents) == 1
+            document = documents[0]
+            assert document[:5] == (
+                SOURCE.source_id,
+                "history",
+                (WHEN + timedelta(hours=2)).isoformat(timespec="microseconds"),
+                SOURCE.source_url,
+                "text/csv",
+            )
+            assert document[5] == (payload if isinstance(payload, bytes) else payload.encode())
+            assert json.loads(document[6]) == {
+                "provider": "fred_csv",
+                "provider_series_id": "TEST",
+                "frequency": "monthly",
+                "representation": "fred-csv-v1",
+            }
+            assert after["economic_source_documents"] == documents
         final.append(after)
     assert final[0] == final[1]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'\xef\xbb\xbfTEST,observation_date,unused\r\n"1",2026-10-01,"kept, quoted"\r\n',
+        csv({DAY: "."}).encode(),
+    ],
+)
+def test_successful_native_handoff_bytes_and_clocks_stay_unchanged(
+    work, harness, monkeypatch, body
+):
+    seed = work / "seed.sqlite"
+    receive(seed, 0, {DAY: "0"})
+
+    class NoFailureClock:
+        @classmethod
+        def now(cls, tz=None):
+            pytest.fail("successful native acquisition must not read a failure receipt clock")
+
+    monkeypatch.setattr(fred, "datetime", NoFailureClock)
+    candidate, status, _, _ = harness(work / "candidate", seed, "empty", 2, body)
+    clock_reads = harness.clock_reads
+    assert status == 0
+    assert not rows(candidate, "economic_source_documents")
+
+    def previous_success(_self, source, *, session, context, **kwargs):
+        # Prior success contract: fetch_text decoded UTF-8-sig before DictReader.
+        received = fred.fetch_bytes(session, source.source_url, params=None, context=context)
+        return fred.parse_fred_csv(source, received.decode("utf-8-sig"))
+
+    monkeypatch.setattr(fred.FredSource, "fetch_records", previous_success)
+    reference, status, _, _ = harness(work / "reference", seed, "empty", 2, body)
+    assert status == 0
+    assert harness.clock_reads == clock_reads
+    assert state(candidate) == state(reference)
+    assert (
+        hashlib.sha256(candidate.read_bytes()).digest()
+        == hashlib.sha256(reference.read_bytes()).digest()
+    )
+    # The acquisition input/receipt DBs add no whole successful response BLOB.
+    assert (work / "candidate/input.sqlite").read_bytes() == (
+        work / "reference/input.sqlite"
+    ).read_bytes()
+
+
+def test_failed_body_is_private_evidence_not_a_run_error_or_public_report(work, harness, capsys):
+    seed = work / "seed.sqlite"
+    receive(seed, 0, {DAY: "1"})
+    marker = "private-body-marker-fred"
+    body = f"observation_date,TEST\n{marker},1\n".encode()
+    raw, status, report, _ = harness(work / "failed", seed, "empty", 2, body)
+    assert status == 1
+    assert report["sources"][0]["status"] == "failed"
+    assert rows(raw, "economic_source_documents")[0][5] == body
+    (run,) = rows(raw, "economic_source_runs")
+    assert run[6:8] == ("failed", 0)
+    assert run[-1] == "FRED CSV decode/parse failed: ValueError"
+    captured = capsys.readouterr()
+    assert marker not in captured.out + captured.err + json.dumps(report) + repr(run)
+
+
+def test_repeated_invalid_body_stays_in_each_failed_stage_but_is_suppressed_in_canonical(
+    work, harness
+):
+    seed, canonical = work / "seed.sqlite", work / "canonical.sqlite"
+    receive(seed, 0, {DAY: "1"})
+    with closing(native_store.initialize_database(seed)) as connection, connection:
+        native_store.record_source_run(
+            connection,
+            source_id=SOURCE.source_id,
+            start=DAY,
+            end=DAY,
+            started_at=WHEN,
+            status="ok",
+            record_count=1,
+        )
+    canonical.write_bytes(seed.read_bytes())
+    original = state(seed)
+    for hour, body, count in (
+        (1, b"invalid CSV", 1),
+        (2, b"invalid CSV", 1),
+        (3, b"different invalid CSV", 2),
+    ):
+        raw, status, _, _ = harness(work / f"failure-{hour}", seed, "empty", hour, body)
+        assert status == 1
+        received = rows(raw, "economic_source_documents")
+        assert len(received) == 1
+        assert received[0][5] == body
+        outcome = integrate(raw, canonical, work / f"accepted-{hour}.sqlite")
+        assert not outcome["late_recovery_required"]
+        current = state(canonical)
+        assert len(current["economic_source_documents"]) == count
+        assert all(current[table] == original[table] for table in native_store.CONFIRMATION_TABLES)
+        assert current["economic_source_records"] == original["economic_source_records"]
+        assert [row for row in current["economic_source_runs"] if row[6] == "ok"] == original[
+            "economic_source_runs"
+        ]
+        assert [row[6:8] for row in current["economic_source_runs"] if row[6] != "ok"] == [
+            ("failed", 0)
+        ] * hour
 
 
 CASES = [

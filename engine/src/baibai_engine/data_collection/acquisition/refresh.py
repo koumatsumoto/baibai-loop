@@ -21,6 +21,7 @@ from baibai_engine.data_collection.acquisition.policy import (
 )
 from baibai_engine.data_collection.catalog import DOCUMENT_PROVIDERS, SourceDefinition, load_sources
 from baibai_engine.data_collection.provider_registry import provider_spec
+from baibai_engine.data_collection.providers.fred import FredCsvResponseError
 from baibai_engine.data_collection.providers.jquants.options import OptionChainSource
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.confirmations import (
@@ -288,6 +289,9 @@ def _refresh_source(
     except sqlite3.Error:
         raise
     except Exception as error:
+        if isinstance(error, FredCsvResponseError):
+            with connection:
+                store_document(connection, error.document)
         with connection:
             store.record_source_run(
                 connection,
