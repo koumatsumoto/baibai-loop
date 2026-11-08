@@ -101,35 +101,42 @@ def latest_assessment(
     try:
         connection.execute("BEGIN")
         try:
-            rows = connection.execute(
-                "SELECT context_id,as_of,published_at FROM market_context_assessment "
-                "WHERE schema_version IN (3,4,5,6) AND as_of<=?",
-                (as_of.isoformat(),),
-            ).fetchall()
+            return latest_assessment_from_connection(connection, as_of=as_of, known_at=known_at)
         except sqlite3.OperationalError as error:
             if is_unwritten_store(error, resolved):
                 return None
             raise
-        eligible: list[tuple[datetime, date, str]] = []
-        for row in rows:
-            published = require_aware(datetime.fromisoformat(str(row["published_at"])))
-            if published.astimezone(UTC) <= known_at.astimezone(UTC):
-                eligible.append(
-                    (
-                        published.astimezone(UTC),
-                        date.fromisoformat(str(row["as_of"])),
-                        str(row["context_id"]),
-                    )
-                )
-        if not eligible:
-            return None
-        selected_id = max(eligible)[2]
-        selected = connection.execute(
-            "SELECT context_id,schema_version,as_of,published_at,payload "
-            "FROM market_context_assessment WHERE context_id=?",
-            (selected_id,),
-        ).fetchone()
-        assert selected is not None  # The metadata and body share one read snapshot.
-        return _stored_assessment(selected)
     finally:
         connection.close()
+
+
+def latest_assessment_from_connection(
+    connection: sqlite3.Connection, *, as_of: date, known_at: datetime
+) -> StoredAssessment | None:
+    """呼出元のtransaction内で選ぶ。Operationの他の開始材料と断面を揃える。"""
+    rows = connection.execute(
+        "SELECT context_id,as_of,published_at FROM market_context_assessment "
+        "WHERE schema_version IN (3,4,5,6) AND as_of<=?",
+        (as_of.isoformat(),),
+    ).fetchall()
+    eligible: list[tuple[datetime, date, str]] = []
+    for row in rows:
+        published = require_aware(datetime.fromisoformat(str(row["published_at"])))
+        if published.astimezone(UTC) <= known_at.astimezone(UTC):
+            eligible.append(
+                (
+                    published.astimezone(UTC),
+                    date.fromisoformat(str(row["as_of"])),
+                    str(row["context_id"]),
+                )
+            )
+    if not eligible:
+        return None
+    selected_id = max(eligible)[2]
+    selected = connection.execute(
+        "SELECT context_id,schema_version,as_of,published_at,payload "
+        "FROM market_context_assessment WHERE context_id=?",
+        (selected_id,),
+    ).fetchone()
+    assert selected is not None  # The metadata and body share one read snapshot.
+    return _stored_assessment(selected)

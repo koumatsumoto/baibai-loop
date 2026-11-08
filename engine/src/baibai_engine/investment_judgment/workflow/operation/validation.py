@@ -6,6 +6,10 @@ import sqlite3
 from datetime import datetime
 
 from baibai_engine.investment_judgment.company_research.query import company_context
+from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
+from baibai_engine.investment_judgment.market_assessment.query import (
+    latest_assessment_from_connection,
+)
 from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ResearchProgress,
@@ -28,6 +32,16 @@ def validate_selection(
 ) -> None:
     validate_target_purposes(connection, selection_targets(selection), now=now)
     if isinstance(selection, GeneratedResearchSelectionV4):
+        market = latest_assessment_from_connection(
+            connection, as_of=selection.research_as_of, known_at=selection.input_known_at
+        )
+        market_projection = (
+            None
+            if market is None
+            else assessment_projection(market, as_of=selection.research_as_of)
+        )
+        if selection.inputs.saved_market_context_assessment != market_projection:
+            raise ValueError("saved Market Assessment differs from the selected cutoff")
         expected = {
             target.ticker: company_context(
                 connection,
