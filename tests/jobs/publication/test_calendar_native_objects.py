@@ -216,7 +216,7 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
     )
 
 
-@pytest.mark.parametrize("missing", ["FINANCIAL", "PRICE", "MASTER"])
+@pytest.mark.parametrize("missing", ["PRICE", "MASTER"])
 def test_normal_calendar_publication_requires_all_prior_native_modes(
     tmp_path, monkeypatch, missing
 ):
@@ -224,7 +224,7 @@ def test_normal_calendar_publication_requires_all_prior_native_modes(
     monkeypatch.setenv("BAIBAI_" + missing + "_NATIVE", "false")
     store, _ = owner(tmp_path / "native")
     with (
-        pytest.raises(ValueError, match="requires financial, price and master"),
+        pytest.raises(ValueError, match="requires price and master"),
         publication.prepare_market_lake(
             sqlite_path=tmp_path / "missing.sqlite", mirror_root=tmp_path / "mirror", store=store
         ),

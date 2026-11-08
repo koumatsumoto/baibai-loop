@@ -21,10 +21,6 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
-from baibai_engine.machine_analysis.observations.financials.reader import (
-    count_fin_summaries,
-    fin_summaries_covered,
-)
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
@@ -52,16 +48,6 @@ Progress = Callable[[int, int, date, date], None]
 def _check_range(start: date, end: date) -> None:
     if start > end:
         raise ValueError("request start must not follow end")
-
-
-def _require_legacy_financial_writer() -> None:
-    from baibai_jobs.financial_cutover import financial_native_enabled
-
-    if financial_native_enabled():
-        raise JQuantsProviderError(
-            "legacy financial writer is disabled; use jquants-financial-native acquire "
-            "and rebuild-financial-native with its fixed input"
-        )
 
 
 class JQuantsRefresh:
@@ -107,9 +93,7 @@ class JQuantsRefresh:
                 if index and index % 31 == 0:
                     time.sleep(3.0)
                 key = "disc_date" if source == "short_sale_reports" else "date"
-                value = (
-                    day.strftime("%Y%m%d") if source == "financial_summaries" else day.isoformat()
-                )
+                value = day.isoformat()
                 self._fetch(source, {key: value})
                 index += 1
                 if progress is not None:
@@ -196,9 +180,10 @@ class JQuantsRefresh:
         return count_daily_bars(self._path, start, end)
 
     def ensure_fin_summaries(self, start: date, end: date) -> int:
-        _require_legacy_financial_writer()
-        self._fetch_days("financial_summaries", self._missing("jquants_fin_summaries", start, end))
-        return self._financial_count(start, end)
+        raise JQuantsProviderError(
+            "legacy financial writer is disabled; use jquants-financial-native acquire "
+            "and rebuild-financial-native with its fixed input"
+        )
 
     def refresh_fin_summaries(
         self,
@@ -208,21 +193,4 @@ class JQuantsRefresh:
         revision_overlap_days: int,
         progress: Progress | None = None,
     ) -> int:
-        _require_legacy_financial_writer()
-        _check_range(start, end)
-        if revision_overlap_days < 0:
-            raise ValueError("revision overlap must not be negative")
-        overlap = max(start, end - timedelta(days=revision_overlap_days))
-        planned = merge_date_ranges(
-            [
-                *self._missing("jquants_fin_summaries", start, end),
-                (overlap, end),
-            ]
-        )
-        self._fetch_days("financial_summaries", planned, progress=progress)
-        return self._financial_count(start, end)
-
-    def _financial_count(self, start: date, end: date) -> int:
-        if not fin_summaries_covered(self._path, start, end):
-            raise JQuantsProviderError("financial projection remains incomplete after acquisition")
-        return count_fin_summaries(self._path, start, end)
+        return self.ensure_fin_summaries(start, end)

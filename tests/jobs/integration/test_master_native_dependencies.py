@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
+from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.jquants_receipts import body
 from tests.helpers.lake_release import market_store
 from tests.helpers.tradingview import _sdk, payload, retain_result
@@ -447,7 +448,6 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
 
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
     monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     narrow_release_policy(monkeypatch, datasets=("jquants.master_snapshots", "jquants.daily_bars"))
     monkeypatch.setattr(
         publication,
@@ -500,7 +500,6 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
             "master_native": True,
             "price_native": True,
-            "financial_native": False,
             "handoffs": available_handoffs(store, source="tradingview"),
             "external": [],
         },
@@ -532,6 +531,7 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     )
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
+    seed_empty_financial(store, tmp_path / "financial-native", DAY)
     generated = models.integrate_models(
         store=store,
         edinet_input=InputSnapshot.model_validate(applied["edinet_input"]),

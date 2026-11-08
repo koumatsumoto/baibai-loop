@@ -216,6 +216,8 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             "model_cache_prune",
         )
         expected = [
+            "phase=native_financial state=start",
+            "phase=native_financial state=done",
             "phase=economic_input state=start",
             "phase=economic_input_retain state=start",
             "phase=economic_input_retain state=done",
@@ -273,7 +275,6 @@ def test_failed_phase_never_logs_done_or_prunes(
 
 def test_native_financial_failure_keeps_start_only(integration, monkeypatch, progress):
     arguments, _events = integration
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "true")
     monkeypatch.setattr(
         models, "FinancialL1", lambda *args: SimpleNamespace(fixed=lambda: object())
     )

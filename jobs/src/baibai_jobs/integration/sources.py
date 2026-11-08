@@ -49,12 +49,8 @@ from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
 from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.financial_cutover import financial_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
-from baibai_jobs.integration.jquants_handoff import (
-    FINANCIAL_SOURCES as JQUANTS_FINANCIAL_SOURCES,
-)
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
@@ -73,8 +69,10 @@ def apply(
     asof: date,
 ) -> dict[str, object]:
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
-    if bool(plan.get("financial_native", False)) != financial_native_enabled():
-        raise ValueError("financial cutover mode differs from the fixed integration plan")
+    if "financial_native" in plan and plan["financial_native"] is not True:
+        raise ValueError("legacy financial mode in fixed integration plan; create a new plan")
+    if any(entry.get("source") == "jquants-financial" for entry in plan["handoffs"]):
+        raise ValueError("legacy financial handoff in fixed integration plan; create a new plan")
     if bool(plan.get("price_native", False)) != price_native_enabled():
         raise ValueError("price cutover mode differs from the fixed integration plan")
     if bool(plan.get("master_native", False)) != master_native_enabled():
@@ -208,9 +206,7 @@ def apply(
                             (packet / "receipts.sqlite").resolve().as_uri() + "?mode=ro", uri=True
                         )
                     ) as raw:
-                        if entry["source"] == "jquants-financial":
-                            validate_source_handoff(raw, sources=JQUANTS_FINANCIAL_SOURCES)
-                        elif entry["source"] == "jquants-market":
+                        if entry["source"] == "jquants-market":
                             validate_source_handoff(raw, sources=JQUANTS_MARKET_SOURCES)
                         elif entry["source"] in ARTICLE_SOURCES:
                             validate_receipt_schema(raw)
@@ -427,19 +423,15 @@ def main(argv: list[str] | None = None) -> int:
                             *available_handoffs(store, market=True),
                             *pending_handoffs(store),
                         ]
-                        if not (
-                            (
-                                financial_native_enabled()
-                                and entry.get("source") == "jquants-financial"
-                            )
-                            or (
-                                entry.get("source")
-                                in {"edinet-list", "edinet-metrics", "edinet-facts"}
-                            )
-                        )
+                        if entry.get("source")
+                        not in {
+                            "jquants-financial",
+                            "edinet-list",
+                            "edinet-metrics",
+                            "edinet-facts",
+                        }
                     ],
                     "edinet_input": edinet_input,
-                    "financial_native": financial_native_enabled(),
                     "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
                     "calendar_native": calendar_native_enabled(),

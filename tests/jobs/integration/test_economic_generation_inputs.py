@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
+from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
@@ -65,6 +66,7 @@ def integration(tmp_path, monkeypatch):
     with closing(initialize_database(economic)) as connection:
         retain_market_capture(connection, capture())
     store = MemoryR2Store()
+    seed_empty_financial(store, tmp_path / "financial-native", DAY)
     return dict(
         store=store,
         edinet_input=empty_edinet_input(store, tmp_path),

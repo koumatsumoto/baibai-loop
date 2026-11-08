@@ -27,9 +27,6 @@ class NativeClient:
         self.calls.append((source, dict(query)))
         rows = {
             "daily_bars": [{"Code": "13010", "Date": DAY.isoformat(), "C": 220, "AdjFactor": 1}],
-            "financial_summaries": [
-                {"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": 180}
-            ],
             "market_calendar": [{"Date": DAY.isoformat(), "HolDiv": "1"}],
             "short_sale_reports": [],
             "margin_alerts": [],
@@ -40,7 +37,6 @@ class NativeClient:
 @pytest.fixture
 def refresh(tmp_path, monkeypatch):
     monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "false")
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
     path = tmp_path / "stores" / "market" / "market.sqlite"
     open_connection(path).close()
@@ -57,8 +53,6 @@ def invoke(refresh, method):
     ("method", "flag", "command"),
     [
         ("ensure_daily_bars", "BAIBAI_PRICE_NATIVE", "jquants-price-native"),
-        ("ensure_fin_summaries", "BAIBAI_FINANCIAL_NATIVE", "jquants-financial-native"),
-        ("refresh_fin_summaries", "BAIBAI_FINANCIAL_NATIVE", "jquants-financial-native"),
     ],
 )
 @pytest.mark.parametrize("covered", [False, True])
@@ -77,22 +71,38 @@ def test_native_writer_guard_precedes_coverage_get_and_mutation(
     assert path.read_bytes() == before
 
 
-@pytest.mark.parametrize(
-    "method", ["ensure_daily_bars", "ensure_fin_summaries", "refresh_fin_summaries"]
-)
+@pytest.mark.parametrize("method", ["ensure_daily_bars"])
 def test_legacy_mode_still_retains_originals_and_projects_requested_day(refresh, method):
     maintenance, client, path = refresh
     assert invoke(maintenance, method) == 1
     assert len(client.calls) == 1
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 1
-        if method == "ensure_daily_bars":
-            assert connection.execute("SELECT close FROM jquants_daily_bars").fetchone() == (220,)
-        else:
-            payload = connection.execute(
-                "SELECT document_payload FROM jquants_fin_summaries"
-            ).fetchone()[0]
-            assert json.loads(payload)["Sales"] == 180
+        assert connection.execute("SELECT close FROM jquants_daily_bars").fetchone() == (220,)
+
+
+@pytest.mark.parametrize("method", ["ensure_fin_summaries", "refresh_fin_summaries"])
+@pytest.mark.parametrize("old_flag", [None, "false", "true", "invalid"])
+@pytest.mark.parametrize("covered", [False, True])
+def test_financial_writer_is_permanently_retired_before_get_or_mutation(
+    refresh, monkeypatch, method, old_flag, covered
+):
+    from baibai_engine.machine_analysis.observations.jquants_writer import (
+        store_jquants_fin_summaries,
+    )
+
+    maintenance, client, path = refresh
+    if old_flag is None:
+        monkeypatch.delenv("BAIBAI_FINANCIAL_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", old_flag)
+    if covered:
+        store_jquants_fin_summaries(path, [], requested_start=DAY, requested_end=DAY)
+    before = path.read_bytes()
+    with pytest.raises(JQuantsProviderError, match="jquants-financial-native"):
+        invoke(maintenance, method)
+    assert client.calls == []
+    assert path.read_bytes() == before
 
 
 def prepare_cli(refresh, tmp_path, monkeypatch):
@@ -105,13 +115,16 @@ def prepare_cli(refresh, tmp_path, monkeypatch):
     return client, path
 
 
-@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize("old_flag", [None, "false", "true", "invalid"])
 def test_financial_bootstrap_cli_reports_cutover_instead_of_legacy_success(
-    refresh, tmp_path, monkeypatch, capsys, native
+    refresh, tmp_path, monkeypatch, capsys, old_flag
 ):
     client, path = prepare_cli(refresh, tmp_path, monkeypatch)
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", str(native).lower())
-    # One synthetic day exercises the real planning/receive/project/CLI chain.
+    if old_flag is None:
+        monkeypatch.delenv("BAIBAI_FINANCIAL_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", old_flag)
+    # The old CLI reports retirement before any provider request.
     monkeypatch.setattr(cache, "FIN_INPUT_WINDOW_DAYS", 0)
     monkeypatch.setattr(cache, "NORMALIZED_EPS_HISTORY_WINDOW_DAYS", 0)
     before = path.read_bytes()
@@ -127,16 +140,12 @@ def test_financial_bootstrap_cli_reports_cutover_instead_of_legacy_success(
         ]
     )
     output = capsys.readouterr()
-    assert result == int(native)
-    if native:
-        assert "jquants-financial-native" in output.err
-        assert "rebuild-financial-native" in output.err
-        assert "bootstrap-cache done" not in output.out
-        assert client.calls == []
-        assert path.read_bytes() == before
-    else:
-        assert "bootstrap-cache done" in output.out
-        assert [source for source, _ in client.calls] == ["financial_summaries"]
+    assert result == 1
+    assert "jquants-financial-native" in output.err
+    assert "rebuild-financial-native" in output.err
+    assert "bootstrap-cache done" not in output.out
+    assert client.calls == []
+    assert path.read_bytes() == before
 
 
 def test_backfill_cli_reports_both_native_sources_and_continues_other_sources(
@@ -144,7 +153,6 @@ def test_backfill_cli_reports_both_native_sources_and_continues_other_sources(
 ):
     client, path = prepare_cli(refresh, tmp_path, monkeypatch)
     monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "true")
     result = cli.main(["backfill-history", "--start", DAY.isoformat(), "--end", DAY.isoformat()])
     output = capsys.readouterr()
     assert result == 1

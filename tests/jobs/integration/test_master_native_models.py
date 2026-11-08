@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pyarrow.parquet as pq
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
+from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
@@ -325,6 +326,7 @@ def test_normal_models_and_publication_share_native_master_and_price(
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
     store.get_keys.clear()
+    seed_empty_financial(store, tmp_path / "financial-native", DAY)
     result = job.integrate_models(
         store=store,
         edinet_input=empty_edinet_input(store, tmp_path),

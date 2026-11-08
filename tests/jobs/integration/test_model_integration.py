@@ -8,6 +8,8 @@ from unittest.mock import Mock
 import pytest
 from pydantic import TypeAdapter
 from tests.helpers.edinet_native import empty_edinet_input
+from tests.helpers.financial_native import seed_empty_financial
+from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.integration.models as job
@@ -166,10 +168,11 @@ def integration(tmp_path, monkeypatch):
     monkeypatch.setattr(job, "read_and_generate_models", generate)
     monkeypatch.setattr(job, "publish_prepared_market_lake", publish)
     store = MemoryR2Store()
+    seed_empty_financial(store, tmp_path / "financial-native", date(2026, 10, 23))
     arguments = dict(
         store=store,
         edinet_input=empty_edinet_input(store, tmp_path),
-        market=tmp_path / "market",
+        market=market_store(tmp_path / "market"),
         economic=economic,
         runs=tmp_path / "runs",
         mirror=tmp_path / "mirror",
@@ -314,6 +317,7 @@ def test_models_retain_applied_edinet_input_without_current_heads(
     arguments, _ = integration
     store, _, _, lists, archives = sources(tmp_path / "edinet")
     saved = retain_edinet_input(store, lists, archives, selected_at=AT)
+    seed_empty_financial(store, tmp_path / "edinet-financial-native", date(2026, 10, 23))
     del store.values[LISTS]
     del store.values[ARCHIVES]
     store.get_keys.clear()

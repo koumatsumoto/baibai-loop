@@ -448,7 +448,7 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     assert SUNDAY not in plan
     publication = configure(monkeypatch)
     if default_mode:
-        for source in ("FINANCIAL", "PRICE", "MASTER", "CALENDAR"):
+        for source in ("PRICE", "MASTER", "CALENDAR"):
             monkeypatch.delenv(f"BAIBAI_{source}_NATIVE")
     monkeypatch.setattr(job, "_load_handle", lambda _: None)
     monkeypatch.setattr(job, "verify_held", lambda *_: None)
