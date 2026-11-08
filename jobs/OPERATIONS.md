@@ -23,7 +23,7 @@ baibai-storesは非公開正本。秘密・endpoint・原文・私有DB/原稿�
 | 固定断面の分析 | [読取](#fixed-release-read) |
 | machine/経済の反映・復旧 | [共通公開](#machine-publication) |
 | application更新/復元 | [更新](#application-db-を反映する)・[復元](#application-db-を復元する) |
-| 初期化/未完移行・表示 | [移行](#cutovers)・[Web](#web-serving) |
+| 初期化/公開失敗・表示 | [回復](#cutovers)・[Web](#web-serving) |
 
 <a id="daily"></a>
 <a id="日次実行と結果確認"></a>
@@ -530,38 +530,16 @@ publisherは旧SQL原本を固定pairのkey/hash/size/stored_on/scopeと照合�
 旧一覧に匿名取消/編集対象のidentityがなければ、L1だけで旧ticker/採用順を復元できない。旧baselineによる安全側隔離、良好metricの出所/revision/時計、facts成功0行/status/reasonsを保つ。原受領cacheなしの単独hydrate/汎用readerで同じ確認をする場合は、保存pairの一覧を既存ownerで明示materializeする。暗黙R2補完や現在時計で欠落を埋めず、cold出力を旧抽出metadata/warm履歴/PITの完全再現としない。原本・旧canonical/release/stageと移送証拠は保持する。
 
 <a id="cutovers"></a>
-## 有限移行と旧受領の回復
+## 公開と旧受領の回復
 
-完了済み環境へ再適用しない。旧active/queued writerの停止/drain、原本・旧release/stage/planの保全、固定候補の公開/readback、consumer/input切替、次の通常実行を確認する。codeの既定値やfixtureだけで移行完了としない。完了したJ-Quants移送入口は撤去済みだが、原本/移行証拠は保持する。
+原本・旧release/stage/planと移送証拠は保全する。通常writerは現schemaだけを扱い、旧48/49の作業DB/stageを変換して再投入する入口は提供しない。保存済み公開release・固定入力の読取契約は維持する。
 
-<a id="market-schema-484950の限定cutover"></a>
-### market 48/49→50
+### machine公開後の失敗再開
 
-daily/open/通常pushは移行しない。全writerを止め、旧codeでfresh machine bundle/ETagと旧releaseをhydrateしたcopyを保つ。旧article cutoverの部分公開は元code/receiptで先に完了する。50対応codeへ替え、同じlease・fresh copy・対象日で進め、plan/apply失敗時は停止する。固定EDINET pairを含むapplied.jsonをモデルへ渡し、後段のseal/inputsも同じintegration directoryを使う。
+market/runsのbundleと、machine公開・seal・inputの到達点を別々に確認する。公開/応答不明では後段を止め、元bundle・現ETag・実bytes・公開release/origin/モデルを照合する。別pullのmarket/runsを組み替えたり、旧working copyを本番へ戻したりしない。
 
-```bash
-uv run baibai-jobs market-cutover prepare-copy \
-  --source <PRESERVED_HYDRATED_SCHEMA48_OR_49_COPY> --output stores/market/market.sqlite \
-  --receipt <PRIVATE_CUTOVER_RECEIPT_JSON> --kind canonical
-uv run python -m baibai_jobs.integration.sources plan --directory <PRIVATE_CUTOVER_INTEGRATION_DIRECTORY>
-uv run python -m baibai_jobs.integration.sources apply --asof <YYYY-MM-DD> --directory <PRIVATE_CUTOVER_INTEGRATION_DIRECTORY>
-uv run baibai-jobs model-integration --asof <YYYY-MM-DD> \
-  --integration-report <PRIVATE_CUTOVER_INTEGRATION_DIRECTORY>/applied.json \
-  --lease-handle "$PUBLICATION_LEASE_HANDLE" --notice-output <PRIVATE_NOTICE_JSON>
-jobs/scripts/r2_transfer.sh push-market-cutover <PRIVATE_CUTOVER_RECEIPT_JSON>
-```
-
-outputは不存在。変換は[owner](src/baibai_jobs/maintenance/market_cutover.py)を使い、元table/bytes/時計を別copyに保つ。scopeのsinceを推測せず、未初期化/ticker限定/旧stageからglobalを有効にしない。専用pushは旧ETag・lease・新origin/モデル・候補digestを照合し、空DB再取得で置換しない。取得ETagをpush結果で手書きしない。
-
-残存stageはprepare-copy --kind stageで別pathへ変換し、result.jsonと共に`integration.source_handoff replay-copy --source <OLD_OWNER> --database <HYDRATED_SCHEMA50_COPY> --directory <CONVERTED_STAGE_DIRECTORY>`で限定再生する。元stageへ再uploadせず、後着新旧stage/pendingも照合する。
-
-| 到達点 | 再開 |
-| --- | --- |
-| pointer前 | 旧公開を保ち、元ETag/originで未公開処理だけ再実行。 |
-| pointer後/store前 | 新release/origin/モデルを照合し、元ETag一致中に専用pushで完了。旧codeへ戻さない。 |
-| machine部分PUT/応答不明 | 同receipt/成果の`jobs/scripts/r2_transfer.sh resume-market-cutover <RECEIPT>`を使い、現ETagと実downloadのdigestを照合して未到達keyだけCAS。第三の値なら停止。 |
-| machine成功/seal失敗 | 公開release/原本を読み、同じapplied.jsonからseal。再GETしない。 |
-| seal成功/input途中 | fresh正本と同leaseから対象inputを再発行して取得を再開。 |
+- machine成功/seal失敗: 公開releaseと原本を読み、同じapplied.jsonからsealする。再GETしない。
+- seal成功/input途中: fresh正本と同じleaseから対象inputを再発行して取得を再開する。
 
 ```bash
 uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_WORK> \
@@ -569,7 +547,7 @@ uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_W
   --lease-handle "$PUBLICATION_LEASE_HANDLE"
 ```
 
-経済groupは独立L1 ownerへ戻す。新datasetも非対応readerは拒否するため、新公開後は50/catalogを保つ前向き修正とする。通常push/専用cutoverを混ぜず、machine/seal/inputを別確認する。
+経済groupは独立L1 ownerへ戻す。新datasetを非対応readerへ渡さず、現schema/catalogを保つ前向き修正とする。
 
 ### 経済単独公開と失敗再開
 

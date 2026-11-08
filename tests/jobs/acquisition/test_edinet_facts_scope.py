@@ -1,4 +1,4 @@
-"""Finite facts scope migration preserves requested originals, not L2 claims."""
+"""保存したfacts取得scopeはL2結果と独立に保持する。"""
 
 import io
 import json
@@ -34,10 +34,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.service
     extract_edinet_facts_command,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_engine.storage.sqlite.source_cache.facts_scope_upgrade import (
-    upgrade_facts_scope_working_copy,
-)
-from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_fact_plan import prepare_fact_acquisition
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.source_cache_merge import merge_stores
@@ -78,9 +75,11 @@ def scope(path):
         return read_scope(connection)
 
 
-def legacy(path, *, initialized='{"since":"2025-01-01"}', ids=("S100OLD", "S100LOST")):
+@pytest.mark.parametrize("raw_only", [False, True])
+def test_saved_scope_and_originals_do_not_depend_on_l2_status(tmp_path, raw_only):
+    new = tmp_path / "market.sqlite"
     save_list(
-        path,
+        new,
         [
             filing("S100OLD", 2023),
             filing("S100UNRELATED", 2024),
@@ -88,44 +87,22 @@ def legacy(path, *, initialized='{"since":"2025-01-01"}', ids=("S100OLD", "S100L
             filing("S100LATEST", 2026),
         ],
     )
-    with sqlite3.connect(path) as connection:
-        connection.execute("DROP TABLE edinet_facts_scope")
-        connection.execute("PRAGMA user_version=49")
-        for key in ids:
-            connection.execute(
-                "INSERT INTO source_coverage VALUES ('edinet_research_facts',?,NULL,NULL,'legacy-clock',0,'failed','unavailable')",
-                (key,),
-            )
-        if initialized is not None:
-            connection.execute(
-                "INSERT INTO source_coverage VALUES ('edinet_research_facts','initialized',NULL,NULL,'legacy-clock',0,'ok',?)",
-                (initialized,),
-            )
-
-
-@pytest.mark.parametrize("raw_only", [False, True])
-def test_migration_keeps_scope_and_all_originals_independently_of_l2(tmp_path, raw_only):
-    old, new = tmp_path / "old.sqlite", tmp_path / "new.sqlite"
-    legacy(old)
-    if raw_only:
-        with sqlite3.connect(old) as connection:
+    with closing(open_connection(new)) as connection, connection:
+        if raw_only:
             retain_source_archive(connection, "S100UNRELATED", 1, source_zip(), stored_on=DAY)
-    before = old.read_bytes()
-    with pytest.raises(SQLiteSchemaError):
-        open_connection(old)
-    upgrade_facts_scope_working_copy(old, new)
-    assert old.read_bytes() == before
+        merge_scope(
+            connection,
+            FactsScope(
+                date(2025, 1, 1),
+                frozenset({"S100OLD", "S100LOST"} | ({"S100UNRELATED"} if raw_only else set())),
+                frozenset({"a" * 64}),
+            ),
+        )
     assert scope(new).since == date(2025, 1, 1)
     assert scope(new).doc_ids == frozenset(
         {"S100OLD", "S100LOST"} | ({"S100UNRELATED"} if raw_only else set())
     )
     assert len(scope(new).legacy_origins) == 1
-    with sqlite3.connect(old) as original, sqlite3.connect(new) as migrated:
-        for (table,) in original.execute("SELECT name FROM sqlite_master WHERE type='table'"):
-            assert (
-                original.execute(f'SELECT * FROM "{table}"').fetchall()
-                == migrated.execute(f'SELECT * FROM "{table}"').fetchall()
-            )
     with sqlite3.connect(new) as connection:
         connection.execute("DELETE FROM source_coverage WHERE source='edinet_research_facts'")
         connection.execute(
@@ -135,7 +112,7 @@ def test_migration_keeps_scope_and_all_originals_independently_of_l2(tmp_path, r
     assert {doc["docID"] for doc in selected} == (
         {"S100OLD", "S100SINCE", "S100LATEST"} | ({"S100UNRELATED"} if raw_only else set())
     )
-    # Arrival of retained originals is independent of the migrated L2 status.
+    # 原本の保持と取得scopeは抽出statusから独立する。
     with closing(open_connection(new)) as connection:
         for document in selected:
             doc_id = document["docID"]
@@ -143,6 +120,9 @@ def test_migration_keeps_scope_and_all_originals_independently_of_l2(tmp_path, r
                 retain_source_archive(connection, doc_id, 1, source_zip(), stored_on=DAY)
     before_scope = scope(new)
     with sqlite3.connect(new) as connection:
+        originals = connection.execute(
+            "SELECT * FROM edinet_source_archives ORDER BY doc_id,source_type"
+        ).fetchall()
         connection.execute("DELETE FROM edinet_segment_facts")
         connection.execute("DELETE FROM edinet_debt_schedule")
         connection.execute("DELETE FROM source_coverage WHERE source='edinet_research_facts'")
@@ -153,49 +133,26 @@ def test_migration_keeps_scope_and_all_originals_independently_of_l2(tmp_path, r
         == 0
     )
     assert scope(new) == before_scope
+    with closing(sqlite3.connect(new)) as connection:
+        assert (
+            connection.execute(
+                "SELECT * FROM edinet_source_archives ORDER BY doc_id,source_type"
+            ).fetchall()
+            == originals
+        )
     assert "S100LOST" in scope(new).doc_ids
     assert ("S100UNRELATED" in scope(new).doc_ids) is raw_only
-    with pytest.raises(FileExistsError):
-        upgrade_facts_scope_working_copy(old, new)
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        "{}",
-        "null",
-        '{"since":null}',
-        '{"since":42}',
-        '{"since":"2026-99-40"}',
-        '{"since":"20261105"}',
-        "bad-json",
-    ],
-)
-def test_invalid_legacy_since_is_not_inferred(tmp_path, value):
-    old, new = tmp_path / "old.sqlite", tmp_path / "new.sqlite"
-    legacy(old, initialized=value)
-    before = old.read_bytes()
-    with pytest.raises((ValueError, TypeError)):
-        upgrade_facts_scope_working_copy(old, new)
-    assert old.read_bytes() == before
-    assert not new.exists()
-
-
-def test_uninitialized_and_stage_scope_never_enable_global(tmp_path):
-    old, new = tmp_path / "old.sqlite", tmp_path / "new.sqlite"
-    legacy(old, initialized=None)
-    upgrade_facts_scope_working_copy(old, new)
-    assert scope(new).since is None
-    assert scope(new).doc_ids == frozenset({"S100OLD", "S100LOST"})
-    assert prepare_fact_acquisition(new, asof=DAY) is None
-    # Old raw-only handoff has no L2 status, but its requested type1 family survives.
-    stage, out = tmp_path / "stage.sqlite", tmp_path / "stage50.sqlite"
-    legacy(stage, ids=())
-    with sqlite3.connect(stage) as connection:
+def test_requested_scope_without_global_since_does_not_enable_fetches(tmp_path):
+    path = tmp_path / "market.sqlite"
+    save_list(path, [filing("S100RAW", 2026)])
+    saved = FactsScope(doc_ids=frozenset({"S100RAW"}), legacy_origins=frozenset({"a" * 64}))
+    with closing(open_connection(path)) as connection, connection:
         retain_source_archive(connection, "S100RAW", 1, source_zip(), stored_on=DAY)
-    upgrade_facts_scope_working_copy(stage, out, stage=True)
-    assert scope(out).since is None
-    assert scope(out).doc_ids == frozenset({"S100RAW"})
+        merge_scope(connection, saved)
+    assert scope(path) == saved
+    assert prepare_fact_acquisition(path, asof=DAY) is None
 
 
 def test_selected_unavailable_and_failed_ids_survive_family_change_and_merge(tmp_path):
@@ -378,14 +335,3 @@ def test_scope_union_locks_before_read_and_leaves_commit_to_caller(tmp_path):
         with second:
             merge_scope(second, FactsScope(doc_ids=frozenset({"NEW"})))
     assert scope(path) == FactsScope(since=DAY, doc_ids=frozenset({"OLD", "NEW"}))
-
-
-@pytest.mark.parametrize("invalid_id", ["", b"S100BLOB"])
-def test_invalid_legacy_id_is_rejected_before_copy_without_dropping_it(tmp_path, invalid_id):
-    old, output = tmp_path / "old.sqlite", tmp_path / "new.sqlite"
-    legacy(old, ids=(invalid_id,))
-    before = old.read_bytes()
-    with pytest.raises(ValueError, match="invalid legacy EDINET acquisition identity"):
-        upgrade_facts_scope_working_copy(old, output)
-    assert old.read_bytes() == before
-    assert not output.exists()

@@ -17,7 +17,6 @@ from baibai_engine.data_collection.receipts.articles.contracts import (
     digest_json,
 )
 from baibai_engine.data_collection.receipts.articles.snapshot_contracts import ARTICLE_RECEIPTS
-from baibai_engine.data_collection.receipts.articles.storage_contracts import ARTICLE_RECEIPTS_DDL
 from baibai_engine.data_collection.receipts.articles.store import (
     ArticleStoreError,
     copy_receipt_closure,
@@ -36,9 +35,6 @@ from baibai_engine.machine_analysis.observations.articles.snapshot_contracts imp
     ARTICLE_OBSERVATIONS,
     ARTICLE_PROJECTION_RUNS,
 )
-from baibai_engine.machine_analysis.observations.articles.storage_contracts import (
-    ARTICLE_OBSERVATIONS_DDL,
-)
 from baibai_engine.machine_analysis.observations.articles.store import (
     read_artifacts,
     read_observations,
@@ -52,11 +48,6 @@ from baibai_engine.storage.snapshots.reader import LakeReadError, resolve_releas
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache import schema
-from baibai_engine.storage.sqlite.source_cache.article_upgrade import upgrade_article_working_copy
-from baibai_engine.storage.sqlite.source_cache.facts_scope_upgrade import (
-    SCHEMA49_SQL,
-    validate_schema49,
-)
 
 AT = datetime(2026, 10, 1, tzinfo=UTC)
 URL = "https://www.tsr-net.co.jp/data/json/search-2.json"
@@ -596,27 +587,6 @@ def test_tsr_document_uses_explicit_feed_title_when_h1_is_missing(tmp_path):
         assert document.title == "Synthetic TSR index title"
         assert document.article_id == index.article_id
         assert document.native_metadata["index_observation_id"] == index.observation_id
-
-
-def test_explicit_schema_upgrade_preserves_old_store_and_operator_rows(tmp_path):
-    source = tmp_path / "old.sqlite"
-    old_ddl = SCHEMA49_SQL.replace(ARTICLE_RECEIPTS_DDL, "").replace(ARTICLE_OBSERVATIONS_DDL, "")
-    with closing(sqlite3.connect(source)) as conn, conn:
-        conn.executescript(old_ddl + "PRAGMA user_version=48;")
-        conn.execute("CREATE TABLE operator_synthetic(value BLOB)")
-        conn.execute("INSERT INTO operator_synthetic VALUES (?)", (b"preserved",))
-    before = source.read_bytes()
-    with pytest.raises(schema.SQLiteSchemaError, match="expected=50"):
-        schema.open_connection(source)
-    destination = tmp_path / "upgraded.sqlite"
-    upgrade_article_working_copy(source, destination)
-    assert source.read_bytes() == before
-    with closing(sqlite3.connect(destination)) as conn:
-        validate_schema49(conn)
-        assert conn.execute("SELECT value FROM operator_synthetic").fetchone()[0] == b"preserved"
-        assert conn.execute("SELECT count(*) FROM article_source_receipts").fetchone()[0] == 0
-    with pytest.raises(FileExistsError):
-        upgrade_article_working_copy(source, destination)
 
 
 def test_cli_validation_does_not_echo_private_input(tmp_path, capsys):

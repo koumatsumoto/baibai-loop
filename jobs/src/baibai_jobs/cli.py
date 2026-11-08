@@ -42,7 +42,6 @@ _COMMANDS = {
     "market-evidence": "baibai_jobs.acquisition.market_context",
     "article-evidence": "baibai_jobs.acquisition.article_evidence",
     "article-recovery": "baibai_jobs.maintenance.article_recovery",
-    "market-cutover": "baibai_jobs.maintenance.market_cutover",
     "acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "maintain-market": "baibai_jobs.maintenance.market.cli",
     "validate-market-context-stores": "baibai_jobs.observability.source_stores",

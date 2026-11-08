@@ -7,7 +7,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_policy import narrow_release_policy
 
@@ -25,7 +24,6 @@ from baibai_engine.storage.snapshots.models import (
     ReleaseManifest,
     canonical_lake_model_bytes,
     load_lake_model_json,
-    load_manifest_json,
     validate_release_policy,
 )
 from baibai_engine.storage.snapshots.objects import LocalMirrorSource
@@ -107,9 +105,7 @@ def _dataset_payload(
 
 
 def _load_dataset(payload: dict[str, object]) -> DatasetManifest:
-    manifest = load_manifest_json(json.dumps(payload))
-    assert isinstance(manifest, DatasetManifest)
-    return manifest
+    return load_lake_model_json(json.dumps(payload), DatasetManifest)
 
 
 def test_dataset_manifest_is_strict_and_round_trips() -> None:
@@ -228,7 +224,7 @@ def test_release_manifest_is_strict_and_round_trips(monkeypatch: pytest.MonkeyPa
     narrow_release_policy(monkeypatch)
     payload = _release_payload()
 
-    manifest = load_manifest_json(json.dumps(payload))
+    manifest = load_lake_model_json(json.dumps(payload), ReleaseManifest)
 
     assert isinstance(manifest, ReleaseManifest)
     assert load_lake_model_json(manifest.model_dump_json(), ReleaseManifest) == manifest
@@ -285,7 +281,7 @@ def test_release_dataset_requires_a_well_formed_manifest_digest(field: str, valu
         datasets["jquants.daily_bars"][field] = value
 
     with pytest.raises((ValidationError, ValueError)):
-        load_manifest_json(json.dumps(payload))
+        load_lake_model_json(json.dumps(payload), ReleaseManifest)
 
 
 @pytest.mark.parametrize(
@@ -363,21 +359,27 @@ def test_pilot_partition_layout_changes_only_with_contract_bump() -> None:
     assert manifest.partition_by == ("date",)
 
 
-def test_manifest_loader_rejects_duplicate_json_fields() -> None:
-    raw = json.dumps(_dataset_payload())
+@pytest.mark.parametrize("model", [DatasetManifest, ReleaseManifest])
+def test_manifest_loader_rejects_duplicate_json_fields(
+    model: type[DatasetManifest] | type[ReleaseManifest],
+) -> None:
+    raw = json.dumps(_dataset_payload() if model is DatasetManifest else _release_payload())
     duplicate = raw.replace(
         '"manifest_version": 2,', '"manifest_version": 2, "manifest_version": 2,'
     )
 
     with pytest.raises(ValueError, match="duplicate JSON field"):
-        load_manifest_json(duplicate)
+        load_lake_model_json(duplicate, model)
 
 
-def test_manifest_loader_rejects_oversized_wire_payload_before_parsing() -> None:
+@pytest.mark.parametrize("model", [DatasetManifest, ReleaseManifest])
+def test_manifest_loader_rejects_oversized_wire_payload_before_parsing(
+    model: type[DatasetManifest] | type[ReleaseManifest],
+) -> None:
     payload = b"{" + (b" " * MAX_LAKE_JSON_BYTES) + b"}"
 
     with pytest.raises(ValueError, match="wire size limit"):
-        load_manifest_json(payload)
+        load_lake_model_json(payload, model)
 
 
 @pytest.mark.parametrize(
@@ -398,7 +400,17 @@ def test_manifest_loader_rejects_duplicate_nested_json_fields(replacement: str) 
         )
 
     with pytest.raises(ValueError, match="duplicate JSON field"):
-        load_manifest_json(duplicate)
+        load_lake_model_json(duplicate, DatasetManifest)
+
+
+def test_release_loader_rejects_duplicate_nested_json_fields() -> None:
+    raw = json.dumps(_release_payload())
+    duplicate = raw.replace(
+        '"build_id": "20260812T123456Z-58d3057a-build"',
+        '"build_id": "20260812T123456Z-58d3057a-build", "build_id": "other-build"',
+    )
+    with pytest.raises(ValueError, match="duplicate JSON field"):
+        load_lake_model_json(duplicate, ReleaseManifest)
 
 
 def test_manifest_nested_mappings_are_immutable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -702,30 +714,90 @@ def test_key_builders_are_deterministic_and_traversal_safe() -> None:
         )
 
 
-def test_validate_cli_is_read_only_and_redacts_rejected_values(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("model", [DatasetManifest, ReleaseManifest])
+def test_typed_manifest_loader_is_read_only_and_redacts_rejected_values(
+    tmp_path: Path, model: type[DatasetManifest] | type[ReleaseManifest]
 ) -> None:
     path = tmp_path / "manifest.json"
-    payload = _dataset_payload()
+    payload = _dataset_payload() if model is DatasetManifest else _release_payload()
     path.write_text(json.dumps(payload), encoding="utf-8")
     before = path.read_bytes()
 
-    assert lake_main(["validate", "--manifest", str(path)]) == 0
-    output = yaml.safe_load(capsys.readouterr().out)
-    assert output["status"] == "ok"
-    assert output["scope"] == "manifest_contract"
+    assert isinstance(load_lake_model_json(path.read_text(), model), model)
     assert path.read_bytes() == before
 
     payload["credential"] = "super-secret-value"
     path.write_text(json.dumps(payload), encoding="utf-8")
-    assert lake_main(["validate", "--manifest", str(path)]) == 1
+    rejected = path.read_bytes()
+    with pytest.raises(ValueError, match="extra_forbidden") as raised:
+        load_lake_model_json(path.read_text(), model)
+    error = str(raised.value)
+    assert "extra_forbidden" in error
+    assert "super-secret-value" not in error
+    assert path.read_bytes() == rejected
+
+
+def test_resolve_cli_keeps_typed_reference_error_redacted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "reference.json"
+    path.write_text(
+        json.dumps(
+            {
+                "kind": "lake_release",
+                "source_id": "release-redaction",
+                "sha256": "a" * 64,
+                "key": "lake/manifests/releases/market/release-redaction.json",
+                "manifest_version": 2,
+                "credential": "super-secret-value",
+            }
+        )
+    )
+    before = path.read_bytes()
+    assert (
+        lake_main(["resolve", "--mirror", str(tmp_path / "mirror"), "--release-ref", str(path)])
+        == 1
+    )
     error = capsys.readouterr().err
     assert "extra_forbidden" in error
     assert "super-secret-value" not in error
+    assert path.read_bytes() == before
 
 
 def test_lake_domain_is_exposed_by_the_root_cli() -> None:
     assert _COMMANDS["snapshots"] == "baibai_jobs.publication.snapshot_cli"
+
+
+@pytest.mark.parametrize("command", ["export-all", "release", "validate"])
+@pytest.mark.parametrize("entrypoint", ["dispatch", "write"])
+def test_retired_manual_publication_cli_rejects_before_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str, entrypoint: str
+) -> None:
+    from baibai_jobs.publication import snapshot_write_cli
+
+    def unexpected_io(*args: object, **kwargs: object) -> None:
+        pytest.fail("retired publication CLI must not open a store")
+
+    monkeypatch.setattr(snapshot_write_cli, "open_lake", unexpected_io)
+    monkeypatch.setattr(snapshot_write_cli, "export_market_store", unexpected_io, raising=False)
+    monkeypatch.setattr(snapshot_write_cli, "create_release", unexpected_io, raising=False)
+    arguments = (
+        ["export-all", "--sqlite", str(tmp_path / "market.sqlite")]
+        if command == "export-all"
+        else (
+            ["release", "create", "--dataset-manifest", str(tmp_path / "dataset.json")]
+            if command == "release"
+            else ["validate", "--manifest", str(tmp_path / "dataset.json")]
+        )
+    )
+    main = lake_main if entrypoint == "dispatch" else snapshot_write_cli.main
+    before = {path: path.read_bytes() if path.is_file() else None for path in tmp_path.rglob("*")}
+    with pytest.raises(SystemExit) as raised:
+        main([*arguments, "--mirror", str(tmp_path / "mirror")])
+    assert raised.value.code == 2
+    assert {
+        path: path.read_bytes() if path.is_file() else None for path in tmp_path.rglob("*")
+    } == before
 
 
 def test_every_lake_dataset_states_a_release_policy() -> None:

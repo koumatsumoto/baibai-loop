@@ -15,7 +15,6 @@ from baibai_engine.storage.snapshots.hydrate import (
     dehydrate_market_store,
     hydrate_market_store,
 )
-from baibai_engine.storage.snapshots.identity import verified_git_commit
 from baibai_engine.storage.snapshots.models import LakeReleaseSourceRef, load_lake_model_json
 from baibai_engine.storage.snapshots.objects import (
     LakeCredentialError,
@@ -31,10 +30,7 @@ from baibai_engine.storage.snapshots.reader import (
     resolve_release,
     resolve_release_ref,
 )
-from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.retention import LakeRetentionError, apply_gc, plan_gc
-from baibai_engine.storage.snapshots.writer import export_market_store
-from baibai_engine.storage.sqlite.source_cache.lake_origin import read_lake_store_origin
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
@@ -42,10 +38,8 @@ from baibai_jobs.publication.policy import release_policy_for_profile
 WRITE_COMMANDS = frozenset(
     {
         "dehydrate",
-        "export-all",
         "gc",
         "hydrate",
-        "release",
     }
 )
 
@@ -60,19 +54,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_write_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    export_all = commands.add_parser(
-        "export-all", help="export every lake dataset from one sealed SQLite snapshot"
-    )
-    export_all.add_argument("--sqlite", type=Path, required=True)
-    export_all.add_argument("--mirror", type=Path, required=True)
-
-    release = commands.add_parser("release", help="create an immutable lake release")
-    release_commands = release.add_subparsers(dest="release_command", required=True)
-    create = release_commands.add_parser("create", help="create an immutable release")
-    create.add_argument("--dataset-manifest", type=Path, action="append", required=True)
-    create.add_argument("--mirror", type=Path, required=True)
-    create.add_argument("--release-id")
-
     hydrate = commands.add_parser(
         "hydrate", help="fill a market SQLite store's lake tables from one fixed release"
     )
@@ -103,48 +84,7 @@ def main(argv: list[str]) -> int:
         return _hydrate(args)
     if args.command == "dehydrate":
         return _dehydrate(args)
-    if args.command == "export-all":
-        export_report = export_market_store(
-            sqlite_path=args.sqlite,
-            mirror_root=args.mirror,
-            producer_git_commit=verified_git_commit(),
-            expected_store_origin=read_lake_store_origin(args.sqlite),
-            catalog=LAKE_DATASETS,
-        )
-        print(
-            json.dumps(
-                {
-                    "manifests": {
-                        name: str(item.manifest_path)
-                        for name, item in export_report.datasets.items()
-                    },
-                    "snapshot_source_id": export_report.snapshot.source_id,
-                    "snapshot_sha256": export_report.snapshot.sha256,
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
-    if args.command == "gc":
-        return _gc(args)
-    path, release_manifest = create_release(
-        dataset_manifest_paths=args.dataset_manifest,
-        mirror_root=args.mirror,
-        release_id=args.release_id,
-        catalog=LAKE_DATASETS,
-        policy=release_policy_for_profile("production"),
-    )
-    print(
-        json.dumps(
-            {
-                "data_as_of": release_manifest.data_as_of.isoformat(),
-                "manifest": str(path),
-                "release_id": release_manifest.release_id,
-            },
-            sort_keys=True,
-        )
-    )
-    return 0
+    return _gc(args)
 
 
 def _add_release_target(parser: argparse.ArgumentParser) -> None:

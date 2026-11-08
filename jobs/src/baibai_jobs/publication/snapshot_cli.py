@@ -8,15 +8,12 @@ import sys
 from pathlib import Path
 
 import yaml
-from pydantic import JsonValue, ValidationError
+from pydantic import JsonValue
 
 from baibai_engine.storage.snapshots.inventory import inventory
 from baibai_engine.storage.snapshots.models import (
-    DatasetManifest,
     LakeReleaseSourceRef,
     load_lake_model_json,
-    load_manifest_json,
-    validate_dataset_contract,
 )
 from baibai_engine.storage.snapshots.objects import LakeCredentialError, LakeObjectError, open_lake
 from baibai_engine.storage.snapshots.reader import (
@@ -44,13 +41,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="local bucket mirror root; the lake namespace is the lake/ subtree below it",
     )
     inventory_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
-
-    validate_parser = subparsers.add_parser(
-        "validate",
-        help="validate one JSON manifest contract without dereferencing or changing objects",
-    )
-    validate_parser.add_argument("--manifest", type=Path, required=True)
-    validate_parser.add_argument("--format", choices=("yaml", "json"), default="yaml")
 
     resolve_parser = subparsers.add_parser(
         "resolve",
@@ -132,57 +122,14 @@ def _resolved_release(args: argparse.Namespace) -> dict[str, JsonValue]:
     }
 
 
-def _validation_error(error: ValidationError) -> str:
-    failures = []
-    for failure in error.errors(include_url=False, include_input=False):
-        location = ".".join(str(part) for part in failure["loc"]) or "<root>"
-        failures.append(f"{location}: {failure['type']}")
-    return "; ".join(failures)
-
-
 def _read_only_main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "inventory":
             _emit(inventory(args.root), args.format)
             return 0
-        if args.command == "resolve":
-            _emit(_resolved_release(args), args.format)
-            return 0
-
-        path: Path = args.manifest
-        manifest = load_manifest_json(path.read_text(encoding="utf-8"))
-        if isinstance(manifest, DatasetManifest):
-            if descriptor := LAKE_DATASETS.get(manifest.dataset):
-                validate_dataset_contract(manifest, descriptor, require_current_version=False)
-            identity: dict[str, JsonValue] = {
-                "dataset": manifest.dataset,
-                "layer": manifest.layer,
-                "contract_version": manifest.contract_version,
-                "build_id": manifest.build_id,
-            }
-            kind = "dataset_manifest"
-        else:
-            identity = {
-                "release_id": manifest.release_id,
-                "datasets": len(manifest.datasets),
-            }
-            kind = "release_manifest"
-        _emit(
-            {
-                "schema_version": 1,
-                "kind": kind,
-                "status": "ok",
-                "scope": "manifest_contract",
-                "path": str(path),
-                "identity": identity,
-            },
-            args.format,
-        )
+        _emit(_resolved_release(args), args.format)
         return 0
-    except ValidationError as error:
-        print(f"error: invalid manifest: {_validation_error(error)}", file=sys.stderr)
-        return 1
     except (LakeCredentialError, LakeObjectError, LakeReadError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
