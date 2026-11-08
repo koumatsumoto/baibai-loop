@@ -18,7 +18,7 @@ from tests.helpers.external_assessment_stages import (
     seed_stage,
     wire_success,
 )
-from tests.helpers.external_assessment_universe import build_master_lake
+from tests.helpers.external_assessment_universe import build_native_master
 from tests.helpers.workflow_schedule import declared_schedule
 
 import baibai_engine.data_collection.transport.public_pages as source_http
@@ -142,19 +142,16 @@ def test_manual_exact_plan_is_not_rebound_and_invalid_cycle_is_rejected():
 def test_new_daily_plan_reads_calendar_and_exact_master_only_and_resumes_its_release(
     tmp_path, monkeypatch, day
 ):
-    store, release, _ = build_master_lake(tmp_path, monkeypatch, snapshot=FRIDAY, calendar=CALENDAR)
+    store, _master, _ = build_native_master(
+        tmp_path, monkeypatch, snapshot=FRIDAY, calendar=CALENDAR
+    )
     run_id = f"external-assessment-daily-{day.isoformat()}"
     p = daily.initialize(
         store, run_id=run_id, master_asof=None, observation_date=day, mirror=tmp_path / "cache"
     )
     assert json.loads(p.universe_binding)["master_asof"] == FRIDAY.isoformat()
-    assert json.loads(p.universe_binding)["release_manifest_sha256"] == release.manifest_sha256
-    parquet_reads = [key for key in store.get_keys if key.endswith(".parquet")]
-    assert parquet_reads
-    assert all(
-        any(name in key for name in ("jquants.master_snapshots/", "jquants.market_calendar/"))
-        for key in parquet_reads
-    )
+    assert json.loads(p.universe_binding)["master_native_input"]["kind"] == "native_l1"
+    assert not any(key.startswith("lake/") or key.endswith(".parquet") for key in store.get_keys)
     store.store_object(current_release_pointer_key(), b"unreadable newer pointer")
     store.get_keys.clear()
     store.head_keys.clear()
@@ -178,7 +175,7 @@ def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, monkeypa
         calendar = [(day, 0) for day, _ in calendar]
     else:
         snapshot = date(2026, 10, 8)
-    store, _, _ = build_master_lake(tmp_path, monkeypatch, snapshot=snapshot, calendar=calendar)
+    store, _, _ = build_native_master(tmp_path, monkeypatch, snapshot=snapshot, calendar=calendar)
     store.put_keys.clear()
     with pytest.raises(ValueError, match=r"calendar|master"):
         daily.initialize(
@@ -188,7 +185,7 @@ def test_unavailable_calendar_or_exact_master_creates_no_plan(tmp_path, monkeypa
             observation_date=date(2026, 10, 12),
             mirror=tmp_path / "cache",
         )
-    assert not store.put_keys
+    assert not any(key.endswith("/plan.json") for key in store.put_keys)
 
 
 def test_saved_plan_history_status_never_refreezes_its_universe(monkeypatch, capsys):
@@ -206,7 +203,7 @@ def test_saved_plan_history_status_never_refreezes_its_universe(monkeypatch, cap
 def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monkeypatch):
     basis = date(2025, 12, 30)
     calendar = [("2025-12-30", 1), ("2025-12-31", 0), ("2026-01-01", 0), ("2026-01-02", 0)]
-    store, _, _ = build_master_lake(tmp_path, monkeypatch, snapshot=basis, calendar=calendar)
+    store, _, _ = build_native_master(tmp_path, monkeypatch, snapshot=basis, calendar=calendar)
     p = daily.initialize(
         store,
         run_id="external-assessment-daily-2026-01-02",
@@ -215,13 +212,7 @@ def test_new_year_rest_day_uses_previous_calendar_and_master_year(tmp_path, monk
         mirror=tmp_path / "cache",
     )
     assert json.loads(p.universe_binding)["master_asof"] == basis.isoformat()
-    master_reads = [
-        key
-        for key in store.get_keys
-        if "jquants.master_snapshots/" in key and key.endswith(".parquet")
-    ]
-    assert master_reads
-    assert all("/year=2025/" in key for key in master_reads)
+    assert not any(key.endswith(".parquet") for key in store.get_keys)
 
 
 def test_delayed_source_prepare_retains_cycle_without_touching_store_or_provider(

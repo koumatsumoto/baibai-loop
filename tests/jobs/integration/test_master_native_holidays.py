@@ -121,7 +121,6 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
     names = ("jquants.master_snapshots", "jquants.daily_bars")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
@@ -165,6 +164,9 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
             + ((generation_day,) if generation_day > SUNDAY else ())
         ]
     )
+    from tests.helpers.master_calendar_native import seed_calendar
+
+    seed_calendar(store, market, tmp_path / "calendar-native", as_of=generation_day)
     original = generation.read_master_snapshot
     consumed = []
 

@@ -13,10 +13,6 @@ on:
 permissions:
   contents: read
 
-env:
-  BAIBAI_MASTER_NATIVE: "true"
-  BAIBAI_CALENDAR_NATIVE: "true"
-
 # One source keeps its acquisition and private handoff ordered. A shared provider
 # quota additionally serializes its network jobs, without the publication lock.
 concurrency:

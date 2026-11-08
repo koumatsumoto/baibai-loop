@@ -4,6 +4,9 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.jobs.integration.test_master_native_models import AT, DAY, attempt, records, setup_native
 
@@ -18,7 +21,6 @@ def test_actual_publication_reuses_prior_days_and_year_v3_multiobject_reader(tmp
 
     import baibai_jobs.publication.snapshot_publication as publication
 
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
     narrow_release_policy(monkeypatch, datasets=("jquants.master_snapshots",))
     monkeypatch.setattr(
         publication,
@@ -106,4 +108,6 @@ def test_actual_publication_reuses_prior_days_and_year_v3_multiobject_reader(tmp
             )
 
 
-pytestmark = pytest.mark.usefixtures("native_price_publication")
+pytestmark = pytest.mark.usefixtures(
+    "native_price_publication", "native_master_calendar_publication"
+)

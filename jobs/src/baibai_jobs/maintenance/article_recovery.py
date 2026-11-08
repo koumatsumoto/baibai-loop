@@ -33,6 +33,7 @@ from baibai_jobs.acquisition.article_planning import (
     slot_at,
 )
 from baibai_jobs.acquisition.receipts import download_fixed
+from baibai_jobs.integration.sources import fix_edinet_input
 
 
 def prepare(
@@ -43,8 +44,15 @@ def prepare(
     entry = exact_entry(store, source=source, stage_id=stage_id, manifest_sha256=manifest_sha256)
     entry["explicit_article_recovery"] = True
     directory.mkdir(parents=True, exist_ok=True)
+    edinet_input = fix_edinet_input(store, directory)
     write_json_atomic(
-        directory / "plan.json", {"handoffs": [entry], "external": [], "external_failed": []}
+        directory / "plan.json",
+        {
+            "handoffs": [entry],
+            "edinet_input": edinet_input.model_dump(mode="json"),
+            "external": [],
+            "external_failed": [],
+        },
     )
 
 

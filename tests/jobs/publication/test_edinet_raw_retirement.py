@@ -8,6 +8,9 @@ from datetime import UTC, datetime
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.jobs.integration.test_edinet_fixed_consumer_input import fixtures
 
@@ -404,4 +407,6 @@ def test_failed_compaction_retries_without_rehydrating_cleared_zip(legacy, monke
     assert not any(key.endswith(".zip") for key in store.get_keys)
 
 
-pytestmark = pytest.mark.usefixtures("native_price_publication")
+pytestmark = pytest.mark.usefixtures(
+    "native_price_publication", "native_master_calendar_publication"
+)

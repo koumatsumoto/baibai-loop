@@ -1,7 +1,5 @@
 """Small synthetic structural fixtures; no provider page is committed."""
 
-import sqlite3
-from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -9,8 +7,7 @@ from tests.helpers.external_assessment_html import kabumap_html as html
 from tests.helpers.external_assessment_http import RawSession as Session
 from tests.helpers.external_assessment_http import connect as connect
 from tests.helpers.external_assessment_stages import FakeObjectStore, plan, stage
-from tests.helpers.external_assessment_universe import ASOF, seed_database
-from tests.helpers.master import insert_master_rows
+from tests.helpers.external_assessment_universe import ASOF
 
 import baibai_jobs.acquisition.external_assessments.collection as collection
 import baibai_jobs.acquisition.external_assessments.daily as external_assessment_daily
@@ -31,7 +28,11 @@ from baibai_engine.machine_analysis.observations.external_assessments.store impo
 from baibai_jobs.acquisition.external_assessments.cohorts import make_plan
 from baibai_jobs.acquisition.external_assessments.raw import RAW_PREFIX, read_raw_bundle
 from baibai_jobs.acquisition.external_assessments.staging import read_stages
-from baibai_jobs.acquisition.external_assessments.universe import frozen_universe
+from baibai_jobs.acquisition.external_assessments.universe import received_master_universe
+from baibai_jobs.acquisition.master_dependencies import (
+    fix_master_dependency,
+    saved_master_dependency,
+)
 from baibai_jobs.publication.external_assessment_verification import verify_observations
 
 RECEIVED = datetime(2026, 10, 12, 15, 0, 0, 123456, tzinfo=UTC)
@@ -225,12 +226,18 @@ def test_daily_plan_defaults_to_four_sources_and_accepts_an_explicit_subset():
     assert plan(sources=("monex", "rakuten")).sources == ("monex", "rakuten")
 
 
-def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter(tmp_path):
-    path = tmp_path / "market.sqlite"
-    seed_database(path)
-    with closing(sqlite3.connect(path)) as connection, connection:
-        insert_master_rows(
-            connection, [(ASOF.isoformat(), "8306", "合成銀行", "PRIME", "銀行業", "011")]
-        )
-    tickers, _ = frozen_universe(path, ASOF)
+def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter(
+    tmp_path, monkeypatch
+):
+    from tests.helpers.external_assessment_universe import build_native_master
+    from tests.jobs.integration.test_master_native_models import attempt, records
+
+    store, owner, _ = build_native_master(tmp_path, monkeypatch)
+    rows = records(ASOF)
+    for row in rows:
+        row["MktNm"] = "PRIME"
+    rows.append({**rows[0], "Code": "83060", "S33Nm": "銀行業"})
+    owner.commit([attempt("bank", day=ASOF, at=RECEIVED + timedelta(minutes=1), rows=rows)])
+    saved = fix_master_dependency(store, directory=tmp_path / "fixed", day=ASOF)
+    tickers = received_master_universe(saved_master_dependency(store, saved, day=ASOF), ASOF)
     assert "8306" in tickers

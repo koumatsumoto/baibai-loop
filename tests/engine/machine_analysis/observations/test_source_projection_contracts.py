@@ -10,14 +10,11 @@ from contextlib import closing
 from datetime import date
 from functools import partial
 from pathlib import Path
-from unittest.mock import Mock
 
 import pandas as pd
-import requests
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -50,8 +47,6 @@ from baibai_engine.machine_analysis.observations.normalization import (
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
-from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 
 def _earnings_snapshot(on_date: date = date(2026, 5, 15)) -> JPXEarningsCalendarSnapshot:
@@ -1107,42 +1102,6 @@ class RepeatedObservationTest(unittest.TestCase):
             return store, record, "LongVol", "jquants_weekly_margin", "long_vol", 5100
         store = partial(store_jquants_all_issues_daily_margin, db, balance_date=day)
         return store, record, "LongVol", "jquants_all_issues_daily_margin", "long_vol", 5100
-
-    def test_calendar_fetch_and_cached_projection_agree(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            session = Mock(spec=requests.Session)
-            response = requests.Response()
-            response.status_code = 200
-            response._content = json.dumps(
-                {
-                    "data": [
-                        {"Date": "2026-09-27", "HolDiv": "2"},
-                        {"Date": "2026-09-25", "HolDiv": "1"},
-                        {"Date": "2026-09-25", "HolDiv": "1"},
-                        {"Date": "2026-09-26", "HolDiv": "0"},
-                    ]
-                }
-            ).encode()
-            response._content_consumed = True
-            session.get.return_value = response
-            database = Path(tmp) / "market.sqlite"
-            maintenance = JQuantsRefresh(
-                database, None, client=JQuantsHTTP("token", session=session)
-            )
-            assert maintenance.ensure_market_calendar(date(2026, 9, 25), date(2026, 9, 27)) == 3
-            first = JQuantsReader(database).get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
-            assert maintenance.ensure_market_calendar(date(2026, 9, 25), date(2026, 9, 27)) == 3
-            second = JQuantsReader(database).get_mkt_calendar(date(2026, 9, 25), date(2026, 9, 27))
-            self.assertEqual(first, second)
-            self.assertEqual(
-                [(row.day.day, row.is_business_day) for row in first],
-                [(25, True), (26, False), (27, True)],
-            )
-            self.assertEqual(session.get.call_count, 1)
-            self.assertEqual(
-                session.get.call_args.kwargs["params"],
-                {"from": "20260925", "to": "20260927"},
-            )
 
     def test_identical_records_conflicts_and_later_corrections(self):
         for kind in ("bars", "calendar", "weekly", "daily", "alerts"):

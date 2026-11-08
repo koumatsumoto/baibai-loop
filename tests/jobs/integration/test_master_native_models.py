@@ -297,7 +297,6 @@ def test_normal_models_and_publication_share_native_master_and_price(
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
 
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
     names = ("jquants.daily_bars", "jquants.master_snapshots")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
@@ -321,6 +320,9 @@ def test_normal_models_and_publication_share_native_master_and_price(
             )
         ]
     )
+    from tests.helpers.master_calendar_native import seed_calendar
+
+    seed_calendar(store, market, tmp_path / "calendar-native", as_of=DAY)
     fixed = owner.fixed()
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()

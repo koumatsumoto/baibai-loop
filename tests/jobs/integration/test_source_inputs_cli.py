@@ -116,12 +116,18 @@ def test_explicit_edinet_input_is_rejected(tmp_path, monkeypatch, capsys, group)
 def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     tmp_path, monkeypatch, capsys
 ):
-    remote, market, command = _input_cli(tmp_path, monkeypatch)
+    remote, _market, command = _input_cli(tmp_path, monkeypatch)
     assert sources.main(command) == 0
     capsys.readouterr()
     prior = remote.values[input_key("tradingview")]
-    with closing(open_connection(market)) as conn, conn:
-        conn.execute("DELETE FROM jquants_market_calendar")
+
+    def failed_export(*_, **kwargs):
+        assert kwargs["group"] == "tradingview"
+        raise ValueError("synthetic source-input export failure")
+
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.export_market_source_input", failed_export
+    )
     command[command.index("--identity") + 1] = "retry"
     assert sources.main(command) == 1
     report = json.loads(capsys.readouterr().out)

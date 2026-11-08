@@ -261,6 +261,10 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
         insert_master_rows(
             connection, [(DAY.isoformat(), "1301", "合成企業", "プライム", "卸売業", "011")]
         )
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(store, market, tmp_path / "calendar-native", as_of=DAY)
+    seed_master(store, market, tmp_path / "master-native", as_of=DAY)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
     import baibai_engine.machine_analysis.generation.inputs as generation

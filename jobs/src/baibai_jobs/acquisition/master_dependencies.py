@@ -38,10 +38,8 @@ from baibai_jobs.acquisition.calendar_dependencies import (
     prepare_tradingview_calendar,
 )
 from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
-from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.integration.master_native import fixed_input, materialize_saved_input
 from baibai_jobs.maintenance.tradingview_context import calendar_context
-from baibai_jobs.master_cutover import master_native_enabled
 
 
 class MasterDependencyUnavailable(ValueError):
@@ -105,16 +103,16 @@ def prepare_tradingview_master(
     client: JQuantsHTTP | None = None,
 ) -> bool:
     """Preserve TradingView's calendar basis and its existing early fetch opportunity."""
-    if calendar_native_enabled() and not prepare_tradingview_calendar(
+    if not prepare_tradingview_calendar(
         store, directory=directory, market=market, observation_date=observation_date
     ):
         raise CalendarDependencyUnavailable("native TradingView calendar is unavailable")
     with closing(sqlite3.connect(market)) as connection:
         basis, _business = calendar_context(connection, observation_date)
     report = json.loads((directory / "result.json").read_bytes())
-    report.pop("master_native_input", None)
+    retained = report.pop("master_native_input", None)
     try:
-        if acquire:
+        if retained is None and acquire:
             if client is None:
                 raise ValueError("native master acquisition requires its HTTP client")
             outcome = acquire_master_native(
@@ -126,7 +124,13 @@ def prepare_tradingview_master(
             )
             if outcome["failed"] or outcome["held"] or outcome["incomplete"]:
                 raise MasterDependencyUnavailable("native master acquisition remains unresolved")
-        saved = fix_master_dependency(store, directory=directory / "master-native", day=basis)
+        if retained is not None:
+            saved = InputSnapshot.model_validate(retained)
+            if saved.descriptor is None or saved.descriptor.get("as_of") != basis.isoformat():
+                raise MasterDependencyUnavailable("fixed master dependency date changed")
+            saved_master_dependency(store, saved, day=basis)
+        else:
+            saved = fix_master_dependency(store, directory=directory / "master-native", day=basis)
         materialize_saved_input(store, saved, market=market, days=[basis])
         report["master_native_input"] = saved.model_dump(mode="json")
     except (MasterDependencyUnavailable, JQuantsProviderError):
@@ -150,8 +154,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if not master_native_enabled():
-        return 0
     try:
         with closing(
             Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")

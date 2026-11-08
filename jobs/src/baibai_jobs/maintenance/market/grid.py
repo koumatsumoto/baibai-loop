@@ -44,33 +44,6 @@ def month_end_asof_grid(
     return observed_month_end_dates(day_counts, end=end, min_tickers=min_tickers)
 
 
-def days_with_bars(
-    sqlite_path: Path, days: Sequence[date], *, min_tickers: int = DEFAULT_MIN_TICKERS
-) -> set[date]:
-    """Return requested dates whose stored bar count meets the cohort floor.
-
-    This path does not consult the trading calendar. Passing the count floor is
-    an observed-data selection rule, not proof of complete ingestion.
-    """
-    if not days or not sqlite_path.exists():
-        return set()
-    requested = set(days)
-    conn = sqlite3.connect(f"{sqlite_path.resolve().as_uri()}?mode=ro", uri=True)
-    try:
-        rows = conn.execute(
-            "SELECT traded_at, COUNT(*) FROM jquants_daily_bars "
-            "WHERE traded_at BETWEEN ? AND ? GROUP BY traded_at",
-            (min(requested).isoformat(), max(requested).isoformat()),
-        ).fetchall()
-    finally:
-        conn.close()
-    return {
-        day
-        for day, count in ((date.fromisoformat(str(raw)), int(count)) for raw, count in rows)
-        if day in requested and count >= min_tickers
-    }
-
-
 def observed_month_end_dates(
     day_counts: Sequence[tuple[date, int]],
     *,

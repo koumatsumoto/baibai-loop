@@ -34,7 +34,7 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
 )
 from baibai_engine.storage.sqlite.source_cache.readiness import unreadable_store_reason
 from baibai_engine.storage.sqlite.source_cache.schema import SQLITE_SCHEMA_VERSION, open_connection
-from baibai_jobs.maintenance.market.grid import days_with_bars, month_end_asof_grid
+from baibai_jobs.maintenance.market.grid import month_end_asof_grid
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,6 @@ def test_readers_use_the_exact_filesystem_path(tmp_path: Path, filename: str) ->
     start, end = date(2026, 1, 1), date(2026, 2, 2)
 
     assert month_end_asof_grid(path, start=start, end=end, min_tickers=1) == [date(2026, 1, 30)]
-    assert days_with_bars(path, [end], min_tickers=1) == {end}
     assert read_next_earnings_dates(path, end) == {"1301": date(2026, 2, 3)}
     assert unreadable_store_reason(path) is None
     assert path.read_bytes() == before

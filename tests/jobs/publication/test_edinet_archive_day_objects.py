@@ -11,6 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -249,4 +252,6 @@ def test_publication_reuses_old_months_and_only_changes_receipt_day_objects(tmp_
         assert all(store.values[key].body == body for key, body in old_bytes.items())
 
 
-pytestmark = pytest.mark.usefixtures("native_price_publication")
+pytestmark = pytest.mark.usefixtures(
+    "native_price_publication", "native_master_calendar_publication"
+)

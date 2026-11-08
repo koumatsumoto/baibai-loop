@@ -99,23 +99,12 @@ def mixed_release(tmp_path, monkeypatch):
     return create
 
 
-def enable_native(monkeypatch, source):
-    flags = {
-        "daily_bars": (),
-        "master": ("MASTER",),
-        "market_calendar": ("FINANCIAL", "MASTER", "CALENDAR"),
-    }[source]
-    for flag in flags:
-        monkeypatch.setenv(f"BAIBAI_{flag}_NATIVE", "true")
-
-
 @pytest.mark.parametrize("source", ["daily_bars", "master", "market_calendar"])
 def test_cutover_compares_the_remaining_sources_floor(mixed_release, monkeypatch, source):
     store, market, mirror, old_pages = mixed_release(
         [(source, "2026-01-01"), ("margin_alerts", "2026-02-01")]
     )
     before = {key: item.body for key, item in store.values.items() if key != POINTER}
-    enable_native(monkeypatch, source)
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="native"
     ) as prepared:
@@ -141,10 +130,8 @@ def test_cutover_compares_the_remaining_sources_floor(mixed_release, monkeypatch
 
 
 @pytest.mark.parametrize("remove_all", [False, True])
-@pytest.mark.parametrize("unmigrated", ["margin_alerts", "master"])
-def test_native_price_still_rejects_lost_unmigrated_history(
-    mixed_release, monkeypatch, remove_all, unmigrated
-):
+def test_native_price_still_rejects_lost_unmigrated_history(mixed_release, remove_all):
+    unmigrated = "margin_alerts"
     rows = [("daily_bars", "2026-01-01"), (unmigrated, "2026-02-01")]
     if not remove_all:
         rows.append(("weekly_margin", "2026-03-01"))
@@ -152,7 +139,6 @@ def test_native_price_still_rejects_lost_unmigrated_history(
     before = store.values[POINTER].body
     with sqlite3.connect(market) as connection:
         connection.execute("DELETE FROM jquants_source_pages WHERE source=?", (unmigrated,))
-    enable_native(monkeypatch, "daily_bars")
     message = "historical dataset" if remove_all else "coverage starts 2026-03-01"
     with (
         pytest.raises(ValueError, match=message),
@@ -169,28 +155,12 @@ def test_only_migrated_pages_may_leave_the_optional_legacy_dataset(mixed_release
     before = {
         item.key: store.values[item.key].body for p in old_pages.partitions for item in p.objects
     }
-    enable_native(monkeypatch, "daily_bars")
     with publication.prepare_market_lake(
         sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="native-only"
     ) as prepared:
         assert "jquants.source_pages" not in prepared.release.datasets
         publication.publish_prepared_market_lake(prepared, store=store)
     assert all(store.values[key].body == body for key, body in before.items())
-
-
-def test_unmigrated_master_keeps_the_original_mixed_floor(mixed_release):
-    store, market, mirror, _ = mixed_release(
-        [("master", "2026-01-01"), ("margin_alerts", "2026-02-01")]
-    )
-    with sqlite3.connect(market) as connection:
-        connection.execute("DELETE FROM jquants_source_pages WHERE source='master'")
-    with (
-        pytest.raises(ValueError, match="coverage starts 2026-02-01"),
-        publication.prepare_market_lake(
-            sqlite_path=market, mirror_root=mirror, store=store, as_of=DAY, release_id="legacy"
-        ),
-    ):
-        pytest.fail("legacy originals cannot disappear")
 
 
 @pytest.mark.parametrize("corrupt", [False, True])
@@ -210,7 +180,6 @@ def test_floor_reads_exact_old_parquet_and_stops_at_first_remaining_month(
         (mirror / item.key).unlink()
     if corrupt:
         store.store_object(objects[1].key, b"wrong old source bytes")
-    enable_native(monkeypatch, "daily_bars")
     store.get_keys.clear()
     if corrupt:
         with (

@@ -1,46 +1,15 @@
-"""Explicit J-Quants maintenance: acquire L1, then project and verify L2.
-
-This command-side composition owns fetch planning. The reader has no reference
-back to it, and Collection never imports these market coverage rules.
-"""
+"""Retired J-Quants writer entry points reject before touching data or HTTP."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-from baibai_engine.data_collection.providers.jquants.acquisition import (
-    acquire_request,
-)
-from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsSource,
-)
-from baibai_engine.data_collection.providers.jquants.http import (
-    JQuantsHTTP,
-)
+from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_exact,
-)
-from baibai_engine.storage.sqlite.source_cache.coverage import (
-    covered_intervals,
-    merge_date_ranges,
-    missing_intervals,
-)
-from baibai_engine.storage.sqlite.source_cache.schema import connect_current, open_connection
-from baibai_jobs.maintenance.jquants_inputs import (
-    JQuantsReader,
-)
 
 Progress = Callable[[int, int, date, date], None]
-
-
-def _check_range(start: date, end: date) -> None:
-    if start > end:
-        raise ValueError("request start must not follow end")
 
 
 class JQuantsRefresh:
@@ -51,76 +20,23 @@ class JQuantsRefresh:
         *,
         client: JQuantsHTTP | None = None,
     ) -> None:
-        self._path = sqlite_path
-        self._api_key = api_key
         self._client = client
-        self._reader = JQuantsReader(sqlite_path)
 
     def close(self) -> None:
         if self._client is not None:
             self._client.close()
 
-    def _fetch(self, source: JQuantsSource, params: dict[str, str]) -> None:
-        if self._client is None:
-            self._client = JQuantsHTTP(self._api_key or "")
-        with closing(open_connection(self._path)) as conn:
-            request_id = acquire_request(conn, self._client, source, params)
-        # Acquisition has committed before any interpretation can fail.
-        project_request(self._path, request_id)
-
-    def _missing(self, source: str, start: date, end: date) -> tuple[tuple[date, date], ...]:
-        _check_range(start, end)
-        conn = connect_current(self._path)
-        if conn is None:
-            return ((start, end),)
-        with closing(conn):
-            return missing_intervals(conn, source, start, end)
-
     def ensure_master(self, day: date) -> int:
-        from baibai_jobs.master_cutover import master_native_enabled
-
-        if master_native_enabled():
-            raise JQuantsProviderError(
-                "legacy master writer is disabled; acquire with jquants-master-native "
-                "and rebuild the execution projection from its fixed input"
-            )
-        cached = read_eq_master_exact(self._path, day)
-        if cached is None:
-            self._fetch("master", {"date": day.isoformat()})
-        return len(self._reader.get_eq_master(day))
-
-    def _missing_since_first_coverage(
-        self, source: str, start: date, end: date
-    ) -> tuple[tuple[date, date], ...]:
-        """Repair accumulated coverage, without seeding history for a new store."""
-        _check_range(start, end)
-        conn = connect_current(self._path)
-        if conn is None:
-            return ((start, end),)
-        with closing(conn):
-            covered = covered_intervals(conn, source)
-            first = min(start, covered[0][0]) if covered else start
-            return missing_intervals(conn, source, first, end)
+        raise JQuantsProviderError(
+            "legacy master writer is disabled; acquire with jquants-master-native "
+            "and rebuild the execution projection from its fixed input"
+        )
 
     def ensure_market_calendar(self, start: date, end: date) -> int:
-        from baibai_jobs.calendar_cutover import calendar_native_enabled
-
-        if calendar_native_enabled():
-            raise JQuantsProviderError(
-                "native calendar mode requires jquants-calendar-native acquire "
-                "and rebuild-calendar-native"
-            )
-        planned = self._missing_since_first_coverage("jquants_market_calendar", start, end)
-        if self._missing("jquants_market_calendar", start, end):
-            # Scoped inputs keep coverage, not original pages. Extending the
-            # normal window must retain a full receipt for ready dependencies.
-            planned = merge_date_ranges([*planned, (start, end)])
-        for first, last in planned:
-            self._fetch(
-                "market_calendar",
-                {"from": first.strftime("%Y%m%d"), "to": last.strftime("%Y%m%d")},
-            )
-        return len(self._reader.get_mkt_calendar(start, end))
+        raise JQuantsProviderError(
+            "legacy calendar writer is disabled; use jquants-calendar-native acquire "
+            "and rebuild-calendar-native"
+        )
 
     def ensure_daily_bars(self, start: date, end: date) -> int:
         raise JQuantsProviderError(

@@ -54,8 +54,6 @@ def calendar_attempt(identity, days, *, minute=0, partial=False):
 
 
 def native_context(tmp_path, monkeypatch, *, days=None):
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "true")
     population = records(DAY)
     for record in population:
         record["MktNm"] = "プライム"
@@ -63,8 +61,8 @@ def native_context(tmp_path, monkeypatch, *, days=None):
         tmp_path, attempts=[attempt("master", day=DAY, at=AT, rows=population)]
     )
     calendar = CalendarL1(store, tmp_path / "calendar")
-    calendar.initialize()
-    calendar.commit([calendar_attempt("calendar", days or [(DAY, "1")])])
+    if days is not None:
+        calendar.commit([calendar_attempt("calendar-range", days, minute=1)])
     return store, master, calendar, market, directory
 
 
@@ -77,8 +75,6 @@ def test_external_scheduled_holiday_fixes_native_calendar_without_release_or_rea
     store, _master, calendar, _market, directory = native_context(
         tmp_path, monkeypatch, days=[(DAY, "1"), (observed, "3")]
     )
-    for name in ("_serving_pointer", "available_dependencies"):
-        monkeypatch.setattr(daily, name, lambda *_a, **_k: pytest.fail("legacy dependency read"))
     plan = daily.initialize(
         store,
         run_id="calendar-external",
@@ -142,7 +138,7 @@ def test_native_master_hydrates_calendar_first_and_keeps_fixed_basis_during_reco
     tmp_path, monkeypatch
 ):
     observed = DAY + timedelta(days=1)
-    store, _master, calendar, market, directory = native_context(
+    store, master, calendar, market, directory = native_context(
         tmp_path, monkeypatch, days=[(DAY, "1"), (observed, "0")]
     )
     # The scoped L2 is absent or wrong. It cannot select the dependency date.
@@ -155,12 +151,15 @@ def test_native_master_hydrates_calendar_first_and_keeps_fixed_basis_during_reco
     before = json.loads((directory / "result.json").read_bytes())
     assert before["master_native_input"]["descriptor"]["as_of"] == DAY.isoformat()
     calendar.commit([calendar_attempt("changed", [(observed, "1")], minute=1)])
+    master.commit([attempt("changed-master", day=DAY, at=AT + timedelta(minutes=1))])
     del store.values[CALENDAR_HEAD]
+    del store.values[MASTER_HEAD]
     assert prepare_tradingview_master(
         store, directory=directory, market=market, observation_date=observed
     )
     after = json.loads((directory / "result.json").read_bytes())
     assert before["calendar_native_input"] == after["calendar_native_input"]
+    assert before["master_native_input"] == after["master_native_input"]
 
 
 def test_native_tradingview_packet_cold_replays_fixed_references_without_raw_calendar(

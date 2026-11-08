@@ -375,9 +375,8 @@ def test_price_input_rejects_a_later_calendar_clock(tmp_path):
         )
 
 
-@pytest.mark.parametrize("default_mode", [False, True])
 def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_cli(
-    tmp_path, monkeypatch, capsys, default_mode
+    tmp_path, monkeypatch, capsys
 ):
     from tests.jobs.integration.test_master_native_models import attempt as master_attempt
     from tests.jobs.publication.test_calendar_native_objects import configure
@@ -447,9 +446,6 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     assert SATURDAY not in plan
     assert SUNDAY not in plan
     publication = configure(monkeypatch)
-    if default_mode:
-        for source in ("PRICE", "MASTER", "CALENDAR"):
-            monkeypatch.delenv(f"BAIBAI_{source}_NATIVE")
     monkeypatch.setattr(job, "_load_handle", lambda _: None)
     monkeypatch.setattr(job, "verify_held", lambda *_: None)
     economic = tmp_path / "economic.sqlite"

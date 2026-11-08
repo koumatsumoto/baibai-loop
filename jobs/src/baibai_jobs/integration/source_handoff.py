@@ -13,9 +13,6 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TypedDict
 
-from baibai_engine.data_collection.providers.jquants.dependencies import (
-    export_dependencies as export_master_calendar_dependencies,
-)
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     market_calendar_business_day,
@@ -27,7 +24,6 @@ from baibai_engine.storage.objects.r2 import (
 )
 from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_jobs.acquisition.economic_staging import load_handoff, save_handoff
-from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.integration.jpx_handoff import export_handoff as export_jpx_handoff
 from baibai_jobs.integration.jpx_handoff import import_handoff as import_jpx_handoff
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
@@ -121,20 +117,7 @@ def _export(
         report["bundle_ids"] = export_jpx_handoff(
             database, path, since=since, collection=_JPX_COLLECTION[source]
         )
-    from baibai_jobs.master_cutover import master_native_enabled
 
-    if source in {"jquants-market", "tradingview"} and not (
-        calendar_native_enabled() and (master_input is not None or master_native_enabled())
-    ):
-        basis = date.fromisoformat(str(report["master_asof"])) if source == "tradingview" else asof
-        for dependency in export_master_calendar_dependencies(
-            database, day=asof, master_asof=basis
-        ):
-            if master_input is not None and dependency["source"] == "master":
-                continue
-            if calendar_native_enabled() and dependency["source"] == "market_calendar":
-                continue
-            write_json_atomic(directory / f"dependency-{dependency['request_id']}.json", dependency)
     write_json_atomic(directory / "result.json", report)
 
 
@@ -177,69 +160,53 @@ def _replay(
     path = directory / "receipts.sqlite"
     if source == "tradingview":
         handoff = TradingViewHandoff.from_json(report)
-        from baibai_jobs.master_cutover import master_native_enabled
 
-        if calendar_native_enabled() and calendar_input is None:
+        if calendar_input is None:
             raise ValueError("native TradingView replay requires its fixed calendar context")
-        if calendar_input is not None:
-            if store is None:
-                raise ValueError("native calendar replay requires its object store")
-            from baibai_engine.data_collection.providers.jquants.calendar_native import interval
-            from baibai_jobs.integration.calendar_native import (
-                materialize_saved_input as materialize_calendar,
-            )
+        if store is None:
+            raise ValueError("native calendar replay requires its object store")
+        from baibai_engine.data_collection.providers.jquants.calendar_native import interval
+        from baibai_jobs.integration.calendar_native import (
+            materialize_saved_input as materialize_calendar,
+        )
 
-            materialize_calendar(
-                store,
-                calendar_input,
-                market=database,
-                days=interval(handoff.master_asof, handoff.snapshot_date),
-                replace_all=False,
-            )
-        if master_native_enabled() and master_input is None:
+        materialize_calendar(
+            store,
+            calendar_input,
+            market=database,
+            days=interval(handoff.master_asof, handoff.snapshot_date),
+            replace_all=False,
+        )
+        if master_input is None:
             raise ValueError("native TradingView replay requires its fixed master context")
-        if master_input is not None:
-            if store is None:
-                raise ValueError("native master replay requires its object store")
-            from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
-            from baibai_jobs.integration.master_native import materialize_saved_input
+        from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
+        from baibai_jobs.integration.master_native import materialize_saved_input
 
-            if master_input.descriptor is None:
-                raise ValueError("native master replay requires a fixed descriptor")
-            selected_master = read_master_input(
-                store, master_input.descriptor, days=[handoff.master_asof]
-            )
-            scope = selected_master["scopes"].get(handoff.master_asof.isoformat(), {})
-            if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
-                raise ValueError("native master replay acquisition is unresolved")
-            materialize_saved_input(
-                store, master_input, market=database, days=[handoff.master_asof]
-            )
-        if (
-            master_input is None
-            and handoff.master_native_input is None
-            and calendar_input is None
-            and handoff.calendar_native_input is None
-        ):
-            return import_tradingview_handoff(path, database, handoff)
+        if master_input.descriptor is None:
+            raise ValueError("native master replay requires a fixed descriptor")
+        selected_master = read_master_input(
+            store, master_input.descriptor, days=[handoff.master_asof]
+        )
+        scope = selected_master["scopes"].get(handoff.master_asof.isoformat(), {})
+        if not scope.get("adopted") or scope.get("failure") or scope.get("held"):
+            raise ValueError("native master replay acquisition is unresolved")
+        materialize_saved_input(store, master_input, market=database, days=[handoff.master_asof])
         return import_tradingview_handoff(
             path,
             database,
             handoff,
             store=store,
-            native_master=master_input is not None,
-            native_calendar=calendar_input is not None,
+            native_master=True,
+            native_calendar=True,
             master_fingerprints=master_fingerprints,
         )
     if source == "jquants-market":
-        from baibai_jobs.master_cutover import master_native_enabled
-
         if price_fingerprints is None:
             raise ValueError("native price replay requires retained cutover fingerprints")
 
-        if master_native_enabled() and master_fingerprints is None:
+        if master_fingerprints is None:
             raise ValueError("native master replay requires retained cutover fingerprints")
-        if calendar_native_enabled() and calendar_fingerprints is None:
+        if calendar_fingerprints is None:
             raise ValueError("native calendar replay requires retained cutover fingerprints")
         if margin_alerts_fingerprints is None:
             raise ValueError("native margin alerts replay requires retained cutover fingerprints")
@@ -364,13 +331,7 @@ def _acquire_financial_l1(asof: date, directory: Path) -> bool:
 def _acquire_market_l1(asof: date, directory: Path) -> bool:
     """Acquire each market source using retained originals, not L2 copies."""
     from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
-    from baibai_jobs.calendar_cutover import calendar_native_enabled
-    from baibai_jobs.master_cutover import master_native_enabled
 
-    native_master = master_native_enabled()
-    native_calendar = calendar_native_enabled()
-    if not (native_calendar and native_master):
-        raise ValueError("native market acquisition requires native calendar and master")
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
     from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
     from baibai_jobs.acquisition.jquants_calendar_native import (
@@ -642,7 +603,6 @@ def _replay_context(
     margin_interest_fingerprints: Mapping[str, str] | None = None,
 ) -> _ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
-    from baibai_jobs.master_cutover import master_native_enabled
 
     context: _ReplayContext = {}
     if source == "jquants-market" and price_fingerprints is None:
@@ -709,9 +669,7 @@ def _replay_context(
             master_input = InputSnapshot.model_validate(packet["master_native_input"])
         if calendar_input is None and packet.get("calendar_native_input") is not None:
             calendar_input = InputSnapshot.model_validate(packet["calendar_native_input"])
-    if master_native_enabled() and (
-        master_input is None or source == "jquants-market" or packet.get("master_request_ids")
-    ):
+    if master_input is None or source == "jquants-market" or packet.get("master_request_ids"):
         from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
         from baibai_jobs.integration.master_native import fixed_input as fixed_master_input
 
@@ -724,7 +682,7 @@ def _replay_context(
             master_input = fixed_master_input(
                 store, fixed_master, as_of=day, evaluated_at=datetime.now(UTC)
             )
-    if calendar_native_enabled() and (
+    if (
         calendar_input is None
         or source == "jquants-market"
         or packet.get("calendar_native_input") is None
@@ -766,15 +724,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.command == "replay-copy":
             packet = json.loads((directory / "result.json").read_bytes())
-            from baibai_jobs.master_cutover import master_native_enabled
 
-            native = args.source in {"tradingview", "jquants-market"} and (
-                master_native_enabled()
-                or calendar_native_enabled()
-                or args.source == "jquants-market"
-                or packet.get("master_native_input") is not None
-                or packet.get("calendar_native_input") is not None
-            )
+            native = args.source in {"tradingview", "jquants-market"}
             if native:
                 with closing(
                     Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
@@ -805,21 +756,16 @@ def main(argv: list[str] | None = None) -> int:
                 and saved_input.get("master_native_input") is not None
                 else None
             )
-            from baibai_jobs.master_cutover import master_native_enabled
 
-            if args.source == "tradingview" and master_native_enabled() and master_input is None:
-                return 0  # The existing backfill step will acquire then resume these receipts.
+            if args.source == "tradingview" and master_input is None:
+                return 0  # Acquire the fixed master, then resume these receipts.
             calendar_input = (
                 InputSnapshot.model_validate(saved_input["calendar_native_input"])
                 if args.source == "tradingview"
                 and saved_input.get("calendar_native_input") is not None
                 else None
             )
-            if (
-                args.source == "tradingview"
-                and calendar_native_enabled()
-                and calendar_input is None
-            ):
+            if args.source == "tradingview" and calendar_input is None:
                 raise ValueError("native TradingView resume requires its fixed calendar input")
 
             price_fingerprints = None
@@ -849,14 +795,7 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 packet = directory / f"resume-{source}-{index}"
                 download_fixed(store, entry, packet)
-                if source not in {"tradingview", "jquants-market"} or (
-                    source == "tradingview"
-                    and master_input is None
-                    and calendar_input is None
-                    and not master_native_enabled()
-                    and not calendar_native_enabled()
-                    and price_fingerprints is None
-                ):
+                if source not in {"tradingview", "jquants-market"}:
                     _replay(source, args.database, packet)
                 else:
                     report = json.loads((packet / "result.json").read_bytes())
@@ -869,16 +808,15 @@ def main(argv: list[str] | None = None) -> int:
                         calendar_input=calendar_input,
                         price_fingerprints=price_fingerprints,
                     )
-                    if calendar_native_enabled():
-                        from baibai_jobs.acquisition.calendar_dependencies import (
-                            verify_stage_calendar_dependencies,
-                        )
+                    from baibai_jobs.acquisition.calendar_dependencies import (
+                        verify_stage_calendar_dependencies,
+                    )
 
-                        # Native packets carry fixed references, not legacy dependencies.
-                        # Old stage dependency evidence is verified against the cutover.
-                        fingerprints = context.get("calendar_fingerprints")
-                        if fingerprints is not None:
-                            verify_stage_calendar_dependencies(store, entry, fingerprints)
+                    # Native packets carry fixed references, not legacy dependencies.
+                    # Old stage dependency evidence is verified against the cutover.
+                    fingerprints = context.get("calendar_fingerprints")
+                    if fingerprints is not None:
+                        verify_stage_calendar_dependencies(store, entry, fingerprints)
                     _replay(source, args.database, packet, store=store, **context)
         elif args.command in {"stage", "download"}:
             if args.stage_id is None:
@@ -935,17 +873,11 @@ def main(argv: list[str] | None = None) -> int:
                     ).returncode  # nosec B603
             master_input = None
             calendar_input = None
-            from baibai_jobs.master_cutover import master_native_enabled
-
-            if args.source == "tradingview" and master_native_enabled():
+            if args.source == "tradingview":
                 if args.input_directory is None:
                     raise ValueError("native TradingView export requires its fixed source input")
                 saved = json.loads((args.input_directory / "result.json").read_bytes())
                 master_input = InputSnapshot.model_validate(saved["master_native_input"])
-            if args.source == "tradingview" and calendar_native_enabled():
-                if args.input_directory is None:
-                    raise ValueError("native TradingView export requires its fixed source input")
-                saved = json.loads((args.input_directory / "result.json").read_bytes())
                 calendar_input = InputSnapshot.model_validate(saved["calendar_native_input"])
             if master_input is None and calendar_input is None:
                 _export(args.source, args.asof, since, args.database, directory)

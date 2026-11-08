@@ -135,7 +135,12 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     from baibai_jobs.publication.policy import release_policy_for_profile
 
     monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
-    names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.fin_summaries")
+    names = (
+        "jquants.daily_bars",
+        "jquants.master_snapshots",
+        "jquants.fin_summaries",
+        "jquants.market_calendar",
+    )
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {key: LAKE_DATASETS[key] for key in names})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
@@ -212,6 +217,10 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     )
     assert financial_policy.carries_history is True
     seed_prices(store, market, tmp_path / "native-price", as_of=DAY)
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(store, market, tmp_path / "calendar-native", as_of=DAY)
+    seed_master(store, market, tmp_path / "master-native", as_of=DAY)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
     store.get_keys.clear()

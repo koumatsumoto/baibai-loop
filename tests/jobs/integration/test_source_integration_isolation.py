@@ -6,6 +6,7 @@ from datetime import date, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.jquants_receipts import FIRST_AT, body, calendar, receive
+from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.native_handoff import integrate_economic, stage
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -21,7 +22,18 @@ from baibai_jobs.integration.replay_result import ReplayResult
 from baibai_jobs.integration.sources import apply as apply_market
 
 
+def native_dependencies(store, market, work, asof):
+    from datetime import UTC, datetime
+
+    from baibai_jobs.integration.calendar_native import model_input
+
+    calendar = seed_calendar(store, market, work / "fixture-calendar", as_of=asof)
+    seed_master(store, market, work / "fixture-master", as_of=asof)
+    model_input(store, calendar.fixed(), as_of=asof, evaluated_at=datetime.now(UTC), market=market)
+
+
 def apply(store, work, *, market, economic, asof):
+    native_dependencies(store, market, work, asof)
     economic_report = integrate_economic(store, work / "economic", economic, asof)
     plan = json.loads((work / "plan.json").read_text())
     plan["handoffs"] = [entry for entry in plan["handoffs"] if entry["market"]]
@@ -80,6 +92,7 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
     economic = tmp_path / "economic.sqlite"
     with closing(initialize_database(economic)):
         pass
+    native_dependencies(store, market, work, date(2026, 10, 24))
     with closing(open_connection(market)) as conn:
         before_rows = conn.execute("SELECT * FROM jquants_market_calendar ORDER BY day").fetchall()
         before_coverage = conn.execute(
@@ -105,7 +118,7 @@ def test_failed_jquants_candidate_keeps_prior_projection_and_integrates_other_so
             conn.execute("SELECT COUNT(DISTINCT request_id) FROM jquants_source_pages").fetchone()[
                 0
             ]
-            == 2
+            == 0
         )
     with closing(initialize_database(economic)) as conn:
         assert next(

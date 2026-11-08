@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.article_acquisition import SLOT, _packet
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.storage.objects.r2 import LakeCASConflict, LakePublishError
@@ -139,6 +140,7 @@ def test_unrelated_planning_writer_conflict_keeps_exact_stage_recoverable(tmp_pa
     assert [item["stage_id"] for item in pending_handoffs(remote)] == ["boj_news-orphan"]
     assert "coordination/article-sources/boj_news-orphan/handoff.json" in remote.values
     stage = json.loads((tmp_path / "boj_news" / "stage.json").read_text())
+    empty_edinet_input(remote, tmp_path)
     prepare(
         remote,
         tmp_path / "recovery",

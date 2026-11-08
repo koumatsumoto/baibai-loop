@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TextIO
@@ -19,9 +19,6 @@ from baibai_engine.data_collection.providers.jquants.market_rules import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_exact,
-)
 from baibai_engine.primitives.market_windows import (
     FINANCIAL_HISTORY_DAYS,
     FINANCIAL_REVISION_OVERLAP_DAYS,
@@ -224,86 +221,6 @@ The store's own coverage is what decides how far back a *gap* is fetched, so thi
 window is never the thing that recovers a stopped batch — using it that way would
 silently miss everything older than seven days the moment an outage ran longer.
 """
-
-BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT = 3
-"""連続失敗で打ち切る本数。
-
-per-date の失敗（その日の断面が無い）は残りの日付と独立だが、systemic な失敗
-（認証・plan 外・network 断）は全日付で同じように失敗する。区別せず続けると、
-非 retryable な認証エラーでもグリッド全日付ぶんの request を投げ切ってしまう。
-"""
-
-
-def backfill_master_command(
-    *,
-    asof_dates: Sequence[date],
-    providers: ProviderBundle,
-    sqlite_path: Path,
-    stdout: TextIO | None = None,
-) -> int:
-    """Store the point-in-time security master for each requested date only.
-
-    A calibration cohort becomes production evidence only when its population
-    comes from a master snapshot of its own date. ``bootstrap-cache`` reaches
-    that state alongside broad price and financial windows; the master snapshot
-    itself is one request. Backfilling a monthly grid here avoids planning those
-    unrelated windows for every cohort.
-
-    Each date is independent: a date the provider cannot answer is reported and
-    the pass continues, and the exit code is non-zero if any date failed. A date
-    whose exact snapshot is already stored is served from the cache and prints
-    ``cached``, so re-running a pass costs nothing; replacing a stored snapshot
-    requires ``invalidate-coverage --source jquants_master_snapshots`` first.
-    Exhausted shared quota ends the pass immediately. Enough consecutive other
-    failures also end the pass, because a systemic failure fails every remaining
-    date the same way.
-    """
-    out = stdout if stdout is not None else sys.stdout
-    refresh = _maintenance(providers)
-    print(f"backfill-master start: {len(asof_dates)} date(s)", file=out, flush=True)
-    failures: list[date] = []
-    consecutive = 0
-    for index, asof_date in enumerate(asof_dates):
-        iso = asof_date.isoformat()
-        cached = read_eq_master_exact(sqlite_path, asof_date) is not None
-        try:
-            row_count = refresh.ensure_master(asof_date)
-        except (
-            JQuantsAcquisitionError,
-            JQuantsProviderError,
-            SQLiteSchemaError,
-            sqlite3.Error,
-        ) as exc:
-            print(f"backfill-master {iso}: {type(exc).__name__}: {exc}", file=sys.stderr)
-            failures.append(asof_date)
-            consecutive += 1
-            if (
-                isinstance(exc, JQuantsRateLimitError)
-                or consecutive >= BACKFILL_MASTER_CONSECUTIVE_FAILURE_LIMIT
-            ):
-                remaining = len(asof_dates) - index - 1
-                reason = (
-                    "J-Quants rate limit"
-                    if isinstance(exc, JQuantsRateLimitError)
-                    else f"{consecutive} consecutive failures"
-                )
-                print(
-                    f"backfill-master: {reason}; stopping with {remaining} date(s) not attempted",
-                    file=sys.stderr,
-                )
-                break
-            continue
-        consecutive = 0
-        source = "cached" if cached else "fetched"
-        print(f"backfill-master {iso}: {source} {row_count} row(s)", file=out, flush=True)
-    if failures:
-        print(
-            f"backfill-master: {len(failures)} of {len(asof_dates)} date(s) failed",
-            file=sys.stderr,
-        )
-        return 1
-    print("backfill-master done", file=out, flush=True)
-    return 0
 
 
 def bootstrap_cache_command(

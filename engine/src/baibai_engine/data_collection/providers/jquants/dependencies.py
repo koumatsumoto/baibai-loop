@@ -4,21 +4,14 @@ from __future__ import annotations
 
 import base64
 import gzip
-import sqlite3
 from collections.abc import Mapping
-from contextlib import closing
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsAcquisitionError,
     JQuantsPage,
     JQuantsRequest,
     complete_request,
-)
-from baibai_engine.data_collection.providers.jquants.receipts import (
-    read_complete_request,
 )
 
 
@@ -32,28 +25,6 @@ def dependency_covers_day(source: str, params: Mapping[str, str], day: date) -> 
     except ValueError:
         return False
     return False
-
-
-def export_dependencies(database: Path, *, day: date, master_asof: date) -> list[dict[str, Any]]:
-    latest: dict[str, dict[str, Any]] = {}
-    with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
-        for (request_id,) in conn.execute(
-            "SELECT DISTINCT request_id FROM jquants_source_pages "
-            "WHERE source IN ('master', 'market_calendar')"
-        ):
-            try:
-                request = read_complete_request(conn, request_id)
-            except JQuantsAcquisitionError:
-                continue
-            if not dependency_covers_day(
-                request.source, request.params, master_asof if request.source == "master" else day
-            ):
-                continue
-            previous = latest.get(request.source)
-            if previous and request.received_at <= datetime.fromisoformat(previous["received_at"]):
-                continue
-            latest[request.source] = dependency_from_request(request_id, request)
-    return list(latest.values())
 
 
 def dependency_from_request(request_id: str, request: JQuantsRequest) -> dict[str, Any]:
