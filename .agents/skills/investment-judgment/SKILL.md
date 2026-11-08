@@ -21,7 +21,7 @@ uv run baibai-engine investment-judgment selection-context \
 
 再訪は`company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きはknown_atを固定しnext_after_tickerを使い、未review Research/review済みpair、空/unreadableを分ける。
 
-contextのidentity/時点/依頼を保つSelectionを作り、対象・問い・理由・代替・未確認範囲を記す。全社モデル投入や単一対象の全期間backfillをせず、不足は必要な通常取得で補い経済的棄却で代用しない。新しい共通市場判断は[市場判断skill](../market-context-assessment/SKILL.md)へ。
+contextのidentity/時点/依頼を保つResearch Selectionを作り、対象・問い・理由・代替・未確認範囲を記す。全社モデル投入や単一対象の全期間backfillをせず、不足は必要な通常取得で補い経済的棄却で代用しない。新しい共通市場判断は[市場判断skill](../market-context-assessment/SKILL.md)へ。
 
 ```bash
 uv run baibai-engine investment-judgment prepare \
@@ -29,7 +29,7 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareは開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。表示拡大は保存範囲を増やさず、既存表示の更新には再開時のforceを使う。
+prepareはResearch Selectionと開始材料をapplicationへ保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。
 
 nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。候補/省略/未生成/欠測と時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 
@@ -115,7 +115,7 @@ uv run baibai-engine investment-judgment prepare \
 
 record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> show <ID>`で読み、workspaceのincompleteと区別する。
 
-[保存入力](../../../docs/architecture.md#store-authority)から再開する。forceは執筆draftを保持し、DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
+Operationに保存された[Research Selection](../../../docs/architecture.md#store-authority)から再開し、selection-contextで選び直さない。forceは表示を再投影し執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 
 ## 提案訂正・人間の非購入報告
 

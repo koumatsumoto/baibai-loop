@@ -1,8 +1,6 @@
 # 保存済み旧評価の読取
 
-旧ER/FV・四Approachの再推計/再選抜、較正の再生成/再配布は廃止済み。保存run・旧Selection・同梱contextを当時の値/identity/時刻/欠測のまま読み、現行モデル・候補・L3評価/Reviewを代行させない。store/原本は削除しない。
-
-`historical-evaluation run-show` / `historical-evaluation candidates show` にexact `--run-revision-id`を指定する。旧Selectionも保存分析の投影で、現在のrules/推計で埋めない。
+旧ER/FV・四Approachの再推計/再選抜、較正の再生成/再配布は廃止済み。[操作](../../jobs/OPERATIONS.md#保存済み旧runを読む)ではexact runを指定し、保存run・旧Selection・同梱contextを当時の値/identity/時刻/欠測のまま読む。旧候補は保存分析の投影で、現在のrules/推計で埋めず、現行候補・L3評価/Reviewにしない。store/原本は保持する。
 
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味

@@ -124,7 +124,7 @@ TradingViewの受領JST日/master日を公表日、部分公開を市場代表�
 <a id="judgment-use"></a>
 ## 判断への受渡し
 
-Selectionは決算予定/規制/現在台帳を網羅するとは限らず、表示拡大では保存入力/生成範囲も増えない。固定旧入力から別Generationを保存する専用CLIは未提供で、現在market公開jobを代用しない。
+Research Selectionは決算予定/規制/現在台帳を網羅するとは限らず、表示拡大では保存入力/生成範囲も増えない。固定旧入力から別Generationを保存する専用CLIは未提供で、現在market公開jobを代用しない。
 
 外部評価の利益/倍率/資本/期の重要差は原典確認し、銀行のEBITDA/FCF等を全社必須にしない。rating加点/coverage別laneを設けず、[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)も将来効果の否定にしない。Investing.comは変更の補助で、第二の日次consensusではない。
 
