@@ -414,9 +414,18 @@ def project_financial_documents(
                 dps_key = f"{prefix}DivAnn"
                 dividend_status = "confirmed" if has_period_slot(record, dps_key) else "missing"
                 unresolved_dividend_revision = (
-                    selected_slot == "current"
-                    and dividend_status == "missing"
+                    dividend_status == "missing"
                     and row.document_type == "DividendForecastRevision"
+                    and (
+                        selected_slot == "current"
+                        # A previous-year revision alone cannot withdraw next-year
+                        # guidance. Next-year payment slots establish that scope;
+                        # they do not establish a usable annual sum.
+                        or any(
+                            has_period_slot(record, f"NxFDiv{period}")
+                            for period in ("1Q", "2Q", "3Q", "FY")
+                        )
+                    )
                 )
                 if unresolved_dividend_revision:
                     dividend_status = "unresolved"

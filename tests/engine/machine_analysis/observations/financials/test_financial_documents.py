@@ -1488,3 +1488,67 @@ def test_boolean_native_financial_values_remain_raw_but_not_numeric(tmp_path, va
     assert row.forecast_basis == "consolidated"
     assert ("forecast_eps", ("boolean-values",)) in row.forecast_field_sources
     assert json.loads(row.document_payload) == record
+
+
+@pytest.mark.parametrize("component", ["NxFDiv2Q", "NxFDivFY"])
+@pytest.mark.parametrize("value", ["0", "3", "NaN"])
+def test_next_year_dividend_component_revision_blocks_stale_annual_guidance(component, value):
+    period = {
+        "CurFYSt": "2025-07-01",
+        "CurFYEn": "2026-06-30",
+        "CurPerSt": "2025-07-01",
+        "CurPerEn": "2026-06-30",
+        "NxtFYSt": "2026-07-01",
+        "NxtFYEn": "2027-06-30",
+    }
+    old = document("old-next-year", day="2026-08-01", NxFDivAnn="7", **period)
+    revised = document(
+        "next-year-revision",
+        DocType="DividendForecastRevision",
+        NxFDivAnn="",
+        **period,
+        **{component: value},
+    )
+    for records in ([old, revised], [revised, old]):
+        result = snapshot(decode(records))
+        assert result.dps_forecast_annual is None
+        assert result.dividend_forecast_source["status"] == "unresolved"
+        assert result.dividend_forecast_source["disclosure_number"] == "next-year-revision"
+        assert (
+            result.dividend_forecast_source["dps_forecast_annual_source_records"]
+            == "next-year-revision"
+        )
+
+
+def test_previous_year_dividend_revision_does_not_withdraw_next_year_guidance():
+    period = {
+        "CurFYSt": "2025-07-01",
+        "CurFYEn": "2026-06-30",
+        "CurPerSt": "2025-07-01",
+        "CurPerEn": "2026-06-30",
+        "NxtFYSt": "2026-07-01",
+        "NxtFYEn": "2027-06-30",
+    }
+    old = document("old-next-year", day="2026-08-01", NxFDivAnn="7", **period)
+    revised = document(
+        "previous-year-revision",
+        DocType="DividendForecastRevision",
+        FDivAnn="0",
+        NxFDivAnn="",
+        NxFDiv2Q="",
+        **period,
+    )
+    assert snapshot(decode([old, revised])).dps_forecast_annual == 7
+    # Ordinary statements may omit annual guidance without withdrawing it.
+    ordinary = {**revised, "DocType": "FYFinancialStatements_Consolidated_JP", "NxFDiv2Q": "3"}
+    assert snapshot(decode([old, ordinary])).dps_forecast_annual == 7
+    # Explicit unknown annual guidance supersedes the old numeric amount.
+    revised["NxFDivAnn"] = "NaN"
+    unresolved = snapshot(decode([old, revised]))
+    assert unresolved.dps_forecast_annual is None
+    assert unresolved.dividend_forecast_source["status"] == "unresolved"
+    # Explicit annual zero for the applicable next year is usable and supersedes it.
+    revised["NxFDivAnn"] = "0"
+    result = snapshot(decode([old, revised]))
+    assert result.dps_forecast_annual == 0
+    assert result.dividend_yield == 0
