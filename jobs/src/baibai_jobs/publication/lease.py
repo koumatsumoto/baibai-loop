@@ -326,14 +326,15 @@ def main(argv: list[str] | None = None) -> int:
     take = commands.add_parser("acquire")
     take.add_argument("--purpose", choices=_PURPOSES, required=True)
     take.add_argument("--handle", type=Path, required=True)
-    give = commands.add_parser("release")
-    give.add_argument("--handle", type=Path, required=True)
+    for command in ("release", "verify"):
+        check = commands.add_parser(command)
+        check.add_argument("--handle", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.command == "acquire" and args.handle.exists():
         print("publication lease: handle already exists", file=sys.stderr)
         return 1
     try:
-        handle = _load_handle(args.handle) if args.command == "release" else None
+        handle = _load_handle(args.handle) if args.command != "acquire" else None
         _load_project_env(Path(__file__))
         store = Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or DEFAULT_STORES_BUCKET)
         if args.command == "acquire":
@@ -358,6 +359,10 @@ def main(argv: list[str] | None = None) -> int:
                 f"expires_at={acquired.expires_at_utc.isoformat()} "
                 f"expired_previous={str(expired).lower()}"
             )
+        elif args.command == "verify":
+            assert handle is not None
+            verify_held(store, handle)
+            print(f"publication lease: verified purpose={handle.purpose}")
         else:
             assert handle is not None
             release(store, handle)

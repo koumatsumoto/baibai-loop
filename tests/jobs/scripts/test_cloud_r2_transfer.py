@@ -1450,6 +1450,137 @@ def test_runs_only_push_refuses_changed_cloud_generation_without_writing(tmp_pat
     assert not any(command.startswith("s3api put-object ") for command in _transfer_commands(log))
 
 
+def _remote_writes(log):
+    return [
+        command
+        for command in _transfer_commands(log)
+        if command.startswith(("s3api put-object ", "s3api copy-object "))
+        or (command.startswith("s3 cp ") and command.split()[3].startswith("s3://"))
+    ]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["push-machine", "push-runs", "push-market", "push-indicators", "upload-portfolio-views"],
+)
+@pytest.mark.parametrize("state", ["unconnected", "missing", "malformed", "expired", "released"])
+def test_shared_transfer_refuses_invalid_lease_before_any_remote_write(tmp_path, operation, state):
+    root = _fake_repo(tmp_path)
+    binary, log = _fake_aws(tmp_path)
+    env = _environment(binary, log)
+    handle = Path(env["PUBLICATION_LEASE_HANDLE"])
+    if state == "unconnected":
+        env.pop("PUBLICATION_LEASE_HANDLE")
+    elif state == "missing":
+        handle.unlink()
+    else:
+        handle.write_text(state)
+    # A shell sentinel exercises the caller gate; real handle/expiry validation
+    # is owned by test_publication_lease's verify CLI tests.
+    args = [root / "jobs/scripts/r2_transfer.sh", operation]
+    if operation == "upload-portfolio-views":
+        env["GITHUB_ACTIONS"] = "true"
+        args.append(tmp_path / "serving")
+    result = subprocess.run(args, env=env, cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "publication lease" in result.stderr
+    assert _remote_writes(log) == []
+
+
+@pytest.mark.parametrize(
+    ("operation", "release_on", "expected_key"),
+    [
+        (
+            "push-machine",
+            "s3api put-object --bucket baibai-stores --key market.sqlite ",
+            "market.sqlite",
+        ),
+        ("push-runs", "s3api put-object --bucket baibai-stores --key runs.sqlite ", "runs.sqlite"),
+        (
+            "push-market",
+            "s3api put-object --bucket baibai-stores --key market.sqlite ",
+            "market.sqlite",
+        ),
+        ("push-indicators", "s3api copy-object ", "indicators.sqlite.bak"),
+        (
+            "upload-portfolio-views",
+            "s3://baibai-serving/views/portfolio-dashboard.json",
+            "views/portfolio-dashboard.json",
+        ),
+    ],
+)
+def test_shared_transfer_stops_the_next_write_after_release(
+    tmp_path, operation, release_on, expected_key
+):
+    root = _fake_repo(tmp_path)
+    binary, log = _fake_aws(tmp_path)
+    env = _environment(binary, log)
+    env["LEASE_FAKE_RELEASE_ON"] = release_on
+    args = [root / "jobs/scripts/r2_transfer.sh", operation]
+    if operation == "push-indicators":
+        env["AWS_FAKE_EXISTING_KEY"] = "indicators.sqlite"
+    if operation == "upload-portfolio-views":
+        env["GITHUB_ACTIONS"] = "true"
+        views = tmp_path / "serving/views"
+        views.mkdir(parents=True)
+        for name in ("portfolio-dashboard", "outcomes", "latest-proposal"):
+            (views / f"{name}.json").write_text('{"synthetic": true}')
+        args.append(views.parent)
+    result = subprocess.run(args, env=env, cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "publication lease" in result.stderr
+    writes = _remote_writes(log)
+    assert len(writes) == 1
+    assert expected_key in writes[0]
+    if operation in {"push-machine", "push-runs", "push-market"}:
+        assert '--if-match "etag-stable"' in writes[0]
+    assert "machine-manifest.json" not in "\n".join(writes)
+    assert not list(root.glob(".r2-transfer.*"))
+
+
+@pytest.mark.parametrize("operation", ["seed-all", "push-app"])
+def test_application_and_initial_seed_do_not_require_the_common_lease(tmp_path, operation):
+    root = _fake_repo(tmp_path)
+    binary, log = _fake_aws(tmp_path)
+    env = _environment(binary, log)
+    env.pop("PUBLICATION_LEASE_HANDLE")
+    env["R2_APP_BACKUP_PRUNE"] = "skip"
+    (Path(env["R2_GENERATION_DIR"]) / "baibai.sqlite.etag").write_text('"etag-stable"\n')
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", operation],
+        env=env,
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(_remote_writes(log)) == (4 if operation == "seed-all" else 1)
+    assert not (Path(env["AWS_FAKE_STATE"]) / "lease-checks").exists()
+
+
+def test_transfer_lease_verifies_the_selected_stores_bucket_not_a_late_env_override(tmp_path):
+    root = _fake_repo(tmp_path)
+    binary, log = _fake_aws(tmp_path)
+    env = _environment(binary, log)
+    env["R2_STORES_BUCKET"] = "selected-stores"
+    env.pop("R2_ACCESS_KEY_ID")
+    (root / ".env").write_text(
+        "R2_ACCESS_KEY_ID=synthetic-local-key\nR2_STORES_BUCKET=late-local-override\n"
+    )
+    result = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "push-runs"],
+        env=env,
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    checks = (Path(env["AWS_FAKE_STATE"]) / "lease-checks").read_text().splitlines()
+    assert checks
+    assert set(checks) == {"verify selected-stores"}
+    assert all("--bucket selected-stores " in line for line in _remote_writes(log))
+
+
 @pytest.mark.parametrize("missing", [None, "portfolio-dashboard", "outcomes", "latest-proposal"])
 @pytest.mark.parametrize("in_actions", [False, True])
 def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
@@ -1509,14 +1640,17 @@ def test_portfolio_publication_never_overwrites_the_deployed_legacy_dashboard(
     assert not list(root.glob(".r2-transfer.*"))
 
 
-@pytest.mark.parametrize("failure", ["FAIL", "CORRUPT"])
+@pytest.mark.parametrize("failure", ["FAIL", "CORRUPT", "RELEASE"])
 @pytest.mark.parametrize("name", ["portfolio-dashboard", "outcomes", "latest-proposal"])
 def test_portfolio_publication_refuses_failed_or_different_readback(tmp_path, failure, name):
     root = _fake_repo(tmp_path)
     bin_dir, log = _fake_aws(tmp_path)
     environment = _environment(bin_dir, log)
     environment["GITHUB_ACTIONS"] = "true"
-    environment[f"AWS_FAKE_{failure}_DOWNLOAD_KEY"] = f"views/{name}.json"
+    if failure == "RELEASE":
+        environment["LEASE_FAKE_RELEASE_ON"] = f"s3 cp s3://baibai-serving/views/{name}.json "
+    else:
+        environment[f"AWS_FAKE_{failure}_DOWNLOAD_KEY"] = f"views/{name}.json"
     export = tmp_path / "export"
     views = export / "views"
     views.mkdir(parents=True)

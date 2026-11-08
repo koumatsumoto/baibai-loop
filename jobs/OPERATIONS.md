@@ -81,6 +81,8 @@ local mirrorはbucketなし。ただし旧EDINET原本cacheの[除去照合](#ed
 
 market/runs・経済は同じpublication lease内でfresh正本/取得ETagを照合し、read/merge/publishする。長い準備は先に済ませ、lake tableは変更前にhydrateする。applicationのpublish.sh・初回seedは対象外。独立native L1はsource固有CAS/並行制御を使い、共通leaseやL2成功を課さない。
 
+push-machine/runs/market/indicatorsとupload-portfolio-viewsはPUBLICATION_LEASE_HANDLEを必須とし、入口と各backup/PUT/receiptの直前に既存ownerを照合する。共通seal/inputも各PUTで照合する。単独確認は`uv run python -m baibai_jobs.publication.lease verify --handle "$PUBLICATION_LEASE_HANDLE"`を使い、延長/再取得はしない。確認とwriteは非原子的で、失効/交代を検出した境界で次writeを止める。途中反映は下の復旧手順に従う。
+
 ```bash
 with_publication_lease() (
   handle="$(mktemp "${TMPDIR:-/tmp}/baibai-publication-lease.XXXXXX.json")"
