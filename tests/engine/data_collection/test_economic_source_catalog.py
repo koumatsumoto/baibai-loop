@@ -85,7 +85,6 @@ def test_mof_acquisition_preserves_table_without_a_requested_l2_column():
 def test_umich_acquisition_preserves_other_columns_before_l2_selection():
     from datetime import date
 
-    from baibai_engine.data_collection.catalog import load_sources
     from baibai_engine.data_collection.providers.university_of_michigan.sentiment import (
         parse_umich_table,
     )
@@ -95,8 +94,7 @@ def test_umich_acquisition_preserves_other_columns_before_l2_selection():
     from baibai_engine.machine_analysis.observations.economic_indicators.native import _one_value
 
     day = date(2026, 5, 1)
-    source = next(item for item in load_sources().values() if item.provider == "umich_sca")
-    records = parse_umich_table(source, "Month,YYYY,OTHER\nMay,2026,\n", start=day, end=day)
+    records = parse_umich_table("Month,YYYY,OTHER\nMay,2026,\n", start=day, end=day)
     assert records[day][0] == {"Month": "May", "YYYY": "2026", "OTHER": ""}
     series = next(item for item in load_definitions().series if item.provider == "umich_sca")
     with pytest.raises(ValueError, match="UMich table missing column"):

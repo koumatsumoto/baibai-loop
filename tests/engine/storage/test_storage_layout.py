@@ -54,7 +54,9 @@ from baibai_engine.machine_analysis.observations.financials import jquants_model
 from baibai_engine.machine_analysis.observations.disclosures import jpx_reader, jpx_models
 from baibai_engine.machine_analysis.observations.financials import edinet_models
 from baibai_engine.machine_analysis.observations.trading_activity import margin_reader, models as margin_models
-from baibai_jobs.maintenance import jquants_inputs as jquants_reader
+from baibai_engine.machine_analysis.observations.financials import reader as financial_reader
+from baibai_engine.machine_analysis.observations.prices import calendar_reader, price_reader
+from baibai_engine.machine_analysis.observations.stocks import reader as master_reader
 for prefix in (
     'baibai_engine.machine_analysis.observations.jquants_writer',
     'baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild',
@@ -63,7 +65,10 @@ for prefix in (
 ):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 assert jpx_reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntry
-assert jquants_reader.JQuantsProviderError is jquants_decode.JQuantsProviderError
+assert callable(financial_reader.read_fin_summaries)
+assert callable(calendar_reader.read_market_calendar)
+assert callable(price_reader.read_daily_bars)
+assert callable(master_reader.read_eq_master_exact)
 """
     subprocess.run([sys.executable, "-c", code], check=True)
 

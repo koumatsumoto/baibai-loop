@@ -19,7 +19,6 @@ from baibai_engine.data_collection.transport.context import (
 class MatsuiMarginSource:
     # The public current page is not a historical archive.
     spec = ProviderSpec(name="matsui_margin")
-    name = spec.name
 
     def fetch_document(
         self,

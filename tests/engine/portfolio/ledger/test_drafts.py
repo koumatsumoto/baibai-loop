@@ -72,7 +72,7 @@ def test_record_broker_fact_apply_preserves_unreported_expired_order(
     source = service.load()
     draft = LedgerDraft(
         kind="broker-fact",
-        expected_head=service.append_head(),
+        expected_head=service.load_with_head()[1],
         source=source,
         replacement=source.model_copy(
             update={"as_of": datetime.fromisoformat("2026-08-01T09:00:00+09:00")}

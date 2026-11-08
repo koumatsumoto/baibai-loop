@@ -5,9 +5,10 @@ from contextlib import closing
 from datetime import date, timedelta
 
 import pyarrow.parquet as pq
+import pytest
 
-from baibai_engine.machine_analysis.observations.jquants_decode import normalize_market_calendar
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_market_calendar
+from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     market_calendar_business_day,
 )
@@ -39,12 +40,6 @@ def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(t
     days = read_market_calendar(database, start, end)
     assert days is not None
     assert [day.is_business_day for day in days] == [False, True, True, False]
-    assert [normalize_market_calendar(record).is_business_day for record in records] == [
-        False,
-        True,
-        True,
-        False,
-    ]
     assert [
         market_calendar_business_day(database, start + timedelta(days=i)) for i in range(4)
     ] == [False, True, True, False]
@@ -63,4 +58,25 @@ def test_calendar_categories_survive_sqlite_and_lake_without_becoming_booleans(t
     assert JQUANTS_MARKET_CALENDAR.contract_version == 2
     assert rows == [
         {"day": record["Date"], "holiday_division": record["HolDiv"]} for record in records
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_date", "division", "day"),
+    [
+        ("2026-04-24", "1", date(2026, 4, 24)),
+        ("2026-04-24T00:00:00", "1", date(2026, 4, 24)),
+        ("2026-12-30", "2", date(2026, 12, 30)),
+    ],
+)
+def test_calendar_reads_native_timestamp_and_half_day(tmp_path, source_date, division, day):
+    database = tmp_path / "market.sqlite"
+    store_jquants_market_calendar(
+        database,
+        [{"Date": source_date, "HolDiv": division}],
+        requested_start=day,
+        requested_end=day,
+    )
+    assert read_market_calendar(database, day, day) == [
+        JQuantsMarketCalendarDay(day=day, is_business_day=True)
     ]

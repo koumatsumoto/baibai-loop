@@ -34,7 +34,6 @@ class YahooChartSource:
     """
 
     spec = ProviderSpec(name="yahoo", all_history_start=date(1970, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

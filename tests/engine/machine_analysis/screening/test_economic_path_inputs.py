@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
+from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -903,7 +904,7 @@ def owner_generation(
         )
     if reverse_documents:
         documents.reverse()
-    return generate_models(
+    stream = generate_models(
         generation_id="owner-economic-generation",
         as_of=as_of,
         evaluation_time=datetime(2026, 9, 1, tzinfo=UTC),
@@ -936,7 +937,8 @@ def owner_generation(
             "1001": {"master": {"sector_33": "情報・通信業", "name": "owner fixture"}}
         },
         market_context_revision="owner-fixture-v1",
-    ).materialize()
+    )
+    return materialize_generation(stream)
 
 
 def test_owner_fy_and_cumulative_quarter_flow_through_saved_new_policy(tmp_path):

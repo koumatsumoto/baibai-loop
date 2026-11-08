@@ -26,7 +26,6 @@ class EcbFxSource:
     """Retain ECB euro-reference CSV fields without calculating currency crosses."""
 
     spec = ProviderSpec(name="ecb_fx", all_history_start=date(1999, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

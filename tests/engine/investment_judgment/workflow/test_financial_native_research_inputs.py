@@ -11,6 +11,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_release import market_store
+from tests.helpers.model_generation import materialize_generation
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.research_selection import selected_target
 
@@ -129,7 +130,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
         short_sale_reports=(),
     )
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot:
-        generated = read_and_generate_models(
+        stream = read_and_generate_models(
             generation_id="native-research-reference",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="market-only", manifest_sha256="a" * 64),
@@ -139,7 +140,8 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1301",),
             financial_input=financial,
-        ).materialize()
+        )
+        generated = materialize_generation(stream)
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "workspace"
     ModelGenerationStore(runs).publish(generated)
     context = load_generated_selection_context(

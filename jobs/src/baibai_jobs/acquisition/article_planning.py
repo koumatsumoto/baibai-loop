@@ -31,7 +31,6 @@ from baibai_jobs.acquisition.receipts import ReceiptStore, available_handoffs
 ARTICLE_SOURCES = tuple(SOURCES)
 TSR_SOURCES = frozenset({"tsr_data", "tsr_flash"})
 ARTICLE_NAMESPACE = "article-sources"
-ARTICLE_CRON = "13 1,5,9,13,17,21 * * *"
 MAX_PLANNING_BYTES = 128 * 1024
 MAX_REQUEST_STATES = 128
 

@@ -7,13 +7,13 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.machine_analysis.observations.jquants_decode import (
-    JQuantsProviderError,
-    normalize_adjustment_factor_event,
-    normalize_daily_bar,
-)
+from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.adjusted_prices import read_price_bars
+from baibai_engine.machine_analysis.observations.prices.price_models import (
+    JQuantsAdjustmentFactorEvent,
+    JQuantsDailyBar,
+)
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     read_adjustment_factor_bars,
     read_daily_bars,
@@ -37,25 +37,34 @@ def test_ex_right_type_survives_source_and_sqlite_roundtrip(tmp_path, kind, fact
         "AdjFactor": factor,
         "ExRT": kind,
     }
-    event = normalize_adjustment_factor_event(raw)
-    assert event is not None
-    assert event.ex_right_type == kind
-    bar = normalize_daily_bar(raw)
-    if close is None:
-        assert bar is None
-    else:
-        assert bar is not None
-        assert bar.ex_right_type == kind
     start = date(2026, 10, 13)
     prior = {"Code": "130A0", "Date": start.isoformat(), "C": 110.0, "AdjFactor": 1.0}
-    prior_bar = normalize_daily_bar(prior)
-    assert prior_bar is not None
     database = tmp_path / "market.sqlite"
     store_jquants_daily_bars(database, [prior, raw], requested_start=start, requested_end=day)
-    assert read_adjustment_factor_bars(database, start, day) == [event]
-    assert read_daily_bars(database, start, day) == [prior_bar, *([] if bar is None else [bar])]
+    assert read_adjustment_factor_bars(database, start, day) == [
+        JQuantsAdjustmentFactorEvent(
+            ticker="130A", traded_at=day, adjustment_factor=factor, ex_right_type=kind
+        )
+    ]
+    expected_bars = [
+        JQuantsDailyBar(
+            ticker="130A", traded_at=start, close=110.0, turnover_value=None, adjustment_factor=1.0
+        )
+    ]
+    if close is not None:
+        expected_bars.append(
+            JQuantsDailyBar(
+                ticker="130A",
+                traded_at=day,
+                close=close,
+                turnover_value=None,
+                adjustment_factor=factor,
+                ex_right_type=kind,
+            )
+        )
+    assert read_daily_bars(database, start, day) == expected_bars
     assert JQUANTS_DAILY_BARS.contract_version == 2
-    assert "ex_right_type" in JQUANTS_DAILY_BARS.arrow_schema.names
+    assert "ex_right_type" in JQUANTS_DAILY_BARS.arrow_schema_for("legacy_sqlite_import").names
 
 
 @pytest.mark.parametrize(
@@ -100,7 +109,7 @@ def test_provider_market_cap_survives_sqlite_and_lake_without_price(tmp_path, ra
     assert rows[0]["close"] is None
 
 
-@pytest.mark.parametrize("kind", ["1", "2", "3", "unknown"])
+@pytest.mark.parametrize("kind", ["1", "2", "3", "unknown-future-kind"])
 @pytest.mark.parametrize("close", [None, 100.0])
 def test_adjusted_readers_reject_reported_action_without_factor(tmp_path, kind, close):
     start, action, end = date(2026, 10, 13), date(2026, 10, 14), date(2026, 10, 15)
@@ -140,6 +149,7 @@ def test_adjusted_readers_keep_ordinary_null_factor_and_zero_change(tmp_path):
         100.0,
         100.0,
     ]
+    assert read_adjustment_factor_bars(database, start, end) == []
 
 
 @pytest.mark.parametrize("factor", [0.0, -1.0])
@@ -154,8 +164,6 @@ def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, fa
         "C": close,
         "AdjFactor": factor,
     }
-    with pytest.raises(ValueError, match="positive"):
-        normalize_adjustment_factor_event(raw)
     database = tmp_path / "market.sqlite"
     store_jquants_daily_bars(database, [prior, raw], requested_start=start, requested_end=day)
     with closing(sqlite3.connect(database)) as connection:
@@ -167,3 +175,26 @@ def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, fa
         read_adjustment_factor_bars(database, start, day)
     with pytest.raises(ValueError, match="positive"):
         read_price_bars(database, tickers=("1301",), start=start, end=day)
+
+
+@pytest.mark.parametrize(
+    ("source_date", "adjusted_close"),
+    [("2023-12-27", 500.0), ("2023-12-27T00:00:00", None)],
+)
+def test_native_null_close_keeps_adjustment_event_without_inventing_price(
+    tmp_path, source_date, adjusted_close
+):
+    day = date(2023, 12, 27)
+    raw = {
+        **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+        "Code": "67310",
+        "Date": source_date,
+        "AdjC": adjusted_close,
+        "AdjFactor": 100.0,
+    }
+    database = tmp_path / "market.sqlite"
+    store_jquants_daily_bars(database, [raw], requested_start=day, requested_end=day)
+    assert read_daily_bars(database, day, day) == []
+    assert read_adjustment_factor_bars(database, day, day) == [
+        JQuantsAdjustmentFactorEvent(ticker="6731", traded_at=day, adjustment_factor=100.0)
+    ]

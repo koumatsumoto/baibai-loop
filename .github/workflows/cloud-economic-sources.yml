@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       group:
-        description: "Shared acquisition group, or all (collection economic groups lists them)"
+        description: "取得group または all（baibai-jobs acquire-economic groups で一覧）"
         type: string
         default: all
       source_id:

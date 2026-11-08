@@ -28,8 +28,15 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
     read_complete_request,
     read_request_pages,
 )
+from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
+from baibai_engine.machine_analysis.observations.prices.price_reader import (
+    read_adjustment_factor_bars,
+    read_daily_bars,
+)
+from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
 from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     read_margin_alerts,
 )
@@ -43,7 +50,6 @@ from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -465,9 +471,8 @@ def test_failed_projection_keeps_retained_raw_body(db_path):
         assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
 
 
-def test_offline_reader_rejects_missing_input_without_store_or_http(tmp_path, monkeypatch):
+def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, monkeypatch):
     database = tmp_path / "absent.sqlite"
-    reader = JQuantsReader(database)
     day = date.fromisoformat(DAY)
 
     def unexpected_http(*args, **kwargs):
@@ -475,18 +480,17 @@ def test_offline_reader_rejects_missing_input_without_store_or_http(tmp_path, mo
 
     monkeypatch.setattr(requests.Session, "get", unexpected_http)
     for read in (
-        lambda: reader.get_eq_bars_daily_range(day, day),
-        lambda: reader.get_adjustment_factor_bars_range(day, day),
-        lambda: reader.get_mkt_calendar(day, day),
-        lambda: reader.get_eq_master(day),
-        lambda: reader.get_fin_summary_range(day, day),
+        lambda: read_daily_bars(database, day, day),
+        lambda: read_adjustment_factor_bars(database, day, day),
+        lambda: read_market_calendar(database, day, day),
+        lambda: read_eq_master_exact(database, day),
+        lambda: read_fin_summaries(database, day, day),
     ):
-        with pytest.raises(JQuantsProviderError, match="Stored J-Quants input is incomplete"):
-            read()
+        assert read() is None
     assert not database.exists()
 
 
-def test_offline_reader_uses_projected_rows_without_writing(db_path, monkeypatch):
+def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch):
     day = date.fromisoformat(DAY)
     bars_id = receive(
         db_path,
@@ -533,17 +537,20 @@ def test_offline_reader_uses_projected_rows_without_writing(db_path, monkeypatch
         pytest.fail("offline reader attempted HTTP")
 
     monkeypatch.setattr(requests.Session, "get", unexpected_http)
-    reader = JQuantsReader(db_path)
-    assert [(bar.ticker, bar.close) for bar in reader.get_eq_bars_daily_range(day, day)] == [
-        ("1301", 100.0)
-    ]
-    events = reader.get_adjustment_factor_bars_range(day, day)
+    bars = read_daily_bars(db_path, day, day)
+    assert bars is not None
+    assert [(bar.ticker, bar.close) for bar in bars] == [("1301", 100.0)]
+    events = read_adjustment_factor_bars(db_path, day, day)
+    assert events is not None
     assert [(event.ticker, event.adjustment_factor, event.ex_right_type) for event in events] == [
         ("130A", 0.5, "1")
     ]
-    assert [row.fiscal_period for row in reader.get_fin_summary_range(day, day)] == ["FY", "1Q"]
-    assert [row.fiscal_period for row in reader.get_fy_summary_range(day, day)] == ["FY"]
-    assert reader.get_mkt_calendar(day, day)[0].is_business_day
+    summaries = read_fin_summaries(db_path, day, day)
+    assert summaries is not None
+    assert [row.fiscal_period for row in summaries] == ["FY", "1Q"]
+    calendar = read_market_calendar(db_path, day, day)
+    assert calendar is not None
+    assert calendar[0].is_business_day
     assert db_path.read_bytes() == original_db
 
 

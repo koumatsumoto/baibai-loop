@@ -18,7 +18,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="baibai-engine external-assessment")
+    parser = argparse.ArgumentParser(prog="baibai-jobs external-assessment")
     commands = parser.add_subparsers(dest="command", required=True)
     add_acquisition_commands(commands)
     return parser

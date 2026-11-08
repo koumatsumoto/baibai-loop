@@ -28,7 +28,6 @@ class CftcSource:
     """Complete CFTC COT native records for one contract code."""
 
     spec = ProviderSpec(name="cftc", all_history_start=date(2000, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

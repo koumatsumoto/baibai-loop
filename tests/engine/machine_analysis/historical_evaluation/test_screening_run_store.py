@@ -327,6 +327,13 @@ def test_retired_annotations_remain_exact_in_saved_historical_export(tmp_path):
         "next_earnings_estimated_date": None,
         "stale_fin_flag": False,
         "tse_capital_policy_status": "disclosed",
+        "operating_profit_ttm": 100,
+        "sales_ttm": 200,
+        "same_state_equity_yen": 300,
+        "debt": 50,
+        "cash": 20,
+        "operating_return_on_capital_proxy": 0.987654,
+        "operating_margin": 0.123456,
     }
     identity = _publish(path, _run(rows=[row]))
     saved = ScreeningRunReader(path).get_run(identity)

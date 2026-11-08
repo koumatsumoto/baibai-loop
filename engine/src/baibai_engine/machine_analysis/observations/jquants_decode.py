@@ -8,11 +8,6 @@ from datetime import date, datetime
 from math import isfinite
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
-from baibai_engine.machine_analysis.observations.prices.price_models import (
-    JQuantsAdjustmentFactorEvent,
-    JQuantsDailyBar,
-)
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
 
@@ -28,63 +23,9 @@ def parse_jquants_code_parts(code: Any) -> tuple[str, bool]:
         raise JQuantsProviderError(f"invalid J-Quants code: {code!r}") from exc
 
 
-def normalize_daily_bar(record: Mapping[str, Any]) -> JQuantsDailyBar | None:
-    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
-    if not common_code:
-        return None
-    # Decode native V2 fields without substituting adjusted values or legacy aliases.
-    close = to_float(record.get("C"))
-    if close is None:
-        # An adjusted-only observation cannot supply a raw price bar. The
-        # independent factor event remains available through the store.
-        return None
-    adjustment_factor = to_float(record.get("AdjFactor"))
-    return JQuantsDailyBar(
-        ticker=ticker,
-        traded_at=parse_date(record.get("Date")),
-        close=close,
-        adjustment_factor=adjustment_factor,
-        ex_right_type=normalize_ex_right_type(record.get("ExRT")),
-        volume=to_float(record.get("Vo")),
-        turnover_value=to_float(record.get("Va")),
-    )
-
-
-def normalize_adjustment_factor_event(
-    record: Mapping[str, Any],
-) -> JQuantsAdjustmentFactorEvent | None:
-    """Decode a corporate action without requiring a close or a non-unit factor."""
-
-    ticker, common_code = parse_jquants_code_parts(record.get("Code"))
-    if not common_code:
-        return None
-    factor = to_float(record.get("AdjFactor"))
-    kind = normalize_ex_right_type(record.get("ExRT"))
-    if factor is None:
-        if kind is not None:
-            raise JQuantsProviderError("reported corporate action has no usable adjustment factor")
-        return None
-    if factor == 1.0 and kind is None:
-        return None
-    return JQuantsAdjustmentFactorEvent(
-        ticker=ticker,
-        traded_at=parse_date(record.get("Date")),
-        adjustment_factor=factor,
-        ex_right_type=kind,
-    )
-
-
 def normalize_ex_right_type(value: Any) -> str | None:
     """Keep the source event kind; unknown future values are not relabelled as splits."""
     return None if is_missing_scalar(value) else str(value).strip() or None
-
-
-def normalize_market_calendar(record: Mapping[str, Any]) -> JQuantsMarketCalendarDay:
-    """Project the source calendar to cash-equity sessions, not derivatives sessions."""
-    return JQuantsMarketCalendarDay(
-        day=parse_date(record.get("Date")),
-        is_business_day=str(record["HolDiv"]) in {"1", "2"},
-    )
 
 
 def parse_date(value: Any) -> date:

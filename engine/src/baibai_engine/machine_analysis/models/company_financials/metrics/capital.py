@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
@@ -204,23 +204,6 @@ def _without_share_basis(summary: JQuantsFinancialSummary) -> JQuantsFinancialSu
         average_shares=None,
         treasury_shares=None,
     )
-
-
-def _normalize_summaries_to_asof_basis(
-    summaries: Sequence[JQuantsFinancialSummary],
-    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
-    asof_date: date,
-) -> Sequence[JQuantsFinancialSummary]:
-    """Return rows normalized to the as-of share basis.
-
-    Classify period-end versus disclosure basis when actions intervene, then apply
-    subsequent factors to per-share values and their inverses to share counts.
-    Indeterminate bases lose dependent values; forecasts across a split are not
-    relabelled as split-safe. Callers needing the capital carry barrier use the
-    result-returning variant directly. Actual DPS is deliberately preserved raw;
-    only the dividend resolver decides whether it is comparable at the as-of date.
-    """
-    return _normalize_summaries_with_status(summaries, ticker_bars, asof_date).summaries
 
 
 def _normalize_summaries_with_status(
@@ -583,41 +566,6 @@ def _resolve_capital_basis(
         shares_ex_treasury=_shares_excluding_treasury(issued, treasury),
         failure_reason=None,
     )
-
-
-def build_shares_outstanding_index(
-    summaries_by_ticker: Mapping[str, Sequence[JQuantsFinancialSummary]],
-    bars_by_ticker: Mapping[str, Sequence[JQuantsDailyBar]],
-    asof_date: date,
-    *,
-    adjustment_events_by_ticker: Mapping[
-        str, Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar]
-    ]
-    | None = None,
-) -> dict[str, float | None]:
-    """Shares the market can price: issued less treasury, on the as-of split basis.
-
-    universe の時価総額はこの index から作られ、比較母集団の時価総額条件に使う。
-    `FinancialSnapshot.market_cap` と同じ株数で作らないと、同じ「時価総額」という語が
-    2 つの値を指す。株数と自己株式数は BS 系 fact なので四半期開示に載らないことが多く、
-    直近の非 null 行から carry-forward する。ただし自己株式の観測より後に発行済だけを
-    再観測した状態では同じ資本状態と確認できないため、時価総額を答えない。
-    """
-    shares: dict[str, float | None] = {}
-    for ticker, summaries in summaries_by_ticker.items():
-        available = [row for row in summaries if row.disclosed_at <= asof_date]
-        ticker_bars = bars_by_ticker.get(ticker, ())
-        adjustment_events = (
-            adjustment_events_by_ticker.get(ticker, ())
-            if adjustment_events_by_ticker is not None
-            else ticker_bars
-        )
-        normalized = _normalize_summaries_with_status(available, adjustment_events, asof_date)
-        shares[ticker] = _resolve_capital_basis(
-            normalized.summaries,
-            capital_basis_barrier=normalized.capital_basis_barrier,
-        ).shares_ex_treasury
-    return shares
 
 
 # EDINETと短信の総資産比がこの倍率帯を外れる行は、規模差の検査で不採用にする。

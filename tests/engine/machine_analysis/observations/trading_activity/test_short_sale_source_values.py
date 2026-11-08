@@ -12,7 +12,6 @@ from baibai_engine.machine_analysis.observations.trading_activity.margin_reader 
     read_short_sale_reports,
 )
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
@@ -38,7 +37,6 @@ def test_native_short_fields_survive_provider_sqlite_and_lake(tmp_path, missing)
     database = tmp_path / "market.sqlite"
     store_jquants_short_sale_reports(database, [record], requested_start=day, requested_end=day)
     stored = read_short_sale_reports(database, day, day)
-    assert stored == JQuantsReader(database).get_mkt_short_sale_report_range(day, day)
     assert stored is not None
     assert len(stored) == 1
     assert stored[0].short_ratio == record["ShrtPosToSO"]

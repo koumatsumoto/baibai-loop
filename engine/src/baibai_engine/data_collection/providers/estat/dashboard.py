@@ -58,7 +58,6 @@ class EStatDashboardSource:
     """
 
     spec = ProviderSpec(name="estat_dashboard", all_history_start=_HISTORY_FLOOR)
-    name = spec.name
 
     def fetch_records(
         self,

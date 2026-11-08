@@ -29,8 +29,13 @@ def test_retired_source_cannot_build_the_removed_bootstrap_command(tmp_path, sou
         source_handoff._command(source, date(2026, 11, 7), database=tmp_path / "unused.sqlite")
 
 
-def test_scoped_acquisition_passes_database_to_child_and_export(tmp_path, mocker, monkeypatch):
-    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+@pytest.mark.parametrize("event", ["schedule", "workflow_dispatch"])
+@pytest.mark.parametrize("source", ["jpx-earnings", "jpx-regulations"])
+@pytest.mark.parametrize("status", [0, 1])
+def test_scoped_acquisition_passes_database_to_child_and_export(
+    tmp_path, mocker, monkeypatch, event, source, status
+):
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
     database = tmp_path / "scoped.sqlite"
     exported = []
 
@@ -41,14 +46,14 @@ def test_scoped_acquisition_passes_database_to_child_and_export(tmp_path, mocker
     def run(command, **kwargs):
         arguments = app.build_parser().parse_args(command[2:])
         assert arguments.sqlite_path == str(database)
-        return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(command, status)
 
     mocker.patch.object(source_handoff, "_export", side_effect=export)
     mocker.patch.object(source_handoff.subprocess, "run", side_effect=run)
     arguments = [
         "acquire",
         "--source",
-        "jpx-earnings",
+        source,
         "--asof",
         "2026-10-24",
         "--database",
@@ -56,8 +61,10 @@ def test_scoped_acquisition_passes_database_to_child_and_export(tmp_path, mocker
         "--directory",
         str(tmp_path),
     ]
-    assert source_handoff.main(arguments) == 0
+    assert source_handoff.main(arguments) == status
     assert exported == [database]
+    report = json.loads((tmp_path / "result.json").read_text())
+    assert report["acquisition"] == {"status": "failed" if status else "received"}
 
 
 @pytest.mark.parametrize("source", ["unknown", "jquants-typo", "edinet-typo", "article-unknown"])

@@ -6,12 +6,18 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,
+    ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
     EconomicPathSelection,
 )
+
+
+def materialize_generation(stream: ModelGenerationStream) -> ModelGeneration:
+    """有限testでのみ列を一回消費する。保存・政策・入力再取得は行わない。"""
+    return ModelGeneration(**stream.metadata.model_dump(), models=tuple(stream.models))
 
 
 def empty_selection(generation_id, *, tickers=("1234",), candidate_limit=20):

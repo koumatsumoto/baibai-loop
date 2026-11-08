@@ -19,7 +19,6 @@ from baibai_engine.data_collection.transport.context import (
 
 class TsrBankruptciesSource:
     spec = ProviderSpec(name="tsr_bankruptcies", all_history_start=date(2003, 1, 1))
-    name = spec.name
 
     def fetch_document(
         self,

@@ -67,28 +67,6 @@ def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
         conn.close()
 
 
-def count_daily_bars(sqlite_path: Path, start: date, end: date) -> int:
-    """Count non-null closes; an absent store has count 0.
-
-    This does not validate individual values or prove acquisition coverage.
-    Schema and query errors propagate; model validation belongs to the row reader.
-    """
-    if not sqlite_path.exists():
-        return 0
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return 0
-    try:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_daily_bars "
-            "WHERE traded_at BETWEEN ? AND ? AND close IS NOT NULL",
-            (start.isoformat(), end.isoformat()),
-        ).fetchone()
-    finally:
-        conn.close()
-    return int(row[0] or 0) if row is not None else 0
-
-
 def read_adjustment_factor_bars(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsAdjustmentFactorEvent] | None:

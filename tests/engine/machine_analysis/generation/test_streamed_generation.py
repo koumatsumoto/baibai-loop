@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import closing
 
 import pytest
-from tests.helpers.model_generation import generation
+from tests.helpers.model_generation import generation, materialize_generation
 
 import baibai_engine.machine_analysis.generation.store as generation_store
 from baibai_engine.machine_analysis.generation.contracts import (
@@ -114,3 +114,30 @@ def test_duplicate_fresh_stream_rolls_back(tmp_path):
     with pytest.raises(GenerationConflictError, match="duplicate"):
         store.publish_stream(stream(original, (original.models[0], original.models[0])))
     assert store.read(original.generation_id) is None
+
+
+def test_finite_fixture_materialization_preserves_inputs_clock_and_single_pass():
+    original = generation()
+    consumed = []
+
+    def rows():
+        for model in reversed(original.models):
+            consumed.append(model)
+            yield model
+
+    source = stream(original, rows())
+    assert materialize_generation(source) == original
+    assert consumed == list(reversed(original.models))
+    assert tuple(source.models) == ()
+    assert source.subjects == ("1234", "5678")
+
+
+def test_finite_fixture_materialization_propagates_iterator_failure():
+    original = generation()
+
+    def rows():
+        yield original.models[0]
+        raise ValueError("late fixture calculation failure")
+
+    with pytest.raises(ValueError, match="late fixture calculation failure"):
+        materialize_generation(stream(original, rows()))

@@ -12,35 +12,6 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
 )
 
 
-def asof_basis_closes(
-    bars: Sequence[JQuantsDailyBar],
-    adjustment_events: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar] | None = None,
-    *,
-    asof_date: date | None = None,
-) -> list[float]:
-    """昇順に並んだ bars の close を、指定asofの価格調整基準へ換算した系列を返す。
-
-    `asof_date`を省略した場合だけ最終barの日を基準にする。価格が無いaction日を明示asofに
-    指定した場合も、その日までのfactorを適用する。
-
-    配信元の調整済み価格は遡及調整が取得時期に依存して混在し、
-    series としては使えない (分割後に取得した行だけ調整済みになり、境界で偽の
-    ±50% 段差が生じる)。close x (その行より後の価格調整factor累積) で系列を組む。
-    factor は権利落ち日の bar に載り、その日より前の価格に適用される。
-    配信元による係数の訂正はあり得る。ライツイシューの価格調整は株数の単位変更ではない。
-    """
-    if not bars:
-        return []
-    return asof_basis_prices(
-        [(bar.traded_at, bar.close) for bar in bars],
-        [
-            (event.traded_at, event.adjustment_factor)
-            for event in (bars if adjustment_events is None else adjustment_events)
-        ],
-        asof_date=asof_date or bars[-1].traded_at,
-    )
-
-
 def asof_basis_prices(
     prices: Sequence[tuple[date, float]],
     adjustment_events: Sequence[tuple[date, float | None]],

@@ -31,7 +31,6 @@ class MofJgbSource:
     """
 
     spec = ProviderSpec(name="mof_jgb", all_history_start=date(1974, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

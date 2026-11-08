@@ -27,7 +27,12 @@ def _page(request: str, index: int, query: dict[str, str], body: dict[str, objec
 
 
 def _write(path: Path, rows: list[dict[str, object]]) -> Path:
-    pq.write_table(pa.Table.from_pylist(rows, schema=JQUANTS_SOURCE_PAGES.arrow_schema), path)
+    pq.write_table(
+        pa.Table.from_pylist(
+            rows, schema=JQUANTS_SOURCE_PAGES.arrow_schema_for("legacy_sqlite_import")
+        ),
+        path,
+    )
     return path
 
 

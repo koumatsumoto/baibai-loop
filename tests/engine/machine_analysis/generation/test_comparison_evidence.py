@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.machine_analysis.generation import query
 from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
@@ -201,7 +202,7 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
             tickers=("436A", f" {other_ticker} ", "436A"),
         )
         store.get_keys.clear()
-        cold = inputs.read_and_generate_models(**arguments).materialize()
+        cold = materialize_generation(inputs.read_and_generate_models(**arguments))
         cold_archive_gets = [key for key in store.get_keys if key.endswith(".zip")]
         assert cold_archive_gets
         assert cold.result("company_financials", "436A").payload["financial"][
@@ -213,9 +214,8 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
         extract_spy = mocker.spy(edinet_comparison_reader, "extract_comparisons")
         decode_spy = mocker.spy(query, "_decode_model")
         store.get_keys.clear()
-        warm = inputs.read_and_generate_models(
-            **arguments, comparison_evidence=source
-        ).materialize()
+        stream = inputs.read_and_generate_models(**arguments, comparison_evidence=source)
+        warm = materialize_generation(stream)
         assert warm == cold
         assert [key for key in store.get_keys if key.endswith(".zip")] == cold_archive_gets
         assert [call.args[:2] for call in decode_spy.call_args_list] == [

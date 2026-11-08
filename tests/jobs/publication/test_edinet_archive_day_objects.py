@@ -107,10 +107,12 @@ def test_old_catalog_reads_new_days_and_new_catalog_reads_old_months(tmp_path):
         publish_release(mirror_root=mirror, release_manifest_path=path, store=store)
     assert old.dataset_manifest(DATASET.name).totals.objects == 2
     assert new.dataset_manifest(DATASET.name).totals.objects == 3
-    assert DATASET.arrow_schema.equals(LEGACY.arrow_schema, check_metadata=True)
+    assert DATASET.arrow_schema_for("legacy_sqlite_import").equals(
+        LEGACY.arrow_schema_for("legacy_sqlite_import"), check_metadata=True
+    )
     assert (
-        hashlib.sha256(DATASET.arrow_schema.serialize()).digest()
-        == hashlib.sha256(LEGACY.arrow_schema.serialize()).digest()
+        hashlib.sha256(DATASET.arrow_schema_for("legacy_sqlite_import").serialize()).digest()
+        == hashlib.sha256(LEGACY.arrow_schema_for("legacy_sqlite_import").serialize()).digest()
     )
     source_hashes = {
         source.sha256

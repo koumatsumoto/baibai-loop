@@ -52,7 +52,6 @@ class EStatSource:
         all_history_start=date(1970, 1, 1),
         required_env=("ESTAT_APP_ID",),
     )
-    name = spec.name
 
     def fetch_records(
         self,

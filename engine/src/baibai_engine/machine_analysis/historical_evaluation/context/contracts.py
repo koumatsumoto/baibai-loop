@@ -10,15 +10,9 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-ER_CALIBRATION_CONTEXT_KIND = "er-level-calibration-context"
-ER_CALIBRATION_CONTEXT_SCHEMA_VERSION = 4
 ER_CALIBRATION_CONTEXT_VALID_DAYS = 45
 ER_CALIBRATION_PRIMARY_REALIZED_BASIS = "fy_actual_dividend_total_return"
 ER_CALIBRATION_SECONDARY_REALIZED_BASIS = "price_return_only"
-ER_CALIBRATION_TRAP_BASIS = "cohort_population_cumulative_return_excess_lte_minus_0_20"
-ER_CALIBRATION_PRIMARY_WEIGHTING = "ticker_asof_observation_equal"
-ER_CALIBRATION_SECONDARY_WEIGHTING = "cohort_equal"
-ER_CALIBRATION_REFERENCE_HORIZON = "3y"
 ER_CALIBRATION_HORIZONS = ("3y", "5y")
 ER_CALIBRATION_BAND_IDS = ("q1", "q2", "q3", "q4", "q5", "er_gte_8_5pct")
 # 機械E[r]の固定較正帯。L3の案件別要求率へ追随させない (#1481)。
@@ -271,16 +265,10 @@ class ErCalibrationContextArtifact(BaseModel):
 
 __all__ = [
     "ER_CALIBRATION_BAND_IDS",
-    "ER_CALIBRATION_CONTEXT_KIND",
-    "ER_CALIBRATION_CONTEXT_SCHEMA_VERSION",
     "ER_CALIBRATION_CONTEXT_VALID_DAYS",
     "ER_CALIBRATION_HORIZONS",
     "ER_CALIBRATION_PRIMARY_REALIZED_BASIS",
-    "ER_CALIBRATION_PRIMARY_WEIGHTING",
-    "ER_CALIBRATION_REFERENCE_HORIZON",
     "ER_CALIBRATION_SECONDARY_REALIZED_BASIS",
-    "ER_CALIBRATION_SECONDARY_WEIGHTING",
-    "ER_CALIBRATION_TRAP_BASIS",
     "HURDLE_ER_ANNUAL",
     "ErCalibrationBand",
     "ErCalibrationBasis",

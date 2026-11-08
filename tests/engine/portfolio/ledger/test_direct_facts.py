@@ -63,7 +63,7 @@ def test_initial_direct_draft_fixes_uuid_without_binding_or_ledger_write(tmp_pat
     assert binding is not None
     assert binding.reference.startswith("manual-fact-")
     assert binding.reference == binding.source_id == draft.replacement.events[-1].decision_reference
-    assert service.append_head() == 1
+    assert service.load_with_head()[1] == 1
     assert _binding_count(path) == 0
     apply_draft(service, draft, human_confirmed=True)
     assert resolve_buy_reference(binding.reference, db_path=path) == "1234"
@@ -189,7 +189,7 @@ def test_unknown_old_reference_is_not_relabelled_as_manual_fact(tmp_path):
     service, path = _service(tmp_path)
     with pytest.raises(ValueError, match="manual-fact"):
         open_direct(service, decision_reference="capital-allocation-assessment-unknown")
-    assert service.append_head() == 1
+    assert service.load_with_head()[1] == 1
     assert _binding_count(path) == 0
 
 
@@ -262,7 +262,7 @@ def test_cli_returns_initial_and_retry_reference_without_preapply_writes(tmp_pat
     assert main([*args, "--out", "direct.yaml"], now=NOW) == 0
     first = yaml.safe_load(capsys.readouterr().out)
     assert first["decision_reference"].startswith("manual-fact-")
-    assert service.append_head() == 1
+    assert service.load_with_head()[1] == 1
     assert _binding_count(path) == 0
     draft = load_draft(tmp_path / "direct.yaml")
     assert draft.binding_addition.reference == first["decision_reference"]

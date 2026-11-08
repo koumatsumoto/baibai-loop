@@ -34,7 +34,6 @@ _MAX_HTML_BYTES = 4 * 1024 * 1024
 class TradingEconomicsPmiSource:
     # Retained official PDF history shares the unchanged measurement source IDs.
     spec = ProviderSpec(name="tradingeconomics_pmi")
-    name = spec.name
 
     def fetch_documents(
         self,

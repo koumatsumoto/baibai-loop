@@ -44,7 +44,6 @@ class UmichScaSource:
     """
 
     spec = ProviderSpec(name="umich_sca", all_history_start=date(1952, 11, 1))
-    name = spec.name
 
     def fetch_records(
         self,
@@ -63,12 +62,10 @@ class UmichScaSource:
             context=context,
             retry_transient=True,
         )
-        return parse_umich_table(series, text, start=start, end=end)
+        return parse_umich_table(text, start=start, end=end)
 
 
-def parse_umich_table(
-    series: SourceDefinition, text: str, *, start: date, end: date
-) -> NativeRecords:
+def parse_umich_table(text: str, *, start: date, end: date) -> NativeRecords:
     """Retain the whole Surveys of Consumers row, including missing cells.
 
     A row whose month or year cannot be read is rejected rather than skipped: the

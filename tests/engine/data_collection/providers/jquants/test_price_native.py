@@ -127,7 +127,31 @@ def test_price_partial_is_retained_and_replanned_without_a_projection(tmp_path):
     )
     assert owner.commit([partial])["failed"] == ["partial"]
     fixed = owner.fixed()
-    assert DAY in fixed.plan(start=DAY, end=DAY + timedelta(days=10), revision_overlap_days=0)
+    assert fixed.plan(start=DAY, end=DAY + timedelta(days=2), revision_overlap_days=0) == (
+        DAY,
+        DAY + timedelta(days=1),
+        DAY + timedelta(days=2),
+    )
     assert [
         (item.request_id, item.error is not None) for item in fixed.requests(store, days=[DAY])
     ] == [("old", False), ("partial", True)]
+
+
+@pytest.mark.parametrize("records", [[], [{"Code": "13010"}]])
+def test_fixed_price_plan_preserves_complete_receipts_and_rechecks_explicit_overlap(
+    tmp_path, records
+):
+    owner = PriceL1(MemoryR2Store(), tmp_path)
+    owner.initialize()
+    owner.commit([attempt("received", records=records)])
+    fixed = owner.fixed()
+    end = DAY + timedelta(days=2)
+    assert fixed.plan(start=DAY, end=end, revision_overlap_days=0) == (
+        DAY + timedelta(days=1),
+        end,
+    )
+    assert fixed.plan(start=DAY, end=end, revision_overlap_days=2) == (
+        DAY,
+        DAY + timedelta(days=1),
+        end,
+    )

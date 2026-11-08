@@ -450,7 +450,12 @@ source_modules = [
   "baibai_engine.machine_analysis.generation.runners.market_reading", "baibai_engine.machine_analysis.models.market_context.snapshot",
   "baibai_engine.machine_analysis.models.market_context.security", "baibai_engine.machine_analysis.models.market_context.benchmark",
   "baibai_engine.machine_analysis.observations.prices.adjusted_prices",
-  "baibai_jobs.maintenance.jquants_inputs", "baibai_engine.machine_analysis.models.market_context.history",
+  "baibai_engine.machine_analysis.observations.financials.reader",
+  "baibai_engine.machine_analysis.observations.prices.calendar_reader",
+  "baibai_engine.machine_analysis.observations.prices.price_reader",
+  "baibai_engine.machine_analysis.observations.stocks.reader",
+  "baibai_engine.machine_analysis.observations.trading_activity.margin_reader",
+  "baibai_engine.machine_analysis.models.market_context.history",
   "baibai_engine.machine_analysis.observations.economic_indicators.reader",
   "baibai_engine.machine_analysis.models.market_context.reading.compute", "baibai_engine.machine_analysis.models.market_context.reading.models",
 ]
@@ -656,7 +661,7 @@ source_modules = [
   "baibai_engine.machine_analysis.observations.financials.financial_periods",
 ]
 forbidden_modules = [
-  "baibai_engine.storage", "baibai_jobs.maintenance.jquants_inputs",
+  "baibai_engine.storage",
   "baibai_engine.machine_analysis.observations.prices.price_reader", "baibai_engine.machine_analysis.generation.runners.company_growth",
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening",
   ]

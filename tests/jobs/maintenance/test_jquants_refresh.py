@@ -9,16 +9,16 @@ import pytest
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
+from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_daily_bars,
     store_jquants_fin_summaries,
     store_jquants_master,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
+from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 
 
 def day(value: str) -> date:
@@ -37,7 +37,8 @@ def test_cached_exact_master_uses_offline_reader_without_acquisition(database):
     records = make_master_records(target)
     records[0]["CoName"] = "極洋"
     store_jquants_master(database, records, requested_asof=target)
-    masters = JQuantsReader(database).get_eq_master(target)
+    masters = read_eq_master_exact(database, target)
+    assert masters is not None
     assert masters[0].name == "極洋"
 
 
@@ -54,8 +55,7 @@ def test_rejected_financial_quality_does_not_claim_coverage(database):
         assert conn.execute("SELECT record_count, status FROM source_coverage").fetchall() == [
             (0, "partial")
         ]
-    with pytest.raises(JQuantsProviderError, match="incomplete"):
-        JQuantsReader(database).get_fin_summary_range(target, target)
+    assert read_fin_summaries(database, target, target) is None
 
 
 def test_partial_financial_refetch_preserves_empty_outer_windows(database):

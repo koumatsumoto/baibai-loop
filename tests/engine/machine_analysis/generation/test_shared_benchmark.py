@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.lake_release import market_store
+from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
@@ -42,7 +43,7 @@ def source(tmp_path, benchmark_count):
 
 def generate(path, *, identity="shared", tickers=TICKERS):
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=path.parent / "lake") as snapshot:
-        return read_and_generate_models(
+        stream = read_and_generate_models(
             generation_id=identity,
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -51,7 +52,8 @@ def generate(path, *, identity="shared", tickers=TICKERS):
             evaluation_time=AT,
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=tickers,
-        ).materialize()
+        )
+        return materialize_generation(stream)
 
 
 @pytest.mark.parametrize("benchmark_count", [0, 5, 300])
