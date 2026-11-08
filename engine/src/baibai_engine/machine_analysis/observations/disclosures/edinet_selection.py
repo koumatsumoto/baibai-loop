@@ -11,15 +11,17 @@ from typing import Any
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.data_collection.providers.edinet.fields import is_usable_filing_status
+from baibai_engine.data_collection.providers.edinet.fields import (
+    coalesce_field,
+    document_period,
+    is_usable_filing_status,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     QuarantinedDocumentEvent,
     _canonicalize_document_events,
     parse_doc_id,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-    coalesce_field,
-    document_period,
     parse_sec_code,
     text_or_none,
 )

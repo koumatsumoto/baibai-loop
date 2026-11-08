@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.data_collection.providers.edinet.fields import coalesce_field
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_doc_id as _parse_doc_id,
 )
@@ -16,7 +17,6 @@ from baibai_engine.data_collection.providers.edinet.fields import (
     validate_document_statuses as _validate_native_statuses,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-    coalesce_field,
     parse_sec_code,
     safe_error_value,
     text_or_none,

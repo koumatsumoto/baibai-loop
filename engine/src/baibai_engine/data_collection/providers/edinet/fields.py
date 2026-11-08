@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
 _DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
@@ -65,3 +66,48 @@ def validate_document_statuses(document: Mapping[str, Any]) -> None:
 def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
     """Require explicit published, non-withdrawn status; missing flags are unknown."""
     return str(legal) in {"1", "2"} and str(disclosure) == "0" and str(withdrawal) == "0"
+
+
+def parse_optional_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+_DOCUMENT_DESCRIPTION_PERIOD_RE = re.compile(
+    r"(\d{4}/\d{2}/\d{2})\s*[－~～-]\s*(\d{4}/\d{2}/\d{2})"
+)
+
+
+def document_period(document: Mapping[str, Any]) -> tuple[date | None, date | None]:
+    start = parse_optional_date(coalesce_field(document, "periodStart", "period_start"))
+    end = parse_optional_date(coalesce_field(document, "periodEnd", "period_end"))
+    if start is not None and end is not None:
+        return start, end
+    description = text_or_none(coalesce_field(document, "docDescription", "doc_description"))
+    fallback_start, fallback_end = _parse_document_description_period(description)
+    return start or fallback_start, end or fallback_end
+
+
+def _parse_document_description_period(value: str | None) -> tuple[date | None, date | None]:
+    if not value:
+        return None, None
+    match = _DOCUMENT_DESCRIPTION_PERIOD_RE.search(value)
+    if match is None:
+        return None, None
+    return (
+        _parse_slash_date(match.group(1)),
+        _parse_slash_date(match.group(2)),
+    )
+
+
+def _parse_slash_date(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value.replace("/", "-"))
+    except ValueError:
+        return None

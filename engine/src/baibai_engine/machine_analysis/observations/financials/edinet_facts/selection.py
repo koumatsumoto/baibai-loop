@@ -5,12 +5,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from baibai_engine.data_collection.providers.edinet.fields import is_usable_filing_status
+from baibai_engine.data_collection.providers.edinet.fields import (
+    document_period,
+    is_usable_filing_status,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     _canonicalize_document_events,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-    document_period,
     parse_sec_code,
 )
 
