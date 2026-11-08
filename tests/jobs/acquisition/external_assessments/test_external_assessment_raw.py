@@ -17,6 +17,7 @@ from tests.helpers.external_assessment_http import connect as connect
 from tests.helpers.external_assessment_responses import response
 from tests.helpers.external_assessment_stages import FakeObjectStore, plan, stage
 
+import baibai_jobs.acquisition.external_assessments.collection as collection
 import baibai_jobs.acquisition.external_assessments.daily as daily
 import baibai_jobs.acquisition.external_assessments.raw as external_assessment_raw
 import baibai_jobs.acquisition.external_assessments.staging as staging
@@ -33,6 +34,7 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakePublishError,
 )
+from baibai_jobs.acquisition.external_assessments.attempts import read_attempts
 
 
 def bundles(store):
@@ -140,9 +142,96 @@ def test_decode_error_keeps_exact_received_bytes_before_failed_parse(connect):
     assert responses[0].attempt_id == entry.attempt_id
 
 
+@pytest.mark.parametrize("error_type", [ParseError, ValueError, RuntimeError])
+def test_projection_failure_keeps_batch_bodies_outcomes_and_same_plan_resume(
+    connect, monkeypatch, error_type
+):
+    tickers = ("6758", "7203", "9432")
+    bodies = [
+        monex_html(ticker, value="--" if ticker == "6758" else "1,234円").encode()
+        for ticker in tickers
+    ]
+    session = Session([(200, body, "utf-8") for body in bodies])
+    connect(session)
+    parse = collection.parse_source_html
+
+    def project(html, **kwargs):
+        if kwargs["ticker"] == "7203":
+            raise error_type("missing_theory_table")
+        return parse(html, **kwargs)
+
+    monkeypatch.setattr(collection, "parse_source_html", project)
+    p, store = plan(tickers=tickers), FakeObjectStore()
+    report = daily.acquire_cohort(store, p, 0)
+    saved = stage(store, p)
+    assert report["cohort_complete"] is True
+    assert [entry.state for entry in saved.result.entries] == ["normal_null", "failure", "success"]
+    reason = "missing_theory_table" if error_type is ParseError else "unclassified_parse_failure"
+    assert saved.result.entries[1].reason == reason
+    assert tuple(item.ticker for item in saved.result.observations) == ("6758", "9432")
+    _, restored = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
+    assert tuple(item.body for item in restored) == tuple(bodies)
+    assert tuple(item.attempt_id for item in restored) == tuple(
+        entry.attempt_id for entry in saved.result.entries
+    )
+    journal = read_attempts(store, p)
+    assert [attempt["outcomes"][0]["status"] for attempt in journal[0]["attempts"]] == [
+        "observed",
+        "parse_failure",
+        "observed",
+    ]
+    assert journal[0]["attempts"][1]["outcomes"][0]["reason"] == reason
+    assert len(session.calls) == 3
+    before = list(store.puts)
+    assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
+    assert len(session.calls) == 3
+    assert store.puts == before
+
+
+@pytest.mark.parametrize("error_type", [ValueError, RuntimeError])
+@pytest.mark.parametrize("projection", ["iframe", "observation"])
+def test_unknown_rakuten_projection_failure_retains_received_roles_only(
+    connect, monkeypatch, error_type, projection
+):
+    bodies = [official_html().encode(), rakuten_html().encode()]
+    session = Session([(200, body, "utf-8") for body in bodies])
+    connect(session)
+
+    def fail(*args, **kwargs):
+        raise error_type("private parser detail")
+
+    monkeypatch.setattr(
+        rakuten if projection == "iframe" else collection,
+        "iframe_url" if projection == "iframe" else "parse_source_html",
+        fail,
+    )
+    p, store = plan(sources=("rakuten",)), FakeObjectStore()
+    daily.acquire_cohort(store, p, 0)
+    saved = stage(store, p)
+    entry = saved.result.entries[0]
+    assert (entry.state, entry.reason) == ("failure", "unclassified_parse_failure")
+    assert saved.result.observations == ()
+    _, restored = external_assessment_raw.read_raw_bundle(store, saved.raw_bundle_keys[0])
+    expected = 1 if projection == "iframe" else 2
+    assert tuple(item.body for item in restored) == tuple(bodies[:expected])
+    assert all(item.attempt_id == entry.attempt_id for item in restored)
+    assert [item.role for item in restored] == ["page", "iframe"][:expected]
+    assert len(session.calls) == expected
+    assert "private parser detail" not in json.dumps(read_attempts(store, p))
+
+
+def _unexpected_projection(*args, **kwargs):
+    raise RuntimeError("private parser detail")
+
+
 @pytest.mark.parametrize("fault", ["before", "after", "bad_receipt"])
-def test_raw_upload_failure_prevents_stage_commit(connect, capsys, fault):
+@pytest.mark.parametrize("projection_failure", [False, True])
+def test_raw_upload_failure_prevents_stage_commit(
+    connect, monkeypatch, capsys, fault, projection_failure
+):
     connect(Session([(200, monex_html().encode(), "utf-8")]))
+    if projection_failure:
+        monkeypatch.setattr(collection, "parse_source_html", _unexpected_projection)
     p, store = plan(), FakeObjectStore()
     store.put_fault = (1, fault)
     with pytest.raises(LakePublishError):
@@ -153,8 +242,13 @@ def test_raw_upload_failure_prevents_stage_commit(connect, capsys, fault):
 
 
 @pytest.mark.parametrize("method", ["append", "finish"])
-def test_local_raw_failure_prevents_stage_commit(connect, monkeypatch, capsys, method):
+@pytest.mark.parametrize("projection_failure", [False, True])
+def test_local_raw_failure_prevents_stage_commit(
+    connect, monkeypatch, capsys, method, projection_failure
+):
     connect(Session([(200, monex_html().encode(), "utf-8")]))
+    if projection_failure:
+        monkeypatch.setattr(collection, "parse_source_html", _unexpected_projection)
 
     def fail(*a, **k):
         raise OSError("private secret must not be logged")
@@ -167,6 +261,67 @@ def test_local_raw_failure_prevents_stage_commit(connect, monkeypatch, capsys, m
     assert store.puts == []
     error = capsys.readouterr().err
     assert "private secret" not in error
+
+
+def test_projection_failure_raw_and_attempt_survive_unsaved_stage_cas(connect, monkeypatch):
+    body = monex_html().encode()
+    session = Session([(200, body, "utf-8")])
+    connect(session)
+    monkeypatch.setattr(collection, "parse_source_html", _unexpected_projection)
+    p, store = plan(), FakeObjectStore()
+    store.put_fault = (3, "cas")
+    with pytest.raises(LakePublishError):
+        daily.acquire_cohort(store, p, 0)
+    assert stage_or_none(store, p) is None
+    assert len(session.calls) == 1
+    assert len(store.puts) == 3
+    journal = read_attempts(store, p)
+    candidate = staging.load_stage(p, json.dumps(journal[0]["candidate_stage"]).encode())
+    entry = candidate.result.entries[0]
+    assert (entry.state, entry.reason) == ("failure", "unclassified_parse_failure")
+    assert candidate.result.observations == ()
+    _, restored = external_assessment_raw.read_raw_bundle(store, candidate.raw_bundle_keys[0])
+    assert restored[0].body == body
+    assert restored[0].attempt_id == entry.attempt_id
+
+
+def test_projection_failure_keeps_candidate_raw_when_competing_success_wins(connect, monkeypatch):
+    body = monex_html().encode()
+    p, winner_store = plan(), FakeObjectStore()
+    winner_session = Session([(200, body, "utf-8")])
+    connect(winner_session)
+    daily.acquire_cohort(winner_store, p, 0)
+    winner = stage(winner_store, p)
+    winner_key = winner.raw_bundle_keys[0]
+
+    store = FakeObjectStore()
+    store.seed(winner_key, winner_store.objects[winner_key][0], "application/gzip")
+    session = Session([(200, body, "utf-8")])
+    connect(session)
+    monkeypatch.setattr(collection, "parse_source_html", _unexpected_projection)
+    put = store.put_file
+
+    def conflict(key, path, **kwargs):
+        if key == staging.stage_key(p, 0):
+            store.seed(key, staging.stage_bytes(p, winner))
+        return put(key, path, **kwargs)
+
+    monkeypatch.setattr(store, "put_file", conflict)
+    assert daily.acquire_cohort(store, p, 0)["cohort_complete"] is True
+    assert stage(store, p) == winner
+    journal = read_attempts(store, p)
+    candidate = staging.load_stage(p, json.dumps(journal[0]["candidate_stage"]).encode())
+    assert candidate.result.entries[0].state == "failure"
+    assert candidate.result.observations == ()
+    assert candidate.raw_bundle_keys != winner.raw_bundle_keys
+    _, losing = external_assessment_raw.read_raw_bundle(store, candidate.raw_bundle_keys[0])
+    _, retained = external_assessment_raw.read_raw_bundle(store, winner_key)
+    assert losing[0].body == retained[0].body == body
+    assert losing[0].attempt_id != retained[0].attempt_id
+    before = list(store.puts)
+    assert daily.acquire_cohort(store, p, 0)["provider_requests"] == 0
+    assert len(winner_session.calls) == len(session.calls) == 1
+    assert store.puts == before
 
 
 def test_raw_upload_precedes_typed_checkpoint_and_never_downloads_per_body(connect, monkeypatch):

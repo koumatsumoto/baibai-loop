@@ -163,6 +163,63 @@ def test_wall_clock_interruption_after_transport_reports_timeout(clock):
     assert result.response_content_bytes == 0
 
 
+@pytest.mark.parametrize("projection", ["iframe", "observation"])
+@pytest.mark.parametrize("error_type", [source_http.TimeLimit, KeyboardInterrupt, SystemExit])
+def test_projection_interruption_is_not_parse_failure(clock, monkeypatch, projection, error_type):
+    client = Session([(200, official_html()), (200, rakuten_html())], clock=clock)
+    received = []
+
+    def interrupt(*args, **kwargs):
+        raise error_type
+
+    monkeypatch.setattr(
+        rakuten if projection == "iframe" else collection,
+        "iframe_url" if projection == "iframe" else "parse_source_html",
+        interrupt,
+    )
+    if error_type is source_http.TimeLimit:
+        result = pair(client, source="rakuten", on_received_html=received.append)
+        assert result.outcomes[0].status == "request_timeout"
+        assert result.stop_reason == "wall_clock_limit"
+        assert not result.observations
+    else:
+        with pytest.raises(error_type):
+            pair(client, source="rakuten", on_received_html=received.append)
+    assert len(received) == len(client.calls) == (1 if projection == "iframe" else 2)
+
+
+@pytest.mark.parametrize("error_type", [ValueError, RuntimeError])
+@pytest.mark.parametrize("origin", ["transport", "receipt_callback"])
+def test_nonprojection_errors_are_not_converted_to_parse_failure(
+    clock, monkeypatch, error_type, origin
+):
+    client = Session([(200, monex_html())], clock=clock)
+
+    def fail(*args, **kwargs):
+        raise error_type("private nonprojection failure")
+
+    if origin == "transport":
+        monkeypatch.setattr(client, "get", fail)
+    with pytest.raises(error_type, match="private nonprojection failure"):
+        pair(client, on_received_html=fail if origin == "receipt_callback" else None)
+
+
+def test_unreceived_transport_failure_has_no_original_and_no_projection(clock, monkeypatch):
+    client = Session([requests.ConnectionError("private transport detail")], clock=clock)
+    received = []
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("an unreceived response must not be projected")
+
+    monkeypatch.setattr(collection, "parse_source_html", unexpected)
+    result = pair(client, on_received_html=received.append)
+    assert result.outcomes[0].status == "transport_failure"
+    assert result.response_content_bytes == 0
+    assert result.requests == 1
+    assert received == []
+    assert "private transport detail" not in str(result.summary())
+
+
 def test_interruption_after_403_body_before_classification_reports_timeout(clock):
     client = Session([(403, "synthetic denial")], clock=clock)
 

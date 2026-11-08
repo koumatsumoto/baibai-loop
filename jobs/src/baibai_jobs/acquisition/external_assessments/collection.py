@@ -220,17 +220,29 @@ def collect(
                         else:
                             url = rakuten.public_url(ticker)
                             html, _, page_receipt_id = receive(url, role="page")
-                            url = rakuten.iframe_url(html, ticker=ticker, source_url=url)
+                            try:
+                                url = rakuten.iframe_url(html, ticker=ticker, source_url=url)
+                            except (ParseError, ValidationError, source_http.TimeLimit):
+                                raise
+                            except Exception as exc:
+                                raise ParseError("unclassified_parse_failure") from exc
                             html, received, _ = receive(
                                 url, role="iframe", parent_receipt_id=page_receipt_id
                             )
-                        observation = parse_source_html(
-                            html,
-                            source=source,
-                            ticker=ticker,
-                            source_url=url,
-                            fetched_at_utc=received,
-                        )
+                        # Projection failure must still return the received originals
+                        # to the caller. Transport and receipt/storage failures stay outside.
+                        try:
+                            observation = parse_source_html(
+                                html,
+                                source=source,
+                                ticker=ticker,
+                                source_url=url,
+                                fetched_at_utc=received,
+                            )
+                        except (ParseError, ValidationError, source_http.TimeLimit):
+                            raise
+                        except Exception as exc:
+                            raise ParseError("unclassified_parse_failure") from exc
                         observations.append(observation)
                         outcomes.append(
                             CollectionOutcome(
