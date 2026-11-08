@@ -395,7 +395,7 @@ def test_native_input_summary_limits_disjoint_gaps_without_hiding_their_count(tm
     assert len(json.dumps(summary)) < 1800
 
 
-@pytest.mark.parametrize("first_hour,last_hour", [(2, 0), (0, 2), (0, 0)])
+@pytest.mark.parametrize(("first_hour", "last_hour"), [(2, 0), (0, 2), (0, 0)])
 def test_native_page_clock_guard_preserves_receipts_and_model_payload(
     tmp_path, first_hour, last_hour
 ):
