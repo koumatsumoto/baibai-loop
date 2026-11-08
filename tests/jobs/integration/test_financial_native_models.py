@@ -393,3 +393,90 @@ def test_native_input_summary_limits_disjoint_gaps_without_hiding_their_count(tm
         "end": (start + timedelta(days=1)).isoformat(),
     }
     assert len(json.dumps(summary)) < 1800
+
+
+@pytest.mark.parametrize("first_hour,last_hour", [(2, 0), (0, 2), (0, 0)])
+def test_native_page_clock_guard_preserves_receipts_and_model_payload(
+    tmp_path, first_hour, last_hour
+):
+    from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+        normalize_financial_summary,
+    )
+
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    record = {"Code": "13010", "DiscDate": DAY.isoformat(), "DiscNo": "1", "Sales": 999}
+    first_at, last_at = (AT + timedelta(hours=hour) for hour in (first_hour, last_hour))
+    pages = (
+        JQuantsPage(
+            "financial_summaries",
+            {"date": DAY.isoformat()},
+            first_at,
+            json.dumps({"data": [record], "pagination_key": "next"}).encode(),
+        ),
+        JQuantsPage(
+            "financial_summaries",
+            {"date": DAY.isoformat(), "pagination_key": "next"},
+            last_at,
+            b'{"data":[]}',
+        ),
+    )
+    original = FinancialAttempt("paged", DAY, AT, pages)
+    assert owner.commit([original])["changed"] == ["paged"]
+    fixed = owner.fixed()
+    source_objects = {key: value.body for key, value in store.values.items()}
+    scope = fixed.value()["scopes"][DAY.isoformat()]
+    assert original.order_time == last_at
+    assert all(
+        scope[field] == last_at.isoformat()
+        for field in ("confirmed_at", "last_attempt_at", "changed_at")
+    )
+    retained = next(fixed.requests(store, days=(DAY,)))
+    assert retained.request is not None
+    assert retained.request.pages == pages
+    assert retained.request.received_at == last_at
+    assert retained.last_received_at == max(first_at, last_at)
+
+    evaluated_at = AT + timedelta(hours=1)
+    if max(first_at, last_at) > evaluated_at:
+        with pytest.raises(ValueError, match="later than the evaluation clock"):
+            model_input(store, fixed, as_of=DAY, evaluated_at=evaluated_at)
+    else:
+        within_clock = model_input(store, fixed, as_of=DAY, evaluated_at=evaluated_at)
+        assert within_clock.documents == (normalize_financial_summary(record),)
+
+    observed = model_input(store, fixed, as_of=DAY, evaluated_at=max(first_at, last_at))
+    assert observed.documents == (normalize_financial_summary(record),)
+    assert owner.fixed().payload == fixed.payload
+    assert all(store.values[key].body == body for key, body in source_objects.items())
+
+
+@pytest.mark.parametrize("with_page", [False, True])
+def test_native_page_clock_guard_keeps_failed_requests_incomplete(tmp_path, with_page):
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "native")
+    owner.initialize()
+    pages = (
+        (
+            JQuantsPage(
+                "financial_summaries",
+                {"date": DAY.isoformat()},
+                AT,
+                b'{"data":[],"pagination_key":"next"}',
+            ),
+        )
+        if with_page
+        else ()
+    )
+    original = FinancialAttempt("incomplete", DAY, AT, pages, "interrupted")
+    assert owner.commit([original])["failed"] == ["incomplete"]
+    retained = next(owner.fixed().requests(store, days=(DAY,)))
+    assert retained.request is None
+    assert retained.last_received_at == AT
+    observed = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT)
+    assert observed.documents == ()
+    summary = observed.identity.descriptor["summary"]
+    assert summary["unavailable_days"] == 1
+    assert summary["incomplete_days"] == 1
+    assert summary["failed_days"] == 1

@@ -253,7 +253,7 @@ def read_full_day_requests(
                 request,
                 None if request else item.failure or "incomplete request",
                 {contract.query_date_key: item.day.isoformat()},
-                item.order_time,
+                max((page.received_at for page in item.pages), default=item.order_time),
             )
         if found != identities:
             raise LakePublishError("full-day pack lacks a fixed receipt")
