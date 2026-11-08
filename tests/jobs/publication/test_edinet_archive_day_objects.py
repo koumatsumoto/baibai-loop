@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import export_market_fixture
 from tests.helpers.master_calendar_native import (
     native_master_calendar_publication as native_master_calendar_publication,
 )
@@ -29,7 +30,6 @@ from baibai_engine.storage.snapshots.reader import (
     selected_partitions,
 )
 from baibai_engine.storage.snapshots.release import create_release
-from baibai_engine.storage.snapshots.writer import export_market_store
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
     advance_lake_store_origin,
@@ -66,7 +66,7 @@ def rows(database):
 
 
 def build(database, mirror, identity, dataset):
-    export = export_market_store(
+    export = export_market_fixture(
         catalog={DATASET.name: dataset},
         sqlite_path=database,
         mirror_root=mirror,

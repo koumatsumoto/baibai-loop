@@ -11,6 +11,7 @@ from uuid import UUID
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.lake_release import export_market_fixture
 from tests.helpers.master_calendar_native import (
     native_master_calendar_publication as native_master_calendar_publication,
 )
@@ -32,7 +33,6 @@ from baibai_engine.storage.snapshots.reader import (
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import (
     LakeBuildError,
-    export_market_store,
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.equity_web_import import import_responses
@@ -69,7 +69,7 @@ def response(number, day, *, body=b"original", parent=None):
 
 
 def build(database, mirror, identity, *, dataset=DATASET, previous=None):
-    report = export_market_store(
+    report = export_market_fixture(
         catalog={DATASET.name: dataset},
         sqlite_path=database,
         mirror_root=mirror,

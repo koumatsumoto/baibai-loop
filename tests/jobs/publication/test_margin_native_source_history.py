@@ -106,12 +106,13 @@ def native_margin_release(tmp_path, monkeypatch, native_source):
         mirror = tmp_path / "mirror"
         # A historical release is made from the old SQLite projection, without
         # invoking the current native-only publication route.
+        from tests.helpers.lake_release import export_market_fixture
+
         from baibai_engine.storage.snapshots.release import create_release
-        from baibai_engine.storage.snapshots.writer import export_market_store
         from baibai_jobs.publication.policy import release_policy_for_profile
         from baibai_jobs.publication.snapshot_release import publish_release
 
-        exported = export_market_store(
+        exported = export_market_fixture(
             sqlite_path=market,
             mirror_root=mirror,
             producer_git_commit="a" * 40,

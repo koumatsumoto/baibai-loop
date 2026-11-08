@@ -4,24 +4,31 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
+from baibai_engine.storage.snapshots.contracts import LakeDataset
 from baibai_engine.storage.snapshots.keys import (
     current_release_pointer_key,
     release_manifest_key,
 )
 from baibai_engine.storage.snapshots.models import (
+    DatasetManifest,
     ReleaseDataset,
     ReleaseManifest,
     canonical_lake_model_bytes,
 )
 from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
-from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
+from baibai_engine.storage.snapshots.writer import (
+    LakeExportReport,
+    export_dataset_snapshot,
+    export_market_snapshot,
+    sealed_sqlite_snapshot,
+)
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.lake_origin import (
     LakeStoreOrigin,
@@ -235,4 +242,27 @@ def publish_market_fixture(path: Path, release: str, *, created_at: datetime) ->
     with closing(sqlite3.connect(path)) as connection, connection:
         write_lake_store_origin(
             connection, LakeStoreOrigin(release, hashlib.sha256(payload).hexdigest())
+        )
+
+
+def export_market_fixture(
+    *,
+    catalog: Mapping[str, LakeDataset],
+    sqlite_path: Path,
+    mirror_root: Path,
+    producer_git_commit: str,
+    expected_store_origin: LakeStoreOrigin | None,
+    created_at: datetime | None = None,
+    previous: Mapping[str, DatasetManifest] | None = None,
+) -> LakeExportReport:
+    """Build finite SQLite fixture releases through the current seal/export owners."""
+    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
+        return export_market_snapshot(
+            source_snapshot=snapshot,
+            mirror_root=mirror_root,
+            producer_git_commit=producer_git_commit,
+            expected_store_origin=expected_store_origin,
+            catalog=catalog,
+            created_at=created_at,
+            previous=previous,
         )

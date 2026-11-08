@@ -12,8 +12,7 @@ from types import SimpleNamespace
 import pyarrow.parquet as pq
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
-from tests.helpers.lake_release import market_store
-from tools.diagnostics.benchmark_lake_export import benchmark
+from tests.helpers.lake_release import export_market_fixture, market_store
 
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_fin_summaries
 from baibai_engine.storage.snapshots import identity as identity_module
@@ -29,16 +28,10 @@ from baibai_engine.storage.snapshots.writer import (
     LakeBuildError,
     LakeBuildReport,
     export_dataset_snapshot,
-    export_market_store,
     sealed_sqlite_snapshot,
     validate_snapshot_parity,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
-from baibai_engine.storage.sqlite.source_cache.lake_origin import (
-    LakeStoreOrigin,
-    write_lake_store_origin,
-)
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import (
     LAKE_DATASETS,
 )
@@ -466,7 +459,7 @@ def test_pilot_orchestration_exports_one_release_generation(
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
-    report = export_market_store(
+    report = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -643,7 +636,7 @@ def test_lake_manifest_digest_is_part_of_the_gc_root(
     narrow_release_policy(monkeypatch)
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_market_store(
+    report = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -674,53 +667,6 @@ def test_lake_manifest_digest_is_part_of_the_gc_root(
     assert pointer.manifest_key not in plan.reachable
 
 
-def test_lake_export_benchmark_records_full_export_and_correction_transfer(tmp_path: Path) -> None:
-    sqlite_path = market_store(tmp_path / "market.sqlite")
-    connection = open_connection(sqlite_path)
-    write_lake_store_origin(
-        connection,
-        LakeStoreOrigin(
-            release_id="benchmark-baseline",
-            release_manifest_sha256="b" * 64,
-        ),
-    )
-    connection.commit()
-    connection.close()
-    report_path = tmp_path / "report.json"
-    source_before = sqlite_path.read_bytes()
-
-    report = benchmark(
-        sqlite_path=sqlite_path,
-        report_path=report_path,
-        producer_commit=_COMMIT,
-    )
-
-    assert report["status"] == "measured"
-    assert report["kind"] == "lake_full_history_export_benchmark"
-    assert report["full"]["datasets"]["jquants.daily_bars"]["rows"] == 4  # type: ignore[index]
-    assert report["correction"]["new_object_count"] == 1  # type: ignore[index]
-    assert report_path.is_file()
-    assert report["producer_git_commit"] == _COMMIT
-    assert sqlite_path.read_bytes() == source_before
-
-
-@pytest.mark.parametrize("alias", ["direct", "symlink", "hardlink"])
-def test_lake_benchmark_report_cannot_replace_input_store(tmp_path: Path, alias: str) -> None:
-    source = market_store(tmp_path / "market.sqlite")
-    before = source.read_bytes()
-    report = source
-    if alias != "direct":
-        report = tmp_path / "alias.sqlite"
-        if alias == "symlink":
-            report.symlink_to(source)
-        else:
-            report.hardlink_to(source)
-    with pytest.raises(ValueError, match="must not replace the input market store"):
-        benchmark(sqlite_path=source, report_path=report, producer_commit=_COMMIT)
-    assert source.read_bytes() == before
-    assert report.read_bytes() == before
-
-
 def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path) -> None:
     """A seal is the size of the whole legacy store and one is taken per operation.
 
@@ -732,7 +678,7 @@ def test_the_sealed_store_is_gone_when_the_export_operation_ends(tmp_path: Path)
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
 
-    report = export_market_store(
+    report = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
@@ -782,7 +728,7 @@ def test_gc_tracks_current_release_content_without_sealed_inputs(
 
     sqlite_path = market_store(tmp_path / "market.sqlite")
     mirror = tmp_path / "mirror"
-    report = export_market_store(
+    report = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit=_COMMIT,
