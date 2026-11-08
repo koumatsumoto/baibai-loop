@@ -182,7 +182,7 @@ def test_selection_context_keeps_ledger_metadata_and_events_in_one_snapshot(tmp_
     with closing(sqlite3.connect(app)) as setup:
         setup.execute("PRAGMA journal_mode=WAL")
     writer = LedgerStoreService(app)
-    head = writer.append_head()
+    head = writer.load_with_head()[1]
     later = source.as_of + timedelta(minutes=1)
     event = ContributionEvent(
         type="contribution",

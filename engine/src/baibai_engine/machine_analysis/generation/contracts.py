@@ -210,7 +210,3 @@ class ModelGenerationStream:
     metadata: GenerationMetadata
     subjects: tuple[str, ...]
     models: Iterator[GeneratedModel]
-
-    def materialize(self) -> ModelGeneration:
-        """有限の読取・比較用。全社公開はpublish_streamで逐次消費する。"""
-        return ModelGeneration(**self.metadata.model_dump(), models=tuple(self.models))

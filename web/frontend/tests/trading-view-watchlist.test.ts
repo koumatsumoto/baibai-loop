@@ -66,6 +66,11 @@ describe('TradingView watchlist TXT', () => {
     expect(html).toContain('7203')
     expect(html).toContain('130A')
     expect(html).toContain('未評価')
+    const chartLink = html.match(/<a[^>]+href="https:\/\/www\.tradingview\.com\/chart\/\?symbol=TSE%3A130A"[^>]*>/)?.[0]
+    expect(chartLink).toContain('aria-label="130A の TradingView チャートを開く"')
+    expect(chartLink).toContain('rel="noopener noreferrer"')
+    expect(chartLink).toContain('target="_blank"')
+    expect(html).not.toContain('>TradingView</a>')
   })
 
 })

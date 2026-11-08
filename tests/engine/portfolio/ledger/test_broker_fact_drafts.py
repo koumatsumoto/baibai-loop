@@ -559,7 +559,7 @@ def test_record_broker_fact_cli_uses_decision_reference_without_writing_before_a
     assert main(args, now=ORDERED_AT + timedelta(minutes=1)) == 0
     output = yaml.safe_load(capsys.readouterr().out)
     assert output["decision_reference"] == RETAINED_BUY_REFERENCE
-    assert ledger.append_head() == load_draft(tmp_path / "draft.yaml").expected_head
+    assert ledger.load_with_head()[1] == load_draft(tmp_path / "draft.yaml").expected_head
 
 
 def test_unbound_reservation_is_not_a_runtime_compatibility_path(tmp_path: Path) -> None:

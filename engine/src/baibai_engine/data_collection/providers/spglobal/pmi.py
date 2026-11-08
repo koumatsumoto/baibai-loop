@@ -41,7 +41,6 @@ class SpGlobalPmiSource:
     """
 
     spec = ProviderSpec(name="spglobal_pmi", all_history_start=date(2022, 12, 1))
-    name = spec.name
 
     def fetch_documents(
         self,

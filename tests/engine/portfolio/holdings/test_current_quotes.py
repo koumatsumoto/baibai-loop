@@ -346,7 +346,7 @@ def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
         approved_at=approved,
         expires_at=approved + timedelta(days=2),
     )
-    before_head = service.append_head()
+    before_head = service.load_with_head()[1]
     draft = build_override_draft(service, override)
     path = tmp_path / "override-draft.yaml"
     write_draft(path, draft)
@@ -357,7 +357,7 @@ def test_override_report_roundtrips_and_advances_only_its_metadata_cutoff(
     saved = service.load()
     assert saved.as_of == max(ledger.as_of, approved)
     assert saved.events == ledger.events
-    assert service.append_head() == before_head
+    assert service.load_with_head()[1] == before_head
     assert saved.overrides == (override,)
     assert (
         active_human_overrides(saved.overrides, as_of=saved.as_of)[("ticker", "2331")] == override

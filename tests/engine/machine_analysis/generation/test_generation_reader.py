@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.edinet_saved_inputs import BASE, RECORDED, TARGET, _seed
 from tests.helpers.lake_release import market_store
+from tests.helpers.model_generation import materialize_generation
 
 import baibai_engine.machine_analysis.generation.inputs as generation_reader
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
@@ -70,7 +71,7 @@ def test_generation_reads_shared_snapshots_and_uses_new_release_not_old_origin(
             tickers=("1234", "5678"),
         )
     assert result.subjects == ("1234", "5678")
-    result = result.materialize()
+    result = materialize_generation(result)
     assert result.inputs.get("margin_interest") == margin_identity
     restored = ModelGeneration.model_validate_json(result.model_dump_json())
     assert restored.inputs == result.inputs
@@ -158,7 +159,7 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
     before = path.read_bytes()
     reader = mocker.spy(generation_reader, "read_price_day_states")
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
-        result = generation_reader.read_and_generate_models(
+        stream = generation_reader.read_and_generate_models(
             generation_id="price-path-fixture",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -167,7 +168,8 @@ def test_shared_price_path_matches_single_query_and_keeps_old_mc_and_adv(
             evaluation_time=datetime(2026, 10, 27, tzinfo=UTC),
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("7800",),
-        ).materialize()
+        )
+        result = materialize_generation(stream)
     assert reader.call_count == 1
     technical = result.result("technical_analysis", "7800").payload
     assert technical == technical_analysis(path, ticker="7800", as_of=as_of)
@@ -258,7 +260,7 @@ def test_edinet_uses_one_fixed_shared_read_and_preserves_delayed_source_contract
         stream = generation_reader.read_and_generate_models(**arguments)
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute("UPDATE edinet_metrics SET cash=999")
-    result = stream.materialize()
+    result = materialize_generation(stream)
     assert reader.call_count == 1
     assert result.inputs["market_snapshot"].sha256 == snapshot.ref.sha256
     for ticker in ("7203", "8306"):
@@ -286,7 +288,7 @@ def test_generation_retains_provider_capital_from_the_same_expected_price_day(tm
             ],
         )
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
-        generated = generation_reader.read_and_generate_models(
+        stream = generation_reader.read_and_generate_models(
             generation_id="provider-capital",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -295,7 +297,8 @@ def test_generation_retains_provider_capital_from_the_same_expected_price_day(tm
             evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1234",),
-        ).materialize()
+        )
+        generated = materialize_generation(stream)
     observation = generated.result("company_financials", "1234").payload[
         "provider_capital_observation"
     ]
@@ -315,7 +318,7 @@ def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkey
 
     monkeypatch.setattr(generation_reader, "read_holder_capital", fail)
     with sealed_sqlite_snapshot(sqlite_path=path, mirror_root=tmp_path / "lake") as snapshot:
-        result = generation_reader.read_and_generate_models(
+        stream = generation_reader.read_and_generate_models(
             generation_id="partial",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -324,7 +327,8 @@ def test_holder_source_failure_does_not_hide_independent_models(tmp_path, monkey
             evaluation_time=datetime(2026, 1, 6, tzinfo=UTC),
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1234",),
-        ).materialize()
+        )
+        result = materialize_generation(stream)
     assert (
         result.result("company_financials", "1234").payload["holder_capital_evidence"]["coverage"]
         == "unavailable"
@@ -359,7 +363,7 @@ def test_shared_market_model_contains_retained_tradingview_observations(tmp_path
         store, economic, as_of=date(2026, 1, 5), evaluation_time=CLOCK + timedelta(hours=1)
     )
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "lake") as snapshot:
-        result = generation_reader.read_and_generate_models(
+        stream = generation_reader.read_and_generate_models(
             generation_id="with-tv",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="fixed", manifest_sha256="a" * 64),
@@ -368,7 +372,8 @@ def test_shared_market_model_contains_retained_tradingview_observations(tmp_path
             evaluation_time=CLOCK + timedelta(hours=1),
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1234",),
-        ).materialize()
+        )
+        result = materialize_generation(stream)
     common = result.result("market_context", "market")
     tv = common.payload["tradingview_market"]
     assert tv["quotes"][0]["receipt_id"] == "quote"
@@ -459,7 +464,7 @@ def test_generation_binds_edinet_clock_and_passes_fixed_comparison_archives(tmp_
             with pytest.raises(ValueError, match="EDINET input was selected after"):
                 generation_reader.read_and_generate_models(**arguments)
         else:
-            result = generation_reader.read_and_generate_models(**arguments).materialize()
+            result = materialize_generation(generation_reader.read_and_generate_models(**arguments))
             assert result.inputs["edinet"] == saved
             assert comparison_read.call_args.kwargs["archives"] is fixed.archives
     assert market.read_bytes() == before

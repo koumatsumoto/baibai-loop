@@ -1,4 +1,4 @@
-"""Read-only receipt delta and the narrow failure-publication policy."""
+"""Read-only receipt and observation counts for the TradingView workflow."""
 
 from __future__ import annotations
 
@@ -12,19 +12,6 @@ from baibai_engine.storage.paths import MARKET_DB_PATH
 from baibai_engine.storage.sqlite.source_cache.schema import (
     validate_current_schema as validate_market_schema,
 )
-
-PUBLISHABLE_FAILURES = frozenset(
-    {
-        "provider_rate_limit",
-        "provider_response",
-        "provider_transport",
-        "auth",
-        "secret_persistence",
-        "time_guard",
-        "timeout",
-    }
-)
-KNOWN_FAILURES = PUBLISHABLE_FAILURES | {"storage", "internal"}
 
 
 def count_layer_rows(sqlite_path: Path, snapshot_date: date) -> tuple[int, int]:
@@ -48,18 +35,6 @@ def count_layer_rows(sqlite_path: Path, snapshot_date: date) -> tuple[int, int]:
             return int(receipt_row[0]), int(snapshot_row[0])
         finally:
             conn.rollback()
-
-
-def can_publish_failure_receipts(
-    category: str | None, before: int, after: int, rows_before: int, rows_after: int
-) -> bool:
-    return (
-        category in PUBLISHABLE_FAILURES
-        and before >= 0
-        and after > before
-        and rows_before >= 0
-        and rows_after == rows_before
-    )
 
 
 def main(argv: list[str] | None = None) -> int:

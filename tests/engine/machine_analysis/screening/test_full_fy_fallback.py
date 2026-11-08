@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
+from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -69,7 +70,7 @@ def documents(*, prior_quarter=False):
 
 def generation(rows):
     release = InputRelease(release_id="fy-fixture-release", manifest_sha256="b" * 64)
-    return generate_models(
+    stream = generate_models(
         generation_id="fy-fixture-generation",
         as_of=AS_OF,
         evaluation_time=datetime(2025, 9, 1, tzinfo=UTC),
@@ -96,7 +97,8 @@ def generation(rows):
         market_context=None,
         securities_context={"1001": {"master": {"sector_33": "情報・通信業"}}},
         market_context_revision="fy-fixture-v1",
-    ).materialize()
+    )
+    return materialize_generation(stream)
 
 
 def project(fixed):

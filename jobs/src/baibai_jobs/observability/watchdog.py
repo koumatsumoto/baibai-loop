@@ -55,7 +55,6 @@ DEFAULT_WINDOW_HOURS = 20
 
 # In-flight runs use explicit recovery inputs or the original run clock.
 # Success is bound to the notice as-of carried by the actual terminal step result.
-RUN_NAME_PREFIX = "daily"
 RESULT_STEP_PREFIX = "Notify Discord #batch-runs for "
 MARKET_SCOPE_SCHEDULES = {
     "inputs": "43 7 * * *",

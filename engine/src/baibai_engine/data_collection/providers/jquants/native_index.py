@@ -189,44 +189,6 @@ def plan_required_days(
     return NativeAcquisitionPlan(tuple(wanted), tuple(sorted(unknown)))
 
 
-def plan_daily_prices(index: NativeMarketIndex, *, start: date, end: date) -> NativeAcquisitionPlan:
-    """Plan source-day receipts; distinguish native empty from absent or partial.
-
-    This only establishes native receipt completion, not L2 row quality.
-    A newer partial receipt is fetched again even when an older complete one exists.
-    """
-    from datetime import timedelta
-
-    if index.source != "daily_bars" or start > end:
-        raise ValueError("daily price plan requires a valid daily-bars interval")
-    latest, ambiguous, incomplete, unknown = _day_state(index, date_key="date")
-    days: list[date] = []
-    day = start
-    while day <= end:
-        current = latest.get(day)
-        incomplete_at = incomplete.get(day)
-        unresolved = day in incomplete and (
-            incomplete_at is None or current is None or incomplete_at >= current.received_at
-        )
-        if current is None or unresolved or day in ambiguous:
-            days.append(day)
-        day += timedelta(days=1)
-    if not days:
-        nonempty = [day for day, receipt in latest.items() if receipt.records]
-        latest_in_window = max((day for day in nonempty if start <= day <= end), default=None)
-        latest_stored = max(nonempty, default=None)
-        if (
-            latest_in_window is not None
-            and latest_in_window < end
-            and latest_stored == latest_in_window
-        ):
-            cursor = latest_in_window
-            while cursor <= end:
-                days.append(cursor)
-                cursor += timedelta(days=1)
-    return NativeAcquisitionPlan(tuple(days), tuple(sorted(unknown)))
-
-
 def plan_calendar(index: NativeMarketIndex, *, start: date, end: date) -> NativeAcquisitionPlan:
     """Re-request only absent, incomplete or ambiguous native calendar dates."""
     from datetime import timedelta

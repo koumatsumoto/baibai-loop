@@ -31,7 +31,6 @@ class MultplSource:
     """Retain dated table cells and the page's own source explanation for L2."""
 
     spec = ProviderSpec(name="multpl", all_history_start=date(1871, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

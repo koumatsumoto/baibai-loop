@@ -10,6 +10,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGeneration,
 )
+from baibai_engine.machine_analysis.generation.query import read_model_inputs
 from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
@@ -23,19 +24,21 @@ from baibai_engine.storage.sqlite.machine_analysis import (
 
 
 def test_generation_round_trip_is_independent_of_candidate_selection(tmp_path):
-    store = ModelGenerationStore(tmp_path / "runs.sqlite")
+    path = tmp_path / "runs.sqlite"
+    store = ModelGenerationStore(path)
     original = generation()
     assert store.publish(original)
     assert not store.publish(original)
     assert store.read(original.generation_id) == original
     assert store.read("missing") is None
-    company = store.read_subjects(original.generation_id, subjects=("1234",))
+    assert read_model_inputs("missing", subjects=("1234",), path=path) is None
+    company = read_model_inputs(original.generation_id, subjects=("1234",), path=path)
     assert {model.subject for model in company.models} == {"1234"}
     assert company.inputs == original.inputs
-    combined = store.read_subjects(original.generation_id, subjects=("1234", "market"))
+    combined = read_model_inputs(original.generation_id, subjects=("1234", "market"), path=path)
     assert combined.models == original.models
     assert combined.subjects == ("1234", "market")
-    assert store.read_subjects(original.generation_id, subjects=()).models == ()
+    assert read_model_inputs(original.generation_id, subjects=(), path=path).models == ()
 
 
 def test_subject_slice_does_not_decode_unselected_payloads(tmp_path):
@@ -48,15 +51,18 @@ def test_subject_slice_does_not_decode_unselected_payloads(tmp_path):
             "UPDATE generated_model SET payload_gzip=? WHERE generation_id=? AND subject='market'",
             (b"not gzip", original.generation_id),
         )
-    company = store.read_subjects(original.generation_id, subjects=("1234", "1234"))
+    company = read_model_inputs(original.generation_id, subjects=("1234", "1234"), path=path)
     assert company.subjects == ("1234",)
     assert company.models == tuple(model for model in original.models if model.subject == "1234")
+    with pytest.raises(gzip.BadGzipFile):
+        read_model_inputs(original.generation_id, subjects=("market",), path=path)
     with pytest.raises(gzip.BadGzipFile):
         store.read(original.generation_id)
 
 
 def test_partial_input_cannot_be_published_as_a_complete_generation(tmp_path):
-    store = ModelGenerationStore(tmp_path / "runs.sqlite")
+    path = tmp_path / "runs.sqlite"
+    store = ModelGenerationStore(path)
     first = generation()
     second_company = GeneratedModel(
         model_id="company_financials",
@@ -68,7 +74,7 @@ def test_partial_input_cannot_be_published_as_a_complete_generation(tmp_path):
         {**first.model_dump(), "models": (*first.models, second_company)}
     )
     store.publish(full)
-    partial = store.read_subjects(full.generation_id, subjects=("1234",))
+    partial = read_model_inputs(full.generation_id, subjects=("1234",), path=path)
     with pytest.raises(TypeError, match="complete model generation"):
         store.publish(partial)
     assert store.read(full.generation_id) == full

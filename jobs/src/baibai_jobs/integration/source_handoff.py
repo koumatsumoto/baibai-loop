@@ -14,9 +14,6 @@ from pathlib import Path
 from typing import TypedDict
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    market_calendar_business_day,
-)
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
@@ -859,22 +856,14 @@ def main(argv: list[str] | None = None) -> int:
                 return int(not ok)
             since = args.since or datetime.now(UTC)
             status = 0
-            acquisition_report: dict[str, object] = {}
             if args.command == "acquire":
                 if args.source in {"tradingview", "jpx-financial-pdfs", "jpx-capital-actions"}:
                     raise ValueError(
                         "Use the source's explicit original receipt import; no live client here"
                     )
-                if (
-                    args.source.startswith("jquants-")
-                    and os.environ.get("GITHUB_EVENT_NAME") == "schedule"
-                    and market_calendar_business_day(args.database, args.asof) is False
-                ):
-                    acquisition_report = {"status": "skipped_non_business_day"}
-                else:
-                    status = subprocess.run(
-                        _command(args.source, args.asof, database=args.database), check=False
-                    ).returncode  # nosec B603
+                status = subprocess.run(
+                    _command(args.source, args.asof, database=args.database), check=False
+                ).returncode  # nosec B603
             master_input = None
             calendar_input = None
             if args.source == "tradingview":
@@ -896,9 +885,7 @@ def main(argv: list[str] | None = None) -> int:
                     calendar_input,
                 )
             report = json.loads((directory / "result.json").read_text())
-            report["acquisition"] = acquisition_report or {
-                "status": "failed" if status else "received"
-            }
+            report["acquisition"] = {"status": "failed" if status else "received"}
             if args.input_directory is not None:
                 report["input_generation"] = json.loads(
                     (args.input_directory / "result.json").read_text()

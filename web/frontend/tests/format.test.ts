@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   EMPTY,
-  formatJstDate,
   formatJstDateTime,
   formatPct,
   formatUnitPriceYen,
@@ -28,16 +27,6 @@ describe('formatJstDateTime', () => {
 
   it('keeps the same instant across a non-JST offset', () => {
     expect(formatJstDateTime('2026-07-18T23:00:00-04:00')).toBe('2026-07-19 12:00')
-  })
-})
-
-describe('formatJstDate', () => {
-  it('renders the JST calendar date with weekday', () => {
-    expect(formatJstDate('2026-07-19')).toBe('2026年7月19日(日)')
-  })
-
-  it('returns a placeholder for a missing date', () => {
-    expect(formatJstDate(null)).toBe('日時なし')
   })
 })
 

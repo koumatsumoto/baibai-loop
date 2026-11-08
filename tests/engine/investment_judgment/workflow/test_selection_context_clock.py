@@ -105,7 +105,7 @@ def test_same_cutoff_does_not_freeze_late_reported_ledger_events(tmp_path, capsy
     later_now = NOW + timedelta(days=1)
     writer = LedgerStoreService(app)
     writer.apply_document(
-        expected_head=writer.append_head(),
+        expected_head=writer.load_with_head()[1],
         expected_document=initial,
         replacement=source.model_copy(update={"as_of": later_now}),
     )

@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_release import market_store
+from tests.helpers.model_generation import materialize_generation
 from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -63,7 +64,7 @@ def test_native_financial_inputs_generate_all_models_without_old_financial_proje
         lambda *a, **k: pytest.fail("old financial projection was read"),
     )
     with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot:
-        result = generation.read_and_generate_models(
+        stream = generation.read_and_generate_models(
             generation_id="native-financial",
             market_snapshot=snapshot,
             market_release=InputRelease(release_id="market-only", manifest_sha256="a" * 64),
@@ -73,7 +74,8 @@ def test_native_financial_inputs_generate_all_models_without_old_financial_proje
             ttm_rules=DEFAULT_TTM_RULES,
             tickers=("1301",),
             financial_input=financial,
-        ).materialize()
+        )
+        result = materialize_generation(stream)
     assert len({model.model_id for model in result.models}) == 7
     assert result.inputs["financial"] == financial.identity
     growth = result.result("company_growth", "1301").payload["input_release"]

@@ -98,10 +98,6 @@ class LakeDataset:
             if column.primary_key_ordinal
         )
 
-    @property
-    def arrow_schema(self) -> object:
-        return self.arrow_schema_for("legacy_sqlite_import")
-
     def arrow_schema_for(
         self, source_kind: Literal["legacy_sqlite_import", "l1_derived"]
     ) -> object:

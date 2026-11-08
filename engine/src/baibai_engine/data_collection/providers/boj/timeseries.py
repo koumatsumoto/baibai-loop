@@ -22,7 +22,6 @@ class BojTimeSeriesSource:
     """Bank of Japan Time-Series Data Search API (no authentication)."""
 
     spec = ProviderSpec(name="boj_timeseries", all_history_start=date(1998, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

@@ -39,7 +39,8 @@ def test_readback_includes_parse_failed_raw_and_checks_remote_rows(tmp_path, mon
     parquet = tmp_path / "remote.parquet"
     pq.write_table(
         pa.Table.from_pylist(
-            [dict(zip(columns, rows[0], strict=True))], schema=dataset.arrow_schema
+            [dict(zip(columns, rows[0], strict=True))],
+            schema=dataset.arrow_schema_for("legacy_sqlite_import"),
         ),
         parquet,
     )
@@ -64,6 +65,9 @@ def test_readback_includes_parse_failed_raw_and_checks_remote_rows(tmp_path, mon
     # Different actual downloaded body cannot be sealed by matching receipt ID only.
     wrong = dict(zip(columns, rows[0], strict=True))
     wrong["body_gzip"] = b"wrong saved body"
-    pq.write_table(pa.Table.from_pylist([wrong], schema=dataset.arrow_schema), parquet)
+    pq.write_table(
+        pa.Table.from_pylist([wrong], schema=dataset.arrow_schema_for("legacy_sqlite_import")),
+        parquet,
+    )
     with pytest.raises(LakePublishError, match="readback differs"):
         verification.verify_delta(MemoryR2Store(), **kwargs)

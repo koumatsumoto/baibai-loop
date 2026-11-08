@@ -50,10 +50,6 @@ class LedgerStoreService:
             connection.execute("BEGIN")
             return load_ledger_in_transaction(connection)
 
-    def append_head(self) -> int:
-        with closing(connect_read_only(self._db_path)) as connection:
-            return ledger_append_head(connection)
-
     def apply_document(
         self,
         *,

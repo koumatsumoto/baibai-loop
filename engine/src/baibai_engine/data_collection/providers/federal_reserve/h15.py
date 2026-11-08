@@ -43,7 +43,6 @@ class FrbH15Source:
     """Federal Reserve H.15 source yields, without local spread calculations."""
 
     spec = ProviderSpec(name="frb_h15", all_history_start=date(1962, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,
@@ -66,7 +65,7 @@ class FrbH15Source:
             "type": "package",
         }
         text = _fetch_h15_csv(series.source_url, params, session=session, context=context)
-        return parse_h15_csv(series, text, start=start, end=end)
+        return parse_h15_csv(text, start=start, end=end)
 
 
 def _fetch_h15_csv(
@@ -207,7 +206,7 @@ def snippet(text: str) -> str:
     return " ".join(text.split())[:160]
 
 
-def parse_h15_csv(series: SourceDefinition, text: str, *, start: date, end: date) -> NativeRecords:
+def parse_h15_csv(text: str, *, start: date, end: date) -> NativeRecords:
     lines = text.splitlines(keepends=True)
     header_index = next(
         (index for index, line in enumerate(lines) if line.startswith(_HEADER_PREFIXES)),

@@ -35,22 +35,19 @@ from baibai_engine.machine_analysis.observations.economic_indicators.definitions
 
 class NativeParserTests(TestCase):
     def test_h15_missing_date_is_not_a_successful_empty_response(self) -> None:
-        series = require_source("fed-h15")
         with self.assertRaisesRegex(IndicatorsProviderError, "no Time Period"):
             parse_h15_csv(
-                series,
                 '"Time Period","RIFLGFCY10_N.B"\n,4.39\n',
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
             )
 
     def test_parse_h15_csv_retains_rows_without_the_requested_yield_column(self) -> None:
-        series = require_source("fed-h15")
         # Synthetic CSV: acquisition retains a source row even if L2 cannot read
         # this particular registered yield from it after the native save.
         text = '"Time Period",OTHER\n2026-05-01,4.39\n'
 
-        records = parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+        records = parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
         self.assertEqual(
             records,
@@ -62,7 +59,6 @@ class NativeParserTests(TestCase):
         )
 
     def test_parse_h15_csv_retains_all_columns_missing_markers_and_literal_preamble(self) -> None:
-        series = require_source("fed-h15")
         # Deliberately synthetic metadata and cells, not a captured live response.
         preamble = ['"Release","Synthetic H.15 fixture"', "", "  Units: percent  "]
         text = "\n".join(
@@ -75,7 +71,7 @@ class NativeParserTests(TestCase):
             ]
         )
 
-        records = parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
+        records = parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 2))
 
         self.assertEqual(
             records,
@@ -108,7 +104,6 @@ class NativeParserTests(TestCase):
         )
 
     def test_parse_h15_csv_retains_duplicate_rows_in_source_order(self) -> None:
-        series = require_source("fed-h15")
         text = (
             '"Time Period","RIFLGFCY10_N.B",OTHER\n'
             "2026-05-01,4.39,first\n"
@@ -116,7 +111,7 @@ class NativeParserTests(TestCase):
             "2026-05-01,ND,revision\n"
         )
 
-        records = parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+        records = parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
         self.assertEqual(
             records,
@@ -151,7 +146,6 @@ class NativeParserTests(TestCase):
         )
 
     def test_parse_h15_csv_filters_dates_without_discarding_native_missing_values(self) -> None:
-        series = require_source("fed-h15")
         text = (
             '"Time Period","RIFLGFCY10_N.B"\n'
             "2026-04-30,4.38\n"
@@ -160,7 +154,7 @@ class NativeParserTests(TestCase):
             "2026-05-03,4.40\n"
         )
 
-        records = parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 2))
+        records = parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 2))
 
         self.assertEqual(
             records,
@@ -181,30 +175,27 @@ class NativeParserTests(TestCase):
         )
 
     def test_parse_h15_csv_rejects_duplicate_columns_and_ragged_rows(self) -> None:
-        series = require_source("fed-h15")
         for text in (
             '"Time Period","RIFLGFCY10_N.B","RIFLGFCY10_N.B"\n2026-05-01,4.39,4.40\n',
             '"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39,extra\n',
             '"Time Period","RIFLGFCY10_N.B"\n2026-05-01\n',
         ):
             with self.subTest(text=text), self.assertRaises(IndicatorsProviderError):
-                parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+                parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
     def test_parse_h15_csv_preserves_newlines_inside_quoted_native_cells(self) -> None:
-        series = require_source("fed-h15")
         text = '"Time Period","RIFLGFCY10_N.B",OTHER\n2026-05-01,4.39,"first\nsecond"\n'
-        records = parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+        records = parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 1))
         self.assertEqual(records[date(2026, 5, 1)][0]["row"]["OTHER"], "first\nsecond")
 
     def test_parse_h15_csv_reports_non_csv_response_with_snippet(self) -> None:
-        series = require_source("fed-h15")
         text = "<!DOCTYPE html>\n<html><head><title>Access Denied</title></head></html>"
 
         with self.assertRaisesRegex(
             IndicatorsProviderError,
             r"missing Time Period header; response starts with: '<!DOCTYPE html> <html>",
         ):
-            parse_h15_csv(series, text, start=date(2026, 5, 1), end=date(2026, 5, 1))
+            parse_h15_csv(text, start=date(2026, 5, 1), end=date(2026, 5, 1))
 
     def test_h15_fetch_sends_browser_user_agent(self) -> None:
         series = require_source("fed-h15")

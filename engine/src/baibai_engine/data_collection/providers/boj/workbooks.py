@@ -33,7 +33,6 @@ class BojSource:
     """
 
     spec = ProviderSpec(name="boj", all_history_start=date(1957, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,

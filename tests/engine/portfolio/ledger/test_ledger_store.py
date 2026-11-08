@@ -26,7 +26,7 @@ def test_late_event_is_physically_appended_but_replayed_by_time(tmp_path: Path) 
     source = _store_fixture()
     service = LedgerStoreService(path)
     seed_ledger(path, source)
-    head = service.append_head()
+    head = service.load_with_head()[1]
     occurred_at = source.events[1].occurred_at + timedelta(seconds=1)
     event = ContributionEvent(
         event_id="human-contribution-late",
@@ -88,7 +88,7 @@ def test_new_same_instant_event_gets_tail_ordinal(tmp_path: Path) -> None:
     )
 
     service.apply_document(
-        expected_head=service.append_head(),
+        expected_head=service.load_with_head()[1],
         expected_document=source,
         replacement=replacement,
     )
@@ -111,13 +111,13 @@ def test_stale_apply_and_event_rewrite_are_no_write(tmp_path: Path) -> None:
 
     with pytest.raises(LedgerConflictError, match="removed"):
         service.apply_document(
-            expected_head=service.append_head(),
+            expected_head=service.load_with_head()[1],
             expected_document=source,
             replacement=replacement,
         )
     with pytest.raises(LedgerConflictError, match="stale"):
         service.apply_document(
-            expected_head=service.append_head() + 1,
+            expected_head=service.load_with_head()[1] + 1,
             expected_document=source,
             replacement=source,
         )
@@ -143,7 +143,7 @@ def test_decision_reference_is_indexed_without_domain_specific_foreign_key(tmp_p
     replacement = source.model_copy(update={"events": (*source.events, native)})
 
     service.apply_document(
-        expected_head=service.append_head(),
+        expected_head=service.load_with_head()[1],
         expected_document=source,
         replacement=replacement,
     )
@@ -184,7 +184,7 @@ def test_ledger_queries_open_only_read_connections(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "initialize_database", no_writer)
     service = LedgerStoreService(path)
     assert service.load() == source
-    assert service.append_head() == len(source.events)
+    assert service.load_with_head() == (source, len(source.events))
     assert observed == [1, 1]
     assert path.read_bytes() == before
 

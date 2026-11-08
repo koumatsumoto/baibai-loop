@@ -8,7 +8,6 @@ from unittest import TestCase
 
 import pytest
 from tests.helpers.network import _no_real_network as _no_real_network
-from tests.helpers.provider_fixtures import _source
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.nikkei.indices as nikkei_indexes
@@ -101,17 +100,12 @@ def test_unreadable_numeric_text_is_retained_but_not_a_successful_reading(tmp_pa
     ],
 )
 def test_unrecognized_empty_html_does_not_claim_successful_empty_history(html):
-    series = next(item for item in load_definitions().series if item.provider == "nikkei_indexes")
     with pytest.raises(nikkei_indexes.IndicatorsProviderError, match="data rows missing"):
-        nikkei_indexes.parse_nikkei_valuation(series, html, start=DAY, end=DAY)
+        nikkei_indexes.parse_nikkei_valuation(html, start=DAY, end=DAY)
 
 
 class NativeParserTests(TestCase):
     def test_parse_nikkei_valuation_retains_both_columns_and_filters_range(self) -> None:
-        series = _source(
-            "nikkei_indexes",
-            "per",
-        )
         html = (
             "<table><tbody>"
             "<tr><!--daily_changing--><td>2026.06.30</td>"
@@ -121,9 +115,7 @@ class NativeParserTests(TestCase):
             "</tbody></table>"
         )
 
-        observations = parse_nikkei_valuation(
-            series, html, start=date(2026, 7, 1), end=date(2026, 7, 31)
-        )
+        observations = parse_nikkei_valuation(html, start=date(2026, 7, 1), end=date(2026, 7, 31))
 
         # Retain both columns; selecting the weighted average belongs to L2.
         self.assertEqual(
@@ -140,16 +132,10 @@ class NativeParserTests(TestCase):
         )
 
     def test_parse_nikkei_valuation_leaves_range_policy_to_l2(self) -> None:
-        series = _source(
-            "nikkei_indexes",
-            "per",
-        )
         html = (
             "<tr><!--daily_changing--><td>2026.07.24</td>"
             "<!--daily_changing--><td>99.90</td><!--daily_changing--><td>120.0</td></tr>"
         )
 
-        observations = parse_nikkei_valuation(
-            series, html, start=date(2026, 7, 1), end=date(2026, 7, 31)
-        )
+        observations = parse_nikkei_valuation(html, start=date(2026, 7, 1), end=date(2026, 7, 31))
         self.assertEqual(observations[date(2026, 7, 24)][0]["weighted_text"], "99.90")

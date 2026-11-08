@@ -95,7 +95,7 @@ def test_sell_draft_apply_reduces_holding_and_realizes_fifo_pnl(
     draft = load_draft(draft_path)
     assert draft.kind == "sell-execution"
     # Draft generation never touches the canonical DB.
-    assert draft.expected_head == service.append_head()
+    assert draft.expected_head == service.load_with_head()[1]
     assert _holding(service, "2331").quantity == 200
 
     assert main(["apply-draft", str(draft_path), "--db", str(db), "--confirmed"]) == 0

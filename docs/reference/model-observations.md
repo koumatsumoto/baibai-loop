@@ -11,7 +11,7 @@
 - **不足**: 未取得・失敗・取得済み空・partial・正常null・比較不能・明示0を分ける。新期/訂正の不足を旧版・別期・別basisで埋めず、影響を依存値へ局所化する。障害を不存在、固定object破損を正常欠測にせず、原額/独立観測を残す。
 - **代替**: 継続障害時に期間・定義・値が複数経路で一致した場合だけ、一次未確認を明示して二次配信を採る。単一値・不一致・一時障害で代用せず、AI転記でstoreを埋めない。実装・受領・公開・切替・計算可能は別である。
 
-[経済catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)は経済の取得範囲で全L1一覧ではない。他sourceは[取得owner](../../engine/src/baibai_engine/data_collection/acquisition/)を参照する。
+[経済catalog](../../engine/src/baibai_engine/data_collection/catalog.yaml)は経済の取得範囲で全L1一覧ではない。他sourceの入口は[取得/復旧](../../jobs/OPERATIONS.md#sources)を参照する。
 
 <a id="financial-periods"></a>
 ## 開示と会計比較
@@ -32,7 +32,7 @@
 
 EDINETは同じmarket sealに適格な任意入力で、未取得でも全社生成/J-Quantsを止めない。CSV/XBRL、原本受領/抽出を分け、[保持/再開](../../jobs/OPERATIONS.md#edinet-list-native-l1)に従う。再抽出で初回bytesを差し替えず、提供元修復後も隔離取得/差分確認を要する。
 
-[comparison再利用](../../engine/src/baibai_engine/machine_analysis/generation/comparison_evidence.py)は取得済みserving世代の任意cache。今回の文書状態/公開時計/訂正を先に選び、同一原本・抽出入力・revisionを照合する。原本GETは残り、モデル読取/展開が増える。cache不足/不正/非対応は再抽出へ戻り、cold再生成に前回L2は不要。
+[comparison再利用](../../engine/src/baibai_engine/machine_analysis/generation/comparison_evidence.py)は任意cache。同じ原本/抽出入力・revisionに一致する適格入力だけ再利用し、不正/非対応なら再抽出する。原本の取得/保持を代替せず、cold再生成に前回L2を要しない。
 
 | 経路 | 固有の成立範囲 |
 | --- | --- |

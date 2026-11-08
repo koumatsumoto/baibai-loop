@@ -14,11 +14,10 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationMetadata,
     ModelGeneration,
     ModelGenerationStream,
-    ModelInputSlice,
     validate_full_plan,
     validate_model_scope,
 )
-from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import (
     connect_rw,
@@ -123,11 +122,6 @@ class ModelGenerationStore:
 
     def read(self, generation_id: str) -> ModelGeneration | None:
         return read_generation(generation_id, path=self._path)
-
-    def read_subjects(
-        self, generation_id: str, *, subjects: Sequence[str]
-    ) -> ModelInputSlice | None:
-        return read_model_inputs(generation_id, subjects=subjects, path=self._path)
 
 
 def delete_generations(connection: sqlite3.Connection, identities: Sequence[str]) -> None:

@@ -31,6 +31,7 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
     prepare_selected_workspace,
     resume_selected_workspace,
 )
+from baibai_engine.machine_analysis.generation.query import read_model_inputs
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 
 NOW = datetime(2026, 10, 25, 9, tzinfo=UTC)
@@ -121,7 +122,7 @@ def test_prepare_resume_and_proposal_use_saved_generation_not_mutable_inputs(
 def test_projection_is_detached_and_old_selection_hash_is_unchanged(tmp_path):
     runs = tmp_path / "runs"
     seed_generation(runs, now=NOW, as_of=AS_OF)
-    saved = ModelGenerationStore(runs).read_subjects("fixed-synthetic", subjects=("1234", "market"))
+    saved = read_model_inputs("fixed-synthetic", subjects=("1234", "market"), path=runs)
     before = saved.model_dump_json()
     projection = project_generated_inputs(saved)
     projection["securities"]["1234"]["company_financials"]["earnings_price"]["earnings_yield"] = 999
@@ -286,8 +287,8 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume(tmp_path):
 
     # A canonical stock-only slice is insufficient for starting Research: shared
     # requirements must be derived from the full generation, not that slice.
-    truncated = ModelGenerationStore(runs).read_subjects(
-        generation.generation_id, subjects=("1234", "5678", "sector:food")
+    truncated = read_model_inputs(
+        generation.generation_id, subjects=("1234", "5678", "sector:food"), path=runs
     )
     with pytest.raises(ValueError, match="differs from its canonical generation"):
         verify_generated_inputs(truncated, targets=("1234", "5678"), runs_path=runs)
@@ -369,9 +370,7 @@ def test_v1_generation_metadata_and_fixed_slice_do_not_gain_new_default_fields(t
         canonical_json(GenerationMetadata.model_validate(expected).model_dump(mode="json"))
         == header
     )
-    fixed = ModelGenerationStore(runs).read_subjects(
-        original.generation_id, subjects=("1234", "market")
-    )
+    fixed = read_model_inputs(original.generation_id, subjects=("1234", "market"), path=runs)
     raw = fixed.model_dump(mode="json")
     assert "subject_plan" not in raw
     assert ModelInputSlice.model_validate(raw).model_dump(mode="json") == raw
@@ -548,7 +547,7 @@ def test_saved_generation_market_view_uses_exact_full_payload_reference(tmp_path
 
     runs = tmp_path / "runs"
     seed_generation(runs, now=NOW, as_of=AS_OF)
-    saved = ModelGenerationStore(runs).read_subjects("fixed-synthetic", subjects=("1234", "market"))
+    saved = read_model_inputs("fixed-synthetic", subjects=("1234", "market"), path=runs)
     common = {"known_at_applied": False, "point_in_time_guaranteed": False}
     market = {
         "reading": {

@@ -3,6 +3,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.model_generation import materialize_generation
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
@@ -42,7 +43,7 @@ def generate(tickers=("1001", "1002"), *, stream=False, **updates):
         "market_context_revision": "synthetic-v1",
     }
     generated = generate_models(**(values | updates))
-    return generated if stream else generated.materialize()
+    return generated if stream else materialize_generation(generated)
 
 
 def test_five_models_are_generated_once_per_subject_and_common_market_once():
@@ -93,7 +94,7 @@ def test_trends_are_shared_and_preserve_all_old_model_payloads(tmp_path):
     old = generate()
     stream = generate(stream=True, trends=generation_inputs())
     assert stream.subjects == ("1001", "1002")
-    new = stream.materialize()
+    new = materialize_generation(stream)
     assert len(new.models) == 13
     assert len({model.model_id for model in new.models}) == 7
     assert len([plan for plan in new.subject_plan.values() if plan.scope == "stock"]) == 2

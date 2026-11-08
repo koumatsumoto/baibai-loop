@@ -24,27 +24,6 @@ if TYPE_CHECKING:
     import duckdb
 
 
-def fin_summaries_covered(sqlite_path: Path, start: date, end: date) -> bool:
-    """Answer whether the cache can serve `[start, end]` without building the rows.
-
-    Deliberately the same predicate `read_fin_summaries` gates on, asked without
-    the materialisation: a chunk-skip test and a fetch planner need the boolean,
-    not the summaries. Sharing `range_covered` is what keeps them agreeing with
-    the reader. A successful empty financial window is readable as an empty list,
-    whereas an unexamined or partial window still needs a fetch. Required history
-    and usable financial inputs are checked separately by the analysis consumers.
-    """
-    if not sqlite_path.exists():
-        return False
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return False
-    try:
-        return range_covered(conn, "jquants_fin_summaries", start, end)
-    finally:
-        conn.close()
-
-
 def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
     """Where the store's **continuous** history ending at `asof` begins.
 
@@ -78,23 +57,6 @@ def fin_summaries_readable_from(sqlite_path: Path, asof: date) -> date | None:
         if interval_start <= asof <= interval_end:
             return interval_start if index == 0 else None
     return None
-
-
-def count_fin_summaries(sqlite_path: Path, start: date, end: date) -> int:
-    """Count stored summary rows; an absent store is 0, schema/query failures propagate."""
-    if not sqlite_path.exists():
-        return 0
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return 0
-    try:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM jquants_fin_summaries WHERE disclosed_at BETWEEN ? AND ?",
-            (start.isoformat(), end.isoformat()),
-        ).fetchone()
-    finally:
-        conn.close()
-    return int(row[0] or 0) if row is not None else 0
 
 
 def read_fin_summaries(

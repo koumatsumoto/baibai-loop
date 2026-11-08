@@ -50,20 +50,6 @@ export function formatJstDateTime(value: string): string {
   return isDateOnly(value) ? day : `${day} ${parts.hour}:${parts.minute}`
 }
 
-const dateFormatter = new Intl.DateTimeFormat('ja-JP', {
-  timeZone: JST,
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-  weekday: 'short',
-})
-
-/** JST calendar date with weekday, e.g. `2026年7月19日(日)`. */
-export function formatJstDate(value: string | null): string {
-  if (value === null) return '日時なし'
-  return dateFormatter.format(toInstant(value))
-}
-
 const yenFormatter = new Intl.NumberFormat('ja-JP', {
   style: 'currency',
   currency: 'JPY',

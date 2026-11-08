@@ -26,7 +26,7 @@ def test_binary_hydrate_streams_one_row_group_at_a_time_and_keeps_exact_bytes(tm
     pq.write_table(
         pa.Table.from_pylist(
             [dict(zip(names, row, strict=True)) for row in rows],
-            schema=dataset.arrow_schema,
+            schema=dataset.arrow_schema_for("legacy_sqlite_import"),
         ),
         path,
         row_group_size=1,

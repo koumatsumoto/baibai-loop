@@ -6,47 +6,78 @@ import unittest
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,
     project_financial_documents,
 )
-from baibai_engine.machine_analysis.observations.jquants_decode import (
-    JQuantsProviderError,
-    normalize_adjustment_factor_event,
-    normalize_daily_bar,
-    normalize_market_calendar,
+from baibai_engine.machine_analysis.observations.prices.jquants_normalization import (
+    normalize_daily_bars,
 )
 
 
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        (
+            {"C": 0.5, "Va": 0.0},
+            ("1301", "2026-04-24", None, None, None, 0.5, None, 0.0, None, None, None, None, None),
+        ),
+        (
+            {"C": 5070.0, "Va": 526318500.0},
+            (
+                "1301",
+                "2026-04-24",
+                None,
+                None,
+                None,
+                5070.0,
+                None,
+                526318500.0,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+        (
+            {"C": 200.0, "AdjC": 100.0, "AdjFactor": 0.5, "Va": 526318500.0},
+            (
+                "1301",
+                "2026-04-24",
+                None,
+                None,
+                None,
+                200.0,
+                None,
+                526318500.0,
+                0.5,
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+    ],
+)
+def test_native_daily_prices_preserve_raw_close_and_zero_turnover(record, expected):
+    normalized = normalize_daily_bars([{"Code": "13010", "Date": "2026-04-24T00:00:00", **record}])
+    assert normalized.rows == [expected]
+    assert normalized.rejected_count == normalized.excluded_count == 0
+
+
+def test_native_daily_prices_exclude_non_common_suffix():
+    normalized = normalize_daily_bars(
+        [{"Code": "25935", "Date": "2026-04-24T00:00:00", "C": 100.0}]
+    )
+    assert normalized.rows == []
+    assert normalized.excluded_count == 1
+    assert normalized.rejected_count == 0
+
+
 class JQuantsNativeDecodingTests(unittest.TestCase):
-    def test_normalize_market_calendar_business_day(self) -> None:
-        calendar_day = normalize_market_calendar({"Date": "2026-04-24", "HolDiv": "1"})
-        self.assertTrue(calendar_day.is_business_day)
-
-    def test_normalize_market_calendar_reads_native_timestamp(self) -> None:
-        calendar_day = normalize_market_calendar({"Date": "2026-04-24T00:00:00", "HolDiv": "1"})
-        self.assertTrue(calendar_day.is_business_day)
-
-    def test_normalize_market_calendar_treats_half_day_as_business(self) -> None:
-        # HolDiv="2" は半日営業 (大納会など取引あり) で、business_day 扱いすべき。
-        calendar_day = normalize_market_calendar({"Date": "2026-12-30", "HolDiv": "2"})
-        self.assertTrue(calendar_day.is_business_day)
-
-    def test_normalize_daily_bar_preserves_zero_turnover(self) -> None:
-        # `or` チェーンで 0.0 を欠損誤判定しないことを固定化する。
-        bar = normalize_daily_bar(
-            {
-                "Code": "13010",
-                "Date": "2026-04-24T00:00:00",
-                "C": 0.5,
-                "Va": 0.0,
-            }
-        )
-        self.assertIsNotNone(bar)
-        assert bar is not None
-        self.assertEqual(bar.turnover_value, 0.0)
-
     def test_normalize_financial_summary_preserves_zero_fields(self) -> None:
         # EPS=0 / OP=0 / Sales=0 が None に潰れないこと (損益分岐点ちょうど、赤字転換など)。
         summary = normalize_financial_summary(
@@ -67,99 +98,6 @@ class JQuantsNativeDecodingTests(unittest.TestCase):
         self.assertEqual(summary.cumulative_eps, 0.0)
         self.assertEqual(summary.sales, 0.0)
         self.assertEqual(summary.operating_profit, 0.0)
-
-    def test_normalize_daily_bar_reads_native_fields(self) -> None:
-        bar = normalize_daily_bar(
-            {
-                "Code": "13010",
-                "Date": "2026-04-24T00:00:00",
-                "C": 5070.0,
-                "Va": 526318500.0,
-            }
-        )
-        self.assertIsNotNone(bar)
-        assert bar is not None
-        self.assertEqual(bar.ticker, "1301")
-        self.assertEqual(bar.close, 5070.0)
-        self.assertEqual(bar.turnover_value, 526318500.0)
-
-    def test_normalize_daily_bar_skips_non_common_suffix(self) -> None:
-        bar = normalize_daily_bar(
-            {
-                "Code": "25935",
-                "Date": "2026-04-24T00:00:00",
-                "C": 100.0,
-            }
-        )
-        self.assertIsNone(bar)
-
-    def test_normalize_daily_bar_keeps_raw_close_despite_provider_adjustment(self) -> None:
-        bar = normalize_daily_bar(
-            {
-                "Code": "13010",
-                "Date": "2026-04-24T00:00:00",
-                "C": 200.0,
-                "AdjC": 100.0,
-                "AdjFactor": 0.5,
-                "Va": 526318500.0,
-            }
-        )
-        self.assertIsNotNone(bar)
-        assert bar is not None
-        self.assertEqual(bar.close, 200.0)
-        self.assertEqual(bar.adjustment_factor, 0.5)
-
-    def test_adjusted_only_record_does_not_invent_raw_close_or_lose_split_event(self) -> None:
-        record = {
-            "Code": "67310",
-            "Date": "2023-12-27",
-            "C": None,
-            "AdjC": 500.0,
-            "AdjFactor": 100.0,
-        }
-        self.assertIsNone(normalize_daily_bar(record))
-        event = normalize_adjustment_factor_event(record)
-        self.assertIsNotNone(event)
-        assert event is not None
-        self.assertEqual(event.adjustment_factor, 100.0)
-
-    def test_reported_action_without_factor_is_not_silently_discarded(self) -> None:
-        for kind in ("1", "2", "3", "unknown-future-kind"):
-            with (
-                self.subTest(kind=kind),
-                self.assertRaisesRegex(
-                    JQuantsProviderError, "corporate action has no usable adjustment factor"
-                ),
-            ):
-                normalize_adjustment_factor_event(
-                    {
-                        "Code": "13010",
-                        "Date": "2026-10-01",
-                        "C": None,
-                        "AdjFactor": None,
-                        "ExRT": kind,
-                    }
-                )
-        self.assertIsNone(
-            normalize_adjustment_factor_event(
-                {"Code": "13010", "Date": "2026-10-01", "C": None, "AdjFactor": None}
-            )
-        )
-
-    def test_normalize_adjustment_event_does_not_require_close(self) -> None:
-        event = normalize_adjustment_factor_event(
-            {
-                "Code": "67310",
-                "Date": "2023-12-27T00:00:00",
-                "C": None,
-                "AdjFactor": 100.0,
-            }
-        )
-
-        self.assertIsNotNone(event)
-        assert event is not None
-        self.assertEqual(event.ticker, "6731")
-        self.assertEqual(event.adjustment_factor, 100.0)
 
     def test_normalize_financial_summary_preserves_native_fields(self) -> None:
         summary = normalize_financial_summary(

@@ -41,7 +41,6 @@ class NikkeiIndexesSource:
     """Retain both published PER/PBR columns; L2 selects the weighted average."""
 
     spec = ProviderSpec(name="nikkei_indexes", all_history_start=date(2010, 1, 1))
-    name = spec.name
 
     def fetch_records(
         self,
@@ -69,13 +68,12 @@ class NikkeiIndexesSource:
                 context=context,
                 retry_transient=True,
             )
-            for day, records in parse_nikkei_valuation(series, text, start=start, end=end).items():
+            for day, records in parse_nikkei_valuation(text, start=start, end=end).items():
                 by_date[day].extend(records)
         return dict(by_date)
 
 
 def parse_nikkei_valuation(
-    series: SourceDefinition,
     text: str,
     *,
     start: date,

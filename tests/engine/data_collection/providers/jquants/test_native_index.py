@@ -41,35 +41,6 @@ def test_same_page_identity_cannot_have_different_original_bytes():
         index_market_originals([first, second], source="daily_bars")
 
 
-def test_price_plan_retries_missing_or_newer_partial_and_preserves_empty():
-    from baibai_engine.data_collection.providers.jquants.native_index import plan_daily_prices
-
-    first = receipt("first", "daily_bars", {"date": "20261101"}, [{"Code": "13010"}])
-    empty = receipt("empty", "daily_bars", {"date": "20261102"}, [])
-    partial = RetainedRequest(
-        "partial", None, "incomplete", {"date": "20261102"}, datetime(2026, 11, 5, tzinfo=UTC)
-    )
-    index = index_market_originals([first, empty, partial], source="daily_bars")
-    plan = plan_daily_prices(index, start=date(2026, 11, 1), end=date(2026, 11, 3))
-    assert plan.days == (date(2026, 11, 2), date(2026, 11, 3))
-    assert plan.unknown_incomplete_requests == ()
-
-
-def test_price_plan_refreshes_trailing_empty_days_and_reports_unknown():
-    from baibai_engine.data_collection.providers.jquants.native_index import plan_daily_prices
-
-    first = receipt("first", "daily_bars", {"date": "20261101"}, [{"Code": "13010"}])
-    second = receipt("second", "daily_bars", {"date": "20261102"}, [])
-    unknown = RetainedRequest("unknown", None, "incomplete")
-    plan = plan_daily_prices(
-        index_market_originals([first, second, unknown], source="daily_bars"),
-        start=date(2026, 11, 1),
-        end=date(2026, 11, 2),
-    )
-    assert plan.days == (date(2026, 11, 1), date(2026, 11, 2))
-    assert plan.unknown_incomplete_requests == ("unknown",)
-
-
 def test_calendar_plan_checks_each_day_and_partial_overlap():
     from baibai_engine.data_collection.providers.jquants.native_index import plan_calendar
 
@@ -130,9 +101,12 @@ def test_required_days_distinguishes_nonempty_rule_and_partial():
 
     empty = receipt("empty", "margin_interest", {"date": "20261102"}, [])
     full = receipt("full", "margin_interest", {"date": "20261103"}, [{"Code": "13010"}])
-    index = index_market_originals([empty, full], source="margin_interest")
+    unknown = RetainedRequest("unknown", None, "incomplete")
+    index = index_market_originals([empty, full, unknown], source="margin_interest")
     requested = [date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)]
-    assert plan_required_days(index, days=requested, require_nonempty=True).days == (
+    plan = plan_required_days(index, days=requested, require_nonempty=True)
+    assert plan.unknown_incomplete_requests == ("unknown",)
+    assert plan.days == (
         date(2026, 11, 2),
         date(2026, 11, 4),
     )

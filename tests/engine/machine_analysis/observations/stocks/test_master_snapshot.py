@@ -26,9 +26,6 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
-from baibai_jobs.maintenance.jquants_inputs import (
-    JQuantsReader,
-)
 
 
 def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
@@ -234,7 +231,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
                 self.assertRaises(SQLiteSchemaError),
             ):
-                JQuantsReader(db).get_eq_master(date(2026, 5, 29))
+                read_eq_master_exact(db, date(2026, 5, 29))
 
     def test_exact_prior_and_future_snapshot_selection(self) -> None:
         first = date(2026, 5, 29)

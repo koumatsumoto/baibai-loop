@@ -60,7 +60,7 @@ def test_manual_binding_and_ledger_commit_together_after_confirmation(tmp_path: 
     draft = _draft(service)
     with pytest.raises(ValueError, match="human confirmation"):
         apply_draft(service, draft, human_confirmed=False)
-    assert service.append_head() == 1
+    assert service.load_with_head()[1] == 1
     assert _binding_count(path) == 0
     result = apply_draft(service, draft, human_confirmed=True)
     assert result.append_head == 2
@@ -82,7 +82,7 @@ def test_exception_after_ledger_append_rolls_back_binding_and_events(
     with pytest.raises(RuntimeError, match="after append"):
         apply_draft(service, draft, human_confirmed=True)
     assert service.load() == draft.source
-    assert service.append_head() == 1
+    assert service.load_with_head()[1] == 1
     assert _binding_count(path) == 0
 
 
@@ -107,7 +107,7 @@ def test_stale_head_is_checked_before_binding_insert(tmp_path: Path) -> None:
     with pytest.raises(LedgerConflictError, match="stale"):
         apply_draft(service, stale, human_confirmed=True)
     assert _binding_count(path) == 0
-    assert service.append_head() == 1
+    assert service.load_with_head()[1] == 1
 
 
 def test_saved_draft_retains_uuid_and_old_draft_requires_reprepare(tmp_path: Path) -> None:

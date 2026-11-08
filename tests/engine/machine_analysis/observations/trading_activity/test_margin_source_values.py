@@ -7,7 +7,6 @@ from datetime import date
 import pyarrow.parquet as pq
 import pytest
 
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_all_issues_daily_margin,
     store_jquants_weekly_margin,
@@ -15,9 +14,9 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
 from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     published_margin_balance_dates,
     read_all_issues_daily_margin,
+    read_weekly_margin,
 )
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
-from baibai_jobs.maintenance.jquants_inputs import JQuantsReader
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 
 
@@ -80,7 +79,9 @@ def test_daily_margin_publication_and_values_survive_sqlite_and_lake(tmp_path, m
     assert tuple(rows[0][column] for column in columns) == expected
     assert rows[0]["balance_date"] == day.isoformat()
     assert rows[0]["long_vol"] == 30.0
-    typed = JQuantsReader(database).get_mkt_all_issues_daily_margin(day)[0]
+    typed_rows = read_all_issues_daily_margin(database, day)
+    assert typed_rows is not None
+    typed = typed_rows[0]
     assert typed.publication_date == (None if missing else date(2026, 10, 15))
 
 
@@ -90,8 +91,7 @@ def test_weekly_margin_does_not_invent_requested_balance_date(tmp_path, source_d
     record = {"Date": source_date, "Code": "13010", "LongVol": 30, "ShrtVol": 0}
     database = tmp_path / "market.sqlite"
     assert store_jquants_weekly_margin(database, [record], week_end=requested) == 0
-    with pytest.raises(JQuantsProviderError, match="incomplete"):
-        JQuantsReader(database).get_mkt_margin_interest_week(requested)
+    assert read_weekly_margin(database, requested) is None
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_weekly_margin").fetchone() == (0,)
         assert connection.execute(
@@ -104,7 +104,9 @@ def test_weekly_native_zero_balance_is_not_missing(tmp_path):
     record = {"Date": day.isoformat(), "Code": "13010", "LongVol": 30, "ShrtVol": 0}
     database = tmp_path / "market.sqlite"
     assert store_jquants_weekly_margin(database, [record], week_end=day) == 1
-    result = JQuantsReader(database).get_mkt_margin_interest_week(day)[0]
+    result_rows = read_weekly_margin(database, day)
+    assert result_rows is not None
+    result = result_rows[0]
     assert result.week_end == day
     assert result.short_vol == 0.0
 

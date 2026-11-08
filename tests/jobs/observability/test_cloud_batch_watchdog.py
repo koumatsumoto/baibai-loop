@@ -12,7 +12,6 @@ from baibai_jobs.integration.workflow_inputs import WorkflowInputError, validate
 from baibai_jobs.observability.watchdog import (
     DEFAULT_WINDOW_HOURS,
     RESULT_STEP_PREFIX,
-    RUN_NAME_PREFIX,
     STATE_HEALTHY,
     STATE_IN_FLIGHT,
     STATE_MISSING,
@@ -615,7 +614,7 @@ def test_the_batch_run_name_is_the_one_the_watchdog_parses() -> None:
     )
     run_name = workflow["run-name"]
 
-    assert run_name.startswith(f"{RUN_NAME_PREFIX} ")
+    assert run_name.startswith("daily ")
     assert "inputs.asof" in run_name
 
 
