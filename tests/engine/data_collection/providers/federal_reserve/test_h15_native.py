@@ -344,17 +344,20 @@ class NativeParserTests(TestCase):
             self.assertEqual(context.bytes_cache, {})
             self.assertEqual(browser.urls, [])
 
-    def test_h15_falls_back_to_a_browser_when_the_plain_response_is_a_block_page(self) -> None:
+    def test_h15_falls_back_to_a_browser_when_the_plain_success_needs_rendering(self) -> None:
         series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
-        block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+        render_page = (
+            b"<!DOCTYPE html><html><title>H.15 Data Download</title>"
+            b"<!-- <title>Access Denied</title> --><body>Access Denied is not the title</body></html>"
+        )
 
         with _context_with_browser(browser) as context:
             records = FrbH15Source().fetch_records(
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(block_page))),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(render_page))),
                 context=context,
             )
 
@@ -370,6 +373,44 @@ class NativeParserTests(TestCase):
             },
         )
         self.assertEqual(len(browser.urls), 1)
+
+    def test_h15_explicit_denial_in_a_successful_response_never_selects_another_route(self) -> None:
+        for body in (
+            b"<!DOCTYPE html><html><title>Access Denied</title></html>",
+            b"<HTML><TITLE> \n ACCESS\tDENIED </TITLE></HTML>",
+            b"<title>Access&#32;Denied</title>",
+        ):
+            with (
+                self.subTest(body=body),
+                _context_with_browser(
+                    _FakeBrowserFetcher(AssertionError("explicit denial must not use a browser"))
+                ) as context,
+            ):
+                response = _FakeResponse(body)
+                session = _StaticSession(response)
+                with (
+                    patch.object(session, "get", wraps=session.get) as fetch,
+                    patch.object(context, "discard_cached_bytes") as discard,
+                    patch.object(context, "browser_fetcher") as browser,
+                    self.assertRaisesRegex(
+                        ProviderFetchStoppedError, "successful response explicitly denies access"
+                    ) as caught,
+                ):
+                    FrbH15Source().fetch_records(
+                        require_source("fed-h15"),
+                        start=date(2026, 5, 1),
+                        end=date(2026, 5, 1),
+                        session=cast(HttpSession, session),
+                        context=context,
+                    )
+                discard.assert_not_called()
+                browser.assert_not_called()
+                self.assertEqual(fetch.call_count, 1)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(list(context.bytes_cache.values()), [body])
+                self.assertNotIsInstance(caught.exception, SourceWithheldError)
+                self.assertNotIn("403", str(caught.exception))
+                self.assertIsNone(caught.exception.__cause__)
 
     def test_h15_browser_fallback_downloads_once_for_every_series_in_a_pass(self) -> None:
         # Synthetic package includes all three registered Treasury yield columns.
@@ -480,26 +521,24 @@ class NativeParserTests(TestCase):
                 context=context,
             )
 
-    def test_h15_reports_the_block_page_when_the_browser_is_also_blocked(self) -> None:
+    def test_h15_reports_the_render_page_when_the_browser_is_also_blocked(self) -> None:
         series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(IndicatorsProviderError("browser could not download"))
-        block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+        render_page = b"<!DOCTYPE html><html><title>H.15 Data Download</title></html>"
 
         with (
             _context_with_browser(browser) as context,
-            # A block page arrives as a normal 2xx, so the evidence of how the
-            # edge blocked has to survive the fallback just like an empty body.
             self.assertRaisesRegex(
                 IndicatorsProviderError,
                 r"the plain client first failed with: response without the CSV header: "
-                r"'<!DOCTYPE html><html><title>Access Denied",
+                r"'<!DOCTYPE html><html><title>H.15 Data Download",
             ),
         ):
             FrbH15Source().fetch_records(
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(block_page))),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(render_page))),
                 context=context,
             )
 
@@ -672,7 +711,7 @@ class NativeParserTests(TestCase):
 
     def test_h15_without_a_context_reports_the_response_instead_of_falling_back(self) -> None:
         series = require_source("fed-h15")
-        block_page = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+        render_page = b"<!DOCTYPE html><html><title>H.15 Data Download</title></html>"
 
         with self.assertRaisesRegex(
             IndicatorsProviderError, r"missing Time Period header; response starts with: '<!DOCTYPE"
@@ -681,5 +720,18 @@ class NativeParserTests(TestCase):
                 series,
                 start=date(2026, 5, 1),
                 end=date(2026, 5, 1),
-                session=cast(HttpSession, _StaticSession(_FakeResponse(block_page))),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(render_page))),
+            )
+
+    def test_h15_explicit_denial_without_a_context_still_reports_the_successful_body(self) -> None:
+        body = b"<!DOCTYPE html><html><title>Access Denied</title></html>"
+        with self.assertRaisesRegex(
+            ProviderFetchStoppedError,
+            "successful response explicitly denies access: '<!DOCTYPE html>",
+        ):
+            FrbH15Source().fetch_records(
+                require_source("fed-h15"),
+                start=date(2026, 5, 1),
+                end=date(2026, 5, 1),
+                session=cast(HttpSession, _StaticSession(_FakeResponse(body))),
             )
