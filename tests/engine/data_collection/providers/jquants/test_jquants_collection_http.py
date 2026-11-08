@@ -163,6 +163,12 @@ def test_two_pages_preserve_base_params_and_receipt_query():
     ("body", "message"),
     [
         (b"{", "not JSON"),
+        (b'{"data":[{"value":NaN}]}', "not JSON"),
+        (b'{"data":[{"value":Infinity}]}', "not JSON"),
+        (b'{"data":[{"value":-Infinity}]}', "not JSON"),
+        (b'{"data":[{"value":1e309}]}', "not JSON"),
+        (b'{"data":[{"value":-1e309}]}', "not JSON"),
+        (b'{"data":[],"extra":{"nested":[1e309]}}', "not JSON"),
         (b'{"data":{}}', "lacks a data array"),
         (b'{"data":[7]}', "non-record row"),
     ],
@@ -174,6 +180,24 @@ def test_body_is_yielded_before_invalid_json_or_envelope_raises(body, message):
     with pytest.raises(JQuantsAcquisitionError, match=message):
         next(pages)
     assert len(session.calls) == 1
+
+
+def test_finite_numbers_nulls_and_numeric_strings_keep_their_native_types():
+    body = (
+        b'{"data":[{"large":1.7976931348623157e308,"small":1e-309,"zero":0,'
+        b'"missing":null,"text":["NaN","Infinity","1e309"]}]}'
+    )
+    pages = list(receiver(Session((200, body))).pages("financial_summaries", {}))
+    assert pages[0].body == body
+    assert page_records(pages[0]) == [
+        {
+            "large": 1.7976931348623157e308,
+            "small": 1e-309,
+            "zero": 0,
+            "missing": None,
+            "text": ["NaN", "Infinity", "1e309"],
+        }
+    ]
 
 
 def test_repeated_cursor_is_rejected_after_second_page_receipt():

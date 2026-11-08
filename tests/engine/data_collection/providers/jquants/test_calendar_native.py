@@ -1,6 +1,7 @@
 """Actual range originals, per-day adoption and fixed replay without any L2."""
 
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -155,6 +156,25 @@ def test_missing_day_response_replaces_only_its_own_range(tmp_path):
     )
     assert source.fixed().plan(start=DAY, end=d3) == (d2,)
     assert source.fixed().value()["days"][d3.isoformat()]["adopted"] == "old"
+
+
+def test_nonfinite_extra_envelope_remains_an_original_but_not_a_completed_range(tmp_path):
+    store, source = owner(tmp_path)
+    original = attempt("bad")
+    original = replace(
+        original,
+        pages=(
+            replace(
+                original.pages[0],
+                body=b'{"data":[{"Date":"2026-11-05","HolDiv":"1"}],"extra":[1e309]}',
+            ),
+        ),
+    )
+    assert source.commit([original])["failed"] == ["bad"]
+    fixed = CalendarL1(store, tmp_path / "fresh-reader").fixed()
+    assert next(fixed.requests(store)).value() == original.value()
+    assert fixed.plan(start=DAY, end=DAY) == (DAY,)
+    assert calendar_sessions(fixed.index(), start=DAY, end=DAY)[0][DAY] is None
 
 
 def test_same_clock_identical_content_needs_no_ambiguity_or_extra_body(tmp_path):
