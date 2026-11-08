@@ -274,7 +274,7 @@ def seed_economic_generation(path, *, scoped=True):
     return generation, screening
 
 
-def context(path, *, request=None, comparison_tickers=(), db_path=None, include_pricing_gaps=False):
+def context(path, *, request=None, comparison_tickers=(), db_path=None):
     return load_generated_selection_context(
         request=request or ResearchRequest(text="調査する", scope="discover_new"),
         generation_id=None,
@@ -284,7 +284,6 @@ def context(path, *, request=None, comparison_tickers=(), db_path=None, include_
         runs_path=path,
         db_path=db_path or path.parent / "absent",
         comparison_tickers=comparison_tickers,
-        include_pricing_gaps=include_pricing_gaps,
     )
 
 
@@ -666,80 +665,3 @@ def test_explicit_growth_period_change_still_requires_force(tmp_path, initial, c
     growth = yaml.safe_load(output.read_text())["securities"]["1234"]["models"]["company_growth"]
     assert growth["display_scope"]["latest_period_limit"] == changed
     assert yaml.safe_load(manifest.read_text())["company_growth_periods"] == changed
-
-
-def test_pricing_gap_context_is_opt_in_and_leaves_saved_selection_unchanged(tmp_path, monkeypatch):
-    from baibai_engine.machine_analysis.generation import query
-
-    runs = tmp_path / "runs"
-    _, screening = seed_economic_generation(runs)
-    # 候補の他モデル本文は初回contextにも価格点検にも不要。
-    with closing(sqlite3.connect(runs)) as connection, connection:
-        connection.execute(
-            "UPDATE generated_model SET payload_gzip=? "
-            "WHERE subject IN ('1234','5678','9999') AND model_id!='company_financials'",
-            (b"not-gzip",),
-        )
-    before = runs.read_bytes()
-    baseline = context(runs)
-    assert "pricing_gaps" not in baseline
-    decoded = []
-    decode = query._decode_model
-
-    def record_decode(model_id, subject, *args):
-        decoded.append((model_id, subject))
-        return decode(model_id, subject, *args)
-
-    monkeypatch.setattr(query, "_decode_model", record_decode)
-    result = context(runs, include_pricing_gaps=True)
-    gaps = result.pop("pricing_gaps")
-    assert result == baseline
-    assert gaps["universe_count"] == 3
-    # 旧保存カードの候補であっても現行条件では不足し得る。過去理由へ書き戻さない。
-    assert [row["ticker"] for row in gaps["companies"]] == ["1234", "5678", "9999"]
-    assert result["candidate_tickers"] == ["1234", "5678"]
-    assert [item for item in decoded if item[1] in screening.universe_tickers] == [
-        ("company_financials", ticker) for ticker in screening.universe_tickers
-    ]
-    assert ScreeningSelectionStore(runs).read("economic-policy") == screening
-    assert runs.read_bytes() == before
-
-
-@pytest.mark.parametrize("saved_selection", [False, True])
-def test_pricing_gap_cli_requires_a_saved_universe(tmp_path, capsys, saved_selection):
-    from baibai_engine.cli.investment_judgment import main
-
-    runs = tmp_path / "runs"
-    generation, _ = seed_economic_generation(runs)
-    before = runs.read_bytes()
-    arguments = [
-        "selection-context",
-        "--request",
-        "株数不足で見落としていないか調べる",
-        "--scope",
-        "specified_stocks",
-        "--ticker",
-        "1234",
-        "--include-pricing-gaps",
-        "--runs-path",
-        str(runs),
-        "--db",
-        str(tmp_path / "absent"),
-    ]
-    arguments += (
-        ["--screening-selection-id", "economic-policy"]
-        if saved_selection
-        else ["--generation-id", generation.generation_id]
-    )
-    assert main(arguments, now=NOW) == (0 if saved_selection else 3)
-    output = capsys.readouterr()
-    if saved_selection:
-        result = json.loads(output.out)
-        assert result["pricing_gaps"]["universe_count"] == 3
-        assert result["requested_tickers"] == ["1234"]
-        assert result["candidate_tickers"] == ["1234", "5678"]
-    else:
-        assert (
-            json.loads(output.out)["reason"] == "pricing gaps require a saved screening selection"
-        )
-    assert runs.read_bytes() == before

@@ -15,7 +15,6 @@ Command = Callable[[list[str] | None], int]
 _COMMANDS = {
     "snapshots": "baibai_jobs.publication.snapshot_cli",
     "model-integration": "baibai_jobs.integration.models",
-    "screening-selection": "baibai_jobs.integration.screening_selection",
     "external-assessment": "baibai_jobs.acquisition.external_assessments.cli",
     "tradingview-source": "baibai_jobs.acquisition.tradingview.cli",
     "edinet-list-native": "baibai_jobs.maintenance.edinet_list_native",

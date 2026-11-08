@@ -21,7 +21,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    select_saved_economic_generation,
+    evaluate_economic_coordinates,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
@@ -123,9 +123,9 @@ def test_missing_ttm_uses_same_complete_fy_and_preserves_short_history_compariso
     fixed = generation(documents())
     path = tmp_path / "runs.sqlite"
     publish_generation(fixed, path=path)
-    selected = select_saved_economic_generation(
-        fixed.generation_id, tickers=("1001",), policy=EconomicPathPolicy(), path=path
-    )
+    selected = evaluate_economic_coordinates(
+        fixed, tickers=("1001",), coordinates={"1001": project(fixed)}, policy=EconomicPathPolicy()
+    ).selection
     card = selected.result.cards[0]
     paths = {item.path_id: item for item in card.paths}
     assert set(paths) == {"earning_power", "business_expansion", "operating_recovery"}

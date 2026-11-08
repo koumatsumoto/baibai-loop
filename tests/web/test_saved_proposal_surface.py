@@ -6,13 +6,11 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
 
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
-from baibai_web.api.server import create_app
 from baibai_web.contracts_export import ROOT_VIEWS
 from baibai_web.materialize import export_read_models
 
@@ -39,13 +37,6 @@ def test_proposal_empty_or_unavailable_does_not_stop_other_views(tmp_path, state
     expected = "empty" if state == "empty" else "unavailable"
     assert view["status"] == expected
     assert view["proposal"] is None
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        for path in ("/api/dashboard", "/api/outcomes", "/api/proposal/latest"):
-            response = client.get(path)
-            assert response.status_code == 200
-            if path == "/api/proposal/latest":
-                assert response.json()["status"] == expected
-        assert client.post("/api/proposal/latest").status_code == 405
     assert (app.read_bytes() if app.exists() else None) == before
     assert not (tmp_path / MARKET_DB_PATH).exists()
 
@@ -65,10 +56,6 @@ def test_export_replaces_old_ready_with_unavailable_when_latest_is_corrupt(tmp_p
     assert ready["status"] == "ready"
     assert ready["proposal"]["proposal_id"] == saved.proposal_id
     assert ready["proposal"]["items"][0]["assessment"]["assessment_id"] == case.pair.assessment_id
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        response = client.get("/api/proposal/latest")
-        assert response.status_code == 200
-        assert response.json()["proposal"] == ready["proposal"]
     with closing(sqlite3.connect(app)) as connection, connection:
         connection.execute("DROP TRIGGER investment_proposal_immutable")
         connection.execute(

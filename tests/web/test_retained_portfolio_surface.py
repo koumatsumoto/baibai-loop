@@ -8,7 +8,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.outcome_publication import _publication
@@ -27,7 +26,6 @@ from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
-from baibai_web.api.server import create_app
 from baibai_web.materialize import export_read_models
 from baibai_web.readmodel.builders.dashboard import build_dashboard
 from baibai_web.sources import db_sources
@@ -118,10 +116,9 @@ def test_retired_task_data_remains_untouched_and_cannot_block_portfolio_views(tm
     }
     assert old_view.read_text() == '{"retired_private_view":true}\n'
     assert all("SYNTHETIC_RETIRED_TASK" not in path.read_text() for path in paths)
-    assert json.loads((output / "views/portfolio-dashboard.json").read_text())["holdings"]
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        assert client.get("/api/tasks").status_code == 404
-        assert client.get("/api/dashboard").json()["ledger_error"] is None
+    dashboard = json.loads((output / "views/portfolio-dashboard.json").read_text())
+    assert dashboard["holdings"]
+    assert dashboard["ledger_error"] is None
     assert app.read_bytes() == before
 
 
@@ -190,27 +187,22 @@ def test_dashboard_read_errors_do_not_publish_internal_diagnostics(
     paths = export_read_models(tmp_path, tmp_path / "export")
     exported = next(path for path in paths if path.name == "portfolio-dashboard.json")
     dashboard = json.loads(exported.read_text())
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        response = client.get("/api/dashboard")
-    assert response.status_code == 200
-    public = response.json()
-    for model in (dashboard, public):
-        assert model["ledger_exists"] is True
-        assert model["ledger_error"] == (
-            "保存済み台帳を読み取れません。" if boundary == "ledger" else None
-        )
-        assert model["valuation_error"] == (
-            "市場評価を読み取れません。" if boundary == "valuation" else None
-        )
-        assert model["total_capital_yen"] is None
-        if boundary == "valuation":
-            assert model["available_cash_yen"] is not None
-            assert model["holdings"][0]["quantity"] == 200
-            assert model["reservations"]
-        else:
-            assert model["available_cash_yen"] is None
-            assert model["holdings"] == model["reservations"] == []
-        assert "SYNTHETIC_" not in json.dumps(model)
+    assert dashboard["ledger_exists"] is True
+    assert dashboard["ledger_error"] == (
+        "保存済み台帳を読み取れません。" if boundary == "ledger" else None
+    )
+    assert dashboard["valuation_error"] == (
+        "市場評価を読み取れません。" if boundary == "valuation" else None
+    )
+    assert dashboard["total_capital_yen"] is None
+    if boundary == "valuation":
+        assert dashboard["available_cash_yen"] is not None
+        assert dashboard["holdings"][0]["quantity"] == 200
+        assert dashboard["reservations"]
+    else:
+        assert dashboard["available_cash_yen"] is None
+        assert dashboard["holdings"] == dashboard["reservations"] == []
+    assert "SYNTHETIC_" not in json.dumps(dashboard)
     assert app.read_bytes() == before
     assert not market.exists()
 
@@ -229,42 +221,15 @@ def test_invalid_saved_ledger_payload_does_not_escape_through_dashboard(tmp_path
 
     paths = export_read_models(tmp_path, tmp_path / "export")
     exported = next(path for path in paths if path.name == "portfolio-dashboard.json")
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        response = client.get("/api/dashboard")
-    assert response.status_code == 200
-    for model in (json.loads(exported.read_text()), response.json()):
-        assert model["ledger_exists"] is True
-        assert model["ledger_error"] == "保存済み台帳を読み取れません。"
-        assert model["available_cash_yen"] is None
-        assert model["holdings"] == model["reservations"] == []
-        assert "SYNTHETIC_" not in json.dumps(model)
-        assert "input_value" not in json.dumps(model)
+    dashboard = json.loads(exported.read_text())
+    assert dashboard["ledger_exists"] is True
+    assert dashboard["ledger_error"] == "保存済み台帳を読み取れません。"
+    assert dashboard["available_cash_yen"] is None
+    assert dashboard["holdings"] == dashboard["reservations"] == []
+    assert "SYNTHETIC_" not in json.dumps(dashboard)
+    assert "input_value" not in json.dumps(dashboard)
     assert app.read_bytes() == before
     assert not market.exists()
-
-
-@pytest.mark.parametrize("path", ["/api/dashboard", "/api/outcomes", "/api/proposal/latest"])
-def test_local_read_surface_does_not_initialize_sources(tmp_path, path):
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        assert client.get(path).status_code == 200
-    assert not (tmp_path / "stores").exists()
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/tasks",
-        "/api/screening/latest",
-        "/api/market-context",
-        "/api/operations",
-        "/api/daily-delta",
-        "/api/lake/current",
-        "/api/investment-proposals",
-    ],
-)
-def test_retired_local_api_routes_are_not_spa_fallback(tmp_path, path):
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        assert client.get(path).status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -389,12 +354,4 @@ def test_optional_market_read_failure_does_not_block_independent_view_export(
         assert "stored master record has invalid security fields" in caplog.text
     outcomes = json.loads((output / "views/outcomes.json").read_text())
     assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
-    with TestClient(create_app(tmp_path), base_url="http://localhost") as client:
-        for route, expected in (
-            ("dashboard", dashboard),
-            ("outcomes", outcomes),
-        ):
-            response = client.get(f"/api/{route}")
-            assert response.status_code == 200
-            assert response.json() == expected
     assert (app.read_bytes(), market.read_bytes()) == before

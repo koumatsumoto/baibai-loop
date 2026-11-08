@@ -28,11 +28,11 @@
 
 不足は[観測の規則](model-observations.md#source-owners)に従い局所化し、[期間/株式basis](model-observations.md#financial-periods)を揃える。要求範囲の取得coverageを全銘柄充足、不足による候補減を機会減としない。
 
-候補外を含む価格/株数不足は、同じ保存Selectionを指定して `investment-judgment selection-context --include-pricing-gaps` で読む。その母集団/Generationの現行条件診断で、過去理由の再現・順位変更・株数補完・再選定ではない。詳細は前述の`--compare-ticker`へ。
+候補カードの保存価格basis・不足と通常生成時の価格入力集計を使い、個別の詳細は前述の`--compare-ticker`へ進む。
 
 ## 保存と読取
 
-ModelGenerationとScreeningSelectionは別identity。同じモデルの政策変更は再生成ではない。候補0件も正常に公開し、過去の非空候補へ戻さない。保存/時点選択は[store](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)と[query](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)、L3再開/cache寿命は[保存責務](../architecture.md#store-authority)、取得/retry/発行/整理は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)へ。
+ModelGenerationとScreeningSelectionは別identity。候補政策は通常モデル生成時に適用する。保存Generationへの現政策の再適用と、保存母集団全社の価格/株数不足一覧診断は提供しない。日次再実行は固定Generationへの再適用の代替ではない。候補0件も正常に公開し、過去の非空候補へ戻さない。保存/時点選択は[store](../../engine/src/baibai_engine/machine_analysis/screening/selection_store.py)と[query](../../engine/src/baibai_engine/machine_analysis/screening/selection_query.py)、L3再開/cache寿命は[保存責務](../architecture.md#store-authority)、取得/retry/発行/整理は[日次運用](../../jobs/OPERATIONS.md#日次実行と結果確認)へ。
 
 <a id="decision-cohort-diagnostic"></a>
 ## 現行判断の比較前診断

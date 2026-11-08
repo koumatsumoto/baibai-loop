@@ -45,7 +45,7 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
 
   const response = await fetch(path, { ...init, headers })
   // A 401 clears only the credential used by this request and hands control to
-  // the password gate. Local FastAPI never returns 401, so this path stays dormant.
+  // the password gate.
   if (response.status === 401 && path.startsWith(API_PREFIX)) {
     const currentSharedToken = getSharedToken()
     const currentPassword = currentSharedToken ?? getViewPassword()

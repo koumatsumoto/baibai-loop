@@ -7,6 +7,7 @@ from bisect import bisect_left, bisect_right
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+from math import isfinite
 
 from baibai_engine.machine_analysis.models.market_context.benchmark import (
     BREADTH_MA_WINDOW_BARS,
@@ -97,6 +98,8 @@ def _breadth(
         if len(prices) < BREADTH_MA_WINDOW_BARS:
             continue
         window = prices[-BREADTH_MA_WINDOW_BARS:]
+        if any(not isfinite(price) or price <= 0 for price in window):
+            continue
         sample += 1
         if prices[-1] > sum(window) / len(window):
             above += 1
@@ -149,9 +152,10 @@ def _sector_table(
                 returns_60d.append(longer)
             if len(prices) >= BREADTH_MA_WINDOW_BARS:
                 window = prices[-BREADTH_MA_WINDOW_BARS:]
-                breadth_sample += 1
-                if prices[-1] > sum(window) / len(window):
-                    above += 1
+                if all(isfinite(price) and price > 0 for price in window):
+                    breadth_sample += 1
+                    if prices[-1] > sum(window) / len(window):
+                        above += 1
         if not returns_20d:
             continue
         table.append(

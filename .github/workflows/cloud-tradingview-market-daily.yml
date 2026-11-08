@@ -45,7 +45,8 @@ jobs:
           TRADINGVIEW_SECRET_WRITER_TOKEN: ${{ secrets.TRADINGVIEW_SECRET_WRITER_TOKEN }}
         run: |
           set +e
-          uv run python -m baibai_jobs.acquisition.tradingview.market_daily "$RUNNER_TEMP/captures" 2> "$RUNNER_TEMP/tradingview-stderr.log"
+          # Leave time for partial preparation, staging and cooldown persistence.
+          timeout --signal=TERM --kill-after=30s 5m uv run python -m baibai_jobs.acquisition.tradingview.market_daily "$RUNNER_TEMP/captures" 2> "$RUNNER_TEMP/tradingview-stderr.log"
           status=$?
           cat "$RUNNER_TEMP/tradingview-stderr.log" >&2
           exit "$status"

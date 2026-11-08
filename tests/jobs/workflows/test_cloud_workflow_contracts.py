@@ -133,6 +133,22 @@ def test_retained_web_reads_only_portfolio_sources_after_core_persistence():
     assert "baibai_web" not in by_id["source-seal"]["run"]
 
 
+def test_shared_transfer_callers_pass_the_acquired_publication_handle():
+    daily = _steps(_workflow("cloud-daily-batch.yml"), "daily")
+    materialize = _steps(_workflow("cloud-materialize.yml"), "materialize")
+    callers = [
+        step
+        for step in [*daily, *materialize]
+        if "r2_transfer.sh push-machine" in step.get("run", "")
+        or "r2_transfer.sh upload-portfolio-views" in step.get("run", "")
+    ]
+    assert len(callers) == 3
+    for step in callers:
+        assert step["env"]["PUBLICATION_LEASE_HANDLE"] == (
+            "${{ runner.temp }}/publication-lease-handle.json"
+        )
+
+
 def test_materialize_keeps_verified_application_independent_of_market_failure():
     steps = _steps(_workflow("cloud-materialize.yml"), "materialize")
     by_id = {step.get("id"): step for step in steps}

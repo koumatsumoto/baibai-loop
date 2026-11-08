@@ -159,6 +159,10 @@ with Path(os.environ['TRANSFER_TEST_LOG']).open('a') as log:
  log.write(json.dumps(args)+'\\n')
 if args[:3]==['python','-m','baibai_jobs.observability.repository_layout']:
  sys.exit(0) # isolated shell root intentionally contains no application store
+if args[:4]==['python','-m','baibai_jobs.publication.lease','verify']:
+ # This transfer fixture stubs R2; real lease/CLI validation has separate coverage.
+ handle=Path(args[args.index('--handle')+1])
+ sys.exit(0 if handle.read_text()=='synthetic-held' else 1)
 if args[:3]==['baibai-jobs','snapshots','dehydrate'] or args[:3]==['baibai-jobs','snapshots','hydrate']:
  from baibai_engine.storage.snapshots import models
  from baibai_jobs.publication import policy as snapshot_policy

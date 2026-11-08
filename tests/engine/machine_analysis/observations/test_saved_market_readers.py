@@ -7,7 +7,6 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-import pytest
 from tests.helpers.master import insert_master_rows
 from tests.helpers.screening_sqlite import add_source_coverage, insert_financial_record
 
@@ -543,28 +542,6 @@ def test_edinet_readers_preserve_named_values_and_provenance(tmp_path):
     assert record.failure_reasons == ("tag_not_found:example",)
     assert baseline.rows["7203"].extractor_revision == "extractor-test"
     assert baseline.rows["7203"].source_document_revision == "document-test"
-
-
-def test_unrechecked_edinet_query_failure_is_not_an_empty_worklist(tmp_path, monkeypatch):
-    from baibai_engine.machine_analysis.observations.disclosures import (
-        edinet_document_store as store,
-    )
-
-    db = tmp_path / "market.sqlite"
-    db.touch()
-    closed = []
-
-    class BrokenConnection:
-        def execute(self, *args):
-            raise sqlite3.OperationalError("read failed")
-
-        def close(self):
-            closed.append(True)
-
-    monkeypatch.setattr(store, "connect_current", lambda path: BrokenConnection())
-    with pytest.raises(sqlite3.OperationalError, match="read failed"):
-        store.read_unrechecked_edinet_document_dates(db, before=date(2026, 5, 8))
-    assert closed == [True]
 
 
 if __name__ == "__main__":  # pragma: no cover

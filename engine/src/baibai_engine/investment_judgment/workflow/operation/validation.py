@@ -6,6 +6,10 @@ import sqlite3
 from datetime import datetime
 
 from baibai_engine.investment_judgment.company_research.query import company_context
+from baibai_engine.investment_judgment.market_assessment.projection import assessment_projection
+from baibai_engine.investment_judgment.market_assessment.query import (
+    latest_assessment_from_connection,
+)
 from baibai_engine.investment_judgment.stock_assessment.store import require_assessment_ref
 from baibai_engine.investment_judgment.workflow.operation.progress import (
     ResearchProgress,
@@ -21,6 +25,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
 )
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
+from baibai_engine.primitives.json import canonical_json
 
 
 def validate_selection(
@@ -28,6 +33,18 @@ def validate_selection(
 ) -> None:
     validate_target_purposes(connection, selection_targets(selection), now=now)
     if isinstance(selection, GeneratedResearchSelectionV4):
+        market = latest_assessment_from_connection(
+            connection, as_of=selection.research_as_of, known_at=selection.input_known_at
+        )
+        market_projection = (
+            None
+            if market is None
+            else assessment_projection(market, as_of=selection.research_as_of)
+        )
+        if canonical_json(selection.inputs.saved_market_context_assessment) != canonical_json(
+            market_projection
+        ):
+            raise ValueError("saved Market Assessment differs from the selected cutoff")
         expected = {
             target.ticker: company_context(
                 connection,
@@ -37,7 +54,14 @@ def validate_selection(
             )
             for target in selection.targets
         }
-        if selection.inputs.saved_company_context != expected:
+        if canonical_json(
+            {
+                ticker: context.model_dump(mode="json")
+                for ticker, context in selection.inputs.saved_company_context.items()
+            }
+        ) != canonical_json(
+            {ticker: context.model_dump(mode="json") for ticker, context in expected.items()}
+        ):
             raise ValueError("saved company context differs from the selected cutoff")
 
 

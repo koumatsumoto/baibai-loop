@@ -24,6 +24,7 @@ from baibai_engine.investment_judgment.workflow.operation.service import Operati
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionDraft,
     ResearchRequest,
+    validate_input_known_at,
 )
 from baibai_engine.investment_judgment.workflow.selection_query import (
     load_generated_selection_context,
@@ -93,11 +94,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="read comparison models from the same generation without selecting them",
-    )
-    context_parser.add_argument(
-        "--include-pricing-gaps",
-        action="store_true",
-        help="inspect pricing gaps in the saved screening universe without reselecting",
     )
     context_parser.add_argument("--research-asof", type=date.fromisoformat)
     context_parser.add_argument("--known-at", type=datetime.fromisoformat)
@@ -255,16 +251,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                     )
                 except ValidationError as error:
                     parser.error(str(error))
+                known_at = args.known_at or resolved_now
+                validate_input_known_at(known_at, now=resolved_now)
                 payload = load_generated_selection_context(
                     request=request,
                     research_as_of=args.research_asof,
                     generation_id=args.generation_id,
                     screening_selection_id=args.screening_selection_id,
-                    known_at=args.known_at or resolved_now,
+                    known_at=known_at,
                     runs_path=args.runs_path,
                     db_path=args.db,
                     comparison_tickers=tuple(args.compare_ticker),
-                    include_pricing_gaps=args.include_pricing_gaps,
                 )
                 content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
                 if args.out is not None:

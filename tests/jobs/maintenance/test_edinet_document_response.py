@@ -6,11 +6,9 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_receipts import seed_list_response
 
-from baibai_engine.data_collection.providers.edinet.receipts import (
-    read_list_responses,
-    retain_list_response,
-)
+from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
 )
@@ -43,7 +41,7 @@ def test_rebuild_keeps_native_fields_without_invented_request_date(tmp_path):
     }
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as connection:
-        retain_list_response(
+        seed_list_response(
             connection,
             doc_date=date(2026, 10, 15),
             received_at=datetime(2026, 10, 15, 3, tzinfo=UTC),
@@ -74,7 +72,7 @@ def test_rebuild_keeps_new_nulls_and_empty_response_not_previous_raw_values(tmp_
     ]
     for index, payload in enumerate(payloads):
         with closing(open_connection(path)) as connection:
-            retain_list_response(
+            seed_list_response(
                 connection,
                 doc_date=date(2026, 10, 15),
                 received_at=datetime(2026, 10, 15, 3, tzinfo=UTC) + timedelta(seconds=index),
@@ -96,7 +94,7 @@ def test_invalid_receipt_retains_raw_and_blocks_stale_success(tmp_path):
     invalid = {"metadata": {"resultset": {"count": 1}}, "results": []}
     for index, payload in enumerate((valid, invalid)):
         with closing(open_connection(path)) as connection:
-            retain_list_response(
+            seed_list_response(
                 connection,
                 doc_date=date(2026, 10, 15),
                 received_at=datetime(2026, 10, 15, 3, tzinfo=UTC) + timedelta(seconds=index),

@@ -1,12 +1,6 @@
-"""Shared scalar and mapping conversions at record-reading boundaries."""
+"""Shared scalar conversions at record-reading boundaries."""
 
 from __future__ import annotations
-
-from collections.abc import Mapping
-
-
-def metric_map(value: object) -> dict[str, object]:
-    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def string_or_none(value: object) -> str | None:

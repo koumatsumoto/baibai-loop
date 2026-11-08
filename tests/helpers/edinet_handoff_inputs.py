@@ -4,8 +4,8 @@ import json
 from contextlib import closing
 from datetime import UTC, date, datetime
 
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from tests.helpers.edinet_receipts import seed_list_response
 
 DAY = date(2026, 10, 15)
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
@@ -17,7 +17,7 @@ def receive(path, doc_id, stamp, *, day=DAY):
         "results": [{"seqNumber": 1, "docID": doc_id, "secCode": "72030"}],
     }
     with closing(open_connection(path)) as conn:
-        return retain_list_response(
+        return seed_list_response(
             conn, doc_date=day, received_at=stamp, body=json.dumps(payload).encode()
         )
 

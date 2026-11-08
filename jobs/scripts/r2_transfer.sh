@@ -162,6 +162,15 @@ publish_lake() {
   )
 }
 
+verify_publication_lease() {
+  (
+    cd "${repo_root}" || exit 1
+    R2_STORES_BUCKET="${stores_bucket}" UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
+      uv run python -m baibai_jobs.publication.lease verify \
+        --handle "${PUBLICATION_LEASE_HANDLE:?publication lease handle is required}" >/dev/null
+  )
+}
+
 dehydrate_market_snapshot() {
   # Runs on the upload copy, never on the working store. Origin and row counts must
   # match the release; values are not compared. Publish local changes first and do not
@@ -265,6 +274,7 @@ write_machine_manifest() {
     done
     printf '\n  }\n}\n'
   } > "${file}"
+  verify_publication_lease
   aws s3api put-object \
     --bucket "${stores_bucket}" \
     --key "${machine_manifest_key}" \
@@ -525,11 +535,13 @@ _push_keys() {
   for key in "$@"; do
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
+      if [[ "${key}" != "baibai.sqlite" ]]; then verify_publication_lease; fi
       backup_remote_key "${key}" "${expected_version}"
     fi
     local backup_elapsed=$((SECONDS - started))
     started="${SECONDS}"
     if [[ -n "${expected_version}" ]]; then
+      if [[ "${key}" != "baibai.sqlite" ]]; then verify_publication_lease; fi
       # PutObject's If-Match is checked atomically when R2 commits the object. The
       # earlier read avoids an expensive snapshot after an already-visible race;
       # this condition closes the remaining race through backup and upload.
@@ -648,6 +660,7 @@ upload_portfolio_views() {
   done
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   for name in portfolio-dashboard outcomes latest-proposal; do
+    verify_publication_lease
     if ! aws_s3 cp "${directory}/views/${name}.json" \
       "s3://${R2_SERVING_BUCKET:-baibai-serving}/views/${name}.json" \
       --content-type application/json --cache-control no-store \
@@ -671,6 +684,7 @@ upload_portfolio_views() {
   done
   cleanup_staging
   transfer_staging=""
+  verify_publication_lease
   printf 'portfolio views verified from remote readback: 3\n'
 }
 
@@ -712,14 +726,17 @@ case "${1:-}" in
     seed_keys market.sqlite runs.sqlite indicators.sqlite baibai.sqlite
     ;;
   push-machine)
+    verify_publication_lease
     push_pulled_keys "${machine_bundle_keys[@]}"
     ;;
   push-runs)
     # Explicit model-store maintenance; never re-upload unrelated machine stores.
     [[ $# -eq 1 ]] || { usage; exit 2; }
+    verify_publication_lease
     push_pulled_keys runs.sqlite
     ;;
   push-market)
+    verify_publication_lease
     # Deep history is fetched where there is time for it — hours of provider calls for a
     # decade of bars — while the daily batch keeps adding recent days the deep copy has
     # never seen. So the local store is only publishable once it contains the cloud copy:
@@ -747,6 +764,7 @@ case "${1:-}" in
       shift 2
     done
     set -- "${recheck_args[@]}"
+    verify_publication_lease
     # Compare local receipts with fresh canonical before combining original rows.
     # A local same-value recheck may be a real A→B→A change against the cloud.
     # A late or unconfirmed receipt remains local for explicit source recovery.
@@ -778,6 +796,7 @@ case "${1:-}" in
       printf 'refusing serving upload outside GitHub Actions\n' >&2
       exit 2
     }
+    verify_publication_lease
     upload_portfolio_views "$2"
     ;;
   *)

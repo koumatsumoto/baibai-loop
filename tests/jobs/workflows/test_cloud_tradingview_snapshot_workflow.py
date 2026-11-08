@@ -378,6 +378,7 @@ def test_acquisition_shell_parses_only_known_success_status(tmp_path, status, ro
     )
     assert result.returncode == 0
     assert f"status={status}" in output.read_text().splitlines()
+    assert "publish_failed_receipts=true" not in output.read_text()
     if status in {"saved", "partial"}:
         assert f"rows_added={rows_added}" in output.read_text()
         assert "native_added=2" in output.read_text()
@@ -448,18 +449,35 @@ def test_acquisition_failure_keeps_red_exit_and_safe_category(tmp_path, exit_cod
     )
     assert result.returncode == exit_code
     assert f"failure_category={category}" in output.read_text()
+    assert "publish_failed_receipts=false" in output.read_text()
     assert "TradingView progress: unavailable" in result.stdout
     assert "private-token" not in result.stdout + result.stderr
 
 
-def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_path):
+@pytest.mark.parametrize(
+    ("exit_code", "category", "after"),
+    [
+        (1, "provider_response", "1 0"),
+        (1, "provider_response", "2 50"),
+        (1, "provider_rate_limit", "2 50"),
+        (1, "provider_transport", "2 50"),
+        (1, "auth", "2 50"),
+        (1, "secret_persistence", "2 50"),
+        (1, "time_guard", "2 50"),
+        (124, "timeout", "2 50"),
+        (137, "timeout", "2 50"),
+    ],
+)
+def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(
+    tmp_path, exit_code, category, after
+):
     steps = {step["id"]: step for step in all_steps(workflow()) if "id" in step}
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then '
-        'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "1 0"; '
+        f'if [ -f "$RUNNER_TEMP/count-seen" ]; then echo "{after}"; '
         'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
-        "echo 'TradingView acquisition failed; category=provider_response' >&2\nexit 1\n"
+        f"echo 'TradingView acquisition failed; category={category}' >&2\nexit {exit_code}\n"
     )
     uv.chmod(0o755)
     output = tmp_path / "output"
@@ -475,8 +493,9 @@ def test_receipt_delta_on_failed_acquisition_qualifies_only_l1_publication(tmp_p
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 1
-    assert "failure_category=provider_response" in output.read_text()
+    assert result.returncode == exit_code
+    assert f"failure_category={category}" in output.read_text()
+    assert "status=failure" in output.read_text()
     assert "publish_failed_receipts=true" in output.read_text()
     gate = steps["stage"]["if"]
     assert "always()" in gate
@@ -574,18 +593,20 @@ def test_raw_receipt_delta_with_empty_or_unknown_stderr_stays_internal(tmp_path,
 
 
 @pytest.mark.parametrize(
-    ("category", "after", "count_fails"),
+    ("category", "before", "after", "count_fails"),
     [
-        ("internal", "1 0", False),
-        ("storage", "1 0", False),
-        ("unknown", "1 0", False),
-        ("provider_response", "0 0", False),
-        ("provider_response", "1 1", False),
-        ("provider_response", "1 0", True),
+        ("internal", "0 0", "2 50", False),
+        ("storage", "0 0", "2 50", False),
+        ("unknown", "0 0", "2 50", False),
+        ("provider_response", "0 0", "0 0", False),
+        ("provider_response", "0 0", "0 50", False),
+        ("provider_response", "2 50", "1 50", False),
+        ("provider_response", "2 50", "3 49", False),
+        ("provider_response", "0 0", "1 0", True),
     ],
 )
-def test_failed_acquisition_without_publishable_raw_only_delta(
-    tmp_path, category, after, count_fails
+def test_failed_acquisition_without_publishable_receipt_delta(
+    tmp_path, category, before, after, count_fails
 ):
     step = next(s for s in workflow()["jobs"]["snapshot"]["steps"] if s.get("id") == "tradingview")
     uv = tmp_path / "uv"
@@ -593,7 +614,7 @@ def test_failed_acquisition_without_publishable_raw_only_delta(
     uv.write_text(
         '#!/bin/sh\nif [ "$3" = "-m" ]; then '
         f'if [ -f "$RUNNER_TEMP/count-seen" ]; then {second}; '
-        'else touch "$RUNNER_TEMP/count-seen"; echo "0 0"; fi; exit 0; fi\n'
+        f'else touch "$RUNNER_TEMP/count-seen"; echo "{before}"; fi; exit 0; fi\n'
         f"echo 'TradingView acquisition failed; category={category}' >&2\nexit 1\n"
     )
     uv.chmod(0o755)

@@ -4,14 +4,14 @@
 
 ## 情報と判断の流れ
 
-外部source → L1原本/受領 → L2観測/解析モデル → 固定Generation → Screening/Selection → L3企業調査/評価/独立検証 → Trade Proposal → 人間の事実報告 → Portfolio。
+外部source → L1原本/受領 → L2観測/解析モデル → ModelGeneration → ScreeningSelection → Research Selection/Operation → L3企業調査/評価/独立検証 → Trade Proposal → 人間の事実報告 → Portfolio。
 
 一次資料・共通観測・PortfolioもL3へ直接渡し、候補外も同じGenerationを使える。必須DAGやagent群ではない。
 
 - **L1 / Data Collection**は受領原本または明示したprovider-native表現。**Observations**はその投影・正規化で、原本を代替しない。
-- **L2 / Machine Analysis**は入力と規則から再現できる観測・計算・候補抽出。解析モデルは分析観点で、機械学習に限らない。**Generation**は固定入力・対象・予定モデルと結果のまとまりで、観測日は同一とは限らない。**候補政策**は保存モデルから調査候補と理由を選び、モデル生成・追加や買付採否とは別。
+- **L2 / Machine Analysis**は入力と規則から再現できる観測・計算・候補抽出。解析モデルは分析観点で、機械学習に限らない。**ModelGeneration**（以下Generation）は固定入力・対象・予定モデルと結果のまとまりで、観測日は同一とは限らない。**ScreeningSelection**は保存モデルへ候補政策を適用した候補と理由で、モデル生成・追加や買付採否とは別。
 - **L3 / Investment Judgment**は部分的企業理解（Research）、価値・価格・成立条件（Assessment）、別作業者の根拠・仮定・算術・反証確認（Review）、現価格/cash/保有への適用（Proposal）を担う。算術は仮定を事実にせず、Reviewは安全保証や注文承認ではない。
-- **Selection**は明示依頼の有限対象・問い・入力、**Operation**は進行・成果・再開を管理する。completedと再開はskillへ。**Market Assessment**は独立したL3入口で、L2のMarket Contextとは別。
+- **Research Selection**は明示依頼の有限対象・問い・入力で、機械候補のScreeningSelectionと分ける。**Operation**は進行・成果・再開を管理する。completedと再開はskillへ。**Market Assessment**は独立したL3入口で、L2のMarket Contextとは別。
 
 解釈はAI、算術・保存・状態管理はエンジンが担う。Signalは独立した一票でなく、Snapshotは入力/保存物の固定で完全PITではない。
 
@@ -59,12 +59,12 @@ Collection→L2、観測→モデル、生成→政策、Portfolio→L3の依存
 
 | 保存単位 | 正本/寿命 |
 | --- | --- |
-| application DB | Research・評価/Review・提案・Selection/Operation・台帳。再生成cacheではない。 |
+| application DB | Research・評価/Review・提案・Research Selection/Operation・台帳。再生成cacheではない。 |
 | native L1 | 可変head＋不変body/request pack、またはsource SQLiteの原本/受領。body共有と受領記録は別。 |
 | 共有固定入力 | 採用原本/確認/失敗のmetadataとL1本文参照。保存入力の再計算に必要な間保持する。 |
 | 固定lake | L2と未移行L1のimmutable object/manifest。同じreleaseで読む。旧releaseの固定読取も保持する。 |
 | source cache SQLite | market実行copy。未移行原本/運用状態を含み、全体は廃棄可能cacheではない。 |
-| runs / 旧calibration | モデル世代/政策結果は再生成可能。旧run/較正結果は保持するが、旧ER/FVの再推計・再選抜・較正再生成/再公開はしない。 |
+| runs / 旧calibration | ModelGeneration/ScreeningSelectionを保存する。再計算には保持入力と当時の実行条件が必要で、旧run/較正は[読取専用](reference/estimate-calibration.md)で保持する。 |
 
 原本受領・原本公開・L2公開は別の成功で、独立L1をL2成功待ちにしない。生成/公開は開始入力を固定し、未生成と結果内欠測を分ける。再開で現在のモデル一覧・既定値・latest headを補わない。L3は必要断面をapplicationへ保存し、元runや可変storeに依存せず再開する。整理/GCは原本・判断・取引履歴・R2全体の削除許可ではない。
 

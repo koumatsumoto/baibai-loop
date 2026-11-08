@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 from tests.helpers.edinet_metrics import _edinet_document
+from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.edinet_research_sources import source_zip
 from tests.jobs.acquisition.test_edinet_archive_native_acquisition import setup
 
@@ -26,7 +27,6 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetRateLimitError,
     EdinetResponse,
 )
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
@@ -64,7 +64,7 @@ def save_list(path, documents):
     ).encode()
     with closing(open_connection(path)) as connection:
         count = connection.execute("SELECT count(*) FROM edinet_list_responses").fetchone()[0]
-        retain_list_response(
+        seed_list_response(
             connection, doc_date=DAY, received_at=AT + timedelta(seconds=count), body=body
         )
     rebuild_edinet_document_day(path, DAY)

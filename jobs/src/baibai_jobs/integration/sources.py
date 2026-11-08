@@ -47,7 +47,7 @@ from baibai_jobs.acquisition.article_planning import (
 )
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
-from baibai_jobs.acquisition.source_inputs import publish_inputs
+from baibai_jobs.acquisition.source_inputs import GuardedInputStore, publish_inputs
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
@@ -441,8 +441,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if args.lease_handle is None:
                 raise ValueError("common integration writes require the publication lease")
-            verify_held(store, _load_handle(args.lease_handle))
+            handle = _load_handle(args.lease_handle)
+            verify_held(store, handle)
             generations = canonical_generations(store)
+            guarded = GuardedInputStore(store, lambda: verify_held(store, handle))
             if args.command == "inputs":
                 if args.identity is None or args.asof is None:
                     raise ValueError("--identity and --asof are required")
@@ -458,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
                     if group not in SOURCE_INPUT_GROUPS:
                         raise ValueError("economic inputs are published by economic L1 integration")
                     result = publish_inputs(
-                        store,
+                        guarded,
                         market=args.market,
                         economic=directory / "unused-market-input",
                         identity=args.identity,
@@ -476,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
                     else ()
                 ):
                     try:
-                        publish_planning_input(store, source, generations)
+                        publish_planning_input(guarded, source, generations)
                     except (ValueError, LakeCASConflict) as error:
                         input_report["failed"].append(
                             {"group": source, "reason": type(error).__name__}
@@ -490,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
                 report["external_results"] = verify_and_seal(
                     store,
                     report["external"],
-                    handle=_load_handle(args.lease_handle),
+                    handle=handle,
                     directory=directory / "external-readback",
                 )
             for outcome in report["handoffs"]:
@@ -511,9 +513,8 @@ def main(argv: list[str] | None = None) -> int:
                         directory=directory / "article-readback",
                         generations=generations,
                     )
-                    verify_held(store, _load_handle(args.lease_handle))
                 seal_integrated(
-                    store,
+                    guarded,
                     outcome["entry"],
                     generations=generations,
                     recovery=outcome["recovery"],

@@ -9,15 +9,12 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.http_doubles import FakeResponse, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.providers.edinet import http
-from baibai_engine.data_collection.providers.edinet.receipts import (
-    read_list_response,
-    read_list_responses,
-    retain_list_response,
-)
+from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
@@ -51,12 +48,19 @@ def _stored_ids(path):
         ]
 
 
-def test_receipt_round_trips_exact_bytes_and_commits_before_return(tmp_path):
+def _receipt(conn, receipt_id):
+    return next(
+        (row for row in read_list_responses(conn, doc_date=_DAY) if row.receipt_id == receipt_id),
+        None,
+    )
+
+
+def test_old_sql_reader_round_trips_native_receipt_bytes(tmp_path):
     path = tmp_path / "market.sqlite"
     body = b'{"results": [null], "unrecognized": "\xe6\x97\xa5"}\n'
     received_at = datetime(2026, 10, 15, 3, 4, 5, 123456, tzinfo=UTC)
     with closing(open_connection(path)) as conn:
-        receipt_id = retain_list_response(conn, doc_date=_DAY, received_at=received_at, body=body)
+        receipt_id = seed_list_response(conn, doc_date=_DAY, received_at=received_at, body=body)
         assert uuid.UUID(hex=receipt_id).hex == receipt_id
         assert not conn.in_transaction
         row = conn.execute(
@@ -69,7 +73,7 @@ def test_receipt_round_trips_exact_bytes_and_commits_before_return(tmp_path):
         assert row[2][4:8] == b"\x00" * 4
         assert gzip.decompress(row[2]) == body
     with closing(sqlite3.connect(path)) as reader:
-        saved = read_list_response(reader, receipt_id)
+        saved = _receipt(reader, receipt_id)
         assert saved is not None
         assert (saved.receipt_id, saved.doc_date, saved.received_at, saved.body) == (
             receipt_id,
@@ -77,35 +81,22 @@ def test_receipt_round_trips_exact_bytes_and_commits_before_return(tmp_path):
             received_at,
             body,
         )
-        assert read_list_response(reader, "missing") is None
 
 
 def test_read_list_responses_returns_only_requested_day_in_transport_order(tmp_path):
     path = tmp_path / "market.sqlite"
     stamp = datetime(2026, 10, 15, 3, tzinfo=UTC)
     with closing(open_connection(path)) as conn:
-        first = retain_list_response(conn, doc_date=_DAY, received_at=stamp, body=b"first")
-        second = retain_list_response(conn, doc_date=_DAY, received_at=stamp, body=b"second")
-        last = retain_list_response(
+        first = seed_list_response(conn, doc_date=_DAY, received_at=stamp, body=b"first")
+        second = seed_list_response(conn, doc_date=_DAY, received_at=stamp, body=b"second")
+        last = seed_list_response(
             conn, doc_date=_DAY, received_at=stamp + timedelta(seconds=1), body=b"last"
         )
-        retain_list_response(
-            conn, doc_date=date(2026, 10, 16), received_at=stamp, body=b"other-day"
-        )
+        seed_list_response(conn, doc_date=date(2026, 10, 16), received_at=stamp, body=b"other-day")
         rows = read_list_responses(conn, doc_date=_DAY)
         assert [row.receipt_id for row in rows] == [*sorted((first, second)), last]
         assert {row.body for row in rows} == {b"first", b"second", b"last"}
         assert read_list_responses(conn, doc_date=date(2026, 10, 14)) == ()
-
-
-def test_receipt_refuses_pending_transaction(tmp_path):
-    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
-        conn.execute("BEGIN")
-        with pytest.raises(ValueError, match="pending transaction"):
-            retain_list_response(conn, doc_date=_DAY, received_at=datetime.now(UTC), body=b"{}")
-        assert conn.in_transaction
-        conn.rollback()
-        assert conn.execute("SELECT COUNT(*) FROM edinet_list_responses").fetchone() == (0,)
 
 
 def test_same_day_receipts_retain_both_received_bodies(tmp_path):
@@ -115,7 +106,7 @@ def test_same_day_receipts_retain_both_received_bodies(tmp_path):
     bodies = (_wire(first), _wire(second))
     with closing(open_connection(path)) as conn:
         for index, body in enumerate(bodies):
-            retain_list_response(
+            seed_list_response(
                 conn,
                 doc_date=_DAY,
                 received_at=datetime(2026, 10, 15, 3, tzinfo=UTC) + timedelta(seconds=index),
@@ -127,7 +118,7 @@ def test_same_day_receipts_retain_both_received_bodies(tmp_path):
     ids = _stored_ids(path)
     assert len(ids) == len(set(ids)) == 2
     with closing(sqlite3.connect(path)) as conn:
-        assert {read_list_response(conn, receipt_id).body for receipt_id in ids} == set(bodies)
+        assert {_receipt(conn, receipt_id).body for receipt_id in ids} == set(bodies)
 
 
 def test_documents_are_decoded_from_retained_bytes_without_response_json(tmp_path):
@@ -145,14 +136,14 @@ def test_documents_are_decoded_from_retained_bytes_without_response_json(tmp_pat
     path = tmp_path / "market.sqlite"
     received = http.EDINETHTTP("test-key", session=FakeSession(reply)).fetch_list(_DAY)
     with closing(open_connection(path)) as conn:
-        retain_list_response(
+        seed_list_response(
             conn, doc_date=_DAY, received_at=received.received_at, body=received.body
         )
     projection = rebuild_edinet_document_day(path, _DAY)
     assert projection.error is None
     documents = list(projection.documents)
     with closing(sqlite3.connect(path)) as conn:
-        saved = read_list_response(conn, _stored_ids(path)[0])
+        saved = _receipt(conn, _stored_ids(path)[0])
         assert saved is not None
         assert saved.body == wire
         assert documents == [
@@ -166,14 +157,14 @@ def test_documents_are_decoded_from_retained_bytes_without_response_json(tmp_pat
 def test_invalid_json_or_encoding_is_retained_with_failed_coverage(tmp_path, body):
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as conn:
-        retain_list_response(
+        seed_list_response(
             conn, doc_date=_DAY, received_at=datetime(2026, 10, 15, 3, tzinfo=UTC), body=body
         )
     projection = rebuild_edinet_document_day(path, _DAY)
     assert projection.error is not None
     assert "test-key" not in projection.error
     with closing(sqlite3.connect(path)) as conn:
-        saved = read_list_response(conn, _stored_ids(path)[0])
+        saved = _receipt(conn, _stored_ids(path)[0])
         assert saved is not None
         assert saved.body == body
         assert conn.execute(
@@ -202,7 +193,7 @@ def test_invalid_projection_still_retains_received_body(tmp_path, failure):
         body = _wire(payload)
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as conn:
-        retain_list_response(
+        seed_list_response(
             conn, doc_date=_DAY, received_at=datetime(2026, 10, 15, 3, tzinfo=UTC), body=body
         )
     projection = rebuild_edinet_document_day(path, _DAY)
@@ -214,7 +205,7 @@ def test_invalid_projection_still_retains_received_body(tmp_path, failure):
     ids = _stored_ids(path)
     assert len(ids) == 1
     with closing(sqlite3.connect(path)) as conn:
-        saved = read_list_response(conn, ids[0])
+        saved = _receipt(conn, ids[0])
         assert saved is not None
         assert saved.body == body
         assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone() == (1,)
@@ -234,9 +225,7 @@ def test_receipts_export_through_fixed_release_and_fresh_hydrate(tmp_path, monke
     with closing(open_connection(source_path)) as conn:
         for index, body in enumerate(bodies):
             received_at = first_at + timedelta(seconds=index)
-            receipt_id = retain_list_response(
-                conn, doc_date=_DAY, received_at=received_at, body=body
-            )
+            receipt_id = seed_list_response(conn, doc_date=_DAY, received_at=received_at, body=body)
             expected[receipt_id] = (_DAY, received_at, body)
 
     mirror = tmp_path / "mirror"
@@ -281,7 +270,7 @@ def test_receipts_export_through_fixed_release_and_fresh_hydrate(tmp_path, monke
         ).fetchall()
         assert len(rows) == 2
         for receipt_id, doc_date, received_at_utc in rows:
-            saved = read_list_response(conn, receipt_id)
+            saved = _receipt(conn, receipt_id)
             assert saved is not None
             assert (saved.doc_date, saved.received_at, saved.body) == expected[receipt_id]
             assert doc_date == saved.doc_date.isoformat()
@@ -305,7 +294,7 @@ def test_received_time_is_recorded_once_before_decoding(tmp_path, monkeypatch):
         "test-key", session=FakeSession(response(_wire(payload), payload=payload))
     ).fetch_list(_DAY)
     with closing(open_connection(path)) as conn:
-        retain_list_response(
+        seed_list_response(
             conn, doc_date=_DAY, received_at=received.received_at, body=received.body
         )
     projection = rebuild_edinet_document_day(path, _DAY)
@@ -313,7 +302,7 @@ def test_received_time_is_recorded_once_before_decoding(tmp_path, monkeypatch):
     assert projection.documents == ()
     assert calls == [UTC]
     with closing(sqlite3.connect(path)) as conn:
-        saved = read_list_response(conn, _stored_ids(path)[0])
+        saved = _receipt(conn, _stored_ids(path)[0])
         assert saved is not None
         assert saved.received_at == fixed
 
@@ -330,7 +319,7 @@ def test_receipt_write_failure_stops_l2_and_is_not_success(tmp_path):
         closing(open_connection(path)) as conn,
         pytest.raises(sqlite3.DatabaseError, match="synthetic receipt write failure"),
     ):
-        retain_list_response(
+        seed_list_response(
             conn,
             doc_date=_DAY,
             received_at=datetime(2026, 10, 15, 3, tzinfo=UTC),

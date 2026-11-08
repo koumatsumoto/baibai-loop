@@ -45,21 +45,6 @@ _PATH_METRICS: tuple[Metric, ...] = (
 _INCOME_METRICS: tuple[Metric, ...] = ("operating_profit", "operating_margin", "parent_profit")
 
 
-def pricing_input_failures(valuation: dict[str, JsonValue]) -> tuple[str, ...]:
-    """価格座標に必要な条件。利益欠測は含めず、同時に欠けた条件を残す。"""
-    earnings = _object(valuation.get("earnings_price"))
-    failures = [
-        f"invalid_{field}"
-        for field in ("market_cap_yen", "price_yen", "shares_ex_treasury")
-        if _positive(earnings.get(field)) is None
-    ]
-    if _text(valuation.get("expected_price_date")) is None:
-        failures.append("missing_expected_price_date")
-    if earnings.get("price_date") != valuation.get("expected_price_date"):
-        failures.append("price_date_mismatch")
-    return tuple(failures)
-
-
 def project_company(
     ticker: str, *, models: Sequence[GeneratedModel], metadata: GenerationMetadata
 ) -> CompanyCoordinates:
@@ -78,7 +63,13 @@ def project_company(
         sector = None
     sector_group = sector or "unknown_sector"
     cap = _positive(earnings.get("market_cap_yen"))
-    pricing_valid = not pricing_input_failures(valuation)
+    pricing_valid = (
+        cap is not None
+        and _positive(earnings.get("price_yen")) is not None
+        and _positive(earnings.get("shares_ex_treasury")) is not None
+        and _text(valuation.get("expected_price_date")) is not None
+        and earnings.get("price_date") == valuation.get("expected_price_date")
+    )
     if not pricing_valid:
         cap = None
     y = _number(earnings.get("earnings_yield")) if pricing_valid else None

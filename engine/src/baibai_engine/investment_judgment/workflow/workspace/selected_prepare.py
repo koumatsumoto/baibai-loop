@@ -29,6 +29,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     ResearchSelectionRecord,
     ResearchTarget,
     selection_sha256,
+    validate_input_known_at,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import (
     CURRENT_RESEARCH_CAPACITY,
@@ -37,6 +38,7 @@ from baibai_engine.investment_judgment.workflow.selection_policy import (
 from baibai_engine.investment_judgment.workflow.workspace.admission import workspace_selection
 from baibai_engine.investment_judgment.workflow.workspace.files import (
     ResearchWorkspaceConflictError,
+    ResearchWorkspaceError,
     _load_mapping,
     _write_workspace_file,
 )
@@ -127,8 +129,10 @@ def prepare_selected_workspace(
 ) -> SelectedResearchPreparation:
     if not isinstance(draft, GeneratedResearchSelectionDraft):
         raise ResearchWorkspaceConflictError("new Research requires a generated selection draft")
-    if now.utcoffset() is None or draft.input_known_at > now:
-        raise ResearchWorkspaceConflictError("input_known_at is after prepare time")
+    try:
+        validate_input_known_at(draft.input_known_at, now=now)
+    except ValueError as error:
+        raise ResearchWorkspaceConflictError(str(error)) from error
     service = OperationService(db_path, runs_path=runs_path)
     manifest_path = workspace / "manifest.yaml"
     if manifest_path.exists():
@@ -297,7 +301,7 @@ def _materialize(
             or _load_mapping(inputs_path, label="domain inputs") != projection
         ):
             raise OSError("workspace projection readback failed")
-    except (OSError, ResearchWorkspaceConflictError) as error:
+    except (OSError, ValueError, ResearchWorkspaceError) as error:
         raise ResearchWorkspaceConflictError(
             f"Operation {operation.operation_id} is saved; resume its projection: {error}"
         ) from error

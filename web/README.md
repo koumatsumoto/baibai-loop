@@ -15,4 +15,4 @@
 - [contracts_export](backend/src/baibai_web/contracts_export.py)：Python表示modelからschema・TypeScriptを生成する。生成物を別仕様として手編集しない。
 - [frontend](frontend/)・[edge](edge/)：表示と認証付き配信。全viewに既存の共通認証を適用する。
 
-ローカル表示はloopbackの `uv run baibai-web serve` とfrontendのViteを使う。環境準備・CIは[development](../docs/development.md)、本番への生成・公開・読戻しとWorker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)に従う。
+環境準備・frontendのみのVite起動/buildは[development](../docs/development.md#webの確認)に従う。ローカルAPIサーバーは持たず、ViteだけではDB由来の表示を確認できない。本番への生成・公開・読戻しとWorker配備は[運用手順](../jobs/OPERATIONS.md#web-serving)に従う。

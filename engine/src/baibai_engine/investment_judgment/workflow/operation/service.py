@@ -10,6 +10,8 @@ from datetime import date, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from pydantic import TypeAdapter
+
 from baibai_engine.investment_judgment.stock_assessment.document import AssessmentRef
 from baibai_engine.investment_judgment.stock_assessment.store import load_reviewed_assessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
@@ -43,9 +45,11 @@ from baibai_engine.investment_judgment.workflow.operation.validation import (
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV4,
+    selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
@@ -54,6 +58,8 @@ from baibai_engine.storage.sqlite.application.paths import database_path
 from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import connect_rw, initialize_database
 from baibai_engine.storage.sqlite.read import read_rows
+
+_SCREENING_CODEC = TypeAdapter(ScreeningSelection)
 
 
 class OperationNotFoundError(ValueError):
@@ -120,7 +126,9 @@ class OperationService:
             targets=tuple(target.ticker for target in selection.targets),
             path=self._runs_path,
         )
-        if canonical != selection.inputs.generation:
+        if canonical is None or canonical_json(canonical.model_dump(mode="json")) != canonical_json(
+            selection.inputs.generation.model_dump(mode="json")
+        ):
             raise ValueError("model input slice differs from its canonical generation")
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:
@@ -131,7 +139,11 @@ class OperationService:
             )
             if (
                 publication is None
-                or publication.selection != selection.inputs.screening_selection
+                or selection.inputs.screening_selection is None
+                or canonical_json(_SCREENING_CODEC.dump_python(publication.selection, mode="json"))
+                != canonical_json(
+                    _SCREENING_CODEC.dump_python(selection.inputs.screening_selection, mode="json")
+                )
                 or publication.published_at != selection.inputs.screening_published_at
             ):
                 raise OperationConflictError("screening selection differs from chosen generation")
@@ -409,7 +421,9 @@ class OperationService:
                     raise OperationConflictError(str(error)) from error
                 if selected_before is None:
                     raise OperationConflictError("fixed research_selection is required")
-                if incoming != selected_before:
+                if incoming is None or selection_sha256(incoming) != selection_sha256(
+                    selected_before
+                ):
                     raise OperationConflictError(
                         "Research selection is immutable; no replacement targets"
                     )

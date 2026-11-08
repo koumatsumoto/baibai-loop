@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from baibai_engine.primitives.coerce import metric_map, optional_float, string_or_none
+from baibai_engine.primitives.coerce import optional_float, string_or_none
 
 
 class OptionalFloatTests(unittest.TestCase):
@@ -19,15 +19,7 @@ class OptionalFloatTests(unittest.TestCase):
         self.assertIsNone(optional_float("3.5"))
 
 
-class MappingCoercionTests(unittest.TestCase):
-    def test_metric_map_copies_mapping(self) -> None:
-        source = {"pbr": 0.8}
-        copied = metric_map(source)
-        self.assertEqual(copied, source)
-        self.assertIsNot(copied, source)
-        copied["pbr"] = 1.2
-        self.assertEqual(source, {"pbr": 0.8})
-
+class StringCoercionTests(unittest.TestCase):
     def test_string_or_none_with_non_string_returns_none(self) -> None:
         self.assertIsNone(string_or_none(1))
 

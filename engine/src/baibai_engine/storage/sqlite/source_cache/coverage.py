@@ -380,9 +380,7 @@ def covered_intervals(conn: sqlite3.Connection, source: str) -> tuple[tuple[date
     Abutting windows are merged, so two fetches that stopped either side of a
     chunk boundary describe one continuous range.
 
-    This is the single definition of "the store already has this". `range_covered`
-    answers a yes/no from it and `missing_intervals` answers what is left to fetch,
-    so a planner can never decide a range is held while the reader disagrees.
+    `range_covered` and readers share this definition of retained coverage.
     """
     try:
         rows = conn.execute(
@@ -423,35 +421,6 @@ def range_covered(conn: sqlite3.Connection, source: str, start: date, end: date)
         interval_start <= start and interval_end >= end
         for interval_start, interval_end in covered_intervals(conn, source)
     )
-
-
-def missing_intervals(
-    conn: sqlite3.Connection, source: str, start: date, end: date
-) -> tuple[tuple[date, date], ...]:
-    """The sub-ranges of `[start, end]` the store cannot serve yet.
-
-    This is the complement of `covered_intervals` inside the request, which makes
-    a fetch cost what the store is actually missing instead of what the caller
-    happened to ask for. A window the batch skipped shows up here exactly as wide
-    as the outage; a store that has never been filled yields the whole request.
-    """
-    if start > end:
-        return ()
-    gaps: list[tuple[date, date]] = []
-    cursor = start
-    for interval_start, interval_end in covered_intervals(conn, source):
-        if interval_end < cursor:
-            continue
-        if interval_start > end:
-            break
-        if interval_start > cursor:
-            gaps.append((cursor, interval_start - timedelta(days=1)))
-        cursor = max(cursor, interval_end + timedelta(days=1))
-        if cursor > end:
-            return tuple(gaps)
-    if cursor <= end:
-        gaps.append((cursor, end))
-    return tuple(gaps)
 
 
 def date_covered(conn: sqlite3.Connection, source: str, on_date: date) -> bool:

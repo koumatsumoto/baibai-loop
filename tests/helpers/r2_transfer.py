@@ -21,6 +21,9 @@ def _fake_aws(tmp_path: Path) -> tuple[Path, Path]:
     executable.write_text(
         """#!/usr/bin/env bash
 printf "%s\\n" "$*" >> "$AWS_LOG"
+if [[ -n "${LEASE_FAKE_RELEASE_ON:-}" && "$*" == *"${LEASE_FAKE_RELEASE_ON}"* ]]; then
+  printf 'synthetic-released' > "$PUBLICATION_LEASE_HANDLE"
+fi
 # Echo the transfer config this invocation would read, so a test can assert the
 # setting reached the CLI rather than only that a file was written somewhere.
 if [[ -n "${AWS_CONFIG_FILE:-}" && -f "${AWS_CONFIG_FILE}" ]]; then
@@ -247,9 +250,24 @@ for argument in "$@"; do
     baibai_jobs.integration.source_cache_merge) script=merge ;;
     baibai_jobs.observability.repository_layout) script=layout ;;
     baibai_jobs.publication.snapshot_publication) script=publish ;;
+    baibai_jobs.publication.lease) script=lease ;;
   esac
 done
 case "${script}" in
+  lease)
+    printf 'verify %s\\n' "$R2_STORES_BUCKET" >> "$AWS_FAKE_STATE/lease-checks"
+    handle=""
+    while [[ $# -gt 0 ]]; do
+      if [[ "$1" == "--handle" ]]; then handle="$2"; fi
+      shift
+    done
+    # Sentinel state only; the actual CLI/owner validation is tested separately.
+    if [[ -z "$handle" || ! -f "$handle" || "$(cat "$handle")" != synthetic-held ]]; then
+      printf 'publication lease: failure (LeaseError)\\n' >&2
+      exit 1
+    fi
+    exit 0
+    ;;
   publish)
     printf 'publish %s\\n' "$*" >> "$AWS_LOG"
     # The real publisher prints its JSON report only on success. Refusal may still have
@@ -317,6 +335,8 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
     generation_dir.mkdir(exist_ok=True)
     for key in ("market.sqlite", "runs.sqlite", "indicators.sqlite"):
         (generation_dir / f"{key}.etag").write_text('"etag-stable"\n', encoding="utf-8")
+    handle = state / "publication-lease-handle.json"
+    handle.write_text("synthetic-held", encoding="utf-8")
     environment = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -326,6 +346,7 @@ def _environment(bin_dir: Path, log: Path) -> dict[str, str]:
         "R2_ACCOUNT_ID": "account-for-test",
         "R2_ACCESS_KEY_ID": "access-for-test",
         "R2_SECRET_ACCESS_KEY": "secret-for-test",
+        "PUBLICATION_LEASE_HANDLE": str(handle),
     }
     environment.pop("GITHUB_ACTIONS", None)
     return environment

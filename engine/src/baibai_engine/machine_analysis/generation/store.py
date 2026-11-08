@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import gzip
 import sqlite3
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.machine_analysis.generation.contracts import (
-    GeneratedModel,
     GenerationMetadata,
     ModelGenerationStream,
     validate_full_plan,
@@ -39,11 +38,7 @@ class ModelGenerationStore:
 
     def publish_stream(self, generation: ModelGenerationStream) -> GenerationPublication:
         """全生成列を一回消費し、途中失敗ではheaderを含め一切公開しない。"""
-        return self._publish(generation.metadata, generation.models)
-
-    def _publish(
-        self, metadata: GenerationMetadata, models: Iterable[GeneratedModel]
-    ) -> GenerationPublication:
+        metadata = generation.metadata
         validate_full_plan(metadata)
         header = canonical_json(
             metadata.model_dump(mode="json", include=set(GenerationMetadata.model_fields))
@@ -69,7 +64,7 @@ class ModelGenerationStore:
                         ),
                     )
                 seen: set[tuple[str, str]] = set()
-                for model in models:
+                for model in generation.models:
                     validate_model_scope(metadata, model)
                     key = (model.model_id, model.subject)
                     if key in seen:

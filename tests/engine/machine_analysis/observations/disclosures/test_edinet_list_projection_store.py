@@ -9,15 +9,13 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_receipts import seed_list_response
 
 from baibai_engine.data_collection.providers.edinet.list_projection import (
     document_list_rechecked_asof,
     project_document_list,
 )
-from baibai_engine.data_collection.providers.edinet.receipts import (
-    read_list_responses,
-    retain_list_response,
-)
+from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_current_filing_documents,
     read_edinet_documents,
@@ -51,7 +49,7 @@ _EMPTY = _wire([])
 
 def _add_receipt(path: Path, body: bytes, *, seconds: int) -> str:
     with closing(open_connection(path)) as conn:
-        return retain_list_response(
+        return seed_list_response(
             conn, doc_date=_DAY, received_at=_STAMP + timedelta(seconds=seconds), body=body
         )
 
@@ -229,8 +227,8 @@ def test_writer_sets_recheck_fields_from_proof_result(tmp_path: Path) -> None:
     selected_at = datetime(2026, 10, 15, 15, 1, tzinfo=UTC)
     proof_at = selected_at - timedelta(minutes=1)
     with closing(open_connection(path)) as conn:
-        retain_list_response(conn, doc_date=_DAY, received_at=selected_at, body=_A)
-        retain_list_response(conn, doc_date=date(2026, 10, 16), received_at=proof_at, body=_EMPTY)
+        seed_list_response(conn, doc_date=_DAY, received_at=selected_at, body=_A)
+        seed_list_response(conn, doc_date=date(2026, 10, 16), received_at=proof_at, body=_EMPTY)
         projection = project_document_list(read_list_responses(conn, doc_date=_DAY))
         proof = document_list_rechecked_asof(
             projection, read_list_responses(conn, doc_date=date(2026, 10, 16))

@@ -1,5 +1,7 @@
-"""通常生成は一度だけ保存/投影し、旧saved経路と同じ全社比較を行う。"""
+"""通常生成は一度だけ保存/投影し、固定期待値と同じ全社比較を行う。"""
 
+import gzip
+import hashlib
 import sqlite3
 import weakref
 from collections import Counter
@@ -31,7 +33,6 @@ from baibai_engine.machine_analysis.generation.store import (
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 
 
 def rows(path):
@@ -83,7 +84,7 @@ def projected_stream(original, *, empty=False, schema_version=2):
 
 @pytest.mark.parametrize(("schema_version", "empty"), [(1, False), (2, False), (2, True)])
 @pytest.mark.parametrize("storage_error", [None, sqlite3.DatabaseError, OSError])
-def test_normal_stream_matches_saved_oracle_without_decoding_models_again(
+def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     integration, tmp_path, monkeypatch, caplog, capsys, schema_version, empty, storage_error
 ):
     arguments, _ = integration
@@ -138,7 +139,7 @@ def test_normal_stream_matches_saved_oracle_without_decoding_models_again(
     monkeypatch.setattr(job, "read_generation_storage_totals", collect_once)
     with monkeypatch.context() as normal:
         normal.setattr(generation_query, "_decode_model", forbidden)
-        normal.setattr(screening, "stream_generation_subjects", forbidden)
+        normal.setattr(generation_query, "stream_generation_subjects", forbidden)
         result = job.integrate_models(**arguments)
     assert collections == [(result["generation_id"], arguments["runs"])]
     warnings = [record for record in caplog.records if record.name == job.__name__]
@@ -158,23 +159,28 @@ def test_normal_stream_matches_saved_oracle_without_decoding_models_again(
     oracle_path = tmp_path / "oracle.sqlite"
     publish_generation(expected[0], path=oracle_path)
     assert rows(arguments["runs"]) == rows(oracle_path)
-    monkeypatch.setattr(screening, "project_company", project)
-    oracle = screening.evaluate_saved_economic_generation(
-        result["generation_id"],
-        tickers=() if empty else ("1001", "1002", "1003", "9999"),
-        policy=arguments["policy"],
-        path=oracle_path,
+    # edf987d3の合成fixtureのcanonical Selection全体を固定。評価関数をoracleにしない。
+    expected_sha256 = (
+        "9500136a68701c7697ddbbc46198406c9dcca56ccb821290aea2eec71ba2b5d7"
+        if empty
+        else "dec98922516ec65dbbb8ec3c19cd8b268e1fcaff9051f12be098837804c847fe"
     )
     publication = read_publication(path=arguments["runs"])
-    assert publication.selection == oracle.selection
-    assert result["screening_price_inputs"] == oracle.price_inputs
-    ScreeningSelectionStore(oracle_path).publish(result["selection_id"], oracle.selection)
-    with sqlite3.connect(arguments["runs"]) as current, sqlite3.connect(oracle_path) as baseline:
-        sql = "SELECT payload_gzip FROM screening_selection WHERE selection_id=?"
-        assert (
-            current.execute(sql, (result["selection_id"],)).fetchone()
-            == baseline.execute(sql, (result["selection_id"],)).fetchone()
-        )
+    assert publication.selection.generation_id == "models-new-release"
+    with sqlite3.connect(arguments["runs"]) as connection:
+        payload = connection.execute(
+            "SELECT payload_gzip FROM screening_selection WHERE selection_id=?",
+            (result["selection_id"],),
+        ).fetchone()[0]
+    assert hashlib.sha256(gzip.decompress(payload)).hexdigest() == expected_sha256
+    assert result["screening_price_inputs"] == {
+        "universe_count": 0 if empty else 4,
+        "valid_count": 0 if empty else 3,
+        "date_mismatch_count": 0,
+        "invalid_count": 0 if empty else 1,
+        "price_dates": {} if empty else {"2026-01-05": 3, "missing": 1},
+        "expected_price_dates": {} if empty else {"2026-01-05": 3, "missing": 1},
+    }
     if not empty:
         assert publication.selection.result.tickers == ("1001", "1002")
         assert publication.selection.universe_tickers == ("1001", "1002", "1003", "9999")

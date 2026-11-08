@@ -15,12 +15,10 @@ from tests.helpers.external_assessment_html import (
     official_html,
     rakuten_html,
 )
+from tests.helpers.external_assessment_responses import seed_response
 
 from baibai_engine.cli.external_assessment import main as assessment_main
-from baibai_engine.data_collection.receipts.public_pages.receipts import (
-    read_responses,
-    retain_response,
-)
+from baibai_engine.data_collection.receipts.public_pages.receipts import read_responses
 from baibai_engine.machine_analysis.observations.external_assessments.identity import (
     MODEL_VALUATION_TABLE,
 )
@@ -73,7 +71,7 @@ def _capture(
             else kabumap_html(ticker)
         )
         body = text.encode(encoding)
-    receipt_id = retain_response(
+    receipt_id = seed_response(
         conn,
         attempt_id=attempt,
         source=source,

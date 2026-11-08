@@ -32,8 +32,9 @@ def _price_block(
         f"return_{window}d": trailing_return(prices, window) for window in _RETURN_WINDOWS_BARS
     }
     window_52w = prices[-_WEEK_52_WINDOW_BARS:]
-    high_52w = max(window_52w)
-    low_52w = min(window_52w)
+    valid_range = all(math.isfinite(price) and price > 0 for price in window_52w)
+    high_52w = max(window_52w) if valid_range else None
+    low_52w = min(window_52w) if valid_range else None
     range_window = prices[-self_range_window_bars:]
     turnover = [
         bar.turnover_value
@@ -42,16 +43,18 @@ def _price_block(
     ]
     return {
         "resolved_date": bars[-1].traded_at.isoformat(),
-        "close": current,
+        "close": current if math.isfinite(current) and current > 0 else None,
         "price_basis": "price_adjusted_close",
         **returns,
         "high_52w": high_52w,
         "low_52w": low_52w,
-        "gap_from_52w_low": (current / low_52w - 1) if low_52w else None,
-        "gap_from_52w_high": (current / high_52w - 1) if high_52w else None,
+        "gap_from_52w_low": (current / low_52w - 1) if low_52w is not None else None,
+        "gap_from_52w_high": (current / high_52w - 1) if high_52w is not None else None,
         "self_range_percentile": (
             sum(1 for price in range_window if price <= current) / len(range_window)
-        ),
+        )
+        if all(math.isfinite(price) and price > 0 for price in range_window)
+        else None,
         "self_range_window_bars": len(range_window),
         "realized_vol_20d": _realized_vol(prices),
         "avg_turnover_20d_oku": (
@@ -76,21 +79,24 @@ def _endpoint_return(
     if endpoints is None:
         return None
     start, end = (prices.get(endpoint) for endpoint in endpoints)
-    if start is None or start == 0 or end is None:
+    if (
+        start is None
+        or end is None
+        or not all(math.isfinite(price) and price > 0 for price in (start, end))
+    ):
         return None
-    return end / start - 1
+    value = end / start - 1
+    return value if math.isfinite(value) else None
 
 
 def _realized_vol(prices: Sequence[float]) -> float | None:
     window = prices[-(_VOL_WINDOW_BARS + 1) :]
     if len(window) < _VOL_WINDOW_BARS + 1:
         return None
-    daily_returns = [
-        window[index] / window[index - 1] - 1
-        for index in range(1, len(window))
-        if window[index - 1] != 0
-    ]
-    if len(daily_returns) < 2:
+    if any(not math.isfinite(price) or price <= 0 for price in window):
+        return None
+    daily_returns = [window[index] / window[index - 1] - 1 for index in range(1, len(window))]
+    if any(not math.isfinite(value) for value in daily_returns):
         return None
     return statistics.stdev(daily_returns) * math.sqrt(252)
 

@@ -31,7 +31,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.tradingvie
 from baibai_engine.machine_analysis.observations.external_assessments.tradingview.decode import (
     decode_tool_result,
 )
-from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     validate_master_snapshot,
 )
@@ -52,11 +51,6 @@ from baibai_jobs.observability.tradingview import (
     SourceDataError,
     failure_category,
 )
-
-_RAW_KEYS = {
-    "tradingview_source_receipts": ("receipt_id",),
-    "jquants_source_pages": ("request_id", "page_index"),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,26 +183,24 @@ def export_handoff(
 
 
 def _copy_raw(
-    conn: sqlite3.Connection, source: sqlite3.Connection, table: str, identities: Sequence[str]
+    conn: sqlite3.Connection, source: sqlite3.Connection, identities: Sequence[str]
 ) -> int:
-    keys = _RAW_KEYS[table]
     inserted = 0
     for identity in identities:
-        rows = source.execute(f"SELECT * FROM {table} WHERE {keys[0]} = ?", (identity,))  # nosec B608
+        rows = source.execute(
+            "SELECT * FROM tradingview_source_receipts WHERE receipt_id = ?", (identity,)
+        )
         names = tuple(item[0] for item in rows.description or ())
-        positions = tuple(names.index(key) for key in keys)
-        where = " AND ".join(f"{key} = ?" for key in keys)
         for row in rows:
             existing = conn.execute(
-                f"SELECT * FROM {table} WHERE {where}",  # nosec B608
-                tuple(row[index] for index in positions),
+                "SELECT * FROM tradingview_source_receipts WHERE receipt_id = ?", (identity,)
             ).fetchone()
             if existing is not None:
                 if tuple(existing) != tuple(row):
                     raise SourceDataError("TradingView handoff receipt identity conflicts")
                 continue
             placeholders = ",".join("?" for _ in names)
-            conn.execute(f"INSERT INTO {table} VALUES ({placeholders})", row)  # nosec B608
+            conn.execute(f"INSERT INTO tradingview_source_receipts VALUES ({placeholders})", row)  # nosec B608
             inserted += 1
     return inserted
 
@@ -219,19 +211,17 @@ def import_handoff(
     handoff: TradingViewHandoff,
     *,
     store: ObjectStore | None = None,
-    native_master: bool = False,
-    native_calendar: bool = False,
     master_fingerprints: Mapping[str, str] | None = None,
 ) -> ReplayResult:
     """Add original receipts and replay missing tickers; never replace a saved snapshot.
 
-    A changed calendar/master universe refuses the handoff. A master received by
-    the acquisition is projected only when canonical state still lacks that date.
-    A canonical master already present is retained, including its newer fields.
+    The caller materializes its fixed native calendar/master first. Legacy
+    master pages are checked against retained cutover fingerprints and never
+    copied or projected from the handoff.
     """
     saved_calendar = None
     if handoff.calendar_native_input is not None:
-        if store is None or not native_calendar:
+        if store is None:
             raise SourceDataError("TradingView native calendar requires its fixed native context")
         from baibai_jobs.acquisition.calendar_dependencies import saved_calendar_context
 
@@ -241,7 +231,7 @@ def import_handoff(
         if saved_calendar[0] != handoff.master_asof:
             raise SourceDataError("TradingView handoff differs from its saved native calendar")
     if handoff.master_native_input is not None:
-        if store is None or not native_master or handoff.master_request_ids:
+        if store is None or handoff.master_request_ids:
             raise SourceDataError(
                 "TradingView native master handoff requires its fixed native context"
             )
@@ -277,9 +267,9 @@ def import_handoff(
         )
         if has_master and tuple(universe(conn, basis)) != handoff.symbols:
             raise SourceDataError("TradingView handoff universe differs from canonical master")
-        if not has_master and (native_master or len(handoff.master_request_ids) != 1):
+        if not has_master:
             raise SourceDataError("TradingView handoff requires one complete exact-date master")
-        if native_master and handoff.master_request_ids:
+        if handoff.master_request_ids:
             if master_fingerprints is None:
                 raise ValueError("legacy TradingView master requires native cutover fingerprints")
             if verify_migrated_master_receipts(
@@ -295,11 +285,7 @@ def import_handoff(
             ):
                 raise SourceDataError("TradingView handoff has a different master request")
         with conn:
-            if not native_master:
-                _copy_raw(conn, raw, "jquants_source_pages", handoff.master_request_ids)
-            raw_added = _copy_raw(conn, raw, "tradingview_source_receipts", handoff.receipt_ids)
-    if not has_master:
-        project_request(target, handoff.master_request_ids[0])
+            raw_added = _copy_raw(conn, raw, handoff.receipt_ids)
     before = snapshot_state(target, handoff.snapshot_date)
     with closing(open_connection(target)) as conn, conn:
         if tuple(universe(conn, basis)) != handoff.symbols:

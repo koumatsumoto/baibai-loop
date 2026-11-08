@@ -337,6 +337,70 @@ def test_handle_lifecycle_and_existing_file_fails_before_r2(
     assert not path.exists()
 
 
+@pytest.mark.parametrize("state", ["held", "expired", "released", "replaced", "missing"])
+def test_verify_cli_checks_current_authority_without_writes_or_handle_changes(
+    monkeypatch, tmp_path, capsys, state
+):
+    store = MemoryStore()
+    now = datetime.now(UTC)
+    handle, _ = lease.acquire(
+        store, "operator", now=now - lease.LEASE_TTL if state == "expired" else now
+    )
+    path = tmp_path / "lease.json"
+    lease._save_handle(path, handle)
+    before = path.read_bytes()
+    if state in {"released", "replaced"}:
+        lease.release(store, handle)
+    if state == "replaced":
+        lease.acquire(store, "operator", now=now)
+    if state == "missing":
+        store.body = None
+    store.writes.clear()
+    monkeypatch.setattr(lease, "_load_project_env", lambda _: None)
+    monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)
+
+    assert lease.main(["verify", "--handle", str(path)]) == int(state != "held")
+    assert store.writes == []
+    assert path.read_bytes() == before
+    output = capsys.readouterr()
+    assert ("verified purpose=operator" in output.out) == (state == "held")
+
+
+@pytest.mark.parametrize("body", [None, "{", "{}"])
+def test_verify_cli_rejects_missing_or_malformed_handle_before_r2(monkeypatch, tmp_path, body):
+    path = tmp_path / "lease.json"
+    if body is not None:
+        path.write_text(body)
+
+    def unexpected_store(**_):
+        pytest.fail("invalid local handle must fail before constructing an R2 client")
+
+    monkeypatch.setattr(lease, "Boto3R2Store", unexpected_store)
+    assert lease.main(["verify", "--handle", str(path)]) == 1
+
+
+@pytest.mark.parametrize("command", ["acquire", "release", "verify"])
+def test_documented_parser_is_pure_and_requires_the_existing_options(monkeypatch, command):
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("building and parsing lease commands must not load credentials or R2")
+
+    monkeypatch.setattr(lease, "_load_project_env", unexpected)
+    monkeypatch.setattr(lease, "Boto3R2Store", unexpected)
+    parser = lease.build_parser()
+    with pytest.raises(SystemExit) as missing:
+        parser.parse_args([command])
+    assert missing.value.code == 2
+    arguments = [command, "--handle", "handle.json"]
+    if command == "acquire":
+        with pytest.raises(SystemExit) as purpose:
+            parser.parse_args(arguments)
+        assert purpose.value.code == 2
+        arguments += ["--purpose", "operator"]
+    parsed = parser.parse_args(arguments)
+    assert parsed.command == command
+    assert parsed.handle == Path("handle.json")
+
+
 def test_missing_etag_rejects_release(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     store = MemoryStore()
     monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)

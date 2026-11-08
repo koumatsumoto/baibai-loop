@@ -799,7 +799,7 @@ def test_five_domain_assessment_review_action_and_readback(tmp_path, monkeypatch
         lambda *_a, **_kw: pytest.fail("resume recollected mutable inputs"),
     )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.company_growth.company_growth",
+        "baibai_engine.machine_analysis.generation.financial_models.generate_company_growth",
         lambda *_a, **_kw: pytest.fail("resume recalculated Company Growth"),
     )
     monkeypatch.setattr(

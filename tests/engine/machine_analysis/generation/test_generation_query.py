@@ -12,10 +12,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationSubject,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    evaluate_saved_economic_generation,
-)
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
 
@@ -266,10 +262,6 @@ def test_subject_stream_rejects_selected_models_outside_the_saved_plan(tmp_path,
         ) as saved,
     ):
         tuple(saved[1])
-    with pytest.raises(ValueError, match="subject plan"):
-        evaluate_saved_economic_generation(
-            fixed.generation_id, tickers=("1234",), policy=EconomicPathPolicy(), path=path
-        )
     assert path.read_bytes() == before
 
 

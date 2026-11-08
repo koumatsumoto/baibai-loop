@@ -8,10 +8,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from pydantic import JsonValue, TypeAdapter
+from pydantic import TypeAdapter
 
 from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
-from baibai_engine.machine_analysis.generation.query import stream_generation_subjects
 from baibai_engine.machine_analysis.screening.contracts import (
     ScreeningSelection,
 )
@@ -76,67 +75,3 @@ def read_publication(
             generation=GenerationMetadata.model_validate_json(row[2]),
             selection=_CODEC.validate_json(gzip.decompress(row[3])),
         )
-
-
-def read_pricing_gaps(
-    selection: ScreeningSelection, *, path: Path | None = None
-) -> dict[str, JsonValue]:
-    """固定母集団の保存入力を現行価格条件で点検する。過去の除外理由を再構成しない。"""
-    from baibai_engine.machine_analysis.screening.policies.economic_path_context import _object
-    from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
-        pricing_input_failures,
-    )
-
-    subjects = tuple(sorted(set(selection.universe_tickers)))
-    gaps: dict[str, dict[str, JsonValue]] = {}
-    seen: set[str] = set()
-    with stream_generation_subjects(
-        selection.generation_id,
-        subjects=subjects,
-        model_ids=("company_financials",),
-        path=path,
-    ) as generation:
-        if generation is None:
-            raise ValueError("model generation not found")
-        _, companies = generation
-        for subject, models in companies:
-            model = models[0]
-            seen.add(subject)
-            valuation = model.payload
-            failures = pricing_input_failures(valuation)
-            if failures:
-                earnings = _object(valuation.get("earnings_price"))
-                gaps[subject] = {
-                    "ticker": subject,
-                    "model_revision": model.calculation_revision,
-                    "failures": list(failures),
-                    "expected_price_date": valuation.get("expected_price_date"),
-                    "earnings_price": {
-                        field: earnings.get(field)
-                        for field in (
-                            "price_date",
-                            "price_yen",
-                            "shares_ex_treasury",
-                            "market_cap_yen",
-                            "unavailable_reason",
-                        )
-                    },
-                    "capital_basis_failure_reason": _object(valuation.get("financial")).get(
-                        "capital_basis_failure_reason"
-                    ),
-                }
-                del earnings
-            del models, model, valuation
-    for subject in set(subjects) - seen:
-        gaps[subject] = {
-            "ticker": subject,
-            "model_revision": None,
-            "failures": ["missing_company_financials"],
-        }
-    return {
-        "basis": "current_economic_path_pricing_gate",
-        "universe_count": len(subjects),
-        "valid_count": len(subjects) - len(gaps),
-        "invalid_count": len(gaps),
-        "companies": [gaps[subject] for subject in sorted(gaps)],
-    }

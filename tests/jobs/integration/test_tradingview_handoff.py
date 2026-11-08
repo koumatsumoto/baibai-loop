@@ -109,11 +109,11 @@ def test_rejected_response_is_received_without_creating_a_normal_snapshot(tmp_pa
     assert stored(canonical) == []
 
 
-def test_new_exact_date_master_is_replayed_from_its_original_pages(tmp_path):
+def test_legacy_master_pages_never_replace_the_required_native_master(tmp_path):
     import json
 
     source, canonical = (
-        store(tmp_path / "source.sqlite", 2500),
+        store(tmp_path / "source.sqlite", 2),
         store(tmp_path / "canonical.sqlite", 1),
     )
     with closing(open_connection(source)) as conn:
@@ -128,9 +128,15 @@ def test_new_exact_date_master_is_replayed_from_its_original_pages(tmp_path):
     stage = tmp_path / "stage.sqlite"
     selected = export_handoff(source, stage, day=DAY, since=NOW - timedelta(seconds=2))
     assert len(selected.master_request_ids) == 1
-    result = import_handoff(stage, canonical, selected)
-    assert result.report["rows_added"] == 1
-    assert result.report["expected_universe"] == 2500
+    with pytest.raises(SourceDataError, match="requires one complete exact-date master"):
+        import_handoff(stage, canonical, selected)
+    with closing(open_connection(canonical)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone() == (0,)
+        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (0,)
+        assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone() == (0,)
+    with closing(open_connection(stage)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone() == (1,)
+        assert conn.execute("SELECT COUNT(*) FROM tradingview_source_receipts").fetchone() == (1,)
 
 
 def test_overnight_receipt_handoff_keeps_actual_time_and_is_idempotent(tmp_path):
