@@ -67,7 +67,7 @@ def database_schema_version(path: Path) -> int:
     return int(row[0])
 
 
-def create_snapshot(source: Path, output: Path) -> None:
+def create_snapshot(source: Path, output: Path, *, compact: bool = False) -> None:
     """Copy ``source`` through SQLite's backup API, including uncheckpointed WAL rows."""
     if source.resolve() == output.resolve() or (
         source.exists() and output.exists() and source.samefile(output)
@@ -77,6 +77,14 @@ def create_snapshot(source: Path, output: Path) -> None:
     with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=output.parent) as directory:
         temporary = Path(directory) / "snapshot.sqlite"
         backup_to_new_file(source, temporary)
+        if compact:
+            # Only the transfer copy is disposable. Keep source pages and WAL untouched.
+            with closing(sqlite3.connect(temporary)) as connection:
+                free_pages = connection.execute("PRAGMA freelist_count").fetchone()[0]
+                if free_pages:
+                    connection.execute("VACUUM")
+            if free_pages:
+                validate_snapshot(temporary)
         temporary.replace(output)
 
 
@@ -86,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot = subparsers.add_parser("create")
     snapshot.add_argument("--source", type=Path, required=True)
     snapshot.add_argument("--output", type=Path, required=True)
+    snapshot.add_argument("--compact", action="store_true", help="reclaim free transfer-copy pages")
     check = subparsers.add_parser("check")
     check.add_argument("--path", type=Path, required=True)
     check.add_argument("--schema-version", type=int)
@@ -97,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "create":
-        create_snapshot(args.source, args.output)
+        create_snapshot(args.source, args.output, compact=args.compact)
     elif args.command == "version":
         print(database_schema_version(args.path))
     else:

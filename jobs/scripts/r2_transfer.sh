@@ -98,11 +98,14 @@ check_sqlite() {
 }
 
 snapshot_sqlite() {
+  local -a options=()
+  # Runs pruning leaves free pages; reclaim only the transfer copy, never the store.
+  if [[ "$3" == "runs.sqlite" ]]; then options+=(--compact); fi
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
       uv run python -m baibai_engine.storage.sqlite.snapshot create \
-        --source "$1" --output "$2"
+        --source "$1" --output "$2" "${options[@]}"
   )
 }
 
@@ -519,7 +522,7 @@ _push_keys() {
   for key in "$@"; do
     source="$(store_path "${key}")"
     started="${SECONDS}"
-    snapshot_sqlite "${source}" "${transfer_staging}/${key}"
+    snapshot_sqlite "${source}" "${transfer_staging}/${key}" "${key}"
     # The copy that leaves here carries only what the lake does not hold — but only
     # once the lake holds anything. A lake release pointer is where that authority is
     # declared, so it is read rather than assumed: before the first publication (an

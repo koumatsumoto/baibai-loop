@@ -317,6 +317,8 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 
 continuation_onlyのpartialは正常継続で全取得完了ではない。HTTP/parse/deadline/CAS/保存失敗を分け、正常sourceを進める。HTTP失敗はDEGRADEDに残し、受領後parser失敗と分ける。200同値も別受領、304は具体的200 bodyへの参照。新GETで失った過去原本を復元したとしない。
 
+[記事summary](src/baibai_jobs/acquisition/articles.py)のbodiesは本文receive呼出しの回数で、HTTP失敗も含み、新規本文の保存数ではない。今回の通信はrequests_used/bytes_used、本文の保持はstage内の受領・body参照で確認し、304の既存本文参照と新規body保存を分ける。private受領の成功はstage保存の成否であり、全本文取得や正本への統合成功を意味しない。
+
 案内/転送/添付は親子の別受領。トウシル同host公開301/308は既存予算内でLocationを保持し、一般redirect/認証URL/未許可hostや財務省過去PDF全巡回へ広げない。未保存Locationを推定せず、workset未完を捨てたり予算を増やしたりしない。sealは固定releaseの今回receiptと抽出artifactの読戻し後に行う。
 
 統合前はexact stage/receiptをprivateに読み、再GET/planning変更をしない。旧market schemaでもArticle専用shapeとbody digestで照合し、元SQLiteのbytes/版数を変換しない。
@@ -382,6 +384,8 @@ gh workflow run cloud-external-assessment.yml --ref main -f source=monex -f batc
 ```
 
 日次は固定master/calendar/parserの元bindingで再開する。依存不足を全market/TradingView起動で迂回しない。同sourceを重ねずqueue後cycleを確認し、plan再作成/hash手修正をせず期限内未試行pairだけを進める。保存失敗pairの再取得は別labelとする。
+
+[外部評価summary](src/baibai_jobs/acquisition/external_assessments/cohorts.py)のstate_counts/reason_countsは対象pairの保存状態の集計で、access_denied等の件数を今回のHTTP回数としない。[取得report](src/baibai_jobs/acquisition/external_assessments/daily.py)のprovider_requestsは今回の呼出し、http_requests/response_content_bytesは再開前を含むcohortの記録であり、本文の新規保存数とは分けて読む。
 
 新原本はretained。旧rawは3日削除の短期handoffで、厳密72時間/長期L1ではない。残存する同bytes/元IDを保全するときだけ次を使う。
 

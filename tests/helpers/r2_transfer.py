@@ -288,6 +288,10 @@ case "${script}" in
     exit 0
     ;;
   snapshot)
+    if [[ -n "${SNAPSHOT_LOG:-}" ]]; then printf '%s\\n' "$*" >> "$SNAPSHOT_LOG"; fi
+    if [[ "$*" == *"--compact"* && "${SNAPSHOT_COMPACT_FAKE_EXIT:-0}" != "0" ]]; then
+      exit "$SNAPSHOT_COMPACT_FAKE_EXIT"
+    fi
     source=""
     output=""
     while [[ $# -gt 0 ]]; do

@@ -34,6 +34,7 @@ from baibai_engine.investment_judgment.workflow.selection import (
     selection_sha256,
     selection_targets,
 )
+from baibai_engine.investment_judgment.workflow.selection_evidence import read_selection_evidence
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.filesystem import write_text_new
@@ -56,13 +57,24 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
     require_coverage(selection_targets(selected), progress.outcomes, complete=True)
     scope = proposal_scope(operation_id, operation.payload) if selected.targets else None
     proposal = None
+    published_evidence = None
+    operational_sha256 = selection_sha256(selected)
     with closing(connect_read_only(db_path)) as connection:
         connection.execute("BEGIN")
         if progress.proposal_ref is not None:
             proposal = load_investment_proposal(connection, progress.proposal_ref.proposal_id)
+            published_evidence = read_selection_evidence(
+                operation_id=operation_id,
+                sha256=proposal.research_scope.selection_sha256,
+                proposal_id=proposal.proposal_id,
+                db_path=db_path,
+            )
             if (
-                proposal_draft_sha256(proposal) != progress.proposal_ref.draft_sha256
-                or proposal.research_scope != scope
+                scope is None
+                or published_evidence["operational_selection_sha256"] != operational_sha256
+                or proposal.research_scope.targets != scope.targets
+                or proposal.research_scope.outcomes != scope.outcomes
+                or proposal_draft_sha256(proposal) != progress.proposal_ref.draft_sha256
                 or proposal.request_scope != selected.request.scope
             ):
                 raise ValueError("saved Proposal differs from the completed Operation reference")
@@ -72,6 +84,11 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
             has_published_proposal_for_operation(connection, operation_id)
         ):
             raise ValueError("completed Operation is missing its published Proposal reference")
+
+    if proposal is None:
+        read_selection_evidence(
+            operation_id=operation_id, sha256=operational_sha256, db_path=db_path
+        )
 
     generation = selected.inputs.generation
     result = None if screening is None else screening.result
@@ -116,7 +133,16 @@ def inspect_decision_cohort(*, db_path: Path, operation_id: str) -> dict[str, ob
         "kind": "completed_decision_cohort_diagnostic",
         "operation_id": operation_id,
         "operation_sha256": sha256(canonical_json(operation.public()).encode()).hexdigest(),
-        "selection_sha256": selection_sha256(selected),
+        # Rows remain operational inputs; publication evidence is never reinterpreted.
+        "selection_role": "operational",
+        "selection_sha256": operational_sha256,
+        "operational_selection_sha256": operational_sha256,
+        "published_selection_sha256": None
+        if published_evidence is None
+        else published_evidence["selection_sha256"],
+        "publication_evidence_role": None
+        if published_evidence is None
+        else published_evidence["role"],
         "selection_schema_version": selected.schema_version,
         "request_scope": selected.request.scope,
         "research_as_of": selected.research_as_of.isoformat(),
