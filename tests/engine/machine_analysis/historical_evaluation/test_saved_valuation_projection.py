@@ -199,7 +199,9 @@ def test_malformed_saved_forecast_source_is_not_reported_as_unrecorded(source, m
         forecast_sources_from_analysis({"metrics": {"earnings_forecast_source": source}})
 
 
-@pytest.mark.parametrize("bad", [None, True, "100", float("nan"), float("inf")])
+@pytest.mark.parametrize(
+    "bad", [None, True, "100", float("nan"), float("inf"), 10**400, -(10**400)]
+)
 def test_balance_sheet_projection_keeps_unknowns_and_never_derives_dates(bad):
     bs = balance_sheet_from_analysis({"metrics": {"cash": bad, "cash_eq": bad}})
     assert bs["edinet"]["cash"] is None
@@ -208,6 +210,60 @@ def test_balance_sheet_projection_keeps_unknowns_and_never_derives_dates(bad):
     assert bs["jquants"]["measurement_date"] is None
     assert bs["edinet"]["net_cash_quality"] is None
     assert all(value is None for value in bs["edinet"]["document_metadata"].values())
+
+
+@pytest.mark.parametrize("value", ["observed", "", "  ", None, True, False, 1, 1.5, [], {}])
+def test_saved_text_fields_preserve_strings_without_coercion(value):
+    saved = {
+        "metrics": {"er_unit": value, "edinet_source_doc_id": value},
+        "ttm_quality": {"per_trailing": value},
+    }
+    before = copy.deepcopy(saved)
+    expected = value if isinstance(value, str) else None
+    assert machine_valuation_from_analysis(saved).unit == expected
+    assert valuation_metrics_from_analysis(saved)["ttm_quality"]["per_trailing"] == expected
+    cf = cash_flow_from_analysis(saved)
+    bs = balance_sheet_from_analysis(saved)
+    assert cf["edinet"]["document_metadata"]["edinet_source_doc_id"] == expected
+    assert bs["edinet"]["document_metadata"]["edinet_source_doc_id"] == expected
+    assert saved == before
+
+
+@pytest.mark.parametrize("bad", [10**400, -(10**400)])
+def test_overflowing_saved_amounts_reach_research_as_missing_without_rewriting_input(tmp_path, bad):
+    path = tmp_path / "runs.sqlite"
+    saved = stock_analysis(
+        "1234",
+        metrics={
+            "market_price_yen": bad,
+            "normalized_per_3fy": bad,
+            "ocf_ttm": bad,
+            "cash": bad,
+            "cash_eq": 0.0,
+        },
+    )
+    seed_saved_run(
+        path,
+        screening_run_payload(as_of=CUTOFF.isoformat(), stock_analyses=[saved]),
+        run_revision_id="overflow-fixed",
+    )
+    before = path.read_bytes()
+    inputs = _project_saved_legacy_inputs(
+        tickers=("1234",),
+        known_at=datetime.fromisoformat("2026-09-19T18:00:00+09:00"),
+        runs_path=path,
+        run_revision_id="overflow-fixed",
+    )
+    security = inputs["securities"]["1234"]
+    assert security["machine_valuation"]["estimate"]["market_price_yen"] is None
+    assert security["valuation_metrics"]["normalized_per_3fy"] is None
+    assert security["cash_flow"]["jquants"]["ocf_ttm"] is None
+    assert security["balance_sheet"]["edinet"]["cash"] is None
+    assert security["balance_sheet"]["jquants"]["cash_eq"] == 0.0
+    retained = ScreeningRunReader(path).get_run("overflow-fixed")
+    assert retained is not None
+    assert retained.stock_analyses[0]["metrics"]["cash"] == bad
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(
