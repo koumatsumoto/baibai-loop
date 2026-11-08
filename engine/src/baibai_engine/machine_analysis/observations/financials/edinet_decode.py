@@ -24,11 +24,6 @@ from baibai_engine.machine_analysis.observations.financials.metric_quality impor
 from baibai_engine.primitives.stocks import normalize_ticker
 
 
-def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
-    """Require explicit published, non-withdrawn status; missing flags are unknown."""
-    return str(legal) in {"1", "2"} and str(disclosure) == "0" and str(withdrawal) == "0"
-
-
 def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
     """Decode the canonical extracted-metric columns, not a native EDINET response."""
     return EdinetMetricRecord(
