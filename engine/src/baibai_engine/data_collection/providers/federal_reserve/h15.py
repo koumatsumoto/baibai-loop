@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date
+from http import HTTPStatus
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from baibai_engine.data_collection.catalog import SourceDefinition
@@ -76,8 +77,8 @@ def _fetch_h15_csv(
 ) -> str:
     """Try the configured public transport routes and validate the CSV header.
 
-    Only an empty/403 response or missing CSV header selects the browser route.
-    Other transport failures propagate; neither route guarantees source access.
+    Only an empty successful response or missing CSV header selects the browser
+    route. HTTP failures, including 403, propagate without another route.
     """
 
     plain_failure: str | None = None
@@ -92,7 +93,7 @@ def _fetch_h15_csv(
             retry_transient=True,
         )
     except SourceWithheldError as exc:
-        if context is None:
+        if exc.status_code == HTTPStatus.FORBIDDEN or context is None:
             raise
         plain_failure = str(exc)
         text = ""

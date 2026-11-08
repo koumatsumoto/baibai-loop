@@ -10,6 +10,7 @@ import requests
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _FakeResponse,
+    _ForbiddenResponse,
     _RaisingSession,
     _StaticSession,
 )
@@ -103,6 +104,20 @@ class IndicatorsProviderParserTests(TestCase):
             # A cached empty body would fail every later series sharing the URL
             # without ever re-requesting it.
             self.assertEqual(context.bytes_cache, {})
+
+    def test_forbidden_and_empty_response_keep_distinct_transport_status(self) -> None:
+        for response, status in ((_ForbiddenResponse(), 403), (_FakeResponse(b""), None)):
+            with (
+                self.subTest(status=status),
+                self.assertRaises(SourceWithheldError) as caught,
+            ):
+                fetch_bytes(
+                    cast(HttpSession, _StaticSession(response)),
+                    "https://example.test/data",
+                    params=None,
+                    max_bytes=1000,
+                )
+            self.assertEqual(caught.exception.status_code, status)
 
     def test_fetch_text_reports_a_non_utf8_response_as_a_provider_failure(self) -> None:
         session = _StaticSession(_FakeResponse(b"\xff\xfe\x00garbage"))

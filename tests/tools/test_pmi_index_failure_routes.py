@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from tests.helpers.network import _no_real_network as _no_real_network
+from tests.helpers.provider_fixtures import _FakeResponse, _ForbiddenResponse, _StaticSession
 
 from baibai_engine.data_collection.transport.context import (
     IndicatorsProviderError,
@@ -23,6 +24,39 @@ def test_plain_index_failure_is_not_retried_through_browser(monkeypatch, reason)
     assert caught.value is error
     context.browser_fetcher.assert_not_called()
     context.discard_cached_bytes.assert_not_called()
+
+
+def test_forbidden_index_keeps_original_http_failure_without_browser_route():
+    context = SimpleNamespace(
+        session=_StaticSession(_ForbiddenResponse()),
+        bytes_cache={},
+        check_deadline=Mock(),
+        browser_fetcher=Mock(),
+        discard_cached_bytes=Mock(),
+    )
+    with pytest.raises(SourceWithheldError, match="source withheld") as caught:
+        pmi_manifest.release_index_entries(context)
+    assert caught.value.status_code == 403
+    assert caught.value.__cause__ is not None
+    assert str(caught.value.__cause__) == "403 Client Error: Forbidden"
+    context.browser_fetcher.assert_not_called()
+    context.discard_cached_bytes.assert_not_called()
+
+
+def test_empty_successful_index_still_uses_rendered_html():
+    response = _FakeResponse(b"", status_code=200)
+    browser = SimpleNamespace(fetch_html=Mock(return_value="<html></html>"))
+    context = SimpleNamespace(
+        session=_StaticSession(response),
+        bytes_cache={},
+        check_deadline=Mock(),
+        browser_fetcher=Mock(return_value=browser),
+        discard_cached_bytes=Mock(),
+    )
+    assert pmi_manifest.release_index_entries(context) == ()
+    assert response.closed
+    context.discard_cached_bytes.assert_called_once_with(pmi_manifest.RELEASE_INDEX_URL, None)
+    browser.fetch_html.assert_called_once_with(pmi_manifest.RELEASE_INDEX_URL)
 
 
 @pytest.mark.parametrize("withheld", [False, True])

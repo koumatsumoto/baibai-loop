@@ -52,6 +52,10 @@ class SourceWithheldError(IndicatorsProviderError):
     and network failures remain ordinary provider errors, not fallback signals.
     """
 
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class BrowserUnavailableError(IndicatorsProviderError):
     """No browser could be started, so nothing was learned about the source.
@@ -323,5 +327,7 @@ def _raise_for_response(response: requests.Response, url: str) -> None:
         if response.status_code == HTTPStatus.FORBIDDEN:
             # Keep the existing response category without inferring the reason
             # for the refusal or permission to use another route.
-            raise SourceWithheldError(f"source withheld {url}: {exc}") from exc
+            raise SourceWithheldError(
+                f"source withheld {url}: {exc}", status_code=response.status_code
+            ) from exc
         raise
