@@ -2,9 +2,7 @@
 
 import json
 from datetime import timedelta
-from types import SimpleNamespace
 
-import pytest
 from tests.engine.data_collection.providers.jquants.test_calendar_native import AT, DAY
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -105,12 +103,3 @@ def test_final_calendar_quota_halts_price_master_and_remaining_market_gets(tmp_p
     report = json.loads((tmp_path / "acquire/result.json").read_text())
     assert all(value.get("halted") for value in report["independent_l1"].values())
     assert len(client.calls) == 1
-
-
-def test_old_bootstrap_calendar_writer_cannot_run_after_native_cutover(monkeypatch):
-    from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-    from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
-
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
-    with pytest.raises(JQuantsProviderError, match="jquants-calendar-native"):
-        JQuantsRefresh.ensure_market_calendar(SimpleNamespace(), DAY, DAY)

@@ -60,6 +60,10 @@ def _command(source: str, asof: date, *, database: Path) -> list[str]:
         raise ValueError("EDINET list acquisition moved to edinet-list-native")
     if source == "jquants-financial":
         raise ValueError("financial acquisition moved to jquants-financial-native")
+    if source == "jquants-market":
+        raise ValueError("market acquisition uses native J-Quants L1 commands")
+    if source not in {"jpx-earnings", "jpx-regulations"}:
+        raise ValueError("unsupported acquisition source group")
     return [
         "baibai-jobs",
         "maintain-market",

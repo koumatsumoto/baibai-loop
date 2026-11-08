@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsRequest,
     RetainedRequest,
 )
 from baibai_engine.data_collection.providers.jquants.full_day_native import (
@@ -18,7 +17,6 @@ from baibai_engine.data_collection.providers.jquants.full_day_native import (
     FullDayContract,
     FullDayL1,
     FullDayObjectStore,
-    full_day_content_id,
     read_full_day_requests,
     verify_migrated_full_day_receipts,
 )
@@ -39,10 +37,6 @@ class MasterAttempt(FullDayAttempt):
 class FixedMasterL1(FixedFullDayL1):
     contract = _CONTRACT
     attempt_type = MasterAttempt
-
-
-def master_content_id(request: JQuantsRequest) -> str:
-    return full_day_content_id(request, _CONTRACT)
 
 
 def read_master_requests(

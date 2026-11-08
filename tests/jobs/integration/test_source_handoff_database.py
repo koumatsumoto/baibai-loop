@@ -8,7 +8,7 @@ import baibai_jobs.integration.source_handoff as source_handoff
 from baibai_jobs.maintenance.market import cli as app
 
 
-@pytest.mark.parametrize("source", ["jquants-market", "jpx-earnings", "jpx-regulations"])
+@pytest.mark.parametrize("source", ["jpx-earnings", "jpx-regulations"])
 def test_source_command_preserves_selected_database(source, tmp_path):
     database = tmp_path / "scoped.sqlite"
     command = source_handoff._command(source, date(2026, 10, 24), database=database)
@@ -18,7 +18,11 @@ def test_source_command_preserves_selected_database(source, tmp_path):
 
 @pytest.mark.parametrize(
     ("source", "replacement"),
-    [("edinet-list", "edinet-list-native"), ("jquants-financial", "jquants-financial-native")],
+    [
+        ("edinet-list", "edinet-list-native"),
+        ("jquants-financial", "jquants-financial-native"),
+        ("jquants-market", "native J-Quants L1"),
+    ],
 )
 def test_retired_source_cannot_build_the_removed_bootstrap_command(tmp_path, source, replacement):
     with pytest.raises(ValueError, match=replacement):

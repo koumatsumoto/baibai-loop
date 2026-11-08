@@ -4,26 +4,7 @@ import json
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_jobs.integration import sources
-from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
-
-
-@pytest.mark.parametrize("legacy_env", ["false", "invalid"])
-@pytest.mark.parametrize("method", ["ensure_master", "ensure_market_calendar"])
-def test_removed_environment_cannot_reenable_sqlite_writer(
-    tmp_path, monkeypatch, legacy_env, method
-):
-    from datetime import date
-
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", legacy_env)
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", legacy_env)
-    path = tmp_path / "absent.sqlite"
-    refresh = JQuantsRefresh(path, None, client=object())
-    args = (date(2026, 10, 30),) * (1 if method == "ensure_master" else 2)
-    with pytest.raises(JQuantsProviderError, match=r"legacy .* writer is disabled"):
-        getattr(refresh, method)(*args)
-    assert not path.exists()
 
 
 @pytest.mark.parametrize("field", ["master_native", "calendar_native"])

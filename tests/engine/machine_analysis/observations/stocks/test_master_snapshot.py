@@ -11,11 +11,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import requests
 from pydantic import ValidationError
-from tests.helpers.screening_sqlite import insert_financial_record, make_master_records
+from tests.helpers.screening_sqlite import make_master_records
 
-from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_master
 from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
@@ -31,106 +29,6 @@ from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, 
 from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
 )
-from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
-
-
-class _MasterClient(requests.Session):
-    def __init__(self) -> None:
-        super().__init__()
-        self.calls: list[str] = []
-
-    def get(self, url, **kwargs):
-        assert url.endswith("/equities/master")
-        requested = kwargs["params"]["date"]
-        self.calls.append(requested)
-        response = requests.Response()
-        response.status_code = 200
-        response._content = json.dumps(
-            {"data": make_master_records(date.fromisoformat(requested))}
-        ).encode()
-        response._content_consumed = True
-        return response
-
-
-def _refresh(db: Path, session: _MasterClient) -> JQuantsRefresh:
-    return JQuantsRefresh(db, None, client=JQuantsHTTP("token", session=session))
-
-
-class _BootstrapJQuants:
-    def __init__(self, refresh: JQuantsRefresh, sqlite_path: Path) -> None:
-        self.refresh = refresh
-        self.sqlite_path = sqlite_path
-
-    def ensure_master(self, day: date) -> int:
-        return self.refresh.ensure_master(day)
-
-    def ensure_daily_bars(self, start: date, end: date) -> int:
-        del start, end
-        return 0
-
-    def refresh_fin_summaries(
-        self,
-        start: date,
-        end: date,
-        *,
-        revision_overlap_days: int,
-        progress=None,
-    ) -> int:
-        del start, revision_overlap_days
-        with closing(open_connection(self.sqlite_path)) as conn, conn:
-            tickers = [
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT substr(security_code,1,4) FROM jquants_master_snapshots "
-                    "WHERE snapshot_date = ? AND substr(security_code,5,1)='0' "
-                    "AND json_extract(record_json, '$.ProdCat')='011'",
-                    (end.isoformat(),),
-                )
-            ]
-            for ticker in tickers:
-                insert_financial_record(
-                    conn,
-                    {
-                        "Code": f"{ticker}0",
-                        "DiscDate": end.isoformat(),
-                        "DiscNo": f"{ticker}-{end.isoformat()}",
-                        "ShOutFY": 10_000_000.0,
-                        "TrShFY": 1_000_000.0,
-                        "EqAR": 0.5,
-                    },
-                )
-            conn.commit()
-        if progress is not None:
-            progress(1, 1, end, end)
-        return len(tickers)
-
-    def refresh_short_sale_reports(self, start: date, end: date) -> int:
-        del start, end
-        return 0
-
-    def refresh_margin_alerts(self, start: date, end: date) -> int:
-        del start, end
-        return 0
-
-    def ensure_all_issues_daily_margin(self, balance_date: date) -> int:
-        del balance_date
-        return 0
-
-    def ensure_market_calendar(self, start: date, end: date) -> int:
-        del start, end
-        return 0
-
-    def close(self) -> None:
-        self.refresh.close()
-
-
-class _BootstrapJPX:
-    def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
-        del asof_date
-        return {}
-
-    def close(self) -> None:
-        pass
 
 
 def _db_fingerprint(db: Path) -> tuple[tuple[object, ...], tuple[object, ...]]:
@@ -332,11 +230,11 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
                 conn.execute("PRAGMA user_version = 1")
-            client = _MasterClient()
-            reader = JQuantsReader(db)
-            with self.assertRaises(SQLiteSchemaError):
-                reader.get_eq_master(date(2026, 5, 29))
-            self.assertEqual(client.calls, [])
+            with (
+                patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
+                self.assertRaises(SQLiteSchemaError),
+            ):
+                JQuantsReader(db).get_eq_master(date(2026, 5, 29))
 
     def test_exact_prior_and_future_snapshot_selection(self) -> None:
         first = date(2026, 5, 29)
