@@ -6,10 +6,9 @@ back to it, and Collection never imports these market coverage rules.
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from contextlib import closing
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 from baibai_engine.data_collection.providers.jquants.acquisition import (
@@ -23,12 +22,6 @@ from baibai_engine.data_collection.providers.jquants.http import (
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
-from baibai_engine.machine_analysis.observations.prices.price_reader import (
-    count_daily_bars,
-    daily_bars_covered,
-    latest_daily_bar_date,
-    latest_stored_daily_bar_date,
-)
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
 )
@@ -74,31 +67,6 @@ class JQuantsRefresh:
             request_id = acquire_request(conn, self._client, source, params)
         # Acquisition has committed before any interpretation can fail.
         project_request(self._path, request_id)
-
-    def _fetch_days(
-        self,
-        source: JQuantsSource,
-        ranges: Sequence[tuple[date, date]],
-        *,
-        progress: Progress | None = None,
-    ) -> None:
-        planned = merge_date_ranges(ranges)
-        total = sum((end - start).days + 1 for start, end in planned)
-        index = 0
-        for start, end in planned:
-            day = start
-            while day <= end:
-                # Preserve bounded pacing between 31-day blocks. Each individual
-                # GET also honors provider Retry-After and transient HTTP retries.
-                if index and index % 31 == 0:
-                    time.sleep(3.0)
-                key = "disc_date" if source == "short_sale_reports" else "date"
-                value = day.isoformat()
-                self._fetch(source, {key: value})
-                index += 1
-                if progress is not None:
-                    progress(index, total, day, day)
-                day += timedelta(days=1)
 
     def _missing(self, source: str, start: date, end: date) -> tuple[tuple[date, date], ...]:
         _check_range(start, end)
@@ -155,29 +123,10 @@ class JQuantsRefresh:
         return len(self._reader.get_mkt_calendar(start, end))
 
     def ensure_daily_bars(self, start: date, end: date) -> int:
-        from baibai_jobs.price_cutover import price_native_enabled
-
-        if price_native_enabled():
-            raise JQuantsProviderError(
-                "legacy daily-bar writer is disabled; use jquants-price-native acquire "
-                "and rebuild-price-native with its fixed input"
-            )
-        missing = self._missing("jquants_daily_bars", start, end)
-        if not missing:
-            latest = latest_daily_bar_date(self._path, start, end)
-            stored_latest = latest_stored_daily_bar_date(self._path)
-            if (
-                latest is None
-                or latest >= end
-                or (stored_latest is not None and end < stored_latest)
-            ):
-                return count_daily_bars(self._path, start, end)
-            self._fetch_days("daily_bars", ((latest, end),))
-        else:
-            self._fetch_days("daily_bars", missing)
-        if not daily_bars_covered(self._path, start, end):
-            raise JQuantsProviderError("daily bar projection remains incomplete after acquisition")
-        return count_daily_bars(self._path, start, end)
+        raise JQuantsProviderError(
+            "legacy daily-bar writer is disabled; use jquants-price-native acquire "
+            "and rebuild-price-native with its fixed input"
+        )
 
     def ensure_fin_summaries(self, start: date, end: date) -> int:
         raise JQuantsProviderError(

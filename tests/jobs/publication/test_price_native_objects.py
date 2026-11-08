@@ -74,7 +74,6 @@ def attempt(identity, day, *, tick=0, rows=None, size=16):
 
 
 def configure(monkeypatch):
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     for source in ("FINANCIAL", "MASTER", "CALENDAR", "EDINET_LIST"):
         monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", "false")
     narrow_release_policy(monkeypatch, datasets=(DATASET.name,))
@@ -278,3 +277,50 @@ def test_daily_publisher_reduces_retained_rows_and_bytes_for_same_month(tmp_path
     assert totals["day"]["rows"] == [128] * 6
     assert totals["day"]["bytes"] < totals["month"]["bytes"]
     print("native price actual publisher:", totals)
+
+
+@pytest.mark.parametrize("old_setting", [None, "false", "true", "invalid"])
+def test_publication_uses_native_price_input_without_rollout_mode(
+    tmp_path, monkeypatch, old_setting
+):
+    configure(monkeypatch)
+    if old_setting is None:
+        monkeypatch.delenv("BAIBAI_PRICE_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_PRICE_NATIVE", old_setting)
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path / "native")
+    owner.initialize()
+    owner.commit(
+        [
+            attempt(
+                "native",
+                DAY,
+                rows=[
+                    {
+                        "Code": "13010",
+                        "Date": DAY.isoformat(),
+                        "C": 100,
+                        "AdjFactor": 0.5,
+                        "ExRT": "1",
+                    }
+                ],
+            )
+        ]
+    )
+    market = market_store(
+        tmp_path / "market.sqlite",
+        daily_bars=(("1301", DAY.isoformat(), 999.0, 12.0),),
+        short_sale_reports=(),
+    )
+    with publication.prepare_market_lake(
+        sqlite_path=market, mirror_root=tmp_path / "mirror", store=store, as_of=DAY
+    ) as prepared:
+        assert prepared.price_identity.kind == "native_l1"
+        manifest = prepared.export.datasets[DATASET.name].manifest
+        assert manifest.contract_version == 2
+        assert all(ref.kind == "native_l1" for part in manifest.partitions for ref in part.sources)
+        with sqlite3.connect(prepared.sqlite_path) as connection:
+            assert connection.execute(
+                "SELECT close, adjustment_factor, volume, ex_right_type FROM jquants_daily_bars"
+            ).fetchall() == [(100.0, 0.5, None, "1")]

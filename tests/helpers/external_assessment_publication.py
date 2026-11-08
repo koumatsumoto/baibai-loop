@@ -65,6 +65,7 @@ from tests.helpers.external_assessment_responses import response
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
+from tests.helpers.price_native import configure_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
 
@@ -159,6 +160,7 @@ RECEIVED = datetime(2026, 9, 30, 15, tzinfo=UTC)
 
 @pytest.fixture
 def publication(tmp_path, monkeypatch):
+    configure_price_publication(monkeypatch)
     datasets = (
         "jquants.master_snapshots",
         "jquants.daily_bars",

@@ -11,6 +11,7 @@ from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.master import insert_master_rows
+from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview_market import CLOCK, capture
 
@@ -67,6 +68,7 @@ def integration(tmp_path, monkeypatch):
         retain_market_capture(connection, capture())
     store = MemoryR2Store()
     seed_empty_financial(store, tmp_path / "financial-native", DAY)
+    seed_prices(store, market, tmp_path / "native-price", as_of=DAY)
     return dict(
         store=store,
         edinet_input=empty_edinet_input(store, tmp_path),

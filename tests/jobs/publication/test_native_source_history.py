@@ -61,11 +61,39 @@ def mixed_release(tmp_path, monkeypatch):
 
         seed_short_reports(store, market, tmp_path / "short-baseline")
         mirror = tmp_path / "mirror"
-        with publication.prepare_market_lake(
-            sqlite_path=market, mirror_root=mirror, store=store, release_id="old-mixed"
-        ) as prepared:
-            publication.publish_prepared_market_lake(prepared, store=store)
-            old_pages = prepared.export.datasets["jquants.source_pages"].manifest
+        from baibai_engine.storage.snapshots.release import create_release
+        from baibai_engine.storage.snapshots.writer import export_market_store
+        from baibai_engine.storage.sqlite.source_cache.lake_origin import (
+            LakeStoreOrigin,
+            write_lake_store_origin,
+        )
+        from baibai_jobs.publication.policy import release_policy_for_profile
+        from baibai_jobs.publication.snapshot_release import publish_release
+
+        exported = export_market_store(
+            sqlite_path=market,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            catalog=publication.LAKE_DATASETS,
+            expected_store_origin=None,
+        )
+        release_path, _ = create_release(
+            dataset_manifest_paths=[item.manifest_path for item in exported.datasets.values()],
+            mirror_root=mirror,
+            release_id="old-mixed",
+            catalog=publication.LAKE_DATASETS,
+            policy=release_policy_for_profile("production"),
+        )
+        publish_release(mirror_root=mirror, release_manifest_path=release_path, store=store)
+        pointer = publication._serving_pointer(store).pointer
+        with sqlite3.connect(market) as connection:
+            write_lake_store_origin(
+                connection,
+                LakeStoreOrigin(
+                    release_id=pointer.release_id, release_manifest_sha256=pointer.manifest_sha256
+                ),
+            )
+        old_pages = exported.datasets["jquants.source_pages"].manifest
         return store, market, mirror, old_pages
 
     return create
@@ -73,9 +101,9 @@ def mixed_release(tmp_path, monkeypatch):
 
 def enable_native(monkeypatch, source):
     flags = {
-        "daily_bars": ("PRICE",),
+        "daily_bars": (),
         "master": ("MASTER",),
-        "market_calendar": ("FINANCIAL", "PRICE", "MASTER", "CALENDAR"),
+        "market_calendar": ("FINANCIAL", "MASTER", "CALENDAR"),
     }[source]
     for flag in flags:
         monkeypatch.setenv(f"BAIBAI_{flag}_NATIVE", "true")
@@ -150,12 +178,12 @@ def test_only_migrated_pages_may_leave_the_optional_legacy_dataset(mixed_release
     assert all(store.values[key].body == body for key, body in before.items())
 
 
-def test_legacy_mode_keeps_the_original_mixed_floor(mixed_release):
+def test_unmigrated_master_keeps_the_original_mixed_floor(mixed_release):
     store, market, mirror, _ = mixed_release(
-        [("daily_bars", "2026-01-01"), ("margin_alerts", "2026-02-01")]
+        [("master", "2026-01-01"), ("margin_alerts", "2026-02-01")]
     )
     with sqlite3.connect(market) as connection:
-        connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
+        connection.execute("DELETE FROM jquants_source_pages WHERE source='master'")
     with (
         pytest.raises(ValueError, match="coverage starts 2026-02-01"),
         publication.prepare_market_lake(

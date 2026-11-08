@@ -298,7 +298,6 @@ def test_normal_models_and_publication_share_native_master_and_price(
     from baibai_jobs.publication.policy import release_policy_for_profile
 
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     names = ("jquants.daily_bars", "jquants.master_snapshots")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})

@@ -122,7 +122,6 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     names = ("jquants.master_snapshots", "jquants.daily_bars")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})

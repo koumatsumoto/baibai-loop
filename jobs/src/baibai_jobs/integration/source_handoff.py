@@ -233,9 +233,8 @@ def _replay(
         )
     if source == "jquants-market":
         from baibai_jobs.master_cutover import master_native_enabled
-        from baibai_jobs.price_cutover import price_native_enabled
 
-        if price_native_enabled() and price_fingerprints is None:
+        if price_fingerprints is None:
             raise ValueError("native price replay requires retained cutover fingerprints")
 
         if master_native_enabled() and master_fingerprints is None:
@@ -367,13 +366,11 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
     from baibai_jobs.calendar_cutover import calendar_native_enabled
     from baibai_jobs.master_cutover import master_native_enabled
-    from baibai_jobs.price_cutover import price_native_enabled
 
-    native_prices = price_native_enabled()
     native_master = master_native_enabled()
     native_calendar = calendar_native_enabled()
-    if not (native_calendar and native_master and native_prices):
-        raise ValueError("native market acquisition requires native calendar, master and prices")
+    if not (native_calendar and native_master):
+        raise ValueError("native market acquisition requires native calendar and master")
     bucket = os.environ.get("R2_STORES_BUCKET") or "baibai-stores"
     from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
     from baibai_jobs.acquisition.jquants_calendar_native import (
@@ -646,10 +643,9 @@ def _replay_context(
 ) -> _ReplayContext:
     """Prefer saved native inputs; latest heads are only for legacy replay migration."""
     from baibai_jobs.master_cutover import master_native_enabled
-    from baibai_jobs.price_cutover import price_native_enabled
 
     context: _ReplayContext = {}
-    if source == "jquants-market" and price_native_enabled() and price_fingerprints is None:
+    if source == "jquants-market" and price_fingerprints is None:
         from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 
         price_fingerprints = {
@@ -771,7 +767,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "replay-copy":
             packet = json.loads((directory / "result.json").read_bytes())
             from baibai_jobs.master_cutover import master_native_enabled
-            from baibai_jobs.price_cutover import price_native_enabled
 
             native = args.source in {"tradingview", "jquants-market"} and (
                 master_native_enabled()
@@ -826,10 +821,9 @@ def main(argv: list[str] | None = None) -> int:
                 and calendar_input is None
             ):
                 raise ValueError("native TradingView resume requires its fixed calendar input")
-            from baibai_jobs.price_cutover import price_native_enabled
 
             price_fingerprints = None
-            if args.source == "jquants-market" and price_native_enabled():
+            if args.source == "jquants-market":
                 from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 
                 price_fingerprints = {

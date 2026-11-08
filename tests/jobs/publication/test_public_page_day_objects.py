@@ -11,6 +11,7 @@ from uuid import UUID
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
@@ -301,3 +302,6 @@ def test_publication_keeps_exact_old_months_and_splits_only_changed_periods(tmp_
             )
         assert read_rows(mirror, original) == original_rows
         assert all(store.values[key].body == body for key, body in old_objects.items())
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

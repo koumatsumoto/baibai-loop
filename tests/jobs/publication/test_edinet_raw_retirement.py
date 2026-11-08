@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.jobs.integration.test_edinet_fixed_consumer_input import fixtures
 
 from baibai_engine.data_collection.providers.edinet.archive_native import HEAD_KEY as ARCHIVE_HEAD
@@ -39,6 +40,20 @@ from baibai_jobs.publication.datasets import LAKE_DATASETS
 RAW = "edinet.source_archives"
 DOCUMENTS = "edinet.documents"
 POINTER = "lake/pointers/market/current.json"
+
+
+def edinet_state(market):
+    with sqlite3.connect(market) as connection:
+        tables = [
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'edinet_%' ORDER BY name"
+            )
+        ]
+        return {
+            name: connection.execute(f'SELECT * FROM "{name}" ORDER BY rowid').fetchall()
+            for name in tables
+        }, read_lake_store_origin(market)
 
 
 @pytest.fixture
@@ -156,7 +171,7 @@ def test_retirement_rejects_unproven_copy_before_clear_floor_or_pointer(legacy, 
             connection.execute("UPDATE edinet_source_archives SET stored_on='2026-11-01'")
         elif broken == "scope":
             merge_scope(connection, FactsScope(doc_ids=frozenset({"S100OTHER"})))
-    before = market.read_bytes()
+    before = edinet_state(market)
     pointer = store.values[POINTER]
     with (
         pytest.raises(ValueError, match="fixed native head"),
@@ -165,18 +180,19 @@ def test_retirement_rejects_unproven_copy_before_clear_floor_or_pointer(legacy, 
         ),
     ):
         pytest.fail("unproven copy must not prepare a release")
-    assert market.read_bytes() == before
+    assert edinet_state(market) == before
     assert store.values[POINTER] == pointer
     assert store.put_keys == []
     assert not any(key.endswith(".zip") for key in store.get_keys)
 
 
 def test_fixed_pair_does_not_authorize_a_wrong_serving_origin(legacy):
-    _, _, archives, saved, market, mirror, _ = legacy
+    store, _, archives, saved, market, mirror, _ = legacy
+    pointer = store.values[POINTER]
     # Native proof does not authorize a wrong origin, even when every ZIP matches.
     with sqlite3.connect(market) as connection:
         connection.execute("DELETE FROM lake_store_origin")
-    before = market.read_bytes()
+    before = edinet_state(market)
     from baibai_engine.storage.objects.r2 import LakePublishError
 
     with (
@@ -186,8 +202,10 @@ def test_fixed_pair_does_not_authorize_a_wrong_serving_origin(legacy):
         ),
     ):
         pytest.fail("wrong origin must stop")
-    assert market.read_bytes() == before
+    assert edinet_state(market) == before
     assert archive_count(market) == len(archives.archive_keys)
+    assert store.values[POINTER] == pointer
+    assert store.put_keys == []
 
 
 def test_empty_normal_execution_keeps_scope_without_reading_or_copying_zip(legacy, tmp_path):
@@ -384,3 +402,6 @@ def test_failed_compaction_retries_without_rehydrating_cleared_zip(legacy, monke
     assert compactions == ["VACUUM", "VACUUM"]
     assert store.values[POINTER] == pointer
     assert not any(key.endswith(".zip") for key in store.get_keys)
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

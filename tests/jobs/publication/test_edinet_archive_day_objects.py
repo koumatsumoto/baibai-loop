@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
@@ -200,10 +201,6 @@ def test_publication_reuses_old_months_and_only_changes_receipt_day_objects(tmp_
                 )
         elif day:
             insert(database, 7 + index, "2026-10-01" if concentrated else day)
-        _, monthly = build(database, tmp_path / f"monthly-{index}", f"monthly-{index}", LEGACY)
-        monthly_bytes = sum(
-            obj.bytes for obj in monthly.dataset_manifest(DATASET.name).partitions[1].objects
-        )
         store.put_keys.clear()
         with publication.prepare_market_lake(
             sqlite_path=database,
@@ -211,6 +208,15 @@ def test_publication_reuses_old_months_and_only_changes_receipt_day_objects(tmp_
             store=store,
             release_id=f"daily-{index}",
         ) as prepared:
+            _, monthly = build(
+                prepared.source_snapshot.path,
+                tmp_path / f"monthly-{index}",
+                f"monthly-{index}",
+                LEGACY,
+            )
+            monthly_bytes = sum(
+                obj.bytes for obj in monthly.dataset_manifest(DATASET.name).partitions[1].objects
+            )
             manifest = prepared.export.datasets[DATASET.name].manifest
             assert (
                 manifest.partitions[0].objects
@@ -241,3 +247,6 @@ def test_publication_reuses_old_months_and_only_changes_receipt_day_objects(tmp_
         else:
             assert added_bytes == 0
         assert all(store.values[key].body == body for key, body in old_bytes.items())
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

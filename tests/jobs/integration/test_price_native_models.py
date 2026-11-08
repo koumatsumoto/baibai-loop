@@ -185,7 +185,6 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
 
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     names = ("jquants.daily_bars", "jquants.master_snapshots")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
