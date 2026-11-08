@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.fields import is_usable_filing_status
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     _canonicalize_document_events,
 )
@@ -16,9 +17,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
     TARGET_DOC_TYPE_CODES,
     select_document_candidates,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-    is_usable_filing_status,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
