@@ -21,6 +21,7 @@ from baibai_engine.data_collection.providers.jquants.master_native import (
     MasterL1,
 )
 from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
@@ -292,7 +293,6 @@ def test_normal_models_and_publication_share_native_master_and_price(
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
@@ -344,7 +344,7 @@ def test_normal_models_and_publication_share_native_master_and_price(
     assert store.get_keys.count(HEAD_KEY) == 1
     packs = [key for key in store.get_keys if "/master/v1/packs/" in key]
     assert len(packs) == len(set(packs)) == 1
-    saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert saved.inputs["master"].descriptor["head_sha256"] == fixed.content_id
     assert "price" in saved.inputs
     assert read_eq_master_exact(market, DAY) is not None

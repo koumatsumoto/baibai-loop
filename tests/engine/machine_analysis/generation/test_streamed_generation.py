@@ -11,6 +11,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationMetadata,
     ModelGenerationStream,
 )
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
@@ -51,7 +52,7 @@ def test_stream_consumed_once_and_encoded_before_next_row_without_partial_visibi
     result = store.publish_stream(stream(original, rows()))
     assert result.created
     assert result.model_count == len(original.models)
-    assert store.read(original.generation_id) == original
+    assert read_generation(original.generation_id, path=path) == original
     with closing(sqlite3.connect(path)) as reader:
         assert reader.execute("SELECT header FROM model_generation").fetchone()[
             0
@@ -74,8 +75,8 @@ def test_late_generator_failure_rolls_back_all_rows_and_preserves_previous_gener
 
     with pytest.raises(ValueError, match="late calculation"):
         store.publish_stream(stream(original, rows()))
-    assert store.read(original.generation_id) is None
-    assert store.read(prior.generation_id) == prior
+    assert read_generation(original.generation_id, path=path) is None
+    assert read_generation(prior.generation_id, path=path) == prior
     with closing(sqlite3.connect(path)) as reader:
         assert reader.execute("SELECT count(*) FROM generated_model").fetchone()[0] == len(
             prior.models
@@ -105,7 +106,7 @@ def test_stream_retry_cannot_hide_changed_or_missing_content(tmp_path, change):
         models[-1] = models[0]
     with pytest.raises(GenerationConflictError):
         store.publish_stream(stream(changed, models))
-    assert store.read(original.generation_id) == original
+    assert read_generation(original.generation_id, path=tmp_path / "runs.sqlite") == original
 
 
 def test_duplicate_fresh_stream_rolls_back(tmp_path):
@@ -113,7 +114,7 @@ def test_duplicate_fresh_stream_rolls_back(tmp_path):
     original = generation()
     with pytest.raises(GenerationConflictError, match="duplicate"):
         store.publish_stream(stream(original, (original.models[0], original.models[0])))
-    assert store.read(original.generation_id) is None
+    assert read_generation(original.generation_id, path=tmp_path / "runs.sqlite") is None
 
 
 def test_finite_fixture_materialization_preserves_inputs_clock_and_single_pass():

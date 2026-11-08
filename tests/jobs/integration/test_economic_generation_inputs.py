@@ -29,7 +29,7 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
     rebuild_economic_input,
     retain_economic_input,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.keys import current_release_pointer_key
@@ -91,7 +91,7 @@ def test_normal_generation_retains_the_same_context_for_cold_rebuild(integration
     original = args["economic"].read_bytes()
     result = job.integrate_models(**args)
     assert args["economic"].read_bytes() == original
-    saved = ModelGenerationStore(args["runs"]).read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=args["runs"])
     identity = saved.inputs["economic"]
     assert identity.kind == "native_l1"
     assert identity.sha256 == result["economic_input_sha256"]

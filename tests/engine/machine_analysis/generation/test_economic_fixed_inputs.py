@@ -28,6 +28,7 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
     rebuild_economic_input,
     retain_economic_input,
 )
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.generation.runners.market_reading import reading_snapshot
 from baibai_engine.machine_analysis.generation.runners.reading_rules import DEFAULT_RULES_PATH
 from baibai_engine.machine_analysis.observations.prices.tradingview_market import (
@@ -413,7 +414,7 @@ def test_saved_hash_only_generation_remains_readable_without_original_snapshot(t
     original = original.model_copy(update={"inputs": {**original.inputs, "economic": legacy}})
     generations = ModelGenerationStore(tmp_path / "runs.sqlite")
     generations.publish(original)
-    restored = generations.read(original.generation_id)
+    restored = read_generation(original.generation_id, path=tmp_path / "runs.sqlite")
     assert restored == original
     assert restored.inputs["economic"].model_dump_json() == legacy.model_dump_json()
     with pytest.raises(ValueError, match="fixed selection"):

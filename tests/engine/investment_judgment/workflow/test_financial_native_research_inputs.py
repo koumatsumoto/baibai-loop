@@ -36,7 +36,10 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
+from baibai_engine.machine_analysis.generation.query import (
+    read_generation,
+    read_research_model_inputs,
+)
 from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
@@ -161,7 +164,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
     assert "descriptor" not in context_entry
     assert context_entry["summary"] == expected_summary
     generation_ref = context_entry["generation_input_ref"]
-    persisted = ModelGenerationStore(runs).read(generation_ref["generation_id"])
+    persisted = read_generation(generation_ref["generation_id"], path=runs)
     context_exact = _resolve(persisted.model_dump(mode="json"), generation_ref["json_pointer"])
     assert context_exact == financial.identity.descriptor
     assert (

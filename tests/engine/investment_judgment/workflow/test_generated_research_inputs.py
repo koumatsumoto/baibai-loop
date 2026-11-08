@@ -31,7 +31,7 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
     prepare_selected_workspace,
     resume_selected_workspace,
 )
-from baibai_engine.machine_analysis.generation.query import read_model_inputs
+from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 
 NOW = datetime(2026, 10, 25, 9, tzinfo=UTC)
@@ -416,7 +416,7 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
     # Compare the canonical bytes actually retained in SQLite, including compressed
     # payloads. Python dict insertion order before publication is not saved identity.
     old_bytes = stored_old_rows()
-    old_decoded = ModelGenerationStore(runs).read(old.generation_id).model_dump_json()
+    old_decoded = read_generation(old.generation_id, path=runs).model_dump_json()
     artifact = extract_boj_decision(document(BOJ, source="boj"), created_at=NOW)
     social = calculate_social_trends(fixed(artifact, cutoff=NOW), as_of=AS_OF)
     planned = tuple(model.model_id for model in old.models if model.subject == "1234")
@@ -464,7 +464,7 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
     assert shared["input_manifest"]["selected"] == [artifact.ref.model_dump(mode="json")]
     assert any(row["claim"]["kind"] == "announced_plan" for row in shared["observations"])
     assert stored_old_rows() == old_bytes
-    assert ModelGenerationStore(runs).read(old.generation_id).model_dump_json() == old_decoded
+    assert read_generation(old.generation_id, path=runs).model_dump_json() == old_decoded
     runs.unlink()
     resumed = resume_selected_workspace(
         operation_id=prepared.operation_id, db_path=db, workspace=workspace, now=NOW

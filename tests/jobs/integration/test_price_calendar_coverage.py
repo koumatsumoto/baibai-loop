@@ -23,6 +23,7 @@ from baibai_engine.data_collection.providers.jquants.price_native import PriceAt
 from baibai_engine.machine_analysis.generation.calendar_inputs import read_calendar_input
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.price_inputs import read_price_input
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.snapshots.release import create_release
@@ -389,7 +390,6 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
     )
     from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_engine.primitives.market_windows import FINANCIAL_HISTORY_DAYS
     from baibai_engine.storage.snapshots.reader import resolve_current_release
@@ -464,7 +464,7 @@ def test_old_closed_gaps_outside_acquisition_window_reach_normal_daily_and_cold_
         growth_start=None,
         policy=EconomicPathPolicy(candidate_limit=36),
     )
-    saved = ModelGenerationStore(tmp_path / "runs.sqlite").read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=tmp_path / "runs.sqlite")
     price_input = saved.inputs["price"]
     assert price_input.descriptor["summary"]["coverage_status"] == "complete"
     assert price_input.descriptor["summary"]["raw_coverage_status"] == "partial"

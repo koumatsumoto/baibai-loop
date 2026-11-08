@@ -14,7 +14,7 @@ from tests.jobs.publication import test_calendar_native_objects as calendar
 from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 from baibai_engine.machine_analysis.generation import inputs
 from baibai_engine.machine_analysis.generation.contracts import ModelGenerationStream
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -218,7 +218,7 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
         assert "phase=screening" not in progress.flushed
         assert "phase=lake_publish" not in progress.flushed
         assert "publish" not in events
-        assert ModelGenerationStore(arguments["runs"]).read("models-new-release") is None
+        assert read_generation("models-new-release", path=arguments["runs"]) is None
     else:
         result = models.integrate_models(**arguments)
         assert result["models_ready"] is True

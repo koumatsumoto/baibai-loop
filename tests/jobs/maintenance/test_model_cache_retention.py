@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 import pytest
 from tests.helpers.model_generation import empty_selection, generation
 
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_jobs.maintenance.model_cache import prune_model_cache
@@ -37,9 +38,9 @@ def test_cache_retention_uses_policy_publication_and_preserves_manual_generation
     # Multiple policies for one generation count as one retained generation.
     # A newer bare header cannot displace the operative policy publication.
     assert set(prune_model_cache(path, keep=2, preserve=("older",))) == {"c", "bare"}
-    assert store.read("a") is not None
-    assert store.read("b") is not None
-    assert store.read("older") is not None
+    assert read_generation("a", path=path) is not None
+    assert read_generation("b", path=path) is not None
+    assert read_generation("older", path=path) is not None
     assert policy_store.read("c") is None
     with closing(sqlite3.connect(path)) as connection:
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -70,6 +71,6 @@ def test_cache_retention_rolls_back_policy_and_model_deletion_together(tmp_path)
         )
     with pytest.raises(sqlite3.IntegrityError, match="synthetic failure"):
         prune_model_cache(path, keep=1)
-    assert len(store.read("older").models) == len(generation().models)
+    assert len(read_generation("older", path=path).models) == len(generation().models)
     assert policies.read("older") is not None
-    assert store.read("current") is not None
+    assert read_generation("current", path=path) is not None

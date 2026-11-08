@@ -17,6 +17,7 @@ from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOU
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY, MasterAttempt
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_jobs.acquisition.master_dependencies import (
@@ -602,7 +603,6 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_jobs.acquisition.economic_staging import save_handoff
     from baibai_jobs.acquisition.receipts import available_handoffs
@@ -708,7 +708,7 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
         policy=EconomicPathPolicy(candidate_limit=36),
     )
     assert generated["company_count"] == 1
-    metadata = ModelGenerationStore(tmp_path / "runs").read(generated["generation_id"])
+    metadata = read_generation(generated["generation_id"], path=tmp_path / "runs")
     assert metadata.inputs["master"].descriptor["head_sha256"] == owner.fixed().content_id
     with sqlite3.connect(target) as conn:
         assert (

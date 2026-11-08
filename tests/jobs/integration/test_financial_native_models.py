@@ -21,6 +21,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
     FinancialL1,
 )
 from baibai_engine.machine_analysis.generation.financial_inputs import read_financial_input
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -127,7 +128,6 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_engine.storage.snapshots.duck import lake_session
     from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
@@ -238,7 +238,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         growth_start=None,
         policy=EconomicPathPolicy(candidate_limit=36),
     )
-    saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert store.get_keys.count(FINANCIAL_HEAD_KEY) == 1
     assert saved.inputs["financial"].descriptor["head_sha256"] == before.content_id
     assert FinancialL1(store, tmp_path / "cold").fixed().payload == before.payload

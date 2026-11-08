@@ -11,6 +11,7 @@ from tests.helpers.model_generation import materialize_generation
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.query import (
+    read_generation,
     read_model_inputs,
     read_research_model_inputs,
 )
@@ -116,7 +117,7 @@ def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp
     store = ModelGenerationStore(runs)
     for original in (legacy, current):
         store.publish(original)
-        assert store.read(original.generation_id) == original
+        assert read_generation(original.generation_id, path=runs) == original
     saved = [
         read_research_model_inputs(original.generation_id, targets=("1001",), path=runs)
         for original in (legacy, current)

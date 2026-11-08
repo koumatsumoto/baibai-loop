@@ -21,6 +21,7 @@ from baibai_engine.data_collection.providers.jquants.price_native import (
     PriceL1,
 )
 from baibai_engine.machine_analysis.generation.price_inputs import read_price_input
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import materialize_partitions
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
@@ -236,7 +237,6 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     import baibai_jobs.integration.models as job
     import baibai_jobs.publication.snapshot_publication as publication
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_engine.storage.snapshots.reader import resolve_current_release
     from baibai_jobs.publication.policy import release_policy_for_profile
@@ -296,7 +296,7 @@ def test_ordinary_integration_fixes_head_once_and_models_use_native_prices(tmp_p
     assert store.get_keys.count(HEAD_KEY) == 1
     pack_reads = [key for key in store.get_keys if "/daily-bars/v1/packs/" in key]
     assert len(pack_reads) == len(set(pack_reads)) == 1
-    saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert saved.inputs["price"].descriptor["head_sha256"] == fixed.content_id
     with sqlite3.connect(market) as connection:
         assert connection.execute("SELECT close FROM jquants_daily_bars").fetchone()[0] == 100
