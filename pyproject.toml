@@ -26,8 +26,6 @@ dependencies = [
   "xlrd>=2.0.0",
   "duckdb>=1.5.5",
   "boto3>=1.43.78",
-  "fastapi>=0.141.1",
-  "uvicorn>=0.51.0",
 ]
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -37,7 +35,6 @@ classifiers = [
 
 [project.scripts]
 baibai-engine = "baibai_engine.cli.app:main"
-baibai-web = "baibai_web.cli:main"
 baibai-jobs = "baibai_jobs.cli:main"
 
 [dependency-groups]

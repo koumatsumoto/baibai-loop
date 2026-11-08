@@ -1,1 +1,0 @@
-"""Local-only Web adapter."""

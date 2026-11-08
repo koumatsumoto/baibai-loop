@@ -160,8 +160,6 @@ def _entry_point(tokens: Sequence[str]) -> tuple[argparse.ArgumentParser, str, l
             raise _Unresolvable(f"baibai-engine: unknown domain {' '.join(rest[1:2])}")
         module = DOMAINS[rest[1]].module
         return build_parser(module), f"baibai-engine {rest[1]}", rest[2:]
-    if rest[:1] == ["baibai-web"]:
-        return _tool_parser("baibai_web.cli", "baibai-web", rest[1:])
     if rest[:1] == ["baibai-jobs"]:
         from baibai_jobs.cli import _COMMANDS
 

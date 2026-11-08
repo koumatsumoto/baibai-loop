@@ -1,8 +1,8 @@
 """Generate the read-model contract and the UI types built from it.
 
 The `readmodel` models are the only description of the JSON the UI reads: `materialize`
-writes it to `views/*.json` and the local API answers with the same shapes. Restating
-that description in TypeScript by hand leaves two files that agree only as long as
+writes it to `views/*.json` for the Worker to serve. Restating that description in
+TypeScript by hand leaves two files that agree only as long as
 somebody remembers, and a backend rename lands in production the next batch while the
 UI keeps reading a field the payload no longer carries.
 
@@ -78,9 +78,9 @@ def _always_written(definition: object) -> object:
     """Require every property the writer emits.
 
     Pydantic marks a field with a default as optional, which describes constructing the
-    model rather than the JSON that leaves it: the export writes `model_dump_json` and
-    the API answers through `response_model`, and neither omits a field. This schema
-    describes the artifact, so a reader can rely on every key being present.
+    model rather than the JSON that leaves it: the export writes `model_dump_json`
+    without omitting fields. This schema describes the artifact, so a reader can rely
+    on every key being present.
 
     Serving artifacts are published and read back before their UI is deployed. A
     breaking dashboard shape uses a distinct object key so prepublication cannot

@@ -16,6 +16,12 @@ shellごとにenv.shをsourceし、checkout移動後はsetupを再実行する�
 
 browserが必要ならsetupへ`--with-browser`を追加する。Web編集時だけ`.node-version`のNode/npmで`npm --prefix web/frontend ci`、`npm --prefix web/edge ci`を実行する。基本setupと追加downloadの成功を分け、403をproxy解除・TLS無効化で迂回しない。
 
+### Webの確認
+
+`npm --prefix web/frontend run dev`はfrontend資産だけを配信する。ローカルAPI・SQLite読取・API proxyはなく、DB由来のDashboard・成績・保存提案は確認できない。型とbuildは`npm --prefix web/frontend run build`で確認する。
+
+表示JSONの生成は`baibai_web.materialize`、認証付きAPIと画面の受入は[運用手順](../jobs/OPERATIONS.md#web-serving)に従い、fixtureやbuild成功と本番確認を分ける。
+
 ## 実行環境と接続
 
 本番操作の範囲・Actions/認可環境・credential配置は[OPERATIONS](../jobs/OPERATIONS.md#actions-write-boundary)に従う。
