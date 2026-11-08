@@ -301,6 +301,7 @@ ignore_imports = [
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.policies.economic_paths",
   "baibai_engine.investment_judgment.workflow.selection_query -> baibai_engine.machine_analysis.screening.contracts",
   "baibai_engine.investment_judgment.workflow.operation.service -> baibai_engine.machine_analysis.screening.selection_query",
+  "baibai_engine.investment_judgment.workflow.operation.service -> baibai_engine.machine_analysis.screening.contracts",
   "baibai_engine.investment_judgment.workflow.workspace.selected_prepare -> baibai_engine.machine_analysis.screening.selection_query",
 ]
 

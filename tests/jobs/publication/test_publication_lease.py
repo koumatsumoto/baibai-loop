@@ -379,6 +379,28 @@ def test_verify_cli_rejects_missing_or_malformed_handle_before_r2(monkeypatch, t
     assert lease.main(["verify", "--handle", str(path)]) == 1
 
 
+@pytest.mark.parametrize("command", ["acquire", "release", "verify"])
+def test_documented_parser_is_pure_and_requires_the_existing_options(monkeypatch, command):
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("building and parsing lease commands must not load credentials or R2")
+
+    monkeypatch.setattr(lease, "_load_project_env", unexpected)
+    monkeypatch.setattr(lease, "Boto3R2Store", unexpected)
+    parser = lease.build_parser()
+    with pytest.raises(SystemExit) as missing:
+        parser.parse_args([command])
+    assert missing.value.code == 2
+    arguments = [command, "--handle", "handle.json"]
+    if command == "acquire":
+        with pytest.raises(SystemExit) as purpose:
+            parser.parse_args(arguments)
+        assert purpose.value.code == 2
+        arguments += ["--purpose", "operator"]
+    parsed = parser.parse_args(arguments)
+    assert parsed.command == command
+    assert parsed.handle == Path("handle.json")
+
+
 def test_missing_etag_rejects_release(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     store = MemoryStore()
     monkeypatch.setattr(lease, "Boto3R2Store", lambda **_: store)

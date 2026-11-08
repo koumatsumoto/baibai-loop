@@ -320,7 +320,7 @@ def _load_project_env(module_path: Path) -> None:
     load_dotenv(module_path.resolve().parents[4] / ".env", override=False)
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="publication_lease")
     commands = parser.add_subparsers(dest="command", required=True)
     take = commands.add_parser("acquire")
@@ -329,7 +329,11 @@ def main(argv: list[str] | None = None) -> int:
     for command in ("release", "verify"):
         check = commands.add_parser(command)
         check.add_argument("--handle", type=Path, required=True)
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if args.command == "acquire" and args.handle.exists():
         print("publication lease: handle already exists", file=sys.stderr)
         return 1
