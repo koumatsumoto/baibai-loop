@@ -1,5 +1,6 @@
 """Independent financial L1 publication, retries and source-native change semantics."""
 
+import gzip
 import json
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
@@ -131,6 +132,32 @@ def test_normal_empty_is_a_completed_replacement(owner):
     empty = replace(empty, pages=(replace(empty.pages[0], body=b'{"data": []}'),))
     assert owner.commit([empty])["changed"] == ["empty"]
     assert next(owner.fixed().requests(owner.store, days=[DAY])).request.records() == []
+
+
+@pytest.mark.parametrize("number", [b"NaN", b"Infinity", b"-Infinity", b"1e309", b"-1e309"])
+def test_nonfinite_body_is_retained_without_blocking_other_attempts_in_the_batch(owner, number):
+    days = [DAY + timedelta(days=offset) for offset in range(3)]
+    good_first = attempt("first", day=days[0])
+    bad = attempt("bad", day=days[1])
+    bad = replace(bad, pages=(replace(bad.pages[0], body=b'{"data":[{"Sales":' + number + b"}]}"),))
+    good_last = attempt("last", day=days[2])
+
+    report = owner.commit([good_first, bad, good_last])
+    assert report["changed"] == ["first", "last"]
+    assert report["failed"] == ["bad"]
+    fixed = FinancialL1(owner.store, owner.directory / "fresh-reader").resume()
+    assert fixed.value()["scopes"][days[1].isoformat()]["failure"] == "bad"
+    retained = {item.request_id: item for item in fixed.requests(owner.store, days=days)}
+    assert retained["first"].request.records() == complete_request(good_first.pages).records()
+    assert retained["last"].request.records() == complete_request(good_last.pages).records()
+    assert retained["bad"].request is None
+    assert retained["bad"].error == "incomplete request"
+    stored = [
+        raw
+        for key in packs(owner)
+        for raw in json.loads(gzip.decompress(owner.store.values[key].body))
+    ]
+    assert next(raw for raw in stored if raw["request_id"] == "bad") == bad.value()
 
 
 class FailPacks(MemoryR2Store):
