@@ -6,15 +6,15 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.lake_release import market_store
-from tests.helpers.model_generation import materialize_generation
+from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
 from baibai_engine.machine_analysis.generation.query import (
+    read_generation,
     read_model_inputs,
     read_research_model_inputs,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -113,10 +113,9 @@ def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp
         legacy_models.append(model)
     legacy = current.model_copy(update={"generation_id": "legacy", "models": tuple(legacy_models)})
     runs = tmp_path / "runs.sqlite"
-    store = ModelGenerationStore(runs)
     for original in (legacy, current):
-        store.publish(original)
-        assert store.read(original.generation_id) == original
+        publish_generation(original, path=runs)
+        assert read_generation(original.generation_id, path=runs) == original
     saved = [
         read_research_model_inputs(original.generation_id, targets=("1001",), path=runs)
         for original in (legacy, current)
@@ -147,7 +146,7 @@ def test_new_and_legacy_saved_shapes_survive_correction_and_detached_l3_read(tmp
     changed = corrected.result("market_context", "market").payload["benchmark_trend"]
     assert changed["benchmark_return_20d"] == pytest.approx(-0.2)
     assert changed["benchmark_gap_from_high"] == pytest.approx(-0.6)
-    store.publish(corrected)
+    publish_generation(corrected, path=runs)
     for original, before in zip((legacy, current), encoded, strict=True):
         assert (
             read_research_model_inputs(

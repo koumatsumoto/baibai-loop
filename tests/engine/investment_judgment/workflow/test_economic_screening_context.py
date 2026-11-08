@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from pydantic import TypeAdapter
+from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 from tests.helpers.retained_model_generation import seed_generation
 
@@ -36,7 +37,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationSubject,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_growth.models import (
     CompanyGrowth,
     Observation,
@@ -148,7 +148,7 @@ def seed_economic_generation(path, *, scoped=True):
             "models": models,
         }
     )
-    ModelGenerationStore(path).publish(generation)
+    publish_generation(generation, path=path)
     evidence = {
         "operating_observation": {
             "measurement": "quarter",

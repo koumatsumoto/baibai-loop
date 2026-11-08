@@ -18,7 +18,6 @@ from baibai_engine.investment_judgment.workflow.selection import (
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
 from baibai_engine.machine_analysis.generation.query import read_model_inputs
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
@@ -28,6 +27,7 @@ from baibai_engine.machine_analysis.screening.selection_query import read_public
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.time import JST
+from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target
 
 
@@ -54,7 +54,7 @@ def seed_generated_selection(
         },
         models=tuple(models),
     )
-    ModelGenerationStore(runs).publish(generation)
+    publish_generation(generation, path=runs)
     identity = f"policy-{token}"
     ScreeningSelectionStore(runs).publish(
         identity,

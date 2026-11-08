@@ -5,9 +5,8 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.helpers.model_generation import empty_selection, generation
+from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.two_views import (
     CandidateView,
@@ -21,7 +20,7 @@ from baibai_engine.machine_analysis.screening.selection_store import ScreeningSe
 def test_selection_round_trip_preserves_policy_universe_and_unrounded_result(tmp_path, monkeypatch):
     path = tmp_path / "runs.sqlite"
     original = generation()
-    ModelGenerationStore(path).publish(original)
+    publish_generation(original, path=path)
     selected = ScreeningSelection(
         original.generation_id,
         ("1234", "5678"),
@@ -68,12 +67,11 @@ def test_publication_order_prefers_asof_then_real_publication_and_preserves_retr
     from baibai_engine.machine_analysis.screening.selection_query import read_publication
 
     path = tmp_path / "runs"
-    models = ModelGenerationStore(path)
     store = ScreeningSelectionStore(path)
     current = generation()
     older = current.model_copy(update={"generation_id": "older", "as_of": date(2026, 10, 22)})
-    models.publish(current)
-    models.publish(older)
+    publish_generation(current, path=path)
+    publish_generation(older, path=path)
     for name, source, limit in (
         ("z-first", current, 1),
         ("a-second", current, 2),

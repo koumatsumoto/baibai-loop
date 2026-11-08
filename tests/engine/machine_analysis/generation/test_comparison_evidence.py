@@ -6,7 +6,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.model_generation import materialize_generation
+from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.machine_analysis.generation import query
 from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
@@ -65,8 +65,8 @@ def observations(path, *, market=MARKET, tickers=("1234",)):
 def test_only_pinned_serving_generation_is_read_not_newer_or_failed_attempt(tmp_path):
     path = tmp_path / "runs"
     store = ModelGenerationStore(path)
-    store.publish(generation())
-    store.publish(generation(reference="newer"))
+    publish_generation(generation(), path=path)
+    publish_generation(generation(reference="newer"), path=path)
     failed = generation(reference="failed")
 
     def partial():
@@ -103,7 +103,7 @@ def test_identity_and_future_clocks_reject_before_payload_decode(tmp_path, monke
         value = value.model_copy(
             update={change: (DAY if change == "as_of" else AT) + timedelta(days=1)}
         )
-    ModelGenerationStore(path).publish(value)
+    publish_generation(value, path=path)
 
     def forbidden(*args):
         raise AssertionError("rejected metadata must not expand model payloads")
@@ -123,7 +123,7 @@ def test_missing_legacy_or_damaged_optional_store_is_a_cold_miss(tmp_path, damag
     elif damage == "not_sqlite":
         path.write_bytes(b"not a database")
     elif damage != "missing":
-        ModelGenerationStore(path).publish(generation())
+        publish_generation(generation(), path=path)
         body = {
             "gzip": b"broken gzip",
             "json": gzip.compress(b"{"),
@@ -139,7 +139,7 @@ def test_missing_legacy_or_damaged_optional_store_is_a_cold_miss(tmp_path, damag
 
 def test_only_requested_company_financials_decode_one_company_per_iteration(tmp_path, monkeypatch):
     path = tmp_path / "runs"
-    ModelGenerationStore(path).publish(generation())
+    publish_generation(generation(), path=path)
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "UPDATE generated_model SET payload_gzip=? WHERE model_id!='company_financials' OR subject='9999'",
@@ -208,7 +208,7 @@ def test_generation_reuses_saved_comparisons_with_identical_complete_output(
         assert cold.result("company_financials", "436A").payload["financial"][
             "reported_comparisons"
         ]
-        ModelGenerationStore(runs).publish(cold)
+        publish_generation(cold, path=runs)
         source = SavedComparisonEvidence(MARKET, runs)
         observations_spy = mocker.spy(SavedComparisonEvidence, "observations")
         extract_spy = mocker.spy(edinet_comparison_reader, "extract_comparisons")

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from tests.engine.machine_analysis.generation.test_generation_assembly import AS_OF, NOW, generate
+from tests.helpers.model_generation import publish_generation
 from tests.helpers.trends import generation_inputs
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
@@ -13,7 +14,6 @@ from baibai_engine.machine_analysis.generation.contracts import GenerationSubjec
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.machine_analysis.generation.runners import trend_inputs
 from baibai_engine.machine_analysis.generation.runners.trend_inputs import TrendGenerationInputs
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.observations.trends.inputs import TrendCoverage
 
 
@@ -96,7 +96,7 @@ def test_saved_generation_reaches_l3_without_using_current_defaults(tmp_path, mo
     fixed = read_plans(monkeypatch, (plan,))
     original = generate(trends=fixed)
     path = tmp_path / "runs.sqlite"
-    ModelGenerationStore(path).publish(original)
+    publish_generation(original, path=path)
     monkeypatch.setattr(
         trend_inputs,
         "DEFAULT_INDUSTRIES",

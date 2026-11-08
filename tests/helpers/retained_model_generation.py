@@ -9,7 +9,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.two_views import (
@@ -19,6 +18,7 @@ from baibai_engine.machine_analysis.screening.policies.two_views import (
     ViewSelection,
 )
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+from tests.helpers.model_generation import publish_generation
 
 
 def seed_generation(path, *, now, as_of, with_price_path=False):
@@ -60,7 +60,7 @@ def seed_generation(path, *, now, as_of, with_price_path=False):
         },
         models=tuple(models),
     )
-    ModelGenerationStore(path).publish(generation)
+    publish_generation(generation, path=path)
     ScreeningSelectionStore(path).publish(
         "policy-1",
         ScreeningSelection(

@@ -21,7 +21,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGenerationStream,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
@@ -221,7 +221,7 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
         "publish",
         "release-snapshot",
     ]
-    stored = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
+    stored = read_generation(result["generation_id"], path=arguments["runs"])
     assert stored.inputs["market"].reference == result["lake"]["release_id"]
     assert stored.inputs["economic"].sha256 == result["economic_input_sha256"]
     assert stored.inputs["calendar"].reference == "calendar-native-fixed"
@@ -302,7 +302,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
     assert "publish" not in events
-    assert ModelGenerationStore(arguments["runs"]).read("models-new-release") is None
+    assert read_generation("models-new-release", path=arguments["runs"]) is None
 
 
 def test_models_retain_applied_edinet_input_without_current_heads(
@@ -325,7 +325,7 @@ def test_models_retain_applied_edinet_input_without_current_heads(
     monkeypatch.setattr(job, "prepare_market_lake", prepare)
     result = job.integrate_models(**{**arguments, "store": store, "edinet_input": saved})
     assert prepare.call_args.kwargs["edinet_input"] == saved
-    generated = ModelGenerationStore(arguments["runs"]).read(result["generation_id"])
+    generated = read_generation(result["generation_id"], path=arguments["runs"])
     assert generated.inputs["edinet"] == saved
     assert LISTS not in store.get_keys
     assert ARCHIVES not in store.get_keys

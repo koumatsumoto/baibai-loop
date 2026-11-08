@@ -3,14 +3,14 @@ import sqlite3
 from contextlib import closing
 
 import pytest
-from tests.helpers.model_generation import generation
+from tests.helpers.model_generation import generation, publish_generation
 
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.query import read_model_inputs
+from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
 from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
     ModelGenerationStore,
@@ -25,12 +25,11 @@ from baibai_engine.storage.sqlite.machine_analysis import (
 
 def test_generation_round_trip_is_independent_of_candidate_selection(tmp_path):
     path = tmp_path / "runs.sqlite"
-    store = ModelGenerationStore(path)
     original = generation()
-    assert store.publish(original)
-    assert not store.publish(original)
-    assert store.read(original.generation_id) == original
-    assert store.read("missing") is None
+    assert publish_generation(original, path=path)
+    assert not publish_generation(original, path=path)
+    assert read_generation(original.generation_id, path=path) == original
+    assert read_generation("missing", path=path) is None
     assert read_model_inputs("missing", subjects=("1234",), path=path) is None
     company = read_model_inputs(original.generation_id, subjects=("1234",), path=path)
     assert {model.subject for model in company.models} == {"1234"}
@@ -43,9 +42,8 @@ def test_generation_round_trip_is_independent_of_candidate_selection(tmp_path):
 
 def test_subject_slice_does_not_decode_unselected_payloads(tmp_path):
     path = tmp_path / "runs.sqlite"
-    store = ModelGenerationStore(path)
     original = generation()
-    store.publish(original)
+    publish_generation(original, path=path)
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "UPDATE generated_model SET payload_gzip=? WHERE generation_id=? AND subject='market'",
@@ -57,12 +55,11 @@ def test_subject_slice_does_not_decode_unselected_payloads(tmp_path):
     with pytest.raises(gzip.BadGzipFile):
         read_model_inputs(original.generation_id, subjects=("market",), path=path)
     with pytest.raises(gzip.BadGzipFile):
-        store.read(original.generation_id)
+        read_generation(original.generation_id, path=path)
 
 
-def test_partial_input_cannot_be_published_as_a_complete_generation(tmp_path):
+def test_materialized_fixture_rejects_partial_input_before_stream_publication(tmp_path):
     path = tmp_path / "runs.sqlite"
-    store = ModelGenerationStore(path)
     first = generation()
     second_company = GeneratedModel(
         model_id="company_financials",
@@ -73,19 +70,18 @@ def test_partial_input_cannot_be_published_as_a_complete_generation(tmp_path):
     full = ModelGeneration.model_validate(
         {**first.model_dump(), "models": (*first.models, second_company)}
     )
-    store.publish(full)
+    publish_generation(full, path=path)
     partial = read_model_inputs(full.generation_id, subjects=("1234",), path=path)
     with pytest.raises(TypeError, match="complete model generation"):
-        store.publish(partial)
-    assert store.read(full.generation_id) == full
+        publish_generation(partial, path=path)
+    assert read_generation(full.generation_id, path=path) == full
 
 
 def test_generation_identity_cannot_be_reused_for_new_values_or_new_inputs(tmp_path):
-    store = ModelGenerationStore(tmp_path / "runs.sqlite")
     original = generation()
-    store.publish(original)
+    publish_generation(original, path=tmp_path / "runs.sqlite")
     with pytest.raises(GenerationConflictError, match="model content"):
-        store.publish(generation(value=0.100041))
+        publish_generation(generation(value=0.100041), path=tmp_path / "runs.sqlite")
     different_input = original.model_copy(
         update={
             "inputs": {
@@ -96,16 +92,15 @@ def test_generation_identity_cannot_be_reused_for_new_values_or_new_inputs(tmp_p
         }
     )
     with pytest.raises(GenerationConflictError, match="different content"):
-        store.publish(different_input)
-    assert store.read(original.generation_id) == original
+        publish_generation(different_input, path=tmp_path / "runs.sqlite")
+    assert read_generation(original.generation_id, path=tmp_path / "runs.sqlite") == original
 
 
 def test_failed_generation_publication_rolls_back_header_and_models(tmp_path):
     path = tmp_path / "runs.sqlite"
-    store = ModelGenerationStore(path)
     with pytest.raises(ValueError, match="Out of range float"):
-        store.publish(generation(value=float("nan")))
-    assert store.read("synthetic-generation") is None
+        publish_generation(generation(value=float("nan")), path=path)
+    assert read_generation("synthetic-generation", path=path) is None
     with closing(sqlite3.connect(path)) as connection:
         assert connection.execute("SELECT count(*) FROM generated_model").fetchone()[0] == 0
 
@@ -169,4 +164,4 @@ def test_streamed_subject_plan_rejects_unplanned_model_without_partial_publicati
     store = ModelGenerationStore(path)
     with pytest.raises(ValueError, match="subject plan"):
         store.publish_stream(stream)
-    assert store.read(original.generation_id) is None
+    assert read_generation(original.generation_id, path=path) is None

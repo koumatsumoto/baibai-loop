@@ -9,12 +9,11 @@ from pathlib import Path
 import pytest
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.ledger import load_portfolio_ledger
-from tests.helpers.model_generation import empty_selection, generation
+from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
 from baibai_engine.cli.investment_judgment import main
 from baibai_engine.investment_judgment.company_research.document import ResearchDraft
 from baibai_engine.investment_judgment.company_research.store import ResearchStoreService
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 
@@ -24,7 +23,7 @@ NOW = datetime(2026, 10, 25, 0, 2, tzinfo=UTC)
 def seed(tmp_path):
     runs, app = tmp_path / "runs", tmp_path / "app"
     fixed = generation()
-    ModelGenerationStore(runs).publish(fixed)
+    publish_generation(fixed, path=runs)
     ScreeningSelectionStore(runs).publish("fixed-selection", empty_selection(fixed.generation_id))
     with closing(sqlite3.connect(runs)) as connection, connection:
         connection.execute(

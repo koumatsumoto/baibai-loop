@@ -11,6 +11,7 @@ from tests.helpers.lake_policy import narrow_release_policy
 from tests.jobs.integration.test_master_native_models import AT, attempt, records, setup_native
 
 from baibai_engine.machine_analysis.generation.master_inputs import read_master_input
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_asof,
@@ -117,7 +118,6 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
     from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
     from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
@@ -190,7 +190,7 @@ def test_normal_holiday_generation_preserves_asof_but_reads_business_master(
         growth_start=None,
         policy=EconomicPathPolicy(candidate_limit=36),
     )
-    saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     expected = SUNDAY if generation_day > SUNDAY and response == "matching-date" else FRIDAY
     assert saved.as_of == generation_day
     assert consumed == [expected]

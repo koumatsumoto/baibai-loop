@@ -1,4 +1,4 @@
-"""生成モデルの保存・読取。候補政策を実行せず、個社の読取に全社展開を要求しない。"""
+"""生成モデルの保存。候補政策を実行しない。"""
 
 from __future__ import annotations
 
@@ -12,12 +12,10 @@ from pathlib import Path
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
     GenerationMetadata,
-    ModelGeneration,
     ModelGenerationStream,
     validate_full_plan,
     validate_model_scope,
 )
-from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import (
     connect_rw,
@@ -38,13 +36,6 @@ class GenerationPublication:
 class ModelGenerationStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path
-
-    def publish(self, generation: ModelGeneration) -> bool:
-        """生成結果を一括commitする。同一内容の再送はFalse、変更された再送は拒否。"""
-        if not isinstance(generation, ModelGeneration):
-            raise TypeError("publication requires a complete model generation")
-        metadata = GenerationMetadata.model_validate(generation.model_dump(exclude={"models"}))
-        return self._publish(metadata, generation.models).created
 
     def publish_stream(self, generation: ModelGenerationStream) -> GenerationPublication:
         """全生成列を一回消費し、途中失敗ではheaderを含め一切公開しない。"""
@@ -119,9 +110,6 @@ class ModelGenerationStore:
             except BaseException:
                 connection.rollback()
                 raise
-
-    def read(self, generation_id: str) -> ModelGeneration | None:
-        return read_generation(generation_id, path=self._path)
 
 
 def delete_generations(connection: sqlite3.Connection, identities: Sequence[str]) -> None:

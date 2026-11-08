@@ -27,6 +27,7 @@ from baibai_engine.data_collection.providers.jquants.financial_native import (
 )
 from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
 from baibai_engine.data_collection.providers.jquants.price_native import PriceAttempt, PriceL1
+from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import materialize_partitions, resolve_current_release
 from baibai_engine.storage.snapshots.writer import sealed_sqlite_snapshot
@@ -152,7 +153,6 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
 ):
     import baibai_jobs.integration.models as job
     from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
     from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 
     publication = configure(monkeypatch)
@@ -196,7 +196,7 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
         growth_start=None,
         policy=EconomicPathPolicy(candidate_limit=36),
     )
-    saved = ModelGenerationStore(tmp_path / "runs").read(result["generation_id"])
+    saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert saved.inputs["calendar"].descriptor["head_sha256"] == fixed.content_id
     assert saved.inputs["master"].descriptor["summary"]["master_basis_date"] == friday.isoformat()
     assert saved.inputs["master"].descriptor["summary"]["snapshot_date"] == friday.isoformat()

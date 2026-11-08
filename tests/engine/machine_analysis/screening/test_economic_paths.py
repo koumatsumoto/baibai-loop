@@ -6,9 +6,8 @@ from itertools import permutations
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
-from tests.helpers.model_generation import generation
+from tests.helpers.model_generation import generation, publish_generation
 
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     CompanyCoordinates,
@@ -329,7 +328,7 @@ def test_saved_card_coordinates_must_remain_finite_numbers(invalid):
 def test_historical_selection_payload_keeps_shape_and_idempotent_publication(tmp_path, method):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     # 合成した固定保存契約fixture。本番履歴ではなく、現行計算・codecから生成しない。
     # 新しい既定fieldに合わせて更新せず、旧bytesを維持できるかを検証する。
     result = {
