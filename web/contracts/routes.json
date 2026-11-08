@@ -4,8 +4,6 @@
     "/api/outcomes": "views/outcomes.json",
     "/api/proposal/latest": "views/latest-proposal.json"
   },
-  "edge_routes": {},
-  "patterns": {},
   "computed": [
     "/api/health"
   ]

@@ -43,7 +43,6 @@ ROOT_VIEWS: Mapping[str, type[BaseModel]] = {
     "views/outcomes.json": OutcomesView,
     "views/latest-proposal.json": LatestProposalView,
 }
-COMPUTED_VIEWS: Mapping[str, type[BaseModel]] = {}
 
 _GENERATED_HEADER = """\
 // Generated from the Python models in web/backend/src/baibai_web/readmodel/.
@@ -59,9 +58,8 @@ class ContractError(RuntimeError):
 def build_schema() -> dict[str, object]:
     """Emit one JSON Schema document covering every served view."""
 
-    roots = {**ROOT_VIEWS, **COMPUTED_VIEWS}
     _, generated = models_json_schema(
-        [(model, "serialization") for model in dict.fromkeys(roots.values())],
+        [(model, "serialization") for model in dict.fromkeys(ROOT_VIEWS.values())],
         ref_template="#/$defs/{model}",
     )
     definitions = generated.get("$defs", {})
@@ -71,7 +69,7 @@ def build_schema() -> dict[str, object]:
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "Baibai Loop read model",
         "schemaVersion": CONTRACT_SCHEMA_VERSION,
-        "roots": {path: f"#/$defs/{model.__name__}" for path, model in sorted(roots.items())},
+        "roots": {path: f"#/$defs/{model.__name__}" for path, model in sorted(ROOT_VIEWS.items())},
         "$defs": {name: _always_written(definitions[name]) for name in sorted(definitions)},
     }
 
