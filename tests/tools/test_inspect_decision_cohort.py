@@ -273,3 +273,100 @@ def test_cli_expected_failures_do_not_log_private_values(tmp_path, capsys, fault
     assert captured.err == f"error: decision cohort inspection failed ({expected_class})\n"
     assert not output.exists()
     assert db.read_bytes() == before
+
+
+@pytest.mark.parametrize("generation_version", [1, 2])
+@pytest.mark.parametrize("selection_version", [3, 4])
+def test_migrated_cohort_distinguishes_publication_from_operational_rows(
+    tmp_path, monkeypatch, generation_version, selection_version
+):
+    from tests.engine.investment_judgment.workflow.test_selection_evidence import (
+        WRONG,
+        evidence_case,
+    )
+
+    from baibai_engine.investment_judgment.workflow.selection import selection_sha256
+
+    case, original, operational, published = evidence_case(
+        tmp_path,
+        monkeypatch,
+        generation_version=generation_version,
+        selection_version=selection_version,
+    )
+    before = case.app.read_bytes()
+    baseline = inspect_decision_cohort(db_path=case.app, operation_id=case.operation.operation_id)[
+        "baseline"
+    ]
+    assert case.app.read_bytes() == before
+    assert baseline["selection_role"] == "operational"
+    assert baseline["selection_sha256"] == baseline["operational_selection_sha256"]
+    assert baseline["operational_selection_sha256"] == selection_sha256(operational)
+    assert baseline["published_selection_sha256"] == sha256(published.encode()).hexdigest()
+    assert baseline["published_selection_sha256"] == original.research_scope.selection_sha256
+    assert baseline["published_selection_sha256"] != baseline["operational_selection_sha256"]
+    assert baseline["publication_evidence_role"] == "as_published"
+    # 後日の訂正先やlatestではなく、完了Operationが記録した提案を保つ。
+    assert baseline["proposal_ref"]["proposal_id"] == WRONG
+    assert baseline["rows"][0]["retrospective_origin"]["proposal_id"] == WRONG
+    assert baseline["row_scope"] == "screening_candidates_union_selected_targets"
+    assert [row["ticker"] for row in baseline["rows"]] == ["1234"]
+    assert baseline["rows"][0]["candidate"]["model_revisions"] == {
+        "company_financials": "original-calculation"
+    }
+    assert "human_adoption_or_execution" in baseline["not_measured"]
+    assert "forward_returns_or_policy_effectiveness" in baseline["not_measured"]
+
+
+@pytest.mark.parametrize("damage", ["operational_hash", "canonical", "no_receipt"])
+def test_migrated_cohort_rejects_missing_or_damaged_evidence(tmp_path, monkeypatch, damage):
+    from tests.engine.investment_judgment.workflow.test_selection_evidence import evidence_case
+
+    case, _, _, _ = evidence_case(tmp_path, monkeypatch, damage=damage)
+    before = case.app.read_bytes()
+    with pytest.raises(ValueError, match=r"exact inputs|exact published"):
+        inspect_decision_cohort(db_path=case.app, operation_id=case.operation.operation_id)
+    assert case.app.read_bytes() == before
+
+
+@pytest.mark.parametrize("field", ["operation_id", "selection_sha256"])
+def test_migrated_cohort_rejects_a_resigned_foreign_scope(tmp_path, monkeypatch, field):
+    from tests.engine.investment_judgment.workflow.test_selection_evidence import (
+        WRONG,
+        evidence_case,
+    )
+
+    from baibai_engine.investment_judgment.trade_proposal.contracts import (
+        TradeProposal,
+        proposal_draft_sha256,
+    )
+
+    case, _, _, _ = evidence_case(tmp_path, monkeypatch)
+    with sqlite3.connect(case.app) as connection:
+        raw = json.loads(
+            connection.execute(
+                "SELECT payload FROM investment_proposal WHERE proposal_id=?", (WRONG,)
+            ).fetchone()[0]
+        )
+        raw["research_scope"][field] = (
+            "research-op-" + "0" * 32 if field == "operation_id" else "f" * 64
+        )
+        digest = proposal_draft_sha256(TradeProposal.model_validate(raw))
+        raw["review"]["draft_sha256"] = digest
+        # 合成DBの署名まで整合させ、単なる署名破損でなくscope境界を試験する。
+        connection.execute("DROP TRIGGER investment_proposal_immutable")
+        connection.execute(
+            "UPDATE investment_proposal SET payload=?,draft_sha256=? WHERE proposal_id=?",
+            (canonical_json(raw), digest, WRONG),
+        )
+        connection.execute("DROP TRIGGER operation_session_completed_no_update")
+        payload = json.loads(
+            connection.execute("SELECT payload FROM operation_session").fetchone()[0]
+        )
+        for artifact in payload["artifacts"]:
+            if artifact.get("kind") == "research_progress":
+                artifact["proposal_ref"]["draft_sha256"] = digest
+        connection.execute("UPDATE operation_session SET payload=?", (canonical_json(payload),))
+    before = case.app.read_bytes()
+    with pytest.raises(ValueError, match=r"proposal scope differs|exact published"):
+        inspect_decision_cohort(db_path=case.app, operation_id=case.operation.operation_id)
+    assert case.app.read_bytes() == before

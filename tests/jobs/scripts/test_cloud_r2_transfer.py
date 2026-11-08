@@ -1853,3 +1853,39 @@ def test_explicit_fred_recovery_is_bound_to_the_fresh_download_and_conditional_p
     assert "--canonical" in commands[recheck]
     assert "--recheck-source fred-vixcls --recheck-source fred-payems" in commands[recheck]
     assert '--if-match "etag-stable"' in commands[upload]
+
+
+def test_transfer_compacts_only_runs_and_never_uploads_failed_snapshots(tmp_path):
+    bin_dir, log = _fake_aws(tmp_path)
+    root = _fake_repo(tmp_path)
+    env = _environment(bin_dir, log)
+    env["GITHUB_ACTIONS"] = "true"
+    snapshots = tmp_path / "snapshots.log"
+    env["SNAPSHOT_LOG"] = str(snapshots)
+    completed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "push-machine"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    calls = snapshots.read_text().splitlines()
+    creates = [line for line in calls if " create " in line]
+    assert len(creates) == 2
+    assert all(("--compact" in line) == ("/runs.sqlite" in line) for line in creates)
+    log.write_text("")
+    env["SNAPSHOT_COMPACT_FAKE_EXIT"] = "1"
+    failed = subprocess.run(
+        [root / "jobs/scripts/r2_transfer.sh", "push-machine"],
+        cwd=root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert failed.returncode != 0
+    assert not any(
+        "put-object" in line or "copy-object" in line for line in _transfer_commands(log)
+    )

@@ -111,7 +111,8 @@ def test_snapshot_preserves_source_schema_and_rows(tmp_path: Path, schema_versio
 
 
 @pytest.mark.parametrize("alias", ["same", "symlink", "hardlink"])
-def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
+@pytest.mark.parametrize("compact", [False, True])
+def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias, compact):
     source = tmp_path / "source.sqlite"
     with closing(sqlite3.connect(source)) as db, db:
         db.execute("CREATE TABLE kept (value)")
@@ -124,7 +125,7 @@ def test_snapshot_rejects_source_alias_without_changing_bytes(tmp_path, alias):
             output.hardlink_to(source)
     before = source.read_bytes()
     with pytest.raises(ValueError, match="same"):
-        create_snapshot(source, output)
+        create_snapshot(source, output, compact=compact)
     assert source.read_bytes() == before
 
 
@@ -225,3 +226,165 @@ def test_validation_reads_the_exact_path_with_uri_characters(tmp_path: Path, fil
     assert database_schema_version(path) == 42
     assert path.read_bytes() == before
     assert set(tmp_path.iterdir()) == paths_before
+
+
+def test_compact_transfer_copy_keeps_runs_readers_payloads_and_wal(tmp_path):
+    from tests.helpers.model_generation import empty_selection, generation, publish_generation
+    from tests.helpers.screening_run import screening_run_payload, seed_saved_run
+
+    from baibai_engine.machine_analysis.generation.query import read_generation
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store.read import (
+        ScreeningRunReader,
+    )
+    from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
+
+    source, output = tmp_path / "runs.sqlite", tmp_path / "transfer.sqlite"
+    original = generation()
+    publish_generation(original, path=source)
+    selection = empty_selection(original.generation_id)
+    ScreeningSelectionStore(source).publish("saved-selection", selection)
+    seed_saved_run(source, screening_run_payload(), run_revision_id="legacy-run")
+    legacy = ScreeningRunReader(source).get_run("legacy-run")
+    with closing(sqlite3.connect(source)) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA wal_autocheckpoint=0")
+        connection.execute("CREATE TABLE disposable (payload BLOB)")
+        connection.execute("INSERT INTO disposable VALUES (zeroblob(262144))")
+        connection.execute("DROP TABLE disposable")
+        # Rowid is not a saved identity. Exercise readers with non-default values.
+        for table in ("model_generation", "screening_selection", "screening_run"):
+            connection.execute(f"UPDATE {table} SET rowid=900")
+        connection.commit()
+        assert connection.execute("PRAGMA freelist_count").fetchone()[0] > 0
+        schema = connection.execute("SELECT sql FROM sqlite_schema ORDER BY name").fetchall()
+        tables = (
+            "model_generation",
+            "generated_model",
+            "screening_selection",
+            "screening_run",
+            "stock_analysis",
+        )
+        rows = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+        source_bytes = source.read_bytes()
+        wal_bytes = source.with_name(source.name + "-wal").read_bytes()
+        assert main(["create", "--source", str(source), "--output", str(output), "--compact"]) == 0
+        assert source.read_bytes() == source_bytes
+        assert source.with_name(source.name + "-wal").read_bytes() == wal_bytes
+        assert output.stat().st_size < connection.execute("PRAGMA page_count").fetchone()[0] * 4096
+        with closing(sqlite3.connect(output)) as captured:
+            assert captured.execute("PRAGMA freelist_count").fetchone()[0] == 0
+            assert (
+                captured.execute("SELECT sql FROM sqlite_schema ORDER BY name").fetchall() == schema
+            )
+            assert {
+                table: captured.execute(f"SELECT * FROM {table}").fetchall() for table in tables
+            } == rows
+            # Prove current and historical readers do not depend on implicit rowids,
+            # even if SQLite changes them when rewriting pages.
+            for table in ("model_generation", "screening_selection", "screening_run"):
+                captured.execute(f"UPDATE {table} SET rowid=42")
+            captured.commit()
+        assert read_generation(original.generation_id, path=output) == original
+        assert ScreeningSelectionStore(output).read("saved-selection") == selection
+        assert ScreeningRunReader(output).get_run("legacy-run") == legacy
+        assert database_schema_version(output) == database_schema_version(source)
+        assert not publish_generation(original, path=output)
+        assert not ScreeningSelectionStore(output).publish("saved-selection", selection)
+
+
+@pytest.mark.parametrize("free_pages", [False, True])
+def test_compact_copy_only_vacuums_when_pages_are_free(tmp_path, monkeypatch, free_pages):
+    source, output = tmp_path / "source.sqlite", tmp_path / "output.sqlite"
+    with closing(sqlite3.connect(source)) as db, db:
+        db.execute("CREATE TABLE kept (value TEXT)")
+        db.execute("INSERT INTO kept VALUES ('saved')")
+        if free_pages:
+            db.execute("CREATE TABLE disposable (payload BLOB)")
+            db.execute("INSERT INTO disposable VALUES (zeroblob(262144))")
+            db.execute("DROP TABLE disposable")
+    connect = sqlite3.connect
+    statements = []
+
+    def track(*args, **kwargs):
+        db = connect(*args, **kwargs)
+        db.set_trace_callback(statements.append)
+        return db
+
+    monkeypatch.setattr(sqlite3, "connect", track)
+    create_snapshot(source, output, compact=True)
+    assert statements.count("VACUUM") == int(free_pages)
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("failure", ["vacuum", "validation"])
+def test_compaction_failure_keeps_source_and_previous_output(
+    tmp_path, monkeypatch, existing, failure
+):
+    from baibai_engine.storage.sqlite import snapshot
+
+    source, output = tmp_path / "source.sqlite", tmp_path / "output.sqlite"
+    with closing(sqlite3.connect(source)) as db, db:
+        db.execute("CREATE TABLE kept (value TEXT)")
+        db.execute("CREATE TABLE disposable (payload BLOB)")
+        db.execute("INSERT INTO disposable VALUES (zeroblob(262144))")
+        db.execute("DROP TABLE disposable")
+    if existing:
+        output.write_bytes(b"previous output")
+    before, paths = source.read_bytes(), set(tmp_path.iterdir())
+    validate = snapshot.validate_snapshot
+    calls = 0
+
+    def validation(path):
+        nonlocal calls
+        calls += 1
+        if failure == "validation" and calls == 2:
+            raise sqlite3.DatabaseError("post-compaction validation failed")
+        return validate(path)
+
+    connect = sqlite3.connect
+
+    class FailingVacuum(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql == "VACUUM":
+                raise sqlite3.OperationalError("compaction failed")
+            return super().execute(sql, *args, **kwargs)
+
+    def failing_connect(*args, **kwargs):
+        return connect(*args, **kwargs, factory=FailingVacuum)
+
+    monkeypatch.setattr(snapshot, "validate_snapshot", validation)
+    if failure == "vacuum":
+        monkeypatch.setattr(sqlite3, "connect", failing_connect)
+    with pytest.raises(sqlite3.DatabaseError):
+        create_snapshot(source, output, compact=True)
+    assert source.read_bytes() == before
+    assert (output.read_bytes() if output.exists() else None) == (
+        b"previous output" if existing else None
+    )
+    assert set(tmp_path.iterdir()) == paths
+
+
+def test_compaction_validates_checkpointed_copy_after_vacuum(tmp_path, monkeypatch):
+    from baibai_engine.storage.sqlite import snapshot
+
+    source, output = tmp_path / "source.sqlite", tmp_path / "output.sqlite"
+    with closing(sqlite3.connect(source)) as db, db:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("CREATE TABLE kept (value TEXT)")
+        db.execute("CREATE TABLE disposable (payload BLOB)")
+        db.execute("INSERT INTO disposable VALUES (zeroblob(262144))")
+        db.execute("DROP TABLE disposable")
+    validate = snapshot.validate_snapshot
+    free_page_counts = []
+
+    def capture_validation(path):
+        assert not path.with_name(path.name + "-wal").exists()
+        with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro&immutable=1", uri=True)) as db:
+            free_page_counts.append(db.execute("PRAGMA freelist_count").fetchone()[0])
+        return validate(path)
+
+    monkeypatch.setattr(snapshot, "validate_snapshot", capture_validation)
+    create_snapshot(source, output, compact=True)
+    assert len(free_page_counts) == 2
+    assert free_page_counts[0] > 0
+    assert free_page_counts[1] == 0
