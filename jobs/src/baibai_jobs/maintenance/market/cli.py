@@ -37,7 +37,6 @@ from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_metrics_command,
 )
 from baibai_jobs.maintenance.market.cache import (
-    backfill_history_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
 )
@@ -58,7 +57,6 @@ from baibai_jobs.maintenance.market.disclosures_cli import (
 from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
-from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,25 +65,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap-cache",
-        help="bootstrap legacy SQLite inputs; native margin sources use their acquisition commands",
+        help="acquire one JPX source group into its scoped store",
     )
     bootstrap_parser.add_argument(
         "--asof",
         required=True,
-        help="source target date (YYYY-MM-DD); computes each source window automatically",
+        help="snapshot target date (YYYY-MM-DD)",
     )
 
     bootstrap_parser.add_argument("--sqlite-path", help="scoped acquisition store path")
     bootstrap_parser.add_argument(
         "--source-group",
-        default="all",
-        choices=(
-            "all",
-            "jquants-market",
-            "jquants-financial",
-            "jpx-earnings",
-            "jpx-regulations",
-        ),
+        required=True,
+        choices=("jpx-earnings", "jpx-regulations"),
         help="acquire only one independent source group",
     )
 
@@ -107,17 +99,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rebuild_jpx_parser.add_argument("--bundle-id", required=True)
     rebuild_jpx_parser.add_argument("--sqlite-path", required=True)
-
-    backfill_history_parser = subparsers.add_parser(
-        "backfill-history",
-        help="fetch legacy prices, financials and calendar over an explicit window",
-    )
-    backfill_history_parser.add_argument(
-        "--start", required=True, help="first date the window covers (YYYY-MM-DD)"
-    )
-    backfill_history_parser.add_argument(
-        "--end", required=True, help="last date the window covers (YYYY-MM-DD)"
-    )
 
     backfill_master_parser = subparsers.add_parser(
         "backfill-master",
@@ -399,17 +380,6 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     with ExitStack() as resources:
-        jquants_refresh = (
-            JQuantsRefresh(sqlite_path, config.jquants_api_key)
-            if args.command == "backfill-history"
-            or (
-                args.command == "bootstrap-cache"
-                and args.source_group in {"all", "jquants-market", "jquants-financial"}
-            )
-            else None
-        )
-        if jquants_refresh is not None:
-            resources.callback(jquants_refresh.close)
         edinet_refresh = (
             EDINETRefresh(config.edinet_api_key, sqlite_path=sqlite_path)
             if config.edinet_api_key and args.command == "refresh-edinet-metrics"
@@ -418,16 +388,11 @@ def main(argv: list[str] | None = None) -> int:
         if edinet_refresh is not None:
             resources.callback(edinet_refresh.close)
         jpx_refresh = (
-            JPXRefresh(sqlite_path=sqlite_path)
-            if args.command == "bootstrap-cache"
-            and args.source_group in {"all", "jpx-earnings", "jpx-regulations"}
-            else None
+            JPXRefresh(sqlite_path=sqlite_path) if args.command == "bootstrap-cache" else None
         )
         if jpx_refresh is not None:
             resources.callback(jpx_refresh.close)
-        edinet_reader = EDINETReader(sqlite_path)
         providers = ProviderBundle(
-            jquants_refresh=jquants_refresh,
             edinet_refresh=edinet_refresh,
             jpx_refresh=jpx_refresh,
         )
@@ -440,22 +405,6 @@ def main(argv: list[str] | None = None) -> int:
                 source_group=args.source_group,
             )
 
-        if args.command == "backfill-history":
-            window_start = _parse_iso_date(args.start)
-            window_end = _parse_iso_date(args.end)
-            if window_start > window_end:
-                print(
-                    f"--start {window_start.isoformat()} is after --end {window_end.isoformat()}",
-                    file=sys.stderr,
-                )
-                return 1
-            return backfill_history_command(
-                start=window_start,
-                end=window_end,
-                providers=providers,
-                sqlite_path=sqlite_path,
-            )
-
         if args.command == "refresh-edinet-metrics":
             if args.lookback_days < 0:
                 print("--lookback-days must be zero or greater", file=sys.stderr)
@@ -466,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             return refresh_edinet_metrics_command(
                 asof_date=_parse_iso_date(args.asof),
                 lookback_days=args.lookback_days,
-                reader=edinet_reader,
+                reader=EDINETReader(sqlite_path),
                 acquisition=providers.edinet_refresh,
                 sqlite_path=sqlite_path,
             )

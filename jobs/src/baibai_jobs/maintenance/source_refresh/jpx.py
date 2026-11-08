@@ -142,14 +142,3 @@ class JPXRefresh:
             return snapshot
         except (JPXAcquisitionError, JPXBundleError) as exc:
             raise JPXProviderError(str(exc)) from exc
-
-    def bootstrap_cache(self, asof_date: date) -> dict[str, int]:
-        earnings = self.refresh_earnings_calendar_snapshot(asof_date)
-        regulations = self.refresh_regulation_snapshot(asof_date)
-        counts = {
-            "earnings_calendar_rows": earnings.valid_record_count,
-            "regulated_tickers": len(regulations.flags_by_ticker),
-        }
-        if earnings.superseded_record_count is not None:
-            counts["earnings_calendar_superseded"] = earnings.superseded_record_count
-        return counts

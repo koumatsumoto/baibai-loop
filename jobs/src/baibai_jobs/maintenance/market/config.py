@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from baibai_engine.storage.paths import DEFAULT_SQLITE_CACHE_DIR as DEFAULT_SQLITE_CACHE_DIR
 
@@ -16,7 +16,6 @@ class ConfigError(ValueError):
 class SourceMaintenanceConfig(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 
-    jquants_api_key: str | None = Field(default=None, min_length=1)
     edinet_api_key: str | None = None
     sqlite_cache_dir: Path = DEFAULT_SQLITE_CACHE_DIR
 
@@ -36,7 +35,6 @@ class SourceMaintenanceConfig(BaseModel):
         # env override は作業者ごとの local store 分岐を生むため受け付けない。
         try:
             return cls(
-                jquants_api_key=source.get("JQUANTS_API_KEY") or None,
                 edinet_api_key=source.get("EDINET_API_KEY") or None,
                 sqlite_cache_dir=DEFAULT_SQLITE_CACHE_DIR,
             )

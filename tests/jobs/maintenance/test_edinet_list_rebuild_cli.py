@@ -43,7 +43,6 @@ def _offline_only(monkeypatch: pytest.MonkeyPatch) -> None:
         type("ForbiddenConfig", (), {"from_env": staticmethod(forbidden)}),
     )
     monkeypatch.setattr(app, "EDINETRefresh", forbidden)
-    monkeypatch.setattr(app, "JQuantsRefresh", forbidden)
     monkeypatch.setattr(requests, "Session", forbidden)
 
 

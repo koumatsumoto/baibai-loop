@@ -20,7 +20,7 @@ import contextlib
 import io
 import os
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -32,7 +32,6 @@ from tests.helpers.http_doubles import FakeSession, response
 from tests.helpers.market_maintenance import (
     FakeEDINETProvider,
     FakeJPXProvider,
-    FakeJQuantsProvider,
 )
 from tests.helpers.screening_sqlite import add_source_coverage
 
@@ -46,10 +45,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
-from baibai_jobs.maintenance.market.cache import (
-    FIN_SUMMARY_REVISION_OVERLAP_DAYS,
-    NORMALIZED_EPS_HISTORY_WINDOW_DAYS,
-)
 
 # The store path every command below derives from the working directory.
 _STORE = Path("stores/market/market.sqlite")
@@ -75,14 +70,13 @@ class _CliResult:
 def _run_cli(
     argv: list[str],
     *,
-    jquants: FakeJQuantsProvider | None = None,
     edinet: _SeamEDINETProvider | None = None,
     jpx: FakeJPXProvider | None = None,
 ) -> _CliResult:
     """Run ``argv`` through ``main()`` with the provider constructors replaced.
 
     The API keys are forced to test values so the run cannot pick up a real
-    credential, and the three provider classes are the only substitution: argparse,
+    credential, and provider constructors are the only substitution: argparse,
     the argument conversion, and the dispatch all execute unchanged.
     """
     stdout = io.StringIO()
@@ -92,7 +86,6 @@ def _run_cli(
             os.environ,
             {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
         ),
-        patch.object(app, "JQuantsRefresh", lambda *_args, **_kwargs: jquants),
         patch.object(app, "EDINETRefresh", lambda *_args, **_kwargs: edinet),
         patch.object(app, "JPXRefresh", lambda *_args, **_kwargs: jpx),
         contextlib.redirect_stdout(stdout),
@@ -115,9 +108,6 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
             app, "EDINETRefresh", side_effect=AssertionError("EDINET provider constructed")
         ) as edinet,
         patch.object(
-            app, "JQuantsRefresh", side_effect=AssertionError("J-Quants refresh constructed")
-        ) as refresh,
-        patch.object(
             app, "JPXRefresh", side_effect=AssertionError("JPX provider constructed")
         ) as jpx,
         patch.object(
@@ -127,7 +117,7 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
         contextlib.redirect_stderr(stderr),
     ):
         exit_code = app.main(argv)
-    for constructor in (session, edinet, refresh, jpx, bundle):
+    for constructor in (session, edinet, jpx, bundle):
         constructor.assert_not_called()
     return _CliResult(exit_code=exit_code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
@@ -138,43 +128,11 @@ def _work_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-def test_main_bootstrap_cache_fetches_each_source_window_around_the_argv_asof() -> None:
-    jquants = FakeJQuantsProvider()
-    edinet = _SeamEDINETProvider()
-    jpx = FakeJPXProvider()
-
-    result = _run_cli(
-        ["bootstrap-cache", "--asof", "2026-05-08"], jquants=jquants, edinet=edinet, jpx=jpx
-    )
-
-    assert result.exit_code == 0, result.stderr
-    asof = date(2026, 5, 8)
-    assert ("get_eq_master", asof, asof) in jquants.calls
-    # Bootstrap covers the windows and reports counts; it never asks for the rows.
-    # The bar window alone is millions of them and the command prints one number.
-    assert (
-        "ensure_eq_bars_daily_range",
-        asof - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
-        asof,
-    ) in jquants.calls
-    assert (
-        "refresh_fin_summary_range",
-        asof - timedelta(days=NORMALIZED_EPS_HISTORY_WINDOW_DAYS),
-        asof,
-    ) in jquants.calls
-    assert edinet.bootstrap_calls == []
-    assert edinet.close_count == 0
-    assert jpx.bootstrap_calls == [asof]
-    assert jpx.close_count == 1
-    assert "bootstrap-cache done" in result.stdout
-
-
 def test_main_bootstrap_routes_and_closes_maintenance() -> None:
     jpx = FakeJPXProvider()
     with patch.object(app, "bootstrap_cache_command", return_value=0) as command:
         result = _run_cli(
-            ["bootstrap-cache", "--asof", "2026-05-08"],
-            jquants=FakeJQuantsProvider(),
+            ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jpx-earnings"],
             edinet=_SeamEDINETProvider(),
             jpx=jpx,
         )
@@ -185,27 +143,7 @@ def test_main_bootstrap_routes_and_closes_maintenance() -> None:
     assert jpx.close_count == 1
 
 
-def test_main_bootstrap_cache_asks_for_the_revision_overlap_once() -> None:
-    """The 730-day and 2,200-day windows share one source and one trailing week.
-
-    Requesting the overlap on each would pay J-Quants twice for the same days,
-    which is most of what deriving the window from coverage was meant to save.
-    """
-    jquants = FakeJQuantsProvider()
-
-    result = _run_cli(
-        ["bootstrap-cache", "--asof", "2026-05-08"],
-        jquants=jquants,
-        edinet=_SeamEDINETProvider(),
-        jpx=FakeJPXProvider(),
-    )
-
-    assert result.exit_code == 0, result.stderr
-    assert jquants.revision_overlap_days == [FIN_SUMMARY_REVISION_OVERLAP_DAYS]
-
-
 def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
-    jquants = FakeJQuantsProvider()
     with (
         patch.dict(
             os.environ,
@@ -218,11 +156,13 @@ def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
                 "JPX_DELISTING_WARNING_URL": "https://example.com/delisted",
             },
         ),
-        patch.object(app, "JQuantsRefresh", return_value=jquants),
         patch.object(app, "EDINETRefresh", return_value=_SeamEDINETProvider()),
         patch.object(app, "JPXRefresh", return_value=FakeJPXProvider()) as jpx_factory,
     ):
-        assert app.main(["bootstrap-cache", "--asof", "2026-05-08"]) == 0
+        assert (
+            app.main(["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jpx-earnings"])
+            == 0
+        )
 
     assert jpx_factory.call_args.kwargs["sqlite_path"].name == "market.sqlite"
 
@@ -307,24 +247,6 @@ def test_main_refresh_tender_offer_exits_uses_the_requested_store_and_acquisitio
     assert command.call_args.kwargs["acquisition"] is edinet
     assert "reader" not in command.call_args.kwargs
     assert edinet.close_count == 1
-
-
-def test_main_backfill_history_covers_every_range_source_over_the_argv_window() -> None:
-    jquants = FakeJQuantsProvider()
-
-    result = _run_cli(
-        ["backfill-history", "--start", "2026-01-05", "--end", "2026-01-30"],
-        jquants=jquants,
-        edinet=_SeamEDINETProvider(),
-        jpx=FakeJPXProvider(),
-    )
-
-    assert result.exit_code == 0, result.stderr
-    window = (date(2026, 1, 5), date(2026, 1, 30))
-    for source in ("get_eq_bars_daily_range", "get_fin_summary_range", "get_mkt_calendar"):
-        assert [call[1:] for call in jquants.calls if call[0] == source] == [window]
-    assert not any("margin" in name or "short_sale" in name for name, _, _ in jquants.calls)
-    assert "backfill-history done: 2026-01-05..2026-01-30" in result.stdout
 
 
 def test_main_extract_edinet_metrics_stores_parsed_metrics_for_the_argv_asof() -> None:
@@ -417,7 +339,6 @@ def test_main_refresh_edinet_metrics_reports_source_acquisition_failure(
     edinet = _SeamEDINETProvider()
     result = _run_cli(
         ["refresh-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
-        jquants=FakeJQuantsProvider(),
         edinet=edinet,
         jpx=FakeJPXProvider(),
     )
@@ -473,3 +394,43 @@ def test_main_invalidate_coverage_deletes_only_the_rows_overlapping_the_argv_win
     assert [row[0] for row in remaining] == ["2025-01"]
     assert "invalidate-coverage: removing 1 source_coverage row(s)" in result.stdout
     assert "stored observations unchanged" in result.stdout
+
+
+@pytest.mark.parametrize("group", ["jpx-earnings", "jpx-regulations"])
+def test_main_bootstrap_acquires_only_one_jpx_source_and_closes_it(group):
+    jpx = FakeJPXProvider()
+    with patch.object(app, "EDINETReader", side_effect=AssertionError("reader constructed")):
+        result = _run_cli(
+            ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", group], jpx=jpx
+        )
+    assert result.exit_code == 0, result.stderr
+    assert jpx.earnings_requests == ([date(2026, 5, 8)] if group == "jpx-earnings" else [])
+    assert jpx.regulation_requests == ([date(2026, 5, 8)] if group == "jpx-regulations" else [])
+    assert jpx.close_count == 1
+    assert "bootstrap-cache done" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["bootstrap-cache", "--asof", "2026-05-08"],
+        ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "all"],
+        ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jquants-market"],
+        ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jquants-financial"],
+        ["backfill-history", "--start", "2026-05-08", "--end", "2026-05-08"],
+    ],
+)
+def test_removed_jquants_commands_fail_before_environment_or_provider_setup(argv, tmp_path):
+    database = tmp_path / "absent.sqlite"
+    with (
+        patch.object(app, "load_project_env", side_effect=AssertionError("env read")),
+        patch.object(app, "EDINETRefresh", side_effect=AssertionError("EDINET constructed")),
+        patch.object(app, "JPXRefresh", side_effect=AssertionError("JPX constructed")),
+        patch.object(app, "EDINETReader", side_effect=AssertionError("reader constructed")),
+        patch("requests.Session", side_effect=AssertionError("HTTP constructed")),
+        pytest.raises(SystemExit) as caught,
+    ):
+        app.main(argv)
+    assert caught.value.code == 2
+    assert not database.exists()
+    assert not _STORE.exists()

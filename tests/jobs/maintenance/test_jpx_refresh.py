@@ -356,18 +356,26 @@ def test_calendar_manifest_must_equal_retained_index_links(tmp_path: Path) -> No
         rebuild_jpx_snapshot(path, bundle_id)
 
 
-def test_bootstrap_creates_new_bundles_for_each_attempt(tmp_path: Path) -> None:
+@pytest.mark.parametrize("group", ["earnings", "regulations"])
+def test_each_jpx_source_creates_new_bundles_for_each_attempt(tmp_path: Path, group) -> None:
     path = tmp_path / "market.sqlite"
     session = FakeSession(by_url={**_calendar_session()._by_url, **_regulation_session()._by_url})
     refresh = JPXRefresh(sqlite_path=path, session=session)
-    first = refresh.bootstrap_cache(ASOF)
-    second = refresh.bootstrap_cache(ASOF)
-    assert first == second
-    assert len(_bundle_ids(path)) == 4
-    assert (
-        session.calls
-        == [JPX_EARNINGS_CALENDAR_INDEX_URL, FILE_A, FILE_B, *JPX_REGULATION_URLS.values()] * 2
+    acquire = (
+        refresh.refresh_earnings_calendar_snapshot
+        if group == "earnings"
+        else refresh.refresh_regulation_snapshot
     )
+    first = acquire(ASOF)
+    second = acquire(ASOF)
+    assert first == second
+    assert len(_bundle_ids(path)) == 2
+    expected = (
+        [JPX_EARNINGS_CALENDAR_INDEX_URL, FILE_A, FILE_B]
+        if group == "earnings"
+        else list(JPX_REGULATION_URLS.values())
+    )
+    assert session.calls == expected * 2
 
 
 def test_cli_rebuild_is_offline_and_does_not_create_missing_store(

@@ -4,7 +4,6 @@ import gzip
 import json
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
-from types import SimpleNamespace
 
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
@@ -460,10 +459,20 @@ def test_old_mixed_stage_verifies_migrated_master_and_calendar_without_legacy_pr
 
 def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path, monkeypatch):
     import baibai_jobs.maintenance.master_native_backfill as backfill
+    from baibai_jobs.maintenance.market import cli
 
     store, _owner, _market, _directory = context(tmp_path)
     store.close = lambda: None
     monkeypatch.setattr(backfill, "Boto3R2Store", lambda **_: store)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
+    monkeypatch.setattr(cli, "load_project_env", lambda: None)
+
+    def forbidden(*_, **__):
+        pytest.fail("native backfill alias must not initialize unrelated legacy providers")
+
+    for name in ("EDINETRefresh", "JPXRefresh", "EDINETReader", "ProviderBundle"):
+        monkeypatch.setattr(cli, name, forbidden)
 
     class Client:
         def close(self):
@@ -473,13 +482,8 @@ def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path,
             pytest.fail("fulfilled master must not be requested again by maintenance alias")
 
     monkeypatch.setattr(backfill, "JQuantsHTTP", lambda *_: Client())
-    assert (
-        backfill.backfill_native_master(
-            SimpleNamespace(asofs=[DAY.isoformat()], month_end_from=None, month_end_to=None),
-            sqlite_path=tmp_path / "no-l2.sqlite",
-        )
-        == 0
-    )
+    assert cli.main(["backfill-master", "--asof", DAY.isoformat()]) == 0
+    assert not (tmp_path / "stores/market/market.sqlite").exists()
 
 
 def test_legacy_tradingview_master_is_verified_against_finite_native_migration(
