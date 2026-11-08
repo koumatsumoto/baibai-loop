@@ -10,14 +10,19 @@ from datetime import UTC, date, datetime
 import pyarrow.parquet as pq
 import pytest
 import requests
-from tests.helpers.jquants_receipts import DAY, FIRST_AT, Session, body, receive, source_record
+from tests.helpers.jquants_receipts import (
+    DAY,
+    FIRST_AT,
+    Session,
+    acquire_request,
+    body,
+    receive,
+    source_record,
+)
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_snapshot
-from baibai_engine.data_collection.providers.jquants.acquisition import (
-    acquire_request,
-)
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
 )

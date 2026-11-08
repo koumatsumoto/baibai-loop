@@ -66,11 +66,6 @@ def rebuild_financial_days(
     return output
 
 
-def rebuild_financial_day(requests: Iterable[RetainedRequest], *, day: date) -> FinancialDay:
-    """Build one day from the same L1-only multi-day path."""
-    return rebuild_financial_days(requests, days=(day,))[day]
-
-
 def materialize_financial_days(
     connection: duckdb.DuckDBPyConnection,
     results: Iterable[FinancialDay],

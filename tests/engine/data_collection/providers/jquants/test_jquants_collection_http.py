@@ -12,12 +12,12 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
+from tests.helpers.jquants_receipts import acquire_request
 from tests.helpers.network import _no_real_network as _no_real_network
 from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
-from baibai_engine.data_collection.providers.jquants.acquisition import acquire_request
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsRateLimitError,

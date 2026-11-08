@@ -19,7 +19,6 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.disco
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     ScreeningRunReader,
-    ScreeningRunStore,
     initialize_run_store,
 )
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.screening_run_serializer import (
@@ -34,7 +33,6 @@ def test_schema8_keeps_generation_and_selection_separate_from_legacy_runs(tmp_pa
     assert initialize_run_store(path) == RUN_STORE_SCHEMA_VERSION == 8
     assert initialize_run_store(path) == 8
     result = _publish(path)
-    assert not hasattr(ScreeningRunStore(path), "publish_run")
     with closing(sqlite3.connect(path)) as connection, connection:
         tables = {
             row[0]
@@ -55,7 +53,6 @@ def test_schema8_keeps_generation_and_selection_separate_from_legacy_runs(tmp_pa
     assert run.stock_analyses[0]["candidate"]["common_eligible"] is True
     assert len(run.stock_analyses[0]["candidate"]["reasons"]) == 4
     assert not hasattr(result, "review_set_id")
-    assert not hasattr(ScreeningRunStore(path), "publish_review_set")
     assert not hasattr(ScreeningRunReader(path), "get_review_set")
 
 
@@ -231,15 +228,7 @@ def test_reader_preserves_saved_ordinal_before_candidate_projection(tmp_path: Pa
     assert [row["ticker"] for row in candidate_rows(run.stock_analyses)] == ["2222", "3333"]
 
 
-def test_prune_and_old_schema_require_explicit_cutover(tmp_path: Path) -> None:
-    path = tmp_path / "runs.sqlite"
-    for day in (12, 13, 14):
-        _publish(path, _run(asof=f"2026-10-{day}"))
-    pruned = ScreeningRunStore(path).prune(keep=1)
-    assert pruned.deleted_runs == pruned.deleted_stock_analyses == 2
-    assert not hasattr(pruned, "deleted_review_sets")
-    with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM screening_run").fetchone() == (1,)
+def test_old_schema_requires_explicit_cutover(tmp_path: Path) -> None:
     legacy = tmp_path / "old.sqlite"
     with closing(sqlite3.connect(legacy)) as connection, connection:
         connection.execute("CREATE TABLE old_cache(value TEXT)")
@@ -268,13 +257,15 @@ def precise_clock_runs(tmp_path):
     return path, revisions, clocks
 
 
-def test_prune_keeps_the_exact_latest_instants_without_rewriting_clocks(precise_clock_runs):
+def test_reader_preserves_exact_saved_ids_and_clocks_without_writing(precise_clock_runs):
     path, revisions, clocks = precise_clock_runs
-    result = ScreeningRunStore(path).prune(keep=2)
-    assert result.deleted_runs == result.deleted_stock_analyses == 1
-    with closing(sqlite3.connect(path)) as connection, connection:
-        retained = dict(connection.execute("SELECT run_revision_id, run_at FROM screening_run"))
-    assert retained == dict(zip(revisions[1:], clocks[1:], strict=True))
+    before = path.read_bytes()
+    for revision, clock in zip(revisions, clocks, strict=True):
+        saved = ScreeningRunReader(path).get_run(revision)
+        assert saved is not None
+        assert saved.run_revision_id == revision
+        assert saved.run_at == saved.payload["run_at"] == clock
+    assert path.read_bytes() == before
 
 
 def test_initialization_failure_rolls_back_run_schema_and_can_retry(tmp_path, monkeypatch):
