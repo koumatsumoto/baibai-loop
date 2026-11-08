@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -52,11 +53,19 @@ class JQuantsPage:
         object.__setattr__(self, "received_at", self.received_at.astimezone(UTC))
 
 
+def _finite_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        # Keep these bodies on the failed-original path before content hashing.
+        raise ValueError("non-finite J-Quants JSON number")
+    return result
+
+
 def page_envelope(page: JQuantsPage) -> dict[str, Any]:
     """Decode and validate native rows while preserving pagination metadata."""
     try:
-        payload = json.loads(page.body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = json.loads(page.body, parse_float=_finite_float, parse_constant=_finite_float)
+    except (UnicodeDecodeError, ValueError):
         raise JQuantsAcquisitionError("J-Quants response is not JSON") from None
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise JQuantsAcquisitionError("J-Quants response lacks a data array")

@@ -1,17 +1,25 @@
 """L1-only multiple cycles and disposable L2 through the real entry functions."""
 
+import gzip
 import json
 from datetime import UTC, date, datetime, timedelta
+from unittest.mock import Mock
 
 import pyarrow.parquet as pq
 import pytest
+import requests
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsPage,
 )
-from baibai_engine.data_collection.providers.jquants.financial_native import FinancialL1
+from baibai_engine.data_collection.providers.jquants.financial_native import (
+    PREFIX,
+    FinancialAttempt,
+    FinancialL1,
+)
+from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_jobs.acquisition.jquants_financial_native import acquire_financial_native
 from baibai_jobs.integration.financial_native import rebuild
 
@@ -146,6 +154,59 @@ def test_partial_pages_remain_l1_and_rebuild_reports_failure(tmp_path):
     assert row["projection_status"] == "unavailable"
     assert row["incomplete_requests"] == 1
     assert row["l1_coverage_status"] == "partial"
+
+
+@pytest.mark.parametrize("terminal_status", [200, 429])
+def test_invalid_body_or_rate_limit_keeps_the_healthy_batch_and_stops_next_day(
+    tmp_path, terminal_status
+):
+    bad_body = b'{"data":[{"Sales":1e309}]}'
+    session = Mock(spec=requests.Session)
+    responses = []
+    for status, body in [(200, b'{"data":[]}'), (terminal_status, bad_body)]:
+        response = requests.Response()
+        response.status_code, response._content, response._content_consumed = status, body, True
+        responses.append(response)
+    session.get.side_effect = responses
+    store = MemoryR2Store()
+    owner = FinancialL1(store, tmp_path / "work")
+    owner.initialize()
+    report = acquire_financial_native(
+        owner,
+        start=DAY,
+        end=DAY + timedelta(days=2),
+        revision_overlap_days=0,
+        client=JQuantsHTTP("synthetic-test-key", session=session, clock=lambda: AT),
+        clock=lambda: AT,
+        sleep=lambda _: None,
+    )
+    assert report["changed"] == report["failed"] == 1
+    assert report["halted"] == int(terminal_status == 429)
+    assert session.get.call_count == 2
+    saved = [
+        FinancialAttempt.from_value(json.loads(path.read_bytes()))
+        for path in owner.directory.glob("attempt-*.json")
+    ]
+    failed_day = DAY + timedelta(days=1)
+    failed = next(item for item in saved if item.day == failed_day)
+    assert failed.failure == (
+        "JQuantsAcquisitionError" if terminal_status == 200 else "JQuantsRateLimitError"
+    )
+    assert [page.body for page in failed.pages] == ([bad_body] if terminal_status == 200 else [])
+    fixed = FinancialL1(store, tmp_path / "fresh-reader").resume()
+    retained = list(fixed.requests(store, days=[DAY, failed_day]))
+    assert sum(item.request is not None for item in retained) == 1
+    assert next(item for item in retained if item.request is None).request_id == failed.request_id
+    stored = [
+        raw
+        for key, value in store.values.items()
+        if key.startswith(PREFIX + "packs/")
+        for raw in json.loads(gzip.decompress(value.body))
+    ]
+    assert next(raw for raw in stored if raw["request_id"] == failed.request_id) == failed.value()
+    writes = len(store.put_keys)
+    assert len(owner.commit(saved)["retried"]) == 2
+    assert len(store.put_keys) == writes
 
 
 def test_cli_dispatch_acquires_commits_retries_and_rebuilds(tmp_path, monkeypatch, capsys):
