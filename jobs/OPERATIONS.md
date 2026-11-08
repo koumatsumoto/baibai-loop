@@ -280,7 +280,7 @@ uv run baibai-jobs acquire-economic refresh <SOURCE_ID> --all-history --end <YYY
 
 取得窓/空seed/確認はsource別[policy](../engine/src/baibai_engine/data_collection/acquisition/policy.py)に従う。空seedを欠落の自動初期化にせず、一律の短期窓へ狭めない。FRED全CSV・BOJ四半期APIは期間を狭めても通信が減らず、返却された窓外期間も保持する。未返却を撤回/全履歴確認とせず、history_recovery_requiredは別の有限期間/all-historyで回復する。同じ無期間応答を回復用に重ねて処理しない。
 
-FRED同値は原本を複写せず実確認時計を進め、本文変更・公表時計と分ける。完全応答の期間集合/hashを保ち、headerだけ/短い行を成功としない。確認欠落/遅着で通常pushを拒否されたときだけ、fresh正本を基点に実GETする。
+FRED成功時のL1は従来のnative行とし、同値は原本を複写せず実確認時計を進め、本文変更・公表時計と分ける。完全応答の期間集合/hashを保ち、headerだけ/短い行を成功としない。GET後のdecode/CSV解析失敗でnative行を作れない場合だけ、requestsのresponse entity bodyを既存economic_source_documentsへ保全し、runは失敗のままにする。HTTP header/圧縮wireや成功応答全文のarchiveではなく、旧原文/時計も復元しない。確認欠落/遅着で通常pushを拒否されたときだけ、fresh正本を基点に実GETする。
 
 ```bash
 with_publication_lease jobs/scripts/r2_transfer.sh push-indicators --recheck-source <FRED_SOURCE_ID>
@@ -560,7 +560,7 @@ fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全byte
 - seal後/input途中: 次cycleのfresh copy・新attemptで全groupを再発行する。旧local出力を上書きしない。
 - A→同値A→Bの一括公開後の中断: 本文省略の中間stageがneeds_explicit_recoveryになり得る。元stage/hash・中断runのreadback・現正本/次inputを照合し、元時計/markerを変更しない。最新B/inputから前進できるが、新取得成功を旧stage採用の証明にしない。
 
-FRED確認state自体の欠落だけ[通常recheck-source](#経済原本)を使う。全sourceへ同じ確認方式を広げず、source別object化/FRED HTTP bytes保存は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)の残作業とする。
+FRED確認state自体の欠落だけ[通常recheck-source](#経済原本)を使う。全sourceへ同じ確認方式を広げず、source別の保存単位・FRED成功bodyを追加保持する必要性と方式・過去時計の回復は[#1820](https://github.com/koumatsumoto/baibai-loop/issues/1820)で継続する。
 
 ## 保存済み旧runを読む
 

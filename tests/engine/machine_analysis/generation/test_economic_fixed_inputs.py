@@ -140,6 +140,55 @@ def test_same_response_changes_only_root_not_period_metadata_or_body(tmp_path):
     assert len(store.put_keys) == count
 
 
+def test_fred_failed_body_does_not_rewrite_native_selection_or_saved_read(tmp_path):
+    path = tmp_path / "economic.sqlite"
+    store = MemoryR2Store()
+    seed(path)
+    run(path, "original", status="ok")
+    expected = current(path)
+    saved_without_body = freeze(store, path)
+    count = len(store.put_keys)
+    tables = (
+        "economic_source_records",
+        "economic_source_record_confirmations",
+        "economic_source_collection_confirmations",
+        "economic_source_runs",
+    )
+    with closing(initialize_database(path)) as connection, connection:
+        original_rows = {
+            table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in tables
+        }
+        assert not connection.execute("SELECT 1 FROM economic_source_documents").fetchone()
+        store_document(
+            connection,
+            SourceDocument(
+                source_id="fred-payems",
+                request_key="history",
+                source_url="https://example.test/payems.csv",
+                content_type="text/csv",
+                fetched_at=CLOCK,
+                payload=b"\xffunreadable response",
+                metadata={
+                    "provider": "fred_csv",
+                    "provider_series_id": "PAYEMS",
+                    "frequency": "monthly",
+                    "representation": "fred-csv-v1",
+                },
+            ),
+        )
+        assert original_rows == {
+            table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in tables
+        }
+    # Isolate the failure body from the existing failed-run input metadata.
+    # It is extra L1 evidence, not a replacement for any fixed native row.
+    assert freeze(store, path) == saved_without_body
+    assert len(store.put_keys) == count
+    assert current(path) == expected
+    cold = rebuild_economic_input(store, path, saved_without_body)
+    assert cold.context == expected
+    assert cold.evaluation_time == EVALUATED
+
+
 def test_scoped_confirmation_has_an_independent_saved_clock_and_cold_read(tmp_path, monkeypatch):
     path = tmp_path / "economic.sqlite"
     store = MemoryR2Store()

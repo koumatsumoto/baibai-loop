@@ -39,7 +39,7 @@ def test_missing_cell_is_retained_but_empty_full_history_does_not_erase_prior_va
             "observation_date,VIXCLS,unused\n",
         ]
     )
-    monkeypatch.setattr(fred, "fetch_text", lambda *args, **kwargs: next(replies))
+    monkeypatch.setattr(fred, "fetch_bytes", lambda *args, **kwargs: next(replies).encode())
     service = IndicatorsService(path)
     outcome = acquisition.refresh_sources(
         [series.source_id], db_path=path, start=first, end=second
@@ -142,7 +142,7 @@ def test_recent_fetch_keeps_old_revision_and_replaces_only_real_periods(tmp_path
             "observation_date,VIXCLS\n2026-11-01,21\n",
         ]
     )
-    monkeypatch.setattr(fred, "fetch_text", lambda *args, **kwargs: next(replies))
+    monkeypatch.setattr(fred, "fetch_bytes", lambda *args, **kwargs: next(replies).encode())
     with closing(db.initialize_database(path)) as conn, conn:
         store_snapshot(
             conn,
@@ -261,3 +261,41 @@ def test_recent_full_series_is_not_replayed_through_cached_gap_recovery(tmp_path
             )
         ] == [(stamp, stamp), (stamp, stamp)]
         assert connection.execute("SELECT COUNT(*) FROM economic_source_runs").fetchone()[0] == 2
+
+
+def test_failed_response_body_is_not_in_exception_args_repr_or_traceback(monkeypatch):
+    import traceback
+    from datetime import UTC, datetime
+
+    import pytest
+
+    from baibai_engine.data_collection.providers.fred import FredCsvResponseError
+    from baibai_engine.data_collection.transport.context import FetchContext
+
+    marker = "private-body-marker-fred"
+    body = f"observation_date,DGS10\n{marker},4.39\n".encode()
+    stamp = datetime(2026, 11, 8, 1, tzinfo=UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return stamp.astimezone(tz or UTC)
+
+    monkeypatch.setattr(fred, "datetime", Clock)
+    with FetchContext() as context, pytest.raises(FredCsvResponseError) as caught:
+        FredSource().fetch_records(
+            _source("fred_csv", "DGS10"),
+            start=date(2026, 5, 1),
+            end=date(2026, 5, 1),
+            session=_StaticSession(_FakeResponse(body)),
+            context=context,
+        )
+    error = caught.value
+    assert error.args == ("FRED CSV decode/parse failed: ValueError",)
+    assert marker not in str(error) + repr(error) + repr(error.args)
+    assert marker not in "".join(traceback.format_exception(error))
+    assert error.__cause__ is None
+    assert error.__suppress_context__ is True
+    assert error.document.payload == body
+    assert error.document.fetched_at == stamp
+    assert context.bytes_cache == {}
