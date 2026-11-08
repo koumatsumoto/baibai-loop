@@ -1,27 +1,27 @@
 # Stock Assessment
 
-企業理解・価値・反証と独立検証を保存する。[doctrine](../doctrine.md)を適用し、操作は[skill](../../.agents/skills/investment-judgment/SKILL.md)へ。現在価格/cashへの適用と取引は評価から分ける。
+[doctrine](../doctrine.md)に沿う企業理解・価値・反証・独立検証の意味を扱う。操作は[skill](../../.agents/skills/investment-judgment/SKILL.md)、現在価格/cashへの適用は[提案](trade-proposal.md)へ。
 
 ## 観測と根拠
 
-入力・出典を固定し、[原典の時点・欠測](model-observations.md#source-owners)を保つ。元generation/旧runの存続や機械ER/FVの転記は不要。価格は未調整1株basisで、日次終値へ架空時刻を付けない。
+入力・出典は[固定保存](../architecture.md#store-authority)と[時点・欠測](model-observations.md#source-owners)に従う。機械ER/FVは転記せず、価格は未調整1株basis、日次終値に架空時刻を付けない。
 
-新規作成時に明記する価格観測時刻は、少なくとも一つの引用出典の取得以前とする。記録整合の検査であってprovider受領時計/価格の真偽は証明せず、保存pairのexact読取・再送は変えない。
+新規作成の価格観測時刻は少なくとも一つの引用取得以前とする。記録整合の検査でprovider時計/価格の真偽を証明せず、保存pairの読取・再送には適用しない。
 
-一次性と企業からの独立性は別。EDINET/TDnet/JPX配布も会社資料はissuer-primaryで、転載・sponsor調査・同じpress kitは独立票にならない。顧客/競合資料も直接知る範囲だけを支持する。公表実績と将来計画/因果を分け、採否を変える需要・優位性・外部状態・pipeline成功には独立根拠を求める。全記述へ2 sourceを課さず、会社計画の割引を独立見積りとしない。
+一次性と企業からの独立性は別。EDINET/TDnet/JPX配布の会社資料もissuer-primaryで、転載・sponsor調査・同じpress kitは独立票でない。顧客/競合資料は直接知る範囲を支持する。実績と将来計画/因果を分け、採否を変える需要・優位性・外部状態・pipeline成功には独立根拠を求める。全記述へ2 sourceを課さず、会社計画の割引を独立見積りとしない。
 
-単一事例の一般化、非開示/検索不発の不存在認定をせず、裏取り不能/矛盾は試したsourceと影響を残す。既存事業の価値で成長仮説を支持せず、重要な肯定的主張を無条件にBaseへ入れない。調査で幅が狭まらなければ反復を止め、[受容理由と再評価条件](#uncertainty-and-decision)を残す。
+単一事例を一般化せず、非開示/検索不発を不存在としない。裏取り不能/矛盾は試したsourceと影響を残す。既存事業価値で成長仮説を支持せず、重要な肯定的主張を無条件にBaseへ入れない。幅が狭まらなければ反復を止め、[受容理由と再評価条件](#uncertainty-and-decision)を残す。
 
 <a id="recent-news-research"></a>
 ### 直近ニュース・カタリスト
 
-価格急変によらず、cutoff以前の公式IR・適時開示・企業/サービス告知・信頼できる事実報道を実検索する。前回との差分と重要な継続案件、初回は最新決算等を起点に範囲/空白を示す。固定の短期窓・好悪の件数合わせ・無変化の全文再調査は不要。
+価格急変によらずcutoff以前の公式IR・適時開示・企業/サービス告知・信頼できる事実報道を実検索する。前回差分と重要な継続案件、初回は最新決算等から範囲/空白を示す。固定短期窓・好悪件数合わせ・無変化の全文再調査は不要。
 
-snippetから原文/一次情報へ戻り、法人/上場親子、発生/発覚と公表、訂正を確認する。事実・会社見解・報道・推論、検索範囲/重要な未確認/出典をsources/findingsへ残す。利益・cash・追加資本・回復期間への影響または判断不変の理由を仮説/最強反証へ結ぶ。価格無反応を無影響/織込済みとしない。
+snippetから原文へ戻り、法人/上場親子、発生/発覚と公表、訂正を確認する。事実・会社見解・報道・推論と検索範囲/重要な未確認/出典を残し、利益・cash・追加資本・回復期間への影響または判断不変の理由を仮説/最強反証へ結ぶ。価格無反応を無影響/織込済みとしない。
 
 ## 経済性から問いを選ぶ
 
-抽出理由と株主へcashを帰属させる経路を分け、結論を左右する問いを選ぶ。複合事業は接続し、全問checklist/分類fieldを増やさない。
+抽出理由と株主へのcash経路を分け、結論を左右する問いを選ぶ。複合事業は接続し、全問checklistにしない。
 
 - 契約・人員projectは更新/解約・単価/usage・獲得/提供費・稼働・賃上げ/育成・検収/回収・不採算を問う。ARR/受注残/契約負債を混ぜず、未開示KPIを創作せず、受注/採用を同marginの即時売上にしない。
 - 有限権利は減衰・寿命・更新/撤退費・stage/成功、市況事業は数量/価格/mix・在庫/ヘッジの期/表示・運転資金・維持/成長投資を問う。償却足戻しで寿命を延ばさず、反転時は利益と資金を共に動かす。
@@ -33,7 +33,7 @@ snippetから原文/一次情報へ戻り、法人/上場親子、発生/発覚�
 <a id="analysis-domain-integration"></a>
 ## 解析モデルの統合
 
-[七モデル](../architecture.md#現在の解析モデル)は、[統合方針](../doctrine.md#fact-analysis-separation)に従い、重要な支持・相反・不足を個社仮定へ結ぶ。
+[統合方針](../doctrine.md#fact-analysis-separation)に従い、[七モデル](../architecture.md#現在の解析モデル)の重要な支持・相反・不足を個社仮定へ結ぶ。
 
 - [会計比較](model-observations.md#financial-periods)に従い年間/直近同四半期を読む。前年を正常値とせず回復は履歴で確認し、報告増を有機成長と即断しない。営業CF低下≠正常FCF悪化、利益/EPS/低PER≠独立票で、科目不足なら原典へ戻る。
 - [環境・外部評価](model-observations.md#external-assessment): 需要/費用/資金と要求収益/織込み/流動性への伝達を分け、一致/相違を元仮定へ戻す。同年度/定義の総額予想−累計実績は必要残額で実現確率ではない。取得日を全予想の更新確認とせず、株式basis不足で総額比較まで禁じない。
@@ -45,14 +45,14 @@ snippetから原文/一次情報へ戻り、法人/上場親子、発生/発覚�
 <a id="scenario-arithmetic"></a>
 ## 条件付き価値
 
-resolvedは原価格・期間・要求率・Base/Downsideの単位・利益・資金・帰属が仮定と整合することで、将来確定ではない。unresolvedは理由を残し、未確定値をゼロ/推定で埋めない。要求率とBase/Downsideは[doctrine](../doctrine.md#required-return-policy)に従う。
+resolvedは原価格・期間・要求率・Base/Downsideの単位・利益・資金・帰属と仮定の整合で、将来確定ではない。unresolvedは理由を残しゼロ/推定で埋めない。要求率は[資本方針](../doctrine.md#required-return-policy)、Base/Downsideは[見積り方針](../doctrine.md#fact-analysis-separation)に従う。
 
-terminalは分配後の残余価値、cashは期間内累積分配。同じ起点の未調整1株に揃え、配当・売却・買戻しを二重算入しない。権利落ち後価格と未入金配当権利を分け、権利確定前の未公表配当は仮定とする。年率は投資家の税費用前・分配再投資なしで、期待値/IRRではなく、企業利益の税/営業費用を除くものでもない。算式は[scenario](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)が所有し、表示丸めで判定しない。
+terminalは分配後の残余価値、cashは期間内累積分配。同じ起点の未調整1株に揃え、配当・売却・買戻しを重ねない。権利落ち後価格と未入金配当権利を分け、権利確定前の未公表配当は仮定とする。年率は投資家の税費用前・分配再投資なしで期待値/IRRではない。企業利益の税/営業費用は除かない。算式は[scenario](../../engine/src/baibai_engine/investment_judgment/stock_assessment/scenario.py)が所有し、表示丸めで判定しない。
 
 <a id="valuation-model-choice"></a>
 ### modelと期間
 
-[価値獲得経路](../doctrine.md#investment-strategy)から選び、株価へ合わせず、EPS×PER・12か月を既定にせず全方式平均をしない。費用・追加資本・帰属・時期を揃え、費用化済み人材/R&Dを再控除せず、倍率内の成長/再投資と別認識資産を分ける。
+[価値獲得経路](../doctrine.md#investment-strategy)から選び、株価へ合わせたり全方式を平均したりせず、EPS×PER・12か月を既定にしない。費用・追加資本・帰属・時期を揃え、費用化済み人材/R&Dを再控除せず、倍率内の成長/再投資と別認識資産を分ける。
 
 留保で簿価が増えるPBR一定とPER一定は別。終期利益・簿価・分配を揃え、倍率が上昇する/しない両経路を検討し、Downsideを無関係な全変数の最悪化にしない。複数年は中間の事業・投資・資金も記し、期間延長で分配だけ増やさない。早期分配が採否を変えるなら感応度を示し、modelを変える観測条件を残す。
 
@@ -69,16 +69,14 @@ terminalは分配後の残余価値、cashは期間内累積分配。同じ起�
 <a id="draft-calculation"></a>
 ### 計算資料
 
-`investment-judgment calculate`はtyped ratio/Projectionの算術のみで、文章/売上からterminalを作らない。
-
-入力の任意の `price_comparison`（`price_yen` と任意の `hypothetical_quantity`）で、観測Factを差し替えず別価格を比較できる。同じ評価起点・horizonのまま価格だけを変え、待機後約定の残期間や未約定は計算しない。別枠の損益は仮数量が全量同値で成立した税費用前・再投資なしの条件例で、必要支出を口座cashや購入可能量へ読み替えない。単元・呼値・約定・採用/Reviewは検証せず、元のvaluation/Review用数値と正規提案のPmax/no-add等の判定を変えない。
+`investment-judgment calculate`の[入力契約](../../engine/src/baibai_engine/investment_judgment/stock_assessment/calculation.py)はtyped ratio/Projectionで、文章/売上からterminalを作らない。任意の別価格比較は観測Factを替えず同じ評価起点/horizonを使い、待機後の残期間や未約定を扱わない。仮数量の損益は全量同値成立・税費用前・再投資なしの条件例で、支出を口座cash/購入可能量にしない。単元・呼値・約定・採用/Reviewは検証せず、元の評価/Review算術や正規提案のPmax/no-addを変えない。
 
 `--cash-share-cb`は額面現金＋転換価値超過分の株式交付CBだけの試算。額面は計上債務の消滅と対応し再控除しない。決済VWAP・配当調整参照終値・評価株価、端株現金をVWAPと置く試算・VWAPと終価を結ぶ固定点を分ける。調整時期/本数/権利は原典確認し、連続近似や整数固定点不存在を実決済へ読み替えない。採否は別判断である。
 
 <a id="valuation-context"></a>
 ### 原価格の成立条件
 
-[Pmax](trade-proposal.md#条件付き購入)の必要値を、利益・必要資本・分配が同時成立する経路と照合する。独立signal/市場予想やDownside不足の追加gateにしない。価値固定の延長では年率損失が縮んでも損失額は減らず、実際の遅延の影響はcountercaseへ反映する。
+[Pmax](trade-proposal.md#条件付き購入)の必要値を利益・必要資本・分配の同時成立経路と照合する。独立signal/市場予想やDownside不足の追加gateにしない。価値固定の延長では年率損失が縮んでも損失額は減らず、実遅延はcountercaseへ反映する。
 
 <a id="permanent-loss-axes"></a>
 ## 永久損失
@@ -88,7 +86,7 @@ terminalは分配後の残余価値、cashは期間内累積分配。同じ起�
 <a id="uncertainty-and-decision"></a>
 ## 不確実性を引き受ける判断
 
-`intact`は明示仮説が既知事実で未破綻、`uncertain`は仮説/中核根拠の整理不足で評価未完、`broken`は仮説不成立。将来利益率等の未確定だけでuncertainにせず、別の再建/回収仮説は検討できるが、反証された旧仮説を安さで復活させない。
+仮説は未破綻（intact）、仮説/中核根拠の整理不足で評価未完（uncertain）、不成立（broken）を分ける。将来利益率等の未確定だけでuncertainにせず、別の再建/回収仮説は検討できるが、反証された旧仮説を安さで復活させない。
 
 supportedには未破綻以上の積極的な価値根拠が必要。不明点と利益/資金/希薄化/価値への影響、Baseを選び見返りで引き受ける理由を所見・計算・最強反証へ結び、損失記載だけで受容済みにしない。未開示の顧客別採算等は総額/妥当な仮定で評価できるが、根拠/代替のない借換成功を高利回りや架空事実で通さない。採否不能なら不足を限定して保留し、観測価格・単位・期間を創作しない。supportedは購入採用と別で、Pmax超過やquote/cash不足をunsupportedにしない。
 
@@ -97,13 +95,13 @@ supportedには未破綻以上の積極的な価値根拠が必要。不明点�
 <a id="independent-second-pass"></a>
 ## 独立検証と保存
 
-作者と別の作業者が原典・上流算式・当期/前期見出し・単位/期間・仮定/最強反証を確認する。resolvedはterminal/cashを独立入力から再計算し、unresolvedは所見・不足・結論を検討する。抽出値/出力のコピー・同じ誤入力の一致・hash一致を独立性/真実性の証明にしない。[資本の橋渡し](#capital-bridge)と過大/過小仮定の両側、相反/比較不能・unknown/partial・受容理由と検証限界を残す。
+別作業者が原典・上流算式・当期/前期見出し・単位/期間・仮定/最強反証を確認する。resolvedのterminal/cashは独立入力から再計算し、unresolvedは所見・不足・結論を検討する。抽出値/出力コピーや誤入力/hash一致を独立性/真実性の証明にしない。[資本の橋渡し](#capital-bridge)、過大/過小仮定、相反/比較不能・unknown/partial・受容理由と検証限界を残す。
 
 評価/ReviewとProposalは同じexact core pairへ束縛する。最新のunsupported/unresolvedを避けて旧supportedへ戻らず、保存読取へ現在cash/価格条件を適用しない。
 
 <a id="assessment-refresh"></a>
 ## 差分refreshと文章編集
 
-同日pairは再利用できる。翌日以降の当日算術は価値・開示・仮説・株式単位・[残期間/今後分配](trade-proposal.md#holding)を差分確認し新Reviewへ束縛する。素材priorと最新supersedes先、source/fact日付を保ち、全資料再取得や旧12か月の延長はしない。整数月≠厳密残日数で、現在projection不可でも旧原価格算術は読める。
+同日pairは再利用できる。翌日以降の当日算術は価値・開示・仮説・株式単位・[残期間/今後分配](trade-proposal.md#holding)を差分確認し新Reviewへ束縛する。素材prior/最新supersedes先とsource/fact日付を保ち、全資料再取得や旧12か月の延長はしない。整数月≠厳密残日数で、現在projection不可でも旧原価格算術は読める。
 
 編集は数値・単位・日付・比較基準・支持/反証・限定をtitle/summaryまで保つ。同文を各欄へ複写せず、材料→仮定→比較理由へ辿れるようにする。新根拠/因果/判断は変更部分と下流を再Reviewする。

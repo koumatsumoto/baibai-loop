@@ -5,11 +5,11 @@ description: 人間の明示開始から有限対象を選び、Company Research
 
 # Investment Judgment
 
-ここは開始・保存・再開の手順。[doctrine](../../../docs/doctrine.md)が採否、[Stock Assessment](../../../docs/reference/stock-assessment.md)が原典・モデル統合・価値・独立検証、[Trade Proposal](../../../docs/reference/trade-proposal.md)が行動・条件・内容Reviewを所有する。省略したcommand名はinvestment-judgmentの子commandで、引数は各`--help`、pathは返却値を使う。`<APP_DB>`は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)で用意し、保存後も同手順で反映する。
+開始・保存・再開の手順を扱う。採否は[doctrine](../../../docs/doctrine.md)、根拠・価値・独立検証は[Stock Assessment](../../../docs/reference/stock-assessment.md)、行動・条件・内容Reviewは[Trade Proposal](../../../docs/reference/trade-proposal.md)へ。省略したcommandはinvestment-judgmentの子commandで、引数は`--help`、pathは返却値を使う。`<APP_DB>`の準備/保存後反映は[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)に従う。
 
 ## 開始と固定対象
 
-既存Operationは旧形式も[IDで再開](#完了と再開)する。新規依頼は選定から提案まで進め、旧draft/runを新Selectionにせず、全候補Triage・人間の事前選定を要求しない。
+既存Operationは旧形式も[IDで再開](#完了と再開)する。新規依頼は選定から提案へ進め、旧draft/runを新Selectionにしない。全候補Triage・人間の事前選定は要求しない。
 
 ```bash
 uv run baibai-engine investment-judgment selection-context \
@@ -17,11 +17,11 @@ uv run baibai-engine investment-judgment selection-context \
   --db <APP_DB> --runs-path stores/screening/runs.sqlite
 ```
 
-銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず、評価を変える問いで選ぶ。候補外比較は同commandへ返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を渡し、依頼scopeを変えず採用対象をdraftへ記す。候補入り・表示省略・未生成・欠測は別である。
+銘柄指定は`--scope specified_stocks --ticker <TICKER>`（候補外可）、保有は`--scope review_positions`。new/holdingを混ぜず評価を変える問いで選ぶ。候補外比較は同commandへ返された`--screening-selection-id <ID> --compare-ticker <TICKER>`を渡し、依頼scopeを保って採用対象をdraftへ記す。
 
-再訪は`company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きはknown_atを固定しnext_after_tickerを使う。未review Researchと過去のreview済みpair、空とunreadableを区別する。
+再訪は`company-research catalog/get`と[振り返り](#判断の振り返り)を有限に読む。catalogの続きはknown_atを固定しnext_after_tickerを使い、未review Research/review済みpair、空/unreadableを分ける。
 
-Selection v2へcontextのidentity/判断日/cutoff/requestと対象・問い・理由・代替・未確認範囲を引継ぐ。全社モデルを投入せず、不足は必要な通常取得で補い、単一対象の全期間backfillや経済的棄却で代用しない。新しい共通市場判断が必要なら[市場判断skill](../market-context-assessment/SKILL.md)へ進む。
+contextのidentity/時点/依頼を保つSelectionを作り、対象・問い・理由・代替・未確認範囲を記す。全社モデル投入や単一対象の全期間backfillをせず、不足は必要な通常取得で補い経済的棄却で代用しない。新しい共通市場判断は[市場判断skill](../market-context-assessment/SKILL.md)へ。
 
 ```bash
 uv run baibai-engine investment-judgment prepare \
@@ -29,13 +29,13 @@ uv run baibai-engine investment-judgment prepare \
   --workspace .cache/research/<ASOF> --runs-path stores/screening/runs.sqlite
 ```
 
-prepareは開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment sourcesとReviewへ追加し、Selectionを改変しない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactのfull_result_refで読む。成長表示の`--company-growth-periods 24`/`all`は保存範囲を増やさず、既存表示は再開時のforceで更新する。
+prepareは開始材料を保存しdomain-inputs.yamlへ投影する。後発根拠はAssessment/Reviewへ追加しSelectionを変えない。完全結果は`operation --db <APP_DB> --format json show <ID>`のresearch_selection artifactが指すfull_result_refで読む。表示拡大は保存範囲を増やさず、既存表示の更新には再開時のforceを使う。
 
-nativeはanalysis_source.inputsとInputSnapshot descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進み、summary/latestで代用しない。時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
+nativeは保存descriptorから[固定reader](../../../jobs/OPERATIONS.md#jquants-native-operations)へ進みsummary/latestで代用しない。候補/省略/未生成/欠測と時点・Reading・保存範囲は[観測reference](../../../docs/reference/model-observations.md#judgment-use)に従う。
 
 ### 記事の原文へ戻る
 
-Generation V2 shared_subjectsのcoverage/抽出状態/省略を確認する。[通常生成の範囲](../../../docs/architecture.md#現在の解析モデル)を全ニュースへ一般化せず、重要原文だけprivateに読む。
+共有subjectのcoverage/抽出状態/省略を確認し、[通常生成の範囲](../../../docs/architecture.md#現在の解析モデル)を全ニュースへ一般化せず重要原文だけprivateに読む。
 
 ```bash
 uv run baibai-engine articles exact-evidence \
@@ -45,24 +45,24 @@ uv run baibai-engine articles exact-evidence \
 
 探索は同じrelease/manifest/cacheの`articles list`へsource・受領UTC月・公表期間を渡す。月ごとにprivate index.jsonから選び、続きは同条件のnext_after。公表日時不明は日時検索に入らない。
 
-lookupは元lineageや旧release全体の再読ではない。Research source.refに原典URL、used_forにexact descriptorを残し、日付・本文範囲・限定をAssessment/Review/再開へ引継ぐ。保存時の自動exact照合は保証されない。原文を公開logへ転載せず、再受領を独立票、旧feedを本日の変化、予定日を実施確認にしない。
+lookupは元lineageや旧release全体の再読でない。Research source.refに原典URL、used_forにexact descriptorを残し、日付・本文範囲・限定を後続/再開へ引継ぐ。自動exact照合は保証されず、原文を公開logへ転載しない。証拠の[独立性・変化・実施](../../../docs/reference/stock-assessment.md#analysis-domain-integration)を受領だけで認定しない。
 
 ## Company Research・Stock Assessment・Independent Review
 
 同じworkspace/ticker/DB（保有はholding子workspace）で進める。
 
-1. `stock-assessment-scaffold`へasofも指定し、assessment_draftを執筆する。Assessmentの直近ニュース手順に従い、PDF抽出失敗は原ページへ戻す。
-2. `stock-assessment-evaluate <DRAFT>`で確認する。`calculate`は算術補助で原典確認ではない。
-3. `independent-review-scaffold`から別作業者が原典・上流算式を独立検証する。
+1. `stock-assessment-scaffold`へasofを指定し、[根拠とニュース](../../../docs/reference/stock-assessment.md#recent-news-research)を確認して執筆する。PDF抽出失敗は原ページへ戻す。
+2. `stock-assessment-evaluate <DRAFT>`で確認する。算術補助は`calculate`を使う。
+3. `independent-review-scaffold`から別作業者が[独立検証](../../../docs/reference/stock-assessment.md#independent-second-pass)する。
 4. `stock-assessment-evaluate <DRAFT> --review <REVIEW>`でpairを確認し、`stock-assessment-promote`で保存する。
 
 scaffoldの`--from-research-id`は元日付/ID/hash付き素材コピー、`--from-assessment-id`はAssessmentの差分refresh。併用せず、コピーを評価済みとしない。
 
 ### 途中成果の保存と再訪
 
-`company-research scaffold`はlatestまたは明示ID/hashからdraftを作る。調査範囲・追加/訂正/削除を編集し`company-research save`する。差分メモでなく部分的理解のsnapshotで、検索不発も範囲/残る問いを保存できる。価値・価格・Reviewを捏造しない。
+`company-research scaffold`はlatestまたは明示ID/hashからdraftを作る。調査範囲と追加/訂正/削除を編集し`company-research save`する。部分的理解のsnapshotとして検索不発も範囲/残る問いを保存でき、価値・価格・Reviewを捏造しない。
 
-as_ofは情報境界で全内容の再検証日ではない。元source/fact時刻を保ち、コピーを再確認/削除の安全認定にしない。stale priorはlatestを読んで統合し再保存、同ID同内容は元保存時刻を返す。文字列参照の自動検証は保証しない。部分保存はreviewed/完了でなく、中断は理由とResearch ID/digestをrecord-unfinishedへ残す。
+as_ofは情報境界で全内容の再検証日でない。元source/fact時刻を保ちコピーを再確認/削除の安全認定にしない。stale priorはlatestと統合して再保存し、同ID同内容は元保存時刻を返す。文字列参照の自動検証は保証しない。中断は理由とResearch ID/digestをrecord-unfinishedへ残し、部分保存をreviewed/完了としない。
 
 ## Trade Proposal
 
@@ -82,13 +82,13 @@ uv run baibai-engine investment-judgment trade-proposal-context \
   --operation-id <OPERATION_ID> --db <APP_DB> --sqlite-path stores/market/market.sqlite
 ```
 
-contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象についてTrade Proposalの指値/数量/待機または保有/回収を比較し、`trade-proposal-check <DRAFT> --db <APP_DB>`→別作業者の内容Review→`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
+contextを読み、`trade-proposal-scaffold`へ同Operation/db・新proposal-id・outを渡す。固定全対象を[Trade Proposal](../../../docs/reference/trade-proposal.md)に沿って比較し、`trade-proposal-check <DRAFT> --db <APP_DB>`→別作業者の内容Review→`trade-proposal-publish <REVIEWED_DRAFT> --db <APP_DB>`へ進む。
 
 全対象が理由/参照付きunfinishedで、公開済みProposalも束縛参照もない場合だけProposalを省ける。resultに確認範囲/評価未完、nextに未解決の問い/再調査条件を記す。reviewedや未束縛の公開済みProposalがあれば通常経路を使い、経済的見送り/保有判断をunfinishedにしない。0対象は選定理由を残し空Proposalなしで完了する。
 
 ## 判断の振り返り
 
-旧判断と後日事実の照合/学びであり、企業知識の更新はResearch、現評価はrefreshへ分ける。新Operation/Selection/Review/現在市場入力は不要。
+旧判断と後日事実を照合する。企業知識の更新はResearch、現評価はrefreshへ分け、新Operation/Selection/Review/現在市場入力は不要。
 
 ```bash
 uv run baibai-engine investment-judgment judgment-retrospective scaffold \
@@ -115,11 +115,11 @@ uv run baibai-engine investment-judgment prepare \
 
 record-proposalは公開済み提案の束縛。buy完了には具体termsを要し、sell terms不足の理由付き調査終了を具体提案完成としない。completedは有限作業終了で、評価/提案完成・採否・注文・約定とは限らない。正本は`operation --db <APP_DB> show <ID>`で読み、workspaceのincompleteと区別する。
 
-保存入力から再開し、元generation/旧run/latest storeへ付替えない。forceは執筆draftを保持する。DB commit後のfile失敗も返されたIDで再開し、別active workspaceを上書きしない。already_completedを戻さず、後日の再依頼は新workspace/Operationを使う。取引/資金は報告事実だけを[Ledger](../ledger-record/SKILL.md)へ記録する。
+[保存入力](../../../docs/architecture.md#store-authority)から再開する。forceは執筆draftを保持し、DB commit後のfile失敗も返されたIDで再開する。別active workspaceを上書きせず、already_completedは戻さず、再依頼には新workspace/Operationを使う。取引/資金の報告は[Ledger](../ledger-record/SKILL.md)へ。
 
 ## 提案訂正・人間の非購入報告
 
-Trade Proposalの「提案の訂正と人間の報告」に従いexact Proposalを読む。
+[訂正と本人報告](../../../docs/reference/trade-proposal.md#提案の訂正と人間の報告)に従いexact Proposalを読む。
 
 ```bash
 uv run baibai-engine investment-judgment proposal-records --db <APP_DB> correct <CORRECTION_DRAFT> \
@@ -128,4 +128,4 @@ uv run baibai-engine investment-judgment proposal-records --db <APP_DB> report <
 uv run baibai-engine investment-judgment proposal-records --db <APP_DB> show <PROPOSAL_ID>
 ```
 
-競合は読直し、blind retryしない。同ID同内容のみ冪等で、保存時計はエンジンが付ける。原提案/Review/完了Operation/台帳を変えず、別記録を読戻す。
+競合は読直しblind retryしない。同ID同内容だけ冪等で、保存時計はエンジンが付ける。別記録を読戻す。
