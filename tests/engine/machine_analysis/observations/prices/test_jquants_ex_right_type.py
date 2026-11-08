@@ -29,7 +29,14 @@ from baibai_jobs.publication.datasets import LAKE_DATASETS
 @pytest.mark.parametrize("close", [None, 100.0])
 def test_ex_right_type_survives_source_and_sqlite_roundtrip(tmp_path, kind, factor, close):
     day = date(2026, 10, 14)
-    raw = {"Code": "130A0", "Date": day.isoformat(), "C": close, "AdjFactor": factor, "ExRT": kind}
+    raw = {
+        **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+        "Code": "130A0",
+        "Date": day.isoformat(),
+        "C": close,
+        "AdjFactor": factor,
+        "ExRT": kind,
+    }
     event = normalize_adjustment_factor_event(raw)
     assert event is not None
     assert event.ex_right_type == kind
@@ -100,7 +107,14 @@ def test_adjusted_readers_reject_reported_action_without_factor(tmp_path, kind, 
     database = tmp_path / "market.sqlite"
     rows = [
         {"Code": "13010", "Date": start.isoformat(), "C": 200.0, "AdjFactor": 1.0},
-        {"Code": "13010", "Date": action.isoformat(), "C": close, "AdjFactor": None, "ExRT": kind},
+        {
+            **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+            "Code": "13010",
+            "Date": action.isoformat(),
+            "C": close,
+            "AdjFactor": None,
+            "ExRT": kind,
+        },
         {"Code": "13010", "Date": end.isoformat(), "C": 100.0, "AdjFactor": 1.0},
     ]
     store_jquants_daily_bars(database, rows, requested_start=start, requested_end=end)
@@ -133,7 +147,13 @@ def test_adjusted_readers_keep_ordinary_null_factor_and_zero_change(tmp_path):
 def test_invalid_factor_is_retained_but_not_hidden_from_calculation(tmp_path, factor, close):
     start, day = date(2026, 10, 13), date(2026, 10, 14)
     prior = {"Code": "13010", "Date": start.isoformat(), "C": 110.0, "AdjFactor": 1.0}
-    raw = {"Code": "13010", "Date": day.isoformat(), "C": close, "AdjFactor": factor}
+    raw = {
+        **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+        "Code": "13010",
+        "Date": day.isoformat(),
+        "C": close,
+        "AdjFactor": factor,
+    }
     with pytest.raises(ValueError, match="positive"):
         normalize_adjustment_factor_event(raw)
     database = tmp_path / "market.sqlite"

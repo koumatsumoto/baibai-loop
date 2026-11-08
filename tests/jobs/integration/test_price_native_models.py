@@ -117,6 +117,62 @@ def test_new_empty_response_withdraws_all_old_rows(tmp_path):
     )
 
 
+@pytest.mark.parametrize("bad_fields", [{}, {"C": "invalid"}, {"C": []}])
+def test_saved_price_rebuild_keeps_rejections_nulls_and_partial_rows_on_retry(tmp_path, bad_fields):
+    from baibai_engine.machine_analysis.observations.prices.price_observation import (
+        classify_price_day,
+    )
+
+    fields = ("O", "H", "L", "C", "Vo", "Va")
+    records = [
+        {
+            "Code": "13010",
+            "Date": DAY.isoformat(),
+            **dict(zip(fields, (100, 100, 100, 100, 0, 0), strict=True)),
+        },
+        {"Code": "13020", "Date": DAY.isoformat(), **bad_fields},
+        {"Code": "13030", "Date": DAY.isoformat(), **dict.fromkeys(fields)},
+        {"Code": "13040", "Date": DAY.isoformat(), "C": 100},
+    ]
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path / "native")
+    owner.initialize()
+    page = JQuantsPage(
+        "daily_bars", {"date": DAY.isoformat()}, AT, json.dumps({"data": records}).encode()
+    )
+    owner.commit([PriceAttempt("fixed", DAY, AT, (page,))])
+    market = market_store(tmp_path / "market.sqlite")
+    saved = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
+    assert saved.descriptor["summary"]["partial_days"] == 1
+    assert saved.descriptor["summary"]["normal_empty_days"] == 0
+    assert saved.descriptor["summary"]["coverage_status"] == "partial"
+    with sqlite3.connect(market) as connection:
+        warm = connection.execute("SELECT * FROM jquants_daily_bars ORDER BY ticker").fetchall()
+        assert connection.execute(
+            "SELECT status FROM source_coverage WHERE source='jquants_daily_bars'"
+        ).fetchone() == ("partial",)
+    assert [(row[0], classify_price_day(row[2:8])) for row in warm] == [
+        ("1301", "priced"),
+        ("1303", "no_trade"),
+        ("1304", "mixed"),
+    ]
+    owner.commit([attempt("later-correction", at=AT + timedelta(hours=1), value=999)])
+    del store.values[HEAD_KEY]
+    market.unlink()
+    store.get_keys.clear()
+    for name in ("cold", "retry"):
+        output = tmp_path / name
+        result = rebuild_saved_input(store, saved, start=DAY, end=DAY, output=output)
+        assert result["rows"] == 3
+        assert result["partial"] == 1
+        cold = pq.read_table(output / "daily_bars.parquet").to_pylist()
+        assert [tuple(row.values()) for row in cold] == warm
+        status = pq.read_table(output / "price_receipt_status.parquet").to_pylist()[0]
+        assert status["projection_status"] == "partial"
+        assert status["rejected_count"] == 1
+    assert HEAD_KEY not in store.get_keys
+
+
 def test_native_publication_is_derived_from_saved_selection_not_latest_or_source_pages(tmp_path):
     import duckdb
 
