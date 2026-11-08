@@ -217,18 +217,35 @@ def _margin(metrics: dict[Metric, Value], sector: str | None) -> None:
     )
 
 
-def _closest_group(
+def _closest_groups(
     groups: Sequence[Sequence[JQuantsFinancialSummary]], *, expected_end: date
-) -> Sequence[JQuantsFinancialSummary] | None:
+) -> list[Sequence[JQuantsFinancialSummary]]:
     # 値の揃う期間を探すと、欠測科目だけ比較基準がずれる。
-    return min(
-        groups,
-        key=lambda group: (
-            abs(((group[0].period_end or date.min) - expected_end).days),
-            accounting_period_identity(group[0]),
-        ),
+    distance = min(
+        (abs(((group[0].period_end or date.min) - expected_end).days) for group in groups),
         default=None,
     )
+    return [
+        group
+        for group in groups
+        if abs(((group[0].period_end or date.min) - expected_end).days) == distance
+    ]
+
+
+def _select_operands(
+    groups: Sequence[Sequence[JQuantsFinancialSummary]], field: str
+) -> list[JQuantsFinancialSummary]:
+    # 別の会計identityを開示順で上書きせず、同じ実期間の値が一致した時だけ使う。
+    selected = [_select(group, field) for group in groups]
+    if not selected or any(row is None for row in selected):
+        return []
+    rows = [row for row in selected if row is not None]
+    if (
+        len({(getattr(row, field), statement_basis(row), accounting_standard(row)) for row in rows})
+        != 1
+    ):
+        return []
+    return sorted(rows, key=accounting_period_identity)
 
 
 def _derived(
@@ -257,9 +274,9 @@ def _derived(
         if ttm
         else max(anchor.period_start, add_months_clamped(anchor.period_end, -3) + timedelta(days=1))
     )
-    selected_groups: list[Sequence[JQuantsFinancialSummary]] = []
+    selected_groups: list[list[Sequence[JQuantsFinancialSummary]]] = []
     if ttm:
-        prior_same = _closest_group(
+        prior_same = _closest_groups(
             [
                 g
                 for g in groups
@@ -269,7 +286,7 @@ def _derived(
             ],
             expected_end=add_months_clamped(anchor.period_end, -12),
         )
-        prior_fy = _closest_group(
+        prior_fy = _closest_groups(
             [
                 g
                 for g in groups
@@ -279,10 +296,10 @@ def _derived(
             ],
             expected_end=anchor.period_start - timedelta(days=1),
         )
-        if prior_same is not None and prior_fy is not None:
+        if prior_same and prior_fy:
             selected_groups = [prior_fy, prior_same]
     else:
-        previous = _closest_group(
+        previous = _closest_groups(
             [
                 g
                 for g in groups
@@ -293,16 +310,21 @@ def _derived(
             ],
             expected_end=add_months_clamped(anchor.period_end, -3),
         )
-        if previous is not None:
+        if previous:
             selected_groups = [previous]
     period_reason: PeriodStatus | None = None
     if not selected_groups:
         period_reason = "matching_period_not_observed"
+    elif any(
+        len({(group[0].period_start, group[0].period_end) for group in candidates}) != 1
+        for candidates in selected_groups
+    ):
+        period_reason = "accounting_periods_incomparable"
     else:
-        previous_end = selected_groups[-1][0].period_end
+        previous_end = selected_groups[-1][0][0].period_end
         assert previous_end is not None
         if ttm:
-            annual, prior_cumulative = selected_groups[0][0], selected_groups[-1][0]
+            annual, prior_cumulative = selected_groups[0][0][0], selected_groups[-1][0][0]
             annual_start = annual_ttm_start(anchor, annual, prior_cumulative)
             if annual_start is None:
                 period_reason = "accounting_periods_incomparable"
@@ -321,12 +343,11 @@ def _derived(
             continue
         row = _select(current, field)
         assert row is not None
-        candidates = [_select(group, field) for group in selected_groups]
-        if any(candidate is None for candidate in candidates):
+        candidates = [_select_operands(groups, field) for groups in selected_groups]
+        if any(not candidate for candidate in candidates):
             metrics[metric] = Value(reason="operand_unavailable")
             continue
-        operands = [candidate for candidate in candidates if candidate is not None]
-        sources = [row, *operands]
+        sources = [row, *(operand for cohort in candidates for operand in cohort)]
         if not _compatible(sources):
             metrics[metric] = Value(
                 reason="statement_basis_incomparable"
@@ -334,17 +355,32 @@ def _derived(
                 else "accounting_standard_incomparable"
             )
             continue
-        revision_gap = (
-            _cumulative_revision_gap(operands[-1], operands[0], all_rows, field)
-            if ttm
-            else _cumulative_revision_gap(operands[0], row, all_rows, field)
+        # 等値の別identityにも変更履歴がある。代表1件の開示順で他候補を隠さない。
+        revision_gaps = {
+            gap
+            for operand in candidates[-1]
+            for counterpart in (candidates[0] if ttm else [row])
+            if (gap := _cumulative_revision_gap(operand, counterpart, all_rows, field)) is not None
+        }
+        revision_gap = next(
+            (
+                reason
+                for reason in (
+                    "inconsistent_cumulative_revision",
+                    "cumulative_revision_order_unresolved",
+                )
+                if reason in revision_gaps
+            ),
+            None,
         )
         if revision_gap is not None:
             metrics[metric] = Value(reason=revision_gap)
             continue
-        values = [float(getattr(r, field)) for r in sources]
+        values = [float(getattr(r, field)) for r in (row, *(cohort[0] for cohort in candidates))]
         value = compose_ttm_amount(*values) if ttm else values[0] - values[1]
-        metrics[metric] = Value(value=value, documents=tuple(_document(r) for r in sources))
+        metrics[metric] = Value(
+            value=value, documents=tuple(dict.fromkeys(_document(r) for r in sources))
+        )
 
     return start, metrics, period_reason or "available"
 

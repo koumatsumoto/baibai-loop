@@ -914,3 +914,123 @@ def test_compact_growth_does_not_replace_latest_missing_ttm_with_old_fy():
     assert latest["row"]["values"] == [None, None, None, None]
     assert latest["row"]["missing"]["parent_profit"] == "matching_period_not_observed"
     assert latest["row"]["missing"]["operating_margin"] == "not_applicable_to_financial_sector"
+
+
+@pytest.mark.parametrize("derived", ["quarter", "annual_ttm"])
+@pytest.mark.parametrize("other_sales", [100, 110, None])
+def test_derived_period_ties_require_metric_agreement(derived, other_sales):
+    from itertools import permutations
+
+    prior = document(2024, 1, 100, 10)
+    other = document(2024, 1, other_sales, 10, CurPerType="2Q", DiscNo="other-identity")
+    records = [prior, other]
+    if derived == "quarter":
+        records.append(document(2024, 2, 230, 25))
+        expected_sales, expected_op = 130, 15
+    else:
+        records.extend([document(2024, 4, 500, 50), document(2025, 1, 120, 12)])
+        expected_sales, expected_op = 520, 52
+    for ordered in permutations(records):
+        result = states(ordered)
+        selected = amount(result[-1], derived, "sales")
+        assert selected.value == (expected_sales if other_sales == 100 else None)
+        assert selected.reason == (None if other_sales == 100 else "operand_unavailable")
+        assert amount(result[-1], derived, "operating_profit").value == expected_op
+        assert observation(result[-1], derived).period_status == "available"
+        # Both native reported identities remain observable, even when they disagree.
+        assert len([s for s in result if s.period_end == date(2024, 6, 30)]) == 2
+
+
+def test_ttm_annual_operand_ties_do_not_choose_a_convenient_identity():
+    records = [
+        document(2024, 1, 100, 10),
+        document(2024, 4, 500, 50),
+        document(2024, 4, 600, 50, CurPerType="3Q", DiscNo="other-annual-identity"),
+        document(2025, 1, 120, 12),
+    ]
+    result = states(records)
+    assert amount(result[-1], "annual_ttm", "sales").value is None
+    assert amount(result[-1], "annual_ttm", "operating_profit").value == 52
+
+
+def test_ttm_tied_prior_ends_do_not_resolve_conflicting_actual_starts():
+    records = [
+        document(2024, 1, 100),
+        document(2024, 1, 100, CurPerSt="2024-04-02", DiscNo="other-start"),
+        document(2024, 4, 500),
+        document(2025, 1, 120),
+    ]
+    result = states(records)
+    annual = observation(result[-1], "annual_ttm")
+    assert annual.period_status == "accounting_periods_incomparable"
+    assert annual.metrics["sales"].value is None
+    assert annual.metrics["sales"].reason == "accounting_periods_incomparable"
+
+
+@pytest.mark.parametrize(
+    ("measurement", "quarter"), [("quarter", 2), ("quarter", 4), ("annual_ttm", 1)]
+)
+def test_all_tied_identities_keep_their_cumulative_revision_history(measurement, quarter):
+    from itertools import permutations
+
+    prior_quarter = quarter - 1 if measurement == "quarter" else quarter
+    records = [
+        document(2024, prior_quarter, 100, 10, DiscNo="a-old"),
+        document(2024, prior_quarter, 90, 10, CurPerType="2Q", DiscNo="b-old"),
+    ]
+    counterpart = document(2024, quarter if measurement == "quarter" else 4, 230, 25)
+    records.append(counterpart)
+    records.extend(
+        [
+            document(
+                2024,
+                prior_quarter,
+                100,
+                10,
+                CurPerType="2Q",
+                DiscNo="b-correction",
+                DiscDate="2025-06-01",
+            ),
+            document(2024, prior_quarter, 100, 10, DiscNo="a-unchanged", DiscDate="2025-07-01"),
+        ]
+    )
+    if measurement == "annual_ttm":
+        records.append(document(2025, quarter, 120, 12))
+    for ordered in permutations(records):
+        result = states(ordered)
+        value = amount(result[-1], measurement, "sales")
+        assert value.value is None
+        assert value.reason == "inconsistent_cumulative_revision"
+        assert amount(result[-1], measurement, "operating_profit").value == (
+            27 if measurement == "annual_ttm" else 15
+        )
+    # A later disclosure of the containing cumulative resolves the known change.
+    records.append({**counterpart, "DiscDate": "2025-07-02", "DiscNo": "counterpart-corrected"})
+    value = amount(states(records)[-1], measurement, "sales")
+    assert value.value == (250 if measurement == "annual_ttm" else 130)
+    assert value.reason is None
+    assert {source.disclosure_number for source in value.documents} >= {
+        "a-unchanged",
+        "b-correction",
+    }
+
+
+def test_ttm_checks_changed_prior_against_every_tied_annual_identity():
+    records = [
+        document(2024, 1, 90, 10),
+        document(2024, 4, 500, 50, DiscNo="annual-a"),
+        document(2024, 4, 500, 50, CurPerType="3Q", DiscNo="annual-b", DiscDate="2025-07-01"),
+        document(2024, 1, 100, 10, DiscNo="prior-corrected", DiscDate="2025-06-01"),
+        document(2025, 1, 120, 12),
+    ]
+    value = amount(states(records)[-1], "annual_ttm", "sales")
+    assert value.value is None
+    assert value.reason == "inconsistent_cumulative_revision"
+    records.append(document(2024, 4, 500, 50, DiscNo="annual-a-corrected", DiscDate="2025-07-02"))
+    value = amount(states(records)[-1], "annual_ttm", "sales")
+    assert value.value == 520
+    assert value.reason is None
+    assert {source.disclosure_number for source in value.documents} >= {
+        "annual-a-corrected",
+        "annual-b",
+    }

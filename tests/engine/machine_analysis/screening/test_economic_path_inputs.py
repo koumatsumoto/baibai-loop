@@ -999,7 +999,7 @@ def test_prior_native_period_tie_keeps_same_values_but_cannot_invent_recovery(
     )
     growth_model = generation.result("company_growth", "1001")
     assert growth_model == reversed_generation.result("company_growth", "1001")
-    assert growth_model.calculation_revision == "company_growth_retrospective_v7"
+    assert growth_model.calculation_revision == "company_growth_retrospective_v12"
     growth = growth_model.payload
     before = canonical_json(growth)
     priors = [state for state in growth["periods"] if state["period_end"] == "2025-06-30"]
