@@ -215,14 +215,17 @@ def _descriptor(saved: InputSnapshot) -> dict[str, JsonValue]:
     return saved.descriptor
 
 
-def saved_days(saved: InputSnapshot) -> tuple[date, ...]:
+def saved_interval(saved: InputSnapshot) -> tuple[date, date]:
     summary = _descriptor(saved)["summary"]
     if not isinstance(summary, dict):
         raise ValueError("native price input requires a selection summary")
     start, end = summary.get("selection_start"), summary.get("selection_end")
     if not isinstance(start, str) or not isinstance(end, str):
         raise ValueError("native price input requires its selected interval")
-    return _days(date.fromisoformat(start), date.fromisoformat(end))
+    first, last = date.fromisoformat(start), date.fromisoformat(end)
+    if first > last:
+        raise ValueError("invalid saved price interval")
+    return first, last
 
 
 def materialize_saved_input(
@@ -232,7 +235,7 @@ def materialize_saved_input(
     *,
     days: Sequence[date],
 ) -> dict[str, Any]:
-    saved_days(saved)
+    saved_interval(saved)
     counts: dict[str, Any] = {
         "days": len(days),
         "rows": 0,
@@ -280,7 +283,7 @@ def rebuild_saved_input(
 ) -> dict[str, Any]:
     """Cold rebuild from immutable selection metadata and packs, without latest or L2."""
     days = _days(start, end)
-    saved_days(saved)
+    saved_interval(saved)
     output.mkdir(parents=True, exist_ok=False)
     with duckdb.connect(":memory:") as connection:
         result = materialize_saved_input(store, saved, connection, days=days)

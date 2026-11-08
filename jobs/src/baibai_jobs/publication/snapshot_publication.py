@@ -383,7 +383,7 @@ def prepare_market_lake(
                     saved=price_identity,
                     mirror_root=mirror_root,
                     producer_git_commit=git_commit,
-                ).build
+                )
             if native_calendar_enabled:
                 datasets["jquants.market_calendar"] = export_calendar_from_native_input(
                     source_snapshot=snapshot,
