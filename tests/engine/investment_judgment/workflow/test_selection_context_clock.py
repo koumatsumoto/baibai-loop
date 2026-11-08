@@ -130,6 +130,32 @@ def test_default_research_date_follows_explicit_cutoff_not_execution_date(tmp_pa
     assert not app.exists()
 
 
+@pytest.mark.parametrize("offset", [timedelta(microseconds=1), timedelta(days=2)])
+def test_context_rejects_future_cutoff_before_reading_or_writing_context(
+    tmp_path, capsys, monkeypatch, offset
+):
+    runs, app, arguments = seed(tmp_path)
+    before = runs.read_bytes()
+    output = tmp_path / "context.json"
+    monkeypatch.setattr(
+        "baibai_engine.cli.investment_judgment.load_generated_selection_context",
+        lambda **_: pytest.fail("future cutoff reached the saved-input reader"),
+    )
+    assert (
+        main(
+            [*arguments, "--known-at", (NOW + offset).isoformat(), "--out", str(output)],
+            now=NOW,
+        )
+        == 3
+    )
+    assert json.loads(capsys.readouterr().out)["reason"] == (
+        "input_known_at is after execution time"
+    )
+    assert runs.read_bytes() == before
+    assert not app.exists()
+    assert not output.exists()
+
+
 @pytest.mark.parametrize(
     ("extra", "reason"),
     [

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime
 from hashlib import sha256
 from typing import Annotated, Literal, Self
 
@@ -45,6 +45,15 @@ def _ticker(value: object) -> str:
 type Ticker = Annotated[str, BeforeValidator(_ticker), Field(pattern=r"^[0-9A-Z]{4}$")]
 type Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 type ResearchScope = Literal["discover_new", "specified_stocks", "review_positions"]
+
+
+def validate_input_known_at(known_at: datetime, *, now: datetime) -> None:
+    if known_at.utcoffset() is None:
+        raise ValueError("input cutoff must have a timezone")
+    if now.utcoffset() is None:
+        raise ValueError("execution time must have a timezone")
+    if known_at > now:
+        raise ValueError("input_known_at is after execution time")
 
 
 class _Contract(BaseModel):
