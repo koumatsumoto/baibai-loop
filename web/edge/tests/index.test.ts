@@ -6,16 +6,9 @@ import { handleRequest } from '../src/index'
 const PASSWORD = '1234567890abcdefghijklmnopqrstuv'
 const materializedRoutes = Object.entries(routeContract.routes)
 
-function environment(
-  get: ReturnType<typeof vi.fn>,
-  list: ReturnType<typeof vi.fn> = vi.fn().mockResolvedValue({
-    objects: [],
-    delimitedPrefixes: [],
-    truncated: false,
-  }),
-) {
+function environment(get: ReturnType<typeof vi.fn>) {
   return {
-    BAIBAI_SERVING: { get, list } as unknown as R2Bucket,
+    BAIBAI_SERVING: { get } as unknown as R2Bucket,
     ASSETS: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) } as unknown as Fetcher,
     VIEW_PASSWORD: PASSWORD,
     READ_ACCESS_TOKEN: '',
