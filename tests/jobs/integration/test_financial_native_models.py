@@ -340,7 +340,7 @@ def test_retained_later_correction_preserves_growth_retrospective_semantics(tmp_
     result = growth(native.documents)
     assert result.periods == legacy.periods
     assert result.periods[0].observations[0].metrics["sales"].value == 200
-    assert result.calculation_method == "company_growth_retrospective_v7"
+    assert result.calculation_method == "company_growth_retrospective_v12"
     assert result.read_semantics == "retained_latest_in_fixed_release_not_point_in_time"
 
 
