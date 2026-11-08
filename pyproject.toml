@@ -659,7 +659,7 @@ source_modules = [
 ]
 forbidden_modules = [
   "baibai_engine.storage",
-  "baibai_engine.machine_analysis.observations.prices.price_reader", "baibai_engine.machine_analysis.generation.runners.company_growth",
+  "baibai_engine.machine_analysis.observations.prices.price_reader",
   "baibai_engine.machine_analysis.models.company_financials", "baibai_engine.investment_judgment", "baibai_engine.machine_analysis.screening",
   ]
 

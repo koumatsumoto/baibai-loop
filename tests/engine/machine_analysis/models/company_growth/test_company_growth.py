@@ -1,4 +1,4 @@
-"""r6の有限反例と、公開読取からResearchの固定保存・再開まで。実providerを使わない。"""
+"""r6の有限反例と、固定release読取からResearchの固定保存・再開まで。実providerを使わない。"""
 
 import socket
 import sqlite3
@@ -27,19 +27,23 @@ from baibai_engine.investment_judgment.workflow.selection import (
     selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.workspace import resume_selected_workspace
-from baibai_engine.machine_analysis.generation.runners.company_growth import (
-    company_growth as public_company_growth,
-)
 from baibai_engine.machine_analysis.models.company_growth.calculations import (
     build_changes,
     build_period_states,
 )
-from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth
+from baibai_engine.machine_analysis.models.company_growth.generation import generate_company_growth
+from baibai_engine.machine_analysis.models.company_growth.models import CompanyGrowth, InputRelease
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
     normalize_financial_summary,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import (
     prior_year_period_matches,
+)
+from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
+    read_fixed_financial_documents,
+)
+from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
+    prepare_pdf_financials,
 )
 from baibai_engine.storage.snapshots.keys import release_manifest_key
 from baibai_engine.storage.snapshots.models import ReleaseManifest
@@ -109,8 +113,28 @@ def market_store(tmp_path, records, *, release="synthetic-release-1", price_day=
     return path
 
 
-def company_growth(path, **kwargs):
-    return public_company_growth(path, mirror=path.parent / "mirror", **kwargs)
+def company_growth(path, *, ticker, as_of, start=None, end=None):
+    """Compose the known fixed fixture; production uses shared Generation inputs."""
+    origin = read_lake_store_origin(path)
+    assert origin is not None
+    fixed = read_fixed_financial_documents(
+        path.parent / "mirror", origin=origin, ticker=ticker, as_of=as_of
+    )
+    return generate_company_growth(
+        fixed.documents,
+        ticker=ticker,
+        sector=fixed.sector,
+        as_of=as_of,
+        input_release=InputRelease(
+            release_id=origin.release_id, manifest_sha256=origin.release_manifest_sha256
+        ),
+        start=start,
+        end=end,
+        comparisons=fixed.comparisons,
+        comparison_input_reason=fixed.comparison_input_reason,
+        pdf_input=prepare_pdf_financials(fixed.documents, fixed.pdf_statements, as_of=as_of),
+        pdf_input_reason=fixed.pdf_input_reason,
+    )
 
 
 def test_seasonality_and_one_time_gain_remain_one_quarter_observation():
@@ -408,16 +432,8 @@ def test_observations_do_not_prove_continuous_acquisition_coverage(tmp_path):
     assert value.reason == "comparable_prior_period_not_observed"
 
 
-def test_missing_store_unfixed_release_and_invalid_period_are_local_states(tmp_path):
-    path = tmp_path / "absent.sqlite"
-    assert (
-        company_growth(path, ticker="1234", as_of=NOW.date()).reason == "market_store_unavailable"
-    )
-    assert not path.exists()
-    path = market_store(tmp_path, [document(2024, 1, 100)], release=None)
-    assert (
-        company_growth(path, ticker="1234", as_of=NOW.date()).reason == "fixed_release_unavailable"
-    )
+def test_generation_excludes_invalid_documents_and_rejects_invalid_display_period(tmp_path):
+    path = market_store(tmp_path, [document(2024, 1, 100)])
     with closing(sqlite3.connect(path)) as connection, connection:
         insert_financial_record(connection, document(2024, 2, 230, CurPerEn="2027-03-31"))
     publish_market_fixture(path, "fixed", created_at=NOW)
@@ -455,7 +471,7 @@ def test_fixed_growth_result_reaches_l3_and_does_not_change_valuation_gaps(tmp_p
             connection, document(2024, 1, 900, DiscDate="2026-10-23", DiscNo="changed")
         )
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.company_growth.company_growth",
+        "baibai_engine.machine_analysis.generation.financial_models.generate_company_growth",
         lambda *_a, **_kw: pytest.fail("growth recomputed"),
     )
     projected = project_research_inputs(saved)["securities"]["1234"]["company_growth"]
@@ -504,7 +520,7 @@ def test_workspace_resume_restores_saved_growth_without_store_or_current_method(
     output = workspace / "domain-inputs.yaml"
     output.write_text("damaged projection", encoding="utf-8")
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.company_growth.company_growth",
+        "baibai_engine.machine_analysis.generation.financial_models.generate_company_growth",
         lambda *_a, **_kw: pytest.fail("current method used"),
     )
     resumed = resume_selected_workspace(operation_id=prepared.operation_id, force=True, **arguments)
@@ -611,7 +627,7 @@ def test_growth_display_window_leaves_fixed_inputs_and_requested_range_unchanged
     assert compact["full_result_ref"] == "/inputs/securities_context/1234/company_growth"
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.company_growth.company_growth",
+        "baibai_engine.machine_analysis.generation.financial_models.generate_company_growth",
         lambda **_kw: pytest.fail("inputs recollected"),
     )
     authored = arguments["workspace"] / "assessment-draft.yaml"
@@ -754,7 +770,7 @@ def test_unknown_times_without_an_observed_change_do_not_invent_a_revision_confl
     assert amount(result[-1], "quarter", "sales").value == 130
 
 
-def test_public_query_uses_the_normalized_security_master_sector_name(tmp_path):
+def test_fixed_input_uses_the_normalized_security_master_sector_name(tmp_path):
     path = market_store(tmp_path, [document(2024, 1, 100, 20)])
     with closing(sqlite3.connect(path)) as connection, connection:
         insert_master_rows(
@@ -796,10 +812,6 @@ def test_working_store_rows_cannot_be_mislabeled_as_the_base_release(tmp_path):
 
 
 def test_shared_population_and_individual_generation_use_the_same_fixed_documents(tmp_path):
-    from baibai_engine.machine_analysis.models.company_growth.generation import (
-        generate_company_growth,
-    )
-    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
     from baibai_engine.machine_analysis.observations.financials.fixed_financial_reader import (
         read_fixed_financial_population,
     )
@@ -827,31 +839,6 @@ def test_shared_population_and_individual_generation_use_the_same_fixed_document
         assert shared == company_growth(path, ticker=ticker, as_of=NOW.date())
     assert population["1234"].documents[0].sales == 100
     assert population["5678"].documents[0].sales == 200
-
-
-def test_missing_fixed_release_objects_are_local_unavailability(tmp_path):
-    path = market_store(tmp_path, [document(2024, 1, 100)])
-    result = public_company_growth(
-        path, ticker="1234", as_of=NOW.date(), mirror=tmp_path / "absent-mirror"
-    )
-    assert result.reason == "fixed_release_inputs_unavailable"
-    assert result.input_release is None
-    assert not (tmp_path / "absent-mirror").exists()
-
-
-def test_fixed_reader_os_failure_is_local_to_growth(tmp_path, monkeypatch):
-    path = market_store(tmp_path, [document(2024, 1, 100)])
-
-    def unreadable(*_args, **_kwargs):
-        raise PermissionError("injected existing object failure")
-
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.generation.runners.company_growth.read_fixed_financial_documents",
-        unreadable,
-    )
-    result = company_growth(path, ticker="1234", as_of=NOW.date())
-    assert result.reason == "fixed_release_inputs_unavailable"
-    assert result.input_release is None
 
 
 def test_compact_growth_keeps_quarter_and_annual_conflict_and_reported_cash_flow():
@@ -927,13 +914,3 @@ def test_compact_growth_does_not_replace_latest_missing_ttm_with_old_fy():
     assert latest["row"]["values"] == [None, None, None, None]
     assert latest["row"]["missing"]["parent_profit"] == "matching_period_not_observed"
     assert latest["row"]["missing"]["operating_margin"] == "not_applicable_to_financial_sector"
-
-
-def test_invalid_fixed_release_origin_is_local_unavailability(tmp_path):
-    path = market_store(tmp_path, [document(2024, 1, 100)])
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("UPDATE lake_store_origin SET release_manifest_sha256 = ?", ("z" * 64,))
-    result = company_growth(path, ticker="1234", as_of=NOW.date())
-    assert result.status == "unavailable"
-    assert result.reason == "market_store_unreadable"
-    assert result.input_release is None
