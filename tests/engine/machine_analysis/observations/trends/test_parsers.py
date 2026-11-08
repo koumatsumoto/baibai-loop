@@ -159,7 +159,7 @@ def test_tsr_missing_or_malformed_money_is_not_a_zero_or_joined_number(amount):
     text = PHARMA.replace("2兆3,400億円", amount)
     result = extract_tsr_performance(document(text), created_at=NOW)
     assert all(claim.predicate != "revenue" for claim in result.claims)
-    assert result.method_revision == "tsr-performance-v3"
+    assert result.method_revision == "tsr-performance-v4"
 
 
 @pytest.mark.parametrize(
@@ -180,3 +180,125 @@ def test_tsr_final_profit_without_sentence_stop_keeps_last_currency_character():
     result = extract_tsr_performance(document(method + final), created_at=NOW)
     profit = next(claim for claim in result.claims if claim.predicate == "net_income")
     assert profit.quantity.value == Decimal("200000000")
+
+
+@pytest.mark.parametrize("other_size", ["1512", "1,512", "5120", "5,120", "512.512"])
+def test_tsr_different_population_with_matching_suffix_is_not_the_survey(other_size):
+    text = PHARMA.replace("業512社の", f"業{other_size}社の")
+    projected = document(text)
+    result = extract_tsr_performance(projected, created_at=NOW)
+    assert result.status == "failed"
+    assert result.claims == ()
+    result.verify_text(projected)
+
+
+def test_tsr_exact_population_after_other_population_keeps_its_own_values():
+    other = (
+        "1,512社の2025年度の売上高は9億円。"
+        "1,512社の2025年度の損益別は、黒字が900社"
+        "（前年度910社）で59.5％（前年度60.2％）。"
+    )
+    projected = document(other + PHARMA)
+    result = extract_tsr_performance(projected, created_at=NOW)
+    assert result.evidence == projected.evidence
+    result.verify_text(projected)
+    claims = {claim.claim_id: claim for claim in result.claims}
+    assert claims["revenue"].quantity.value == Decimal("2340000000000")
+    assert claims["profitable_share_2025"].quantity.value == Decimal("78.1")
+    assert claims["profitable_share_2024"].quantity.value == Decimal("80.1")
+    assert all(
+        "1,512社" not in projected.text[span.start : span.end]
+        for claim in result.claims
+        for span in claim.spans
+    )
+
+
+@pytest.mark.parametrize(("marker", "footnote"), [("1", "11"), ("1", "12"), ("11", "1")])
+def test_boj_note_marker_matches_the_entire_number(marker, footnote):
+    text = BOJ.replace("促す1。", f"促す{marker}。").replace(
+        "1 新たな金融市場調節方針", f"{footnote} 新たな金融市場調節方針"
+    )
+    result = extract_boj_decision(document(text, source="boj"), created_at=NOW)
+    assert len(result.claims) == 1
+    assert "decision_footnote_not_resolved" in result.limitations
+
+
+def test_boj_claim_dates_have_heading_coordinates():
+    projected = document(BOJ, source="boj")
+    result = extract_boj_decision(projected, created_at=NOW)
+    for claim in result.claims:
+        assert claim.occurred_on.isoformat() == "2026-09-18"
+        assert any(projected.text[span.start : span.end] == "2026年9月18日" for span in claim.spans)
+    result.verify_text(projected)
+
+
+def test_boj_missing_heading_does_not_borrow_publication_or_receipt_date():
+    projected = document(BOJ.replace("2026年9月18日", ""), source="boj")
+    result = extract_boj_decision(projected, created_at=NOW)
+    assert len(result.claims) == 1
+    assert result.claims[0].occurred_on is None
+    assert result.claims[0].scheduled_for is None
+    assert "decision_footnote_not_resolved" in result.limitations
+
+
+@pytest.mark.parametrize("rate", ["1.5～1.75", "１．７５％とはせず２．０"])
+def test_boj_unmatched_range_or_negation_is_not_a_point_rate(rate):
+    result = extract_boj_decision(
+        document(BOJ.replace("１．７５", rate), source="boj"), created_at=NOW
+    )
+    assert result.status == "unsupported"
+    assert result.claims == ()
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        "、うち大手9社の当期利益は20億円",
+        "、他の1,512社の当期利益は20億円",
+        "、前年度の当期利益は20億円",
+        "、営業利益は30億円、当期利益は20億円",
+        "、当期利益は不明、大手9社の当期利益は20億円",
+        "、当期利益は円、大手9社の当期利益は20億円",
+    ],
+)
+def test_tsr_profit_cannot_cross_a_changed_subject_period_or_unknown_value(continuation):
+    text = INFORMATION.replace(
+        "（前年度比3.2％増）、当期利益は1兆2,345億円（同4.2％増）", continuation
+    )
+    projected = document(text)
+    result = extract_tsr_performance(projected, created_at=NOW)
+    assert any(claim.predicate == "revenue" for claim in result.claims)
+    assert all(claim.predicate != "net_income" for claim in result.claims)
+    assert result.evidence == projected.evidence
+    result.verify_text(projected)
+
+
+@pytest.mark.parametrize("change", ["", "（前年度比3.2％増）", "（同3.2％減）"])
+def test_tsr_direct_same_population_profit_preserves_explicit_zero_and_span(change):
+    text = INFORMATION.replace(
+        "（前年度比3.2％増）、当期利益は1兆2,345億円（同4.2％増）",
+        change + "、当期利益は0円、うち大手9社の当期利益は20億円",
+    )
+    projected = document(text)
+    result = extract_tsr_performance(projected, created_at=NOW)
+    profit = next(claim for claim in result.claims if claim.predicate == "net_income")
+    assert profit.quantity.value == Decimal(0)
+    assert profit.quantity.basis == "net_income"
+    assert profit.scope.population_size == 2222
+    assert profit.scope.period == "FY2025"
+    assert projected.text[profit.spans[-1].start : profit.spans[-1].end].endswith("当期利益は0円")
+    assert "9社" not in projected.text[profit.spans[-1].start : profit.spans[-1].end]
+    result.verify_text(projected)
+
+
+@pytest.mark.parametrize("subject", ["", "うち大手9社の"])
+def test_tsr_pharmaceutical_profit_requires_the_same_survey_subject(subject):
+    text = PHARMA.replace("2兆3,400億円。", f"2兆3,400億円、{subject}当期利益は20億円。")
+    result = extract_tsr_performance(document(text), created_at=NOW)
+    claims = {claim.claim_id: claim for claim in result.claims}
+    assert claims["revenue"].quantity.value == Decimal("2340000000000")
+    if subject:
+        assert "net_income" not in claims
+    else:
+        assert claims["net_income"].quantity.value == Decimal("2000000000")
+        assert claims["net_income"].scope == claims["revenue"].scope

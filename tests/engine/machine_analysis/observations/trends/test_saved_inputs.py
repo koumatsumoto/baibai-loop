@@ -372,7 +372,17 @@ def test_unrelated_recent_boj_receipts_cannot_evict_decision_candidate(tmp_path)
                 ),
                 (observation,),
             )
-            extract_observations(conn, (observation.observation_id,), generated_at=received)
+            (artifact,) = extract_observations(
+                conn, (observation.observation_id,), generated_at=received
+            )
+            if policy:
+                assert artifact.extractor_revision == "boj-policy-decision-v2"
+                decoded = decode_artifact(artifact, observation, receipt=receipt)
+                for claim in decoded.claims:
+                    assert any(
+                        observation.text[span.start : span.end] == "2026年9月18日"
+                        for span in claim.spans
+                    )
     inputs = read(path).social
     assert any(
         selection.current.claims and selection.current.claims[0].status == "decided"
@@ -660,7 +670,10 @@ def test_old_index_date_does_not_backdate_later_document_revision(tmp_path):
     )
 
 
-def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path, monkeypatch):
+@pytest.mark.parametrize("old_revision", ["tsr-performance-v2", "tsr-performance-v3"])
+def test_new_extraction_revision_keeps_original_and_old_artifact(
+    tmp_path, monkeypatch, old_revision
+):
     import baibai_engine.machine_analysis.observations.trends.extraction as extraction
     from baibai_engine.data_collection.receipts.articles.store import read_body
     from baibai_engine.machine_analysis.observations.articles.store import read_artifacts
@@ -670,22 +683,22 @@ def test_new_extraction_revision_keeps_original_and_old_artifact(tmp_path, monke
         receipt, observation = retain(conn, received_at=NOW - timedelta(days=1))
         original = read_body(conn, receipt.body_ref)
         old = extract_observation(observation, receipt, generated_at=NOW - timedelta(days=1))
-        old = old.model_copy(update={"extractor_revision": "tsr-performance-v2"})
+        old = old.model_copy(update={"extractor_revision": old_revision})
         save_artifact(conn, old)
     # No implicit rewriting of an old artifact when only code changes.
     assert read(path).industries[0].inputs.coverage.state == "extraction_pending"
     with closing(open_connection(path)) as conn, conn:
         (new,) = extract_observations(conn, (observation.observation_id,), generated_at=NOW)
-        assert new.extractor_revision == "tsr-performance-v3"
+        assert new.extractor_revision == "tsr-performance-v4"
         assert new.artifact_id != old.artifact_id
         assert read_artifacts(conn, (old.artifact_id,)) == (old,)
         assert read_body(conn, receipt.body_ref) == original
         assert extract_observations(conn, (observation.observation_id,), generated_at=NOW) == (new,)
         assert conn.execute("SELECT count(*) FROM article_extraction_artifacts").fetchone()[0] == 2
-    # Pre-staging v3 does not hide v2 from a reader still selecting that revision.
+    # Pre-staging the new revision must not hide artifacts from an old reader.
     # This checks selection only; historical parser equivalence is separate.
     with monkeypatch.context() as old_reader:
-        old_reader.setattr(extraction, "TSR_REVISION", "tsr-performance-v2")
+        old_reader.setattr(extraction, "TSR_REVISION", old_revision)
         assert (
             read(path).industries[0].inputs.artifacts[0].current.ref.artifact_id == old.artifact_id
         )
