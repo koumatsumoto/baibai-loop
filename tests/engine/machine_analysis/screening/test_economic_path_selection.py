@@ -1,9 +1,6 @@
-from contextlib import contextmanager
-
 import pytest
 from tests.helpers.model_generation import generation
 
-from baibai_engine.machine_analysis.generation.contracts import GeneratedModel
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies import economic_path_selection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
@@ -14,129 +11,64 @@ from baibai_engine.machine_analysis.screening.policies.economic_paths import (
 )
 
 
-@pytest.mark.parametrize("subjects", [("5678", "1234", "0000"), ()])
-def test_saved_generation_projects_candidates_and_missing_companies(
-    tmp_path, monkeypatch, subjects
+@pytest.mark.parametrize("subjects", [("5678", " 1234 ", "0000"), ()])
+def test_coordinates_select_fixed_universe_and_project_only_missing_companies(
+    monkeypatch, subjects
 ):
-    path = tmp_path / "runs.sqlite"
-    models = (
-        GeneratedModel(
-            model_id="coordinate_fixture",
-            subject="1234",
-            calculation_revision="v1",
-            payload={"price": 1.0, "business": 1.0},
-        ),
-        GeneratedModel(
-            model_id="context_fixture",
-            subject="1234",
-            calculation_revision="v2",
-            payload={"support": "not_an_extra_vote"},
-        ),
-        GeneratedModel(
-            model_id="coordinate_fixture",
-            subject="5678",
-            calculation_revision="v1",
-            payload={"price": 2.0, "business": 2.0},
-        ),
-        GeneratedModel(
-            model_id="coordinate_fixture",
-            subject="9999",
-            calculation_revision="v1",
-            payload={"price": 100.0, "business": 100.0},
-        ),
-    )
-    fixed = generation().model_copy(update={"models": models})
-    projected = []
-
-    def project_fixture(ticker, *, models, metadata):
-        projected.append((ticker, tuple(model.model_id for model in models)))
-        index = {model.model_id: model for model in models}
-        coordinate = index.get("coordinate_fixture")
-        paths = (
-            ()
-            if coordinate is None
-            else (
+    fixed = generation()
+    coordinates = {
+        ticker: CompanyCoordinates(
+            ticker=ticker,
+            name=None,
+            sector="fixture",
+            paths=(
                 PathCoordinates(
                     path_id="business_expansion",
                     variant="quarter",
-                    price_value=coordinate.payload["price"],
-                    business_value=coordinate.payload["business"],
+                    price_value=value,
+                    business_value=value,
                     price_group="fixture",
                     business_group="fixture",
                     eligible=True,
                     evidence={},
                 ),
-            )
-        )
-        return CompanyCoordinates(
-            ticker=ticker,
-            name=None,
-            sector="fixture",
-            paths=paths,
-            context={"generation_id": metadata.generation_id},
-            model_revisions={model.model_id: model.calculation_revision for model in models},
+            ),
+            context={},
+            model_revisions={},
             not_generated=(),
         )
+        for ticker, value in (("1234", 1.0), ("5678", 2.0), ("9999", 100.0))
+    }
+    missing = CompanyCoordinates("0000", None, None, (), {}, {}, ())
+    projected = []
 
+    def project_missing(ticker, *, models, metadata):
+        assert models == ()
+        assert metadata is fixed
+        projected.append(ticker)
+        return missing
+
+    monkeypatch.setattr(economic_path_selection, "project_company", project_missing)
+    universe = ("0000", "1234", "5678") if subjects else ()
     policy = EconomicPathPolicy()
-    universe = tuple(sorted(subjects))
     expected = ScreeningSelection(
         generation_id=fixed.generation_id,
         universe_tickers=universe,
         result=select_economic_paths(
-            tuple(
-                project_fixture(
-                    ticker,
-                    models=tuple(
-                        sorted(
-                            (model for model in models if model.subject == ticker),
-                            key=lambda model: model.model_id,
-                        )
-                    ),
-                    metadata=fixed,
-                )
-                for ticker in universe
-            ),
+            tuple(missing if ticker == "0000" else coordinates[ticker] for ticker in universe),
             policy=policy,
         ),
     )
-    projected.clear()
-
-    @contextmanager
-    def saved_companies(generation_id, *, subjects, path):
-        assert generation_id == fixed.generation_id
-        assert subjects == universe
-        assert path == tmp_path / "runs.sqlite"
-        yield (
-            fixed,
-            (
-                (ticker, tuple(sorted(company_models, key=lambda model: model.model_id)))
-                for ticker in subjects
-                if (company_models := [model for model in models if model.subject == ticker])
-            ),
-        )
-
-    monkeypatch.setattr(economic_path_selection, "stream_generation_subjects", saved_companies)
-    monkeypatch.setattr(economic_path_selection, "project_company", project_fixture)
-    actual = economic_path_selection.select_saved_economic_generation(
-        fixed.generation_id,
-        tickers=subjects,
-        policy=policy,
-        path=path,
+    actual = economic_path_selection.evaluate_economic_coordinates(
+        fixed, tickers=subjects, coordinates=coordinates, policy=policy
     )
-    assert actual == expected
-    assert {ticker for ticker, _ in projected} == set(subjects)
+    assert actual.selection == expected
+    assert projected == (["0000"] if subjects else [])
     if subjects:
-        assert projected == [
-            ("1234", ("context_fixture", "coordinate_fixture")),
-            ("5678", ("coordinate_fixture",)),
-            ("0000", ()),
-        ]
-        assert tuple(card.ticker for card in actual.result.cards) == ("5678", "1234")
+        assert tuple(card.ticker for card in actual.selection.result.cards) == ("5678", "1234")
 
 
-def test_price_diagnostics_distinguish_unavailable_inputs_without_changing_selection(monkeypatch):
-    fixed = generation()
+def test_price_diagnostics_distinguish_unavailable_inputs_without_changing_selection():
     contexts = {
         "1234": {
             "price_date": "2026-10-30",
@@ -150,21 +82,15 @@ def test_price_diagnostics_distinguish_unavailable_inputs_without_changing_selec
         },
         "9999": {"price_date": None, "expected_price_date": "2026-11-02", "pricing_valid": False},
     }
-    visits = []
-
-    @contextmanager
-    def stream(*args, **kwargs):
-        visits.append("read")
-        yield fixed, iter(())
-
-    def project(ticker, **kwargs):
-        visits.append(ticker)
-        return CompanyCoordinates(ticker, None, None, (), contexts[ticker], {}, ())
-
-    monkeypatch.setattr(economic_path_selection, "stream_generation_subjects", stream)
-    monkeypatch.setattr(economic_path_selection, "project_company", project)
-    result = economic_path_selection.evaluate_saved_economic_generation(
-        fixed.generation_id, tickers=tuple(contexts), policy=EconomicPathPolicy()
+    coordinates = {
+        ticker: CompanyCoordinates(ticker, None, None, (), context, {}, ())
+        for ticker, context in contexts.items()
+    }
+    result = economic_path_selection.evaluate_economic_coordinates(
+        generation(),
+        tickers=tuple(contexts),
+        coordinates=coordinates,
+        policy=EconomicPathPolicy(),
     )
     assert result.selection.result.cards == ()
     assert result.price_inputs == {
@@ -175,4 +101,10 @@ def test_price_diagnostics_distinguish_unavailable_inputs_without_changing_selec
         "price_dates": {"2026-10-30": 1, "2026-11-02": 1, "missing": 1},
         "expected_price_dates": {"2026-11-02": 3},
     }
-    assert visits == ["read", "1234", "5678", "9999"]
+
+
+def test_duplicate_normalized_universe_is_rejected():
+    with pytest.raises(ValueError, match="unique companies"):
+        economic_path_selection.evaluate_economic_coordinates(
+            generation(), tickers=("1234", " 1234 "), coordinates={}, policy=EconomicPathPolicy()
+        )

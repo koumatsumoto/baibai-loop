@@ -48,7 +48,7 @@ def test_generated_context_does_not_reselect_and_keeps_non_candidates(tmp_path, 
         raise AssertionError("must not calculate candidates or live model inputs")
 
     monkeypatch.setattr(
-        "baibai_engine.machine_analysis.screening.policies.economic_path_selection.select_saved_economic_generation",
+        "baibai_engine.machine_analysis.screening.policies.economic_path_selection.evaluate_economic_coordinates",
         forbidden,
     )
     result = load_generated_selection_context(

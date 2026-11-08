@@ -25,7 +25,6 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_jobs.integration.screening_selection import publish_saved_selection
 from baibai_jobs.observability.discord import render_generation
 
 
@@ -191,9 +190,6 @@ def test_models_policy_and_lake_share_the_same_fixed_inputs_without_web(integrat
     result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     publication = read_publication(path=arguments["runs"])
-    assert (
-        publish_saved_selection(result["generation_id"], runs=arguments["runs"])["created"] is False
-    )
     assert read_publication(path=arguments["runs"]).selection_id == result["selection_id"]
     assert publication.selection.result.policy.method == "best-economic-path-v4"
     assert result["selection_method"] == "best-economic-path-v4"

@@ -37,7 +37,7 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_inputs impo
     project_company,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
-    select_saved_economic_generation,
+    evaluate_economic_coordinates,
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
     EconomicPathPolicy,
@@ -699,14 +699,17 @@ def test_capital_proxy_uses_pbr_not_unselected_equity_or_edinet_scope():
     assert active(project(data), "capital_productivity") is None
 
 
-def test_saved_new_result_roundtrip_and_history_identity(tmp_path):
+def test_economic_result_roundtrip_and_history_identity(tmp_path):
     header = metadata()
     generation = ModelGeneration(**header.model_dump(), models=models(payloads()))
     runs = tmp_path / "runs.sqlite"
     publish_generation(generation, path=runs)
-    result = select_saved_economic_generation(
-        header.generation_id, tickers=("1234",), policy=EconomicPathPolicy(), path=runs
-    )
+    result = evaluate_economic_coordinates(
+        header,
+        tickers=("1234",),
+        coordinates={"1234": project_company("1234", models=generation.models, metadata=header)},
+        policy=EconomicPathPolicy(),
+    ).selection
     store = ScreeningSelectionStore(runs)
     assert store.publish("policy-new", result)
     assert not store.publish("policy-new", result)
@@ -940,16 +943,16 @@ def owner_generation(
     return materialize_generation(stream)
 
 
-def test_owner_fy_and_cumulative_quarter_flow_through_saved_new_policy(tmp_path):
+def test_owner_fy_and_cumulative_quarter_flow_through_economic_policy():
     generation = owner_generation()
-    path = tmp_path / "owner-runs.sqlite"
-    publish_generation(generation, path=path)
-    selection = select_saved_economic_generation(
-        generation.generation_id,
+    selection = evaluate_economic_coordinates(
+        generation,
         tickers=("1001",),
+        coordinates={
+            "1001": project_company("1001", models=generation.models, metadata=generation)
+        },
         policy=EconomicPathPolicy(),
-        path=path,
-    )
+    ).selection
     assert selection.result.tickers == ("1001",)
     card = selection.result.cards[0]
     paths = {item.path_id: item for item in card.paths}
@@ -970,7 +973,7 @@ def test_owner_fy_and_cumulative_quarter_flow_through_saved_new_policy(tmp_path)
     assert card.context["growth_status"] == "available"
 
 
-def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity(tmp_path):
+def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity():
     generation = owner_generation(alternate_quarter_profit=50.0)
     growth = generation.result("company_growth", "1001").payload
     assert growth["periods"][-1]["fiscal_year_end"] == "2027-06-30"
@@ -984,14 +987,6 @@ def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity(t
     latest = row.context["latest_growth_changes"]
     assert latest["operating_profit"]["latest_quarter"]["reason"] == ("ambiguous_growth_comparison")
     assert latest["sales"]["latest_quarter"]["rate"] == pytest.approx(0.6)
-    path = tmp_path / "native-tie.sqlite"
-    publish_generation(generation, path=path)
-    select_saved_economic_generation(
-        generation.generation_id,
-        tickers=("1001",),
-        policy=EconomicPathPolicy(),
-        path=path,
-    )
 
 
 @pytest.mark.parametrize("alternate_prior_profit", [10.0, 50.0])

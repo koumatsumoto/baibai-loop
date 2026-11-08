@@ -19,7 +19,6 @@ baibai-storesは非公開正本。秘密・endpoint・原文・私有DB/原稿�
 | --- | --- |
 | 日次取得/統合 | [日次](#daily) |
 | 特定sourceの取得/再抽出 | [source操作](#sources) |
-| 保存Generationへ現政策 | [候補政策だけ](#screening-only) |
 | 固定断面の分析 | [読取](#fixed-release-read) |
 | machine/経済の反映・復旧 | [共通公開](#machine-publication) |
 | application更新/復元 | [更新](#application-db-を反映する)・[復元](#application-db-を復元する) |
@@ -50,21 +49,6 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
 ```
-
-<a id="screening-only"></a>
-### 保存済みGenerationへ政策だけ適用
-
-同じleaseでfresh runsを取得し、保存V2のexact generationへ通常の政策を適用する。同ID同内容はno-op、異内容は競合で止まる。
-
-```bash
-with_publication_lease bash -c '
-  jobs/scripts/r2_transfer.sh pull-runs &&
-  uv run baibai-jobs screening-selection --generation-id <GENERATION_ID> --runs stores/screening/runs.sqlite &&
-  jobs/scripts/r2_transfer.sh push-runs
-'
-```
-
-fresh正本でID・政策・候補を読戻す。旧Selectionは変更せず、保存旧推計は[旧成果reader](../docs/reference/estimate-calibration.md)を使う。
 
 <a id="fixed-release-read"></a>
 ## 固定releaseを読む
