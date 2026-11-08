@@ -36,7 +36,6 @@ def test_same_seal_native_exports_are_fully_checked_once(tmp_path, monkeypatch):
         return original(**kwargs)
 
     monkeypatch.setattr(writer, "validate_snapshot_parity", record)
-    monkeypatch.setattr(publication, "validate_snapshot_parity", record)
     originals = {key: value.body for key, value in store.values.items()}
     with publication.prepare_market_lake(
         sqlite_path=market,
