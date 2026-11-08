@@ -43,6 +43,7 @@ from baibai_engine.investment_judgment.workflow.operation.validation import (
 )
 from baibai_engine.investment_judgment.workflow.selection import (
     GeneratedResearchSelectionV4,
+    selection_sha256,
 )
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
 from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
@@ -120,7 +121,9 @@ class OperationService:
             targets=tuple(target.ticker for target in selection.targets),
             path=self._runs_path,
         )
-        if canonical != selection.inputs.generation:
+        if canonical is None or canonical_json(canonical.model_dump(mode="json")) != canonical_json(
+            selection.inputs.generation.model_dump(mode="json")
+        ):
             raise ValueError("model input slice differs from its canonical generation")
         selection_id = selection.inputs.screening_selection_id
         if selection_id is not None:
@@ -409,7 +412,9 @@ class OperationService:
                     raise OperationConflictError(str(error)) from error
                 if selected_before is None:
                     raise OperationConflictError("fixed research_selection is required")
-                if incoming != selected_before:
+                if incoming is None or selection_sha256(incoming) != selection_sha256(
+                    selected_before
+                ):
                     raise OperationConflictError(
                         "Research selection is immutable; no replacement targets"
                     )
