@@ -158,7 +158,14 @@ def test_missing_day_response_replaces_only_its_own_range(tmp_path):
     assert source.fixed().value()["days"][d3.isoformat()]["adopted"] == "old"
 
 
-def test_nonfinite_extra_envelope_remains_an_original_but_not_a_completed_range(tmp_path):
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"data":[{"Date":"2026-11-05","HolDiv":"1"}],"extra":[1e309]}',
+        b'{"data":[{"Date":"2026-11-05","HolDiv":"1"}],"extra":["\\ud800"]}',
+    ],
+)
+def test_invalid_extra_envelope_remains_raw_and_unavailable(tmp_path, body):
     store, source = owner(tmp_path)
     original = attempt("bad")
     original = replace(
@@ -166,13 +173,14 @@ def test_nonfinite_extra_envelope_remains_an_original_but_not_a_completed_range(
         pages=(
             replace(
                 original.pages[0],
-                body=b'{"data":[{"Date":"2026-11-05","HolDiv":"1"}],"extra":[1e309]}',
+                body=body,
             ),
         ),
     )
     assert source.commit([original])["failed"] == ["bad"]
     fixed = CalendarL1(store, tmp_path / "fresh-reader").fixed()
-    assert next(fixed.requests(store)).value() == original.value()
+    retained = {item.request_id: item for item in fixed.requests(store)}
+    assert retained["bad"].value() == original.value()
     assert fixed.plan(start=DAY, end=DAY) == (DAY,)
     assert calendar_sessions(fixed.index(), start=DAY, end=DAY)[0][DAY] is None
 

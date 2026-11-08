@@ -61,10 +61,26 @@ def _finite_float(value: str) -> float:
     return result
 
 
+def _require_unicode_scalars(value: object) -> None:
+    """Reject decoded JSON strings that cannot be represented as UTF-8."""
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            if not item.isascii():
+                item.encode("utf-8")
+        elif isinstance(item, dict):
+            pending.extend(item)
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+
+
 def page_envelope(page: JQuantsPage) -> dict[str, Any]:
     """Decode and validate native rows while preserving pagination metadata."""
     try:
         payload = json.loads(page.body, parse_float=_finite_float, parse_constant=_finite_float)
+        _require_unicode_scalars(payload)
     except (UnicodeDecodeError, ValueError):
         raise JQuantsAcquisitionError("J-Quants response is not JSON") from None
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
