@@ -118,6 +118,98 @@ def test_new_empty_response_withdraws_all_old_rows(tmp_path):
     )
 
 
+@pytest.mark.parametrize("invalid", [0.0, -100.0])
+def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, invalid):
+    from tests.helpers.model_generation import materialize_generation
+
+    from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+    from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
+        DEFAULT_TTM_RULES,
+    )
+    from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
+
+    as_of = date(2026, 11, 2)
+    days = tuple(as_of - timedelta(days=28 - index) for index in range(29))
+    store = MemoryR2Store()
+    owner = PriceL1(store, tmp_path / "native")
+    owner.initialize()
+    attempts = []
+    for day in days:
+        records = (
+            [
+                {
+                    "Code": ticker + "0",
+                    "Date": day.isoformat(),
+                    **dict.fromkeys(
+                        ("O", "H", "L", "C"),
+                        invalid
+                        if ticker == "1301" and day == as_of
+                        else 110
+                        if day == as_of
+                        else 100,
+                    ),
+                    "Vo": 100,
+                    "Va": 10000,
+                    "AdjFactor": 1,
+                }
+                for ticker in ("1301", "1302", "1321")
+            ]
+            if day.weekday() < 5
+            else []
+        )
+        page = JQuantsPage(
+            "daily_bars", {"date": day.isoformat()}, AT, json.dumps({"data": records}).encode()
+        )
+        attempts.append(PriceAttempt("synthetic-" + day.isoformat(), day, AT, (page,)))
+    owner.commit(attempts)
+    market = market_store(tmp_path / "market.sqlite")
+    with sqlite3.connect(market) as connection:
+        insert_master_rows(
+            connection,
+            [
+                (days[0].isoformat(), ticker, "合成企業", "Prime", "機械", "011")
+                for ticker in ("1301", "1302")
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO jquants_market_calendar VALUES (?,?)",
+            [(day.isoformat(), "1" if day.weekday() < 5 else "0") for day in days],
+        )
+    saved = model_input(store, owner.fixed(), as_of=as_of, evaluated_at=AT, market=market)
+    assert saved.descriptor["summary"]["coverage_status"] == "complete"
+    with sqlite3.connect(market) as connection:
+        assert connection.execute(
+            "SELECT close FROM jquants_daily_bars WHERE ticker='1301' AND traded_at=?",
+            (as_of.isoformat(),),
+        ).fetchone() == (invalid,)
+    with sealed_sqlite_snapshot(sqlite_path=market, mirror_root=tmp_path / "mirror") as snapshot:
+        generation = materialize_generation(
+            read_and_generate_models(
+                generation_id="invalid-native-price",
+                market_snapshot=snapshot,
+                market_release=InputRelease(release_id="synthetic", manifest_sha256="a" * 64),
+                economic_input=None,
+                as_of=as_of,
+                evaluation_time=AT,
+                ttm_rules=DEFAULT_TTM_RULES,
+                tickers=("1301", "1302"),
+                price_identity=saved,
+            )
+        )
+    broken = generation.result("market_context", "1301").payload
+    assert broken["price"]["resolved_date"] == as_of.isoformat()
+    assert broken["price"]["close"] is None
+    assert broken["price"]["return_20d"] is None
+    assert broken["relative"]["relative_20d"] is None
+    good = generation.result("market_context", "1302").payload
+    assert good["price"]["return_20d"] == pytest.approx(0.1)
+    assert good["relative"]["sector"] is None  # The invalid peer is not a -100% observation.
+    shared = generation.result("market_context", "market").payload["market"]
+    assert shared["points"][-1]["breadth_sample_size"] == 1
+    assert shared["sectors"][0]["ticker_count"] == 1
+    assert shared["sectors"][0]["median_return_20d"] == pytest.approx(0.1)
+
+
 @pytest.mark.parametrize("bad_fields", [{}, {"C": "invalid"}, {"C": []}])
 def test_saved_price_rebuild_keeps_rejections_nulls_and_partial_rows_on_retry(tmp_path, bad_fields):
     from baibai_engine.machine_analysis.observations.prices.price_observation import (

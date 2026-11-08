@@ -75,6 +75,8 @@ Company Research factsは年次/訂正と比較年度の任意入力。外部/�
 
 各時点以下の最新masterの普通株を使い、除外銘柄を旧snapshotから戻したり母集団を候補へ縮めたりしない。市場breadthはbenchmarkと同じ価格日、個社相対はbenchmark/自己除外peerと両端日を揃える。業種表の成立はbreadth成功でなく、各社bar窓の中央値も共通開始日を保証しない。補間/業種中央値で端点不足を埋めず、ratio差0.1は10 percentage pointsで割安ではなく、自己価格順位と旧倍率レンジ位置も別である。
 
+不正な価格は依存する比較端点・窓を欠測にし、古い価格日へ繰り上げない。他社や独立した端点比較まで一律に消さない。
+
 <a id="technical-analysis"></a>
 [TA](../../engine/src/baibai_engine/machine_analysis/models/technical_analysis/)は配当なしの調整終値を使う。bar本数は窓・鮮度・流動性・取引可能性を保証せず、慣例期間の最適性、BBの95%包含/反転確率、RSIのbuy/sellを仮定しない。RSIの履歴依存やflat中立値は計算規約である。
 

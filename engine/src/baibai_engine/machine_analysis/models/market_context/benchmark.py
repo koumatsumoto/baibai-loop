@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
+from math import isfinite
 
 from baibai_engine.machine_analysis.models.market_context.history import trailing_return
 
@@ -108,7 +109,7 @@ def _gap_from_high(series: list[tuple[date, float]]) -> float | None:
     if not series:
         return None
     window = series[-_WEEK_52_WINDOW_BARS:]
-    high = max(price for _, price in window)
-    if high <= 0:
+    if any(not isfinite(price) or price <= 0 for _, price in window):
         return None
+    high = max(price for _, price in window)
     return window[-1][1] / high - 1
