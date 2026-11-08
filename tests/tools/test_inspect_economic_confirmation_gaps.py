@@ -210,7 +210,19 @@ def test_finite_receipt_window_does_not_claim_latest_over_unsupplied_history(tmp
     assert inspect(canonical, (packet,))["counts"] == {"confirmation_gap_candidate": 1}
 
 
-@pytest.mark.parametrize("target", ["canonical", "manifest", "receipt", "marker", "schema"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "canonical",
+        "manifest",
+        "receipt",
+        "marker",
+        "marker_source",
+        "marker_started_at",
+        "marker_status",
+        "schema",
+    ],
+)
 def test_bad_fixed_inputs_fail_without_changing_inputs(tmp_path, target):
     canonical = tmp_path / "canonical.sqlite"
     receive(canonical, "A", 0)
@@ -222,10 +234,16 @@ def test_bad_fixed_inputs_fail_without_changing_inputs(tmp_path, target):
         packet = diagnosis.Stage(packet.stage_id, "0" * 64, packet.directory)
     elif target == "receipt":
         (packet.directory / "receipts.sqlite").write_bytes(b"bad-original")
-    elif target == "marker":
+    elif target.startswith("marker"):
         path = packet.directory / "integrated.json"
         value = json.loads(path.read_text())
-        value["manifest_sha256"] = "0" * 64
+        field, invalid = {
+            "marker": ("manifest_sha256", "0" * 64),
+            "marker_source": ("source", "economic-frb_h15"),
+            "marker_started_at": ("started_at", "2020-01-01T00:00:00+00:00"),
+            "marker_status": ("status", "unrecognized"),
+        }[target]
+        value[field] = invalid
         path.write_text(json.dumps(value))
     else:
         with closing(initialize_database(canonical)) as conn:
