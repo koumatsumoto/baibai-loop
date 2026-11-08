@@ -41,14 +41,9 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         raw.execute("BEGIN")
         rows_by_table = {}
         for table in tables:
-            condition = "1=1"
-            values: tuple[object, ...] = ()
-            if group == "tradingview" and table in {
-                "tradingview_forecast_snapshots",
-                "tradingview_source_receipts",
-            }:
-                condition, values = "snapshot_date >= ?", (asof.isoformat(),)
-            cursor = raw.execute(f"SELECT * FROM {table} WHERE {condition}", values)  # nosec B608
+            cursor = raw.execute(
+                f"SELECT * FROM {table} WHERE snapshot_date >= ?", (asof.isoformat(),)
+            )  # nosec B608
             placeholders = ",".join("?" for _ in cursor.description or ())
             before = target.total_changes
             target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", cursor)  # nosec B608

@@ -8,13 +8,23 @@ from datetime import UTC, date, datetime
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 
+from baibai_engine.data_collection.providers.jquants.lake_receipts import (
+    iter_fixed_retained_requests,
+)
+from baibai_engine.machine_analysis.observations.financials.from_l1 import (
+    materialize_financial_days,
+    rebuild_financial_days,
+)
+from baibai_engine.machine_analysis.observations.prices.from_l1 import (
+    materialize_price_days,
+    rebuild_price_days,
+)
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
 from baibai_engine.storage.snapshots.reader import resolve_release
 from baibai_engine.storage.snapshots.release import create_release
 from baibai_engine.storage.snapshots.writer import export_dataset_snapshot, sealed_sqlite_snapshot
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.maintenance.jquants_rebuild import rebuild_fixed_days
 from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -65,21 +75,6 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
                 incomplete_body,
             ),
         )
-        calendar_body = gzip.compress(
-            json.dumps({"data": [{"Date": "2026-11-02", "HolDiv": "1"}]}).encode(), mtime=0
-        )
-        conn.execute(
-            "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                "calendar",
-                0,
-                "market_calendar",
-                json.dumps({"from": "20261102", "to": "20261102"}),
-                "2026-11-03T00:00:00.000000+00:00",
-                "2026-11-03",
-                calendar_body,
-            ),
-        )
         conn.execute(
             "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
@@ -116,35 +111,37 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
     )
     source_path.unlink()
     with lake_session() as session:
-        from baibai_engine.data_collection.providers.jquants.lake_receipts import (
-            fixed_complete_request_ids,
+        cache = LakeObjectCache(root=tmp_path / "cache", source=source)
+        financial_requests = tuple(
+            iter_fixed_retained_requests(
+                session,
+                release=release,
+                cache=cache,
+                source="financial_summaries",
+                known_at=datetime(2026, 11, 4, tzinfo=UTC),
+            )
         )
-
-        identities = fixed_complete_request_ids(
-            session,
-            release=release,
-            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
-            known_at=datetime(2026, 11, 4, tzinfo=UTC),
-            candidates=frozenset({"old", "price", "calendar", "future", "missing", "incomplete"}),
+        price_requests = tuple(
+            iter_fixed_retained_requests(
+                session,
+                release=release,
+                cache=cache,
+                source="daily_bars",
+                known_at=datetime(2026, 11, 4, tzinfo=UTC),
+            )
         )
-        assert identities == frozenset({"old", "price", "calendar"})
-        report = rebuild_fixed_days(
-            session,
-            release=release,
-            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
-            source="financial_summaries",
-            days=[date(2026, 11, 2), date(2026, 11, 3)],
-            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+        assert [request.request_id for request in financial_requests] == ["old"]
+        assert [request.request_id for request in price_requests] == ["incomplete", "price"]
+        assert price_requests[0].request is None
+        financial = rebuild_financial_days(
+            financial_requests, days=[date(2026, 11, 2), date(2026, 11, 3)]
         )
-        price_report = rebuild_fixed_days(
-            session,
-            release=release,
-            cache=LakeObjectCache(root=tmp_path / "cache", source=source),
-            source="daily_bars",
-            days=[date(2026, 11, 2)],
-            known_at=datetime(2026, 11, 4, tzinfo=UTC),
+        prices = rebuild_price_days(price_requests, days=[date(2026, 11, 1), date(2026, 11, 2)])
+        coverage = release.dataset_manifest("jquants.source_pages").coverage_status
+        materialize_financial_days(
+            session.connection, financial.values(), l1_coverage_status=coverage
         )
-        assert price_report.rows == 1
+        materialize_price_days(session.connection, prices.values(), l1_coverage_status=coverage)
         assert session.connection.execute("SELECT ticker, close FROM daily_bars").fetchall() == [
             ("1301", 100.0)
         ]
@@ -156,9 +153,10 @@ def test_fixed_l1_rebuild_needs_no_previous_l2_or_sqlite(tmp_path, monkeypatch) 
         ).fetchall()
     assert rows == [("1301", "2026-11-02", "old")]
     assert status == [(date(2026, 11, 2), "ok"), (date(2026, 11, 3), "unavailable")]
-    assert report.l1_coverage_status == "partial"
-    assert report.rows == 1
-    assert report.unavailable_days == 1
+    assert coverage == "partial"
+    assert sum(len(item.rows) for item in financial.values()) == 1
+    assert financial[date(2026, 11, 3)].status == "unavailable"
+    assert prices[date(2026, 11, 1)].incomplete_requests == 1
 
 
 def test_financial_input_is_not_published_after_l1_cutover():

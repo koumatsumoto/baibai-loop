@@ -11,12 +11,11 @@ import yaml
 from tests.helpers import generated_selection as generation_helpers
 from tests.helpers import proposal as proposal_helpers
 from tests.helpers.generated_selection import seed_generated_selection
-from tests.helpers.proposal import PUBLISHED, backend_case, reviewed_proposal
+from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
 from tools.financials_identity_workspace import prepare_workspace
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal.query import (
-    get_investment_proposal,
     load_latest_investment_proposal,
     proposal_records,
 )
@@ -229,7 +228,7 @@ def test_original_signature_human_report_and_original_index_stay_exact(
         selection_version=selection_version,
     )
     before = hashlib.sha256(case.app.read_bytes()).hexdigest()
-    assert get_investment_proposal(proposal_id=original.proposal_id, db_path=case.app) == original
+    assert read_saved_proposal(proposal_id=original.proposal_id, db_path=case.app) == original
     with closing(connect_read_only(case.app)) as connection:
         assert load_latest_investment_proposal(connection).proposal_id == original.proposal_id
         report = proposal_records(connection, original.proposal_id)["human_reports"][0]

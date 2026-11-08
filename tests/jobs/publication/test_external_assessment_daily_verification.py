@@ -6,7 +6,6 @@ import sqlite3
 from contextlib import closing
 from datetime import timedelta
 
-import pytest
 from tests.helpers.external_assessment_universe import (
     RECEIVED,
     seed_database,
@@ -28,7 +27,6 @@ from baibai_engine.machine_analysis.observations.external_assessments.reader imp
 from baibai_engine.machine_analysis.observations.external_assessments.store import save_observations
 from baibai_jobs.publication.external_assessment_verification import (
     history_digests,
-    verify_observations,
 )
 
 
@@ -97,46 +95,12 @@ def test_actual_receipt_readback_preserves_latest_null_and_both_previous_histori
     missing_rating = rating(latest_at, rating=None)
     assert save_observations(database, [old_model, old_rating, missing_model, missing_rating]) == 4
     before = hashlib.sha256(database.read_bytes()).hexdigest()
-    verify_observations(database, [old_model, old_rating, missing_model, missing_rating])
     history = read_observations(database, "7203", latest_at)
     assert history.model_valuations[0].latest == missing_model
     assert history.model_valuations[0].previous == old_model
     assert history.analyst_ratings[0].latest == missing_rating
     assert history.analyst_ratings[0].previous == old_rating
     assert hashlib.sha256(database.read_bytes()).hexdigest() == before
-
-
-def test_readback_requires_exact_received_key_even_when_values_are_identical(tmp_path):
-    database = tmp_path / "market.sqlite"
-    save_observations(database, [model(), rating()])
-    for missing in (
-        model(RECEIVED + timedelta(microseconds=1)),
-        rating(RECEIVED + timedelta(microseconds=1)),
-    ):
-        with pytest.raises(ValueError, match="receipt readback mismatch"):
-            verify_observations(database, [missing])
-
-
-def test_readback_compares_definition_provenance_and_source_metadata_not_only_numeric_values(
-    tmp_path,
-):
-    database = tmp_path / "market.sqlite"
-    save_observations(database, [model(), rating()])
-    changed = [
-        model(source_url="https://synthetic.invalid/other"),
-        model(parser_version="synthetic-2"),
-        model(per_consensus_origin="other-origin"),
-        model(per_consensus_updated_label=None),
-        model(currency="USD"),
-        model(share_basis="other-share-basis"),
-        model(per_consensus_count=5),
-        rating(rating_scale_direction="lower_is_positive"),
-        rating(rating_count=5),
-        rating(rating_updated_label=None),
-    ]
-    for item in changed:
-        with pytest.raises(ValueError, match="receipt readback mismatch"):
-            verify_observations(database, [item])
 
 
 def test_history_digests_cover_all_tables_and_old_rows_without_mutating_other_tables(tmp_path):

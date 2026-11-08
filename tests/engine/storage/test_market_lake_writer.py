@@ -40,7 +40,6 @@ from baibai_engine.storage.sqlite.source_cache.lake_origin import (
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.publication.datasets import (
     LAKE_DATASETS,
-    require_lake_dataset,
 )
 from baibai_jobs.publication.policy import release_policy_for_profile
 
@@ -49,7 +48,7 @@ _COMMIT = "a" * 40
 
 def _export(*, sqlite_path: Path, mirror_root: Path, **kwargs: object) -> LakeBuildReport:
     """One whole export operation: seal the store, export from it, release the seal."""
-    dataset = require_lake_dataset(str(kwargs.pop("dataset_name")))
+    dataset = LAKE_DATASETS[str(kwargs.pop("dataset_name"))]
     with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
         return export_dataset_snapshot(
             dataset=dataset,
@@ -144,7 +143,7 @@ def test_every_run_derives_every_partition_and_only_moved_bytes_make_new_objects
 
 def test_case_sensitive_like_keeps_partition_rows_order_and_identity(tmp_path: Path) -> None:
     sqlite_path = market_store(tmp_path / "market.sqlite")
-    dataset = require_lake_dataset("jquants.daily_bars")
+    dataset = LAKE_DATASETS["jquants.daily_bars"]
     uri = f"{sqlite_path.resolve().as_uri()}?mode=ro&immutable=1"
     with (
         closing(sqlite3.connect(uri, uri=True)) as legacy,
@@ -928,7 +927,7 @@ def test_jquants_source_and_adopted_rows_have_distinct_lake_layers(tmp_path: Pat
 
 
 def _unreferenced_processed_object(mirror: Path) -> tuple[str, Path]:
-    dataset = require_lake_dataset("jquants.daily_bars")
+    dataset = LAKE_DATASETS["jquants.daily_bars"]
     body = b"unreferenced processed object"
     key = canonical_object_key(
         layer=dataset.layer,

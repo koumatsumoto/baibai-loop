@@ -4,7 +4,7 @@ import gzip
 import hashlib
 import json
 from contextlib import closing
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
@@ -154,96 +154,3 @@ def test_derived_parquet_schema_is_distinct_and_validated(tmp_path):
     verify_object(path, dataset, item, source_kind="l1_derived")
     with pytest.raises(LakeReadError, match="schema"):
         verify_object(path, dataset, item)
-
-
-def test_l1_only_duckdb_export_publishes_and_reads_without_old_l2(tmp_path, monkeypatch):
-    import duckdb
-
-    from baibai_engine.data_collection.providers.jquants.lake_receipts import iter_retained_requests
-    from baibai_engine.machine_analysis.observations.prices.from_l1 import (
-        materialize_price_days,
-        rebuild_price_days,
-    )
-    from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
-    from baibai_engine.storage.snapshots.reader import materialize_partitions, resolve_release
-    from baibai_engine.storage.snapshots.writer import export_l1_derived_dataset
-
-    names = ("jquants.source_pages", "jquants.daily_bars")
-    narrow_release_policy(monkeypatch, datasets=names)
-    source = market_store(tmp_path / "source.sqlite")
-    # The previous L2 contains other data; this new raw receipt is the sole input.
-    with closing(open_connection(source)) as conn, conn:
-        body = json.dumps({"data": [{"Code": "13010", "Date": "2026-01-05", "C": 123}]}).encode()
-        conn.execute(
-            "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                "native",
-                0,
-                "daily_bars",
-                json.dumps({"date": "20260105"}),
-                "2026-02-01T00:00:00+00:00",
-                "2026-02-01",
-                gzip.compress(body, mtime=0),
-            ),
-        )
-    mirror = tmp_path / "mirror"
-    when = datetime(2026, 2, 4, tzinfo=UTC)
-    with sealed_sqlite_snapshot(sqlite_path=source, mirror_root=mirror) as snapshot:
-        l1 = export_dataset_snapshot(
-            dataset=LAKE_DATASETS[names[0]],
-            mirror_root=mirror,
-            source_snapshot=snapshot,
-            producer_git_commit="a" * 40,
-            build_id="native-input",
-            created_at=when,
-        )
-    source.unlink()
-    l1_sha = hashlib.sha256(l1.manifest_path.read_bytes()).hexdigest()
-    objects = [mirror / obj.key for part in l1.manifest.partitions for obj in part.objects]
-    with duckdb.connect(":memory:") as conn:
-        requests = iter_retained_requests(conn, objects, source="daily_bars", known_at=when)
-        days = rebuild_price_days(requests, days=[date(2026, 1, 5)])
-        materialize_price_days(conn, days.values(), l1_coverage_status="partial")
-        l2 = export_l1_derived_dataset(
-            dataset=LAKE_DATASETS[names[1]],
-            source_manifest=l1.manifest,
-            source_manifest_sha256=l1_sha,
-            connection=conn,
-            table="daily_bars",
-            coverage_status="complete",
-            mirror_root=mirror,
-            producer_git_commit="a" * 40,
-            build_id="derived-output",
-            created_at=when,
-        )
-    release_path, release = create_release(
-        dataset_manifest_paths=[l1.manifest_path, l2.manifest_path],
-        mirror_root=mirror,
-        release_id="native-only",
-        created_at=when,
-        catalog=LAKE_DATASETS,
-        policy=release_policy_for_profile("production"),
-    )
-    from tests.helpers.r2_store import MemoryR2Store
-
-    from baibai_jobs.publication.snapshot_release import publish_release
-
-    remote = MemoryR2Store()
-    published = publish_release(
-        mirror_root=mirror, release_manifest_path=release_path, store=remote
-    )
-    assert published.release_id == "native-only"
-    resolved = resolve_release(
-        LocalMirrorSource(mirror),
-        release_id=release.release_id,
-        manifest_sha256=hashlib.sha256(release_path.read_bytes()).hexdigest(),
-    )
-    paths = materialize_partitions(
-        LakeObjectCache(root=mirror, source=LocalMirrorSource(mirror)),
-        dataset=LAKE_DATASETS[names[1]],
-        partitions=resolved.dataset_manifest(names[1]).partitions,
-    )
-    with duckdb.connect(":memory:") as conn:
-        assert conn.execute(
-            "SELECT ticker, close FROM read_parquet(?)", [[str(p) for p in paths]]
-        ).fetchall() == [("1301", 123.0)]

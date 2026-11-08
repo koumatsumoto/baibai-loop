@@ -9,14 +9,17 @@ from types import SimpleNamespace
 from baibai_engine.investment_judgment.stock_assessment.document import StockAssessmentDocument
 from baibai_engine.investment_judgment.stock_assessment.store import AssessmentStoreService
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
+    TradeProposal,
     load_proposal_draft,
     proposal_draft_sha256,
 )
+from baibai_engine.investment_judgment.trade_proposal.query import load_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.warnings import build_proposal_warnings
 from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.portfolio.ledger.events import PortfolioLedgerDocument
+from baibai_engine.storage.sqlite.application.read import connect_read_only
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from tests.helpers.assessment_v1 import (
     assessment_id,
@@ -31,6 +34,12 @@ from tests.helpers.screening_sqlite import add_source_coverage, seed_daily_bars
 PREPARED = datetime.fromisoformat("2026-10-14T16:10:00+09:00")
 PUBLISHED = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
 PROPOSAL_ID = "investment-proposal-00000000-0000-4000-8000-000000000003"
+
+
+def read_saved_proposal(*, proposal_id: str, db_path: Path) -> TradeProposal:
+    with closing(connect_read_only(db_path)) as connection:
+        connection.execute("BEGIN")
+        return load_investment_proposal(connection, proposal_id)
 
 
 def backend_case(

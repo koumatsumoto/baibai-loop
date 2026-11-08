@@ -12,6 +12,7 @@ from tests.helpers.proposal import (
     PUBLISHED,
     backend_case,
     bind_review,
+    read_saved_proposal,
     reviewed_proposal,
 )
 
@@ -21,7 +22,6 @@ from baibai_engine.investment_judgment.trade_proposal.inputs import (
     build_proposal_context,
     collect_proposal_inputs,
 )
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.scaffold import scaffold_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.storage.sqlite.application.read import connect_read_only
@@ -335,7 +335,7 @@ def test_original_reason_respects_reported_buy_time_precision(
         ).prior_buy_execution_references
         == ()
     )
-    assert get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     context = build_proposal_context(
         operation_id=case.operation.operation_id,
         proposal_id=proposal.proposal_id,
@@ -553,9 +553,7 @@ def test_assessment_basis_uses_quote_snapshot_across_wal_correction(
                 assert (
                     result["return_calculation_unavailable_reason"] == "corporate_action_unresolved"
                 )
-        assert (
-            get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
-        )
+        assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     assert len(observed) == 1
     assert observed[0].quotes[0].price_yen == Decimal(1100)
     monkeypatch.setattr(owner, "collect_proposal_inputs", collect)
@@ -658,9 +656,7 @@ def test_classification_and_order_session_share_the_quote_snapshot(tmp_path, mon
         )
         assert preview.status == "unchanged"
         assert preview.items[0]["blockers"] == []
-        assert (
-            get_investment_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
-        )
+        assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == proposal
     assert commits == 1
     monkeypatch.setattr(input_reader, "read_unadjusted_close", read_quote)
     # The next independent read sees the whole correction. No reader closes or

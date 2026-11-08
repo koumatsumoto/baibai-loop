@@ -7,7 +7,13 @@ from decimal import Decimal
 from functools import partial
 
 import pytest
-from tests.helpers.proposal import PUBLISHED, backend_case, bind_review, reviewed_proposal
+from tests.helpers.proposal import (
+    PUBLISHED,
+    backend_case,
+    bind_review,
+    read_saved_proposal,
+    reviewed_proposal,
+)
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ProposalConflictError,
@@ -16,7 +22,6 @@ from baibai_engine.investment_judgment.trade_proposal.contracts import (
 )
 from baibai_engine.investment_judgment.trade_proposal.inputs import build_proposal_context
 from baibai_engine.investment_judgment.trade_proposal.preview import preview_current_terms
-from baibai_engine.investment_judgment.trade_proposal.query import get_investment_proposal
 from baibai_engine.investment_judgment.trade_proposal.service import TradeProposalService
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
 from baibai_engine.portfolio.ledger.drafts import (
@@ -142,7 +147,7 @@ def test_current_order_only_blocks_preview_and_keeps_saved_ready_proposal(
         sqlite_path=case.market,
         now=now,
     )
-    assert get_investment_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
+    assert read_saved_proposal(proposal_id=published.proposal_id, db_path=case.app) == published
     current_service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
     assert current_service.publish(published) == published
     assert case.app.read_bytes() == before

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import sqlite3
 import sys
@@ -15,13 +14,10 @@ from datetime import UTC, date, datetime
 from itertools import groupby, islice
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
-
-if TYPE_CHECKING:
-    import duckdb
 
 from baibai_engine.storage.snapshots.contracts import (
     LakeDataset,
@@ -43,7 +39,6 @@ from baibai_engine.storage.snapshots.keys import (
 from baibai_engine.storage.snapshots.models import (
     CoverageStatus,
     DatasetManifest,
-    L1DatasetSourceRef,
     LakeObject,
     ManifestTotals,
     NativeL1SourceRef,
@@ -338,150 +333,6 @@ def export_dataset_snapshot(
         if isinstance(exc, (LakeBuildError, ValueError)):
             raise
         raise LakeBuildError(str(exc)) from exc
-
-
-def export_l1_derived_dataset(
-    *,
-    dataset: LakeDataset,
-    source_manifest: DatasetManifest,
-    source_manifest_sha256: str,
-    connection: duckdb.DuckDBPyConnection,
-    table: str,
-    coverage_status: CoverageStatus,
-    mirror_root: Path,
-    producer_git_commit: str,
-    build_id: str | None = None,
-    created_at: datetime | None = None,
-) -> LakeBuildReport:
-    """Export a fresh DuckDB projection with its exact L1 dataset as input.
-
-    The caller must establish source receipt completeness before marking coverage
-    complete. This function never reads a prior L2 dataset or a SQLite store.
-    """
-    started = _phase_progress(f"export.{dataset.name}")
-    if dataset.layer != "l2_processed" or source_manifest.layer != "l1_source":
-        raise ValueError("derived L2 requires a native L1 source dataset")
-    if (
-        hashlib.sha256(canonical_lake_model_bytes(source_manifest)).hexdigest()
-        != source_manifest_sha256
-    ):
-        raise ValueError("L1 source manifest digest differs")
-    if not table.isidentifier() or any(
-        not column.name.isidentifier() for column in dataset.columns
-    ):
-        raise ValueError("derived table and columns must be plain identifiers")
-    source = L1DatasetSourceRef(
-        kind="l1_dataset",
-        source_id=f"l1-{source_manifest_sha256[:24]}",
-        sha256=source_manifest_sha256,
-        dataset=source_manifest.dataset,
-        build_id=source_manifest.build_id,
-        key=dataset_manifest_key(
-            dataset=source_manifest.dataset, build_id=source_manifest.build_id
-        ),
-    )
-    names = tuple(column.name for column in dataset.columns)
-    projection = ", ".join(f'"{name}"' for name in names)
-    order = ", ".join(f'"{name}"' for name in dataset.primary_key)
-    date_name = f'"{dataset.date_column}"'
-    bounds = connection.execute(
-        f'SELECT MIN({date_name}), MAX({date_name}) FROM "{table}"'  # nosec B608
-    ).fetchone()
-    if bounds is None or bounds[0] is None or bounds[1] is None:
-        raise LakeBuildError("derived dataset holds no rows")
-    start, end = date.fromisoformat(str(bounds[0])), date.fromisoformat(str(bounds[1]))
-    population: int | None = None
-    if dataset.population_column:
-        population_row = connection.execute(
-            f'SELECT COUNT(DISTINCT "{dataset.population_column}") FROM "{table}"'  # nosec B608
-        ).fetchone()
-        if population_row is None:
-            raise LakeBuildError("derived population query returned no result")
-        population = int(population_row[0])
-    parts: tuple[str, ...] = (f"substr({date_name}, 1, 4)",)
-    if dataset.partition_grain != "year":
-        parts += (f"substr({date_name}, 6, 2)",)
-    periods = tuple(
-        tuple(int(item) for item in row)
-        for row in connection.execute(
-            f'SELECT DISTINCT {", ".join(parts)} FROM "{table}" ORDER BY {", ".join(parts)}'  # nosec B608
-        ).fetchall()
-    )
-    now = (created_at or datetime.now(UTC)).astimezone(UTC)
-    if now < source_manifest.created_at:
-        raise ValueError("derived dataset cannot predate its L1 source")
-    actual_build_id = build_id or f"{now:%Y%m%dT%H%M%SZ}-l1-{uuid.uuid4().hex[:8]}"
-    validate_identifier(actual_build_id, label="build_id")
-    staging_root = _workspace_path(mirror_root, "staging", actual_build_id)
-    if staging_root.exists():
-        raise LakeBuildError(f"build workspace already exists: {actual_build_id}")
-    staging_root.mkdir(parents=True)
-
-    def rows(period: Period) -> Iterator[tuple[object, ...]]:
-        cursor = connection.execute(
-            f'SELECT {projection} FROM "{table}" WHERE {date_name} LIKE ? ORDER BY {order}',  # nosec B608
-            [f"{period_label(period)}-%"],
-        )
-        while batch := cursor.fetchmany(_row_batch_size(dataset)):
-            yield from (tuple(row) for row in batch)
-
-    try:
-        built = [
-            _build_period(
-                dataset=dataset,
-                period=period,
-                staging_root=staging_root,
-                rows=rows(period),
-                sources=(source,),
-            )
-            for period in periods
-        ]
-        for item in built:
-            _validate_parquet(
-                item.staged_path,
-                dataset=dataset,
-                period=item.period,
-                expected_rows=rows(item.period),
-                expected_object=item.manifest.objects[0],
-                source_kind=parquet_source_kind(item.manifest.sources),
-            )
-        partitions = tuple(item.manifest for item in built)
-        manifest = DatasetManifest(
-            manifest_version=2,
-            dataset=dataset.name,
-            layer=dataset.layer,
-            contract_version=dataset.contract_version,
-            build_id=actual_build_id,
-            sources=(),
-            producer_git_commit=producer_git_commit,
-            created_at=now,
-            coverage_start=start,
-            data_as_of=end,
-            population_count=population,
-            coverage_status=coverage_status,
-            partition_by=dataset.partition_by,
-            partitions=partitions,
-            totals=ManifestTotals(
-                objects=sum(len(part.objects) for part in partitions),
-                bytes=sum(obj.bytes for part in partitions for obj in part.objects),
-                rows=sum(obj.rows for part in partitions for obj in part.objects),
-            ),
-        )
-        validate_dataset_contract(manifest, dataset)
-        new_objects = _promote_partitions(mirror_root, built)
-        manifest_path = _mirror_path(
-            mirror_root, dataset_manifest_key(dataset=dataset.name, build_id=actual_build_id)
-        )
-        _write_immutable(manifest_path, canonical_lake_model_bytes(manifest))
-        _phase_progress(f"export.{dataset.name}", started)
-        return LakeBuildReport(
-            manifest_path=manifest_path,
-            manifest=manifest,
-            partitions=len(built),
-            new_objects=new_objects,
-        )
-    finally:
-        shutil.rmtree(staging_root, ignore_errors=True)
 
 
 def export_market_store(
