@@ -88,6 +88,8 @@ class SourceProjectionTests(unittest.TestCase):
                 self.assertIsNone(to_str_or_none(value))
         self.assertIsNone(to_float(True))
         self.assertIsNone(to_float(False))
+        self.assertIsNone(to_float(10**400))
+        self.assertIsNone(to_float(-(10**400)))
         self.assertEqual(to_float(0), 0.0)
         self.assertEqual(to_str_or_none(0), "0")
 

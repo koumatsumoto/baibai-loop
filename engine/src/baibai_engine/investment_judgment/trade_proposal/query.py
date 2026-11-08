@@ -167,8 +167,7 @@ def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> Propos
     corrections = load_corrections(connection)
     reports = []
     for row in connection.execute(
-        "SELECT report_id,recorded_at,payload FROM proposal_human_report "
-        "WHERE proposal_id=? ORDER BY recorded_at,report_id",
+        "SELECT report_id,recorded_at,payload FROM proposal_human_report WHERE proposal_id=?",
         (proposal_id,),
     ):
         report = HumanProposalReport.model_validate_json(row[2])
@@ -180,12 +179,15 @@ def proposal_records(connection: sqlite3.Connection, proposal_id: str) -> Propos
             or not proposal.published_at <= report.reported_at <= report.recorded_at
         ):
             raise ProposalConflictError("stored human report identity or time differs")
-        reports.append(report.model_dump(mode="json"))
+        reports.append(report)
     return {
         "corrections": [
             record.model_dump(mode="json")
             for record in corrections
             if proposal_id in (record.erroneous_ref.proposal_id, record.replacement_ref.proposal_id)
         ],
-        "human_reports": reports,
+        "human_reports": [
+            report.model_dump(mode="json")
+            for report in sorted(reports, key=lambda report: (report.recorded_at, report.report_id))
+        ],
     }

@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.r2_store import MemoryR2Store
 
+import baibai_engine.data_collection.providers.jquants.contracts as contracts
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage, complete_request
 from baibai_engine.data_collection.providers.jquants.financial_native import (
     HEAD_KEY,
@@ -144,12 +145,22 @@ def test_normal_empty_is_a_completed_replacement(owner):
     assert next(owner.fixed().requests(owner.store, days=[DAY])).request.records() == []
 
 
-@pytest.mark.parametrize("number", [b"NaN", b"Infinity", b"-Infinity", b"1e309", b"-1e309"])
-def test_nonfinite_body_is_retained_without_blocking_other_attempts_in_the_batch(owner, number):
+@pytest.mark.parametrize(
+    "body",
+    [
+        *(
+            b'{"data":[{"Sales":' + number + b"}]}"
+            for number in (b"NaN", b"Infinity", b"-Infinity", b"1e309", b"-1e309")
+        ),
+        b'{"data":[{"Unknown":"\\ud800"}]}',
+        b'{"data":[],"extra":{"\\udfff":["value"]}}',
+    ],
+)
+def test_invalid_body_is_retained_without_blocking_other_attempts_in_the_batch(owner, body):
     days = [DAY + timedelta(days=offset) for offset in range(3)]
     good_first = attempt("first", day=days[0])
     bad = attempt("bad", day=days[1])
-    bad = replace(bad, pages=(replace(bad.pages[0], body=b'{"data":[{"Sales":' + number + b"}]}"),))
+    bad = replace(bad, pages=(replace(bad.pages[0], body=body),))
     good_last = attempt("last", day=days[2])
 
     report = owner.commit([good_first, bad, good_last])
@@ -373,3 +384,23 @@ def test_migrated_receipt_preserves_unknown_start_without_fabrication(owner):
     assert owner.commit([migrated])["retried"] == ["old"]
     with pytest.raises(ValueError, match="without pages"):
         replace(migrated, pages=())
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"data":[{"日本語":["😀",null,true,false,1,1.5]}]}'.encode(),
+        b'{"data":[{"text":"\\ud83d\\ude00"}]}',
+        b'{"data":[{"text":"\\\\ud800"}]}',
+        b'{"data":[]}',
+    ],
+)
+def test_valid_unicode_keeps_content_hash_and_raw_identity(owner, body, monkeypatch):
+    original = attempt("normal")
+    original = replace(original, pages=(replace(original.pages[0], body=body),))
+    raw = original.value()
+    with monkeypatch.context() as baseline:
+        baseline.setattr(contracts, "_require_unicode_scalars", lambda value: None)
+        previous = full_day_content_id(complete_request(original.pages), owner.contract)
+    assert full_day_content_id(complete_request(original.pages), owner.contract) == previous
+    assert original.value() == raw

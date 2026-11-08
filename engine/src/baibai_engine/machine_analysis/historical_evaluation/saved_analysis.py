@@ -7,8 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
-from baibai_engine.primitives.coerce import string_or_none as _text
-
 CARRY_MISSING_ASSUMPTION = (
     "Missing dividend_yield and net_share_change_yoy contribute zero to machine carry; "
     "missing inputs are not observed zero dividends or unchanged shares."
@@ -196,7 +194,15 @@ def balance_sheet_from_analysis(analysis: Mapping[str, object]) -> dict[str, obj
     }
 
 
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
 def _number(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    return float(value) if isfinite(value) else None
+    try:
+        result = float(value)
+    except OverflowError:
+        return None
+    return result if isfinite(result) else None

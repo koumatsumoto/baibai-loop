@@ -159,6 +159,17 @@ def test_two_pages_preserve_base_params_and_receipt_query():
         (b'{"data":[{"value":1e309}]}', "not JSON"),
         (b'{"data":[{"value":-1e309}]}', "not JSON"),
         (b'{"data":[],"extra":{"nested":[1e309]}}', "not JSON"),
+        (b'{"data":[{"Unknown":"\\ud800"}]}', "not JSON"),
+        (b'{"data":[{"Unknown":"\\udfff"}]}', "not JSON"),
+        (b'{"data":[{"\\ud800":"value"}]}', "not JSON"),
+        (b'{"data":[],"Unknown":{"nested":["\\udfff"]}}', "not JSON"),
+        (b'{"data":[],"pagination_key":"\\ud800"}', "not JSON"),
+        (b'{"data":[{"Unknown":"' + b"\xed\xa0\x80" + b'"}]}', "not JSON"),
+        (b'{"data":[{"Unknown":"\\ud800x\\udc00"}]}', "not JSON"),
+        (
+            b'{"data":[{"Unknown":' + b"[" * 300 + b'"\\udfff"' + b"]" * 300 + b"}]}",
+            "not JSON",
+        ),
         (b'{"data":{}}', "lacks a data array"),
         (b'{"data":[7]}', "non-record row"),
     ],
@@ -188,6 +199,21 @@ def test_finite_numbers_nulls_and_numeric_strings_keep_their_native_types():
             "text": ["NaN", "Infinity", "1e309"],
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("text_json", "expected"),
+    [
+        ('"日本語😀"'.encode(), "日本語😀"),
+        (b'"\\ud83d\\ude00"', "😀"),
+        (b'"\\\\ud800"', r"\ud800"),
+    ],
+)
+def test_valid_unicode_and_literal_escape_keep_original_bytes(text_json, expected):
+    body = b'{"data":[{"text":' + text_json + b"}]}"
+    pages = list(receiver(Session((200, body))).pages("financial_summaries", {}))
+    assert pages[0].body == body
+    assert page_records(pages[0]) == [{"text": expected}]
 
 
 def test_repeated_cursor_is_rejected_after_second_page_receipt():

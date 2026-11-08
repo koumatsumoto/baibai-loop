@@ -40,6 +40,22 @@ def test_invalid_native_price_values_are_not_silently_null(field, bad):
     assert result.status == "partial"
 
 
+@pytest.mark.parametrize("field", ["AdjFactor", "MktCap"])
+@pytest.mark.parametrize("bad", [10**400, -(10**400)])
+def test_overflowing_optional_price_values_keep_the_price_observation(field, bad):
+    result = normalize_daily_bars(
+        [{**IDENTITY, **PRICED, "AdjFactor": 1.0, "MktCap": 1000.0, field: bad}]
+    )
+    assert len(result.rows) == 1
+    row = result.rows[0]
+    assert row[:8] == ("1301", "2026-11-02", 100.0, 100.0, 100.0, 100.0, 0.0, 0.0)
+    assert row[8] == (None if field == "AdjFactor" else 1.0)
+    assert row[9:12] == (None, None, None)
+    assert row[12] == (None if field == "MktCap" else 1000.0)
+    assert result.rejected_count == result.excluded_count == 0
+    assert result.status == "ok"
+
+
 @pytest.mark.parametrize(
     ("values", "state"),
     [

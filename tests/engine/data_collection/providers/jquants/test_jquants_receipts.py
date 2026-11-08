@@ -123,6 +123,8 @@ def test_malformed_json_is_committed_before_parse_failure(conn):
 @pytest.mark.parametrize(
     ("body", "message"),
     [
+        (b'{"data":[{"Unknown":"\\ud800"}]}', "not JSON"),
+        (b'{"data":[],"Unknown":{"\\udfff":["value"]}}', "not JSON"),
         (b"[]", "lacks a data array"),
         (b'{"data":{}}', "lacks a data array"),
         (b'{"data":[null],"pagination_key":"next"}', "non-record row"),

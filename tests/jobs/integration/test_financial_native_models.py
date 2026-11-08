@@ -45,15 +45,21 @@ def attempt(identity, *, at=AT, value=1):
     )
 
 
+@pytest.mark.parametrize(
+    ("value", "expected_sales"), [(1, 1.0), (10**400, None), (-(10**400), None)]
+)
 def test_native_financial_inputs_generate_all_models_without_old_financial_projection(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, value, expected_sales
 ):
     store = MemoryR2Store()
     owner = FinancialL1(store, tmp_path / "native")
     owner.initialize()
-    owner.commit([attempt("native")])
+    owner.commit([attempt("native", value=value)])
     financial = model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT)
-    assert financial.documents[0].sales == 1
+    document = financial.documents[0]
+    assert document.sales == expected_sales
+    assert document.document_payload is not None
+    assert json.loads(document.document_payload)["Sales"] == value
     market = market_store(
         tmp_path / "market.sqlite",
         daily_bars=(("1301", DAY.isoformat(), 100.0, 1.0),),

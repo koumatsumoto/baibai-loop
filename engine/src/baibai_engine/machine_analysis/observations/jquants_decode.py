@@ -72,7 +72,7 @@ def to_float(value: Any) -> float | None:
         return None
     try:
         result = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     # ClientV2 DataFrames preserve pandas' non-finite markers when converted to
     # records. They are not numeric observations. Fiscal-period selection is independent
