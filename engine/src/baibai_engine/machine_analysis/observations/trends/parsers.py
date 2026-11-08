@@ -17,8 +17,8 @@ from baibai_engine.machine_analysis.observations.trends.contracts import (
 )
 
 SCOPE_REVISION = "industry-scopes-v1"
-TSR_REVISION = "tsr-performance-v3"
-BOJ_REVISION = "boj-policy-decision-v1"
+TSR_REVISION = "tsr-performance-v4"
+BOJ_REVISION = "boj-policy-decision-v2"
 INDUSTRIES = {
     "医薬品・医療用品卸売業": "jp-pharmaceutical-wholesale",
     "情報サービス業": "jp-information-services",
@@ -143,7 +143,7 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
     )
     # The size/year anchor prevents nearby calendar-year exits or a large-company
     # subgroup from being attributed to the entire survey.
-    size_pattern = re.escape(method["size"])
+    size_pattern = r"(?<![\d,.])" + re.escape(method["size"])
     revenue = re.search(
         rf"{size_pattern}社の{year}年度の(?:業績は、)?売上高(?:合計)?(?:は|が)、?"
         rf"(?P<value>{_MONEY})",
@@ -162,11 +162,12 @@ def extract_tsr_performance(document: DocumentText, *, created_at: datetime) -> 
                 spans=(*scope_spans, _span(revenue)),
             )
         )
-        # Only the same sentence's explicitly named net income; generic 利益金
-        # has no known basis and must not silently become net income.
-        stop = text.find("。", revenue.end())
-        sentence_end = len(text) if stop < 0 else stop
-        profit = re.search(rf"当期利益は(?P<value>{_MONEY})", text[revenue.end() : sentence_end])
+        # Only a direct continuation keeps the survey subject. Searching later
+        # in the sentence can steal a subgroup's profit or skip an unknown value.
+        profit = re.match(
+            rf"(?:\((?:前年度比|同){_NUMBER}%(?:増|減)\))?、当期利益は(?P<value>{_MONEY})",
+            text[revenue.end() :],
+        )
         if profit:
             claims.append(
                 Claim(
@@ -326,6 +327,9 @@ def extract_boj_decision(document: DocumentText, *, created_at: datetime) -> Ext
             int(heading_date["day"]),
         )
     )
+    decision_spans = (
+        (_span(heading_date), _span(decision)) if heading_date is not None else (_span(decision),)
+    )
     scope = ClaimScope(
         scope_id="jp-monetary-policy",
         taxonomy_revision="social-scopes-v1",
@@ -352,7 +356,7 @@ def extract_boj_decision(document: DocumentText, *, created_at: datetime) -> Ext
             status="decided",
             occurred_on=occurred,
             quantity=quantity,
-            spans=(_span(decision),),
+            spans=decision_spans,
             conditions=("until_next_monetary_policy_meeting",),
         )
     )
@@ -360,7 +364,8 @@ def extract_boj_decision(document: DocumentText, *, created_at: datetime) -> Ext
     # unrelated facility's effective date, even if identical, cannot fill it.
     if decision["note"]:
         note = re.search(
-            re.escape(decision["note"])
+            r"(?<!\d)"
+            + re.escape(decision["note"])
             + r"新たな金融市場調節方針は、翌営業日\((?P<month>\d{1,2})月"
             r"(?P<day>\d{1,2})日\)から適用する。",
             text,
@@ -381,7 +386,7 @@ def extract_boj_decision(document: DocumentText, *, created_at: datetime) -> Ext
                     occurred_on=occurred,
                     scheduled_for=scheduled,
                     quantity=quantity,
-                    spans=(_span(decision), _span(note)),
+                    spans=(*decision_spans, _span(note)),
                     uncertainty=() if scheduled else ("effective_year_unknown",),
                     conditions=("until_next_monetary_policy_meeting",),
                 )
