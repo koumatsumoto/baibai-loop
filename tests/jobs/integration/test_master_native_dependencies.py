@@ -284,6 +284,7 @@ def test_old_mixed_stage_master_is_verified_but_does_not_block_other_source_proj
         target,
         packet,
         master_fingerprints=fingerprints,
+        price_fingerprints={},
         margin_alerts_fingerprints={},
         short_sale_reports_fingerprints={},
         margin_interest_fingerprints={},
@@ -303,6 +304,7 @@ def test_old_mixed_stage_master_is_verified_but_does_not_block_other_source_proj
             tmp_path / "bad.sqlite",
             packet,
             master_fingerprints={},
+            price_fingerprints={},
             margin_alerts_fingerprints={},
             short_sale_reports_fingerprints={},
             margin_interest_fingerprints={},
@@ -447,7 +449,6 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     narrow_release_policy(monkeypatch, datasets=("jquants.master_snapshots", "jquants.daily_bars"))
     monkeypatch.setattr(
         publication,
@@ -499,7 +500,6 @@ def test_native_master_stage_common_apply_then_normal_models_use_same_source(tmp
         {
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
             "master_native": True,
-            "price_native": True,
             "handoffs": available_handoffs(store, source="tradingview"),
             "external": [],
         },

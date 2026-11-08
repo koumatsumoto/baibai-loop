@@ -19,6 +19,7 @@ from urllib3.connectionpool import HTTPSConnectionPool
 from urllib3.exceptions import ReadTimeoutError
 from urllib3.response import HTTPResponse
 
+from baibai_engine.data_collection.providers.jquants.acquisition import acquire_request
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
     JQuantsRateLimitError,
@@ -32,6 +33,7 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
     read_request_pages,
 )
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
+from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -375,10 +377,12 @@ def test_body_timeout_retains_complete_pages_and_explicit_retry_projects_once(wi
     database = tmp_path / "market.sqlite"
     open_connection(database).close()
     client = JQuantsHTTP("synthetic-test-key", clock=lambda: RECEIVED_AT)
-    maintenance = JQuantsRefresh(database, None, client=client)
     try:
-        with pytest.raises(JQuantsAcquisitionError, match="ConnectionError") as caught:
-            maintenance.ensure_daily_bars(target, target)
+        with (
+            closing(open_connection(database)) as connection,
+            pytest.raises(JQuantsAcquisitionError, match="ConnectionError") as caught,
+        ):
+            acquire_request(connection, client, "daily_bars", {"date": target.isoformat()})
         failed_id = caught.value.request_id
         assert failed_id is not None
         assert "synthetic-test-key" not in str(caught.value)
@@ -401,9 +405,13 @@ def test_body_timeout_retains_complete_pages_and_explicit_retry_projects_once(wi
             {},
             second if "pagination_key" in parse_qs(urlsplit(url).query) else first,
         )
-        assert maintenance.ensure_daily_bars(target, target) == 2
+        with closing(open_connection(database)) as connection:
+            resumed = acquire_request(
+                connection, client, "daily_bars", {"date": target.isoformat()}
+            )
+        project_request(database, resumed)
     finally:
-        maintenance.close()
+        client.close()
 
     assert len(wire.calls) == 4
     assert wire.waits == []

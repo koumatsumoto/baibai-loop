@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.margin_interest_native import AT, DAY, attempt, calendar, records
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
@@ -245,3 +246,6 @@ def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch
     cold = tmp_path / "published-cold.sqlite"
     projection.materialize_saved_input(store, saved, output=cold)
     assert rows(cold) == expected
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

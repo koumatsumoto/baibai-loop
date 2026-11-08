@@ -25,7 +25,6 @@ def setup(tmp_path, monkeypatch, client):
     CalendarL1(store, tmp_path / "initialize").initialize()
     monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "true")
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     from baibai_jobs.acquisition import (
         jquants_margin_alerts_native,
         jquants_margin_interest_native,
@@ -105,7 +104,6 @@ def test_final_calendar_quota_halts_price_master_and_remaining_market_gets(tmp_p
     client = Client(JQuantsRateLimitError("quota"))
     setup(tmp_path, monkeypatch, client)
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     assert not handoff._acquire_market_l1(DAY, tmp_path / "acquire")
     report = json.loads((tmp_path / "acquire/result.json").read_text())
     assert all(value.get("halted") for value in report["independent_l1"].values())

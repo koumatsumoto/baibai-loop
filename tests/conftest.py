@@ -41,7 +41,7 @@ def _legacy_jquants_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
     Production now defaults to migrated native L1. Default-mode tests remove these
     test-only overrides, and native integration tests retain their explicit modes.
     """
-    for source in ("PRICE", "MASTER", "CALENDAR"):
+    for source in ("MASTER", "CALENDAR"):
         monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", "false")
 
 

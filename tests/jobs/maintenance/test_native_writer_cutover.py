@@ -36,7 +36,6 @@ class NativeClient:
 
 @pytest.fixture
 def refresh(tmp_path, monkeypatch):
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "false")
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
     path = tmp_path / "stores" / "market" / "market.sqlite"
     open_connection(path).close()
@@ -47,38 +46,6 @@ def refresh(tmp_path, monkeypatch):
 def invoke(refresh, method):
     arguments = {"revision_overlap_days": 7} if method == "refresh_fin_summaries" else {}
     return getattr(refresh, method)(DAY, DAY, **arguments)
-
-
-@pytest.mark.parametrize(
-    ("method", "flag", "command"),
-    [
-        ("ensure_daily_bars", "BAIBAI_PRICE_NATIVE", "jquants-price-native"),
-    ],
-)
-@pytest.mark.parametrize("covered", [False, True])
-def test_native_writer_guard_precedes_coverage_get_and_mutation(
-    refresh, monkeypatch, method, flag, command, covered
-):
-    maintenance, client, path = refresh
-    if covered:
-        assert invoke(maintenance, method) == 1
-    before = path.read_bytes()
-    client.calls.clear()
-    monkeypatch.setenv(flag, "true")
-    with pytest.raises(JQuantsProviderError, match=command):
-        invoke(maintenance, method)
-    assert client.calls == []
-    assert path.read_bytes() == before
-
-
-@pytest.mark.parametrize("method", ["ensure_daily_bars"])
-def test_legacy_mode_still_retains_originals_and_projects_requested_day(refresh, method):
-    maintenance, client, path = refresh
-    assert invoke(maintenance, method) == 1
-    assert len(client.calls) == 1
-    with sqlite3.connect(path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 1
-        assert connection.execute("SELECT close FROM jquants_daily_bars").fetchone() == (220,)
 
 
 @pytest.mark.parametrize("method", ["ensure_fin_summaries", "refresh_fin_summaries"])
@@ -152,7 +119,6 @@ def test_backfill_cli_reports_both_native_sources_and_continues_other_sources(
     refresh, tmp_path, monkeypatch, capsys
 ):
     client, path = prepare_cli(refresh, tmp_path, monkeypatch)
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     result = cli.main(["backfill-history", "--start", DAY.isoformat(), "--end", DAY.isoformat()])
     output = capsys.readouterr()
     assert result == 1
@@ -171,3 +137,33 @@ def test_backfill_cli_reports_both_native_sources_and_continues_other_sources(
             row[0] for row in connection.execute("SELECT DISTINCT source FROM jquants_source_pages")
         }
         assert sources == {"market_calendar"}
+
+
+@pytest.mark.parametrize("old_setting", [None, "false", "true", "invalid"])
+@pytest.mark.parametrize("covered", [False, True])
+def test_price_writer_is_retired_regardless_of_old_setting(
+    refresh, monkeypatch, old_setting, covered
+):
+    maintenance, client, path = refresh
+    if old_setting is None:
+        monkeypatch.delenv("BAIBAI_PRICE_NATIVE", raising=False)
+    else:
+        monkeypatch.setenv("BAIBAI_PRICE_NATIVE", old_setting)
+    if covered:
+        from baibai_engine.machine_analysis.observations.jquants_writer import (
+            store_jquants_daily_bars,
+        )
+
+        store_jquants_daily_bars(
+            path,
+            [{"Code": "13010", "Date": DAY.isoformat(), "C": 220}],
+            requested_start=DAY,
+            requested_end=DAY,
+        )
+    before = path.read_bytes()
+    with pytest.raises(
+        JQuantsProviderError, match=r"jquants-price-native acquire.*rebuild-price-native"
+    ):
+        maintenance.ensure_daily_bars(DAY, DAY)
+    assert client.calls == []
+    assert path.read_bytes() == before

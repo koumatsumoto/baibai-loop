@@ -94,26 +94,6 @@ def database(tmp_path):
     return path
 
 
-def test_covered_bar_ensure_count_without_building_models(database, monkeypatch):
-    target = day("2026-10-16")
-    store_jquants_daily_bars(
-        database,
-        [bar(target.isoformat(), 100.0)],
-        requested_start=target,
-        requested_end=target,
-    )
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("count-only maintenance must not construct source models")
-
-    monkeypatch.setattr(JQuantsReader, "get_eq_bars_daily_range", forbidden)
-    monkeypatch.setattr(
-        "baibai_engine.machine_analysis.observations.prices.price_reader.JQuantsDailyBar", forbidden
-    )
-    maintenance = JQuantsRefresh(database, None)
-    assert maintenance.ensure_daily_bars(target, target) == 1
-
-
 def test_cached_exact_master_uses_offline_reader_without_acquisition(database):
     target = day("2026-05-07")
     records = make_master_records(target)
@@ -156,68 +136,6 @@ def test_partial_financial_refetch_preserves_empty_outer_windows(database):
         assert range_covered(conn, "jquants_fin_summaries", day("2026-05-16"), end)
 
 
-def test_historical_holiday_edge_does_not_refetch_but_current_tail_does(database):
-    start, newer = day("2026-10-09"), day("2026-10-12")
-    store_jquants_daily_bars(
-        database,
-        [bar(start.isoformat(), 100.0), bar(newer.isoformat(), 102.0)],
-        requested_start=start,
-        requested_end=newer,
-    )
-    maintenance, session = refresh(
-        database,
-        {
-            ("daily", "2026-10-12"): [bar("2026-10-12", 102.0)],
-            ("daily", "2026-10-13"): [bar("2026-10-13", 103.0)],
-        },
-    )
-    assert maintenance.ensure_daily_bars(start, day("2026-10-11")) == 1
-    assert session.calls == []
-    assert maintenance.ensure_daily_bars(newer, day("2026-10-13")) == 2
-    assert session.calls == [("daily", "2026-10-13")]
-
-
-def test_daily_bars_repairs_only_the_nine_unfetched_days_between_receipts(database):
-    start, end = day("2026-10-01"), day("2026-10-16")
-    store_jquants_daily_bars(
-        database,
-        [bar("2026-10-06", 100.0)],
-        requested_start=start,
-        requested_end=day("2026-10-06"),
-    )
-    store_jquants_daily_bars(
-        database,
-        [bar("2026-10-16", 110.0)],
-        requested_start=end,
-        requested_end=end,
-    )
-    assert read_daily_bars(database, start, end) is None
-    gap_days = [date.fromordinal(day("2026-10-07").toordinal() + offset) for offset in range(9)]
-    maintenance, session = refresh(
-        database,
-        {
-            ("daily", value.isoformat()): (
-                [bar(value.isoformat(), 105.0)] if value == day("2026-10-13") else []
-            )
-            for value in gap_days
-        },
-    )
-    assert maintenance.ensure_daily_bars(start, end) == 3
-    assert session.calls == [("daily", value.isoformat()) for value in gap_days]
-    with sqlite3.connect(database) as conn:
-        assert range_covered(conn, "jquants_daily_bars", start, end)
-    assert len(read_daily_bars(database, start, end) or []) == 3
-    assert maintenance.ensure_daily_bars(start, end) == 3
-    assert session.calls == [("daily", value.isoformat()) for value in gap_days]
-
-
-def test_daily_bars_reuses_successful_empty_historical_range(database):
-    target = day("2019-05-01")
-    store_jquants_daily_bars(database, [], requested_start=target, requested_end=target)
-    assert read_daily_bars(database, target, target) == []
-    assert JQuantsRefresh(database, None).ensure_daily_bars(target, target) == 0
-
-
 def test_partial_daily_bar_response_does_not_satisfy_coverage(database):
     target = day("2026-10-07")
     store_jquants_daily_bars(
@@ -229,78 +147,6 @@ def test_partial_daily_bar_response_does_not_satisfy_coverage(database):
     assert read_daily_bars(database, target, target) is None
     with sqlite3.connect(database) as conn:
         assert not range_covered(conn, "jquants_daily_bars", target, target)
-    maintenance, session = refresh(
-        database, {("daily", target.isoformat()): [bar(target.isoformat(), 100.0)]}
-    )
-    assert maintenance.ensure_daily_bars(target, target) == 1
-    assert session.calls == [("daily", target.isoformat())]
-
-
-def test_daily_bar_interruption_resumes_only_unfetched_days(database, monkeypatch):
-    start, end = day("2026-10-07"), day("2026-10-10")
-    maintenance = JQuantsRefresh(database, None)
-    attempted: list[date] = []
-
-    def interrupted_fetch(source, params):
-        value = day(params["date"])
-        attempted.append(value)
-        if value == day("2026-10-09"):
-            raise RuntimeError("interrupted")
-        store_jquants_daily_bars(
-            database,
-            [],
-            requested_start=value,
-            requested_end=value,
-        )
-
-    monkeypatch.setattr(maintenance, "_fetch", interrupted_fetch)
-    with pytest.raises(RuntimeError, match="interrupted"):
-        maintenance.ensure_daily_bars(start, end)
-    assert attempted == [day("2026-10-07"), day("2026-10-08"), day("2026-10-09")]
-    assert read_daily_bars(database, start, end) is None
-    resumed, session = refresh(
-        database,
-        {("daily", value): [] for value in ("2026-10-09", "2026-10-10")},
-    )
-    assert resumed.ensure_daily_bars(start, end) == 0
-    assert session.calls == [("daily", "2026-10-09"), ("daily", "2026-10-10")]
-    assert read_daily_bars(database, start, end) == []
-
-
-def test_covered_current_tail_is_explicitly_rechecked(database):
-    start, end = day("2026-10-12"), day("2026-10-13")
-    store_jquants_daily_bars(
-        database,
-        [bar(start.isoformat(), 100.0)],
-        requested_start=start,
-        requested_end=end,
-    )
-    maintenance, session = refresh(
-        database,
-        {
-            ("daily", start.isoformat()): [bar(start.isoformat(), 100.0)],
-            ("daily", end.isoformat()): [bar(end.isoformat(), 101.0)],
-        },
-    )
-    assert maintenance.ensure_daily_bars(start, end) == 2
-    assert session.calls == [("daily", start.isoformat()), ("daily", end.isoformat())]
-
-
-def test_daily_backfill_paces_after_31_days_and_reuses_covered_data(database, monkeypatch):
-    start, end = day("2026-01-01"), day("2026-02-01")
-    dates = [date.fromordinal(start.toordinal() + offset) for offset in range(32)]
-    maintenance, session = refresh(
-        database,
-        {("daily", value.isoformat()): [bar(value.isoformat(), 100.0)] for value in dates},
-    )
-    waits = []
-    monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jquants.time.sleep", waits.append)
-    assert maintenance.ensure_daily_bars(start, end) == 32
-    assert len(session.calls) == 32
-    assert waits == [3.0]
-    assert maintenance.ensure_daily_bars(start, end) == 32
-    assert len(session.calls) == 32
-    assert waits == [3.0]
 
 
 @pytest.mark.parametrize("source", ["market_calendar"])
@@ -425,7 +271,7 @@ def test_failed_projection_keeps_committed_source_receipt(database):
         {("daily", "2026-10-16"): [bar("2026-10-15", 100.0)]},
     )
     with pytest.raises(ValueError, match="outside the requested range"):
-        maintenance.ensure_daily_bars(day("2026-10-16"), day("2026-10-16"))
+        maintenance._fetch("daily_bars", {"date": "2026-10-16"})
     assert session.calls == [("daily", "2026-10-16")]
     with sqlite3.connect(database) as conn:
         request_id = conn.execute(

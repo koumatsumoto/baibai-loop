@@ -21,7 +21,6 @@ permissions:
 env:
   BAIBAI_MASTER_NATIVE: "true"
   BAIBAI_CALENDAR_NATIVE: "true"
-  BAIBAI_PRICE_NATIVE: "true"
 
 concurrency:
   group: common-source-integration

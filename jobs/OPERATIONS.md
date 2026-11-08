@@ -458,7 +458,7 @@ uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TI
 <a id="jquants-native-operations"></a>
 ## J-Quants native L1
 
-7sourceは取得・原本保持とL2再生成を分ける。財務の通常経路はnative L1だけを使い、環境変数で旧writerへ戻さない。日足・master・calendarは既定/Actionsともtrue、alerts/short-saleは既定falseで本番切替未実施、margin-interestは明示CLIだけである。残る設定は各cutover ownerとActionsを確認し、flagやmergeを移行完了としない。切替済みsourceのfalseは旧入力の有限検証用で本番rollbackには使わない。
+7sourceは取得・原本保持とL2再生成を分ける。財務・日足の通常経路はnative L1だけを使い、環境変数で旧writerへ戻さない。master・calendarは既定/Actionsともtrue、alerts/short-saleは既定falseで本番切替未実施、margin-interestは明示CLIだけである。残る設定は各cutover ownerとActionsを確認し、flagやmergeを移行完了としない。残る切替済みsourceのfalseは旧入力の有限検証用で本番rollbackには使わない。財務・日足の旧環境変数は読まず、旧非true統合planは再開せず新planを作る。
 
 `jquants-<source>-native initialize`は新規の空namespaceだけに一度行う。plan/acquireは新directory、応答不明はresume、保存済みattemptは同じdirectoryのcommit-workを使う。head消失や移行失敗を空初期化で迂回しない。
 

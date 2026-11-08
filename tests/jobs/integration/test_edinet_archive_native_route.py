@@ -193,6 +193,7 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     work = tmp_path / "integration"
     assert sources.main(["plan", "--directory", str(work)]) == 0
     fixed_plan = json.loads((work / "plan.json").read_bytes())
+    assert "price_native" not in fixed_plan
     saved = InputSnapshot.model_validate(fixed_plan["edinet_input"])
     fixed = read_edinet_input(store, saved)
     assert fixed.lists.value() == lists.value()

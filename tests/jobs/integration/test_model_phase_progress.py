@@ -6,10 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 from tests.helpers.lake_release import market_store
+from tests.helpers.price_native import seed_prices
+from tests.helpers.r2_store import MemoryR2Store
 from tests.jobs.integration.test_model_integration import integration as integration
 from tests.jobs.publication import test_calendar_native_objects as calendar
-from tests.jobs.publication.test_l1_price_export import price_source
 
+from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 from baibai_engine.machine_analysis.generation import inputs
 from baibai_engine.machine_analysis.generation.contracts import ModelGenerationStream
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
@@ -19,9 +21,10 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import InputRelease
 from baibai_engine.storage.snapshots import writer
 from baibai_jobs.integration import models
+from baibai_jobs.integration.price_native import model_input as price_model_input
 from baibai_jobs.publication import snapshot_publication as publication
 from baibai_jobs.publication.datasets import LAKE_DATASETS
-from baibai_jobs.publication.l1_price_export import export_prices_from_l1
+from baibai_jobs.publication.l1_price_export import export_prices_from_native_input
 
 CANARY = "private-path-request-release-or-error"
 
@@ -125,17 +128,28 @@ def test_dataset_done_follows_full_parity(tmp_path, monkeypatch, progress, failu
     assert CANARY not in progress.getvalue()
 
 
-def test_independent_l1_export_reports_its_dataset(tmp_path, progress):
-    mirror, source = price_source(
-        tmp_path, {"data": [{"Code": "13010", "Date": "2026-02-01", "C": 110}]}
+def test_native_price_export_reports_its_dataset(tmp_path, progress):
+    market = market_store(
+        tmp_path / "market.sqlite",
+        daily_bars=(("1301", "2026-01-31", 100.0, 1.0), ("1301", "2026-02-01", 110.0, 1.0)),
     )
-    report = export_prices_from_l1(
-        source=source,
-        mirror_root=mirror,
-        producer_git_commit="a" * 40,
-        known_at=datetime(2026, 2, 4, tzinfo=UTC),
-        build_id=CANARY,
+    mirror, store = tmp_path / "mirror", MemoryR2Store()
+    as_of = seed_prices(store, market, tmp_path / "native")
+    saved = price_model_input(
+        store,
+        PriceL1(store, tmp_path / "fixed").fixed(),
+        as_of=as_of,
+        evaluated_at=datetime(2026, 2, 4, tzinfo=UTC),
+        market=market,
     )
+    with writer.sealed_sqlite_snapshot(sqlite_path=market, mirror_root=mirror) as snapshot:
+        report = export_prices_from_native_input(
+            source_snapshot=snapshot,
+            saved=saved,
+            mirror_root=mirror,
+            producer_git_commit="a" * 40,
+            build_id=CANARY,
+        )
     assert report.build.manifest.totals.rows == 2
     assert "phase=export.jquants.daily_bars state=start\n" in progress.flushed
     assert "phase=export.jquants.daily_bars state=done elapsed_seconds=" in progress.flushed

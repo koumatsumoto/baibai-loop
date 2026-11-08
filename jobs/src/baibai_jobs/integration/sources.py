@@ -55,7 +55,6 @@ from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MA
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
 from baibai_jobs.master_cutover import master_native_enabled
-from baibai_jobs.price_cutover import price_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
@@ -73,8 +72,8 @@ def apply(
         raise ValueError("legacy financial mode in fixed integration plan; create a new plan")
     if any(entry.get("source") == "jquants-financial" for entry in plan["handoffs"]):
         raise ValueError("legacy financial handoff in fixed integration plan; create a new plan")
-    if bool(plan.get("price_native", False)) != price_native_enabled():
-        raise ValueError("price cutover mode differs from the fixed integration plan")
+    if "price_native" in plan and plan["price_native"] is not True:
+        raise ValueError("legacy price integration plan is unsupported; create a new plan")
     if bool(plan.get("master_native", False)) != master_native_enabled():
         raise ValueError("master cutover mode differs from the fixed integration plan")
     if bool(plan.get("calendar_native", False)) != calendar_native_enabled():
@@ -142,9 +141,7 @@ def apply(
     master_input = None
     master_fingerprints = None
     price_fingerprints = None
-    if price_native_enabled() and any(
-        entry["source"] == "jquants-market" for entry in plan["handoffs"]
-    ):
+    if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
 
         price_fingerprints = {
@@ -432,7 +429,6 @@ def main(argv: list[str] | None = None) -> int:
                         }
                     ],
                     "edinet_input": edinet_input,
-                    "price_native": price_native_enabled(),
                     "master_native": master_native_enabled(),
                     "calendar_native": calendar_native_enabled(),
                     "external": external,

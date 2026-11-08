@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.jobs.integration.test_master_native_models import AT, DAY, attempt, records, setup_native
 
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -103,3 +104,6 @@ def test_actual_publication_reuses_prior_days_and_year_v3_multiobject_reader(tmp
                 mirror_root=mirror,
                 manifest=broken,
             )
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

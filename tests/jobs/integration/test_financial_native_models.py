@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.lake_release import market_store
+from tests.helpers.price_native import seed_prices
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_engine.machine_analysis.generation.inputs as generation
@@ -210,6 +211,7 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         if item.dataset == "jquants.fin_summaries"
     )
     assert financial_policy.carries_history is True
+    seed_prices(store, market, tmp_path / "native-price", as_of=DAY)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
     store.get_keys.clear()

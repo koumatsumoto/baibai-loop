@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.margin_alerts_native import AT, DAY, attempt, records
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
@@ -259,3 +260,6 @@ def test_normal_publication_fixes_one_head_for_seal_reader_and_lineage(tmp_path,
     ) as prepared:
         assert prepared.margin_alerts_identity != fixed_input
         assert rows(prepared.source_snapshot.path) != snapshot_rows
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

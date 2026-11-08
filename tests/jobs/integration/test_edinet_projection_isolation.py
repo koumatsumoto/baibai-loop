@@ -56,6 +56,9 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     from tests.helpers.native_margin_sources import initialize_margin_sources
 
     initialize_margin_sources(store, tmp_path / "empty-margin-baseline")
+    from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
+
+    PriceL1(store, tmp_path / "empty-price-baseline").initialize()
     market, economic = tmp_path / "market.sqlite", tmp_path / "economic.sqlite"
     receive(market, "S100OLD", STAMP)
     rebuild_edinet_document_day(market, DAY)

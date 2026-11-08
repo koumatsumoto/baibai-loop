@@ -7,10 +7,8 @@ import yaml
 
 from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.master_cutover import master_native_enabled
-from baibai_jobs.price_cutover import price_native_enabled
 
 MODES = {
-    "PRICE": price_native_enabled,
     "MASTER": master_native_enabled,
     "CALENDAR": calendar_native_enabled,
 }
@@ -58,3 +56,8 @@ def test_no_jquants_native_repository_var_reader_is_left_in_workflows():
         text = path.read_text()
         for source in MODES:
             assert f"vars.BAIBAI_{source}_NATIVE" not in text
+
+
+def test_price_workflows_have_no_retired_rollout_setting():
+    for name in ("cloud-daily-batch.yml", "cloud-market-source.yml"):
+        assert "BAIBAI_PRICE_NATIVE" not in (Path(".github/workflows") / name).read_text()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import sqlite3
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.publication.snapshot_publication as market_publish_module
@@ -75,7 +77,14 @@ def _small_pilot_release_policy(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def _fixed_publication_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     fixed_now = datetime(2026, 1, 7, tzinfo=UTC)
-    from baibai_jobs.publication import l1_short_sale_reports_export
+    from baibai_jobs.publication import l1_price_export, l1_short_sale_reports_export
+
+    export_price = l1_price_export.export_dataset_snapshot
+    monkeypatch.setattr(
+        l1_price_export,
+        "export_dataset_snapshot",
+        lambda **kwargs: export_price(**{**kwargs, "created_at": fixed_now}),
+    )
 
     export_native = l1_short_sale_reports_export.export_dataset_snapshot
     monkeypatch.setattr(
@@ -622,8 +631,26 @@ def test_first_publication_needs_no_store_origin(
 def test_publication_rejects_history_shorter_than_the_serving_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    narrow_release_policy(monkeypatch, carries_history=None)
+    narrow_release_policy(
+        monkeypatch,
+        datasets=("jquants.daily_bars", "jquants.short_sale_reports", "jquants.source_pages"),
+        carries_history=None,
+    )
     sqlite_path = market_store(tmp_path / "market.sqlite")
+    with sqlite3.connect(sqlite_path) as connection:
+        for day in ("2026-01-05", "2026-02-02"):
+            connection.execute(
+                "INSERT INTO jquants_source_pages VALUES(?,?,?,?,?,?,?)",
+                (
+                    day,
+                    0,
+                    "master",
+                    json.dumps({"date": day}),
+                    day + "T00:00:00+00:00",
+                    day,
+                    gzip.compress(b'{"data":[]}'),
+                ),
+            )
     mirror = tmp_path / "mirror"
     store = MemoryR2Store()
     monkeypatch.setattr(market_publish_module, "lake_verified_git_commit", lambda: "a" * 40)
@@ -637,21 +664,11 @@ def test_publication_rejects_history_shorter_than_the_serving_release(
     origin = read_lake_store_origin(sqlite_path)
     assert origin is not None
 
-    # Keep the serving origin, but give the next export a valid, shorter price span.
-    # Stale January coverage would test a broken fixture rather than the history floor.
+    # Native prices are reconstructed independently; this unmigrated original
+    # dataset must still preserve the old serving history floor.
     with closing(sqlite3.connect(sqlite_path)) as connection, connection:
-        connection.execute("DELETE FROM jquants_daily_bars WHERE traded_at < '2026-02-01'")
-        connection.execute("DELETE FROM source_coverage WHERE source = 'jquants_daily_bars'")
-        record_range_source_coverage(
-            connection,
-            source="jquants_daily_bars",
-            operation="get_daily_quotes",
-            table="jquants_daily_bars",
-            date_column="traded_at",
-            requested_start=date(2026, 2, 2),
-            requested_end=date(2026, 2, 2),
-            status="ok",
-            error=None,
+        connection.execute(
+            "DELETE FROM jquants_source_pages WHERE source='master' AND received_on < '2026-02-01'"
         )
 
     with pytest.raises(ValueError, match="the serving release already covers"):
@@ -1220,3 +1237,6 @@ def test_failure_after_prepare_does_not_advance_pointer_or_origin(tmp_path, monk
     assert not snapshot_paths[0].exists()
     assert "lake/pointers/market/current.json" not in store.values
     assert read_lake_store_origin(path) is None
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

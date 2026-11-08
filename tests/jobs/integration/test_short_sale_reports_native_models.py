@@ -4,6 +4,7 @@ import sqlite3
 from datetime import timedelta
 
 import pytest
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.short_sale_reports_native import AT, DAY, attempt, records
 
@@ -309,3 +310,6 @@ def test_missing_changed_original_rolls_back_cache_and_day_coverage(tmp_path):
         )
     assert rows(market) == expected_rows
     assert coverage(market) == expected_coverage
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")

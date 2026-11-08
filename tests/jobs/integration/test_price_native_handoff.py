@@ -49,7 +49,6 @@ def native_margin_replay_proofs(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def native_flags(monkeypatch):
-    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "true")
     monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
     monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
 
@@ -265,7 +264,6 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
             directory / "plan.json",
             {
                 "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-                "price_native": True,
                 "master_native": master_native,
                 "handoffs": available_handoffs(store, source="jquants-market"),
                 "external": [],
@@ -332,7 +330,6 @@ def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monke
                 "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
                 "financial_native": True,
                 "master_native": False,
-                "price_native": True,
                 "handoffs": available_handoffs(store, source="jquants-financial"),
             },
         )
@@ -370,7 +367,6 @@ def test_apply_without_market_stages_does_not_read_native_price_head(tmp_path):
         {
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
             "master_native": False,
-            "price_native": True,
             "handoffs": [],
         },
     )
@@ -511,7 +507,6 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
         write_json_atomic(
             directory / "plan.json",
             {
-                "price_native": True,
                 "master_native": True,
                 "calendar_native": True,
                 "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),

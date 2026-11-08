@@ -10,6 +10,7 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.margin_alerts_native import attempt as alert_attempt
+from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.short_sale_reports_native import attempt as short_attempt
 
@@ -169,7 +170,7 @@ def test_margin_cutover_does_not_exempt_remaining_originals(
 ):
     rows = [(lost_source, "2026-10-02")]
     if not lose_all:
-        rows.append(("daily_bars", "2026-10-03"))
+        rows.append(("weekly_margin", "2026-10-03"))
     store, market, mirror, _ = native_margin_release(rows)
     pointer = store.values[POINTER].body
     with sqlite3.connect(market) as connection:
@@ -216,3 +217,6 @@ def test_unmigrated_margin_receipt_still_blocks_before_history_adjustment(
         assert connection.execute(
             "SELECT COUNT(*) FROM jquants_source_pages WHERE source=?", (native_source,)
         ).fetchone() == (1,)
+
+
+pytestmark = pytest.mark.usefixtures("native_price_publication")
