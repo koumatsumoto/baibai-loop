@@ -82,8 +82,9 @@ def projected_stream(original, *, empty=False, schema_version=2):
 
 
 @pytest.mark.parametrize(("schema_version", "empty"), [(1, False), (2, False), (2, True)])
+@pytest.mark.parametrize("storage_error", [None, sqlite3.DatabaseError, OSError])
 def test_normal_stream_matches_saved_oracle_without_decoding_models_again(
-    integration, tmp_path, monkeypatch, schema_version, empty
+    integration, tmp_path, monkeypatch, caplog, capsys, schema_version, empty, storage_error
 ):
     arguments, _ = integration
     arguments["policy"] = EconomicPathPolicy(candidate_limit=2)
@@ -92,6 +93,16 @@ def test_normal_stream_matches_saved_oracle_without_decoding_models_again(
     visited = []
     project = job.project_company
     evaluate = job.evaluate_economic_coordinates
+    collect = job.read_generation_storage_totals
+    collections = []
+
+    def collect_once(generation_id, *, path):
+        collections.append((generation_id, path))
+        with sqlite3.connect(path) as connection:
+            assert connection.execute("SELECT count(*) FROM model_generation").fetchone()[0] == 1
+        if storage_error is not None:
+            raise storage_error("private-path-request-release-or-error")
+        return collect(generation_id, path=path)
 
     def generate_stream(**kwargs):
         stream, models = projected_stream(
@@ -124,10 +135,23 @@ def test_normal_stream_matches_saved_oracle_without_decoding_models_again(
     monkeypatch.setattr(job, "project_company", observe)
     monkeypatch.setattr(screening, "project_company", observe)
     monkeypatch.setattr(job, "evaluate_economic_coordinates", after_commit)
+    monkeypatch.setattr(job, "read_generation_storage_totals", collect_once)
     with monkeypatch.context() as normal:
         normal.setattr(generation_query, "_decode_model", forbidden)
         normal.setattr(screening, "stream_generation_subjects", forbidden)
         result = job.integrate_models(**arguments)
+    assert collections == [(result["generation_id"], arguments["runs"])]
+    warnings = [record for record in caplog.records if record.name == job.__name__]
+    diagnostic_output = capsys.readouterr().err
+    if storage_error is None:
+        assert warnings == []
+    else:
+        assert [record.getMessage() for record in warnings] == [
+            f"model storage: state=unmeasured error_type={storage_error.__name__}"
+        ]
+        assert "count=" not in diagnostic_output
+        assert "payload_gzip_bytes=" not in diagnostic_output
+    assert "private-path-request-release-or-error" not in caplog.text + diagnostic_output
     assert Counter(visited) == Counter(() if empty else ("1001", "1002", "1003", "9999"))
     stored = read_generation(result["generation_id"], path=arguments["runs"])
     assert stored == expected[0]

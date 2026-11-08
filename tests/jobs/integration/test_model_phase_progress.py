@@ -1,6 +1,8 @@
 """処理の開始をflushし、成功境界だけに完了を出す。私有値は表示しない。"""
 
 import io
+import re
+import sqlite3
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -216,6 +218,7 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
             models.integrate_models(**arguments)
         assert_started(progress, "model_generation")
         assert "phase=screening" not in progress.flushed
+        assert "model storage:" not in progress.flushed
         assert "phase=lake_publish" not in progress.flushed
         assert "publish" not in events
         assert read_generation("models-new-release", path=arguments["runs"]) is None
@@ -242,8 +245,21 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
         lines = [
             "phase=" + line.split("phase=", 1)[1].split(" elapsed_seconds=")[0]
             for line in progress.flushed.splitlines()
+            if "phase=" in line
         ]
         assert lines == expected
+        storage = [
+            line for line in progress.flushed.splitlines() if line.startswith("model storage:")
+        ]
+        assert len(storage) == 2
+        assert all(
+            re.fullmatch(
+                r"model storage: model_id=(company_financials|market_context) "
+                r"count=1 payload_gzip_bytes=[1-9][0-9]*",
+                line,
+            )
+            for line in storage
+        )
         assert events == [
             "lease",
             "prepare",
@@ -285,6 +301,31 @@ def test_failed_phase_never_logs_done_or_prunes(
     assert "phase=model_cache_prune" not in progress.flushed
     assert "publish" not in events
     assert CANARY not in progress.getvalue()
+
+
+@pytest.mark.parametrize("phase", ["model_generation", "screening"])
+@pytest.mark.parametrize("error_type", [sqlite3.DatabaseError, OSError])
+def test_diagnostic_fallback_does_not_hide_model_write_or_policy_failure(
+    integration, monkeypatch, progress, caplog, phase, error_type
+):
+    arguments, events = integration
+    error = error_type(CANARY)
+
+    def fail(*args, **kwargs):
+        raise error
+
+    if phase == "model_generation":
+        monkeypatch.setattr(models.ModelGenerationStore, "publish_stream", fail)
+    else:
+        monkeypatch.setattr(models, "evaluate_economic_coordinates", fail)
+    with pytest.raises(error_type, match=CANARY) as caught:
+        models.integrate_models(**arguments)
+    assert caught.value is error
+    assert_started(progress, phase)
+    assert "phase=model_cache_prune" not in progress.flushed
+    assert "publish" not in events
+    assert "state=unmeasured" not in caplog.text
+    assert CANARY not in progress.getvalue() + caplog.text
 
 
 def test_native_financial_failure_keeps_start_only(integration, monkeypatch, progress):

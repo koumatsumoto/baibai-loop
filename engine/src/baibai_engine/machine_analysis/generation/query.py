@@ -34,6 +34,21 @@ def read_generation_metadata(
         return _read_metadata(connection, generation_id)
 
 
+def read_generation_storage_totals(
+    generation_id: str, *, path: Path | None = None
+) -> tuple[tuple[str, int, int], ...]:
+    """当世代の保存件数と圧縮payload実量。本文を展開せず一回で集計する。"""
+    with closing(connect_read_only(path)) as connection:
+        return tuple(
+            (str(model_id), int(count), int(size))
+            for model_id, count, size in connection.execute(
+                "SELECT model_id,count(*),sum(length(payload_gzip)) FROM generated_model "
+                "WHERE generation_id=? GROUP BY model_id ORDER BY model_id",
+                (generation_id,),
+            )
+        )
+
+
 def read_model_inputs(
     generation_id: str, *, subjects: Sequence[str], path: Path | None = None
 ) -> ModelInputSlice | None:
