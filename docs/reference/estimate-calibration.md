@@ -2,7 +2,7 @@
 
 旧ER/FV・四Approachの再推計/再選抜、較正の再生成/再配布は廃止済み。保存run・旧Selection・同梱contextを当時の値/identity/時刻/欠測のまま読み、現行モデル・候補・L3評価/Reviewを代行させない。store/原本は削除しない。
 
-exact `run_revision_id` の `historical-evaluation run-show` / `candidates show` を使う。旧Selectionも保存分析を投影し、現在のrules/推計で埋めない。
+`historical-evaluation run-show` / `historical-evaluation candidates show` にexact `--run-revision-id`を指定する。旧Selectionも保存分析の投影で、現在のrules/推計で埋めない。
 
 <a id="machine-valuation"></a>
 ## 保存済み機械ER/FVの意味
@@ -22,6 +22,4 @@ exact `run_revision_id` の `historical-evaluation run-show` / `candidates show`
 
 固定v43は粗い順位の研究材料に留める。退出・配当・PIT・実行価格の制約から数値較正/買い閾値へ[不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-23-v43-evidence-decision/report.md)で、formal evidence不足/負の結果を効果・採用・利益の認定にしない。
 
-## 現行判断を将来比較へつなぐ前の診断
-
-旧較正とは別の[現行判断の比較前診断](screening-runtime.md#decision-cohort-diagnostic)を使う。command・対象/分母・時点と証明しない範囲はリンク先に集約する。
+現行方式は別の[比較前診断](screening-runtime.md#decision-cohort-diagnostic)を使い、旧較正を更新しない。
