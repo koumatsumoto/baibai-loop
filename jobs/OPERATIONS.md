@@ -398,12 +398,13 @@ lease外でacquire→inspect→ready --cumulative、共通統合で固定集合�
 
 必要銘柄/fieldの揃った原応答はL2検証失敗でも保持し後続batchを進める。不足はpartial/診断へ残し、無効応答連続・HTTP/認証・時刻/予算・保存失敗の停止境界を維持する。
 
-receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。新受領は共通統合へ渡し、取得copy全体をpushしない。
+receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。新受領は共通統合へ渡し、取得copy全体をpushしない。exportには受領時のmaster/calendarを固定したsource-input directoryを渡し、復旧時に最新inputで作り直さない。
 
 ```bash
 uv run baibai-jobs tradingview-source receive --sqlite <LOCAL_MARKET_COPY> --capture <PRIVATE_NATIVE_CAPTURE_JSON>
 uv run python -m baibai_jobs.integration.source_handoff export --source tradingview \
-  --asof <JST_RECEPTION_DAY> --since <BEFORE_RECEPTION_UTC> --database <LOCAL_MARKET_COPY> --directory <NEW_PRIVATE_HANDOFF>
+  --asof <JST_RECEPTION_DAY> --since <BEFORE_RECEPTION_UTC> --database <LOCAL_MARKET_COPY> \
+  --input-directory <FIXED_SOURCE_INPUT_DIR> --directory <NEW_PRIVATE_HANDOFF>
 uv run baibai-jobs tradingview-source rebuild --sqlite <LOCAL_MARKET_COPY> --asof <YYYY-MM-DD> --receipt-id <RECEIPT_ID>
 uv run baibai-engine external-assessment show --ticker <TICKER> --cutoff <UTC_TIMESTAMP> --db <LOCAL_MARKET_COPY>
 ```

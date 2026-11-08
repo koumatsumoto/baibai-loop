@@ -318,12 +318,13 @@ jobs:
                   matches[-1] if matches and matches[-1] in categories else "internal"
               )
               outputs.extend(("status=failure", "failure_category=" + category))
+              # Staging exports originals only, even when an earlier chunk added L2 rows.
               outputs.append(
                   "publish_failed_receipts=" + str(
                       category in {"provider_rate_limit", "provider_response", "provider_transport",
                                    "auth", "secret_persistence", "time_guard", "timeout"}
                       and receipts_before >= 0 and receipts_after > receipts_before
-                      and rows_before >= 0 and rows_after == rows_before
+                      and rows_before >= 0 and rows_after >= rows_before
                   ).lower()
               )
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
