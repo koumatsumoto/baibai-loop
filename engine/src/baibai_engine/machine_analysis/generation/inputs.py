@@ -181,6 +181,7 @@ def read_and_generate_models(
             )
             if comparison_evidence is not None
             else (),
+            diagnostics=sys.stderr,
         )
         _phase_progress("edinet_comparisons", phase_started)
         phase_started = _phase_progress("pdf_financials")
