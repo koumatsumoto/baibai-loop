@@ -6,7 +6,6 @@ import argparse
 import sqlite3
 import sys
 from contextlib import ExitStack
-from datetime import datetime
 from pathlib import Path
 
 from baibai_engine.cli.environment import load_project_env
@@ -31,11 +30,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.servi
     extract_edinet_metrics_command,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
-from baibai_engine.machine_analysis.observations.prices.calendar_context import (
-    market_calendar_business_day,
-)
 from baibai_engine.primitives.dates import parse_iso_date as _parse_iso_date
-from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_facts_command,
@@ -43,7 +38,6 @@ from baibai_jobs.maintenance.edinet_extraction import (
 )
 from baibai_jobs.maintenance.market.cache import (
     backfill_history_command,
-    backfill_master_command,
     bootstrap_cache_command,
     invalidate_coverage_command,
 )
@@ -334,9 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     ):
         sqlite_path = Path(args.sqlite_path)
 
-    from baibai_jobs.master_cutover import master_native_enabled
-
-    if args.command == "backfill-master" and master_native_enabled():
+    if args.command == "backfill-master":
         from baibai_jobs.maintenance.master_native_backfill import backfill_native_master
 
         return backfill_native_master(args, sqlite_path=sqlite_path)
@@ -409,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     with ExitStack() as resources:
         jquants_refresh = (
             JQuantsRefresh(sqlite_path, config.jquants_api_key)
-            if args.command in {"backfill-history", "backfill-master"}
+            if args.command == "backfill-history"
             or (
                 args.command == "bootstrap-cache"
                 and args.source_group in {"all", "jquants-market", "jquants-financial"}
@@ -462,79 +454,6 @@ def main(argv: list[str] | None = None) -> int:
                 end=window_end,
                 providers=providers,
                 sqlite_path=sqlite_path,
-            )
-
-        if args.command == "backfill-master":
-            from baibai_jobs.maintenance.market.grid import (
-                days_with_bars,
-                month_end_asof_grid,
-            )
-
-            asof_dates = [_parse_iso_date(value) for value in (args.asofs or [])]
-            if bool(args.month_end_from) != bool(args.month_end_to):
-                print(
-                    "--month-end-from and --month-end-to must be given together",
-                    file=sys.stderr,
-                )
-                return 1
-            if args.month_end_from:
-                grid_start = _parse_iso_date(args.month_end_from)
-                grid_end = _parse_iso_date(args.month_end_to)
-                if grid_start > grid_end:
-                    print(
-                        "--month-end-from "
-                        f"{grid_start.isoformat()} is after --month-end-to {grid_end.isoformat()}",
-                        file=sys.stderr,
-                    )
-                    return 1
-                if not sqlite_path.exists():
-                    print(f"SQLite cache not found: {sqlite_path}", file=sys.stderr)
-                    return 1
-                # The grid is derived from the bar store so that the backfilled dates
-                # are the cohort dates themselves. A snapshot on any other day leaves
-                # the cohort on a non-exact-date master and buys nothing.
-                asof_dates.extend(month_end_asof_grid(sqlite_path, start=grid_start, end=grid_end))
-            unique_dates = sorted(set(asof_dates))
-            if not unique_dates:
-                print("backfill-master resolved no dates to fetch", file=sys.stderr)
-                return 1
-            # A snapshot is only meaningful for a day the market produced one. Without
-            # this check a mistyped date can persist the current population as another
-            # day's point-in-time section, and every later read treats it as exact.
-            today = datetime.now(JST).date()
-            future = [day for day in unique_dates if day > today]
-            if future:
-                print(
-                    f"backfill-master rejects future dates: {', '.join(map(str, future))}",
-                    file=sys.stderr,
-                )
-                return 1
-            historical = [day for day in unique_dates if day < today]
-            traded = days_with_bars(sqlite_path, historical)
-            non_business = [day for day in historical if day not in traded]
-            if non_business:
-                print(
-                    "backfill-master rejects dates the bar store does not show as trading "
-                    f"days: {', '.join(map(str, non_business))}",
-                    file=sys.stderr,
-                )
-                return 1
-            if today in unique_dates:
-                try:
-                    business = market_calendar_business_day(sqlite_path, today)
-                except sqlite3.Error:
-                    print("backfill-master: market calendar unavailable", file=sys.stderr)
-                    return 1
-                if business is None:
-                    print("backfill-master: market calendar coverage unavailable", file=sys.stderr)
-                    return 1
-                if not business:
-                    print(f"backfill-master {today}: non-business skip")
-                    unique_dates.remove(today)
-            if not unique_dates:
-                return 0
-            return backfill_master_command(
-                asof_dates=unique_dates, providers=providers, sqlite_path=sqlite_path
             )
 
         if args.command == "refresh-edinet-metrics":

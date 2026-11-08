@@ -96,6 +96,23 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     ).model_dump(mode="json")
     good_source = tmp_path / "good.sqlite"
     calendar(good_source, DAY.isoformat(), asof.isoformat(), 1, STAMP + timedelta(hours=2))
+    from baibai_engine.data_collection.providers.jquants.calendar_native import (
+        CalendarAttempt,
+        CalendarL1,
+    )
+    from baibai_engine.data_collection.providers.jquants.receipts import read_request_pages
+
+    native_calendar = CalendarL1(store, tmp_path / "native-calendar")
+    native_calendar.initialize()
+    with closing(open_connection(good_source)) as connection:
+        request_id = connection.execute(
+            "SELECT DISTINCT request_id FROM jquants_source_pages"
+        ).fetchone()[0]
+        pages = tuple(read_request_pages(connection, request_id))
+    native_calendar.commit([CalendarAttempt(request_id, DAY, asof, None, pages)])
+    from tests.helpers.master_calendar_native import seed_master
+
+    seed_master(store, market, tmp_path / "native-master", as_of=asof)
     good_packet = tmp_path / "good-packet"
     _export("jquants-market", asof, STAMP, good_source, good_packet)
     save_handoff(store, "jquants-market-good", good_packet, market=True)
@@ -139,7 +156,6 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
         "edinet.document_lists",
         "edinet.list_responses",
         "jquants.market_calendar",
-        "jquants.source_pages",
     )
     narrow_release_policy(monkeypatch, datasets=names, carries_history=None)
     policy = release_policy_for_profile("production")

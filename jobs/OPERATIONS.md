@@ -368,7 +368,7 @@ uv run baibai-jobs article-recovery prepare --source <ARTICLE_SOURCE_ID> \
 uv run python -m baibai_jobs.integration.sources apply --asof <YYYY-MM-DD> --directory <PRIVATE_RECOVERY_DIRECTORY>
 ```
 
-plan.jsonを通常planで上書きしない。同じfresh canonical/leaseでapply→model-integration→push-machine→seal/inputsへ進む。prepareだけでは取得/公開しない。元receiptはappend-only、成功はrecovered-<hash>.jsonへ記録し、feed再GET/元時刻変更/integrated.json削除をしない。CAS失敗で原本だけ残った場合も先にこのexact統合を行い、cursor回復とは分ける。
+prepareは指定記事entryだけと、その時点のEDINET固定pairを保存する。他のpending stageやexternal readyを混ぜず、plan.jsonを通常planで上書きしない。同じfresh canonical/leaseでapply→model-integration→push-machine→seal/inputsへ進む。prepareだけではprovider取得やcanonical公開を行わない。元receiptはappend-only、成功はrecovered-<hash>.jsonへ記録し、feed再GET/元時刻変更/integrated.json削除をしない。CAS失敗で原本だけ残った場合も先にこのexact統合を行い、cursor回復とは分ける。
 
 BOJ/MOFのoffline再発見は同ownerのregister-discoveryへstage/hashと--receipt-idを渡す。新stageをplanningへCAS登録する書込で、HTTPなし。同要求はno-op、元受領/validator/slot/未処理workを保ち、登録後に通常取得を続ける。
 
@@ -483,7 +483,7 @@ rebuild-<source>-nativeは--work-directory / --start / --end / --outputから新
 **master。** [疎なsnapshot](../engine/src/baibai_engine/data_collection/providers/jquants/master_native.py)で、受領済み非空日を通常再GETしない。保存inputs.masterと暦で再生する。旧bootstrapの代わりにbackfill-master/native CLIを使い、月末cohort日のbackfillだけ既存bars gridを要求する。TradingView/外部評価はGET前にnative masterを固定して元bindingで再開し、空/failed/heldを旧masterで埋めない。休場判定前の取得なので休日GETも確認する。
 
 <a id="calendar-native-l1"></a>
-**calendar。** 通常モデル/公開はnative日足・masterと組み合わせる。明示取得は他source/L2/release不要。[range原本と補修計画](../engine/src/baibai_engine/data_collection/providers/jquants/calendar_native.py)を使い、未知HolDiv・不正日・partialを休場としない。不足時はmaster休日basisを確認する。commit-workは実受領を再確認し、空/partialを成功へ変えない。
+**calendar。** 通常取得・モデル・公開は財務・日足・masterと同じくnative原本だけを使い、旧switchでは戻さない。明示取得は他source/L2/release不要。[range原本と補修計画](../engine/src/baibai_engine/data_collection/providers/jquants/calendar_native.py)を使い、未知HolDiv・不正日・partialを休場としない。不足時はmaster休日basisを確認する。commit-workは実受領を再確認し、空/partialを成功へ変えない。
 
 ```bash
 uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>

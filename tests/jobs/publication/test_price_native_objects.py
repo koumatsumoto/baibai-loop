@@ -9,6 +9,9 @@ import pyarrow.parquet as pq
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
@@ -74,8 +77,6 @@ def attempt(identity, day, *, tick=0, rows=None, size=16):
 
 
 def configure(monkeypatch):
-    for source in ("FINANCIAL", "MASTER", "CALENDAR", "EDINET_LIST"):
-        monkeypatch.setenv(f"BAIBAI_{source}_NATIVE", "false")
     narrow_release_policy(monkeypatch, datasets=(DATASET.name,))
     monkeypatch.setattr(publication, "LAKE_DATASETS", {DATASET.name: DATASET})
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
@@ -324,3 +325,6 @@ def test_publication_uses_native_price_input_without_rollout_mode(
             assert connection.execute(
                 "SELECT close, adjustment_factor, volume, ex_right_type FROM jquants_daily_bars"
             ).fetchall() == [(100.0, 0.5, None, "1")]
+
+
+pytestmark = pytest.mark.usefixtures("native_master_calendar_publication")

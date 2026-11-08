@@ -27,18 +27,11 @@ from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     ObjectStore,
 )
-from baibai_engine.storage.snapshots.duck import lake_session
-from baibai_engine.storage.snapshots.objects import LakeObjectCache
 from baibai_jobs.acquisition.calendar_dependencies import (
     fix_calendar_dependency,
     saved_calendar_context,
 )
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
-from baibai_jobs.acquisition.dependencies import (
-    available_dependencies,
-    latest_dependency,
-    load_dependency,
-)
 from baibai_jobs.acquisition.external_assessments.attempts import (
     attempt_value,
     read_attempts,
@@ -73,24 +66,12 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     terminal_result,
 )
 from baibai_jobs.acquisition.external_assessments.universe import (
-    calendar_master_asof as external_assessment_calendar_master_asof,
-)
-from baibai_jobs.acquisition.external_assessments.universe import (
-    frozen_lake_universe as external_assessment_frozen_lake_universe,
-)
-from baibai_jobs.acquisition.external_assessments.universe import (
-    received_calendar as external_assessment_received_calendar,
-)
-from baibai_jobs.acquisition.external_assessments.universe import (
     received_master_universe as external_assessment_received_master_universe,
 )
 from baibai_jobs.acquisition.master_dependencies import (
     fix_master_dependency,
     saved_master_dependency,
 )
-from baibai_jobs.calendar_cutover import calendar_native_enabled
-from baibai_jobs.master_cutover import master_native_enabled
-from baibai_jobs.publication.snapshot_publication import _resolve_serving_release, _serving_pointer
 
 SOFT_BUDGET_SECONDS = 4 * 60 * 60
 PAIR_AND_STAGE_RESERVE_SECONDS = 15 * 60
@@ -103,14 +84,6 @@ def require_binding(plan: RunPlan) -> None:
         source=plan.sources[0] if len(plan.sources) == 1 else None
     ):
         raise ValueError("external assessment collector binding changed; do not reuse this batch")
-
-
-class _MasterSource:
-    def __init__(self, store: ObjectStore) -> None:
-        self.store = store
-
-    def read_bytes(self, key: str) -> bytes:
-        return self.store.get_bytes(key)
 
 
 def initialize(
@@ -143,93 +116,9 @@ def initialize(
         raise ValueError("private master cache directory required for a new plan")
     mirror.mkdir(mode=0o700, parents=True, exist_ok=True)
     mirror.chmod(0o700)
-    if calendar_native_enabled() and not master_native_enabled():
-        raise ValueError("native calendar external plans require native master")
-    if master_native_enabled():
-        tickers, binding = _native_master_universe(
-            store, mirror=mirror, master_asof=master_asof, observation_date=observation_date
-        )
-        plan = make_plan(
-            run_id=run_id,
-            tickers=tickers,
-            universe_binding=binding,
-            collector_binding=external_assessment_collector_binding(source=source),
-            sources=(source,) if source is not None else ("monex", "rakuten", "kabumap", "minkabu"),
-        )
-        if len(plan.cohorts) > 256:
-            raise ValueError(
-                "external assessment cohort count exceeds the supported Actions matrix"
-            )
-        save_new_plan(store, plan)
-        return plan
-    pointer = _serving_pointer(store).pointer
-    if pointer is None:
-        raise ValueError("external assessment plan requires an existing lake release")
-    release = _resolve_serving_release(store, mirror, pointer)
-    with lake_session() as session:
-        cache = LakeObjectCache(root=mirror, source=_MasterSource(store))
-        try:
-            if observation_date is not None:
-                master_asof = external_assessment_calendar_master_asof(
-                    session, release=release, cache=cache, observation_date=observation_date
-                )
-            assert master_asof is not None
-            tickers, binding = external_assessment_frozen_lake_universe(
-                session,
-                release=release,
-                cache=cache,
-                master_asof=master_asof,
-            )
-        except ValueError:
-            # A new plan may start before the independently scheduled integration.
-            # Freeze only native master/calendar dependencies, never the market DB.
-            target = observation_date or master_asof
-            assert target is not None
-            days = [target] + ([master_asof] if master_asof is not None else [])
-            references = available_dependencies(store, days=days)
-            calendar = None
-            if observation_date is not None:
-                calendar = latest_dependency(
-                    references, source="market_calendar", day=observation_date
-                )
-                overrides = (
-                    external_assessment_received_calendar(load_dependency(store, calendar))
-                    if calendar
-                    else None
-                )
-                master_asof = external_assessment_calendar_master_asof(
-                    session,
-                    release=release,
-                    cache=cache,
-                    observation_date=observation_date,
-                    overrides=overrides,
-                )
-            assert master_asof is not None
-            if master_asof not in days:
-                references.extend(available_dependencies(store, days=[master_asof]))
-            master = latest_dependency(references, source="master", day=master_asof)
-            if master is None:
-                tickers, binding = external_assessment_frozen_lake_universe(
-                    session,
-                    release=release,
-                    cache=cache,
-                    master_asof=master_asof,
-                )
-                selected = json.loads(binding)
-                selected["calendar_receipt"] = calendar
-            else:
-                tickers = external_assessment_received_master_universe(
-                    load_dependency(store, master), master_asof
-                )
-                selected = {
-                    "master_asof": master_asof.isoformat(),
-                    "base_release_id": release.release_id,
-                    "base_release_manifest_sha256": release.manifest_sha256,
-                    "master_receipt": master,
-                    "calendar_receipt": calendar,
-                    "tickers_sha256": hashlib.sha256("\n".join(tickers).encode()).hexdigest(),
-                }
-            binding = json.dumps(selected, sort_keys=True, separators=(",", ":"))
+    tickers, binding = _native_master_universe(
+        store, mirror=mirror, master_asof=master_asof, observation_date=observation_date
+    )
     plan = make_plan(
         run_id=run_id,
         tickers=tickers,
@@ -248,7 +137,7 @@ def _native_master_universe(
 ) -> tuple[tuple[str, ...], str]:
     """Fix native dependencies once; saved plans retain their original universe and basis."""
     selected: dict[str, object] = {}
-    if observation_date is not None and calendar_native_enabled():
+    if observation_date is not None:
         calendar_input = fix_calendar_dependency(
             store, directory=mirror / "calendar-native", observation_date=observation_date
         )
@@ -256,40 +145,6 @@ def _native_master_universe(
             store, calendar_input, observation_date=observation_date
         )
         selected["calendar_native_input"] = calendar_input.model_dump(mode="json")
-    elif observation_date is not None:
-        pointer = _serving_pointer(store).pointer
-        if pointer is None:
-            raise ValueError("external assessment calendar requires an existing lake release")
-        release = _resolve_serving_release(store, mirror, pointer)
-        with lake_session() as session:
-            cache = LakeObjectCache(root=mirror, source=_MasterSource(store))
-            calendar = None
-            try:
-                master_asof = external_assessment_calendar_master_asof(
-                    session, release=release, cache=cache, observation_date=observation_date
-                )
-            except ValueError:
-                references = available_dependencies(store, days=[observation_date])
-                calendar = latest_dependency(
-                    references, source="market_calendar", day=observation_date
-                )
-                overrides = (
-                    external_assessment_received_calendar(load_dependency(store, calendar))
-                    if calendar
-                    else None
-                )
-                master_asof = external_assessment_calendar_master_asof(
-                    session,
-                    release=release,
-                    cache=cache,
-                    observation_date=observation_date,
-                    overrides=overrides,
-                )
-            selected.update(
-                base_release_id=release.release_id,
-                base_release_manifest_sha256=release.manifest_sha256,
-                calendar_receipt=calendar,
-            )
     if master_asof is None:
         raise ValueError("external assessment requires its exact master date")
     saved = fix_master_dependency(store, directory=mirror / "master-native", day=master_asof)

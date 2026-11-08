@@ -16,15 +16,13 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsPage,
     JQuantsRateLimitError,
 )
-from baibai_jobs.calendar_cutover import calendar_native_enabled
 
 
 def setup(tmp_path, monkeypatch, client):
     store = MemoryR2Store()
     store.close = lambda: None
     CalendarL1(store, tmp_path / "initialize").initialize()
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
+    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
     from baibai_jobs.acquisition import (
         jquants_margin_alerts_native,
         jquants_margin_interest_native,
@@ -103,26 +101,16 @@ def test_calendar_commit_is_not_dependent_on_old_release_or_l2(tmp_path, monkeyp
 def test_final_calendar_quota_halts_price_master_and_remaining_market_gets(tmp_path, monkeypatch):
     client = Client(JQuantsRateLimitError("quota"))
     setup(tmp_path, monkeypatch, client)
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
     assert not handoff._acquire_market_l1(DAY, tmp_path / "acquire")
     report = json.loads((tmp_path / "acquire/result.json").read_text())
     assert all(value.get("halted") for value in report["independent_l1"].values())
     assert len(client.calls) == 1
 
 
-@pytest.mark.parametrize("value", ["TRUE", "1", "yes", " true"])
-def test_flag_is_strict_and_default_native(monkeypatch, value):
-    monkeypatch.delenv("BAIBAI_CALENDAR_NATIVE", raising=False)
-    assert calendar_native_enabled()
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", value)
-    with pytest.raises(ValueError, match="true or false"):
-        calendar_native_enabled()
-
-
 def test_old_bootstrap_calendar_writer_cannot_run_after_native_cutover(monkeypatch):
     from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
     from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "true")
+    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
     with pytest.raises(JQuantsProviderError, match="jquants-calendar-native"):
         JQuantsRefresh.ensure_market_calendar(SimpleNamespace(), DAY, DAY)

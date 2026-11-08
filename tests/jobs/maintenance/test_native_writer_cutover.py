@@ -127,16 +127,15 @@ def test_backfill_cli_reports_both_native_sources_and_continues_other_sources(
     assert "jquants-financial-native" in output.err
     assert "rebuild-financial-native" in output.err
     assert "backfill-history done" not in output.out
-    assert [source for source, _ in client.calls] == [
-        "market_calendar",
-    ]
+    assert client.calls == []
+    assert "jquants-calendar-native" in output.err
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone()[0] == 0
         sources = {
             row[0] for row in connection.execute("SELECT DISTINCT source FROM jquants_source_pages")
         }
-        assert sources == {"market_calendar"}
+        assert sources == set()
 
 
 @pytest.mark.parametrize("old_setting", [None, "false", "true", "invalid"])

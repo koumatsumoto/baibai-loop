@@ -312,6 +312,10 @@ def test_normal_apply_passes_the_same_pair_to_metrics_and_facts_without_sql_zip_
     path = work / "market.sqlite"
     with closing(open_connection(path)):
         pass
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(store, path, work / "native-calendar", as_of=BASE)
+    seed_master(store, path, work / "native-master", as_of=BASE)
     spy = Mock(wraps=owner.extract_saved_edinet)
     monkeypatch.setattr(integration, "extract_saved_edinet", spy)
     monkeypatch.setattr(EDINETReader, "read_xbrl_zip", forbid_sql)

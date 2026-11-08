@@ -31,12 +31,6 @@ def test_native_market_ignores_retired_flags_and_never_opens_legacy_lake(
     )
     from baibai_jobs.integration import source_handoff as route
 
-    for name in (
-        "PRICE",
-        "MASTER",
-        "CALENDAR",
-    ):
-        monkeypatch.setenv(f"BAIBAI_{name}_NATIVE", "true")
     for source in ("MARGIN_ALERTS", "SHORT_SALE_REPORTS", "MARGIN_INTEREST"):
         if obsolete_value is None:
             monkeypatch.delenv(f"BAIBAI_{source}_NATIVE", raising=False)
@@ -176,18 +170,3 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
             assert connection.execute(
                 "SELECT DISTINCT source FROM jquants_source_pages"
             ).fetchall() == [("short_sale_reports",)]
-
-
-@pytest.mark.parametrize("disabled", [("MASTER",), ("CALENDAR",), ("MASTER", "CALENDAR")])
-def test_market_native_dependencies_never_fall_back_to_legacy(tmp_path, monkeypatch, disabled):
-    from baibai_jobs.integration import source_handoff
-
-    for name in ("MASTER", "CALENDAR"):
-        monkeypatch.setenv(f"BAIBAI_{name}_NATIVE", "false" if name in disabled else "true")
-    monkeypatch.setattr(
-        source_handoff,
-        "Boto3R2Store",
-        lambda **kw: pytest.fail("dependency failure must precede store access"),
-    )
-    with pytest.raises(ValueError, match="requires native calendar and master"):
-        source_handoff._acquire_market_l1(DAY, tmp_path)

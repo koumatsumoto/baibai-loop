@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 from tests.helpers.article_acquisition import SLOT, _packet, receipt
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
@@ -26,6 +27,7 @@ from baibai_jobs.maintenance.article_recovery import prepare, register_discovery
 
 def test_exact_recovery_keeps_original_marker_manifest_and_clock(tmp_path):
     store = MemoryR2Store()
+    empty_edinet_input(store, tmp_path)
     packet = _packet(tmp_path)
     save_handoff(store, "late", packet, namespace="article-sources")
     manifest = store.values["coordination/article-sources/late/handoff.json"].body
@@ -150,3 +152,71 @@ def test_discovery_recovery_rejects_index_evidence_from_another_source(tmp_path)
             receipt_ids=[original.receipt_id],
         )
     assert store.put_keys == writes
+
+
+def test_exact_article_prepare_applies_only_requested_entry_with_fixed_edinet_context(tmp_path):
+    import sqlite3
+
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+    from tests.jobs.integration.test_article_handoff import _packet as article_packet
+
+    from baibai_engine.data_collection.providers.edinet.archive_native import (
+        HEAD_KEY as ARCHIVE_HEAD,
+    )
+    from baibai_engine.data_collection.providers.edinet.list_native import HEAD_KEY as LIST_HEAD
+    from baibai_engine.data_collection.receipts.articles.store import read_receipt
+    from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+    from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
+    from baibai_jobs.integration import sources
+
+    store = MemoryR2Store()
+    empty_edinet_input(store, tmp_path)
+    selected = tmp_path / "selected"
+    original = article_packet(selected, "selected-original", SLOT)
+    report = json.loads((selected / "result.json").read_bytes())
+    report.update(started_at=SLOT.isoformat(), asof=SLOT.date().isoformat())
+    (selected / "result.json").write_text(json.dumps(report))
+    save_handoff(store, "selected", selected, namespace="article-sources")
+    other = _packet(tmp_path, "mof_news")
+    save_handoff(store, "other-pending", other, namespace="article-sources")
+    digest = hashlib.sha256(
+        store.values["coordination/article-sources/selected/handoff.json"].body
+    ).hexdigest()
+    market = tmp_path / "market.sqlite"
+    open_connection(market).close()
+    seed_calendar(store, market, tmp_path / "calendar", as_of=SLOT.date())
+    seed_master(store, market, tmp_path / "master", as_of=SLOT.date())
+    work = tmp_path / "exact-recovery"
+    prepare(store, work, source="boj_news", stage_id="selected", manifest_sha256=digest)
+    plan_bytes = (work / "plan.json").read_bytes()
+    plan = json.loads(plan_bytes)
+    assert len(plan["handoffs"]) == 1
+    assert plan["handoffs"][0]["stage_id"] == "selected"
+    assert plan["handoffs"][0]["explicit_article_recovery"] is True
+    assert plan["external"] == plan["external_failed"] == []
+    saved = InputSnapshot.model_validate(plan["edinet_input"])
+    assert read_edinet_input(store, saved).identity == saved
+    # Re-application uses the pair fixed at prepare, even without mutable heads.
+    del store.values[LIST_HEAD]
+    del store.values[ARCHIVE_HEAD]
+    store.get_keys.clear()
+    store.head_keys.clear()
+    applied = sources.apply(store, work, market=market, asof=SLOT.date())
+    assert applied["edinet_input"] == plan["edinet_input"]
+    (outcome,) = applied["handoffs"]
+    assert outcome["entry"] == plan["handoffs"][0]
+    assert outcome["applied"] is True
+    assert outcome["failed"] is False
+    assert outcome["article_delta"]["articles.source_receipts"]
+    assert LIST_HEAD not in store.get_keys + store.head_keys
+    assert ARCHIVE_HEAD not in store.get_keys + store.head_keys
+    with closing(sqlite3.connect(market)) as conn:
+        assert read_receipt(conn, original.receipt_id) == original
+        assert conn.execute("SELECT receipt_id FROM article_source_receipts").fetchall() == [
+            (original.receipt_id,)
+        ]
+    assert not any("other-pending" in key for key in store.get_keys)
+    assert (work / "plan.json").read_bytes() == plan_bytes
+    with pytest.raises(FileExistsError, match="already fixed"):
+        prepare(store, work, source="mof_news", stage_id="other-pending", manifest_sha256=digest)
+    assert (work / "plan.json").read_bytes() == plan_bytes

@@ -48,16 +48,24 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import publish_inputs
-from baibai_jobs.calendar_cutover import calendar_native_enabled
 from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _replay
-from baibai_jobs.master_cutover import master_native_enabled
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
+
+
+def fix_edinet_input(store: ObjectStore, directory: Path) -> InputSnapshot:
+    """Freeze the existing EDINET owners for either a normal or exact recovery plan."""
+    from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+    from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+
+    lists = EdinetListL1(store, directory / "edinet-native").freeze()
+    archives = EdinetArchiveL1(store, directory / "edinet-archives-native").freeze()
+    return retain_edinet_input(store, lists, archives, selected_at=datetime.now(UTC))
 
 
 def apply(
@@ -70,14 +78,14 @@ def apply(
     plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
     if "financial_native" in plan and plan["financial_native"] is not True:
         raise ValueError("legacy financial mode in fixed integration plan; create a new plan")
-    if any(entry.get("source") == "jquants-financial" for entry in plan["handoffs"]):
-        raise ValueError("legacy financial handoff in fixed integration plan; create a new plan")
     if "price_native" in plan and plan["price_native"] is not True:
         raise ValueError("legacy price integration plan is unsupported; create a new plan")
-    if bool(plan.get("master_native", False)) != master_native_enabled():
+    if "master_native" in plan and plan["master_native"] is not True:
         raise ValueError("master cutover mode differs from the fixed integration plan")
-    if bool(plan.get("calendar_native", False)) != calendar_native_enabled():
+    if "calendar_native" in plan and plan["calendar_native"] is not True:
         raise ValueError("calendar cutover mode differs from the fixed integration plan")
+    if any(entry.get("source") == "jquants-financial" for entry in plan["handoffs"]):
+        raise ValueError("legacy financial handoff in fixed integration plan; create a new plan")
     if any(not entry["market"] for entry in plan["handoffs"]):
         raise ValueError("economic handoffs require the independent L1 integration")
     if plan.get("edinet_input") is None:
@@ -124,22 +132,17 @@ def apply(
             .value()["receipts"]
             .items()
         }
-    calendar_input = None
-    calendar_fingerprints = None
-    if calendar_native_enabled():
-        from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
-        from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
+    from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+    from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
 
-        fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
-        calendar_fingerprints = {
-            identity: receipt["fingerprint"]
-            for identity, receipt in fixed_calendar.value()["receipts"].items()
-        }
-        calendar_input = calendar_model_input(
-            store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC), market=market
-        )
-    master_input = None
-    master_fingerprints = None
+    fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
+    calendar_fingerprints = {
+        identity: receipt["fingerprint"]
+        for identity, receipt in fixed_calendar.value()["receipts"].items()
+    }
+    calendar_input = calendar_model_input(
+        store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC), market=market
+    )
     price_fingerprints = None
     if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
         from baibai_engine.data_collection.providers.jquants.price_native import PriceL1
@@ -151,21 +154,20 @@ def apply(
             .value()["receipts"]
             .items()
         }
-    if master_native_enabled():
-        from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
-        from baibai_jobs.integration.master_native import fixed_input
+    from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
+    from baibai_jobs.integration.master_native import fixed_input
 
-        fixed_master = MasterL1(store, directory / "master-native").fixed()
-        master_fingerprints = {
-            identity: receipt["fingerprint"]
-            for identity, receipt in fixed_master.value()["receipts"].items()
-        }
-        master_input = fixed_input(
-            store,
-            fixed_master,
-            as_of=asof,
-            evaluated_at=datetime.now(UTC),
-        )
+    fixed_master = MasterL1(store, directory / "master-native").fixed()
+    master_fingerprints = {
+        identity: receipt["fingerprint"]
+        for identity, receipt in fixed_master.value()["receipts"].items()
+    }
+    master_input = fixed_input(
+        store,
+        fixed_master,
+        as_of=asof,
+        evaluated_at=datetime.now(UTC),
+    )
     # Only this owner's canonical corruption is global and fatal.
     with closing(sqlite3.connect(market.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         validate_market_schema(conn)
@@ -211,28 +213,19 @@ def apply(
                             validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
                     raise ValueError("invalid source SQLite receipt") from error
-                replay = (
-                    _replay(entry["source"], market, packet)
-                    if master_input is None
-                    and calendar_input is None
-                    and price_fingerprints is None
-                    and margin_alerts_fingerprints is None
-                    and short_sale_reports_fingerprints is None
-                    and margin_interest_fingerprints is None
-                    else _replay(
-                        entry["source"],
-                        market,
-                        packet,
-                        store=store,
-                        master_input=master_input,
-                        master_fingerprints=master_fingerprints,
-                        calendar_input=calendar_input,
-                        calendar_fingerprints=calendar_fingerprints,
-                        price_fingerprints=price_fingerprints,
-                        margin_alerts_fingerprints=margin_alerts_fingerprints,
-                        short_sale_reports_fingerprints=short_sale_reports_fingerprints,
-                        margin_interest_fingerprints=margin_interest_fingerprints,
-                    )
+                replay = _replay(
+                    entry["source"],
+                    market,
+                    packet,
+                    store=store,
+                    master_input=master_input,
+                    master_fingerprints=master_fingerprints,
+                    calendar_input=calendar_input,
+                    calendar_fingerprints=calendar_fingerprints,
+                    price_fingerprints=price_fingerprints,
+                    margin_alerts_fingerprints=margin_alerts_fingerprints,
+                    short_sale_reports_fingerprints=short_sale_reports_fingerprints,
+                    margin_interest_fingerprints=margin_interest_fingerprints,
                 )
                 result = replay.report
                 failed = recovery = not replay.complete
@@ -401,16 +394,7 @@ def main(argv: list[str] | None = None) -> int:
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
             external, failed = available_ready(store)
-            from baibai_engine.data_collection.providers.edinet.archive_native import (
-                EdinetArchiveL1,
-            )
-            from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
-
-            lists = EdinetListL1(store, directory / "edinet-native").freeze()
-            archives = EdinetArchiveL1(store, directory / "edinet-archives-native").freeze()
-            edinet_input = retain_edinet_input(
-                store, lists, archives, selected_at=datetime.now(UTC)
-            ).model_dump(mode="json")
+            edinet_input = fix_edinet_input(store, directory).model_dump(mode="json")
             write_json_atomic(
                 directory / "plan.json",
                 {
@@ -429,8 +413,6 @@ def main(argv: list[str] | None = None) -> int:
                         }
                     ],
                     "edinet_input": edinet_input,
-                    "master_native": master_native_enabled(),
-                    "calendar_native": calendar_native_enabled(),
                     "external": external,
                     "external_failed": failed,
                 },

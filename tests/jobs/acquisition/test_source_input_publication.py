@@ -1,11 +1,53 @@
 from contextlib import closing
 
 from tests.helpers.r2_store import MemoryR2Store
-from tests.helpers.tradingview import DAY
+from tests.helpers.tradingview import DAY, seed_snapshot
 from tests.helpers.tradingview import store as market_store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.source_inputs import input_key, load_input, publish_inputs
+
+
+def test_tradingview_input_roundtrip_keeps_generation_binding_without_sql_dependencies(tmp_path):
+    remote = MemoryR2Store()
+    market = market_store(tmp_path / "market.sqlite", 2)
+    seed_snapshot(market, ["TSE:1000", "TSE:1001"], missing=("TSE:1001",))
+    with closing(open_connection(market)) as conn, conn:
+        snapshots = conn.execute(
+            "SELECT * FROM tradingview_forecast_snapshots ORDER BY ticker"
+        ).fetchall()
+        receipts = conn.execute("SELECT * FROM tradingview_source_receipts").fetchall()
+        conn.execute("DELETE FROM jquants_master_snapshots")
+        conn.execute("DELETE FROM jquants_market_calendar")
+    generations = {"lake_release_id": "fixed", "lake_manifest_sha256": "a" * 64}
+    assert publish_inputs(
+        remote,
+        market=market,
+        economic=tmp_path / "unused.sqlite",
+        identity="first",
+        asof=DAY,
+        generations=generations,
+        only_group="tradingview",
+    ) == {"updated": ["tradingview"], "failed": []}
+
+    target = tmp_path / "tradingview.sqlite"
+    report = load_input(remote, "tradingview", target, tmp_path / "input")
+    assert report["canonical_generations"] == generations
+    assert report["rows"] == {
+        "tradingview_forecast_snapshots": 2,
+        "tradingview_source_receipts": 1,
+    }
+    with closing(open_connection(target)) as conn:
+        assert (
+            conn.execute("SELECT * FROM tradingview_forecast_snapshots ORDER BY ticker").fetchall()
+            == snapshots
+        )
+        assert conn.execute("SELECT * FROM tradingview_source_receipts").fetchall() == receipts
+        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM lake_store_origin").fetchone()[0] == 0
 
 
 def test_failed_market_group_retains_prior_input_and_still_updates_economic_groups(

@@ -208,6 +208,10 @@ def test_common_plan_fixes_both_heads_and_updates_all_consumers_without_latest(
     market = tmp_path / "market.sqlite"
     with closing(open_connection(market)):
         pass
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(store, market, tmp_path / "native-calendar", as_of=ASOF)
+    seed_master(store, market, tmp_path / "native-master", as_of=ASOF)
     extraction = Mock(wraps=sources.extract_saved_edinet)
     monkeypatch.setattr(sources, "extract_saved_edinet", extraction)
     applied = sources.apply(store, work, market=market, asof=ASOF)

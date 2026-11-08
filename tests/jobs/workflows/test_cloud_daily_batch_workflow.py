@@ -38,6 +38,8 @@ def test_common_integration_runs_including_weekends_without_acquisition(workflow
     assert "needs" not in job
     for secret in ("JQUANTS_API_KEY", "EDINET_API_KEY", "ESTAT_APP_ID"):
         assert secret not in str(job)
+    for source in ("MASTER", "CALENDAR", "PRICE", "FINANCIAL"):
+        assert f"BAIBAI_{source}_NATIVE" not in str(workflow)
 
 
 def test_core_order_and_source_receipts_survive_without_web(steps, by_id):

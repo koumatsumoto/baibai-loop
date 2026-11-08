@@ -18,7 +18,7 @@ from tests.helpers.external_assessment_stages import (
     stage,
     wire_success,
 )
-from tests.helpers.external_assessment_universe import ASOF, build_master_lake
+from tests.helpers.external_assessment_universe import ASOF, build_native_master
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.acquisition.external_assessments.daily as daily
@@ -26,8 +26,6 @@ import baibai_jobs.acquisition.external_assessments.raw as external_assessment_r
 import baibai_jobs.acquisition.external_assessments.staging as staging
 from baibai_engine.machine_analysis.observations.external_assessments.normalization import monex
 from baibai_engine.storage.objects.r2 import LakePublishError
-from baibai_engine.storage.snapshots.keys import current_release_pointer_key
-from baibai_engine.storage.snapshots.objects import LakeObjectError
 from baibai_jobs.acquisition.external_assessments.cohorts import new_result, record_outcome
 from baibai_jobs.acquisition.external_assessments.collection import (
     CollectionOutcome as ExternalAssessmentCollectionOutcome,
@@ -45,7 +43,7 @@ def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):
     def unexpected_master(*args, **kwargs):
         raise AssertionError("existing plan must retain its frozen universe")
 
-    monkeypatch.setattr(daily, "external_assessment_frozen_lake_universe", unexpected_master)
+    monkeypatch.setattr(daily, "_native_master_universe", unexpected_master)
     assert (
         daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 11), mirror=None) == p
     )
@@ -53,49 +51,32 @@ def test_saved_plan_master_assertion_is_checked_without_refreezing(monkeypatch):
         daily.initialize(store, run_id=p.run_id, master_asof=date(2026, 10, 12), mirror=None)
 
 
-def test_initial_plan_uses_only_exact_master_year_and_resume_keeps_its_release(
-    tmp_path, monkeypatch
-):
-    store, release, _ = build_master_lake(tmp_path, monkeypatch)
+def test_initial_native_plan_and_saved_resume_keep_immutable_universe(tmp_path, monkeypatch):
+    from baibai_engine.data_collection.providers.jquants.master_native import HEAD_KEY
+
+    store, _master, _ = build_native_master(tmp_path, monkeypatch)
     cache = tmp_path / "private-plan-cache"
     p = daily.initialize(store, run_id="new-master-only", master_asof=ASOF, mirror=cache)
     assert p.tickers == tuple(sorted((*map(str, range(1000, 3500)), "130A")))
-    assert json.loads(p.universe_binding)["release_manifest_sha256"] == release.manifest_sha256
+    assert json.loads(p.universe_binding)["master_native_input"]["kind"] == "native_l1"
     assert cache.stat().st_mode & 0o777 == 0o700
-    parquet_reads = [key for key in store.get_keys if key.endswith(".parquet")]
-    assert parquet_reads
-    assert all("jquants.master_snapshots/" in key for key in parquet_reads)
-    assert all("/year=2026/" in key for key in parquet_reads)
+    assert not any(key.endswith(".parquet") or key.startswith("lake/") for key in store.get_keys)
     assert not list(cache.rglob("*.sqlite"))
-    assert not list(cache.rglob("*.db"))
-
-    # A later run may use the same verified cache, without transferring Parquet again.
+    del store.values[HEAD_KEY]
     store.get_keys.clear()
-    second = daily.initialize(store, run_id="other-batch", master_asof=ASOF, mirror=cache)
-    assert second.tickers == p.tickers
-    assert second.universe_binding == p.universe_binding
-    assert not any(key.endswith(".parquet") for key in store.get_keys)
-
-    # Even an unreadable current release cannot silently refreeze a saved batch.
-    store.store_object(current_release_pointer_key(), b"unreadable synthetic later pointer")
-    store.get_keys.clear()
-    store.head_keys.clear()
-    resumed = daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None)
-    assert resumed == p
-    assert current_release_pointer_key() not in store.head_keys
-    assert all(key == staging.prefix(p.run_id) + "/plan.json" for key in store.get_keys)
+    assert daily.initialize(store, run_id=p.run_id, master_asof=ASOF, mirror=None) == p
+    assert store.get_keys == [staging.prefix(p.run_id) + "/plan.json"]
 
 
-def test_new_plan_requires_cache_and_existing_release_before_master_or_plan_writes(tmp_path):
+def test_new_plan_requires_cache_and_native_master_before_plan_writes(tmp_path):
     store = MemoryR2Store()
     with pytest.raises(ValueError, match="master cache directory"):
         daily.initialize(store, run_id="missing-cache", master_asof=ASOF, mirror=None)
-    with pytest.raises(ValueError, match="existing lake release"):
+    with pytest.raises(LakePublishError, match="explicit cutover"):
         daily.initialize(
-            store, run_id="missing-release", master_asof=ASOF, mirror=tmp_path / "cache"
+            store, run_id="missing-native", master_asof=ASOF, mirror=tmp_path / "cache"
         )
-    assert store.get_keys == []
-    assert store.put_keys == []
+    assert not store.put_keys
 
 
 def test_old_saved_collector_binding_can_load_without_release_reads(monkeypatch):
@@ -107,21 +88,18 @@ def test_old_saved_collector_binding_can_load_without_release_reads(monkeypatch)
     assert all(key == staging.prefix(p.run_id) + "/plan.json" for _, key in store.events)
 
 
-def test_corrupt_digest_pinned_master_cannot_publish_a_new_plan(tmp_path, monkeypatch):
-    store, _, _ = build_master_lake(tmp_path, monkeypatch)
-    key = next(
-        key
-        for key in store.values
-        if key.endswith(".parquet") and "jquants.master_snapshots/" in key and "/year=2026/" in key
-    )
+def test_corrupt_native_master_cannot_publish_a_new_plan(tmp_path, monkeypatch):
+    store, _, _ = build_native_master(tmp_path, monkeypatch)
+    key = next(key for key in store.values if "/packs/" in key)
     original = store.values[key].body
     store.store_object(key, bytes([original[0] ^ 1]) + original[1:])
-    with pytest.raises(LakeObjectError, match="digest differs"):
+    with pytest.raises(
+        (ValueError, LakePublishError), match="fixed full-day L1 pack is unavailable"
+    ):
         daily.initialize(
             store, run_id="corrupt-master", master_asof=ASOF, mirror=tmp_path / "cache"
         )
-    assert store.put_keys == []
-    assert [key for key in store.get_keys if key.endswith(".parquet")] == [key]
+    assert not any(key.endswith("/plan.json") for key in store.put_keys)
 
 
 def test_published_terminal_suppresses_refetch_when_checkpoint_payloads_are_absent(monkeypatch):

@@ -232,7 +232,6 @@ def test_sealed_source_inspection_and_acquire_read_no_stage_http_lease_or_db(
     for name in (
         "acquire_cohort",
         "require_binding",
-        "_serving_pointer",
         "external_assessment_collect_pair",
     ):
         monkeypatch.setattr(daily, name, forbid)

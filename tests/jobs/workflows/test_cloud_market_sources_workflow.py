@@ -258,10 +258,12 @@ def test_unknown_cron_is_rejected_even_with_explicit_asof(tmp_path, asof):
     assert output == {}
 
 
-def test_native_edinet_archives_do_not_load_or_resume_scoped_inputs():
+def test_native_sources_do_not_load_or_resume_scoped_inputs():
     workflow = yaml.load(
         (ROOT / ".github/workflows/cloud-market-source.yml").read_text(), Loader=yaml.BaseLoader
     )
+    for source in ("MASTER", "CALENDAR", "PRICE", "FINANCIAL"):
+        assert f"BAIBAI_{source}_NATIVE" not in str(workflow)
     steps = {step.get("name"): step for step in workflow["jobs"]["acquire"]["steps"]}
     for name in (
         "Load only the assigned source input",
@@ -271,7 +273,7 @@ def test_native_edinet_archives_do_not_load_or_resume_scoped_inputs():
 
 
 @pytest.mark.parametrize("source", [*INPUT_SOURCES, "edinet-metrics", "edinet-facts"])
-def test_acquire_shell_passes_input_only_to_its_consumers(tmp_path, source):
+def test_acquire_shell_uses_native_sources_without_scoped_inputs(tmp_path, source):
     from baibai_jobs.integration.source_handoff import build_parser
 
     workflow = yaml.load(

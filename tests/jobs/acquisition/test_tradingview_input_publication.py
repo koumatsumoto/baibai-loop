@@ -5,11 +5,10 @@ from tests.helpers.tradingview import DAY
 from tests.helpers.tradingview import store as market_store
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.source_inputs import input_key, load_input, publish_inputs
 
 
-def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic_groups(
+def test_failed_tradingview_export_retains_prior_input_and_updates_economic_groups(
     tmp_path, monkeypatch
 ):
     remote = MemoryR2Store()
@@ -40,8 +39,14 @@ def test_bad_tradingview_calendar_retains_prior_input_and_still_updates_economic
         == []
     )
     previous = remote.values[input_key("tradingview")].body
-    with closing(open_connection(market)) as conn, conn:
-        conn.execute("DELETE FROM jquants_market_calendar")
+
+    def failed_export(*_, **kwargs):
+        assert kwargs["group"] == "tradingview"
+        raise ValueError("synthetic source-input export failure")
+
+    monkeypatch.setattr(
+        "baibai_jobs.acquisition.source_inputs.export_market_source_input", failed_export
+    )
     report = publish_inputs(
         remote,
         market=market,

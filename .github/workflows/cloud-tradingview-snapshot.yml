@@ -19,10 +19,6 @@ on:
 permissions:
   contents: read
 
-env:
-  BAIBAI_MASTER_NATIVE: "true"
-  BAIBAI_CALENDAR_NATIVE: "true"
-
 concurrency:
   group: tradingview-snapshot
   queue: max
@@ -170,8 +166,7 @@ jobs:
                   master_asof=date.fromisoformat(basis) if basis else None,
                   now=datetime.now(UTC),
                   master_unavailable=(
-                      os.environ.get("BAIBAI_MASTER_NATIVE") == "true"
-                      and not json.loads(Path(os.environ["RUNNER_TEMP"], "source-input", "result.json").read_text()).get("master_native_input")
+                      not json.loads(Path(os.environ["RUNNER_TEMP"], "source-input", "result.json").read_text()).get("master_native_input")
                   ),
               )
           except Exception as exc:
@@ -209,12 +204,8 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           TARGET_DATE: ${{ steps.target.outputs.target_date }}
         run: |
-          if [[ "$BAIBAI_MASTER_NATIVE" == true ]]; then
-            uv run baibai-jobs master-dependency acquire --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
-            uv run python -m baibai_jobs.integration.source_handoff resume --source tradingview --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
-          else
-            uv run baibai-jobs maintain-market backfill-master --asof "$TARGET_DATE"
-          fi
+          uv run baibai-jobs master-dependency acquire --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
+          uv run python -m baibai_jobs.integration.source_handoff resume --source tradingview --asof "$TARGET_DATE" --directory "$RUNNER_TEMP/source-input"
       - name: Refresh TradingView expectations
         id: tradingview
         if: steps.cooldown-check.outputs.allowed == 'true' && steps.preflight.outputs.status == 'needs_fetch' && (steps.preflight.outputs.needs_master == 'false' || steps.master.outcome == 'success')

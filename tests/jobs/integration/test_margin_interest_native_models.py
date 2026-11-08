@@ -5,6 +5,9 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.margin_interest_native import AT, DAY, attempt, calendar, records
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -208,8 +211,6 @@ def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch
     from baibai_jobs.publication.datasets import LAKE_DATASETS
 
     store, owner, cal, market, mirror = setup(tmp_path, monkeypatch)
-    for name in ("MARGIN_INTEREST", "CALENDAR", "FINANCIAL", "PRICE", "MASTER"):
-        monkeypatch.setenv(f"BAIBAI_{name}_NATIVE", "true")
     # Adjacent sources are separately tested; leave the real calendar owner and input in this path.
     monkeypatch.setattr(
         publication, "MasterL1", lambda *a: type("Master", (), {"fixed": lambda self: None})()
@@ -248,4 +249,6 @@ def test_publication_shares_fixed_margin_calendar_and_seal(tmp_path, monkeypatch
     assert rows(cold) == expected
 
 
-pytestmark = pytest.mark.usefixtures("native_price_publication")
+pytestmark = pytest.mark.usefixtures(
+    "native_price_publication", "native_master_calendar_publication"
+)

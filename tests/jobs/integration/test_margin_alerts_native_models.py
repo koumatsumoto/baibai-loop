@@ -5,6 +5,9 @@ from datetime import date, timedelta
 
 import pytest
 from tests.helpers.margin_alerts_native import AT, DAY, attempt, records
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 
@@ -262,4 +265,6 @@ def test_normal_publication_fixes_one_head_for_seal_reader_and_lineage(tmp_path,
         assert rows(prepared.source_snapshot.path) != snapshot_rows
 
 
-pytestmark = pytest.mark.usefixtures("native_price_publication")
+pytestmark = pytest.mark.usefixtures(
+    "native_price_publication", "native_master_calendar_publication"
+)

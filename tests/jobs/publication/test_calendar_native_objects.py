@@ -88,8 +88,6 @@ def native_dependencies(store, tmp_path, *, day=DAY, holiday=None):
 def configure(monkeypatch):
     import baibai_jobs.publication.snapshot_publication as publication
 
-    for flag in ("FINANCIAL", "PRICE", "MASTER", "CALENDAR"):
-        monkeypatch.setenv("BAIBAI_" + flag + "_NATIVE", "true")
     names = ("jquants.daily_bars", "jquants.master_snapshots", "jquants.market_calendar")
     narrow_release_policy(monkeypatch, datasets=names)
     monkeypatch.setattr(publication, "LAKE_DATASETS", {name: LAKE_DATASETS[name] for name in names})
@@ -214,22 +212,6 @@ def test_generation_materializes_calendar_before_master_and_preserves_identity(
         calendar.partitions[0].sources[0].sha256
         == saved.inputs["calendar"].descriptor["selection_sha256"]
     )
-
-
-@pytest.mark.parametrize("missing", ["MASTER"])
-def test_normal_calendar_publication_requires_all_prior_native_modes(
-    tmp_path, monkeypatch, missing
-):
-    publication = configure(monkeypatch)
-    monkeypatch.setenv("BAIBAI_" + missing + "_NATIVE", "false")
-    store, _ = owner(tmp_path / "native")
-    with (
-        pytest.raises(ValueError, match="requires native master"),
-        publication.prepare_market_lake(
-            sqlite_path=tmp_path / "missing.sqlite", mirror_root=tmp_path / "mirror", store=store
-        ),
-    ):
-        pytest.fail("should reject modes before touching any execution input")
 
 
 @pytest.mark.parametrize("nearby_bad", [False, True])

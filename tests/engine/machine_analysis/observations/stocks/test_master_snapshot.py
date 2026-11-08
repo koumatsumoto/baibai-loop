@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import copy
-import io
 import json
 import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,13 +27,10 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_eq_master_exact,
     read_master_snapshot,
 )
-from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 from baibai_jobs.maintenance.jquants_inputs import (
     JQuantsReader,
 )
-from baibai_jobs.maintenance.market.cache import backfill_master_command, bootstrap_cache_command
-from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.source_refresh.jquants import JQuantsRefresh
 
 
@@ -409,102 +405,6 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                     conn.commit()
 
                 self.assertIsNone(read_eq_master_exact(db, asof))
-
-    def test_provider_prior_only_is_miss_and_cache_only_stops_with_date(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(first), requested_asof=first)
-
-            reader = JQuantsReader(db)
-            with self.assertRaisesRegex(JQuantsProviderError, "incomplete: master"):
-                reader.get_eq_master(second)
-
-            fetch_client = _MasterClient()
-            maintenance = _refresh(db, fetch_client)
-            self.assertEqual(maintenance.ensure_master(second), 2500)
-            self.assertEqual(len(reader.get_eq_master(second)), 2500)
-            self.assertEqual(fetch_client.calls, [second.isoformat()])
-            self.assertEqual(_snapshot_dates(db), [first.isoformat(), second.isoformat()])
-
-    def test_today_exact_master_is_cache_first_for_backfill_command(self) -> None:
-        today = datetime.now(JST).date()
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(today), requested_asof=today)
-            client = _MasterClient()
-            maintenance = _refresh(db, client)
-            output = io.StringIO()
-            result = backfill_master_command(
-                asof_dates=[today],
-                providers=ProviderBundle(jquants_refresh=maintenance),
-                sqlite_path=db,
-                stdout=output,
-            )
-            self.assertEqual(result, 0)
-            self.assertEqual(client.calls, [])
-            self.assertIn(f"{today.isoformat()}: cached", output.getvalue())
-
-    def test_provider_future_only_is_miss(self) -> None:
-        requested = date(2026, 5, 29)
-        future = date(2026, 6, 30)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(future), requested_asof=future)
-            client = _MasterClient()
-            reader = JQuantsReader(db)
-            maintenance = _refresh(db, client)
-
-            with self.assertRaisesRegex(JQuantsProviderError, "incomplete: master"):
-                reader.get_eq_master(requested)
-            self.assertEqual(maintenance.ensure_master(requested), 2500)
-            self.assertEqual(client.calls, [requested.isoformat()])
-            self.assertEqual(_snapshot_dates(db), [requested.isoformat(), future.isoformat()])
-
-    def test_provider_refetches_when_exact_coverage_count_is_corrupt(self) -> None:
-        asof = date(2026, 5, 29)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-            with closing(sqlite3.connect(db)) as conn, conn:
-                conn.execute(
-                    "UPDATE source_coverage SET record_count = record_count + 1 "
-                    "WHERE source = ? AND coverage_start = ?",
-                    ("jquants_master_snapshots", asof.isoformat()),
-                )
-                conn.commit()
-            client = _MasterClient()
-            maintenance = _refresh(db, client)
-
-            self.assertEqual(maintenance.ensure_master(asof), 2500)
-            self.assertEqual(client.calls, [asof.isoformat()])
-            self.assertIsNotNone(read_eq_master_exact(db, asof))
-
-    def test_bootstrap_twice_forwards_asof_and_retains_both_snapshots(self) -> None:
-        first = date(2026, 5, 29)
-        second = date(2026, 6, 30)
-        with tempfile.TemporaryDirectory() as tmp:
-            db = Path(tmp) / "market.sqlite"
-            client = _MasterClient()
-            maintenance = _refresh(db, client)
-            bootstrap_jquants = _BootstrapJQuants(maintenance, db)
-            bundle = ProviderBundle(
-                jpx_refresh=_BootstrapJPX(),
-                jquants_refresh=bootstrap_jquants,
-            )
-            for asof in (first, second):
-                self.assertEqual(
-                    bootstrap_cache_command(
-                        asof_date=asof,
-                        providers=bundle,
-                        sqlite_path=db,
-                        stdout=io.StringIO(),
-                    ),
-                    0,
-                )
-            self.assertEqual(client.calls, [first.isoformat(), second.isoformat()])
-            self.assertEqual(_snapshot_dates(db), [first.isoformat(), second.isoformat()])
 
 
 def _snapshot_dates(db: Path) -> list[str]:

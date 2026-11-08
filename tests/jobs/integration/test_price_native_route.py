@@ -32,6 +32,10 @@ def test_fixed_native_and_new_fieldless_plans_keep_their_saved_input(tmp_path, o
         plan["price_native"] = True
     (tmp_path / "plan.json").write_text(json.dumps(plan))
     market = market_store(tmp_path / "market.sqlite")
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(store, market, tmp_path / "native-calendar", as_of=date(2026, 11, 2))
+    seed_master(store, market, tmp_path / "native-master", as_of=date(2026, 11, 2))
     result = apply(store, tmp_path, market=market, asof=date(2026, 11, 2))
     assert result["edinet_input"] == saved
     assert result["handoffs"] == []

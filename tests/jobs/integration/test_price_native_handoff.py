@@ -31,28 +31,6 @@ DAY = date(2026, 10, 30)
 AT = datetime(2026, 10, 30, 8, tzinfo=UTC)
 
 
-@pytest.fixture(autouse=True)
-def native_margin_replay_proofs(monkeypatch):
-    replay = handoff._replay
-
-    def with_margin_proofs(*args, **kwargs):
-        for name in (
-            "margin_alerts_fingerprints",
-            "short_sale_reports_fingerprints",
-            "margin_interest_fingerprints",
-        ):
-            kwargs.setdefault(name, {})
-        return replay(*args, **kwargs)
-
-    monkeypatch.setattr(handoff, "_replay", with_margin_proofs)
-
-
-@pytest.fixture(autouse=True)
-def native_flags(monkeypatch):
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "false")
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "false")
-
-
 def price_attempt(state="valid"):
     rows = [{"Code": "13010", "Date": DAY.isoformat(), "C": 100}]
     if state == "empty":
@@ -128,11 +106,60 @@ def context(tmp_path, state="valid", *, migrated=True):
     market = market_store(tmp_path / "market.sqlite")
     model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
     packet = write_packet(tmp_path / "packet", old)
+    from tests.helpers.master_calendar_native import seed_master
+
+    from baibai_engine.data_collection.providers.jquants.calendar_native import (
+        CalendarAttempt,
+        CalendarL1,
+    )
+    from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
+
+    calendar = CalendarL1(store, tmp_path / "calendar-native")
+    calendar.initialize()
+    page = JQuantsPage(
+        "market_calendar",
+        {"from": DAY.isoformat(), "to": DAY.isoformat()},
+        AT,
+        body([{"Date": DAY.isoformat(), "HolDiv": "1"}]),
+    )
+    calendar.commit([CalendarAttempt("calendar", DAY, DAY, None, (page,))])
+    calendar_model_input(store, calendar.fixed(), as_of=DAY, evaluated_at=AT, market=market)
+    seed_master(store, market, tmp_path / "fixture-master", as_of=DAY)
     fingerprints = {
         identity: receipt["fingerprint"]
         for identity, receipt in owner.fixed().value()["receipts"].items()
     }
     return store, owner, market, packet, fingerprints
+
+
+def replay_market(store, market, packet, **kwargs):
+    from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
+    from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
+    from baibai_engine.data_collection.providers.jquants.margin_interest_native import (
+        MarginInterestL1,
+    )
+    from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+        ShortSaleReportsL1,
+    )
+
+    for name, owner in (
+        ("master", MasterL1),
+        ("calendar", CalendarL1),
+        ("margin_alerts", MarginAlertsL1),
+        ("short_sale_reports", ShortSaleReportsL1),
+        ("margin_interest", MarginInterestL1),
+    ):
+        kwargs.setdefault(
+            name + "_fingerprints",
+            {
+                identity: receipt["fingerprint"]
+                for identity, receipt in owner(store, packet / (name + "-fixed"))
+                .fixed()
+                .value()["receipts"]
+                .items()
+            },
+        )
+    return handoff._replay("jquants-market", market, packet, **kwargs)
 
 
 def rows(database, table):
@@ -141,23 +168,22 @@ def rows(database, table):
 
 
 @pytest.mark.parametrize("state", ["valid", "empty", "incomplete", "projection-partial"])
-def test_migrated_price_does_not_block_calendar_or_rewrite_native_projection(tmp_path, state):
+def test_migrated_price_keeps_native_calendar_and_price_projection(tmp_path, state):
     store, owner, market, packet, fingerprints = context(tmp_path, state)
     before = rows(market, "jquants_daily_bars")
     coverage = rows(market, "source_coverage")
     head = store.values[HEAD_KEY].body
-    replay = handoff._replay("jquants-market", market, packet, price_fingerprints=fingerprints)
+    replay = replay_market(store, market, packet, price_fingerprints=fingerprints)
     assert replay.complete
     assert replay.report["migrated_price_requests"] == ["migrated-price"]
-    assert replay.report["replayed_requests"] == ["calendar"]
-    assert replay.report["raw_pages_added"] == 1
+    assert replay.report["replayed_requests"] == []
+    assert replay.report["migrated_calendar_requests"] == ["calendar"]
+    assert replay.report["raw_pages_added"] == 0
     assert rows(market, "jquants_daily_bars") == before
     assert set(coverage) <= set(rows(market, "source_coverage"))
     assert rows(market, "jquants_market_calendar") == [(DAY.isoformat(), "1")]
     with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == [
-            ("market_calendar",)
-        ]
+        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
     assert store.values[HEAD_KEY].body == head
     # The next normal generation keeps the same native values and the independent calendar.
     model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)
@@ -210,8 +236,8 @@ def test_unmigrated_or_changed_price_is_rejected_before_any_raw_import(tmp_path,
             )
     before, head = market.read_bytes(), store.values[HEAD_KEY].body
     original = (packet / "receipts.sqlite").read_bytes()
-    with pytest.raises(ValueError, match="legacy daily_bars"):
-        handoff._replay("jquants-market", market, packet, price_fingerprints=fingerprints)
+    with pytest.raises(ValueError, match=r"legacy (master|daily_bars)"):
+        replay_market(store, market, packet, price_fingerprints=fingerprints)
     assert market.read_bytes() == before
     assert store.values[HEAD_KEY].body == head
     assert (packet / "receipts.sqlite").read_bytes() == original
@@ -223,33 +249,18 @@ def test_native_replay_requires_explicit_price_fingerprints(tmp_path):
     with pytest.raises(
         ValueError, match="native price replay requires retained cutover fingerprints"
     ):
-        handoff._replay("jquants-market", market, packet)
+        replay_market(_store, market, packet)
     assert market.read_bytes() == before
 
 
 @pytest.mark.parametrize("command", ["replay-copy", "resume", "apply"])
 @pytest.mark.parametrize("migrated", [True, False])
-@pytest.mark.parametrize("master_native", [True, False])
 def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
-    tmp_path, monkeypatch, command, migrated, master_native
+    tmp_path, monkeypatch, command, migrated
 ):
     store, _owner, market, packet, _fingerprints = context(
         tmp_path, "projection-partial", migrated=migrated
     )
-    if master_native:
-        monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-        master = MasterL1(store, tmp_path / "master-native")
-        master.initialize()
-        master.commit(
-            [
-                MasterAttempt(
-                    "other-master",
-                    DAY,
-                    None,
-                    (JQuantsPage("master", {"date": DAY.isoformat()}, AT, body([])),),
-                )
-            ]
-        )
     monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: store)
     before = rows(market, "jquants_daily_bars")
     head = store.values[HEAD_KEY].body
@@ -264,7 +275,6 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
             directory / "plan.json",
             {
                 "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-                "master_native": master_native,
                 "handoffs": available_handoffs(store, source="jquants-market"),
                 "external": [],
             },
@@ -290,11 +300,9 @@ def test_real_entrypoints_check_price_migration_before_replaying_mixed_stages(
         )
         assert status == int(not migrated)
     assert rows(market, "jquants_daily_bars") == before
-    assert rows(market, "jquants_market_calendar") == ([(DAY.isoformat(), "1")] if migrated else [])
+    assert rows(market, "jquants_market_calendar") == [(DAY.isoformat(), "1")]
     with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == (
-            [("market_calendar",)] if migrated else []
-        )
+        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
     assert store.values[HEAD_KEY].body == head
 
 
@@ -329,7 +337,6 @@ def test_financial_native_rejects_the_explicit_legacy_replay_cli(tmp_path, monke
             {
                 "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
                 "financial_native": True,
-                "master_native": False,
                 "handoffs": available_handoffs(store, source="jquants-financial"),
             },
         )
@@ -366,10 +373,13 @@ def test_apply_without_market_stages_does_not_read_native_price_head(tmp_path):
         tmp_path / "plan.json",
         {
             "edinet_input": empty_edinet_input(store, tmp_path).model_dump(mode="json"),
-            "master_native": False,
             "handoffs": [],
         },
     )
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(store, market, tmp_path / "native-calendar", as_of=DAY)
+    seed_master(store, market, tmp_path / "native-master", as_of=DAY)
     store.get_keys.clear()
     store.head_keys.clear()
     assert integration.apply(store, tmp_path, market=market, asof=DAY)["handoffs"] == []
@@ -383,7 +393,7 @@ def test_migrated_price_only_stage_is_a_noop(tmp_path, state):
     packet = write_packet(tmp_path / "price-only", price_attempt(state), calendar=False)
     before = market.read_bytes()
     head = store.values[HEAD_KEY].body
-    result = handoff._replay("jquants-market", market, packet, price_fingerprints=fingerprints)
+    result = replay_market(store, market, packet, price_fingerprints=fingerprints)
     assert result.complete
     assert result.report["migrated_price_requests"] == ["migrated-price"]
     assert result.report["raw_pages_added"] == 0
@@ -392,11 +402,9 @@ def test_migrated_price_only_stage_is_a_noop(tmp_path, state):
     assert store.values[HEAD_KEY].body == head
 
 
-def test_mixed_master_and_price_are_both_skipped_but_calendar_is_replayed(tmp_path, monkeypatch):
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
+def test_mixed_master_price_and_calendar_are_all_verified_and_skipped(tmp_path, monkeypatch):
     store, _owner, market, packet, fingerprints = context(tmp_path, "projection-partial")
     master = MasterL1(store, tmp_path / "master")
-    master.initialize()
     page = JQuantsPage("master", {"date": DAY.isoformat()}, AT, body([]))
     master.commit([MasterAttempt("migrated-master", DAY, None, (page,))])
     with sqlite3.connect(packet / "receipts.sqlite") as conn:
@@ -415,8 +423,8 @@ def test_mixed_master_and_price_are_both_skipped_but_calendar_is_replayed(tmp_pa
     report = json.loads((packet / "result.json").read_bytes())
     report["request_ids"].append("migrated-master")
     write_json_atomic(packet / "result.json", report)
-    result = handoff._replay(
-        "jquants-market",
+    result = replay_market(
+        store,
         market,
         packet,
         price_fingerprints=fingerprints,
@@ -428,11 +436,10 @@ def test_mixed_master_and_price_are_both_skipped_but_calendar_is_replayed(tmp_pa
     assert result.complete
     assert result.report["migrated_master_requests"] == ["migrated-master"]
     assert result.report["migrated_price_requests"] == ["migrated-price"]
-    assert result.report["replayed_requests"] == ["calendar"]
+    assert result.report["replayed_requests"] == []
+    assert result.report["migrated_calendar_requests"] == ["calendar"]
     with sqlite3.connect(market) as conn:
-        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == [
-            ("market_calendar",)
-        ]
+        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
 
 
 @pytest.mark.parametrize("command", ["replay-copy", "resume", "apply"])
@@ -451,11 +458,8 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
     )
     from baibai_jobs.integration.calendar_native import model_input as calendar_input
 
-    monkeypatch.setenv("BAIBAI_MASTER_NATIVE", "true")
-    monkeypatch.setenv("BAIBAI_CALENDAR_NATIVE", "true")
     store, _owner, market, packet, _fingerprints = context(tmp_path, "projection-partial")
     calendar = CalendarL1(store, tmp_path / "calendar-native")
-    calendar.initialize()
     calendar_page = JQuantsPage(
         "market_calendar",
         {"from": DAY.isoformat(), "to": DAY.isoformat()},
@@ -465,7 +469,6 @@ def test_all_native_fingerprints_survive_combined_cutover_entrypoints(
     calendar.commit([CalendarAttempt("calendar", DAY, DAY, None, (calendar_page,))])
     calendar_input(store, calendar.fixed(), as_of=DAY, evaluated_at=AT, market=market)
     master = MasterL1(store, tmp_path / "master-native")
-    master.initialize()
     master_page = JQuantsPage("master", {"date": DAY.isoformat()}, AT, body([]))
     master.commit([MasterAttempt("migrated-master", DAY, None, (master_page,))])
     margin_page = JQuantsPage("margin_alerts", {"date": DAY.isoformat()}, AT, body([]))

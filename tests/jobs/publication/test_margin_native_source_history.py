@@ -10,6 +10,9 @@ import pytest
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
 from tests.helpers.margin_alerts_native import attempt as alert_attempt
+from tests.helpers.master_calendar_native import (
+    native_master_calendar_publication as native_master_calendar_publication,
+)
 from tests.helpers.price_native import native_price_publication as native_price_publication
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.short_sale_reports_native import attempt as short_attempt
@@ -163,7 +166,7 @@ def test_margin_cutover_uses_remaining_floor_and_preserves_originals(
         ]
 
 
-@pytest.mark.parametrize("lost_source", ["financial_summaries", "master"])
+@pytest.mark.parametrize("lost_source", ["financial_summaries"])
 @pytest.mark.parametrize("lose_all", [False, True])
 def test_margin_cutover_does_not_exempt_remaining_originals(
     native_margin_release, native_source, monkeypatch, lost_source, lose_all
@@ -219,4 +222,6 @@ def test_unmigrated_margin_receipt_still_blocks_before_history_adjustment(
         ).fetchone() == (1,)
 
 
-pytestmark = pytest.mark.usefixtures("native_price_publication")
+pytestmark = pytest.mark.usefixtures(
+    "native_price_publication", "native_master_calendar_publication"
+)

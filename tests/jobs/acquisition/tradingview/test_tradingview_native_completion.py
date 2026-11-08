@@ -285,6 +285,53 @@ def test_scoped_input_keeps_current_native_receipts_without_old_history(tmp_path
         assert conn.execute("SELECT receipt_id FROM tradingview_source_receipts").fetchall() == [
             (current,)
         ]
+    # Scoped state contains receipts only; acquisition fixes native dependencies separately.
+    import json
+
+    from tests.helpers.master_calendar_native import seed_calendar
+    from tests.helpers.r2_store import MemoryR2Store
+    from tests.helpers.screening_sqlite import make_master_records
+
+    from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
+    from baibai_engine.data_collection.providers.jquants.master_native import (
+        MasterAttempt,
+        MasterL1,
+    )
+    from baibai_engine.storage.json import write_json_atomic
+    from baibai_jobs.acquisition.master_dependencies import prepare_tradingview_master
+
+    with closing(open_connection(scoped)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (0,)
+        assert conn.execute("SELECT COUNT(*) FROM jquants_master_snapshots").fetchone() == (0,)
+    native = MemoryR2Store()
+    seed_calendar(native, path, tmp_path / "calendar", as_of=DAY)
+    master = MasterL1(native, tmp_path / "master")
+    master.initialize()
+    rows = make_master_records(DAY)
+    for row in rows:
+        row["MktNm"] = "プライム" if row["Code"] == "10000" else "OTHER"
+    master.commit(
+        [
+            MasterAttempt(
+                "complete-master",
+                DAY,
+                NOW,
+                (
+                    JQuantsPage(
+                        "master",
+                        {"date": DAY.isoformat()},
+                        NOW,
+                        json.dumps({"data": rows}).encode(),
+                    ),
+                ),
+            )
+        ]
+    )
+    directory = tmp_path / "input"
+    write_json_atomic(directory / "result.json", {"group": "tradingview"})
+    assert prepare_tradingview_master(
+        native, directory=directory, market=scoped, observation_date=DAY
+    )
     state = preflight_snapshot(scoped, DAY, now=NOW)
     assert state["status"] == "originals_saved"
     assert state["projection_pending"] == 1

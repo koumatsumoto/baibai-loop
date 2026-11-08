@@ -18,10 +18,6 @@ on:
 permissions:
   contents: read
 
-env:
-  BAIBAI_MASTER_NATIVE: "true"
-  BAIBAI_CALENDAR_NATIVE: "true"
-
 concurrency:
   group: common-source-integration
   queue: max

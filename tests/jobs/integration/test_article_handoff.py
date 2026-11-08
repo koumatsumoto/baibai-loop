@@ -201,6 +201,10 @@ def test_common_integration_accepts_article_shape_from_old_market_version(tmp_pa
     with closing(open_connection(market)):
         pass
     monkeypatch.setattr(sources, "extract_saved_edinet", lambda *_, **__: {})
+    from tests.helpers.master_calendar_native import seed_calendar, seed_master
+
+    seed_calendar(remote, market, tmp_path / "native-calendar", as_of=original.received_at.date())
+    seed_master(remote, market, tmp_path / "native-master", as_of=original.received_at.date())
     puts = list(remote.put_keys)
     applied = sources.apply(remote, work, market=market, asof=original.received_at.date())
     outcome = applied["handoffs"][0]
@@ -208,4 +212,5 @@ def test_common_integration_accepts_article_shape_from_old_market_version(tmp_pa
     assert outcome["failed"] is False
     assert outcome["article_delta"]["articles.source_receipts"]
     assert (packet / "receipts.sqlite").read_bytes() == before
-    assert remote.put_keys == puts
+    assert remote.put_keys[: len(puts)] == puts
+    assert all(key.startswith("fixed-inputs/") for key in remote.put_keys[len(puts) :])

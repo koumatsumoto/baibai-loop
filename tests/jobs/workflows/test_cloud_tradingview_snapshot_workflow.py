@@ -226,7 +226,8 @@ def test_gates_secret_scopes_and_durability():
     assert "publication_lease" not in source
     assert "JQUANTS_API_KEY" in str(steps["master"].get("env"))
     assert "master-dependency acquire" in steps["master"]["run"]
-    assert '"$BAIBAI_MASTER_NATIVE" == true' in steps["master"]["run"]
+    assert "BAIBAI_MASTER_NATIVE" not in PATH.read_text()
+    assert "backfill-master" not in steps["master"]["run"]
     assert "master_unavailable" in steps["preflight"]["run"]
     assert 'get("master_native_input")' in steps["preflight"]["run"]
     assert "TRADINGVIEW_OAUTH_STATE" in str(steps["tradingview"].get("env"))
