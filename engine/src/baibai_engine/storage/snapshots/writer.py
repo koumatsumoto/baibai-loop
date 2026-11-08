@@ -20,6 +20,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from baibai_engine.storage.snapshots.contracts import (
+    PROJECTION_REVISION_METADATA_KEY,
     LakeDataset,
     Period,
     freeze_catalog,
@@ -191,6 +192,7 @@ def export_dataset_snapshot(
     object_date_grain: Literal["day", "month"] | None = None,
     previous: DatasetManifest | None = None,
     unavailable_dates: tuple[date, ...] = (),
+    projection_revision: str | None = None,
 ) -> LakeBuildReport:
     """Derive every partition of one dataset from the sealed snapshot.
 
@@ -239,6 +241,7 @@ def export_dataset_snapshot(
                         staging_root=staging_root,
                         rows=_period_rows(connection, dataset, period),
                         sources=(native_source or snapshot.ref,),
+                        projection_revision=projection_revision,
                     )
                     if whole.manifest.objects == prior.objects:
                         built.append(whole)
@@ -268,6 +271,7 @@ def export_dataset_snapshot(
                             rows=group,
                             sources=(native_source or snapshot.ref,),
                             object_label=day,
+                            projection_revision=projection_revision,
                         )
                     )
             coverage_status, coverage_start, data_as_of, population_count = _coverage_assessment(
@@ -479,6 +483,7 @@ def _build_period(
     rows: Iterable[tuple[object, ...]],
     sources: tuple[SourceRef, ...],
     object_label: str | None = None,
+    projection_revision: str | None = None,
 ) -> _BuiltPartition:
     label = "-" + object_label if object_label else ""
     provisional = staging_root / f"{dataset.sqlite_table}-{period_label(period)}{label}.parquet"
@@ -502,6 +507,11 @@ def _build_period(
             column.name for column in dataset.columns if column.sqlite_type != "BLOB"
         ],
     ) as writer:
+        if projection_revision is not None:
+            # Footerだけに置き、旧readerが検証するArrow schemaは変えない。
+            writer.add_key_value_metadata(
+                {PROJECTION_REVISION_METADATA_KEY: projection_revision.encode()}
+            )
         while batch := list(islice(iterator, batch_size)):
             table = pa.Table.from_pylist(
                 [dict(zip(names, row, strict=True)) for row in batch],

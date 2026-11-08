@@ -472,6 +472,8 @@ uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --ou
 
 週次の空充足には実確認JST日より前の後続2営業日、日次には後続1営業日の暦を使い、日次空は不足のままにする。最終週は公表日後に再確認し、未充足を残す。有限backfillへ今日までの全暦を要求しない。
 
+margin-alerts / short-sale-reports / margin-interestのL2 cacheは、numeric projection revision・採用原本・object hash・SQL parityが一致するcomplete投影だけを再利用し、marker欠落/旧revisionやpartialは同じfixed L1から再投影する。markerはParquet footerと派生inputに置き、raw L1・Arrow schema・旧readerの保存形式は維持する。
+
 ```bash
 uv run baibai-jobs jquants-margin-interest-native acquire \
   --directory <NEW_WORK> --asof <DATE> --start <DATE> --end <DATE>

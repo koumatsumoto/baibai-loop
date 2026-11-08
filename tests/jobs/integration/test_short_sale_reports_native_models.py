@@ -124,6 +124,49 @@ def test_equal_recheck_keeps_order_duplicates_and_reuses_objects(tmp_path):
     assert coverage(cold) == coverage(market)
 
 
+@pytest.mark.parametrize("boolean", [True, False])
+def test_old_boolean_projection_is_rebuilt_once_then_reused(tmp_path, monkeypatch, boolean):
+    from baibai_engine.machine_analysis.observations import jquants_writer
+    from baibai_jobs.integration import short_sale_reports_native as projection
+
+    store, owner, market, mirror, _, _ = fixture(tmp_path)
+    owner.commit([attempt("boolean", at=AT + timedelta(hours=1), rows=records(ratio=boolean))])
+    fixed = owner.fixed()
+    current_float = jquants_writer.to_float
+    with monkeypatch.context() as old:
+        old.setattr(
+            jquants_writer,
+            "to_float",
+            lambda value: float(value) if isinstance(value, bool) else current_float(value),
+        )
+        old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
+        before, previous = build(store, fixed, market, mirror, at=AT + timedelta(hours=1))
+    assert read_short_sale_reports(market, DAY, DAY)[0].short_ratio == float(boolean)
+    store.get_keys.clear()
+    saved, current = build(
+        store, fixed, market, mirror, at=AT + timedelta(hours=1), previous=previous
+    )
+    assert any(key.startswith(PREFIX + "packs/") for key in store.get_keys)
+    cold = tmp_path / "cold.sqlite"
+    materialize_saved_input(store, saved, output=cold)
+    assert rows(market) == rows(cold)
+    assert coverage(market) == coverage(cold)
+    assert read_short_sale_reports(market, DAY, DAY)[0].short_ratio is None
+    assert saved.descriptor["selection_sha256"] == before.descriptor["selection_sha256"]
+    assert saved.sha256 != before.sha256
+    assert {source for part in current.partitions for source in part.sources} == {
+        source for part in previous.partitions for source in part.sources
+    }
+
+    store.get_keys.clear()
+    same, reused = build(store, fixed, market, mirror, at=AT + timedelta(hours=1), previous=current)
+    assert same == saved
+    assert not [key for key in store.get_keys if key.startswith(PREFIX + "packs/")]
+    assert {obj for part in reused.partitions for obj in part.objects} == {
+        obj for part in current.partitions for obj in part.objects
+    }
+
+
 @pytest.mark.parametrize(
     "damage", ["value", "deleted", "extra", "ordinal", "database", "parquet", "partial"]
 )

@@ -10,6 +10,8 @@ from typing import Any
 
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
+JQUANTS_NUMERIC_PROJECTION_REVISION = "jquants-numeric-v2"
+
 
 class JQuantsProviderError(RuntimeError):
     """Raised when a required J-Quants fetch or normalization fails."""

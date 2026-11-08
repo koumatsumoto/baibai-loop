@@ -7,6 +7,9 @@ from typing import cast
 
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.margin_interest_inputs import INPUT_PREFIX
+from baibai_engine.machine_analysis.observations.jquants_decode import (
+    JQUANTS_NUMERIC_PROJECTION_REVISION,
+)
 from baibai_engine.machine_analysis.observations.trading_activity.snapshot_contracts import (
     JQUANTS_ALL_ISSUES_DAILY_MARGIN,
     JQUANTS_WEEKLY_MARGIN,
@@ -55,5 +58,8 @@ def export_margin_interest_from_native_input(
             object_date_grain="month",
             mirror_root=mirror_root,
             producer_git_commit=producer_git_commit,
+            projection_revision=JQUANTS_NUMERIC_PROJECTION_REVISION
+            if summary.get("projection_revision") == JQUANTS_NUMERIC_PROJECTION_REVISION
+            else None,
         )
     return result

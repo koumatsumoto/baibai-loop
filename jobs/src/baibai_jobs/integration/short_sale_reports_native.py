@@ -28,6 +28,9 @@ from baibai_engine.machine_analysis.generation.short_sale_reports_inputs import 
     retain_short_sale_reports_input,
     short_sale_reports_input_interval,
 )
+from baibai_engine.machine_analysis.observations.jquants_decode import (
+    JQUANTS_NUMERIC_PROJECTION_REVISION,
+)
 from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_short_sale_reports,
 )
@@ -385,6 +388,7 @@ def model_input(
         assert isinstance(summary, dict)
         descriptor["summary"] = {
             **summary,
+            "projection_revision": JQUANTS_NUMERIC_PROJECTION_REVISION,
             "coverage_status": "partial" if unresolved else "complete",
             "partial_days": sum(bool(scopes[day.isoformat()].get("adopted")) for day in unresolved),
         }

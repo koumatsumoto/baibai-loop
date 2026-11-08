@@ -226,6 +226,48 @@ def test_normal_empty_is_readable_without_fabricating_a_lake_row(tmp_path):
     assert saved.descriptor["summary"]["coverage_status"] == "complete"
 
 
+@pytest.mark.parametrize("boolean", [True, False])
+def test_old_boolean_projection_is_rebuilt_before_warm_reuse(tmp_path, monkeypatch, boolean):
+    from baibai_engine.machine_analysis.observations import jquants_writer
+    from baibai_jobs.integration import margin_alerts_native as projection
+
+    store, owner, market, mirror = fixture(tmp_path)
+    good = {**records()[0], "Code": "72030"}
+    owner.commit(
+        [attempt("boolean", at=AT + timedelta(hours=1), rows=[*records(long=boolean), good])]
+    )
+    current_float = jquants_writer.to_float
+    with monkeypatch.context() as old:
+        old.setattr(
+            jquants_writer,
+            "to_float",
+            lambda value: float(value) if isinstance(value, bool) else current_float(value),
+        )
+        old.setattr(projection, "JQUANTS_NUMERIC_PROJECTION_REVISION", "jquants-numeric-v1")
+        before, previous = build(store, owner, market, mirror, at=AT + timedelta(hours=1))
+    assert previous.manifest.coverage_status == "complete"
+    assert len(rows(market)) == 2
+
+    saved = model_input(
+        store,
+        owner.fixed(),
+        as_of=DAY,
+        evaluated_at=AT + timedelta(hours=1),
+        market=market,
+        mirror_root=mirror,
+        previous=previous.manifest,
+    )
+    cold = tmp_path / "cold.sqlite"
+    materialize_saved_input(store, saved, output=cold)
+    assert rows(market) == rows(cold)
+    assert len(rows(market)) == 1
+    assert read_margin_alerts(market, DAY, DAY) is None
+    assert read_margin_alerts(cold, DAY, DAY) is None
+    assert saved.descriptor["summary"]["coverage_status"] == "partial"
+    assert saved.descriptor["selection_sha256"] == before.descriptor["selection_sha256"]
+    assert saved.sha256 != before.sha256
+
+
 def test_normal_publication_fixes_one_head_for_seal_reader_and_lineage(tmp_path, monkeypatch):
     from tests.helpers.lake_policy import narrow_release_policy
 

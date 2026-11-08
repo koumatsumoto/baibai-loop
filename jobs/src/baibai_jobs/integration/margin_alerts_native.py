@@ -28,6 +28,9 @@ from baibai_engine.machine_analysis.generation.margin_alerts_inputs import (
     read_margin_alerts_input,
     retain_margin_alerts_input,
 )
+from baibai_engine.machine_analysis.observations.jquants_decode import (
+    JQUANTS_NUMERIC_PROJECTION_REVISION,
+)
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_margin_alerts
 from baibai_engine.machine_analysis.observations.trading_activity.jquants_contract import (
     MARGIN_ALERT_OPERATION,
@@ -372,6 +375,7 @@ def model_input(
         assert isinstance(summary, dict)
         descriptor["summary"] = {
             **summary,
+            "projection_revision": JQUANTS_NUMERIC_PROJECTION_REVISION,
             "coverage_status": "partial" if unresolved else "complete",
             "partial_days": sum(bool(scopes[day.isoformat()].get("adopted")) for day in unresolved),
         }
