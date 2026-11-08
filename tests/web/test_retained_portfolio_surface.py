@@ -170,6 +170,7 @@ def test_corrupt_ledger_metadata_is_not_presented_as_empty(tmp_path):
         ("ledger", sqlite3.OperationalError),
         ("valuation", SQLiteSchemaError),
         ("valuation", sqlite3.OperationalError),
+        ("valuation", ValueError),
     ],
 )
 def test_dashboard_read_errors_do_not_publish_internal_diagnostics(

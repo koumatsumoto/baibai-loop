@@ -42,7 +42,7 @@ class DbLedgerSource:
         now = datetime.now().astimezone()
         try:
             snapshot = current_portfolio(document, sqlite_path=self._market_path, now=now)
-        except (SQLiteSchemaError, sqlite3.Error):
+        except (SQLiteSchemaError, sqlite3.Error, ValueError):
             # Only this presentation boundary may retain unvalued ledger facts on a
             # market read failure. Judgment readers still reject the broken store.
             state = replay_events_through(document.events, now)
