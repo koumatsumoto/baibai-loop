@@ -442,6 +442,17 @@
     },
     "OutcomesView": {
       "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
         "outcomes": {
           "items": {
             "$ref": "#/$defs/PortfolioOutcomeView"
@@ -451,6 +462,7 @@
         }
       },
       "required": [
+        "error",
         "outcomes"
       ],
       "title": "OutcomesView",

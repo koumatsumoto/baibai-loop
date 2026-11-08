@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from tests.helpers.db_seed import seed_ledger
+from tests.helpers.ledger import load_portfolio_ledger
 from tests.helpers.outcome_publication import _publication
 
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
@@ -132,6 +134,10 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
     (tmp_path / "engine/src/baibai_engine").mkdir(parents=True)
     app = tmp_path / "stores/application/baibai.sqlite"
     app.parent.mkdir(parents=True)
+    seed_ledger(
+        app,
+        load_portfolio_ledger(ROOT / "tests/fixtures/portfolio-ledger/representative.yaml"),
+    )
     PortfolioOutcomeStore(app).publish(_publication())
     if invalid_outcome:
         with closing(sqlite3.connect(app)) as connection, connection:
@@ -154,12 +160,17 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
         text=True,
         check=False,
     )
+    assert direct.returncode == 0
+    assert canary not in direct.stdout + direct.stderr
+    dashboard = json.loads((tmp_path / "direct/views/portfolio-dashboard.json").read_text())
+    assert dashboard["ledger_error"] is None
+    assert dashboard["holdings"][0]["quantity"] == 200
+    outcomes = json.loads((tmp_path / "direct/views/outcomes.json").read_text())
     if invalid_outcome:
-        assert direct.returncode != 0
-        assert "ValidationError" in direct.stderr
-        assert canary in direct.stderr  # Synthetic reproduction, not a production leak.
+        assert outcomes == {"error": "保存済み運用成績を読み取れません。", "outcomes": []}
     else:
-        assert direct.returncode == 0
+        assert outcomes["error"] is None
+        assert outcomes["outcomes"][0]["portfolio_twr_pct"] == 10.2
     results = _run_steps(steps, tmp_path, env)
     assert results[-1].returncode == direct.returncode
     assert canary not in "".join(item.stdout + item.stderr for item in results)
@@ -167,20 +178,65 @@ def test_real_materialize_protects_private_validation_and_preserves_success(
         f"portfolio_views_exit_code={direct.returncode}\n" if name == "daily" else ""
     )
     assert all(item.stderr == "" for item in results)
-    commands = ["pull-app", "materialize"]
-    if not invalid_outcome:
-        commands.append("upload-portfolio-views")
-        for source in (tmp_path / "direct/views").iterdir():
-            expected = json.loads(source.read_text())
-            actual = json.loads((tmp_path / "serving/views" / source.name).read_text())
-            # Each invocation stamps its own read time; every application field is identical.
-            if "generated_at" in expected:
-                assert actual.pop("generated_at")
-                assert expected.pop("generated_at")
-            assert actual == expected
+    commands = ["pull-app", "materialize", "upload-portfolio-views"]
+    for directory in ("direct", "serving"):
+        assert {source.name for source in (tmp_path / directory / "views").iterdir()} == {
+            "portfolio-dashboard.json",
+            "outcomes.json",
+            "latest-proposal.json",
+        }
+    for source in (tmp_path / "direct/views").iterdir():
+        assert canary not in source.read_text()
+        expected = json.loads(source.read_text())
+        actual = json.loads((tmp_path / "serving/views" / source.name).read_text())
+        # Each invocation stamps its own read time; every application field is identical.
+        if "generated_at" in expected:
+            assert actual.pop("generated_at")
+            assert expected.pop("generated_at")
+        assert actual == expected
     assert (tmp_path / "calls").read_text().splitlines() == commands
     assert app.read_bytes() == before
     log = tmp_path / logs["materialize"]
-    if invalid_outcome:
-        assert canary in log.read_text()
+    assert canary not in log.read_text()
+    assert log.stat().st_mode & 0o777 == 0o600
+
+
+def test_real_materialize_write_failure_stays_private_and_stops_upload(
+    tmp_path, application_workflow
+):
+    name, steps, logs = application_workflow
+    canary = "SYNTHETIC_PRIVATE_OUTPUT_PATH_12345"
+    root = tmp_path / canary
+    root.mkdir()
+    (root / "pyproject.toml").write_text("")
+    (root / "engine/src/baibai_engine").mkdir(parents=True)
+    for directory in ("direct", "serving"):
+        output = root / directory
+        output.mkdir()
+        (output / "views").write_text("synthetic output obstruction")
+    env = _portfolio_commands(root, real_materialize=True)
+    direct = subprocess.run(
+        [sys.executable, "-m", "baibai_web.materialize", "--output-dir", str(root / "direct")],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert direct.returncode != 0
+    assert "FileExistsError" in direct.stderr
+    assert canary in direct.stderr  # Real writer failure with a synthetic private path.
+
+    results = _run_steps(steps, root, env)
+
+    assert results[-1].returncode == direct.returncode
+    assert "".join(item.stdout for item in results) == (
+        f"portfolio_views_exit_code={direct.returncode}\n" if name == "daily" else ""
+    )
+    assert all(item.stderr == "" for item in results)
+    assert canary not in "".join(item.stdout + item.stderr for item in results)
+    assert (root / "calls").read_text().splitlines() == ["pull-app", "materialize"]
+    log = root / logs["materialize"]
+    assert "FileExistsError" in log.read_text()
+    assert canary in log.read_text()
     assert log.stat().st_mode & 0o777 == 0o600
