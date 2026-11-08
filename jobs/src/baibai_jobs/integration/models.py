@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sqlite3
 import sys
 import time
+from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -19,13 +22,18 @@ from baibai_engine.data_collection.receipts.native_sources.store import (
     DEFAULT_DB_PATH as DEFAULT_ECONOMIC_DB_PATH,
 )
 from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
-from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+from baibai_engine.machine_analysis.generation.contracts import (
+    GeneratedModel,
+    InputSnapshot,
+    ModelGenerationStream,
+)
 from baibai_engine.machine_analysis.generation.economic_inputs import (
     rebuild_economic_input,
     retain_economic_input,
 )
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
+from baibai_engine.machine_analysis.generation.query import read_generation_storage_totals
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -33,11 +41,15 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.models.company_growth.models import (
     InputRelease as ModelInputRelease,
 )
+from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
     economic_selection_id,
-    evaluate_saved_economic_generation,
+    evaluate_economic_coordinates,
 )
-from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
+from baibai_engine.machine_analysis.screening.policies.economic_paths import (
+    CompanyCoordinates,
+    EconomicPathPolicy,
+)
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import (
@@ -58,6 +70,33 @@ def _phase_progress(phase: str, started: float | None = None) -> float:
     state = "start" if started is None else f"done elapsed_seconds={now - started:.3f}"
     print(f"model integration: phase={phase} state={state}", file=sys.stderr, flush=True)
     return now
+
+
+def _project_company_models(
+    generation: ModelGenerationStream, coordinates: dict[str, CompanyCoordinates]
+) -> Iterator[GeneratedModel]:
+    # 通常assemblyは個社の全モデルを続けて返し、その後に共有subjectを返す。
+    # 順序が変わった列を部分座標で選ばず、writerのtransaction内で止める。
+    subjects = set(generation.subjects)
+    models: list[GeneratedModel] = []
+
+    def project() -> None:
+        if models:
+            subject = models[0].subject
+            coordinates[subject] = project_company(
+                subject, models=models, metadata=generation.metadata
+            )
+            models.clear()
+
+    for model in generation.models:
+        if models and models[0].subject != model.subject:
+            project()
+        if model.subject in subjects:
+            if not models and model.subject in coordinates:
+                raise ValueError("model integration requires contiguous company models")
+            models.append(model)
+        yield model
+    project()
 
 
 def integrate_models(
@@ -147,12 +186,30 @@ def integrate_models(
         _phase_progress("model_inputs", phase_started)
         phase_started = _phase_progress("model_generation")
         generations = ModelGenerationStore(runs)
-        saved = generations.publish_stream(generation)
+        coordinates: dict[str, CompanyCoordinates] = {}
+        saved = generations.publish_stream(
+            replace(generation, models=_project_company_models(generation, coordinates))
+        )
+        try:
+            storage_totals = read_generation_storage_totals(
+                generation.metadata.generation_id, path=runs
+            )
+        except (sqlite3.DatabaseError, OSError) as error:
+            logging.getLogger(__name__).warning(
+                "model storage: state=unmeasured error_type=%s", type(error).__name__
+            )
+        else:
+            for model_id, count, size in storage_totals:
+                print(
+                    f"model storage: model_id={model_id} count={count} payload_gzip_bytes={size}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         _phase_progress("model_generation", phase_started)
         subjects = generation.subjects
         phase_started = _phase_progress("screening")
-        evaluation = evaluate_saved_economic_generation(
-            generation.metadata.generation_id, tickers=subjects, policy=policy, path=runs
+        evaluation = evaluate_economic_coordinates(
+            generation.metadata, tickers=subjects, coordinates=coordinates, policy=policy
         )
         selection = evaluation.selection
         selection_id = economic_selection_id(generation.metadata.generation_id, policy=policy)

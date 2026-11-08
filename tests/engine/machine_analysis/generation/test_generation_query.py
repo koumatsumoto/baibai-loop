@@ -1,3 +1,4 @@
+import gzip
 import sqlite3
 from contextlib import closing
 
@@ -17,6 +18,60 @@ from baibai_engine.machine_analysis.screening.policies.economic_path_selection i
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
+
+
+def test_storage_totals_read_only_one_generation_without_expanding_payloads(tmp_path, monkeypatch):
+    path = tmp_path / "runs.sqlite"
+    fixed = generation()
+    fixed = fixed.model_copy(
+        update={
+            "models": (
+                *fixed.models,
+                fixed.result("company_financials", "1234").model_copy(update={"subject": "5678"}),
+            )
+        }
+    )
+    publish_generation(fixed, path=path)
+    publish_generation(fixed.model_copy(update={"generation_id": "other-generation"}), path=path)
+    expected = {}
+    for model in fixed.models:
+        count, size = expected.get(model.model_id, (0, 0))
+        expected[model.model_id] = (
+            count + 1,
+            size + len(gzip.compress(canonical_json(model.payload).encode(), mtime=0)),
+        )
+    # 計算可能なpayloadの再encodeでなく、保存中のBLOB実量を数える。
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE generated_model SET payload_gzip=? WHERE generation_id=? AND model_id=?",
+            (b"not-gzip", fixed.generation_id, "company_financials"),
+        )
+    expected["company_financials"] = (2, 2 * len(b"not-gzip"))
+    before = path.read_bytes()
+    statements = []
+    connections = []
+
+    def traced(selected):
+        connection = connect_read_only(selected)
+        connection.set_trace_callback(statements.append)
+        connections.append(connection)
+        return connection
+
+    def forbidden(*_args):
+        pytest.fail("storage totals expanded a model payload")
+
+    monkeypatch.setattr(query, "connect_read_only", traced)
+    monkeypatch.setattr(query, "_decode_model", forbidden)
+    assert query.read_generation_storage_totals(fixed.generation_id, path=path) == tuple(
+        (model_id, count, size) for model_id, (count, size) in sorted(expected.items())
+    )
+    assert len(statements) == 1
+    assert "sum(length(payload_gzip))" in statements[0]
+    assert query.read_generation_storage_totals("unknown", path=path) == ()
+    assert path.read_bytes() == before
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
 
 
 @pytest.mark.parametrize("subjects", [("5678", "1234", "0000"), ()])
