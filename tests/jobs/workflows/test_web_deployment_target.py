@@ -111,4 +111,3 @@ def test_deploy_target_does_not_publish_after_git_failure(checkout, tmp_path, fa
 
     assert result.returncode != 0
     assert not output.exists()
-
