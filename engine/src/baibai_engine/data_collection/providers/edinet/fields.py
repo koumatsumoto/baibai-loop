@@ -60,3 +60,8 @@ def validate_document_statuses(document: Mapping[str, Any]) -> None:
     for name, value in values.items():
         if value not in allowed[name]:
             raise ValueError(f"unknown EDINET {name} status: {value!r}")
+
+
+def is_usable_filing_status(legal: object, disclosure: object, withdrawal: object) -> bool:
+    """Require explicit published, non-withdrawn status; missing flags are unknown."""
+    return str(legal) in {"1", "2"} and str(disclosure) == "0" and str(withdrawal) == "0"
