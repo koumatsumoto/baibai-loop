@@ -8,6 +8,7 @@ from typing import cast
 from unittest import TestCase
 from unittest.mock import patch
 
+import requests
 from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _context_with_browser,
@@ -25,6 +26,7 @@ from baibai_engine.data_collection.transport.context import (
     HttpSession,
     IndicatorsProviderError,
     ProviderFetchStoppedError,
+    SourceWithheldError,
 )
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,
@@ -281,33 +283,66 @@ class NativeParserTests(TestCase):
         self.assertIn("series=bf17364827e38702b42a58cf8eaa3f78", browser.urls[0])
         self.assertIn("from=05%2F01%2F2026", browser.urls[0])
 
-    def test_h15_falls_back_to_a_browser_when_the_plain_response_is_forbidden(self) -> None:
+    def test_h15_keeps_a_forbidden_response_without_a_browser_route(self) -> None:
         series = require_source("fed-h15")
         browser = _FakeBrowserFetcher(b'"Time Period","RIFLGFCY10_N.B"\n2026-05-01,4.39\n')
 
         with _context_with_browser(browser) as context:
-            records = FrbH15Source().fetch_records(
-                series,
-                start=date(2026, 5, 1),
-                end=date(2026, 5, 1),
-                # A synthetic 403 exercises the existing route selection without
-                # making a live request or inferring a permission from its status.
-                session=cast(HttpSession, _StaticSession(_ForbiddenResponse())),
-                context=context,
-            )
+            with (
+                patch.object(context, "discard_cached_bytes") as discard,
+                self.assertRaises(SourceWithheldError) as caught,
+            ):
+                FrbH15Source().fetch_records(
+                    series,
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, _StaticSession(_ForbiddenResponse())),
+                    context=context,
+                )
+            discard.assert_not_called()
+            self.assertEqual(context.bytes_cache, {})
 
-        self.assertEqual(
-            records,
-            {
-                date(2026, 5, 1): [
-                    {
-                        "row": {"Time Period": "2026-05-01", "RIFLGFCY10_N.B": "4.39"},
-                        "preamble": [],
-                    }
-                ]
-            },
-        )
-        self.assertEqual(len(browser.urls), 1)
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertIsInstance(caught.exception.__cause__, requests.HTTPError)
+        self.assertEqual(str(caught.exception.__cause__), "403 Client Error: Forbidden")
+        self.assertEqual(browser.urls, [])
+
+    def test_h15_http_and_decode_failures_do_not_select_a_browser_route(self) -> None:
+        class _HttpErrorResponse(_FakeResponse):
+            def raise_for_status(self) -> None:
+                response = requests.Response()
+                response.status_code = self.status_code
+                raise requests.HTTPError(f"HTTP {self.status_code}", response=response)
+
+        responses = [
+            *(_HttpErrorResponse(b"fixture", status_code=status) for status in (404, 429, 503)),
+            _FakeResponse(b"\xff"),
+        ]
+        for response in responses:
+            browser = _FakeBrowserFetcher(AssertionError("failure must not select a browser"))
+            with (
+                self.subTest(status=response.status_code, body=response.content),
+                _context_with_browser(browser) as context,
+                patch("baibai_engine.data_collection.transport.context.wait_for_read_retry"),
+                patch.object(
+                    context, "discard_cached_bytes", wraps=context.discard_cached_bytes
+                ) as discard,
+                self.assertRaises(IndicatorsProviderError),
+            ):
+                FrbH15Source().fetch_records(
+                    require_source("fed-h15"),
+                    start=date(2026, 5, 1),
+                    end=date(2026, 5, 1),
+                    session=cast(HttpSession, _StaticSession(response)),
+                    context=context,
+                )
+            if response.content == b"\xff":
+                # The text transport evicts undecodable bytes without another GET.
+                self.assertEqual(discard.call_count, 1)
+            else:
+                discard.assert_not_called()
+            self.assertEqual(context.bytes_cache, {})
+            self.assertEqual(browser.urls, [])
 
     def test_h15_falls_back_to_a_browser_when_the_plain_response_is_a_block_page(self) -> None:
         series = require_source("fed-h15")

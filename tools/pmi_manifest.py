@@ -14,6 +14,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from html import unescape
+from http import HTTPStatus
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -127,10 +128,9 @@ class StreamOutcome:
 def release_index_entries(context: FetchContext) -> tuple[IndexEntry, ...]:
     """The releases the index lists, over plain HTTP or through a real browser.
 
-    An empty/withheld response or successfully decoded page with no recognized
-    releases may require rendered HTML. Neither proves the cause of the response.
-    HTTP errors such as 429/404/5xx, network failures, size limits and decode errors
-    retain their original failure rather than launching another request route.
+    An empty successful response or decoded page with no recognized releases may
+    require rendered HTML. HTTP errors including 403, network failures, size limits
+    and decode errors retain their original failure without another request route.
     """
 
     try:
@@ -142,7 +142,9 @@ def release_index_entries(context: FetchContext) -> tuple[IndexEntry, ...]:
             headers=_INDEX_HEADERS,
             context=context,
         )
-    except SourceWithheldError:
+    except SourceWithheldError as error:
+        if error.status_code == HTTPStatus.FORBIDDEN:
+            raise
         html = ""
     entries = parse_release_index(html)
     if entries:
