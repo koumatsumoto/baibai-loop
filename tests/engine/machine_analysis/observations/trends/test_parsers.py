@@ -17,6 +17,24 @@ from baibai_engine.machine_analysis.observations.trends.parsers import (
 )
 
 
+def test_synthetic_document_preserves_whole_text_projection_and_original_clocks():
+    projected = document(" \nＡ e\u0301 ㍍\t")
+    assert projected.text == "Aéメートル"
+    assert projected.text[1:2] == "é"
+    assert projected.evidence.text_revision == "nfkc-no-whitespace-v1"
+    assert projected.evidence.coordinate_system == "unicode_codepoint_half_open"
+    assert (
+        projected.evidence.raw_sha256
+        == "4dc968f0145c07278f81249dba4964b69399a74cad0163d3a291791abb3f7662"
+    )
+    assert (
+        projected.evidence.text_sha256
+        == "cca8132b8066498e369fb3f8c09bbc323610ece841b09736abba82d2170d989e"
+    )
+    assert projected.evidence.published_at == NOW
+    assert projected.evidence.received_at == NOW
+
+
 def test_tsr_survey_population_not_calendar_bankruptcies_or_profit_margin():
     projected = document(PHARMA)
     result = extract_tsr_performance(projected, created_at=NOW)

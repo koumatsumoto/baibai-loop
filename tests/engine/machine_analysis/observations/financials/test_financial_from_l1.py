@@ -10,7 +10,7 @@ from baibai_engine.data_collection.providers.jquants.contracts import (
     RetainedRequest,
     complete_request,
 )
-from baibai_engine.machine_analysis.observations.financials.from_l1 import rebuild_financial_day
+from baibai_engine.machine_analysis.observations.financials.from_l1 import rebuild_financial_days
 
 DAY = date(2026, 11, 2)
 
@@ -33,7 +33,7 @@ def test_latest_native_receipt_rebuilds_without_old_l2() -> None:
     at = datetime(2026, 11, 2, tzinfo=UTC)
     old = receipt("old", at, [record(1)])
     latest = receipt("new", at + timedelta(hours=1), [record(2)])
-    result = rebuild_financial_day([latest, old], day=DAY)
+    result = rebuild_financial_days([latest, old], days=(DAY,))[DAY]
     assert result.request_id == "new"
     assert result.status == "ok"
     assert len(result.rows) == 1
@@ -43,12 +43,12 @@ def test_latest_native_receipt_rebuilds_without_old_l2() -> None:
 def test_empty_receipt_is_distinct_from_unavailable_and_incomplete() -> None:
     at = datetime(2026, 11, 2, tzinfo=UTC)
     incomplete = RetainedRequest("broken", None, "incomplete")
-    result = rebuild_financial_day([receipt("empty", at, []), incomplete], day=DAY)
+    result = rebuild_financial_days([receipt("empty", at, []), incomplete], days=(DAY,))[DAY]
     assert result.request_id == "empty"
     assert result.rows == ()
     assert result.status == "ok"
     assert result.incomplete_requests == 1
-    missing = rebuild_financial_day([incomplete], day=DAY)
+    missing = rebuild_financial_days([incomplete], days=(DAY,))[DAY]
     assert missing.request_id is None
     assert missing.status == "unavailable"
     assert missing.incomplete_requests == 1
@@ -57,28 +57,28 @@ def test_empty_receipt_is_distinct_from_unavailable_and_incomplete() -> None:
 def test_equal_time_conflict_does_not_pick_a_winner() -> None:
     at = datetime(2026, 11, 2, tzinfo=UTC)
     with pytest.raises(ValueError, match="ambiguous"):
-        rebuild_financial_day(
-            [receipt("a", at, [record(1)]), receipt("b", at, [record(2)])], day=DAY
-        )
+        rebuild_financial_days(
+            [receipt("a", at, [record(1)]), receipt("b", at, [record(2)])], days=(DAY,)
+        )[DAY]
 
 
 def test_rejects_rows_outside_the_native_request_date() -> None:
     at = datetime(2026, 11, 2, tzinfo=UTC)
     row = {**record(1), "DiscDate": "2026-11-01"}
     with pytest.raises(ValueError, match="outside"):
-        rebuild_financial_day([receipt("a", at, [row])], day=DAY)
+        rebuild_financial_days([receipt("a", at, [row])], days=(DAY,))[DAY]
 
 
 def test_old_tie_does_not_mask_a_later_unambiguous_receipt() -> None:
     at = datetime(2026, 11, 2, tzinfo=UTC)
-    result = rebuild_financial_day(
+    result = rebuild_financial_days(
         [
             receipt("a", at, [record(1)]),
             receipt("b", at, [record(2)]),
             receipt("c", at + timedelta(hours=1), [record(3)]),
         ],
-        day=DAY,
-    )
+        days=(DAY,),
+    )[DAY]
     assert result.request_id == "c"
     assert json.loads(result.rows[0][3])["Sales"] == 3
 
@@ -91,7 +91,7 @@ def test_duckdb_materialization_uses_only_the_rebuilt_day() -> None:
     )
 
     at = datetime(2026, 11, 2, tzinfo=UTC)
-    result = rebuild_financial_day([receipt("new", at, [record(2)])], day=DAY)
+    result = rebuild_financial_days([receipt("new", at, [record(2)])], days=(DAY,))[DAY]
     with duckdb.connect(":memory:") as connection:
         materialize_financial_days(connection, [result], l1_coverage_status="partial")
         rows = connection.execute("SELECT * FROM financial_summaries").fetchall()
@@ -106,9 +106,9 @@ def test_incomplete_source_remains_visible_in_status() -> None:
     )
 
     at = datetime(2026, 11, 2, tzinfo=UTC)
-    result = rebuild_financial_day(
-        [receipt("new", at, [record(2)]), RetainedRequest("broken", None, "partial")], day=DAY
-    )
+    result = rebuild_financial_days(
+        [receipt("new", at, [record(2)]), RetainedRequest("broken", None, "partial")], days=(DAY,)
+    )[DAY]
     with duckdb.connect(":memory:") as connection:
         materialize_financial_days(connection, [result], l1_coverage_status="partial")
         assert connection.execute(
@@ -125,7 +125,7 @@ def test_incomplete_request_for_another_day_does_not_block_this_day() -> None:
 
     at = datetime(2026, 11, 2, tzinfo=UTC)
     other = RetainedRequest("partial", None, "incomplete", {"date": "20261101"})
-    result = rebuild_financial_day([receipt("new", at, [record(2)]), other], day=DAY)
+    result = rebuild_financial_days([receipt("new", at, [record(2)]), other], days=(DAY,))[DAY]
     assert result.incomplete_requests == 0
     with duckdb.connect(":memory:") as connection:
         materialize_financial_days(connection, [result], l1_coverage_status="partial")
@@ -140,9 +140,9 @@ def test_rejected_native_rows_remain_visible_as_partial() -> None:
     )
 
     at = datetime(2026, 11, 2, tzinfo=UTC)
-    result = rebuild_financial_day(
-        [receipt("bad", at, [{"Code": "", "DiscDate": "2026-11-02"}])], day=DAY
-    )
+    result = rebuild_financial_days(
+        [receipt("bad", at, [{"Code": "", "DiscDate": "2026-11-02"}])], days=(DAY,)
+    )[DAY]
     assert result.status == "partial"
     assert result.rejected_count == 1
     with duckdb.connect(":memory:") as connection:
@@ -166,7 +166,7 @@ def test_duckdb_rebuild_matches_current_projection_for_same_receipt(tmp_path) ->
 
     at = datetime(2026, 11, 2, tzinfo=UTC)
     native = [record(2), {"Code": "99990", "DiscDate": "2026-11-02", "DiscNo": "b"}]
-    result = rebuild_financial_day([receipt("full", at, native)], day=DAY)
+    result = rebuild_financial_days([receipt("full", at, native)], days=(DAY,))[DAY]
     path = tmp_path / "existing.sqlite"
     store_jquants_fin_summaries(path, native, requested_start=DAY, requested_end=DAY)
     with sqlite3.connect(path) as old:
@@ -182,10 +182,6 @@ def test_duckdb_rebuild_matches_current_projection_for_same_receipt(tmp_path) ->
 
 
 def test_multiple_days_are_built_in_one_pass_and_missing_is_not_empty() -> None:
-    from baibai_engine.machine_analysis.observations.financials.from_l1 import (
-        rebuild_financial_days,
-    )
-
     at = datetime(2026, 11, 2, tzinfo=UTC)
     other = date(2026, 11, 3)
     requests = iter(
@@ -205,4 +201,4 @@ def test_later_complete_receipt_resolves_prior_partial() -> None:
     at = datetime(2026, 11, 3, tzinfo=UTC)
     old_partial = RetainedRequest("old", None, "partial", {"date": "20261102"}, at)
     newer = receipt("new", at + timedelta(seconds=1), [record(2)])
-    assert rebuild_financial_day([old_partial, newer], day=DAY).incomplete_requests == 0
+    assert rebuild_financial_days([old_partial, newer], days=(DAY,))[DAY].incomplete_requests == 0

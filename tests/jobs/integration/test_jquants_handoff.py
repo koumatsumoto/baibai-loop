@@ -3,12 +3,17 @@ from datetime import timedelta
 
 import pytest
 import requests
-from tests.helpers.jquants_receipts import DAY, FIRST_AT, Session, body, calendar, receive
+from tests.helpers.jquants_receipts import (
+    DAY,
+    FIRST_AT,
+    Session,
+    acquire_request,
+    body,
+    calendar,
+    receive,
+)
 from tests.helpers.network import _no_real_network as _no_real_network
 
-from baibai_engine.data_collection.providers.jquants.acquisition import (
-    acquire_request,
-)
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
 )

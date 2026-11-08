@@ -8,10 +8,8 @@ from pathlib import Path
 from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store import (
     run_store_path,
 )
-from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.run_store.store import (
-    DEFAULT_RUN_STORE_PATH,
-)
 from baibai_engine.storage.sqlite.application.write import DEFAULT_DB_PATH, database_path
+from baibai_engine.storage.sqlite.machine_analysis import DEFAULT_RUN_STORE_PATH
 
 
 def test_default_db_resolution_is_redirected_away_from_operational_stores() -> None:

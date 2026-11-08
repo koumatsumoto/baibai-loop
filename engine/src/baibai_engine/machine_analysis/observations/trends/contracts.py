@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
-import unicodedata
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal, Self
@@ -56,21 +54,6 @@ class DocumentText(Value):
         if hashlib.sha256(self.text.encode()).hexdigest() != self.evidence.text_sha256:
             raise ValueError("text projection digest differs")
         return self
-
-
-def project_text(text: str, **evidence: object) -> DocumentText:
-    """取得済み本文からparser用座標を固定。PDF/HTMLのnative解釈はsource owner。"""
-    projected = re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
-    return DocumentText(
-        text=projected,
-        evidence=TextEvidence.model_validate(
-            {
-                **evidence,
-                "text_sha256": hashlib.sha256(projected.encode()).hexdigest(),
-                "text_revision": "nfkc-no-whitespace-v1",
-            }
-        ),
-    )
 
 
 class Span(Value):

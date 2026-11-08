@@ -25,7 +25,7 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    JPXReader,
+    read_jpx_earnings_calendar_snapshot,
     read_jpx_regulations,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
@@ -131,7 +131,7 @@ def test_regulation_refresh_retains_fixed_four_and_replays_into_source_only_stor
     assert session.calls == list(JPX_REGULATION_URLS.values())
     assert snapshot.flags_by_ticker["130A"] == ("特別注意銘柄",)
     assert "取引停止" in snapshot.source_names  # genuine empty page is still covered
-    assert JPXReader(path).get_regulation_snapshot(ASOF) == snapshot
+    assert read_jpx_regulations(path, ASOF) == snapshot
     with sqlite3.connect(path) as conn:
         bundle = read_complete_bundle(conn, _bundle_ids(path)[0])
     assert bundle.expected_resources == tuple(JPX_REGULATION_URLS.items())
@@ -215,7 +215,7 @@ def test_calendar_refresh_replays_precedence_and_reader_stays_offline(tmp_path: 
         original = session._by_url[receipt.response.requested_url]
         assert receipt.response.body == original.content
         assert receipt.response.content_type == original.headers["content-type"]
-    assert JPXReader(path).get_earnings_calendar_snapshot(ASOF).entries == snapshot.entries
+    assert read_jpx_earnings_calendar_snapshot(path, ASOF).entries == snapshot.entries
 
     replay_path = tmp_path / "replay.sqlite"
     _copy_source_only(path, replay_path)
@@ -253,7 +253,7 @@ def test_calendar_malformed_http_200_completes_l1_without_l2(tmp_path: Path) -> 
     JPXRefresh(sqlite_path=path, session=_calendar_session()).refresh_earnings_calendar_snapshot(
         ASOF
     )
-    original_rows = JPXReader(path).get_earnings_calendar_snapshot(ASOF).entries
+    original_rows = read_jpx_earnings_calendar_snapshot(path, ASOF).entries
     original_fetched_at = _fetched_at(path, "jpx_earnings_calendar")
     session = _calendar_session(bad_workbook=True)
     with pytest.raises(JPXProviderError, match="failed to parse JPX earnings"):
@@ -264,7 +264,7 @@ def test_calendar_malformed_http_200_completes_l1_without_l2(tmp_path: Path) -> 
         next(r.response.body for r in bundle.responses if r.resource_name == "workbook:1")
         == b"malformed xlsx"
     )
-    assert JPXReader(path).get_earnings_calendar_snapshot(ASOF).entries == original_rows
+    assert read_jpx_earnings_calendar_snapshot(path, ASOF).entries == original_rows
     assert _fetched_at(path, "jpx_earnings_calendar") == original_fetched_at
 
 

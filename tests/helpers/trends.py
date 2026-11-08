@@ -1,13 +1,16 @@
 """合成文型のみ。実記事の本文・概要はfixtureへ転載しない。"""
 
 import hashlib
+import re
+import unicodedata
 from datetime import UTC, date, datetime
 
 from baibai_engine.machine_analysis.generation.runners.trend_inputs import TrendGenerationInputs
 from baibai_engine.machine_analysis.observations.trends.contracts import (
+    DocumentText,
     SelectedArtifact,
+    TextEvidence,
     TrendInputManifest,
-    project_text,
 )
 from baibai_engine.machine_analysis.observations.trends.inputs import (
     FixedTrendInputs,
@@ -44,9 +47,10 @@ BOJ = """
 
 
 def document(text, source="tsr", article_id="synthetic-survey", **changes):
-    return project_text(
-        text,
-        **(
+    projected = re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
+    return DocumentText(
+        text=projected,
+        evidence=TextEvidence.model_validate(
             {
                 "article_id": article_id,
                 "receipt_id": "synthetic-receipt",
@@ -58,6 +62,10 @@ def document(text, source="tsr", article_id="synthetic-survey", **changes):
                 "content_scope": "full_text",
             }
             | changes
+            | {
+                "text_sha256": hashlib.sha256(projected.encode()).hexdigest(),
+                "text_revision": "nfkc-no-whitespace-v1",
+            }
         ),
     )
 

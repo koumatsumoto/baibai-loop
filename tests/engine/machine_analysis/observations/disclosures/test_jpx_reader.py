@@ -16,8 +16,8 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     next_earnings_dates,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
-    JPXReader,
     read_jpx_earnings_calendar_snapshot,
+    read_jpx_regulations,
     read_next_earnings_dates,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import (
@@ -75,28 +75,26 @@ def test_reader_returns_saved_snapshots_without_acquisition(tmp_path: Path) -> N
     )
 
     with patch("requests.Session", side_effect=AssertionError("HTTP session constructed")):
-        reader = JPXReader(sqlite_path)
-        assert reader.get_regulation_snapshot(asof).flags_by_ticker == {"1301": ("取引停止",)}
-        assert reader.get_earnings_calendar_snapshot(asof).entries == (
-            JPXEarningsCalendarEntry("1301", date(2026, 6, 1)),
+        regulations = read_jpx_regulations(sqlite_path, asof)
+        assert regulations is not None
+        assert regulations.flags_by_ticker == {"1301": ("取引停止",)}
+        calendar = read_jpx_earnings_calendar_snapshot(sqlite_path, asof)
+        assert calendar is not None
+        assert calendar.entries == (JPXEarningsCalendarEntry("1301", date(2026, 6, 1)),)
+        assert read_jpx_earnings_calendar_snapshot(sqlite_path, date(2026, 5, 22)) is None
+        stale = read_jpx_earnings_calendar_snapshot(
+            sqlite_path, date(2026, 5, 22), allow_stale=True
         )
-        with pytest.raises(JPXProviderError, match="stored JPX earnings calendar is unavailable"):
-            reader.get_earnings_calendar_snapshot(date(2026, 5, 22))
-        assert (
-            JPXReader(sqlite_path, allow_stale_snapshot=True)
-            .get_earnings_calendar_snapshot(date(2026, 5, 22))
-            .entries[0]
-            .ticker
-            == "1301"
-        )
+        assert stale is not None
+        assert stale.entries[0].ticker == "1301"
 
 
 def test_reader_reports_missing_saved_snapshots(tmp_path: Path) -> None:
-    reader = JPXReader(tmp_path / "missing.sqlite")
-    with pytest.raises(JPXProviderError, match="stored JPX regulation snapshot is unavailable"):
-        reader.get_regulation_snapshot(date(2026, 5, 8))
-    with pytest.raises(JPXProviderError, match="stored JPX earnings calendar is unavailable"):
-        reader.get_earnings_calendar_snapshot(date(2026, 5, 8))
+    path = tmp_path / "missing.sqlite"
+    with patch("requests.Session", side_effect=AssertionError("HTTP session constructed")):
+        assert read_jpx_regulations(path, date(2026, 5, 8)) is None
+        assert read_jpx_earnings_calendar_snapshot(path, date(2026, 5, 8)) is None
+    assert not path.exists()
 
 
 def test_next_dates_include_today_and_keep_alphanumeric_tickers(calendar_path: Path) -> None:
@@ -131,7 +129,7 @@ def test_optional_dates_require_current_successful_coverage(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("store", ["absent-file", "empty-file", "unwritten-header"])
 @pytest.mark.parametrize("allow_stale", [False, True])
-def test_unwritten_schedule_is_absent_for_optional_and_required_readers(
+def test_unwritten_schedule_is_absent_and_read_only(
     tmp_path: Path, store: str, allow_stale: bool
 ) -> None:
     path = tmp_path / "market.sqlite"
@@ -145,8 +143,6 @@ def test_unwritten_schedule_is_absent_for_optional_and_required_readers(
     before = path.read_bytes() if path.exists() else None
     assert read_jpx_earnings_calendar_snapshot(path, asof, allow_stale=allow_stale) is None
     assert read_next_earnings_dates(path, asof) is None
-    with pytest.raises(JPXProviderError, match="stored JPX earnings calendar is unavailable"):
-        JPXReader(path, allow_stale_snapshot=allow_stale).get_earnings_calendar_snapshot(asof)
     assert (path.read_bytes() if path.exists() else None) == before
 
 
@@ -197,8 +193,6 @@ def test_corrupt_successful_snapshot_is_an_error(
         read_jpx_earnings_calendar_snapshot(calendar_path, date(2026, 5, 8))
     with pytest.raises(JPXProviderError, match=message):
         read_next_earnings_dates(calendar_path, date(2026, 5, 8))
-    with pytest.raises(JPXProviderError, match=message):
-        JPXReader(calendar_path).get_earnings_calendar_snapshot(date(2026, 5, 8))
     assert calendar_path.read_bytes() == before
 
 
@@ -237,8 +231,6 @@ def test_existing_noncurrent_schema_is_not_unknown(tmp_path: Path, store: str) -
         read_jpx_earnings_calendar_snapshot(path, date(2026, 5, 8))
     with pytest.raises(SQLiteSchemaError):
         read_next_earnings_dates(path, date(2026, 5, 8))
-    with pytest.raises(SQLiteSchemaError):
-        JPXReader(path).get_earnings_calendar_snapshot(date(2026, 5, 8))
     assert path.read_bytes() == before
 
 
@@ -250,8 +242,6 @@ def test_corrupt_file_is_not_unknown(tmp_path: Path) -> None:
         read_jpx_earnings_calendar_snapshot(path, date(2026, 5, 8))
     with pytest.raises(sqlite3.DatabaseError):
         read_next_earnings_dates(path, date(2026, 5, 8))
-    with pytest.raises(sqlite3.DatabaseError):
-        JPXReader(path).get_earnings_calendar_snapshot(date(2026, 5, 8))
     assert path.read_bytes() == before
 
 

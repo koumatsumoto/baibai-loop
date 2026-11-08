@@ -1,11 +1,18 @@
-"""合成J-Quants原本を保持するfixture。test moduleを共有fixtureの入口にしない。"""
+"""旧SQLite原本の合成fixture。通常取得のnative形式とは独立に保つ。"""
 
+import gzip
 import json
+import sqlite3
+import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
 import requests
 
-from baibai_engine.data_collection.providers.jquants.acquisition import acquire_request
+from baibai_engine.data_collection.providers.jquants.contracts import (
+    JQuantsAcquisitionError,
+    JQuantsSource,
+)
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -36,6 +43,37 @@ def body(records, *, cursor=None):
     if cursor is not None:
         payload["pagination_key"] = cursor
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def acquire_request(
+    conn: sqlite3.Connection,
+    client: JQuantsHTTP,
+    source: JQuantsSource,
+    params: Mapping[str, str],
+) -> str:
+    """Receive one explicit query; no normalized table is read or written here."""
+    if conn.in_transaction:
+        raise ValueError("acquisition requires a connection without a pending transaction")
+    request_id = uuid.uuid4().hex
+    try:
+        for index, page in enumerate(client.pages(source, params)):
+            with conn:
+                conn.execute(
+                    "INSERT INTO jquants_source_pages VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        request_id,
+                        index,
+                        page.source,
+                        json.dumps(dict(page.query), sort_keys=True, separators=(",", ":")),
+                        page.received_at.isoformat(timespec="microseconds"),
+                        page.received_at.date().isoformat(),
+                        gzip.compress(page.body, mtime=0),
+                    ),
+                )
+    except JQuantsAcquisitionError as error:
+        error.request_id = request_id
+        raise
+    return request_id
 
 
 def receive(db_path, source, query, raw_body, received_at):
