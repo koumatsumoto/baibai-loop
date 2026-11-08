@@ -197,8 +197,6 @@ def _replay(
             database,
             handoff,
             store=store,
-            native_master=True,
-            native_calendar=True,
             master_fingerprints=master_fingerprints,
         )
     if source == "jquants-market":
