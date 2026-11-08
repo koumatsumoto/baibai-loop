@@ -190,14 +190,12 @@ def _read_holder_capital(
     archives: FixedEdinetArchives | None,
     archive_days: Mapping[str, object],
 ) -> tuple[dict[str, tuple[HolderReportedCapital, ...]], str]:
+    from baibai_engine.data_collection.providers.edinet.fields import is_usable_filing_status
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
         _canonicalize_document_events,
     )
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
         read_observed_documents,
-    )
-    from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
-        is_usable_filing_status,
     )
     from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl import (
         SourceFormatError,
