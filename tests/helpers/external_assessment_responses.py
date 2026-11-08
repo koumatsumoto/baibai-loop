@@ -10,6 +10,10 @@ from baibai_engine.data_collection.receipts.public_pages.models import (
     Role,
     Source,
 )
+from baibai_engine.data_collection.receipts.public_pages.receipts import (
+    insert_response,
+    validate_response,
+)
 
 
 def response(
@@ -36,3 +40,11 @@ def response(
         selected_encoding=encoding,
         body=body,
     )
+
+
+def seed_response(conn, **fields):
+    original = EquityWebSourceResponse(receipt_id=str(uuid.uuid4()), **fields)
+    validate_response(original)
+    with conn:
+        insert_response(conn, original)
+    return original.receipt_id

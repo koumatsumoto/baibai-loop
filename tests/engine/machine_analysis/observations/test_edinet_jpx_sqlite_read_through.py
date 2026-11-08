@@ -8,9 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.screening_sqlite import add_source_coverage
 
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
 )
@@ -263,7 +263,7 @@ class EDINETSavedReadThroughTests(unittest.TestCase):
             )
             _add_source_coverage(conn, source="edinet_documents", date_iso="2026-04-24")
             conn.commit()
-            retain_list_response(
+            seed_list_response(
                 conn,
                 doc_date=date(2026, 4, 24),
                 received_at=datetime(2026, 4, 24, 12, tzinfo=UTC),

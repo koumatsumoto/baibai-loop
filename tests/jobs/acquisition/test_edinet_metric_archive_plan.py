@@ -7,9 +7,9 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_csv_zip import _edinet_csv_zip
+from tests.helpers.edinet_receipts import seed_list_response
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
@@ -47,7 +47,7 @@ def save_list(path, day, documents):
         {"metadata": {"resultset": {"count": len(documents)}}, "results": documents}
     ).encode()
     with closing(open_connection(path)) as connection:
-        retain_list_response(connection, doc_date=day, received_at=AT, body=body)
+        seed_list_response(connection, doc_date=day, received_at=AT, body=body)
     rebuild_edinet_document_day(path, day)
 
 

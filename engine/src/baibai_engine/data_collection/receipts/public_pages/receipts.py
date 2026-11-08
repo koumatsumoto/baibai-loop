@@ -9,11 +9,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from baibai_engine.data_collection.receipts.public_pages.models import (
-    EquityWebSourceResponse,
-    Role,
-    Source,
-)
+from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.primitives.stocks import SecurityCodeError, normalize_ticker
 
 
@@ -94,49 +90,6 @@ def insert_response(conn: sqlite3.Connection, response: EquityWebSourceResponse)
             gzip.compress(response.body, mtime=0),
         ),
     )
-
-
-def retain_response(
-    conn: sqlite3.Connection,
-    *,
-    attempt_id: str,
-    source: Source,
-    requested_ticker: str,
-    role: Role,
-    parent_receipt_id: str | None,
-    requested_url: str,
-    received_at_utc: datetime,
-    selected_encoding: str,
-    body: bytes,
-) -> str:
-    """Commit one original response independently on an idle caller-owned connection."""
-    receipt_id = str(uuid.uuid4())
-    response = EquityWebSourceResponse(
-        receipt_id=receipt_id,
-        attempt_id=attempt_id,
-        source=source,
-        requested_ticker=requested_ticker,
-        role=role,
-        parent_receipt_id=parent_receipt_id,
-        requested_url=requested_url,
-        received_at_utc=received_at_utc,
-        selected_encoding=selected_encoding,
-        body=body,
-    )
-    validate_response(response)
-    if conn.in_transaction:
-        raise EquityWebReceiptError("equity web receipt requires no pending transaction")
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        insert_response(conn, response)
-        conn.commit()
-    except sqlite3.IntegrityError as exc:
-        conn.rollback()
-        raise EquityWebReceiptError("equity web response could not be retained") from exc
-    except BaseException:
-        conn.rollback()
-        raise
-    return receipt_id
 
 
 def read_responses(

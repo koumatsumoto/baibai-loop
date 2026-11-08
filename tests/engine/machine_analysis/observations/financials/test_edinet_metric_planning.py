@@ -5,8 +5,8 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_metrics import _edinet_document
+from tests.helpers.edinet_receipts import seed_list_response
 
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     QuarantinedDocumentEvent,
 )
@@ -127,7 +127,7 @@ def _withdrawal_selection() -> DocumentSelection:
 
 
 def _retain(connection, at, documents, *, day=date(2026, 4, 24), count=None):
-    return retain_list_response(
+    return seed_list_response(
         connection,
         doc_date=day,
         received_at=at,

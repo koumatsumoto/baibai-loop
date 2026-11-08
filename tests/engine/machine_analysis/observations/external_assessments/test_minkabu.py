@@ -7,8 +7,8 @@ from uuid import uuid4
 import pytest
 from tests.helpers.external_assessment_html import minkabu_html as html
 from tests.helpers.external_assessment_html import no_coverage_html
+from tests.helpers.external_assessment_responses import seed_response
 
-from baibai_engine.data_collection.receipts.public_pages.receipts import retain_response
 from baibai_engine.machine_analysis.models.external_assessment.analysis import analyze
 from baibai_engine.machine_analysis.observations.external_assessments.history import (
     AnalystForecastHistory,
@@ -101,7 +101,7 @@ def test_l1_replay_immutable_history_and_exact_cutoff(tmp_path):
     db = tmp_path / "market.sqlite"
     attempt = str(uuid4())
     with closing(open_connection(db)) as conn:
-        retain_response(
+        seed_response(
             conn,
             attempt_id=attempt,
             source="minkabu",

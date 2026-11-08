@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_handoff_inputs import DAY, STAMP, projection_state, receive
+from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.jquants_receipts import calendar
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.r2_store import MemoryR2Store
@@ -17,7 +18,6 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
     EdinetListL1,
     NativeListReceipt,
 )
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
@@ -68,7 +68,7 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
     bad_source = tmp_path / "bad.sqlite"
     bad_day = DAY + timedelta(days=int(new_day))
     with closing(open_connection(bad_source)) as conn:
-        bad_receipt = retain_list_response(
+        bad_receipt = seed_list_response(
             conn,
             doc_date=bad_day,
             received_at=STAMP + timedelta(days=1, hours=1),

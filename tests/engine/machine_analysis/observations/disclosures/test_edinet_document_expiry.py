@@ -13,7 +13,8 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
+from tests.helpers.edinet_receipts import seed_list_response
+
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
@@ -85,7 +86,7 @@ def store_edinet_documents(path: Path, on_date: date, records: list[dict[str, ob
             "SELECT count(*) FROM edinet_list_responses WHERE doc_date = ?",
             (on_date.isoformat(),),
         ).fetchone()[0]
-        retain_list_response(
+        seed_list_response(
             conn,
             doc_date=on_date,
             received_at=datetime(2026, 6, 1, tzinfo=UTC) + timedelta(seconds=count),

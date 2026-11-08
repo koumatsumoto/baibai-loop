@@ -12,11 +12,11 @@ from types import SimpleNamespace
 import pytest
 import requests
 from tests.helpers.edinet_metrics import _edinet_csv_zip, _edinet_document
+from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.edinet_research_sources import source_zip
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -44,7 +44,7 @@ def test_raw_only_fixed_release_rebuilds_edinet_lists_metrics_and_facts(tmp_path
     )
     original = tmp_path / "source.sqlite"
     with closing(open_connection(original)) as conn:
-        retain_list_response(
+        seed_list_response(
             conn,
             doc_date=day,
             received_at=datetime(2026, 7, 22, 2, tzinfo=UTC),

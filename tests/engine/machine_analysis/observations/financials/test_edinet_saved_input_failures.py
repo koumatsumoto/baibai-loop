@@ -8,10 +8,10 @@ from unittest.mock import call, patch
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.edinet_metrics import _edinet_csv_zip
+from tests.helpers.edinet_receipts import seed_list_response
 from tests.helpers.edinet_saved_inputs import BASE, TARGET, _next_listing, _seed
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
@@ -322,7 +322,7 @@ def test_retained_archive_arrival_recovers_artificial_quarantine_without_fetchin
 
 def _receipt(path, content, seconds):
     with closing(open_connection(path)) as conn:
-        retain_list_response(
+        seed_list_response(
             conn,
             doc_date=TARGET,
             received_at=datetime(2026, 4, 27, tzinfo=UTC) + timedelta(seconds=seconds),

@@ -9,9 +9,9 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_receipts import seed_list_response
 
 import baibai_engine.machine_analysis.observations.disclosures.edinet_document_store as edinet_document_store
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
     _canonicalize_document_events,
 )
@@ -223,7 +223,7 @@ def test_native_origin_keeps_identity_observed_before_inspection_expiry(tmp_path
     }
     with closing(open_connection(path)) as connection:
         for offset, record in enumerate((origin, expired)):
-            retain_list_response(
+            seed_list_response(
                 connection,
                 doc_date=ORIGIN_DAY,
                 received_at=datetime(2026, 8, 10, tzinfo=UTC) + timedelta(seconds=offset),

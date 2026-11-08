@@ -12,13 +12,13 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from tests.helpers.external_assessment_responses import seed_response
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.receipts.public_pages.models import EquityWebSourceResponse
 from baibai_engine.data_collection.receipts.public_pages.receipts import (
     EquityWebReceiptError,
     read_responses,
-    retain_response,
 )
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
@@ -53,7 +53,7 @@ def _retain(conn, *, attempt_id=None, **overrides):
         "body": b"\x82\xa0\xff\x00",
     }
     fields.update(overrides)
-    return retain_response(conn, **fields)
+    return seed_response(conn, **fields)
 
 
 def _received(*, source="monex", attempt_id=None, role="page", parent=None, body=b"original"):
@@ -123,33 +123,30 @@ def test_import_refuses_missing_or_obsolete_store_without_creating_it(tmp_path):
         assert conn.execute("SELECT name FROM sqlite_schema WHERE type='table'").fetchall() == []
 
 
-def test_original_non_utf8_bytes_commit_independently_and_duplicate_rolls_back(tmp_path):
+def test_import_preserves_non_utf8_bytes_and_rolls_back_duplicate_attempt(tmp_path):
     path = tmp_path / "market.sqlite"
+    open_connection(path).close()
+    original = replace(_received(body=b"\x82\xa0\xff\x00"), selected_encoding="shift_jis")
+    assert import_responses(path, (original,)) == 1
     with closing(open_connection(path)) as conn:
-        attempt = str(uuid.uuid4())
-        receipt_id = _retain(conn, attempt_id=attempt)
-        assert str(uuid.UUID(receipt_id)) == receipt_id
-        assert not conn.in_transaction
-        with closing(sqlite3.connect(path)) as other:
-            stored = other.execute(
-                "SELECT body_gzip, selected_encoding, received_on "
-                "FROM equity_web_source_responses WHERE receipt_id=?",
-                (receipt_id,),
-            ).fetchone()
-            assert stored is not None
-            assert gzip.decompress(stored[0]) == b"\x82\xa0\xff\x00"
-            assert stored[0] == gzip.compress(b"\x82\xa0\xff\x00", mtime=0)
-            assert stored[1:] == ("shift_jis", "2026-09-30")
-            assert other.execute(
-                "SELECT COUNT(*) FROM tradingview_forecast_snapshots"
-            ).fetchone() == (0,)
-        with pytest.raises(EquityWebReceiptError, match="could not be retained"):
-            _retain(conn, attempt_id=attempt)
+        stored = conn.execute(
+            "SELECT body_gzip, selected_encoding, received_on "
+            "FROM equity_web_source_responses WHERE receipt_id=?",
+            (original.receipt_id,),
+        ).fetchone()
+        assert stored is not None
+        assert gzip.decompress(stored[0]) == original.body
+        assert stored[0] == gzip.compress(original.body, mtime=0)
+        assert stored[1:] == ("shift_jis", "2026-09-30")
+        assert conn.execute("SELECT COUNT(*) FROM tradingview_forecast_snapshots").fetchone() == (
+            0,
+        )
+        with pytest.raises(EquityWebReceiptError, match="identity"):
+            import_responses(path, (replace(original, receipt_id=str(uuid.uuid4())),))
         assert not conn.in_transaction
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
-        response = read_responses(conn, [receipt_id])[0]
-        assert response.body == b"\x82\xa0\xff\x00"
-        assert response.selected_encoding == "shift_jis"
+        response = read_responses(conn, [original.receipt_id])[0]
+        assert response == original
         assert response.body.__repr__() not in repr(response)
 
 
@@ -197,46 +194,47 @@ def test_rakuten_page_iframe_lineage_and_incomplete_attempts(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (4,)
 
 
-def test_parent_and_attempt_reads_share_the_immediate_write_transaction(tmp_path):
-    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
-        attempt = str(uuid.uuid4())
-        page = _retain(conn, attempt_id=attempt, source="rakuten")
-        statements = []
-        conn.set_trace_callback(lambda sql: statements.append((sql, conn.in_transaction)))
-        try:
-            _retain(
-                conn,
-                attempt_id=attempt,
-                source="rakuten",
-                role="iframe",
-                parent_receipt_id=page,
-            )
-        finally:
-            conn.set_trace_callback(None)
-        reads = [
-            active
-            for sql, active in statements
-            if sql.startswith("SELECT") and "equity_web_source_responses" in sql
-        ]
-        assert len(reads) == 2
-        assert all(reads)
-        assert statements[0][0] == "BEGIN IMMEDIATE"
-        assert not conn.in_transaction
+def test_import_parent_and_attempt_reads_share_the_immediate_write_transaction(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "market.sqlite"
+    open_connection(path).close()
+    page = _received(source="rakuten")
+    iframe = _received(
+        source="rakuten", attempt_id=page.attempt_id, role="iframe", parent=page.receipt_id
+    )
+    statements = []
+    connection = sqlite3.connect(path)
+    connection.set_trace_callback(lambda sql: statements.append((sql, connection.in_transaction)))
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
+    assert import_responses(path, (iframe, page)) == 2
+    reads = [
+        active
+        for sql, active in statements
+        if sql.startswith(("SELECT attempt_id, source", "SELECT source, requested_ticker"))
+    ]
+    assert len(reads) == 3
+    assert all(reads)
+    assert "BEGIN IMMEDIATE" in [sql for sql, _ in statements]
+    assert statements[-1][0] == "COMMIT"
 
 
-def test_insert_failure_rolls_back_only_new_receipt(tmp_path):
-    with closing(open_connection(tmp_path / "market.sqlite")) as conn:
-        committed = _retain(conn)
+def test_import_insert_failure_rolls_back_only_new_receipt(tmp_path):
+    path = tmp_path / "market.sqlite"
+    open_connection(path).close()
+    committed = _received()
+    assert import_responses(path, (committed,)) == 1
+    with closing(open_connection(path)) as conn:
         conn.execute(
             "CREATE TRIGGER reject_equity_web_insert "
             "BEFORE INSERT ON equity_web_source_responses "
             "BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END"
         )
-        with pytest.raises(EquityWebReceiptError, match="could not be retained"):
-            _retain(conn)
+        with pytest.raises(EquityWebReceiptError, match="identity"):
+            import_responses(path, (_received(),))
         assert not conn.in_transaction
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
-        assert read_responses(conn, [committed])[0].body == b"\x82\xa0\xff\x00"
+        assert read_responses(conn, [committed.receipt_id]) == (committed,)
 
 
 @pytest.mark.parametrize(
@@ -265,16 +263,8 @@ def test_invalid_receipts_do_not_mutate_store(tmp_path, overrides, message):
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (0,)
 
 
-def test_idle_connection_and_explicit_missing_ids(tmp_path):
+def test_read_responses_preserves_explicit_order_and_rejects_missing_ids(tmp_path):
     with closing(open_connection(tmp_path / "market.sqlite")) as conn:
-        conn.execute(
-            "INSERT INTO jquants_market_calendar(day,holiday_division) VALUES ('2026-09-30','1')"
-        )
-        with pytest.raises(EquityWebReceiptError, match="pending transaction"):
-            _retain(conn)
-        assert conn.in_transaction
-        assert conn.execute("SELECT COUNT(*) FROM jquants_market_calendar").fetchone() == (1,)
-        conn.rollback()
         first = _retain(conn)
         second = _retain(conn)
         assert [item.receipt_id for item in read_responses(conn, [second, first, second])] == [

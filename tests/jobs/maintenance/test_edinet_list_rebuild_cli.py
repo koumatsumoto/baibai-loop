@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 import requests
 from tests.helpers.edinet_documents import store_edinet_documents
+from tests.helpers.edinet_receipts import seed_list_response
 
-from baibai_engine.data_collection.providers.edinet.receipts import retain_list_response
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.maintenance.market import cli as app
 
@@ -23,7 +23,7 @@ def _wire(rows: list[dict[str, object]]) -> bytes:
 
 def _retain(path: Path, day: date, received: datetime, body: bytes) -> str:
     with closing(open_connection(path)) as connection:
-        return retain_list_response(connection, doc_date=day, received_at=received, body=body)
+        return seed_list_response(connection, doc_date=day, received_at=received, body=body)
 
 
 def _read(path: Path, sql: str, params: tuple[str, ...] = ()) -> list[tuple[object, ...]]:
