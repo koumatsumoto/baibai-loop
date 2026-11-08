@@ -263,7 +263,7 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
         ("economic_input_retain", "retain_economic_input"),
         ("economic_input_rebuild", "rebuild_economic_input"),
         ("model_inputs", "read_and_generate_models"),
-        ("screening", "evaluate_saved_economic_generation"),
+        ("screening", "evaluate_economic_coordinates"),
         ("lake_publish", "publish_prepared_market_lake"),
     ],
 )

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import JsonValue
 
+from baibai_engine.machine_analysis.generation.contracts import GenerationMetadata
 from baibai_engine.machine_analysis.generation.query import stream_generation_subjects
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import project_company
@@ -33,9 +34,7 @@ def evaluate_saved_economic_generation(
     path: Path | None = None,
 ) -> EconomicSelectionEvaluation:
     """全社を一つの読取断面で走査し、個社payloadを順に小さな座標へ縮める。"""
-    subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
-    if len(set(subjects)) != len(subjects):
-        raise ValueError("screening universe must contain unique companies")
+    subjects = _universe(tickers)
     with stream_generation_subjects(generation_id, subjects=subjects, path=path) as generation:
         if generation is None:
             raise ValueError("model generation not found")
@@ -45,17 +44,39 @@ def evaluate_saved_economic_generation(
             coordinates[subject] = project_company(subject, models=models, metadata=metadata)
             # 次社の復元前に、この社のpayload参照を手放す。
             del models
-        for subject in subjects:
-            if subject not in coordinates:
-                coordinates[subject] = project_company(subject, models=(), metadata=metadata)
+    return evaluate_economic_coordinates(
+        metadata, tickers=subjects, coordinates=coordinates, policy=policy
+    )
+
+
+def evaluate_economic_coordinates(
+    metadata: GenerationMetadata,
+    *,
+    tickers: Sequence[str],
+    coordinates: Mapping[str, CompanyCoordinates],
+    policy: EconomicPathPolicy,
+) -> EconomicSelectionEvaluation:
+    """同じ固定世代の全社座標で選ぶ。未生成企業も比較対象集合から落とさない。"""
+    subjects = _universe(tickers)
+    companies = tuple(
+        coordinates[subject]
+        if subject in coordinates
+        else project_company(subject, models=(), metadata=metadata)
+        for subject in subjects
+    )
     selection = ScreeningSelection(
-        generation_id=generation_id,
+        generation_id=metadata.generation_id,
         universe_tickers=subjects,
-        result=select_economic_paths(tuple(coordinates[t] for t in subjects), policy=policy),
+        result=select_economic_paths(companies, policy=policy),
     )
-    return EconomicSelectionEvaluation(
-        selection=selection, price_inputs=_price_inputs(coordinates.values())
-    )
+    return EconomicSelectionEvaluation(selection=selection, price_inputs=_price_inputs(companies))
+
+
+def _universe(tickers: Sequence[str]) -> tuple[str, ...]:
+    subjects = tuple(sorted(normalize_ticker(ticker) for ticker in tickers))
+    if len(set(subjects)) != len(subjects):
+        raise ValueError("screening universe must contain unique companies")
+    return subjects
 
 
 @dataclass(frozen=True, slots=True)

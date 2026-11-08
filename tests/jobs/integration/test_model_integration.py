@@ -297,7 +297,7 @@ def test_lazy_generation_failure_stops_selection_lake_and_pruning(integration, m
         raise AssertionError("must not continue after failed generation")
 
     monkeypatch.setattr(job, "read_and_generate_models", late_failure)
-    monkeypatch.setattr(job, "evaluate_saved_economic_generation", forbidden)
+    monkeypatch.setattr(job, "evaluate_economic_coordinates", forbidden)
     monkeypatch.setattr(job, "prune_model_cache", forbidden)
     with pytest.raises(ValueError, match="late calculation failure"):
         job.integrate_models(**arguments)
