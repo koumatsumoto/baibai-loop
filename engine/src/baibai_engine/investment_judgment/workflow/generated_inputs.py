@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from copy import deepcopy
-from pathlib import Path
 from typing import cast
 
 from pydantic import JsonValue
@@ -13,7 +11,6 @@ from baibai_engine.investment_judgment.workflow.company_growth_projection import
     project_company_growth,
 )
 from baibai_engine.machine_analysis.generation.contracts import ModelInputSlice
-from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
 from baibai_engine.primitives.json import canonical_json
 
 _LEGACY_COMPANY_MODELS = (
@@ -57,16 +54,6 @@ def _project_market_context(
     )
     payload["full_result_ref"] = full_result_ref
     return payload
-
-
-def verify_generated_inputs(
-    saved: ModelInputSlice, *, targets: Sequence[str], runs_path: Path
-) -> None:
-    # Resolve required shared scope from the complete canonical header, never from
-    # an input slice that could already have dropped a common market model.
-    canonical = read_research_model_inputs(saved.generation_id, targets=targets, path=runs_path)
-    if canonical != saved:
-        raise ValueError("model input slice differs from its canonical generation")
 
 
 def _analysis_source(saved: ModelInputSlice) -> dict[str, JsonValue]:

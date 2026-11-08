@@ -17,6 +17,7 @@ from baibai_engine.investment_judgment.workflow.calibration_context import (
 )
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.investment_judgment.workflow.inputs import project_research_inputs
+from baibai_engine.investment_judgment.workflow.operation.models import OperationPayload
 from baibai_engine.investment_judgment.workflow.operation.progress import selection_binding
 from baibai_engine.investment_judgment.workflow.operation.service import OperationService
 from baibai_engine.investment_judgment.workflow.selection import (
@@ -283,16 +284,6 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume(tmp_path):
     )
     assert set(fixed.subjects) == {"1234", "5678", "7777", "sector:food", "market", "market:world"}
     assert set(fixed.subject_plan) == set(fixed.subjects) - {"7777"}
-    from baibai_engine.investment_judgment.workflow.generated_inputs import verify_generated_inputs
-
-    # A canonical stock-only slice is insufficient for starting Research: shared
-    # requirements must be derived from the full generation, not that slice.
-    truncated = read_model_inputs(
-        generation.generation_id, subjects=("1234", "5678", "sector:food"), path=runs
-    )
-    with pytest.raises(ValueError, match="differs from its canonical generation"):
-        verify_generated_inputs(truncated, targets=("1234", "5678"), runs_path=runs)
-    verify_generated_inputs(fixed, targets=("1234", "5678", "7777"), runs_path=runs)
     projected = project_generated_inputs(fixed)
     assert projected["securities"]["1234"]["models"]["stress_probe"] == {
         "value": None,
@@ -328,6 +319,23 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume(tmp_path):
         draft=draft, db_path=database, workspace=workspace, runs_path=runs, now=NOW
     )
     saved = selection_binding(OperationService(database).get(prepared.operation_id).payload)
+    # 入力slice自身からは、落とされた市場共有subjectを復元できない。
+    # 初回admissionは元Generationの完全headerを使って照合する。
+    truncated = read_model_inputs(
+        generation.generation_id, subjects=("1234", "5678", "7777", "sector:food"), path=runs
+    )
+    altered = saved.model_dump(mode="json")
+    altered["inputs"]["generation"] = truncated.model_dump(mode="json")
+    assert parse_selection(altered).inputs.generation == truncated
+    rejected = tmp_path / "rejected.sqlite"
+    with pytest.raises(ValueError, match="differs from its canonical generation"):
+        OperationService(rejected, runs_path=runs).start(
+            session_kind="capital-allocation",
+            as_of=AS_OF,
+            started_at=NOW,
+            payload=OperationPayload(checkpoint="start", artifacts=(altered,)),
+        )
+    assert not rejected.exists()
     before = project_research_inputs(saved)
     digest = selection_sha256(saved)
     runs.unlink()
