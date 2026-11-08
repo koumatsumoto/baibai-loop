@@ -42,8 +42,9 @@ def export_source_input(source: Path, output: Path, *, group: str, asof: date) -
         rows_by_table = {}
         for table in tables:
             cursor = raw.execute(
-                f"SELECT * FROM {table} WHERE snapshot_date >= ?", (asof.isoformat(),)
-            )  # nosec B608
+                f"SELECT * FROM {table} WHERE snapshot_date >= ?",  # nosec B608
+                (asof.isoformat(),),
+            )
             placeholders = ",".join("?" for _ in cursor.description or ())
             before = target.total_changes
             target.executemany(f"INSERT INTO {table} VALUES ({placeholders})", cursor)  # nosec B608
