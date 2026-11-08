@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -181,14 +182,17 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
                 )
         else:  # pragma: no cover
             raise AssertionError(f"unreachable operation command: {args.command}")
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, RuntimeError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
 
 
 def _load_payload(path: Path) -> OperationPayload:
-    loaded = safe_load(path.read_text(encoding="utf-8"))
+    try:
+        loaded = safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise ValueError(f"invalid operation payload YAML: {path}") from error
     if not isinstance(loaded, dict):
         raise ValueError("operation payload must be a mapping")
     return OperationPayload.model_validate(loaded)

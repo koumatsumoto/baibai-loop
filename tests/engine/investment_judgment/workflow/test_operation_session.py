@@ -300,3 +300,69 @@ def test_operation_start_requires_the_explicit_payload_at_the_cli_boundary(
     assert error.value.code == 2
     assert "--payload" in capsys.readouterr().err
     assert not db.exists()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["start", "--kind", "capital-allocation", "--as-of", "2026-07-19"],
+        ["checkpoint", "unknown-operation"],
+    ],
+    ids=["start", "checkpoint"],
+)
+def test_operation_cli_reports_malformed_payload_without_echoing_its_content(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], arguments: list[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    draft = tmp_path / "payload.yaml"
+    draft.write_text("checkpoint: [\nprivate-marker: do-not-echo\n", encoding="utf-8")
+
+    assert operation_main(["--db", str(db), *arguments, "--payload", str(draft)], now=NOW) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"error: invalid operation payload YAML: {draft}\n"
+    assert "do-not-echo" not in captured.err
+    assert not db.exists()
+
+
+@pytest.mark.parametrize("state", ["corrupt", "obsolete"])
+def test_operation_cli_reports_unreadable_stores_without_changing_them(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], state: str
+) -> None:
+    db = tmp_path / "app.sqlite"
+    if state == "corrupt":
+        db.write_bytes(b"not a SQLite database")
+    else:
+        with closing(sqlite3.connect(db)) as connection, connection:
+            connection.execute("PRAGMA user_version=1")
+    before = db.read_bytes()
+
+    assert operation_main(["--db", str(db), "show", "unknown-operation"], now=NOW) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("error: ")
+    assert "Traceback" not in captured.err
+    assert db.read_bytes() == before
+
+
+def test_operation_cli_show_preserves_a_retained_legacy_operation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    db = tmp_path / "app.sqlite"
+    operation = historical_operation(selection(now=NOW, tickers=("1234",)))
+    seed_historical_operation(db, operation)
+    before = db.read_bytes()
+
+    assert (
+        operation_main(
+            ["--db", str(db), "--format", "json", "show", operation.operation_id], now=NOW
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == operation.public()
+    assert db.read_bytes() == before
