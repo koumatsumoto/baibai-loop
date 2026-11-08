@@ -495,7 +495,13 @@ def test_offline_reader_uses_projected_rows_without_writing(db_path, monkeypatch
         body(
             [
                 {"Code": "13010", "Date": DAY, "C": 100.0, "AdjFactor": 1.0},
-                {"Code": "130A0", "Date": DAY, "C": None, "AdjFactor": 0.5, "ExRT": "1"},
+                {
+                    **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+                    "Code": "130A0",
+                    "Date": DAY,
+                    "AdjFactor": 0.5,
+                    "ExRT": "1",
+                },
             ]
         ),
         FIRST_AT,

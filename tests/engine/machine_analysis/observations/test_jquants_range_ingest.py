@@ -58,7 +58,11 @@ def test_valid_sparse_range_keeps_native_null_or_category(tmp_path, kind):
     path = tmp_path / "market.sqlite"
     writer = store_jquants_daily_bars if kind == "bars" else store_jquants_market_calendar
     record = (
-        {"Date": "2026-10-14", "Code": "12340", "C": None}
+        {
+            "Date": "2026-10-14",
+            "Code": "12340",
+            **dict.fromkeys(("O", "H", "L", "C", "Vo", "Va")),
+        }
         if kind == "bars"
         else {"Date": "2026-10-14", "HolDiv": "9"}
     )
