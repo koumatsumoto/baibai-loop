@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     validate_full_plan,
     validate_model_scope,
 )
-from baibai_engine.primitives.json import canonical_json
+from baibai_engine.primitives.json import canonical_json, encode_json
 from baibai_engine.storage.sqlite.machine_analysis import (
     connect_rw,
     initialize_run_store,
@@ -75,7 +75,9 @@ class ModelGenerationStore:
                     if key in seen:
                         raise GenerationConflictError("generation has duplicate model identity")
                     seen.add(key)
-                    payload = canonical_json(model.payload)
+                    # GeneratedModel has already validated this tree as JsonValue.
+                    # Keep canonical bytes without normalizing/copying it again.
+                    payload = encode_json(model.payload)
                     if existing is None:
                         connection.execute(
                             "INSERT INTO generated_model VALUES (?,?,?,?,?)",

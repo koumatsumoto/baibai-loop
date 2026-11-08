@@ -11,8 +11,13 @@ from typing import Any
 
 def canonical_json(value: object) -> str:
     """Serialize supported domain values without filling or dropping fields."""
+    return encode_json(_normalize(value))
+
+
+def encode_json(value: object) -> str:
+    """Encode JSON values canonically without normalizing or copying the tree."""
     return json.dumps(
-        _normalize(value),
+        value,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -36,4 +41,4 @@ def _normalize(value: object) -> Any:
     raise TypeError(f"unsupported canonical JSON value: {type(value).__name__}")
 
 
-__all__ = ["canonical_json"]
+__all__ = ["canonical_json", "encode_json"]
