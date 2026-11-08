@@ -3,7 +3,7 @@
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.model_generation import materialize_generation
+from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGeneration
@@ -89,7 +89,6 @@ def test_trends_are_shared_and_preserve_all_old_model_payloads(tmp_path):
 
     from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
     from baibai_engine.machine_analysis.generation.query import read_research_model_inputs
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 
     old = generate()
     stream = generate(stream=True, trends=generation_inputs())
@@ -111,7 +110,7 @@ def test_trends_are_shared_and_preserve_all_old_model_payloads(tmp_path):
     )
 
     path = tmp_path / "runs.sqlite"
-    ModelGenerationStore(path).publish(new)
+    publish_generation(new, path=path)
     # Candidate status is irrelevant; both stocks get their same shared context.
     for ticker in ("1001", "1002"):
         saved = read_research_model_inputs(new.generation_id, targets=(ticker,), path=path)

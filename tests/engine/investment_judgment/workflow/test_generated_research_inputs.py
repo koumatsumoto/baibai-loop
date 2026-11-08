@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 import yaml
+from tests.helpers.model_generation import publish_generation
 from tests.helpers.research_selection import selected_target, selection
 from tests.helpers.retained_model_generation import seed_generation
 
@@ -32,7 +33,6 @@ from baibai_engine.investment_judgment.workflow.workspace.selected_prepare impor
     resume_selected_workspace,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation, read_model_inputs
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 
 NOW = datetime(2026, 10, 25, 9, tzinfo=UTC)
 AS_OF = date(2026, 10, 23)
@@ -277,7 +277,7 @@ def test_scoped_additional_models_reach_fixed_selection_and_resume(tmp_path):
             "models": (*original.models, *extra),
         }
     )
-    ModelGenerationStore(runs).publish(generation)
+    publish_generation(generation, path=runs)
     fixed = read_research_model_inputs(
         generation.generation_id, targets=("1234", "5678", "7777"), path=runs
     )
@@ -441,7 +441,7 @@ def test_shared_trend_payloads_survive_selection_and_operation_resume(tmp_path):
             ),
         }
     )
-    ModelGenerationStore(runs).publish(new)
+    publish_generation(new, path=runs)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(
@@ -627,7 +627,7 @@ def test_old_full_market_workspace_requires_explicit_display_repair_and_keeps_au
             ),
         }
     )
-    ModelGenerationStore(runs).publish(generation)
+    publish_generation(generation, path=runs)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(text="調査", scope="specified_stocks", requested_tickers=("1234",)),
@@ -747,7 +747,7 @@ def test_native_descriptor_is_compact_in_l3_and_exact_reference_survives_resume(
             "subject_plan": plan if schema_version == 2 else None,
         }
     )
-    ModelGenerationStore(runs).publish(generation)
+    publish_generation(generation, path=runs)
     draft = GeneratedResearchSelectionDraft(
         schema_version=2,
         request=ResearchRequest(

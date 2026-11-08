@@ -11,7 +11,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from tests.helpers.lake_release import market_store
-from tests.helpers.model_generation import materialize_generation
+from tests.helpers.model_generation import materialize_generation, publish_generation
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.research_selection import selected_target
 
@@ -42,7 +42,6 @@ from baibai_engine.machine_analysis.generation.query import (
 )
 from baibai_engine.machine_analysis.generation.store import (
     GenerationConflictError,
-    ModelGenerationStore,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -146,7 +145,7 @@ def test_production_native_generation_reference_survives_source_advance_and_cach
         )
         generated = materialize_generation(stream)
     runs, app, workspace = tmp_path / "runs", tmp_path / "app", tmp_path / "workspace"
-    ModelGenerationStore(runs).publish(generated)
+    publish_generation(generated, path=runs)
     context = load_generated_selection_context(
         request=ResearchRequest(
             text="財務を確認する", scope="specified_stocks", requested_tickers=("1301",)
@@ -268,7 +267,7 @@ def test_native_descriptor_and_generation_identity_cannot_be_substituted(tmp_pat
     generation = seed_generation(runs, now=AT, as_of=AS_OF).model_copy(
         update={"generation_id": "native-fixed", "inputs": {"financial": identity}}
     )
-    ModelGenerationStore(runs).publish(generation)
+    publish_generation(generation, path=runs)
     fixed = read_research_model_inputs(generation.generation_id, targets=("1234",), path=runs)
     forged = deepcopy(identity.model_dump(mode="json"))
     forged["descriptor"]["summary"]["unavailable_days"] = 0
@@ -277,8 +276,8 @@ def test_native_descriptor_and_generation_identity_cannot_be_substituted(tmp_pat
     forged["sha256"] = hashlib.sha256(canonical_json(forged["descriptor"]).encode()).hexdigest()
     changed = InputSnapshot.model_validate(forged)
     with pytest.raises(GenerationConflictError, match="different content"):
-        ModelGenerationStore(runs).publish(
-            generation.model_copy(update={"inputs": {"financial": changed}})
+        publish_generation(
+            generation.model_copy(update={"inputs": {"financial": changed}}), path=runs
         )
     with pytest.raises(ValueError, match="differs from its canonical generation"):
         verify_generated_inputs(

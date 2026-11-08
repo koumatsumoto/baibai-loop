@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
-from tests.helpers.model_generation import materialize_generation
+from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
@@ -15,7 +15,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.earnings import (
     EarningsPrice,
     ProfitComponent,
@@ -704,7 +703,7 @@ def test_saved_new_result_roundtrip_and_history_identity(tmp_path):
     header = metadata()
     generation = ModelGeneration(**header.model_dump(), models=models(payloads()))
     runs = tmp_path / "runs.sqlite"
-    ModelGenerationStore(runs).publish(generation)
+    publish_generation(generation, path=runs)
     result = select_saved_economic_generation(
         header.generation_id, tickers=("1234",), policy=EconomicPathPolicy(), path=runs
     )
@@ -944,7 +943,7 @@ def owner_generation(
 def test_owner_fy_and_cumulative_quarter_flow_through_saved_new_policy(tmp_path):
     generation = owner_generation()
     path = tmp_path / "owner-runs.sqlite"
-    ModelGenerationStore(path).publish(generation)
+    publish_generation(generation, path=path)
     selection = select_saved_economic_generation(
         generation.generation_id,
         tickers=("1001",),
@@ -986,7 +985,7 @@ def test_native_fiscal_year_end_tie_uses_owner_last_anchor_and_local_ambiguity(t
     assert latest["operating_profit"]["latest_quarter"]["reason"] == ("ambiguous_growth_comparison")
     assert latest["sales"]["latest_quarter"]["rate"] == pytest.approx(0.6)
     path = tmp_path / "native-tie.sqlite"
-    ModelGenerationStore(path).publish(generation)
+    publish_generation(generation, path=path)
     select_saved_economic_generation(
         generation.generation_id,
         tickers=("1001",),

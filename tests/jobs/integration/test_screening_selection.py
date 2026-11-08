@@ -5,7 +5,7 @@ import sqlite3
 from datetime import UTC, date, datetime
 
 from pydantic import TypeAdapter
-from tests.helpers.model_generation import generation
+from tests.helpers.model_generation import generation, publish_generation
 
 from baibai_engine.machine_analysis.generation.contracts import (
     GeneratedModel,
@@ -13,7 +13,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import (
@@ -78,7 +77,7 @@ def saved_generation(path):
             ),
         ),
     )
-    assert ModelGenerationStore(path).publish(fixed)
+    assert publish_generation(fixed, path=path)
     return fixed
 
 
@@ -157,7 +156,7 @@ def test_same_selection_id_with_different_policy_content_is_rejected(tmp_path, c
 def test_generation_without_fixed_stock_plan_is_not_relabelled(tmp_path, capsys):
     path = tmp_path / "runs.sqlite"
     old = generation()
-    assert ModelGenerationStore(path).publish(old)
+    assert publish_generation(old, path=path)
     assert main(["--generation-id", old.generation_id, "--runs", str(path)]) == 1
     assert "no fixed stock subject plan" in capsys.readouterr().err
     with sqlite3.connect(path) as connection:

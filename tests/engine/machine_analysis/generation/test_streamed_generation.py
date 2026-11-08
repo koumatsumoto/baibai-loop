@@ -4,11 +4,12 @@ import sqlite3
 from contextlib import closing
 
 import pytest
-from tests.helpers.model_generation import generation, materialize_generation
+from tests.helpers.model_generation import generation, materialize_generation, publish_generation
 
 import baibai_engine.machine_analysis.generation.store as generation_store
 from baibai_engine.machine_analysis.generation.contracts import (
     GenerationMetadata,
+    GenerationSubject,
     ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.generation.query import read_generation
@@ -66,7 +67,7 @@ def test_late_generator_failure_rolls_back_all_rows_and_preserves_previous_gener
     path = tmp_path / "runs.sqlite"
     store = ModelGenerationStore(path)
     prior = generation().model_copy(update={"generation_id": "prior"})
-    store.publish(prior)
+    publish_generation(prior, path=path)
     original = generation()
 
     def rows():
@@ -89,7 +90,7 @@ def test_late_generator_failure_rolls_back_all_rows_and_preserves_previous_gener
 def test_stream_retry_cannot_hide_changed_or_missing_content(tmp_path, change):
     store = ModelGenerationStore(tmp_path / "runs.sqlite")
     original = generation()
-    store.publish(original)
+    publish_generation(original, path=tmp_path / "runs.sqlite")
     changed = original
     models = list(original.models)
     if change == "header":
@@ -115,6 +116,52 @@ def test_duplicate_fresh_stream_rolls_back(tmp_path):
     with pytest.raises(GenerationConflictError, match="duplicate"):
         store.publish_stream(stream(original, (original.models[0], original.models[0])))
     assert read_generation(original.generation_id, path=tmp_path / "runs.sqlite") is None
+
+
+def test_nonfinite_last_streamed_model_rolls_back_header_and_previous_rows(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    original = generation(value=float("nan"))
+    consumed = []
+
+    def rows():
+        for model in reversed(original.models):
+            consumed.append(model.model_id)
+            yield model
+
+    with pytest.raises(ValueError, match="Out of range float"):
+        ModelGenerationStore(path).publish_stream(stream(original, rows()))
+    assert consumed == ["technical_analysis", "market_context", "company_financials"]
+    assert read_generation(original.generation_id, path=path) is None
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("SELECT count(*) FROM generated_model").fetchone()[0] == 0
+
+
+def test_stream_rejects_incomplete_fixed_plan_before_consuming_models(tmp_path):
+    path = tmp_path / "runs.sqlite"
+    original = generation()
+    metadata = GenerationMetadata.model_validate(
+        {
+            **original.model_dump(exclude={"models"}),
+            "schema_version": 2,
+            "subject_plan": {
+                "1234": GenerationSubject(
+                    scope="stock",
+                    model_ids=("company_financials", "technical_analysis"),
+                    related_subjects=("sector",),
+                )
+            },
+        }
+    )
+
+    def rows():
+        raise AssertionError("rejected metadata must not consume model results")
+        yield from original.models
+
+    with pytest.raises(ValueError, match="related subject"):
+        ModelGenerationStore(path).publish_stream(
+            ModelGenerationStream(metadata, ("1234",), rows())
+        )
+    assert not path.exists()
 
 
 def test_finite_fixture_materialization_preserves_inputs_clock_and_single_pass():

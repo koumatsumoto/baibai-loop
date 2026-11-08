@@ -3,17 +3,15 @@ from contextlib import closing
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.helpers.model_generation import empty_selection, generation
+from tests.helpers.model_generation import empty_selection, generation, publish_generation
 
 from baibai_engine.machine_analysis.generation.query import read_generation
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_jobs.maintenance.model_cache import prune_model_cache
 
 
 def test_cache_retention_uses_policy_publication_and_preserves_manual_generation(tmp_path):
     path = tmp_path / "runs"
-    store = ModelGenerationStore(path)
     policy_store = ScreeningSelectionStore(path)
     for name, day in (("older", 20), ("a", 23), ("b", 23), ("c", 23), ("bare", 24)):
         item = generation().model_copy(
@@ -25,7 +23,7 @@ def test_cache_retention_uses_policy_publication_and_preserves_manual_generation
                 ),
             }
         )
-        store.publish(item)
+        publish_generation(item, path=path)
         if name != "bare":
             policy_store.publish(name, empty_selection(item.generation_id))
     with closing(sqlite3.connect(path)) as connection, connection:
@@ -49,8 +47,7 @@ def test_cache_retention_uses_policy_publication_and_preserves_manual_generation
 
 def test_cache_retention_keeps_a_bare_generation_when_capacity_is_available(tmp_path):
     path = tmp_path / "runs"
-    store = ModelGenerationStore(path)
-    store.publish(generation())
+    publish_generation(generation(), path=path)
     assert prune_model_cache(path) == ()
     with pytest.raises(ValueError, match="positive"):
         prune_model_cache(path, keep=0)
@@ -58,11 +55,10 @@ def test_cache_retention_keeps_a_bare_generation_when_capacity_is_available(tmp_
 
 def test_cache_retention_rolls_back_policy_and_model_deletion_together(tmp_path):
     path = tmp_path / "runs"
-    store = ModelGenerationStore(path)
     policies = ScreeningSelectionStore(path)
     for name, day in (("older", 20), ("current", 23)):
         item = generation().model_copy(update={"generation_id": name, "as_of": date(2026, 10, day)})
-        store.publish(item)
+        publish_generation(item, path=path)
         policies.publish(name, empty_selection(item.generation_id))
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(

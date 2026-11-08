@@ -6,12 +6,11 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
-from tests.helpers.model_generation import materialize_generation
+from tests.helpers.model_generation import materialize_generation, publish_generation
 
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
 )
@@ -123,7 +122,7 @@ def with_growth(fixed, update):
 def test_missing_ttm_uses_same_complete_fy_and_preserves_short_history_comparison(tmp_path):
     fixed = generation(documents())
     path = tmp_path / "runs.sqlite"
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     selected = select_saved_economic_generation(
         fixed.generation_id, tickers=("1001",), policy=EconomicPathPolicy(), path=path
     )

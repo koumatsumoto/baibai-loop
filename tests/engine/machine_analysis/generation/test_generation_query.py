@@ -2,7 +2,7 @@ import sqlite3
 from contextlib import closing
 
 import pytest
-from tests.helpers.model_generation import generation
+from tests.helpers.model_generation import generation, publish_generation
 
 from baibai_engine.machine_analysis.generation import query
 from baibai_engine.machine_analysis.generation.contracts import (
@@ -11,7 +11,6 @@ from baibai_engine.machine_analysis.generation.contracts import (
     GenerationSubject,
     ModelGeneration,
 )
-from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.screening.policies.economic_path_selection import (
     evaluate_saved_economic_generation,
 )
@@ -45,10 +44,9 @@ def test_subject_stream_filters_fixed_generation_and_materializes_one_company_at
             )
         }
     )
-    store = ModelGenerationStore(path)
-    store.publish(fixed)
+    publish_generation(fixed, path=path)
     other = fixed.model_copy(update={"generation_id": "other-generation"})
-    store.publish(other)
+    publish_generation(other, path=path)
     # 範囲外の対象・別世代を展開した場合はgzip読取が失敗するfixture。
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
@@ -110,7 +108,7 @@ def test_subject_stream_filters_fixed_generation_and_materializes_one_company_at
 def test_subject_stream_closes_when_consumer_stops_before_the_next_company(tmp_path, monkeypatch):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     connection = connect_read_only(path)
     monkeypatch.setattr(query, "connect_read_only", lambda _path: connection)
 
@@ -149,7 +147,7 @@ def test_subject_stream_filters_model_keys_before_decoding(tmp_path, model_ids, 
                 "market": GenerationSubject(scope="market", model_ids=("market_context",)),
             },
         )
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
             "UPDATE generated_model SET payload_gzip=? WHERE model_id!='company_financials'",
@@ -169,7 +167,7 @@ def test_subject_stream_filters_model_keys_before_decoding(tmp_path, model_ids, 
 def test_subject_stream_freezes_requested_scope_before_lazy_consumption(tmp_path):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     subjects, model_ids = ["1234"], ["company_financials"]
     with query.stream_generation_subjects(
         fixed.generation_id, subjects=subjects, model_ids=model_ids, path=path
@@ -184,7 +182,7 @@ def test_subject_stream_freezes_requested_scope_before_lazy_consumption(tmp_path
 def test_subject_stream_rejects_selected_models_outside_the_saved_plan(tmp_path, invalid):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     plan = {"market": GenerationSubject(scope="market", model_ids=("market_context",))}
     if invalid == "model":
         plan["1234"] = GenerationSubject(scope="stock", model_ids=("technical_analysis",))
@@ -224,7 +222,7 @@ def test_subject_stream_rejects_selected_models_outside_the_saved_plan(tmp_path,
 def test_subject_stream_rejects_invalid_saved_header_before_models(tmp_path, schema_version):
     path = tmp_path / "runs.sqlite"
     fixed = generation()
-    ModelGenerationStore(path).publish(fixed)
+    publish_generation(fixed, path=path)
     header = fixed.model_dump(mode="json", exclude={"models"})
     header["schema_version"] = schema_version
     with closing(sqlite3.connect(path)) as connection, connection:

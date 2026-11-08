@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
+from tests.helpers.model_generation import publish_generation
 from tests.helpers.r2_store import MemoryR2Store
 from tests.helpers.tradingview_market import CLOCK, capture
 
@@ -407,13 +408,10 @@ def test_hash_only_legacy_or_tampered_descriptor_is_not_upgraded(tmp_path):
 def test_saved_hash_only_generation_remains_readable_without_original_snapshot(tmp_path):
     from tests.helpers.model_generation import generation
 
-    from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
-
     legacy = InputSnapshot(kind="sqlite_snapshot", reference="old", sha256="a" * 64)
     original = generation()
     original = original.model_copy(update={"inputs": {**original.inputs, "economic": legacy}})
-    generations = ModelGenerationStore(tmp_path / "runs.sqlite")
-    generations.publish(original)
+    publish_generation(original, path=tmp_path / "runs.sqlite")
     restored = read_generation(original.generation_id, path=tmp_path / "runs.sqlite")
     assert restored == original
     assert restored.inputs["economic"].model_dump_json() == legacy.model_dump_json()
