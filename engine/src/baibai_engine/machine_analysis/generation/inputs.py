@@ -390,7 +390,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-bar-timing-v8-valid-turnover",
+        market_context_revision="shared-market-context-bar-timing-v8-tradingview-valid-turnover",
         growth_start=growth_start,
         trends=trends,
     )
