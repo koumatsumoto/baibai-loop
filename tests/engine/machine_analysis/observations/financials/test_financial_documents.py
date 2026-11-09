@@ -224,7 +224,6 @@ def test_asof_excludes_later_revision() -> None:
 def test_eps_does_not_require_ordinary_profit(fields: dict[str, str]) -> None:
     rows = decode([document("eps-only", **fields)])
     assert snapshot(rows).per_forward == 1074 / 20
-    assert not snapshot(rows).forecast_special_gain_flag
 
 
 @pytest.mark.parametrize("standard", ["JP", "IFRS", "US"])
@@ -311,7 +310,6 @@ def test_f_and_next_slots_are_retained_without_mixing() -> None:
         selected.forecast_profit,
         selected.forecast_ordinary_profit,
     ) == (20, 100, 90)
-    assert snapshot([row]).forecast_special_gain_flag
 
 
 def test_same_time_different_docs_cannot_supply_capital_pair(tmp_path: Path) -> None:
@@ -446,7 +444,6 @@ def test_basis_transition_does_not_relabel_old_primary_guidance(
     )
     result = snapshot(decode([old, new]))
     assert result.per_forward is None
-    assert not result.forecast_special_gain_flag
     # Issuer DPS does not acquire a consolidated/nonconsolidated accounting basis.
     assert result.dps_forecast_annual == 7
     projected = project_financial_documents(decode([old, new]), ASOF)
@@ -662,7 +659,7 @@ def test_complementary_earnings_documents_keep_independent_fields_and_sources(
         records.reverse()
     result = snapshot(decode(records))
     assert result.per_forward == 1074 / 20
-    assert result.forecast_special_gain_flag
+    assert (result.forecast_profit_yen, result.forecast_ordinary_profit_yen) == (100, 90)
     assert result.earnings_forecast_source
     assert result.earnings_forecast_source["forecast_eps_source_records"] == "eps"
     assert result.earnings_forecast_source["forecast_profit_source_records"] == "profit"
@@ -1098,7 +1095,7 @@ def test_short_revision_does_not_claim_annual_values(period, end, basis, prefix)
     assert result.forecast_ordinary_profit_yen is None
     assert result.forecast_eps_yen is None
     assert result.per_forward is None
-    assert not result.forecast_full_year_loss_flag
+    assert result.forecast_full_year_loss_flag is None
     assert result.dps_forecast_annual == 9
     trace = result.earnings_forecast_source
     assert trace is not None
@@ -1547,3 +1544,12 @@ def test_previous_year_dividend_revision_does_not_withdraw_next_year_guidance():
     result = snapshot(decode([old, revised]))
     assert result.dps_forecast_annual == 0
     assert result.dividend_yield == 0
+
+
+@pytest.mark.parametrize(
+    ("profit", "ordinary", "expected"),
+    [("", "", None), ("10", "", None), ("-10", "", True), ("", "-1", True), ("10", "5", False)],
+)
+def test_forecast_loss_flag_preserves_unknown(profit, ordinary, expected):
+    result = snapshot(decode([document("partial-loss", FNP=profit, FOdP=ordinary)]))
+    assert result.forecast_full_year_loss_flag is expected

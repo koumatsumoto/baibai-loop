@@ -385,7 +385,6 @@ def project_company(
                 "forecast_eps_yen",
                 "forecast_ordinary_profit_yen",
                 "earnings_forecast_source",
-                "forecast_special_gain_flag",
                 "forecast_full_year_loss_flag",
                 "cash",
                 "debt",

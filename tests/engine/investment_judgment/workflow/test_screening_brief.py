@@ -414,3 +414,16 @@ def test_holder_evidence_reaches_brief_without_losing_source_limit():
         economic_screening_brief(result(company))["cards"][0]["context"]["holder_capital_evidence"]
         == evidence
     )
+
+
+def test_brief_omits_legacy_special_gain_label_but_keeps_forecast_amounts():
+    company = card()
+    company["context"]["financial"].update(
+        forecast_special_gain_flag=True,
+        forecast_profit_yen=100.0,
+        forecast_ordinary_profit_yen=90.0,
+    )
+    financial = economic_screening_brief(result(company))["cards"][0]["context"]["financial"]
+    assert "forecast_special_gain_flag" not in financial
+    assert financial["forecast_profit_yen"] == 100.0
+    assert financial["forecast_ordinary_profit_yen"] == 90.0
