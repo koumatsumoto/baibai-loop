@@ -516,23 +516,18 @@ def canonical_lake_model_bytes(model: BaseModel) -> bytes:
     )
 
 
-def validate_dataset_contract(
-    manifest: DatasetManifest, contract: LakeDataset, *, require_current_version: bool = True
-) -> None:
+def validate_dataset_contract(manifest: DatasetManifest, contract: LakeDataset) -> None:
     """Accept a concrete owner schema without consulting a global domain registry."""
     if manifest.dataset != contract.name:
         raise ValueError("dataset name does not match its owner contract")
     if manifest.layer != contract.layer:
         raise ValueError("dataset layer does not match its current contract")
-    if require_current_version and manifest.contract_version != contract.contract_version:
+    if manifest.contract_version != contract.contract_version:
         raise ValueError(
             f"dataset {manifest.dataset} publishes contract v{manifest.contract_version}; "
             f"this reader accepts only v{contract.contract_version}"
         )
-    if (
-        manifest.contract_version == contract.contract_version
-        and tuple(manifest.partition_by) != contract.partition_by
-    ):
+    if tuple(manifest.partition_by) != contract.partition_by:
         raise ValueError("dataset contract version pins its partition layout")
 
 
@@ -583,12 +578,6 @@ def validate_release_policy(
             raise ValueError(f"{dataset}: release accepts matching lake dataset manifests only")
         if manifest.created_at > release.created_at:
             raise ValueError(f"{dataset}: release cannot predate a referenced dataset manifest")
-        current_version = catalog[dataset].contract_version
-        if manifest.contract_version != current_version:
-            raise ValueError(
-                f"{dataset}: contract v{manifest.contract_version} does not match "
-                f"current contract v{current_version}"
-            )
         validate_dataset_contract(manifest, catalog[dataset])
         manifest_bytes = canonical_lake_model_bytes(manifest)
         if release_dataset.manifest_sha256 != sha256(manifest_bytes).hexdigest():

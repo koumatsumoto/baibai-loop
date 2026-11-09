@@ -1060,7 +1060,7 @@ def test_release_requires_the_current_dataset_contract(monkeypatch) -> None:
     )
 
     other_version = manifest.model_copy(update={"contract_version": manifest.contract_version + 1})
-    with pytest.raises(ValueError, match="does not match current contract"):
+    with pytest.raises(ValueError, match="this reader accepts only"):
         validate_release_policy(
             release,
             {manifest.dataset: other_version},
@@ -1126,7 +1126,7 @@ def test_mixed_jquants_release_rejects_previous_contract(
         content_sha256=lake_object["sha256"],
     )
     mixed = {**manifests, legacy_dataset: _load_dataset(old_payload)}
-    with pytest.raises(ValueError, match="does not match current contract"):
+    with pytest.raises(ValueError, match="this reader accepts only"):
         validate_release_policy(
             release_for(mixed),
             mixed,
