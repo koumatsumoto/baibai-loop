@@ -346,7 +346,7 @@ BOJ/MOFのoffline再発見はregister-discoveryへstage/hashと--receipt-idを�
 <a id="jpx-pdfとedinet"></a>
 ### JPX PDF
 
-JPX決算予定/規制は過去factで取得を止めず、fresh source DBの部分受領をprivate stageへ残す。手動bootstrapは`maintain-market bootstrap-cache --asof <DATE> --source-group jpx-earnings`または`jpx-regulations`だけを指定する。旧all/J-Quants groupやbackfill-historyは使わない。
+JPX決算予定/規制は `uv run python -m baibai_jobs.integration.source_handoff acquire --source <SOURCE> --asof <DATE> --directory <PRIVATE_DIRECTORY>` で原本だけ取得する。SOURCEは `jpx-earnings` または `jpx-regulations`。部分受領も同じモジュールの `stage --source <SOURCE> --stage-id <UNIQUE_ID> --directory <PRIVATE_DIRECTORY>` で保存し、L2は通常の統合で作る。
 
 明示PDFは既知URLで取得済みの原本だけを`financial-pdf-source --receipts <JSON> --directory <NEW_PRIVATE_DIRECTORY>`へ渡し、daily自動取得へ加えない。HTTPなしで実UTC/bytes/hash等を検査するため、mtime/公表日で時計を作らない。生成後はintegration.source_handoff stageへ--source jpx-financial-pdfs（完了転換は--collection capital_actions/--source jpx-capital-actions）を渡す。不対応も原本を保ち、株数/自己株を推定しない。選択/訂正basisは[観測reference](../docs/reference/model-observations.md#reported-comparisons)へ。
 
