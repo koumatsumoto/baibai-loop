@@ -10,6 +10,7 @@ from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.tradingeconomics.pmi as te
+import baibai_engine.machine_analysis.observations.economic_indicators.pmi as pmi_reading
 from baibai_engine.data_collection.catalog import load_sources, require_source
 from baibai_engine.data_collection.receipts.native_sources import store
 from baibai_engine.data_collection.receipts.native_sources.documents import (
@@ -149,12 +150,16 @@ def acquire(monkeypatch, replies, *, existing=None, start=SEP, end=END):
         ),
     ],
 )
-def test_four_series_primary_article_excludes_newer_related_month(tmp_path, stream, lead, expected):
+def test_four_series_primary_article_excludes_newer_related_month(
+    tmp_path, mocker, stream, lead, expected
+):
     doc = document(html(lead, related="October 2026 flash PMI rose to 99.0"), stream=stream)
+    parse = mocker.spy(pmi_reading, "parse_article")
     series = next(item for item in load_definitions().series if item.reading_key == stream)
     with closing(store.initialize_database(tmp_path / "source.sqlite")) as conn, conn:
         store_document(conn, doc)
         values = read_document_series(conn, series, start=SEP, end=END)
+    parse.assert_called_once_with(doc.payload, stream=stream, url=doc.source_url)
     assert [(item.observed_at, item.value) for item in values] == [(SEP, expected)]
     assert values[0].quality_flags == ("secondary_delivery", "final")
     assert values[0].vintage_at == WHEN
