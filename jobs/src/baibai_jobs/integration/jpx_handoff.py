@@ -7,6 +7,10 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.jpx.receipt_store import (
+    open_receipts,
+    validate_receipts,
+)
 from baibai_engine.data_collection.providers.jpx.receipts import (
     JPXBundleError,
     read_complete_bundle,
@@ -22,10 +26,7 @@ from baibai_engine.machine_analysis.observations.financials.capital_action_pdf i
     extract_completed_conversion,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pdf
-from baibai_engine.storage.sqlite.source_cache.schema import (
-    open_connection,
-    validate_current_schema,
-)
+from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.replay_result import ReplayResult
 
 # These three owners replace their entire current view. Regulations replace only
@@ -43,10 +44,10 @@ def export_handoff(
         raise ValueError("invalid JPX handoff selection")
     with (
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
-        closing(open_connection(output)) as target,
+        closing(open_receipts(output)) as target,
         target,
     ):
-        validate_current_schema(raw)
+        validate_receipts(raw)
         raw.execute("BEGIN")
         bundles = tuple(
             row[0]
@@ -71,7 +72,7 @@ def import_handoff(
         closing(sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)) as raw,
         closing(open_connection(target)) as conn,
     ):
-        validate_current_schema(raw)
+        validate_receipts(raw)
         scopes = set()
         for bundle_id in bundle_ids:
             row = raw.execute(

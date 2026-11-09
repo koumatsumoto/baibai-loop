@@ -94,9 +94,11 @@ def test_late_global_earnings_bundle_preserves_latest_complete_workbook(tmp_path
             conn.execute("SELECT source_name FROM jpx_regulation_sources").fetchone()[0]
             == "other-source"
         )
-    with closing(open_connection(stage)) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM jpx_earnings_calendar").fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 0
+    with closing(sqlite3.connect(stage)) as conn:
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type='table'")
+        }
+        assert tables == {"jpx_source_bundles", "jpx_source_responses"}
     assert (
         import_handoff(stage, target, selected, collection="earnings_calendar").report[
             "raw_rows_added"
@@ -218,3 +220,20 @@ def test_unexpected_or_database_replay_errors_are_not_hidden_as_source_failure(
     monkeypatch.setattr(jpx_handoff, "rebuild_jpx_snapshot", fail_rebuild)
     with pytest.raises(type(failure), match=str(failure)):
         import_handoff(stage, target, selected, collection="capital_policy")
+
+
+def test_legacy_full_schema_stage_is_still_imported(tmp_path):
+    legacy, target = tmp_path / "legacy.sqlite", tmp_path / "target.sqlite"
+    bundle = earnings(legacy, STAMP, "2026-10-20", "130A")
+    result = import_handoff(legacy, target, (bundle,), collection="earnings_calendar")
+    assert result.complete is True
+    with closing(open_connection(target)) as conn:
+        assert read_complete_bundle(conn, bundle).bundle_id == bundle
+
+
+def test_receipt_stage_with_wrong_shape_is_rejected(tmp_path):
+    stage, target = tmp_path / "bad.sqlite", tmp_path / "target.sqlite"
+    with closing(sqlite3.connect(stage)) as conn:
+        conn.execute("CREATE TABLE jpx_source_bundles(bundle_id TEXT)")
+    with pytest.raises(ValueError, match="JPX receipt schema"):
+        import_handoff(stage, target, ("bad",), collection="earnings_calendar")

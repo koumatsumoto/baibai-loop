@@ -12,13 +12,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from baibai_engine.data_collection.providers.jpx.models import JPXResponse, validate_jpx_url
+from baibai_engine.data_collection.providers.jpx.receipt_store import open_receipts
 from baibai_engine.data_collection.providers.jpx.receipts import (
     complete_bundle,
     create_bundle,
     retain_bundle_response,
 )
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
 def receive(
@@ -70,7 +70,7 @@ def receive(
         raise FileExistsError("use a new private handoff directory")
     started = min(row[1] for row in prepared)
     asof = max(row[2].received_at.date() for row in prepared)
-    with closing(open_connection(database)) as connection:
+    with closing(open_receipts(database)) as connection:
         bundle = create_bundle(
             connection,
             collection,

@@ -1,6 +1,7 @@
 """JPX取得は空inputを経由せず、成功・部分受領を既存stageへ保持する。"""
 
 import json
+import sqlite3
 import subprocess
 from contextlib import closing
 from datetime import UTC, datetime
@@ -111,13 +112,18 @@ def test_actual_acquisition_entrypoint_and_stage(source, failure, tmp_path, monk
     )
     with (
         closing(open_connection(db)) as original,
-        closing(open_connection(packet / "receipts.sqlite")) as exported,
+        closing(sqlite3.connect(packet / "receipts.sqlite")) as exported,
     ):
         received = read_bundle(original, bundle_id)
         assert len(received.responses) == expected_count
         assert read_bundle(exported, bundle_id) == received
         assert (received.completed_at is not None) == (failure in {"none", "parse"})
-        assert exported.execute("SELECT COUNT(*) FROM source_coverage").fetchone()[0] == 0
+        assert (
+            exported.execute(
+                "SELECT name FROM sqlite_schema WHERE name='source_coverage'"
+            ).fetchone()
+            is None
+        )
     store = MemoryR2Store()
     monkeypatch.setattr(source_handoff, "Boto3R2Store", lambda **kwargs: store)
     stage = source + "-probe"
