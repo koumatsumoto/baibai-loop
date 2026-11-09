@@ -12,12 +12,12 @@ from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 def observation_calendar_context(conn: sqlite3.Connection, day: date) -> tuple[date, bool]:
     """Resolve the required master date without consulting TradingView L2 rows."""
     calendar = conn.execute(
-        "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day=?",
+        "SELECT holiday_division FROM jquants_market_calendar WHERE day=?",
         (day.isoformat(),),
     ).fetchone()
-    if calendar is None:
+    if calendar is None or calendar[0] not in {"0", "1", "2", "3"}:
         raise ValueError("Exact-date trading calendar is unavailable")
-    business = bool(calendar[0])
+    business = calendar[0] in {"1", "2"}
     if business:
         basis = day
     else:
@@ -30,7 +30,8 @@ def observation_calendar_context(conn: sqlite3.Connection, day: date) -> tuple[d
             raise ValueError("Previous business day is unavailable in trading calendar")
         basis = date.fromisoformat(previous)
         calendar_days = conn.execute(
-            "SELECT COUNT(*) FROM jquants_market_calendar WHERE day BETWEEN ? AND ?",
+            "SELECT COUNT(*) FROM jquants_market_calendar "
+            "WHERE day BETWEEN ? AND ? AND holiday_division IN ('0', '1', '2', '3')",
             (basis.isoformat(), day.isoformat()),
         ).fetchone()[0]
         if calendar_days != (day - basis).days + 1:
@@ -39,7 +40,7 @@ def observation_calendar_context(conn: sqlite3.Connection, day: date) -> tuple[d
 
 
 def market_calendar_business_day(path: Path, day: date) -> bool | None:
-    """Return whether ``day`` is a trading day, or None when the calendar has no such row.
+    """Return whether ``day`` is a trading day, or None for absent or unknown categories.
 
     Calendar read failures raise rather than being treated as a closed market.
     An absent file, an unreadable store and
@@ -48,10 +49,10 @@ def market_calendar_business_day(path: Path, day: date) -> bool | None:
 
     with closing(connect_read_only(path)) as connection:
         row = connection.execute(
-            "SELECT holiday_division IN ('1', '2') FROM jquants_market_calendar WHERE day = ?",
+            "SELECT holiday_division FROM jquants_market_calendar WHERE day = ?",
             (day.isoformat(),),
         ).fetchone()
-    return None if row is None else bool(row[0])
+    return None if row is None or row[0] not in {"0", "1", "2", "3"} else row[0] in {"1", "2"}
 
 
 def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[date, bool]:
@@ -60,7 +61,7 @@ def read_price_calendar(connection: sqlite3.Connection, *, as_of: date) -> dict[
         date.fromisoformat(row[0]): bool(row[1])
         for row in connection.execute(
             "SELECT day, holiday_division IN ('1','2') FROM jquants_market_calendar "
-            "WHERE day<=? ORDER BY day",
+            "WHERE day<=? AND holiday_division IN ('0', '1', '2', '3') ORDER BY day",
             (as_of.isoformat(),),
         )
     }
