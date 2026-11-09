@@ -12,6 +12,10 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.margin_alerts_native import MarginAlertsL1
+from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+    ShortSaleReportsAttempt,
+    ShortSaleReportsL1,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
 
@@ -38,12 +42,16 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
     owner.initialize()
     received = replace(attempt("alert"), attempted_at=None)
     owner.commit([received])
+    short = JQuantsPage("short_sale_reports", {"disc_date": DAY.isoformat()}, AT, b'{"data":[]}')
+    shorts = ShortSaleReportsL1(store, tmp_path / "shorts")
+    shorts.initialize()
+    shorts.commit([ShortSaleReportsAttempt("short", DAY, None, (short,))])
+    short_fingerprints = {
+        key: row["fingerprint"] for key, row in shorts.fixed().value()["receipts"].items()
+    }
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     with closing(open_connection(source)) as connection, connection:
         receive_page(connection, received.pages[0], request_id="alert", page_index=0)
-        short = JQuantsPage(
-            "short_sale_reports", {"disc_date": DAY.isoformat()}, AT, b'{"data":[]}'
-        )
         receive_page(connection, short, request_id="short", page_index=0)
         if tamper:
             changed = attempt("other", rows=records(long=123))
@@ -60,6 +68,7 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
                 ("alert", "short"),
                 sources=MARKET_SOURCES,
                 margin_alerts_fingerprints=fingerprints,
+                short_sale_reports_fingerprints=short_fingerprints,
             )
     else:
         result = import_handoff(
@@ -68,11 +77,14 @@ def test_mixed_stage_skips_only_exact_migrated_alerts(tmp_path, tamper):
             ("alert", "short"),
             sources=MARKET_SOURCES,
             margin_alerts_fingerprints=fingerprints,
+            short_sale_reports_fingerprints=short_fingerprints,
         )
         assert result.complete
         assert result.report["migrated_margin_alerts_requests"] == ["alert"]
-        assert result.report["replayed_requests"] == ["short"]
+        assert result.report["migrated_short_sale_reports_requests"] == ["short"]
+        assert result.report["replayed_requests"] == []
         with sqlite3.connect(target) as connection:
-            assert connection.execute(
-                "SELECT DISTINCT source FROM jquants_source_pages"
-            ).fetchall() == [("short_sale_reports",)]
+            assert (
+                connection.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall()
+                == []
+            )
