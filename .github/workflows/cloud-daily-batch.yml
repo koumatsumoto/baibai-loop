@@ -28,7 +28,7 @@ jobs:
       group: cloud-publish
       queue: max
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       actions: read

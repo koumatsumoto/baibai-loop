@@ -13,7 +13,7 @@ permissions:
 jobs:
   capture:
     if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: tradingview-runtime
     # Share the lock with the existing snapshot to serialize OAuth rotation.

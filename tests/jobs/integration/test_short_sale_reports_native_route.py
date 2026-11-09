@@ -36,9 +36,8 @@ def receive_page(connection, page, *, request_id, page_index):
     )
 
 
-@pytest.mark.parametrize("migrated_alerts", [False, True])
 @pytest.mark.parametrize("partial", [False, True])
-def test_mixed_stage_only_skips_verified_migrated_sources(tmp_path, migrated_alerts, partial):
+def test_mixed_stage_only_skips_verified_migrated_sources(tmp_path, partial):
     store = MemoryR2Store()
     owner = ShortSaleReportsL1(store, tmp_path / "short-native")
     owner.initialize()
@@ -65,15 +64,16 @@ def test_mixed_stage_only_skips_verified_migrated_sources(tmp_path, migrated_ale
         ("short", "alert"),
         sources=MARKET_SOURCES,
         short_sale_reports_fingerprints=fingerprints,
-        margin_alerts_fingerprints=alert_fingerprints if migrated_alerts else None,
+        margin_alerts_fingerprints=alert_fingerprints,
     )
     assert result.complete
     assert result.report["migrated_short_sale_reports_requests"] == ["short"]
-    assert result.report["replayed_requests"] == ([] if migrated_alerts else ["alert"])
+    assert result.report["migrated_margin_alerts_requests"] == ["alert"]
+    assert result.report["replayed_requests"] == []
     with sqlite3.connect(target) as connection:
-        assert connection.execute(
-            "SELECT DISTINCT source FROM jquants_source_pages"
-        ).fetchall() == ([] if migrated_alerts else [("margin_alerts",)])
+        assert (
+            connection.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
+        )
 
 
 @pytest.mark.parametrize("damage", ["absent", "body", "clock", "page_gap", "filtered"])

@@ -12,10 +12,16 @@ from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
+from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
+from baibai_engine.data_collection.providers.jquants.margin_alerts_native import (
+    MarginAlertsAttempt,
+    MarginAlertsL1,
+)
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
 
 
 def packet(path, calendar):
+    other = JQuantsPage("margin_alerts", {"date": DAY.isoformat()}, AT, b'{"data":[]}')
     with sqlite3.connect(path) as conn:
         conn.executescript(JQUANTS_SOURCE_PAGES_DDL)
         page = calendar.pages[0]
@@ -40,13 +46,16 @@ def packet(path, calendar):
                 json.dumps({"date": DAY.isoformat()}),
                 AT.isoformat(),
                 DAY.isoformat(),
-                gzip.compress(b'{"data":[]}', mtime=0),
+                gzip.compress(other.body, mtime=0),
             ),
         )
 
+    return other
 
-def test_partial_calendar_raw_proof_does_not_block_remaining_source_replay(tmp_path):
-    source = CalendarL1(MemoryR2Store(), tmp_path / "native")
+
+def test_partial_calendar_and_other_native_receipts_are_verified_without_reprojection(tmp_path):
+    store = MemoryR2Store()
+    source = CalendarL1(store, tmp_path / "native")
     source.initialize()
     raw = attempt("old-calendar", partial=True)
     source.commit([raw])
@@ -54,7 +63,10 @@ def test_partial_calendar_raw_proof_does_not_block_remaining_source_replay(tmp_p
         key: value["fingerprint"] for key, value in source.fixed().value()["receipts"].items()
     }
     old = tmp_path / "old.sqlite"
-    packet(old, raw)
+    other = packet(old, raw)
+    alerts = MarginAlertsL1(store, tmp_path / "alerts")
+    alerts.initialize()
+    alerts.commit([MarginAlertsAttempt("other", DAY, None, (other,))])
     target = market_store(tmp_path / "target.sqlite")
     result = import_handoff(
         old,
@@ -62,14 +74,16 @@ def test_partial_calendar_raw_proof_does_not_block_remaining_source_replay(tmp_p
         ["old-calendar", "other"],
         sources=MARKET_SOURCES,
         calendar_fingerprints=fingerprints,
+        margin_alerts_fingerprints={
+            key: row["fingerprint"] for key, row in alerts.fixed().value()["receipts"].items()
+        },
     )
     assert result.complete
     assert result.report["migrated_calendar_requests"] == ["old-calendar"]
-    assert result.report["replayed_requests"] == ["other"]
+    assert result.report["migrated_margin_alerts_requests"] == ["other"]
+    assert result.report["replayed_requests"] == []
     with sqlite3.connect(target) as conn:
-        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == [
-            ("margin_alerts",)
-        ]
+        assert conn.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall() == []
 
 
 @pytest.mark.parametrize("proof", [{}, {"old-calendar": "f" * 64}])

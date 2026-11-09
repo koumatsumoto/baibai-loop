@@ -12,6 +12,10 @@ from tests.jobs.integration.test_margin_alerts_native_route import receive_page
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.margin_interest_native import MarginInterestL1
+from baibai_engine.data_collection.providers.jquants.short_sale_reports_native import (
+    ShortSaleReportsAttempt,
+    ShortSaleReportsL1,
+)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, import_handoff
 
@@ -137,12 +141,19 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
         page = replace(page, body=b'{"data":[]}')
     elif damage == "clock":
         page = replace(page, received_at=AT + timedelta(seconds=1))
+    short = JQuantsPage("short_sale_reports", {"disc_date": DAY.isoformat()}, AT, b'{"data":[]}')
+    shorts = ShortSaleReportsL1(store, tmp_path / "shorts")
+    shorts.initialize()
+    shorts.commit([ShortSaleReportsAttempt("short", DAY, None, (short,))])
+    short_fingerprints = {
+        key: row["fingerprint"] for key, row in shorts.fixed().value()["receipts"].items()
+    }
     source, target = tmp_path / "source.sqlite", tmp_path / "target.sqlite"
     with closing(open_connection(source)) as connection, connection:
         receive_page(connection, page, request_id="margin", page_index=0)
         receive_page(
             connection,
-            JQuantsPage("short_sale_reports", {"disc_date": DAY.isoformat()}, AT, b'{"data":[]}'),
+            short,
             request_id="short",
             page_index=0,
         )
@@ -154,6 +165,7 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
                 ("margin", "short"),
                 sources=MARKET_SOURCES,
                 margin_interest_fingerprints=fingerprints,
+                short_sale_reports_fingerprints=short_fingerprints,
             )
     else:
         result = import_handoff(
@@ -162,11 +174,14 @@ def test_mixed_stage_skips_only_proven_margin_receipt(tmp_path, damage):
             ("margin", "short"),
             sources=MARKET_SOURCES,
             margin_interest_fingerprints=fingerprints,
+            short_sale_reports_fingerprints=short_fingerprints,
         )
         assert result.complete
         assert result.report["migrated_margin_interest_requests"] == ["margin"]
-        assert result.report["replayed_requests"] == ["short"]
+        assert result.report["migrated_short_sale_reports_requests"] == ["short"]
+        assert result.report["replayed_requests"] == []
         with closing(open_connection(target)) as connection:
-            assert connection.execute(
-                "SELECT DISTINCT source FROM jquants_source_pages"
-            ).fetchall() == [("short_sale_reports",)]
+            assert (
+                connection.execute("SELECT DISTINCT source FROM jquants_source_pages").fetchall()
+                == []
+            )

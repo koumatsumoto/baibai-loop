@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   acquire:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     concurrency:
       group: source-acquire-${{ contains(fromJSON('["jquants-market","jquants-financial"]'), inputs.source) && 'jquants' || contains(fromJSON('["edinet-list","edinet-metrics","edinet-facts"]'), inputs.source) && 'edinet' || contains(fromJSON('["jpx-earnings","jpx-regulations"]'), inputs.source) && 'jpx' || format('unsupported-{0}', inputs.source) }}

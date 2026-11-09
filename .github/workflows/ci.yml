@@ -21,7 +21,8 @@ concurrency:
 jobs:
   # Python gates share one dependency setup.
   quality:
-    runs-on: ubuntu-latest
+    # 固定Python版の配布がないOSへubuntu-latestが移行しても実行を続ける。
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
