@@ -1,9 +1,28 @@
 """Unrelated JPX sections must not supply a heading or an empty-result claim."""
 
+import re
+
 import pytest
+from tests.helpers.jpx_earnings import FIXTURES, SOURCE_FILES
 
 from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import parse_regulation_rows
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
+
+
+@pytest.mark.parametrize(
+    ("source", "filename"), [*SOURCE_FILES.items(), ("取引停止", "trading_halt.html")]
+)
+def test_inline_links_preserve_regulation_headings_cells_and_empty_markers(source, filename):
+    html = (FIXTURES / filename).read_text()
+    linked = re.sub(
+        r"(<(?:h2|h3|th|td|p)\b[^>]*>)([^<]+)",
+        r"\1<a href='detail.pdf'><img alt='PDF'>\2</a>",
+        html,
+    )
+    url = "https://www.jpx.co.jp/example"
+    assert parse_regulation_rows(source, linked.encode(), url) == parse_regulation_rows(
+        source, html.encode(), url
+    )
 
 
 @pytest.mark.parametrize("has_target_heading", [False, True])

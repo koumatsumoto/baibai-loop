@@ -82,16 +82,8 @@ class _ParsedTable:
     header_th_texts: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True, config=_MODEL_CONFIG)
-class _ParsedLink:
-    href: str
-    text: str
-    preceding_h2: str | None
-    preceding_h3: str | None
-
-
 class _JpxHtmlIndexer(HTMLParser):
-    """Parse JPX HTML once and surface outer-most `<table>` blocks and links.
+    """Parse JPX HTML once and surface outer-most `<table>` blocks and sections.
 
     Nested tables are dropped by construction (only tables closing at stack
     depth 0 are recorded), so callers can match by class / preceding heading /
@@ -102,14 +94,11 @@ class _JpxHtmlIndexer(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.tables: list[_ParsedTable] = []
         self.section_text: dict[str, list[str]] = {}
-        self.links: list[_ParsedLink] = []
         self._table_stack: list[dict[str, object]] = []
         self._cell_fragments: list[str] | None = None
         self._cell_tag: str | None = None
         self._cell_rowspan = "1"
         self._cell_colspan = "1"
-        self._link_href: str | None = None
-        self._link_fragments: list[str] | None = None
         self._heading_buffer: list[str] | None = None
         self._heading_tag: str | None = None
         self._last_h2: str | None = None
@@ -117,13 +106,6 @@ class _JpxHtmlIndexer(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_by_name = dict(attrs)
-        if tag == "a" and attrs_by_name.get("href"):
-            self._link_href = attrs_by_name["href"]
-            self._link_fragments = []
-        if tag == "img" and self._link_fragments is not None:
-            label = attrs_by_name.get("alt") or attrs_by_name.get("title")
-            if label:
-                self._link_fragments.append(label)
         if tag in {"h2", "h3"}:
             self._heading_buffer = []
             self._heading_tag = tag
@@ -159,20 +141,6 @@ class _JpxHtmlIndexer(HTMLParser):
             self._cell_fragments.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "a" and self._link_href is not None:
-            value = "".join(self._link_fragments or []).replace("\xa0", " ")
-            normalized = re.sub(r"\s+", " ", value).strip()
-            self.links.append(
-                _ParsedLink(
-                    href=self._link_href,
-                    text=normalized,
-                    preceding_h2=self._last_h2,
-                    preceding_h3=self._last_h3,
-                )
-            )
-            self._link_href = None
-            self._link_fragments = None
-            return
         if tag in {"h2", "h3"} and self._heading_buffer is not None:
             text = re.sub(r"\s+", " ", "".join(self._heading_buffer)).strip()
             if self._heading_tag == "h2":
@@ -250,8 +218,6 @@ class _JpxHtmlIndexer(HTMLParser):
             self._heading_buffer.append(data)
         if self._cell_fragments is not None:
             self._cell_fragments.append(data)
-        if self._link_fragments is not None:
-            self._link_fragments.append(data)
 
 
 def validate_allowed_url(url: str) -> None:
