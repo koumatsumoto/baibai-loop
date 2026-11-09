@@ -10,23 +10,12 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.models imp
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 
-# 旧物理列は reported amount を保持している。現行モデルでは同値の TTM alias を出さない。
-_EDINET_FLOW_FIELDS = (
-    "edinet_ocf_ttm",
-    "capex_ttm",
-    "fcf_ttm",
-    "ebitda_ttm",
-    "depreciation_and_amortization_ttm",
-)
-
 
 def financial_observation_payload(
     snapshot: FinancialSnapshot, edinet: EdinetMetricRecord | None
 ) -> dict[str, object]:
     """報告値を残し、12か月が成立しない額を年間倍率の分母・分子にしない。"""
     result: dict[str, object] = asdict(snapshot)
-    for name in _EDINET_FLOW_FIELDS:
-        result.pop(name)
     result["edinet_reported_flows"] = _reported_flows(edinet)
     if snapshot.ttm_quality_fcf_yield != TTMQuality.EXACT:
         result["fcf_yield"] = None

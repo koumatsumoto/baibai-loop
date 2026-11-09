@@ -60,7 +60,6 @@ class FinancialSnapshot:
     eps: float | None
     sales_ttm: float | None
     ocf_ttm: float | None
-    edinet_ocf_ttm: float | None = None
     ocf_ttm_period: dict[str, object] | None = None
     # 比較可能な直近実績の年間 DPS (原本値)・進行期の予想年間 DPS・carry 用配当利回り。
     # dividend_yield は将来 carry なので明示 0 を含む非負の予想 DPS を優先する
@@ -111,13 +110,9 @@ class FinancialSnapshot:
     net_cash_to_market_cap: float | None = None
     investment_securities: float | None = None
     asset_backed_ratio: float | None = None
-    fcf_ttm: float | None = None
     fcf_yield: float | None = None
-    capex_ttm: float | None = None
-    depreciation_and_amortization_ttm: float | None = None
     debt: float | None = None
     cash: float | None = None
-    ebitda_ttm: float | None = None
     consolidation_basis: str | None = None
     edinet_snapshot_asof: date | None = None
     edinet_snapshot_recorded_at_utc: str | None = None
@@ -175,7 +170,6 @@ class FinancialSnapshot:
         "dividend_split_factor",
         "sales_ttm",
         "ocf_ttm",
-        "edinet_ocf_ttm",
         "sales",
         "cfo",
         "cash_eq",
@@ -191,13 +185,9 @@ class FinancialSnapshot:
         "net_cash_to_market_cap",
         "investment_securities",
         "asset_backed_ratio",
-        "fcf_ttm",
         "fcf_yield",
-        "capex_ttm",
-        "depreciation_and_amortization_ttm",
         "debt",
         "cash",
-        "ebitda_ttm",
         "operating_profit",
         "operating_profit_ttm",
         "shares_outstanding",

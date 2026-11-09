@@ -198,7 +198,6 @@ def build_financial_snapshot(
     # 通過しても同一時点・連結範囲の一致を証明するものではない。
     edinet_usable = _edinet_passes_entity_scale_check(edinet, total_assets)
     edinet_metrics = edinet if edinet_usable else None
-    edinet_ocf_ttm = edinet_metrics.ocf_ttm if edinet_metrics else None
     debt = edinet_metrics.debt if edinet_metrics else None
     cash = edinet_metrics.cash if edinet_metrics else None
     ebitda_ttm = edinet_metrics.ebitda_ttm if edinet_metrics else None
@@ -338,7 +337,6 @@ def build_financial_snapshot(
         sales_ttm=sales_ttm,
         ocf_ttm=ocf_ttm,
         ocf_ttm_period=_ttm_period(summaries, "cfo", ttm_rules),
-        edinet_ocf_ttm=edinet_ocf_ttm,
         sales=sales_row.sales if sales_row else None,
         cfo=cfo_row.cfo if cfo_row else None,
         cash_eq=cash_eq,
@@ -365,15 +363,9 @@ def build_financial_snapshot(
             ),
             latest_market_cap,
         ),
-        fcf_ttm=fcf_ttm,
         fcf_yield=_safe_ratio(fcf_ttm, latest_market_cap),
-        capex_ttm=edinet_metrics.capex_ttm if edinet_metrics else None,
-        depreciation_and_amortization_ttm=(
-            edinet_metrics.depreciation_and_amortization_ttm if edinet_metrics else None
-        ),
         debt=debt,
         cash=cash,
-        ebitda_ttm=ebitda_ttm,
         consolidation_basis=edinet.consolidation_basis if edinet else None,
         edinet_snapshot_asof=edinet.snapshot_asof if edinet else None,
         edinet_snapshot_recorded_at_utc=edinet.snapshot_recorded_at_utc if edinet else None,
