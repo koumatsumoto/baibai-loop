@@ -21,19 +21,10 @@ def store_edinet_documents(
     on_date: date,
     records: Iterable[Mapping[str, Any]],
     *,
-    process_datetime: str | None = None,
-    result_count: int | None = None,
-    rechecked_asof: date | None = None,
     response_json: str | None = None,
 ) -> int:
     """Seed normalized fixtures without using them as projection evidence."""
     records_list = list(records)
-    expected_count = len(records_list) if result_count is None else result_count
-    if expected_count != len(records_list):
-        raise ValueError(
-            "EDINET document resultset count mismatch: "
-            f"metadata={expected_count} results={len(records_list)}"
-        )
     rows = document_rows(on_date.isoformat(), records_list)
     conn = open_connection(db_path)
     try:
@@ -72,13 +63,13 @@ def store_edinet_documents(
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 on_date.isoformat(),
-                process_datetime,
-                expected_count,
+                None,
+                len(records_list),
                 received_at if response_json is not None else None,
                 response_json,
                 None,
                 received_at,
-                rechecked_asof.isoformat() if rechecked_asof is not None else None,
+                None,
             ),
         )
         conn.commit()

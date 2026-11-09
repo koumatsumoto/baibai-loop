@@ -1,85 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
-import zipfile
 from contextlib import closing
 from datetime import date
-from io import BytesIO, StringIO
+from io import StringIO
 
 import pytest
 
-from baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv import (
-    parse_csv_zip_metric_record,
-)
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     EDINET_METRIC_REVISION,
 )
-from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-
-
-def _edinet_csv_zip(rows: list[tuple[str, str, str]]) -> bytes:
-    csv_text = "要素ID\tコンテキストID\tユニットID\t値\n" + "\n".join(
-        f"{element}\t{context}\tJPY\t{value}" for element, context, value in rows
-    )
-    buffer = BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("XBRL_TO_CSV/sample.csv", csv_text.encode("utf-16"))
-    return buffer.getvalue()
-
-
-def test_metric_values_and_quality_reasons_remain_stable() -> None:
-    record = parse_csv_zip_metric_record(
-        ticker="7203",
-        doc_id="S100REVISION",
-        doc_type_code="120",
-        content=_edinet_csv_zip(
-            [
-                ("jppfs_cor:NetSales", "CurrentYearDuration", "1000"),
-                (
-                    "jppfs_cor:NetCashProvidedByUsedInOperatingActivities",
-                    "CurrentYearDuration",
-                    "150",
-                ),
-                ("jppfs_cor:OperatingIncome", "CurrentYearDuration", "90"),
-                (
-                    "jppfs_cor:DepreciationAndAmortizationOpeCF",
-                    "CurrentYearDuration",
-                    "30",
-                ),
-                (
-                    "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF",
-                    "CurrentYearDuration",
-                    "-40",
-                ),
-                ("jppfs_cor:PurchaseOfIntangibleAssetsInvCF", "CurrentYearDuration", "0"),
-                ("jppfs_cor:CashAndDeposits", "CurrentYearInstant", "300"),
-                ("jppfs_cor:InvestmentSecurities", "CurrentYearInstant", "250"),
-                ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "20"),
-                ("jppfs_cor:LongTermLoansPayable", "CurrentYearInstant", "50"),
-                ("jppfs_cor:NetAssets", "CurrentYearInstant", "800"),
-                ("jppfs_cor:Assets", "CurrentYearInstant", "1400"),
-            ]
-        ),
-        submit_datetime="2026-04-01 12:00",
-        period_start=date(2025, 4, 1),
-        period_end=date(2026, 3, 31),
-    )
-
-    assert record.ticker == "7203"
-    assert record.source_doc_id == "S100REVISION"
-    assert record.sales_ttm == 1000.0
-    assert record.ocf_ttm == 150.0
-    assert record.capex_ttm == 40.0
-    assert record.fcf_ttm == 110.0
-    assert record.ebitda_ttm == 120.0
-    assert record.cash == 300.0
-    assert record.debt == 70.0
-    assert record.net_cash == 230.0
-    assert record.investment_securities == 250.0
-    assert record.equity == 800.0
-    assert record.total_assets == 1400.0
-    assert record.ttm_quality_fcf is TTMQuality.EXACT
-    assert record.failure_reasons == ()
 
 
 @pytest.mark.parametrize(

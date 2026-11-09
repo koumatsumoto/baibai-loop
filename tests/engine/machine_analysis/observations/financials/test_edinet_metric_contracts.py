@@ -107,6 +107,8 @@ class EDINETMetricTests(unittest.TestCase):
             period_end=date(2026, 3, 31),
         )
 
+        self.assertEqual(record.ticker, "7203")
+        self.assertEqual(record.source_doc_id, "S100TEST")
         self.assertEqual(record.sales_ttm, 1000.0)
         self.assertEqual(record.ocf_ttm, 150.0)
         self.assertEqual(record.debt, 70.0)
@@ -116,7 +118,10 @@ class EDINETMetricTests(unittest.TestCase):
         self.assertEqual(record.capex_ttm, 40.0)
         self.assertEqual(record.fcf_ttm, 110.0)
         self.assertEqual(record.ebitda_ttm, 120.0)
-        self.assertEqual(record.ttm_quality_fcf, TTMQuality.EXACT)
+        self.assertEqual(record.equity, 800.0)
+        self.assertEqual(record.total_assets, 1400.0)
+        self.assertEqual(record.failure_reasons, ())
+        self.assertIs(record.ttm_quality_fcf, TTMQuality.EXACT)
         self.assertEqual(record.source_submit_datetime, "2026-04-01 12:00")
         self.assertEqual(record.source_period_start, date(2025, 4, 1))
         self.assertEqual(record.source_period_end, date(2026, 3, 31))
