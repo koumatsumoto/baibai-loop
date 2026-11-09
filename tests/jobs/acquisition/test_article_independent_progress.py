@@ -8,6 +8,9 @@ import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.receipts.articles.store import (
+    connect_read_only as connect_receipts,
+)
 from baibai_engine.data_collection.receipts.articles.store import read_body, read_receipt
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_jobs.acquisition import articles
@@ -70,7 +73,7 @@ def test_sixty_four_unsealed_cycles_keep_raw_then_catch_up_and_rebuild(
         assert report["status"] == ("partial" if status == 403 else "completed")
         stages.append(report["stage_id"])
         assert session.urls[0] == articles.SOURCES["boj_news"].entry_url
-        with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        with closing(connect_receipts(packet / "receipts.sqlite")) as conn:
             for (encoded,) in conn.execute("SELECT receipt_json FROM article_source_receipts"):
                 value = json.loads(encoded)
                 receipt = read_receipt(conn, value["receipt_id"])

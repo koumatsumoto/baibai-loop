@@ -7,8 +7,8 @@ import pytest
 from tests.helpers.article_acquisition import SLOT, Response, Session, first_packet_market_schema
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.receipts.articles.store import connect_read_only
 from baibai_engine.machine_analysis.observations.articles.store import read_observations
-from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import articles
 from baibai_jobs.acquisition.article_planning import (
@@ -102,6 +102,11 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
             json.loads(row[0])
             for row in conn.execute("SELECT receipt_json FROM article_source_receipts")
         ]
+    with closing(connect_read_only(packet / "receipts.sqlite")) as conn:
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_schema WHERE type = 'table'")
+        }
+    assert tables == {"article_source_receipts"}
     assert len(receipts) == 3
     assert {item["requested_url"] for item in receipts} == set(session.urls)
     database = tmp_path / "canonical.sqlite"
