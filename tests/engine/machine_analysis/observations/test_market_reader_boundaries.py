@@ -156,11 +156,11 @@ def test_snapshot_query_failure_is_not_a_cache_miss(
 
 def test_master_query_failure_propagates_and_closes_connection(tmp_path, monkeypatch):
     path = tmp_path / "existing.sqlite"
-    path.touch()
+    open_connection(path).close()
     conn = sqlite3.connect(":memory:")
-    monkeypatch.setattr(stock_reader, "connect_current", lambda path: conn)
+    monkeypatch.setattr(stock_reader, "connect_read_only", lambda path: conn)
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        stock_reader.read_eq_master_exact(path, date(2026, 10, 15))
+        stock_reader.read_master_snapshot(path, as_of=date(2026, 10, 15))
     with pytest.raises(sqlite3.ProgrammingError, match="closed"):
         conn.execute("SELECT 1")
 

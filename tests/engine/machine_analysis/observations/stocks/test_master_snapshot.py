@@ -21,8 +21,6 @@ from baibai_engine.machine_analysis.observations.stocks.master_snapshot import (
     validate_master_snapshot,
 )
 from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_asof,
-    read_eq_master_exact,
     read_master_snapshot,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
@@ -72,11 +70,14 @@ class MasterSnapshotStoreTests(unittest.TestCase):
                 {code: json.loads(payload) for code, payload in persisted},
                 {row["Code"]: row for row in records},
             )
-            projected = read_eq_master_exact(db, asof)
+            projected = read_master_snapshot(db, as_of=asof)
             assert projected is not None
-            self.assertEqual(len(projected), 2501)
-            self.assertEqual(sum(row.is_common_stock for row in projected), 2500)
-            self.assertFalse(next(row for row in projected if row.ticker == "9000").is_common_stock)
+            self.assertEqual(projected.as_of, asof)
+            self.assertEqual(len(projected.securities), 2501)
+            self.assertEqual(
+                sum(row.is_common_stock for row in projected.securities.values()), 2500
+            )
+            self.assertFalse(projected.securities["9000"].is_common_stock)
 
     def test_two_dates_are_append_only_and_same_date_is_idempotent(self) -> None:
         first = date(2026, 5, 29)
@@ -222,7 +223,7 @@ class MasterSnapshotStoreTests(unittest.TestCase):
 
 
 class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
-    def test_provider_does_not_refetch_to_hide_an_incompatible_store(self) -> None:
+    def test_reader_does_not_refetch_to_hide_an_incompatible_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
@@ -231,9 +232,9 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 patch("requests.Session", side_effect=AssertionError("HTTP session constructed")),
                 self.assertRaises(SQLiteSchemaError),
             ):
-                read_eq_master_exact(db, date(2026, 5, 29))
+                read_master_snapshot(db, as_of=date(2026, 5, 29))
 
-    def test_exact_prior_and_future_snapshot_selection(self) -> None:
+    def test_snapshot_selection_uses_exact_or_prior_but_never_future(self) -> None:
         first = date(2026, 5, 29)
         second = date(2026, 6, 30)
         first_records = make_master_records(first)
@@ -252,22 +253,21 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
             store_jquants_master(db, first_records, requested_asof=first)
             store_jquants_master(db, make_master_records(second), requested_asof=second)
 
-            self.assertEqual(len(read_eq_master_exact(db, first) or []), 2501)
-            self.assertEqual(len(read_eq_master_exact(db, second) or []), 2500)
-            prior = read_eq_master_asof(db, second - timedelta(days=1))
-            self.assertEqual(prior.status, "prior_snapshot")
-            self.assertEqual(prior.snapshot_date, first)
-            indexed = read_master_snapshot(db, as_of=second - timedelta(days=1))
-            assert indexed is not None
-            self.assertEqual(indexed.as_of, first)
+            first_snapshot = read_master_snapshot(db, as_of=first)
+            second_snapshot = read_master_snapshot(db, as_of=second)
+            assert first_snapshot is not None
+            assert second_snapshot is not None
+            self.assertEqual(first_snapshot.as_of, first)
+            self.assertEqual(second_snapshot.as_of, second)
+            self.assertEqual(len(first_snapshot.securities), 2501)
+            self.assertEqual(len(second_snapshot.securities), 2500)
+            self.assertNotIn("8000", second_snapshot.securities)
             self.assertEqual(
-                indexed.securities, {security.ticker: security for security in prior.masters}
+                read_master_snapshot(db, as_of=second - timedelta(days=1)), first_snapshot
             )
-            fallback = read_eq_master_asof(db, first - timedelta(days=1))
-            self.assertEqual(fallback.status, "future_snapshot")
-            self.assertEqual(fallback.snapshot_date, first)
+            self.assertIsNone(read_master_snapshot(db, as_of=first - timedelta(days=1)))
 
-    def test_exact_reader_rejects_corrupt_native_code(self) -> None:
+    def test_reader_rejects_corrupt_native_code(self) -> None:
         asof = date(2026, 5, 29)
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
@@ -280,26 +280,7 @@ class MasterSnapshotReaderAndProviderTests(unittest.TestCase):
                 )
                 conn.commit()
             with self.assertRaises(JQuantsProviderError):
-                read_eq_master_exact(db, asof)
-
-    def test_exact_reader_treats_non_integer_coverage_count_as_semantic_miss(self) -> None:
-        asof = date(2026, 5, 29)
-        for invalid_count in ("not-an-integer", 2500.5):
-            with (
-                self.subTest(invalid_count=invalid_count),
-                tempfile.TemporaryDirectory() as tmp,
-            ):
-                db = Path(tmp) / "market.sqlite"
-                store_jquants_master(db, make_master_records(asof), requested_asof=asof)
-                with closing(sqlite3.connect(db)) as conn, conn:
-                    conn.execute(
-                        "UPDATE source_coverage SET record_count = ? "
-                        "WHERE source = ? AND coverage_start = ?",
-                        (invalid_count, "jquants_master_snapshots", asof.isoformat()),
-                    )
-                    conn.commit()
-
-                self.assertIsNone(read_eq_master_exact(db, asof))
+                read_master_snapshot(db, as_of=asof)
 
 
 def _snapshot_dates(db: Path) -> list[str]:

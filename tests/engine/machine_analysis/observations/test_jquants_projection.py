@@ -41,7 +41,7 @@ from baibai_engine.machine_analysis.observations.prices.price_reader import (
     read_adjustment_factor_bars,
     read_daily_bars,
 )
-from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
+from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.machine_analysis.observations.trading_activity.margin_reader import (
     read_margin_alerts,
 )
@@ -488,7 +488,7 @@ def test_offline_readers_report_missing_input_without_store_or_http(tmp_path, mo
         lambda: read_daily_bars(database, day, day),
         lambda: read_adjustment_factor_bars(database, day, day),
         lambda: read_market_calendar(database, day, day),
-        lambda: read_eq_master_exact(database, day),
+        lambda: read_master_snapshot(database, as_of=day),
         lambda: read_fin_summaries(database, day, day),
     ):
         assert read() is None

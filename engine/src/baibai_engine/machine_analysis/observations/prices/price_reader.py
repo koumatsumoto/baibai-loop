@@ -44,29 +44,6 @@ def read_daily_bars(sqlite_path: Path, start: date, end: date) -> list[JQuantsDa
     return _daily_bars_from_rows(rows)
 
 
-def daily_bars_covered(sqlite_path: Path, start: date, end: date) -> bool:
-    """Answer whether the cache can serve `[start, end]` without building the rows.
-
-    `read_daily_bars` answers the same question, but only as a side effect of
-    materialising every row in the window. A 1,200-day window is ~3.4M rows, and
-    callers that only need the yes/no (the refresh planner and coverage checks)
-    would pay for a model per row to read one boolean.
-
-    Coverage is the recorded successful acquisition of every requested date; it
-    does not prove that every ticker has a bar. A row that cannot be turned into a
-    bar is detected by `read_daily_bars`, not by this count-free check.
-    """
-    if not sqlite_path.exists():
-        return False
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return False
-    try:
-        return range_covered(conn, "jquants_daily_bars", start, end)
-    finally:
-        conn.close()
-
-
 def read_adjustment_factor_bars(
     sqlite_path: Path, start: date, end: date
 ) -> list[JQuantsAdjustmentFactorEvent] | None:
@@ -161,26 +138,6 @@ def _read_ticker_bars(
         (*tickers, start.isoformat(), end.isoformat()),
     ).fetchall()
     return _daily_bars_from_rows(rows)
-
-
-def latest_stored_daily_bar_date(sqlite_path: Path) -> date | None:
-    """Return the most recent ``traded_at`` anywhere in the store, or None.
-
-    The fetch planner uses this to avoid implicitly refreshing accepted historical
-    windows. It is a reuse policy, not proof that older dates cannot be revised.
-    """
-    if not sqlite_path.exists():
-        return None
-    conn = connect_current(sqlite_path)
-    if conn is None:
-        return None
-    try:
-        row = conn.execute("SELECT MAX(traded_at) FROM jquants_daily_bars").fetchone()
-    finally:
-        conn.close()
-    if row is None or row[0] is None:
-        return None
-    return date.fromisoformat(str(row[0]))
 
 
 def latest_daily_bar_date(sqlite_path: Path, start: date, end: date) -> date | None:

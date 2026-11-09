@@ -36,13 +36,13 @@ from baibai_engine.machine_analysis.observations.financials.reader import (
 from baibai_engine.machine_analysis.observations.jquants_writer import store_jquants_daily_bars
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
 from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_asof,
+    read_master_snapshot,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
 
 
-class ReadEqMasterAsOfTests(unittest.TestCase):
-    def test_asof_reader_prefers_prior_and_falls_back_to_earliest_future_snapshot(self) -> None:
+class ReadMasterSnapshotTests(unittest.TestCase):
+    def test_master_reader_prefers_prior_and_never_reads_future_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             with closing(open_connection(db)) as conn, conn:
@@ -54,24 +54,18 @@ class ReadEqMasterAsOfTests(unittest.TestCase):
                     ],
                 )
 
-            prior = read_eq_master_asof(db, date(2025, 2, 15))
-            self.assertEqual(prior.status, "prior_snapshot")
-            self.assertEqual(prior.snapshot_date, date(2025, 1, 31))
-            self.assertEqual([master.ticker for master in prior.masters], ["1301"])
+            prior = read_master_snapshot(db, as_of=date(2025, 2, 15))
+            assert prior is not None
+            self.assertEqual(prior.as_of, date(2025, 1, 31))
+            self.assertEqual(list(prior.securities), ["1301"])
+            self.assertIsNone(read_master_snapshot(db, as_of=date(2025, 1, 1)))
 
-            fallback = read_eq_master_asof(db, date(2025, 1, 1))
-            self.assertEqual(fallback.status, "future_snapshot")
-            self.assertEqual(fallback.snapshot_date, date(2025, 1, 31))
-            self.assertEqual([master.ticker for master in fallback.masters], ["1301"])
-
-    def test_asof_reader_is_unavailable_without_any_snapshot(self) -> None:
+    def test_master_reader_is_unavailable_without_any_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "market.sqlite"
             open_connection(db).close()
 
-            unavailable = read_eq_master_asof(db, date(2025, 1, 1))
-            self.assertEqual(unavailable.status, "unavailable")
-            self.assertEqual(unavailable.masters, ())
+            self.assertIsNone(read_master_snapshot(db, as_of=date(2025, 1, 1)))
 
 
 class ReadDailyBarsTests(unittest.TestCase):

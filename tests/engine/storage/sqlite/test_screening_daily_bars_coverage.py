@@ -9,9 +9,7 @@ from pathlib import Path
 import pytest
 
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
-    daily_bars_covered,
     latest_daily_bar_date,
-    latest_stored_daily_bar_date,
     read_adjustment_factor_bars,
     read_daily_bars,
     read_daily_bars_for_tickers,
@@ -63,7 +61,6 @@ def test_read_daily_bars_returns_rows_when_window_is_dense(tmp_path: Path) -> No
 def test_reversed_daily_bar_range_is_never_covered(tmp_path: Path) -> None:
     sqlite_path = _seed(tmp_path, [(date(2024, 1, 1), date(2024, 3, 31))])
     start, end = date(2024, 3, 31), date(2024, 1, 1)
-    assert not daily_bars_covered(sqlite_path, start, end)
     assert read_daily_bars(sqlite_path, start, end) is None
     assert read_adjustment_factor_bars(sqlite_path, start, end) is None
     assert read_daily_bars_for_tickers(sqlite_path, ("1301",), start, end) is None
@@ -147,7 +144,6 @@ def test_daily_bars_short_unfetched_gap_requires_explicit_coverage(tmp_path: Pat
         conn.commit()
     finally:
         conn.close()
-    assert daily_bars_covered(sqlite_path, start, end)
     assert read_daily_bars(sqlite_path, start, end) is not None
 
 
@@ -171,7 +167,6 @@ def test_successful_empty_daily_bars_are_distinct_from_unfetched(tmp_path: Path)
         conn.commit()
     finally:
         conn.close()
-    assert daily_bars_covered(sqlite_path, target, target)
     assert read_daily_bars(sqlite_path, target, target) == []
 
 
@@ -180,16 +175,11 @@ def test_read_daily_bars_none_when_empty(tmp_path: Path) -> None:
     assert read_daily_bars(sqlite_path, date(2024, 1, 1), date(2024, 3, 31)) is None
 
 
-@pytest.mark.parametrize("scoped", [False, True])
-def test_latest_bar_date_distinguishes_missing_from_invalid_storage(tmp_path, scoped):
+def test_latest_bar_date_distinguishes_missing_from_invalid_storage(tmp_path):
     path = tmp_path / "market.sqlite"
 
     def read_latest():
-        return (
-            latest_daily_bar_date(path, date(2024, 1, 1), date(2024, 3, 31))
-            if scoped
-            else latest_stored_daily_bar_date(path)
-        )
+        return latest_daily_bar_date(path, date(2024, 1, 1), date(2024, 3, 31))
 
     assert read_latest() is None
     _seed(tmp_path, [])

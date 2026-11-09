@@ -14,8 +14,6 @@ from baibai_engine.machine_analysis.generation.master_inputs import read_master_
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_asof,
-    read_eq_master_exact,
     read_master_snapshot,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
@@ -67,8 +65,6 @@ def test_known_closed_master_selects_business_basis_and_cold_replays_without_cal
     assert selected["scopes"][SUNDAY.isoformat()]["closed_basis"] == FRIDAY.isoformat()
     if response != "matching-date":
         assert read_master_snapshot(market, as_of=SUNDAY).as_of == FRIDAY
-        assert read_eq_master_asof(market, SUNDAY).status == "prior_snapshot"
-        assert read_eq_master_exact(market, SUNDAY) is None
     with sqlite3.connect(market) as conn:
         conn.execute("DELETE FROM jquants_market_calendar")
         conn.execute("DELETE FROM source_coverage")
