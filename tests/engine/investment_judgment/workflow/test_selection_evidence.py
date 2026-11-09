@@ -12,7 +12,6 @@ from tests.helpers import generated_selection as generation_helpers
 from tests.helpers import proposal as proposal_helpers
 from tests.helpers.generated_selection import seed_generated_selection
 from tests.helpers.proposal import PUBLISHED, backend_case, read_saved_proposal, reviewed_proposal
-from tools.financials_identity_workspace import prepare_workspace
 
 from baibai_engine.investment_judgment.trade_proposal.contracts import proposal_draft_sha256
 from baibai_engine.investment_judgment.trade_proposal.query import (
@@ -336,7 +335,7 @@ def test_publication_evidence_is_immutable(tmp_path, monkeypatch, sql):
         connection.execute(sql)
 
 
-def test_old_workspace_is_archived_as_a_whole_and_never_rebound(tmp_path, monkeypatch):
+def test_old_workspace_is_never_rebound(tmp_path, monkeypatch):
     case, original, _, _ = evidence_case(tmp_path, monkeypatch)
     source = tmp_path / "old-workspace"
     source.mkdir()
@@ -353,22 +352,7 @@ def test_old_workspace_is_archived_as_a_whole_and_never_rebound(tmp_path, monkey
     )
     (source / "domain-inputs.yaml").write_text("original model index: 1\n")
     (source / "assessment-draft.yaml").write_text("source: /inputs/generation/models/1/payload\n")
-    archive, output = tmp_path / "archive", tmp_path / "workspace"
-    result = prepare_workspace(
-        db=case.app,
-        operation_id=case.operation.operation_id,
-        proposal_id=original.proposal_id,
-        source=source,
-        archive=archive,
-        output=output,
-        now=AT,
-    )
-    for name in ("manifest.yaml", "domain-inputs.yaml", "assessment-draft.yaml"):
-        assert (archive / name).read_bytes() == (source / name).read_bytes()
-    assert not (output / "assessment-draft.yaml").exists()
-    assert result["operational_selection_sha256"] != result["published_selection_sha256"]
     assert OperationService(case.app).get(case.operation.operation_id).status == "completed"
-    assert "manifest.yaml" in result["operational_files"]
     with pytest.raises(ResearchWorkspaceConflictError, match="workspace differs"):
         resume_selected_workspace(
             operation_id=case.operation.operation_id,

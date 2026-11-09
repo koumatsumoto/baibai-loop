@@ -577,12 +577,9 @@ uv run baibai-engine historical-evaluation candidates show --run-revision-id <RU
 ```bash
 uv run baibai-engine operation --db <APP29> selection-evidence <OPERATION_ID> \
   --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <EXACT_PROPOSAL_ID>
-uv run python -m tools.financials_identity_workspace --db <APP29> \
-  --operation-id <OPERATION_ID> --proposal-id <EXACT_PROPOSAL_ID> \
-  --source <ORIGINAL_WORKSPACE> --archive <NEW_ARCHIVE> --output <NEW_WORKSPACE>
 ```
 
-helperは現DB読取とlocal保全/生成だけ。旧manifest/domain-inputs/draftをまとめてarchiveし、新directoryへcompleted投影だけを復元する。旧出典indexは元canonical/domain-inputsと一組で解決し、新manifestへ旧draftをコピー/force転用しない。
+旧出典indexは元canonical/domain-inputsと一組で解決し、新manifestへ旧draftをコピー/force転用しない。
 
 <a id="保持とgc"></a>
 ## ローカルmirrorの整理
