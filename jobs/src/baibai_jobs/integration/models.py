@@ -221,10 +221,19 @@ def integrate_models(
         )
         _phase_progress("lake_publish", phase_started)
     phase_started = _phase_progress("model_cache_prune")
-    pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
+    try:
+        pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
+    except (OSError, sqlite3.Error) as error:
+        # Cache retention is optional; store upload still checks the SQLite snapshot.
+        logging.getLogger(__name__).warning(
+            "model cache prune: state=failed error_type=%s", type(error).__name__
+        )
+        pruned_count = None
+    else:
+        pruned_count = len(pruned)
     _phase_progress("model_cache_prune", phase_started)
     return {
-        "pruned_generation_count": len(pruned),
+        "pruned_generation_count": pruned_count,
         "asof": as_of.isoformat(),
         "models_ready": True,
         "generation_id": generation.metadata.generation_id,

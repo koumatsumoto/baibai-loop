@@ -1,22 +1,6 @@
-"""Discord run notification for the cloud daily batch.
+"""Report daily-batch outcomes without exposing the Discord webhook.
 
-One message per terminal state of ``cloud-daily-batch``. It serves the daily
-machine loop's "見せる" role: from one message a reader learns whether the day's
-artefacts were published, which step to open when they were not, and the generated
-company/model/candidate counts. Generation is distinct from cloud-store reflection.
-Detailed metrics and release identifiers stay in the workflow log linked by the Run
-line. Shared formatting also serves source receipts and missing-run alerts.
-
-Dependency-free by design: only the Python standard library and no 3.13+ syntax,
-so the notification step (and the pre-``setup-python`` smoke check) can import
-and run it on the GitHub-hosted runner's system ``python3``.
-
-The webhook URL is read only from the notification step's environment, never from
-a CLI argument, and never echoed. Validation failures, timeouts and HTTP errors
-report a sanitized reason that omits the URL and any response body. A delivery
-failure is printed and the script still exits 0, so notification delivery does
-not change the jobs/publication outcome. A failed workflow does not itself prove
-that publication never happened; failures can also occur after a pointer switch.
+Uses the system Python standard library; delivery failure does not change the batch outcome.
 """
 
 from __future__ import annotations
@@ -84,14 +68,7 @@ Transport = Callable[[str, bytes, float], int]
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse redirects so a 3xx cannot leave the validated Discord host.
-
-    ``prepare_webhook_url`` validates the initial URL's host; following a redirect
-    would skip that check for the ``Location`` target. A redirect therefore raises
-    ``HTTPError``, which ``deliver`` reports as a sanitized failure. Discord's
-    ``wait=true`` endpoint replies 200 directly, so legitimate delivery never
-    needs a redirect.
-    """
+    """Refuse redirects so the validated webhook cannot leave Discord."""
 
     def redirect_request(
         self,
@@ -121,12 +98,7 @@ def _urllib_transport(url: str, body: bytes, timeout: float) -> int:
 
 
 def sanitize_one_line(value: object, max_chars: int = _SCALAR_MAX_CHARS) -> str:
-    """Render a value as bounded single-line text.
-
-    Whitespace runs collapse to one space and braces are stripped, so a value
-    written by another process can never inject a newline or a format
-    placeholder into a rendered message.
-    """
+    """Bound text and remove newlines and format placeholders."""
 
     text = re.sub(r"\s+", " ", str(value)).strip()
     text = text.replace("{", "").replace("}", "")
@@ -134,12 +106,7 @@ def sanitize_one_line(value: object, max_chars: int = _SCALAR_MAX_CHARS) -> str:
 
 
 def prepare_webhook_url(raw_url: str) -> str:
-    """Validate the webhook URL and return it with ``wait=true`` for delivery.
-
-    Rejects an unset URL, a non-HTTPS scheme, a non-Discord host, a non-webhook
-    path, and any control character or space. The error never includes the URL or
-    its token.
-    """
+    """Validate the Discord endpoint without including its token in errors."""
 
     url = raw_url.strip()
     if not url:
@@ -177,12 +144,7 @@ def run_url(env: Mapping[str, str]) -> str:
 
 
 def load_notice(path: Path | None) -> dict[str, object]:
-    """Read what the batch left for the notifier; anything unreadable reads as absent.
-
-    An absent result can mean no file, an unreadable file, or an invalid payload.
-    It does not establish where execution stopped. Exit code and step outcomes
-    remain available independently, and unknown notice fields stay unknown.
-    """
+    """Read an optional notice; absence does not establish where the batch stopped."""
 
     if path is None:
         return {}
@@ -229,11 +191,16 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         return ["モデル統合: 未完了"]
     if notice.get("models_ready") is not True:
         return []
+    cache_warning = (
+        ["モデルcache整理: 未完了"]
+        if "pruned_generation_count" in notice and notice["pruned_generation_count"] is None
+        else []
+    )
     counts = [notice.get(key) for key in ("company_count", "model_count", "candidate_count")]
     if any(type(value) is not int or value < 0 for value in counts):
-        return ["モデル生成: 完了 / 件数未確認"]
+        return ["モデル生成: 完了 / 件数未確認", *cache_warning]
     companies, models, candidates = counts
-    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
+    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社", *cache_warning]
     coverage = notice.get("screening_price_inputs")
     if isinstance(coverage, dict):
         valid, universe = coverage.get("valid_count"), coverage.get("universe_count")
@@ -369,7 +336,12 @@ def render_message(
     if (integration_report or {}).get("economic_l1_published") is True:
         details.append("経済L1: 公開・読戻し済み（後段L2の成否とは独立）")
     source_failures = render_source_failures(integration_report or {})
-    if outcome == OUTCOME_OK and source_failures:
+    cache_failed = (
+        notice.get("models_ready") is True
+        and "pruned_generation_count" in notice
+        and notice["pruned_generation_count"] is None
+    )
+    if outcome == OUTCOME_OK and (source_failures or cache_failed):
         outcome = OUTCOME_DEGRADED
     details.extend(source_failures)
     details.extend(render_deferred_inputs(integration_report or {}))

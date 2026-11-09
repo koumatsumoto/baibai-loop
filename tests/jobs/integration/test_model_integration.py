@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sqlite3
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
@@ -25,7 +26,7 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_jobs.observability.discord import render_generation
+from baibai_jobs.observability.discord import render_generation, render_message
 
 
 @pytest.fixture
@@ -234,6 +235,28 @@ def test_generation_failure_does_not_publish_or_save_a_partial_run(integration, 
         job.integrate_models(**arguments)
     assert "publish" not in events
     assert not arguments["runs"].exists()
+
+
+def test_cache_prune_failure_does_not_block_published_models(integration, monkeypatch, caplog):
+    arguments, events = integration
+
+    def fail(*args, **kwargs):
+        raise sqlite3.OperationalError("synthetic prune failure")
+
+    monkeypatch.setattr(job, "prune_model_cache", fail)
+    result = job.integrate_models(**arguments)
+    assert result["models_ready"] is True
+    assert result["pruned_generation_count"] is None
+    assert "publish" in events
+    assert "model cache prune: state=failed" in caplog.text
+    assert "モデルcache整理: 未完了" in render_generation(result)
+    assert render_generation({"models_ready": True, "pruned_generation_count": None}) == [
+        "モデル生成: 完了 / 件数未確認",
+        "モデルcache整理: 未完了",
+    ]
+    notice = render_message(outcome="ok", asof="2026-11-09", failed_steps=[], notice=result, url="")
+    assert "[DEGRADED]" in notice
+    assert "モデルcache整理: 未完了" in notice
 
 
 def test_failed_lake_publication_does_not_prune_existing_generations(integration, monkeypatch):
