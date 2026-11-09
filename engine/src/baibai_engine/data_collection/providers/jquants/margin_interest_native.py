@@ -105,16 +105,35 @@ def balance_days(
         elif day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE and opened is True:
             daily.append(day)
     weekly = []
+    extra_unknown: set[date] = set()
+    extra_requests = set(unknown)
     for days in weeks.values():
         if any(sessions[day] is None for day in days):
             continue
         opened_days = [day for day in days if sessions[day] is True]
         if opened_days:
-            weekly.append(opened_days[-1])
+            candidate = opened_days[-1]
+            # A selection ending midweek must not turn its final trading day
+            # into the week's balance day. Check the rest of the business week.
+            friday = min(
+                candidate + timedelta(days=4 - candidate.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE
+            )
+            if candidate < friday:
+                later, incomplete = calendar_sessions(
+                    calendar.index(), start=candidate + timedelta(days=1), end=friday
+                )
+                if any(state is True for state in later.values()):
+                    continue
+                missing = {day for day, state in later.items() if state is None}
+                if missing:
+                    extra_unknown.update(missing)
+                    extra_requests.update(incomplete)
+                    continue
+            weekly.append(candidate)
     return (
         tuple(sorted(weekly + daily)),
-        tuple(day for day, opened in sessions.items() if opened is None),
-        unknown,
+        tuple(sorted({day for day, opened in sessions.items() if opened is None} | extra_unknown)),
+        tuple(sorted(extra_requests)),
     )
 
 

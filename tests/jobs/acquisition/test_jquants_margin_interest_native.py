@@ -207,6 +207,27 @@ def test_force_backfill_is_finite_and_includes_last_day(tmp_path):
             plan_margin_interest_days(owner.fixed(), cal, asof=DAY, **kwargs)
 
 
+def test_weekly_backfill_does_not_treat_midweek_range_end_as_week_end(tmp_path):
+    monday, friday = date(2026, 9, 14), date(2026, 9, 18)
+    _, _, cal = setup(tmp_path, start=monday, end=friday)
+    assert balance_days(cal, start=monday, end=monday) == ((), (), ())
+    assert balance_days(cal, start=monday, end=friday)[0] == (friday,)
+
+
+def test_weekly_backfill_reports_missing_later_calendar_days(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    _, _, cal = setup(tmp_path, start=thursday, end=thursday)
+    expected, unknown, _ = balance_days(cal, start=thursday, end=thursday)
+    assert expected == ()
+    assert unknown == (friday,)
+
+
+def test_weekly_backfill_keeps_thursday_when_friday_is_closed(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    _, _, cal = setup(tmp_path, start=thursday, end=friday, closed=(friday,))
+    assert balance_days(cal, start=thursday, end=thursday) == ((thursday,), (), ())
+
+
 def test_acquire_uses_compact_dates_and_frozen_calendar_without_l2(tmp_path):
     store, owner, cal = setup(tmp_path)
     client = Client(callback=lambda: store.values.pop(CALENDAR_HEAD, None))
