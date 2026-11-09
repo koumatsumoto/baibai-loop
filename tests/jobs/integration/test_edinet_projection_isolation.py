@@ -146,10 +146,22 @@ def test_edinet_failure_is_publishable_but_remains_unreadable_and_reported_after
         assert conn.execute(
             "SELECT receipt_id FROM edinet_list_responses WHERE receipt_id = ?", (bad_receipt,)
         ).fetchone() == (bad_receipt,)
+    assert main(["check", "--directory", str(work)]) == 1
+
+    # This test exports directly; normal publication prepares its own calendar.
+    from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
+
+    calendar_model_input(
+        store,
+        native_calendar.fixed(),
+        as_of=asof,
+        evaluated_at=STAMP + timedelta(days=3),
+        market=market,
+    )
+    with closing(open_connection(market)) as conn:
         assert conn.execute("SELECT day FROM jquants_market_calendar ORDER BY day").fetchall() == [
             ((DAY + timedelta(days=offset)).isoformat(),) for offset in range((asof - DAY).days + 1)
         ]
-    assert main(["check", "--directory", str(work)]) == 1
 
     names = (
         "edinet.documents",

@@ -226,10 +226,15 @@ def test_native_scoped_input_never_requires_legacy_calendar_or_copies_its_covera
         ).fetchone() == (0,)
 
 
-def test_common_integration_hydrates_native_calendar_even_without_source_handoffs(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("existing", [False, True])
+def test_common_integration_defers_full_calendar_projection_to_model_publication(
+    tmp_path, monkeypatch, existing
 ):
+    from tests.helpers.lake_policy import narrow_release_policy
+    from tests.helpers.price_native import seed_prices
+
     import baibai_jobs.integration.sources as sources
+    import baibai_jobs.publication.snapshot_publication as publication
 
     store, _master, _calendar, market, directory = native_context(tmp_path, monkeypatch)
     monkeypatch.setattr(sources, "extract_saved_edinet", lambda *a, **k: {})
@@ -244,8 +249,40 @@ def test_common_integration_hydrates_native_calendar_even_without_source_handoff
         },
     )
     with sqlite3.connect(market) as conn:
-        conn.execute("UPDATE jquants_market_calendar SET holiday_division='future'")
-    sources.apply(store, directory, market=market, asof=DAY)
+        if existing:
+            conn.execute("UPDATE jquants_market_calendar SET holiday_division='future'")
+        else:
+            conn.execute("DELETE FROM jquants_market_calendar")
+    store.get_keys.clear()
+    for _ in range(2):
+        report = sources.apply(store, directory, market=market, asof=DAY)
+        with sqlite3.connect(market) as conn:
+            assert conn.execute("SELECT * FROM jquants_market_calendar").fetchall() == (
+                [(DAY.isoformat(), "future")] if existing else []
+            )
+    assert not any("/packs/" in key for key in store.get_keys)
+
+    narrow_release_policy(monkeypatch, datasets=("jquants.market_calendar",))
+    monkeypatch.setattr(
+        publication,
+        "LAKE_DATASETS",
+        {"jquants.market_calendar": publication.LAKE_DATASETS["jquants.market_calendar"]},
+    )
+    monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
+    seed_prices(store, market, tmp_path / "price", as_of=DAY)
+    with publication.prepare_market_lake(
+        sqlite_path=market,
+        mirror_root=tmp_path / "publication",
+        store=store,
+        as_of=DAY,
+        edinet_input=InputSnapshot.model_validate(report["edinet_input"]),
+    ) as prepared:
+        with sqlite3.connect(prepared.source_snapshot.path) as conn:
+            assert conn.execute("SELECT * FROM jquants_market_calendar").fetchall() == [
+                (DAY.isoformat(), "1")
+            ]
+        assert prepared.calendar_identity.descriptor["summary"]["coverage_status"] == "complete"
+        assert prepared.export.datasets["jquants.market_calendar"].manifest.totals.rows == 1
     with sqlite3.connect(market) as conn:
         assert conn.execute("SELECT * FROM jquants_market_calendar").fetchall() == [
             (DAY.isoformat(), "1")

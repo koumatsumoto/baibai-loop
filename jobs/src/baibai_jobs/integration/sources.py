@@ -133,15 +133,16 @@ def apply(
             .items()
         }
     from baibai_engine.data_collection.providers.jquants.calendar_native import CalendarL1
-    from baibai_jobs.integration.calendar_native import model_input as calendar_model_input
+    from baibai_jobs.integration.calendar_native import fixed_input as calendar_fixed_input
 
     fixed_calendar = CalendarL1(store, directory / "calendar-native").fixed()
     calendar_fingerprints = {
         identity: receipt["fingerprint"]
         for identity, receipt in fixed_calendar.value()["receipts"].items()
     }
-    calendar_input = calendar_model_input(
-        store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC), market=market
+    # Replay materializes its own required dates; full history is built before model publication.
+    calendar_input = calendar_fixed_input(
+        store, fixed_calendar, as_of=asof, evaluated_at=datetime.now(UTC)
     )
     price_fingerprints = None
     if any(entry["source"] == "jquants-market" for entry in plan["handoffs"]):
