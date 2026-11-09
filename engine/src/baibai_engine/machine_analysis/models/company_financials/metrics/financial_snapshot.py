@@ -100,13 +100,7 @@ def build_financial_snapshot(
         if all(value is not None for value in forecasts)
         else None
     )
-    # 開示の利益は期中累計で、年度途中の四半期開示では 12 か月分にならない (Q1 開示だと
-    # 3 か月分)。sales / cfo と同じ rolling 合成 (直近累計 + 前期通期 - 前年同期間累計) で
-    # TTM に直し、通期開示のときだけそのまま使う。合成できない場合は per_trailing を
-    # 出さない (単一四半期の利益で割った偽の割高 PER を作らない)。
-    # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
-    # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
-    # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
+    # 期中累計は円額でTTM合成する。株数の異なるEPSは足せない。
     sales_row = _latest_actual_row(summaries, field_names=("sales",))
     cfo_row = _latest_actual_row(summaries, field_names=("cfo",))
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", ttm_rules)
@@ -119,11 +113,7 @@ def build_financial_snapshot(
         profit_quality = (
             TTMQuality.APPROXIMATED if profit_ttm is not None else TTMQuality.UNAVAILABLE
         )
-    # BS 系 fact (bps / cash_eq / equity / total_assets / 株数) は四半期開示に
-    # 載らないことが多く (bps 非 null は FY 開示 ~69% に対し四半期 ~17-20%)、
-    # latest 行だけを見ると四半期行が最新になる断面で PBR 等が季節的に大量欠損
-    # する。直近の非 null 行から carry-forward し (値は asof-basis 正規化済み)、
-    # どの field をいつの開示から引いたかを staleness fact として残す。
+    # 四半期に未開示のBS値は直近値を使い、経過日数を残す。
 
     cash_eq, cash_eq_lag = _carry_forward(summaries, "cash_eq", latest)
     total_assets, total_assets_lag = _carry_forward(summaries, "total_assets", latest)
@@ -172,11 +162,7 @@ def build_financial_snapshot(
         forecast_eps = None
         per_forward = None
     shares_outstanding = capital_basis.issued
-    # 時価総額の分母は自己株式を除いた株数である。自己株式は議決権も配当請求権も持たない
-    # ので、含めると時価総額が過大になり現金比率・利回りが薄く、倍率が割高に見える。歪みが
-    # 最大になるのは自己株式を積み上げた企業である。自己株式数が観測できない行は
-    # 時価総額を出さない — 発行済で
-    # 代用すると、どれだけ過大かが分からない値が現金比率・利回り・時価総額 gate へ入る。
+    # 自己株式が不明なとき、発行済株数で代用すると時価総額を過大評価する。
     shares_ex_treasury = capital_basis.shares_ex_treasury
     operating_profit_ttm, _ = _ttm_value(summaries, "operating_profit", ttm_rules)
     sales_ttm, sales_quality = _ttm_value(summaries, "sales", ttm_rules)
@@ -186,10 +172,7 @@ def build_financial_snapshot(
         sales_ttm = pdf_selection.amounts_yen.get("sales")
         sales_quality = TTMQuality.APPROXIMATED if sales_ttm is not None else TTMQuality.UNAVAILABLE
     ocf_ttm, ocf_quality = _ttm_value(summaries, "cfo", ttm_rules)
-    # EDINET の値は 1 つの書類を連結・単体のどちらかの基準で読んだもので、時価総額と
-    # TTM 系列は短信由来である。連結財務諸表を持つ会社の書類を単体基準で読むと、比率の
-    # 分子と分母の範囲がずれ得る。総資産の倍率で大きな規模差を検出するが、
-    # 通過しても同一時点・連結範囲の一致を証明するものではない。
+    # EDINETと短信の大きな規模差を検出する。通過しても同一時点・範囲の証明にはならない。
     edinet_usable = _edinet_passes_entity_scale_check(edinet, total_assets)
     edinet_metrics = edinet if edinet_usable else None
     debt = edinet_metrics.debt if edinet_metrics else None
@@ -216,9 +199,7 @@ def build_financial_snapshot(
         else None
     )
     ev_ebitda = _safe_positive_ratio(latest_enterprise_value, ebitda_ttm)
-    # 収益倍率も p_s / pcfr / ev_ebitda と同じ「時価総額 ÷ 円の TTM 系列」で組む。
-    # 1 株当たりへの換算はここで 1 回だけ行い、市場が値付けできる株数で割る。こうすると
-    # `株価 / eps == per_trailing` が厳密に成立し、同じ語が 2 つの値を指さない。
+    # EPSとPERは同じ自己株控除後の株数を使う。
     per_trailing = _safe_positive_ratio(latest_market_cap, profit_ttm)
     eps_ttm = _safe_ratio(profit_ttm, shares_ex_treasury)
     # 同じ開示行のTAとEqARから円経路を作り、普通株BPS経路との照合と鮮度で選ぶ。
