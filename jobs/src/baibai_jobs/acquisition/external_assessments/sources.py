@@ -33,7 +33,7 @@ from baibai_jobs.acquisition.external_assessments.staging import (
     read_terminal,
     terminal_result,
 )
-from baibai_jobs.integration.external_assessment_ready import PreparedPlan, prepare_plan
+from baibai_jobs.integration.external_assessment_ready import PreparedPlan, prepare_saved_stages
 from baibai_jobs.schedule import external_assessment_cycle_end, external_assessment_target_date
 
 SOURCES: tuple[ExternalAssessmentSource, ...] = ("monex", "rakuten", "kabumap", "minkabu")
@@ -244,7 +244,9 @@ def inspect_ready(
             continue
         # Validate the exact stages before freezing a handoff; do not integrate here.
         prepared.append(
-            prepare_plan(store, plan, confirmed_partial=confirmed_partial, cumulative=cumulative)
+            prepare_saved_stages(
+                plan, saved, confirmed_partial=confirmed_partial, cumulative=cumulative
+            )
         )
         reports[source] = {**accounting, "source": source, "status": "publication_unconfirmed"}
     return prepared, reports

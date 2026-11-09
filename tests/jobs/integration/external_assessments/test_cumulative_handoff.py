@@ -189,16 +189,37 @@ def test_failed_readback_does_not_acknowledge_partial_originals(publication, mon
     assert available_ready(store) == ([reference], [])
 
 
-def test_cumulative_inspect_does_not_require_all_cohorts(publication):
-    from baibai_jobs.acquisition.external_assessments.sources import inspect_ready
+def test_cumulative_inspect_freezes_reported_stages_and_later_reads_progress(
+    publication, monkeypatch
+):
+    import baibai_jobs.acquisition.external_assessments.sources as sources
 
     store, plan = make_partial(publication)
     selected = [{"source": "monex", "run_id": plan.run_id}]
-    assert inspect_ready(store, selected)[0] == []
-    prepared, reports = inspect_ready(store, selected, cumulative=True)
+    assert sources.inspect_ready(store, selected)[0] == []
+    read_stages = sources.read_stages
+
+    def advance_after_read(store, plan):
+        saved = read_stages(store, plan)
+        add_cohort(store, plan, 1, seconds=1)
+        return saved
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sources, "read_stages", advance_after_read)
+        prepared, reports = sources.inspect_ready(store, selected, cumulative=True)
     assert len(prepared) == 1
     assert prepared[0].cumulative
+    assert prepared[0].accounting["state_counts"] == reports["monex"]["state_counts"]
     assert reports["monex"]["state_counts"]["unattempted"] == 1
+    assert set(prepared[0].stages) == {0}
+    first = save_ready(store, prepared[0])
+    assert set(load_ready(store, first).stages) == {0}
+
+    progressed, reports = sources.inspect_ready(store, selected, cumulative=True)
+    assert reports["monex"]["state_counts"]["unattempted"] == 0
+    assert set(progressed[0].stages) == {0, 1}
+    second = save_ready(store, progressed[0])
+    assert available_ready(store) == ([second], [])
 
 
 def test_invalid_ack_cannot_silently_remove_ready(publication):

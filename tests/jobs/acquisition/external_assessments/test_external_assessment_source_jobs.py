@@ -227,7 +227,7 @@ def test_sealed_source_inspection_and_acquire_read_no_stage_http_lease_or_db(
     def forbid(*args, **kwargs):
         pytest.fail("sealed source cannot touch stage/HTTP/lease/DB/current release")
 
-    for name in ("read_stages", "prepare_plan"):
+    for name in ("read_stages", "prepare_saved_stages"):
         monkeypatch.setattr(sources, name, forbid)
     for name in (
         "acquire_cohort",
