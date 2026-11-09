@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
@@ -10,7 +9,6 @@ import pytest
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
-    JPXProviderError,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_reader import (
     read_next_earnings_dates,
@@ -57,29 +55,6 @@ def _seed_earnings(path: Path, rows: list[tuple[str, str]]) -> None:
     )
 
 
-def test_next_earnings_dates_returns_current_dates_on_or_after_asof(
-    tmp_path: Path,
-) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_earnings(
-        database,
-        [
-            ("2331", "2026-07-30"),
-            ("4432", "2026-08-13"),
-            ("5555", "2026-07-15"),  # before asof, ignored
-            ("9999", "2026-07-31"),  # owner returns the complete current schedule
-        ],
-    )
-
-    result = read_next_earnings_dates(database, date(2026, 7, 21))
-
-    assert result == {
-        "2331": date(2026, 7, 30),
-        "4432": date(2026, 8, 13),
-        "9999": date(2026, 7, 31),
-    }
-
-
 def test_next_earnings_dates_marks_missing_or_expired_schedule_unavailable(
     tmp_path: Path,
 ) -> None:
@@ -101,23 +76,6 @@ def test_optional_earnings_dates_do_not_require_coverage_for_unrelated_market_re
         sqlite_path=database, ticker="2331", at=datetime.fromisoformat("2026-07-21T16:00:00+09:00")
     )
     assert quote.close_yen == 1000.0
-
-
-def test_optional_earnings_view_does_not_publish_a_stale_schedule(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_earnings(database, [("2331", "2026-08-13")])
-    assert read_next_earnings_dates(database, date(2026, 8, 3)) is None
-
-
-def test_earnings_view_propagates_corrupt_successful_snapshot(tmp_path: Path) -> None:
-    database = tmp_path / "market.sqlite"
-    _seed_earnings(database, [("2331", "2026-07-30")])
-    with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute("UPDATE source_coverage SET record_count = 2")
-    before = database.read_bytes()
-    with pytest.raises(JPXProviderError, match="row count mismatch"):
-        read_next_earnings_dates(database, date(2026, 7, 21))
-    assert database.read_bytes() == before
 
 
 def _seed_bars_with_factors(

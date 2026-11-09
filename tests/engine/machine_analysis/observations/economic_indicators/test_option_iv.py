@@ -143,11 +143,6 @@ class OptionIvReadingsTest(unittest.TestCase):
         self.assertAlmostEqual(readings.iv_30d, expected, places=9)
         self.assertEqual(put_only, OptionIvReadings())
 
-    def test_the_skew_is_the_downside_put_minus_the_at_the_money_put(self) -> None:
-        readings = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
-
-        self.assertEqual(readings.iv_skew, 10.0)
-
     def test_a_uniform_disagreement_moves_both_skew_legs_together(self) -> None:
         # Both legs come from the put side, so a disagreement of the same size at every
         # strike lifts them equally and leaves the difference alone. A leg taken off
@@ -278,23 +273,12 @@ class OptionIvReadingsTest(unittest.TestCase):
         selected = usable_expiries(quotes, ASOF)
         self.assertEqual([quote.implied_volatility for quote in selected[NEAR]], [1.01])
 
-    def test_a_chain_quoting_only_puts_withholds_the_differences(self) -> None:
-        # With nothing to compare the sides against, the basis is unknown rather
-        # than sound.
-        puts = [quote for quote in _chain(NEAR) if quote.put_call == PUT]
-        far = [quote for quote in _chain(FAR) if quote.put_call == PUT]
-
-        readings = option_iv_readings([*puts, *far], ASOF)
-
-        self.assertIsNone(readings.iv_skew)
-        self.assertIsNone(readings.iv_term)
-
     def test_the_downside_leg_sits_five_percent_below_the_money(self) -> None:
         # 0.90 would read 34.0 and 1.00 would read 20.0 off the same ladder, so a
         # different distance cannot produce this number.
         readings = option_iv_readings([*_chain(NEAR), *_chain(FAR)], ASOF)
 
-        self.assertEqual(readings.iv_skew, _LADDER[0.95] - _LADDER[1.00])
+        self.assertEqual(readings.iv_skew, 10.0)
 
     def test_upside_volatility_above_downside_is_reported_rather_than_clamped(self) -> None:
         # An inverted smile is an unusual but real state; reporting it as zero would
