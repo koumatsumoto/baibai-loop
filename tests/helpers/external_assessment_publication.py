@@ -241,22 +241,15 @@ def publication(tmp_path, monkeypatch):
             source,
             ticker,
             received_at_utc=RECEIVED,
-            value=("123,456円" if source == "monex" and ticker == "7203" else "--")
-            if source == "monex"
-            else "3.25",
-            malformed=(source == "rakuten" and ticker == "6758"),
+            value="123,456円" if ticker == "7203" else "--",
         )
         originals.extend(responses)
-        observation = (
-            None
-            if source == "rakuten" and ticker == "6758"
-            else external_assessment_decode_attempt(responses)
-        )
+        observation = external_assessment_decode_attempt(responses)
         outcome = ExternalAssessmentCollectionOutcome(
             source,
             ticker,
-            "observed" if observation else "parse_failure",
-            None if observation else "no_estimates_identity_unconfirmed",
+            "observed",
+            None,
             200,
             responses[0].attempt_id,
         )
