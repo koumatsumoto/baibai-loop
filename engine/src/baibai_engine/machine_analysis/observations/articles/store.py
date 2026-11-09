@@ -38,7 +38,6 @@ def save_projection(
             or item.parser_revision != run.parser_revision
         ):
             raise ArticleStoreError("observation differs from source receipt/projection")
-        read_body(conn, item.body_ref)
         rows.append(
             (
                 item.observation_id,
@@ -49,6 +48,9 @@ def save_projection(
                 item.model_dump_json(),
             )
         )
+    if observations:
+        # Every item is bound above to the run's single original body.
+        read_body(conn, observations[0].body_ref)
     # A failed write must not leave only half of a native projection in a caller transaction.
     if not conn.in_transaction:
         conn.execute("BEGIN")
