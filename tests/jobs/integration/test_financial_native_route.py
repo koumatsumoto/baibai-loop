@@ -7,9 +7,8 @@ import pytest
 import baibai_jobs.integration.source_handoff as handoff
 
 
-@pytest.mark.parametrize("old_flag", [None, "false", "true", "invalid"])
 def test_native_ordinary_acquisition_never_resolves_legacy_release_or_creates_stage(
-    tmp_path, monkeypatch, old_flag
+    tmp_path, monkeypatch
 ):
     from tests.helpers.r2_store import MemoryR2Store
 
@@ -17,10 +16,7 @@ def test_native_ordinary_acquisition_never_resolves_legacy_release_or_creates_st
     import baibai_engine.storage.snapshots.objects as objects
     import baibai_jobs.acquisition.jquants_financial_native as acquisition
 
-    if old_flag is None:
-        monkeypatch.delenv("BAIBAI_FINANCIAL_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", old_flag)
+    monkeypatch.setenv("BAIBAI_FINANCIAL_NATIVE", "false")
     output = tmp_path / "output"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
     calls = []

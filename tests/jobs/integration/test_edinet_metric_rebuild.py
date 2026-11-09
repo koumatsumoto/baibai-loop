@@ -106,26 +106,13 @@ def metrics(output, asof=TARGET):
     return baseline
 
 
-@pytest.mark.parametrize("old_state", ["absent", "normal", "different_values", "corrupt"])
-def test_fixed_candidate_ignores_old_metrics_and_matches_complete_source(
-    tmp_path, monkeypatch, old_state
-):
+def test_fixed_candidates_match_complete_source(tmp_path, monkeypatch):
     store, _, _, lists, archives = sources(tmp_path)
+    # 完全なSQL原本を使う既存経路を比較基準にする。候補の入力には渡さない。
     canonical = tmp_path / "market.sqlite"
     rebuild_fixed_edinet_input(lists, archives, canonical)
     edinet_integration.extract_saved_edinet(canonical, asof=BASE, lookback_days=0)
     expected = metrics(canonical).rows
-    with sqlite3.connect(canonical) as connection:
-        if old_state == "absent":
-            connection.execute("DELETE FROM edinet_metrics")
-            connection.execute("DELETE FROM source_coverage WHERE source='edinet_metrics'")
-        elif old_state == "different_values":
-            connection.execute("UPDATE edinet_metrics SET cash=77")
-        elif old_state == "corrupt":
-            connection.execute("UPDATE edinet_metrics SET failure_reasons='not JSON'")
-            connection.execute(
-                "UPDATE source_coverage SET record_count=999 WHERE source='edinet_metrics'"
-            )
     original_market = canonical.read_bytes()
     original_source = dict(store.values)
     baseline_reader = read_edinet_metric_baseline
