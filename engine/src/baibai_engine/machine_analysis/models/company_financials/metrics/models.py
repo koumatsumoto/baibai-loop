@@ -151,7 +151,7 @@ class FinancialSnapshot:
     tradable_share_change_yoy: float | None = None
     # 予想経常利益または予想純利益の赤字を注記する。
     # 予想EPSとFV anchorへの影響は実際の入力に依存する。
-    forecast_full_year_loss_flag: bool = False
+    forecast_full_year_loss_flag: bool | None = None
 
     @field_validator(
         "per_forward",

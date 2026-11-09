@@ -1095,7 +1095,7 @@ def test_short_revision_does_not_claim_annual_values(period, end, basis, prefix)
     assert result.forecast_ordinary_profit_yen is None
     assert result.forecast_eps_yen is None
     assert result.per_forward is None
-    assert not result.forecast_full_year_loss_flag
+    assert result.forecast_full_year_loss_flag is None
     assert result.dps_forecast_annual == 9
     trace = result.earnings_forecast_source
     assert trace is not None
@@ -1544,3 +1544,12 @@ def test_previous_year_dividend_revision_does_not_withdraw_next_year_guidance():
     result = snapshot(decode([old, revised]))
     assert result.dps_forecast_annual == 0
     assert result.dividend_yield == 0
+
+
+@pytest.mark.parametrize(
+    ("profit", "ordinary", "expected"),
+    [("", "", None), ("10", "", None), ("-10", "", True), ("", "-1", True), ("10", "5", False)],
+)
+def test_forecast_loss_flag_preserves_unknown(profit, ordinary, expected):
+    result = snapshot(decode([document("partial-loss", FNP=profit, FOdP=ordinary)]))
+    assert result.forecast_full_year_loss_flag is expected

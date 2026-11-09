@@ -92,11 +92,13 @@ def build_financial_snapshot(
     forecast_eps = forecast.forecast_eps if forecast is not None else None
     forecast_profit = forecast.forecast_profit if forecast is not None else None
     forecast_ordinary_profit = forecast.forecast_ordinary_profit if forecast is not None else None
-    # 予想経常利益または予想純利益の赤字を注記する。
-    # flagだけでは予想EPSの符号や採用FV anchorは確定しない。
-    # 未開示と赤字の確認を区別する。
-    forecast_full_year_loss_flag = (forecast_profit is not None and forecast_profit < 0) or (
-        forecast_ordinary_profit is not None and forecast_ordinary_profit < 0
+    forecasts = (forecast_profit, forecast_ordinary_profit)
+    forecast_full_year_loss_flag = (
+        True
+        if any(value is not None and value < 0 for value in forecasts)
+        else False
+        if all(value is not None for value in forecasts)
+        else None
     )
     # 開示の利益は期中累計で、年度途中の四半期開示では 12 か月分にならない (Q1 開示だと
     # 3 か月分)。sales / cfo と同じ rolling 合成 (直近累計 + 前期通期 - 前年同期間累計) で
