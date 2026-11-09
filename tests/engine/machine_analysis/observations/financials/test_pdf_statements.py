@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import sqlite3
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
@@ -257,7 +258,7 @@ def test_receipt_import_checks_bytes_and_preserves_capture_clock(tmp_path):
     manifest.write_text(json.dumps([record]))
     result = receive(manifest, tmp_path / "handoff")
     assert result["source"] == "jpx-financial-pdfs"
-    with closing(open_connection(tmp_path / "handoff" / "receipts.sqlite")) as conn:
+    with closing(sqlite3.connect(tmp_path / "handoff" / "receipts.sqlite")) as conn:
         row = conn.execute("SELECT received_at_utc FROM jpx_source_responses").fetchone()
         assert datetime.fromisoformat(row[0]) == STAMP + timedelta(seconds=1)
     with pytest.raises(FileExistsError):
