@@ -13,6 +13,7 @@ from pypdf import PdfReader
 from baibai_engine.data_collection.providers.tradingeconomics.pmi_contract import (
     MONTHS,
     STREAM_NAMES,
+    PmiArticle,
     parse_article,
 )
 from baibai_engine.data_collection.receipts.native_sources.documents import SourceDocument
@@ -86,8 +87,11 @@ def read_pmi_documents(
     end: date,
 ) -> tuple[ObservationRecord, ...]:
     """One sample per month, final before flash regardless of arrival order."""
-    selected: dict[date, tuple[tuple[int, datetime, datetime], SourceDocument]] = {}
+    selected: dict[
+        date, tuple[tuple[int, datetime, datetime], SourceDocument, PmiArticle | None]
+    ] = {}
     for document in documents:
+        article = None
         if document.content_type == "application/pdf":
             month = _document_month(document, "observed_at")
             phase = "final"
@@ -113,16 +117,13 @@ def read_pmi_documents(
         order = (1 if phase == "final" else 0, published, document.fetched_at)
         previous = selected.get(month)
         if previous is None or previous[0] < order:
-            selected[month] = (order, document)
+            selected[month] = (order, document, article)
     values = []
     for month in sorted(selected):
-        document = selected[month][1]
-        if document.content_type == "application/pdf":
+        _, document, article = selected[month]
+        if article is None:
             values.append(read_pmi_document(series, document))
             continue
-        article = parse_article(
-            document.payload, stream=series.reading_key, url=document.source_url
-        )
         # Select the current main-article level before its explicit target month.
         # Previous/forecast/flash comparisons and the appended stream are excluded.
         name = STREAM_NAMES[series.reading_key]

@@ -41,7 +41,8 @@ def read_native_series(
         )
     observations = []
     for snapshot in read_snapshots(connection, start, end, source_id=series.source_id):
-        value = _one_value(series, snapshot.records)
+        records = snapshot.records
+        value = _one_value(series, records)
         if value is not None:
             observation = reading_observation(
                 series,
@@ -50,7 +51,7 @@ def read_native_series(
                 vintage_at=snapshot.fetched_at,
             )
             if series.provider == "yahoo":
-                flags, notes = _yahoo_bar_context(snapshot.records, snapshot.fetched_at)
+                flags, notes = _yahoo_bar_context(records, snapshot.fetched_at)
                 observation = replace(observation, quality_flags=flags, notes=notes)
             observations.append(observation)
     return tuple(observations)

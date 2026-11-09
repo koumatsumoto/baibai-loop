@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
+import baibai_engine.data_collection.receipts.native_sources.records as native_records
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.runners.reading_rules import (
@@ -82,7 +83,7 @@ def test_unknown_clocks_do_not_certify_finality_or_drop_value(clocks):
     assert "unverified" in notes[1]
 
 
-def test_retained_native_values_and_reading_and_derived_notes(tmp_path):
+def test_retained_native_values_and_reading_and_derived_notes(tmp_path, mocker):
     registry = load_definitions().by_id()
     path = tmp_path / "economic.sqlite"
     with closing(initialize_database(path)) as c:
@@ -97,10 +98,12 @@ def test_retained_native_values_and_reading_and_derived_notes(tmp_path):
             )
         c.commit()
         before = path.read_bytes()
+        decode = mocker.spy(native_records, "decode_records")
         inputs = {
             key: read_native_series(c, registry[key], start=DAY, end=DAY)
             for key in ["gold", "copper"]
         }
+        assert decode.call_count == 2
         assert inputs["gold"][0].value == 4000
         assert inputs["copper"][0].value == 6
         assert inputs["gold"][0].vintage_at == RECEIVED
