@@ -131,11 +131,6 @@ class FinancialSnapshot:
     operating_profit: float | None = None
     operating_profit_ttm: float | None = None
     operating_profit_source: OperatingProfitSource = OperatingProfitSource.NULL
-    eps_yoy: float | None = None
-    sales_yoy: float | None = None
-    operating_profit_yoy: float | None = None
-    cfo_yoy: float | None = None
-    operating_profit_loss_narrowing: bool | None = None
     # ttm_quality_* は「TTM 値の合成の質」であって値の有無ではない。分母が負・ゼロで
     # 比率 (per_trailing / pcfr 等) が None でも、合成に成功していれば exact のまま。
     ttm_quality_ev_ebitda: TTMQuality | None = None
@@ -205,10 +200,6 @@ class FinancialSnapshot:
         "ebitda_ttm",
         "operating_profit",
         "operating_profit_ttm",
-        "eps_yoy",
-        "sales_yoy",
-        "operating_profit_yoy",
-        "cfo_yoy",
         "shares_outstanding",
         "accruals_to_assets",
         "net_share_change_yoy",

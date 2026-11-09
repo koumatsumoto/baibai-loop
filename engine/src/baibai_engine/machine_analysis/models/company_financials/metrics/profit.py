@@ -50,11 +50,3 @@ def _accruals_to_assets(
     if denominator <= 0:
         return None
     return (net_income - ocf_ttm) / denominator
-
-
-def _loss_narrowing(current: float | None, previous: float | None) -> bool | None:
-    if current is None or previous is None:
-        return None
-    if current >= 0:
-        return False
-    return previous < 0 and current > previous

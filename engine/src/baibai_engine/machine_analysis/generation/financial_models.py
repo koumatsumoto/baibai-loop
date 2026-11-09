@@ -51,10 +51,6 @@ from baibai_engine.primitives.json import canonical_json
 from baibai_engine.primitives.stocks import normalize_ticker
 from baibai_engine.primitives.time import JST
 
-_GROWTH_FIELDS = frozenset(
-    {"eps_yoy", "sales_yoy", "operating_profit_yoy", "cfo_yoy", "operating_profit_loss_narrowing"}
-)
-
 
 def generate_financial_and_price_models(
     *,
@@ -141,8 +137,6 @@ def generate_financial_and_price_models(
         ),
         edinet,
     )
-    # 変化の正準材料は企業成長。価格欠測で独立した財務観測を消さない。
-    financial = {key: value for key, value in financial.items() if key not in _GROWTH_FIELDS}
     growth = generate_company_growth(
         documents,
         ticker=ticker,

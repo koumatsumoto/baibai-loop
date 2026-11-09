@@ -1453,11 +1453,6 @@ def test_financial_yoy_does_not_compare_different_scopes_but_keeps_issuer_shares
             adjustment_events=(),
             asof_date=date(2026, 8, 15),
         )
-        assert result.eps_yoy is None
-        assert result.sales_yoy is None
-        assert result.cfo_yoy is None
-        assert result.operating_profit_yoy is None
-        assert result.operating_profit_loss_narrowing is None
         assert result.net_share_change_yoy == pytest.approx(-0.1)
         assert result.sales == 200
 

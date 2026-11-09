@@ -16,7 +16,6 @@ def _safe_positive_ratio(numerator: float | None, denominator: float | None) -> 
 
 
 def _yoy_ratio(current: float | None, previous: float | None) -> float | None:
-    # A negative base reverses the apparent direction of improvement.
-    if current is None or previous is None or previous <= 0:
+    if current is None or previous is None or previous == 0:
         return None
     return (current / previous) - 1.0

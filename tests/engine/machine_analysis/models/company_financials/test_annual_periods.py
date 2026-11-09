@@ -214,7 +214,7 @@ def test_latest_partial_standard_revision_blocks_current_profit_yoy_and_priority
     )
 
 
-def test_fy_cfo_yoy_survives_a_newer_quarter_without_cfo():
+def test_fy_cfo_survives_a_newer_quarter_without_cfo():
     prior = replace(
         document(date(2023, 4, 1), date(2024, 3, 31), 50.0),
         cfo=50.0,
@@ -242,7 +242,6 @@ def test_fy_cfo_yoy_survives_a_newer_quarter_without_cfo():
         asof_date=date(2025, 9, 1),
     )
     assert financial.cfo == 100.0
-    assert financial.cfo_yoy == 1.0
 
 
 @pytest.mark.parametrize("revision_standard", ["JP", "IFRS"])
@@ -277,7 +276,7 @@ def test_prior_cfo_empty_correction_preserves_field_only_on_the_same_basis(revis
         adjustment_events=(),
         asof_date=date(2025, 6, 1),
     )
-    assert financial.cfo_yoy == (1.0 if revision_standard == "JP" else None)
+    assert financial.cfo == 100.0
 
 
 def test_conflicted_preferred_operating_line_cannot_fall_through_to_ordinary_profit():
@@ -518,31 +517,3 @@ def test_ambiguous_same_day_basis_revision_does_not_revive_bps(correction_time):
     )
     for rows in ([annual, correction], [correction, annual]):
         assert _latest_non_null_row(rows, "bps") is None
-
-
-def test_negative_previous_financial_values_do_not_emit_reversed_yoy():
-    prior = replace(
-        document(date(2023, 4, 1), date(2024, 3, 31), -10.0),
-        sales=100.0,
-        cfo=-10.0,
-        cumulative_eps=-10.0,
-    )
-    current = replace(
-        document(date(2024, 4, 1), date(2025, 3, 31), -5.0),
-        sales=120.0,
-        cfo=5.0,
-        cumulative_eps=-5.0,
-    )
-    financial = build_financial_snapshot(
-        10.0,
-        [prior, current],
-        None,
-        DEFAULT_TTM_RULES,
-        adjustment_events=(),
-        asof_date=date(2025, 9, 1),
-    )
-    assert financial.eps_yoy is None
-    assert financial.operating_profit_yoy is None
-    assert financial.cfo_yoy is None
-    assert financial.operating_profit_loss_narrowing is True
-    assert financial.sales_yoy == pytest.approx(0.2)
