@@ -35,30 +35,8 @@ jobs:
     timeout-minutes: 60
     environment: tradingview-runtime
     outputs:
-      cancellation-cancelled: ${{ steps.cancellation.outputs.cancelled }}
-      cooldown-check-allowed: ${{ steps.cooldown-check.outputs.allowed }}
-      cooldown-check-outcome: ${{ steps.cooldown-check.outcome }}
-      cooldown-save-outcome: ${{ steps.cooldown-save.outcome }}
       handoff: ${{ steps.stage.outputs.handoff }}
-      hydrate-outcome: ${{ steps.hydrate.outcome }}
-      master-outcome: ${{ steps.master.outcome }}
-      preflight-outcome: ${{ steps.preflight.outcome }}
-      preflight-status: ${{ steps.preflight.outputs.status }}
-      pull-outcome: ${{ steps.pull.outcome }}
-      setup-outcome: ${{ steps.setup.outcome }}
-      setup-uv-outcome: ${{ steps.setup-uv.outcome }}
-      smoke-outcome: ${{ steps.smoke.outcome }}
-      sync-outcome: ${{ steps.sync.outcome }}
-      target-eligible: ${{ steps.target.outputs.eligible }}
-      target-outcome: ${{ steps.target.outcome }}
       target-target-date: ${{ steps.target.outputs.target_date }}
-      tradingview-expected-universe: ${{ steps.tradingview.outputs.expected_universe }}
-      tradingview-outcome: ${{ steps.tradingview.outcome }}
-      tradingview-remaining: ${{ steps.tradingview.outputs.remaining }}
-      tradingview-rows: ${{ steps.tradingview.outputs.rows }}
-      tradingview-rows-added: ${{ steps.tradingview.outputs.rows_added }}
-      tradingview-status: ${{ steps.tradingview.outputs.status }}
-      tradingview-stop-reason: ${{ steps.tradingview.outputs.stop_reason }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Smoke-check system Python imports
@@ -365,10 +343,6 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.acquisition.tradingview.cooldown record --directory "$RUNNER_TEMP"
-      - name: Record cancellation
-        id: cancellation
-        if: ${{ cancelled() }}
-        run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
       - name: Summarize snapshot
         id: summary
         if: ${{ always() }}

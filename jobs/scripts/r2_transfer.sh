@@ -97,16 +97,11 @@ snapshot_sqlite() {
   )
 }
 
-# The merges share their core, so they are imported as modules rather than run as
-# scripts: a script run puts its own directory on the path instead of the repository
-# root, and the shared module is then unreachable.
-merge_store() {
-  local module="$1"
-  shift
+merge_market_store() {
   (
     cd "${repo_root}" || exit 1
     UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/baibai-uv-cache}" \
-      uv run python -m "${module}" --source "$1" --target "$2"
+      uv run python -m baibai_jobs.integration.source_cache_merge --source "$1" --target "$2"
   )
 }
 
@@ -117,10 +112,6 @@ merge_economic_store() {
       uv run python -m baibai_jobs.integration.native_source_merge \
         --canonical "$1" --target "$2" "${@:3}"
   )
-}
-
-merge_market_store() {
-  merge_store baibai_jobs.integration.source_cache_merge "$1" "$2"
 }
 
 hydrate_market() {
