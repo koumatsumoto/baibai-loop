@@ -191,13 +191,16 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         return ["モデル統合: 未完了"]
     if notice.get("models_ready") is not True:
         return []
+    cache_warning = (
+        ["モデルcache整理: 未完了"]
+        if "pruned_generation_count" in notice and notice["pruned_generation_count"] is None
+        else []
+    )
     counts = [notice.get(key) for key in ("company_count", "model_count", "candidate_count")]
     if any(type(value) is not int or value < 0 for value in counts):
-        return ["モデル生成: 完了 / 件数未確認"]
+        return ["モデル生成: 完了 / 件数未確認", *cache_warning]
     companies, models, candidates = counts
-    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
-    if "pruned_generation_count" in notice and notice["pruned_generation_count"] is None:
-        lines.append("モデルcache整理: 未完了")
+    lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社", *cache_warning]
     coverage = notice.get("screening_price_inputs")
     if isinstance(coverage, dict):
         valid, universe = coverage.get("valid_count"), coverage.get("universe_count")

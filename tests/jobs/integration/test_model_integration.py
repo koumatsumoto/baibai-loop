@@ -250,6 +250,10 @@ def test_cache_prune_failure_does_not_block_published_models(integration, monkey
     assert "publish" in events
     assert "model cache prune: state=failed" in caplog.text
     assert "モデルcache整理: 未完了" in render_generation(result)
+    assert render_generation({"models_ready": True, "pruned_generation_count": None}) == [
+        "モデル生成: 完了 / 件数未確認",
+        "モデルcache整理: 未完了",
+    ]
 
 
 def test_failed_lake_publication_does_not_prune_existing_generations(integration, monkeypatch):
