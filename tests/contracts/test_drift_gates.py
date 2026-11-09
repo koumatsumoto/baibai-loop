@@ -8,12 +8,32 @@ from tools.quality.drift import (
     check_cli_help,
     check_documented_commands,
     check_markdown_links,
+    check_readmodel_contract,
     check_repository_paths,
 )
 
 from baibai_engine.storage.paths import ER_LEVEL_CALIBRATION_CONTEXT_PATH
+from baibai_web.contracts_export import generated_files
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize("state", ["current", "stale", "missing"])
+def test_readmodel_gate_checks_without_writing_artifacts(tmp_path, monkeypatch, state):
+    files = generated_files(tmp_path)
+    for path, text in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    target = next(iter(files))
+    if state == "stale":
+        target.write_text("stale", encoding="utf-8")
+    elif state == "missing":
+        target.unlink()
+    before = {path: path.read_bytes() if path.exists() else None for path in files}
+    monkeypatch.setattr(check_readmodel_contract, "_ROOT", tmp_path)
+
+    assert check_readmodel_contract.main() == (0 if state == "current" else 1)
+    assert {path: path.read_bytes() if path.exists() else None for path in files} == before
 
 
 def test_repository_path_gate_rejects_runtime_literal_outside_owner(tmp_path: Path) -> None:
@@ -293,20 +313,27 @@ def test_leaf_options_keep_parent_alias_repeatable_negative_and_placeholder_valu
 
 
 @pytest.mark.parametrize(
-    ("command", "valid"),
+    ("command", "expected_error"),
     [
-        ("analysis run --latest", False),
-        ("analysis run --asof <ASOF>", False),
-        ("analysis run --typo", False),
-        ("analysis missing", False),
-        ("missing", False),
+        ("baibai-engine market-context reading --asof <ASOF>", None),
+        ("baibai-engine market-context reading", "omits required --asof"),
+        (
+            "baibai-engine market-context reading --asof <ASOF> --typo",
+            "has unknown options --typo",
+        ),
+        ("baibai-jobs missing", "baibai-jobs: unknown command missing"),
     ],
 )
-def test_documented_batch_commands_use_the_delegated_parser(
-    tmp_path: Path, command: str, valid: bool
+def test_documented_commands_reach_delegated_leaf_options(
+    tmp_path: Path, command: str, expected_error: str | None
 ) -> None:
-    _skill(tmp_path, f"```bash\nuv run baibai-jobs {command}\n```\n")
-    assert (not check_documented_commands.check(tmp_path)) is valid
+    _skill(tmp_path, f"```bash\nuv run {command}\n```\n")
+    errors = check_documented_commands.check(tmp_path)
+    if expected_error is None:
+        assert errors == []
+    else:
+        assert len(errors) == 1
+        assert expected_error in errors[0]
 
 
 @pytest.mark.parametrize(
