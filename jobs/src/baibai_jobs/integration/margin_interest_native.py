@@ -255,7 +255,9 @@ def _project_selection(
     later_unknown = 0
     if end <= LEGACY_WEEKLY_LAST_BALANCE_DATE and end.weekday() < 4:
         friday = min(end + timedelta(days=4 - end.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE)
-        later_unknown = sum(end < date.fromisoformat(day) <= friday for day in raw_unknown)
+        later_unknown = sum(
+            end < date.fromisoformat(day) <= friday for day in cast(list[str], raw_unknown)
+        )
     calendar_incomplete = calendar_result["coverage_status"] != "complete" or later_unknown > 0
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     changed = tuple(day for day in days if day not in reusable)
