@@ -83,22 +83,35 @@ def test_zero_analyses_and_zero_candidates_are_valid_completed_runs(tmp_path: Pa
     }
 
 
-def test_read_export_preserves_saved_raw_values_candidate_and_nulls(tmp_path: Path) -> None:
+def test_read_export_preserves_saved_types_precision_and_candidates(tmp_path: Path) -> None:
     path = tmp_path / "runs.sqlite"
     raw = _run()
     retired_rules = tmp_path / "retired-rules.yaml"
     assert not retired_rules.exists()
     raw["rules_ref"] = str(retired_rules)
-    raw["stock_analyses"][0]["metrics"].update(custom_known_value=0.123456789, missing=None)
+    metrics = {
+        **raw["stock_analyses"][0]["metrics"],
+        "custom_known_value": 0.123456789,
+        "count": 3,
+        "known": True,
+        "missing": None,
+        "basis": "raw",
+    }
+    raw["stock_analyses"][0]["metrics"] = metrics
     result = _publish(path, raw)
+    before = path.read_bytes()
     run = ScreeningRunReader(path).get_run(result)
     exported = published_run_payload(run)
     assert run.rules_ref == exported["rules_ref"] == str(retired_rules)
     assert yaml.safe_load(serialize_published_run_yaml(run)) == exported
     assert exported["run_revision_id"] == result
-    assert exported["stock_analyses"][0]["metrics"]["custom_known_value"] == 0.123456789
+    assert exported["stock_analyses"][0]["metrics"] == metrics
+    assert {
+        key: type(value) for key, value in exported["stock_analyses"][0]["metrics"].items()
+    } == {key: type(value) for key, value in metrics.items()}
     assert exported["stock_analyses"] == list(run.stock_analyses)
     assert "security_analyses" not in exported
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(
