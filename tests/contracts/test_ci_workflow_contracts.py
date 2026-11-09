@@ -75,6 +75,19 @@ def test_python_quality_gates_share_one_runner() -> None:
     } <= names
 
 
+@pytest.mark.parametrize("workflow_name", sorted(path.name for path in WORKFLOWS.glob("*.yml")))
+def test_python_jobs_pin_the_runner_and_use_the_project_python_version(workflow_name: str) -> None:
+    jobs = _workflow(workflow_name)["jobs"]
+    assert isinstance(jobs, dict)
+
+    for name, job in jobs.items():
+        assert isinstance(job, dict)
+        for step in job.get("steps", []):
+            if str(step.get("uses", "")).startswith("actions/setup-python@"):
+                assert job["runs-on"] == "ubuntu-24.04", name
+                assert step["with"] == {"python-version-file": ".python-version"}, name
+
+
 def test_ci_pins_an_explicit_worker_count() -> None:
     """Keep the selected four-worker budget explicit, not host-dependent.
 

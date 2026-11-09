@@ -31,7 +31,7 @@ jobs:
       queue: max
       cancel-in-progress: false
     if: ${{ inputs.observation_master_asof == '' || github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: tradingview-runtime
     outputs:

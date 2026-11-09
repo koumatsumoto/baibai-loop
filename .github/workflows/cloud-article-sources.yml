@@ -27,7 +27,7 @@ jobs:
       group: source-host-${{ matrix.group == 'public' && 'article-public' || matrix.group }}
       queue: max
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
