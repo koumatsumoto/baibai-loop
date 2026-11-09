@@ -130,18 +130,16 @@ def _content(request: JQuantsRequest) -> tuple[str, dict[str, dict[str, Any]]]:
     evidence = index_market_originals(
         [RetainedRequest("content", request, None)], source="market_calendar"
     ).receipts[0]
-    extras = [
-        extra
-        for p in request.pages
-        if (
-            extra := {
-                key: val
-                for key, val in page_envelope(p).items()
-                if key not in {"data", "pagination_key"}
-            }
-        )
-    ]
-    rows = request.records()
+    rows: list[dict[str, Any]] = []
+    extras = []
+    for page in request.pages:
+        payload = page_envelope(page)
+        rows.extend(payload["data"])
+        extra = {
+            key: value for key, value in payload.items() if key not in {"data", "pagination_key"}
+        }
+        if extra:
+            extras.append(extra)
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         try:

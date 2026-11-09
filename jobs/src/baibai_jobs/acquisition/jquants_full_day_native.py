@@ -136,9 +136,6 @@ def native_main(
                 for day in sorted({item.day.isoformat() for item in attempts}):
                     scope = fixed["scopes"].get(day, {})
                     reasons = [field for field in ("failure", "held") if scope.get(field)]
-                    pending = fixed["pending"]
-                    if pending is not None and day in pending["days"]:
-                        reasons.append("pending")
                     if reasons:
                         unresolved[day] = reasons
                 # Identity replay only confirms persistence. Use the current
