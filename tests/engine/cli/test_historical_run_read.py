@@ -22,8 +22,21 @@ from baibai_engine.machine_analysis.historical_evaluation.legacy_screening.scree
 @pytest.mark.parametrize("command", ["run-show", "candidates"])
 @pytest.mark.parametrize("output_format", ["yaml", "json"])
 def test_public_read_cli_exports_same_revision_without_write(
-    tmp_path, capsys, command, output_format
+    tmp_path, capsys, monkeypatch, command, output_format
 ) -> None:
+    from baibai_engine.cli.historical_evaluation import query
+    from baibai_engine.machine_analysis.historical_evaluation.legacy_screening import (
+        screening_run_serializer,
+    )
+
+    payload_calls = []
+
+    def payload_once(run):
+        payload_calls.append(run.run_revision_id)
+        return published_run_payload(run)
+
+    monkeypatch.setattr(query, "published_run_payload", payload_once)
+    monkeypatch.setattr(screening_run_serializer, "published_run_payload", payload_once)
     path = tmp_path / "runs.sqlite"
     _publish(path, revision="run-fixed")
     before = path.read_bytes()
@@ -42,6 +55,7 @@ def test_public_read_cli_exports_same_revision_without_write(
         str(output),
     ]
     assert screening_main(argv) == 0
+    assert payload_calls == (["run-fixed"] if command == "run-show" else [])
     emitted = capsys.readouterr().out
     assert emitted == output.read_text()
     payload = json.loads(emitted) if output_format == "json" else yaml.safe_load(emitted)

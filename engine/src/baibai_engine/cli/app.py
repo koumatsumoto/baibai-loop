@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, cast
 
@@ -13,8 +13,6 @@ from baibai_engine.storage.paths import (
     StoreLayoutError,
     reject_noncanonical_store_paths,
 )
-
-Command = Callable[[list[str] | None], int]
 
 
 class DomainModule(Protocol):
