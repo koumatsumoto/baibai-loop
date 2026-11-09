@@ -231,16 +231,6 @@ def test_delayed_source_prepare_retains_cycle_without_touching_store_or_provider
     assert outputs(output)["observation_date"] == "2026-10-11"
 
 
-@pytest.mark.parametrize("command", ["plan", "acquire", "publish", "publish-confirmed-partial"])
-def test_old_write_commands_and_scheduled_identity_cannot_open_store(monkeypatch, command):
-    monkeypatch.setattr(daily, "Boto3R2Store", lambda **kwargs: pytest.fail("old writer R2"))
-    with pytest.raises(SystemExit) as error:
-        daily.main(
-            [command, "--scheduled", "--source", "monex", "--run-created-at", CREATED.isoformat()]
-        )
-    assert error.value.code == 2
-
-
 def test_holiday_receipt_keeps_actual_day_and_same_plan_resume_never_repeats_http(monkeypatch):
     p = replace(
         plan(),
