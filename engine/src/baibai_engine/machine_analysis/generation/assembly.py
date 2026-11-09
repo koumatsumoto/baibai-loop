@@ -37,7 +37,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     ObservationHistory,
 )
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (

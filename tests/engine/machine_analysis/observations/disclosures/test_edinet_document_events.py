@@ -12,9 +12,10 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.edinet_receipts import seed_list_response
 
 import baibai_engine.machine_analysis.observations.disclosures.edinet_document_store as edinet_document_store
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    _canonicalize_document_events,
+from baibai_engine.data_collection.providers.edinet.document_events import (
+    canonicalize_document_events,
 )
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_edinet_documents,
 )
@@ -24,7 +25,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.store import (
     document_inventory,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 ORIGIN_DAY = date(2026, 8, 1)
@@ -104,7 +104,7 @@ def test_native_event_omission_and_null_have_the_same_meaning_after_storage(
         saved_edit = documents[-1]
         assert ("parentDocID" in saved_edit) is explicit_null
         assert ("periodEnd" in saved_edit) is explicit_null
-    folded, quarantined = _canonicalize_document_events(documents, origin_start=None)
+    folded, quarantined = canonicalize_document_events(documents, origin_start=None)
     assert not quarantined
     assert len(folded) == 1
     assert folded[0]["parentDocID"] == (None if explicit_null else "S100ROOT")
@@ -131,7 +131,7 @@ def test_normalized_only_nulls_do_not_claim_original_key_presence(tmp_path):
     # Without the native response, this NULL cannot establish an explicit clearing.
     documents = document_inventory(path, EDIT_DAY)
     assert "parentDocID" not in documents[-1]
-    folded, quarantined = _canonicalize_document_events(documents, origin_start=None)
+    folded, quarantined = canonicalize_document_events(documents, origin_start=None)
     assert not quarantined
     assert folded[0]["parentDocID"] == "S100ROOT"
     # Origins keep the existing projected return shape, including unknown columns.
@@ -266,6 +266,6 @@ def test_observed_type_scope_keeps_null_type_edits_and_excludes_unrelated_docs(t
         )
     assert len(rows) == 2
     assert {row["docID"] for row in rows} == {"S100HOLDER"}
-    folded, quarantined = _canonicalize_document_events(rows, origin_start=None)
+    folded, quarantined = canonicalize_document_events(rows, origin_start=None)
     assert not quarantined
     assert folded[0]["docDescription"] == "changed"

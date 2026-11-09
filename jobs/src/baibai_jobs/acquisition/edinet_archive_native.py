@@ -3,42 +3,38 @@
 from __future__ import annotations
 
 import io
-import sqlite3
 import time
 import zipfile
-from contextlib import closing
-from datetime import date
-from pathlib import Path
-from tempfile import TemporaryDirectory
+from datetime import date, timedelta
 from typing import Literal, Protocol
 
+from baibai_engine.data_collection.providers.edinet.archive_input import read_archive_list_input
 from baibai_engine.data_collection.providers.edinet.archive_native import (
     EdinetArchiveL1,
     NativeArchive,
 )
+from baibai_engine.data_collection.providers.edinet.archive_plan import (
+    needs_archive,
+    prepare_fact_acquisition,
+    select_holder_archives,
+    select_metric_archives,
+)
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
     FactsScope,
-    merge_scope,
-    read_scope,
 )
 from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
+    EDINETProviderError,
     EdinetRateLimitError,
     EdinetResponse,
 )
 from baibai_engine.data_collection.transport.http import AcquisitionDeadlineExceeded
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.json import write_json_atomic
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.edinet_archives import (
-    _HOLDER_ARCHIVES_PER_RUN,
-    _HOLDER_INTERVAL_SECONDS,
-    holder_archive_candidates,
-    metric_archive_candidates,
-)
-from baibai_jobs.acquisition.edinet_fact_plan import needs_archive, prepare_fact_acquisition
-from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+# Retained IDs form the queue; distribute this backfill across normal daily runs.
+_HOLDER_ARCHIVES_PER_RUN = 100
+_HOLDER_INTERVAL_SECONDS = 10
 
 
 class ArchiveClient(Protocol):
@@ -88,49 +84,48 @@ def acquire_archives(
         "asof": asof.isoformat(),
         "list_identity": lists.identity,
     }
-    # 一時DBは固定原本から作るplanner用adapter。旧marketやZIP本文をコピーしない。
-    with TemporaryDirectory(prefix="edinet-plan-", dir=owner.directory) as temporary:
-        database = Path(temporary) / "lists.sqlite"
-        list_report = materialize_lists(lists, database)
-        report["list_failed_days"] = list_report["failed_days"]
-        with closing(open_connection(database)) as connection, connection:
-            merge_scope(connection, fixed.scope)
-        documents: list[tuple[str, Literal[1, 5]]]
-        if group == "edinet-metrics":
-            candidates, quarantined = metric_archive_candidates(
-                database, asof=asof, lookback_days=lookback_days
-            )
-            documents = [(doc_id, 5) for doc_id in candidates]
-        else:
-            selected = prepare_fact_acquisition(
-                database, asof=asof, initialize=initialize_facts, tickers=tickers
-            )
-            selected_ids = frozenset(str(doc["docID"]) for doc in (selected or []))
-            with closing(open_connection(database)) as connection:
-                scope = read_scope(connection)
-            if scope != fixed.scope:
-                owner.publish((), scope=scope)
-            documents = [
-                (str(doc["docID"]), 1) for doc in (selected or []) if needs_archive(doc, asof=asof)
-            ]
-            holder_pending: list[str] = []
-            quarantined = 0
-            if include_holder_archives:
-                try:
-                    holder_pending, quarantined = holder_archive_candidates(
-                        database, asof=asof, retained=retained
-                    )
-                except (sqlite3.Error, EDINETProviderError, ValueError, OSError):
-                    holder_planning_failed = True
-            holder_ids = set(holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
-            documents.extend((doc_id, 1) for doc_id in holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
-            report.update(
-                annual_archive_plan="available"
-                if selected is not None
-                else "skipped_not_initialized",
-                holder_planning_failed=holder_planning_failed,
-                holder_not_selected_this_batch=max(0, len(holder_pending) - len(holder_ids)),
-            )
+    inputs = read_archive_list_input(lists)
+    report["list_failed_days"] = [day.isoformat() for day in inputs.failed_days]
+    documents: list[tuple[str, Literal[1, 5]]]
+    if group == "edinet-metrics":
+        start = asof - timedelta(days=lookback_days)
+        inputs.require_complete_window(start, asof)
+        candidates, quarantined = select_metric_archives(
+            inputs.observed_documents(through=asof), origin_start=start
+        )
+        documents = [(doc_id, 5) for doc_id in candidates]
+    else:
+        plan = prepare_fact_acquisition(
+            inputs.stored_documents(through=asof)
+            if fixed.scope.since is not None or initialize_facts
+            else [],
+            fixed.scope,
+            initialize=initialize_facts,
+            tickers=tickers,
+        )
+        selected = plan.documents
+        selected_ids = frozenset(str(doc["docID"]) for doc in (selected or []))
+        if plan.scope != fixed.scope:
+            owner.publish((), scope=plan.scope)
+        documents = [
+            (str(doc["docID"]), 1) for doc in (selected or []) if needs_archive(doc, asof=asof)
+        ]
+        holder_pending: list[str] = []
+        quarantined = 0
+        if include_holder_archives:
+            try:
+                holder_pending, quarantined = select_holder_archives(
+                    inputs.observed_documents(through=asof, holder_only=True), retained=retained
+                )
+            except (EDINETProviderError, ValueError, OSError):
+                holder_planning_failed = True
+        holder_ids = set(holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
+        documents.extend((doc_id, 1) for doc_id in holder_pending[:_HOLDER_ARCHIVES_PER_RUN])
+        report.update(
+            annual_archive_plan="available" if selected is not None else "skipped_not_initialized",
+            holder_planning_failed=holder_planning_failed,
+            holder_not_selected_this_batch=max(0, len(holder_pending) - len(holder_ids)),
+        )
     failed: list[dict[str, str]] = []
     annual_failed = False
     downloaded = reused = 0
@@ -161,9 +156,7 @@ def acquire_archives(
     if initialize_facts and not tickers and selected_ids and not annual_failed:
         owner.publish((), scope=FactsScope(since=asof))
     report.update(
-        status="failed"
-        if failed or holder_planning_failed or list_report["failed_days"]
-        else "received",
+        status="failed" if failed or holder_planning_failed or inputs.failed_days else "received",
         downloaded=downloaded,
         retained_archives_reused=reused,
         failed=failed,

@@ -12,6 +12,11 @@ from tests.helpers.edinet_research_sources import FIXTURES, facts, source_zip
 from tests.helpers.http_doubles import FakeSession, response
 from tests.jobs.acquisition.test_edinet_archive_native_acquisition import DAY, filing, setup
 
+from baibai_engine.data_collection.providers.edinet.annual_filings import (
+    annual_documents,
+    latest_annual_filing,
+    usable_document,
+)
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.facts_scope import (
     FactsScope,
@@ -20,16 +25,12 @@ from baibai_engine.data_collection.providers.edinet.facts_scope import (
 )
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
+    EDINETProviderError,
     EdinetRateLimitError,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
     ExtractedFacts,
     filing_identity,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
-    annual_documents,
-    latest_annual_filing,
-    usable_document,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
@@ -43,7 +44,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.xbrl im
     SourceFormatError,
     xml_root,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
 from baibai_jobs.integration.edinet_list_native import materialize_lists
@@ -759,8 +759,8 @@ def test_operation_cannot_introduce_a_cycle_before_annual_family_selection():
 
 
 def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-        _canonicalize_document_events,
+    from baibai_engine.data_collection.providers.edinet.document_events import (
+        canonicalize_document_events,
     )
 
     original = document()
@@ -772,7 +772,7 @@ def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
     withdrawal = document("S100WTHD", "2027-07-02 10:00", parentDocID="S100NEW1")
     withdrawal.update(docTypeCode="350", withdrawalStatus="1")
 
-    folded, quarantined = _canonicalize_document_events(
+    folded, quarantined = canonicalize_document_events(
         [original, newer, correction, edit, withdrawal], origin_start=None
     )
     by_id = {row["docID"]: row for row in folded}
@@ -786,8 +786,8 @@ def test_withdrawal_uses_parent_links_after_operation_metadata_edits():
 def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     include_withdrawal,
 ):
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-        _canonicalize_document_events,
+    from baibai_engine.data_collection.providers.edinet.document_events import (
+        canonicalize_document_events,
     )
 
     original = document()
@@ -803,7 +803,7 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
     withdrawal.update(docTypeCode="350", withdrawalStatus="1")
     inputs = [original, edit, *([withdrawal] if include_withdrawal else [])]
 
-    folded, quarantined = _canonicalize_document_events(inputs, origin_start=None)
+    folded, quarantined = canonicalize_document_events(inputs, origin_start=None)
 
     assert not quarantined
     assert len(folded) == 1
@@ -817,8 +817,8 @@ def test_refreshed_tombstone_allows_earlier_metadata_without_reviving_document(
 def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, through_sqlite):
     from tests.helpers.edinet_documents import store_edinet_documents
 
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-        _canonicalize_document_events,
+    from baibai_engine.data_collection.providers.edinet.document_events import (
+        canonicalize_document_events,
     )
     from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
         read_edinet_documents,
@@ -849,7 +849,7 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
             stored = read_edinet_documents(path, day)
             assert stored is not None
             documents.extend(stored)
-    folded, quarantined = _canonicalize_document_events(documents, origin_start=None)
+    folded, quarantined = canonicalize_document_events(documents, origin_start=None)
     current = next(row for row in folded if row["docID"] == "S100CORR")
     assert not quarantined
     assert current["parentDocID"] is None
@@ -861,7 +861,7 @@ def test_metadata_edit_clears_optional_values_in_raw_and_stored_rows(tmp_path, t
 
 @pytest.mark.parametrize("edited", ["0", "2"])
 def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+    from baibai_engine.data_collection.providers.edinet.selection import (
         select_document_candidates,
     )
 
@@ -878,7 +878,7 @@ def test_metadata_edit_status_is_not_document_unavailability(tmp_path, edited):
 @pytest.mark.parametrize("field", ["legalStatus", "disclosureStatus", "withdrawalStatus"])
 @pytest.mark.parametrize("missing", [None, "", "omitted"])
 def test_missing_document_validity_is_not_treated_as_legacy_usable(field, missing):
-    from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+    from baibai_engine.data_collection.providers.edinet.selection import (
         select_document_candidates,
     )
 

@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
+class EDINETProviderError(RuntimeError):
+    """Retained EDINET input cannot be interpreted as valid source evidence."""
+
+
 class EdinetAcquisitionError(RuntimeError):
     """An explicit source request failed without exposing its authenticated URL."""
 

@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.models.company_growth.models import (
     SourceDocument,
     Value,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (

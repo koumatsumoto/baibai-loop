@@ -7,15 +7,13 @@ from typing import Any
 
 from baibai_engine.data_collection.providers.edinet.fields import (
     parse_optional_date,
-    safe_error_value,
+    parse_sec_code,
     text_or_none,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
-    EDINETProviderError,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
-from baibai_engine.primitives.stocks import normalize_ticker
 
 
 def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
@@ -59,20 +57,6 @@ def normalize_metric_record(record: Mapping[str, Any]) -> EdinetMetricRecord:
         capex_source=text_or_none(record.get("capex_source")),
         failure_reasons=record.get("failure_reasons") or (),
     )
-
-
-def parse_sec_code(sec_code: Any) -> str:
-    raw = str(sec_code or "").strip()
-    if len(raw) == 5:
-        if raw[-1] != "0":
-            raise EDINETProviderError(
-                f"unsupported EDINET secCode suffix: {safe_error_value(sec_code)}"
-            )
-        raw = raw[:4]
-    try:
-        return normalize_ticker(raw)
-    except ValueError as exc:
-        raise EDINETProviderError(f"invalid EDINET secCode: {safe_error_value(sec_code)}") from exc
 
 
 def _parse_optional_ttm_quality(value: Any) -> TTMQuality | None:

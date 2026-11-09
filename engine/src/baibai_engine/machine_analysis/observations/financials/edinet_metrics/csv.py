@@ -14,10 +14,10 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from typing import Literal
 
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import to_float
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
-    EDINETProviderError,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.primitives.dates import add_months_clamped

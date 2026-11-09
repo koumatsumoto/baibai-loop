@@ -17,15 +17,15 @@ from baibai_engine.data_collection.providers.edinet.archive_native import (
 from baibai_engine.data_collection.providers.edinet.archives import (
     retain_source_archive,
 )
+from baibai_engine.data_collection.providers.edinet.document_events import (
+    parse_doc_id,
+)
 from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
+    EDINETProviderError,
     EdinetResponse,
 )
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    parse_doc_id,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection

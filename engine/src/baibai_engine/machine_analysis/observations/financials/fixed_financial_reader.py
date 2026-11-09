@@ -17,11 +17,11 @@ from baibai_engine.machine_analysis.observations.disclosures.snapshot_contracts 
     EDINET_DOCUMENT_LISTS,
     EDINET_DOCUMENTS,
 )
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
+    FilingComparisons,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_reader import (
     read_comparison_population,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
-    FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,

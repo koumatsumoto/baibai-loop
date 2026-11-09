@@ -12,7 +12,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TextIO
 
-from baibai_engine.data_collection.providers.edinet.models import EdinetAcquisitionError
+from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAcquisitionError,
+    EDINETProviderError,
+)
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.observations.disclosures.delistings import DelistingSourceError
@@ -27,7 +30,6 @@ from baibai_engine.machine_analysis.observations.disclosures.tender_offer import
     read_tender_offer_blocks,
     store_tender_offer_exit_values,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError

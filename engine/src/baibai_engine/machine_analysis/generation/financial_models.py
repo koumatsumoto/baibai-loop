@@ -29,7 +29,7 @@ from baibai_engine.machine_analysis.models.technical_analysis.generation import 
     generate_technical_analysis,
 )
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_holder_capital import (

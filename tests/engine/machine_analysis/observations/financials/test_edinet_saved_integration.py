@@ -12,6 +12,7 @@ from tests.helpers.edinet_saved_inputs import BASE, TARGET, _next_listing, _seed
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
 from baibai_engine.data_collection.providers.edinet.facts_scope import FactsScope, merge_scope
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
     extract_saved_edinet,
 )
@@ -19,7 +20,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
     EDINETMetricBaselineError,
     read_edinet_metrics,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from math import isfinite
 
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.generation.assembly import CompanyModelInputs, generate_models
 from baibai_engine.machine_analysis.generation.comparison_evidence import SavedComparisonEvidence
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelGenerationStream
@@ -45,7 +46,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_holder_capita
     read_fixed_holder_capital,
     read_holder_capital,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,

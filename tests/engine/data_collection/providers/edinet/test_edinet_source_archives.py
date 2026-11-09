@@ -21,10 +21,10 @@ from baibai_engine.data_collection.providers.edinet.archives import (
     read_source_archive,
     retain_source_archive,
 )
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.data_collection.providers.edinet.snapshot_contracts import (
     EDINET_SOURCE_ARCHIVES,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store

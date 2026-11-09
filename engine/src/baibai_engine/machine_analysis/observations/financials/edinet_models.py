@@ -9,11 +9,6 @@ from pydantic.dataclasses import dataclass
 from baibai_engine.machine_analysis.observations.financials.metric_quality import TTMQuality
 from baibai_engine.primitives.stocks import normalize_ticker
 
-
-class EDINETProviderError(RuntimeError):
-    """Raised when saved EDINET input or its market projection is invalid."""
-
-
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
 

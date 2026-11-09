@@ -17,6 +17,7 @@ from tests.helpers.edinet_metrics import (
     _edinet_document,
 )
 
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics import (
     service as edinet_extraction,
 )
@@ -32,7 +33,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.store
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.write import (
     store_edinet_metrics,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 
 class EdinetMetricExtractionTests(unittest.TestCase):

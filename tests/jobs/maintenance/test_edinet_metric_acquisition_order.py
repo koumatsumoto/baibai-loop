@@ -17,7 +17,7 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetRateLimitError,
     EdinetResponse,
 )
-from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+from baibai_engine.data_collection.providers.edinet.selection import (
     select_document_candidates,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (

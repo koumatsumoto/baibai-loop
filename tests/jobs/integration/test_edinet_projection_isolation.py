@@ -18,6 +18,7 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
     EdinetListL1,
     NativeListReceipt,
 )
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
@@ -28,7 +29,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import dehydrate_market_store, hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource

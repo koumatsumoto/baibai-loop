@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
+from baibai_engine.primitives.stocks import normalize_ticker
 
 _DOC_ID_RE = re.compile(r"S[0-9A-Z]{3,32}")
 
@@ -23,8 +27,12 @@ def safe_error_value(value: object, *, max_length: int = 80) -> str:
 def coalesce_field(record: Mapping[str, Any], *keys: str) -> Any:
     """Return first key with a non-None/non-empty value, preserving legitimate zeros."""
     for key in keys:
-        if key in record and record[key] not in (None, ""):
-            return record[key]
+        if key not in record:
+            continue
+        value = record[key]
+        if value is None or (isinstance(value, str) and value == ""):
+            continue
+        return value
     return None
 
 
@@ -111,3 +119,25 @@ def _parse_slash_date(value: str) -> date | None:
         return date.fromisoformat(value.replace("/", "-"))
     except ValueError:
         return None
+
+
+def parse_sec_code(sec_code: Any) -> str:
+    raw = str(sec_code or "").strip()
+    if len(raw) == 5:
+        if raw[-1] != "0":
+            raise EDINETProviderError(
+                f"unsupported EDINET secCode suffix: {safe_error_value(sec_code)}"
+            )
+        raw = raw[:4]
+    try:
+        return normalize_ticker(raw)
+    except ValueError as exc:
+        raise EDINETProviderError(f"invalid EDINET secCode: {safe_error_value(sec_code)}") from exc
+
+
+def filing_submitted_at(submitted: str) -> datetime:
+    """Interpret a native submission timestamp in the EDINET disclosure time zone."""
+    stamp = datetime.fromisoformat(submitted)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
+    return stamp.astimezone(ZoneInfo("Asia/Tokyo"))

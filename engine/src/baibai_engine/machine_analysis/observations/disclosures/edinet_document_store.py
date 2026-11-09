@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,10 +11,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import duckdb
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    _canonicalize_document_events,
+from baibai_engine.data_collection.providers.edinet.document_events import (
+    canonicalize_document_events,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.data_collection.providers.edinet.document_rows import (
+    is_document_operation,
+    native_document_index,
+)
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current
 
@@ -47,7 +50,7 @@ def read_current_filing_documents(
     Operations without a retained origin do not establish a filing. Raw operation
     rows remain available through read_stored_documents for extraction diagnostics.
     """
-    filings, _ = _canonicalize_document_events(
+    filings, _ = canonicalize_document_events(
         read_stored_documents(connection, through=through), origin_start=None
     )
     return filings
@@ -151,7 +154,7 @@ def read_observed_documents(
         if native is None:
             documents.append(
                 {key: value for key, value in projected.items() if value is not None}
-                if _is_operation(projected)
+                if is_document_operation(projected)
                 else projected
             )
             continue
@@ -161,16 +164,10 @@ def read_observed_documents(
             raise EDINETProviderError(
                 f"EDINET stored document has no matching native row: {doc_date}/{identity}"
             )
-        documents.append({**source, "doc_date": doc_date} if _is_operation(source) else projected)
+        documents.append(
+            {**source, "doc_date": doc_date} if is_document_operation(source) else projected
+        )
     return documents
-
-
-def _is_operation(document: Mapping[str, Any]) -> bool:
-    return (
-        str(document.get("docInfoEditStatus")) == "1"
-        or str(document.get("withdrawalStatus")) == "1"
-        or str(document.get("disclosureStatus")) in {"1", "3"}
-    )
 
 
 def _native_documents(response: str, *, doc_date: str) -> dict[tuple[int, str], dict[str, Any]]:
@@ -178,26 +175,4 @@ def _native_documents(response: str, *, doc_date: str) -> dict[tuple[int, str], 
         payload = json.loads(response)
     except (TypeError, ValueError) as error:
         raise EDINETProviderError(f"EDINET saved response is invalid: {doc_date}") from error
-    results = payload.get("results") if isinstance(payload, Mapping) else None
-    if not isinstance(results, list):
-        raise EDINETProviderError(f"EDINET saved response has no results list: {doc_date}")
-    documents: dict[tuple[int, str], dict[str, Any]] = {}
-    for source in results:
-        if not isinstance(source, Mapping):
-            raise EDINETProviderError(f"EDINET saved response has an invalid row: {doc_date}")
-        sequence = source.get("seqNumber")
-        doc_id = source.get("docID")
-        if (
-            isinstance(sequence, bool)
-            or not isinstance(sequence, (int, str))
-            or not str(sequence).isdecimal()
-            or int(sequence) <= 0
-            or not isinstance(doc_id, str)
-            or not doc_id
-        ):
-            raise EDINETProviderError(f"EDINET saved row has an invalid identity: {doc_date}")
-        identity = (int(sequence), doc_id)
-        if identity in documents:
-            raise EDINETProviderError(f"EDINET saved response repeats a row: {doc_date}/{identity}")
-        documents[identity] = dict(source)
-    return documents
+    return native_document_index(payload, doc_date=doc_date)
