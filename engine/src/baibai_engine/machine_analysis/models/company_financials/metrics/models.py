@@ -41,8 +41,7 @@ DEFAULT_TTM_RULES = TTMRules(
 )
 
 
-# field が 80 を超えるので kw_only にする。位置引数で組めると、先頭へ 1 つ足しただけで
-# 呼び出し側の全引数が静かに 1 つずれる。
+# 多数のfieldを位置引数で渡すと追加時に値がずれる。
 @dataclass(frozen=True, slots=True, kw_only=True, config=_MODEL_CONFIG)
 class FinancialSnapshot:
     # 本 snapshot が読んだ最新開示の開示日。決算シーズンは「発表済みだが取込前」の窓が
@@ -81,9 +80,7 @@ class FinancialSnapshot:
     dividend_yield: float | None = None
     dividend_basis: str | None = None
     dividend_split_factor: float | None = None
-    # BS 系 fact (bps / cash_eq / equity / total_assets) の carry-forward 記録。
-    # fields = latest 行に無く過去行から引いた field 名 (comma 区切り)、
-    # lag_days = その最大遅延日数 (staleness fact)。
+    # 過去開示から補ったBS項目と最大経過日数。
     bs_carry_forward_fields: str | None = None
     bs_carry_forward_lag_days: int | None = None
     sales: float | None = None
@@ -141,13 +138,9 @@ class FinancialSnapshot:
     # 1996. High positive accruals are an earnings-quality flag (reported NI
     # not converting to cash). Prior assets are optional; without them use current assets.
     accruals_to_assets: float | None = None
-    # グロス発行済株式数の前年比。正は増加、負は減少。
-    # 自己株買いの実行額や将来の買戻しを直接表すものではない。
-    # 前年の株式数が欠損または0ならNone。
+    # 発行済株式の変化は自己株買いそのものを示さない。
     net_share_change_yoy: float | None = None
-    # 同じ前年比を自己株式控除後の株数で測ったもの。日本の自社株買いは取得株を自己株式へ
-    # 入れるだけで発行済株式総数を減らさないので、上の量と別の年に動く。carry へは入れず、
-    # 事前登録した比較の入力として持つだけである。自己株式数が観測できない行は答えない。
+    # 自己株買いは発行済株数を減らさないため、控除後株数の変化を別に持つ。
     tradable_share_change_yoy: float | None = None
     # 予想経常利益または予想純利益の赤字を注記する。
     # 予想EPSとFV anchorへの影響は実際の入力に依存する。
