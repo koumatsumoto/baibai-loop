@@ -421,21 +421,7 @@ class ReleaseDatasetPolicy(BaseModel):
     dataset: str
     required: bool
     carries_history: bool
-    """Whether this dataset accumulates an archive, so its start must never move forward.
-
-    A dataset whose SQLite table is replaced by each fetch holds a current view rather
-    than an archive: `jpx.earnings_calendar` is the forward announcement calendar, so
-    its earliest row moves forward every time the exchange drops a past announcement.
-    False exempts it; source coverage and structural checks still apply.
-
-    For the rest the floor is the release already serving, not a date written here. A
-    pinned date states the value it had the day it was written, and measured on
-    2026-08-25 every one of them sat at exactly zero days of slack — the first day any
-    archive started later, the batch stopped. That is how `jpx.earnings_calendar`
-    stopped it on 2026-08-17, from 2026-06-19 to 2026-07-03. Comparing against what was
-    published says the thing actually meant — this release must not drop history the last
-    one served — and needs no maintenance to keep saying it.
-    """
+    """Archived datasets must not drop history served by the previous release."""
     require_complete_coverage: bool = True
     """Whether this dataset must prove complete coverage to enter a release.
 
@@ -558,18 +544,9 @@ def validate_release_policy(
     catalog: Mapping[str, LakeDataset],
     published_coverage_start: Mapping[str, date] | None = None,
 ) -> None:
-    """Require a release to be structurally complete for its declared profile.
+    """Validate the release structure and preserve previously published history.
 
-    No freshness is checked here, at write or at read. How old a dataset's watermark is
-    changes nothing about whether the release describes its objects truthfully, and the
-    readers that care (a stale weekly balance, say) null that axis themselves. A bound
-    here would refuse a current release the day a source paused, and stop every hydrate
-    after it.
-
-    ``published_coverage_start`` is what the serving release covers, per dataset. It is
-    the floor an archival dataset must still reach; the dataset itself must remain present.
-    Absent — a first publication, or a dataset this release introduces — leaves nothing to compare
-    and the remaining checks unchanged.
+    Freshness is a consumer concern; a paused source must not block unrelated reads.
     """
     catalog = freeze_catalog(catalog)
     if release.profile != policy.profile:

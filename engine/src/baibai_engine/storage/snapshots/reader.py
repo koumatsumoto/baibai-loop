@@ -346,18 +346,9 @@ def iter_partition_rows(
     columns: Sequence[str] | None = None,
     batch_size: int = ROW_BATCH_SIZE,
 ) -> Iterator[list[tuple[object, ...]]]:
-    """Yield bounded batches of named columns from an explicit object list, PK-ordered.
+    """Read exact manifest files in PK order, bounding Python row batches.
 
-    ``read_parquet`` receives the exact file list the manifest fixed. There is no
-    glob, no directory scan, and no ``union_by_name``: a file whose schema differs
-    from the others is an error, which is what makes a silent contract drift
-    impossible to read as data.
-
-    Rows arrive in batches because a dataset here is a decade of daily bars. Turning
-    a whole partition set into Python objects at once costs on the order of a
-    kilobyte per row and would exhaust memory long before a build finished. DuckDB
-    executes the query and sort under its own memory limits; ``fetchmany`` bounds
-    the Python row batch, not the query's total memory usage.
+    DuckDB's query and sort have separate memory requirements.
     """
 
     if not paths:

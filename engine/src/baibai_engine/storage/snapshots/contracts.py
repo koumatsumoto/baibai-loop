@@ -28,22 +28,7 @@ _GRAIN_LAYOUTS: dict[PartitionGrain, tuple[str, ...]] = {
 }
 
 CoverageAuthority = Literal["source_coverage", "unproven"]
-"""The dataset-specific evidence used for the operational coverage status.
-
-An absent observation cannot distinguish "not published" from "not fetched", so
-range coverage comes from successful fetch records. This also permits genuinely
-empty daily-bars responses without treating unfetched days as market holidays.
-Reported row/population counts describe retained data, not a completeness proof.
-
-`source_coverage` holds two shapes of record and only one of them can answer the
-question. A range claim says a window was fetched, so a span is checkable. A
-per-observation claim says which dates carried an observation — measured on the real
-store, weekly margin holds 523 single-day intervals and master snapshots 126 — and no
-merge of those spans a range, because the days between them are days the source never
-published. Proving completeness there would mean knowing the source's publication
-calendar, which the store does not hold. Those sources are `unproven`: they can say what
-they hold, not that they hold everything.
-"""
+"""Range fetch evidence can prove coverage; sparse observations alone cannot."""
 
 
 @dataclass(frozen=True)

@@ -1,15 +1,4 @@
-"""Reading immutable lake objects by explicit key, never by discovery.
-
-Every read names the key the manifest published. Nothing here lists a prefix,
-expands a glob, or asks the store for "the latest" object: the key allowlist in
-``keys`` rejects the glob metacharacters outright, so an object either has the key
-a manifest fixed or it is not read at all.
-
-``LakeObjectCache`` is the transfer boundary. Object keys are content addressed, so
-a partition that did not change between two releases resolves to a file that is
-already on disk and costs no bytes. Every byte that is used is verified against the
-manifest digest first, whether it arrived now or in an earlier build.
-"""
+"""Read manifest-addressed lake objects and verify cached or fetched bytes."""
 
 from __future__ import annotations
 
@@ -265,16 +254,7 @@ class LakeObjectCache:
         return path
 
     def _cached_identity_holds(self, path: Path, lake_object: LakeObject) -> bool:
-        """Whether the cached copy is usable, discarding it when a refetch can heal it.
-
-        The cache is derived, not authoritative, so a copy that no longer matches its
-        manifest is a local fault rather than data loss. When the objects can be read
-        from somewhere other than this directory, the damaged copy is dropped and the
-        exact key is fetched again; a refetched copy that still differs stops the read,
-        because that is corruption at the source. When the cache *is* the only source,
-        refetching would read the same bytes back, so the read fails closed instead of
-        looping.
-        """
+        """Discard a damaged derived copy only when another source can refill it."""
 
         if path.stat().st_size == lake_object.bytes and sha256_file(path) == lake_object.sha256:
             return True

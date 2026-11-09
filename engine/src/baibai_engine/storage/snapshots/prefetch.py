@@ -1,30 +1,7 @@
-"""Overlap lake object fetches with hydrate's verify-and-insert pipeline.
+"""Bounded object prefetch for hydration, with sequential fallback.
 
-``hydrate_market_store`` consumes objects in one fixed order — dataset by dataset,
-partition by partition — and each object passes through ``LakeObjectCache.materialize``,
-where its digest is verified and its bytes are installed under the mirror. Read
-sequentially, network waits and SQLite inserts take turns. Workers fetch upcoming
-objects into a bounded in-memory buffer; planned cache reads use that buffer rather
-than fetching on the consuming thread.
-
-What deliberately does not move off the consuming thread: verification, installation,
-and transfer accounting all still happen inside ``materialize``. A worker that returns
-damaged bytes is refused by the same digest check that refuses a damaged network read,
-and ``fetched_objects`` counts verified objects consumed through the cache. It does
-not measure all network traffic: failed, discarded, or duplicate prefetches are not
-included in that materialization count.
-
-Failure never widens: any worker-side error marks the remaining plan as skipped, a
-skipped key is simply read from the base source on the consuming thread, and a wait
-that outlives one fetch by a wide margin walks away to that same base read — the exact
-sequential behaviour this module exists to overlap. Falling back can add the worker
-wait and repeat a download; it is not a guarantee of equal or faster completion.
-Worker waits and joins are bounded separately from the base source's own timeouts.
-Objects above the buffered-size limit are skipped by workers and streamed by the
-consumer; otherwise one raw archive could occupy several gigabytes in a slot.
-
-Each worker owns its own R2 source and connection pool; no query session is needed
-to transfer bytes.
+The consumer still verifies and installs bytes. Large objects stream directly,
+and transfer accounting excludes failed or discarded prefetches.
 """
 
 from __future__ import annotations
