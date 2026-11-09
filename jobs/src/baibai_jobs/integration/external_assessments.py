@@ -162,18 +162,15 @@ def _import_confirmed_originals(
                 uri = sqlite_path.resolve().as_uri() + "?mode=ro"
                 with closing(sqlite3.connect(uri, uri=True)) as conn:
                     responses = equity_web_read_responses(conn, tuple(acknowledged[key]))
-                if {
-                    item.receipt_id: equity_web_response_digest(item) for item in responses
-                } != acknowledged[key]:
-                    raise ValueError("acknowledged external original changed")
             else:
                 manifest, responses = read_raw_bundle(store, key)
                 if manifest["batch_id"] != plan.run_id or manifest["cohort_index"] != index:
                     raise ValueError("external assessment raw bundle stage binding mismatch")
+            digests = {item.receipt_id: equity_web_response_digest(item) for item in responses}
+            if acknowledged and key in acknowledged and digests != acknowledged[key]:
+                raise ValueError("acknowledged external original changed")
             if bundle_receipts is not None:
-                bundle_receipts[key] = {
-                    item.receipt_id: equity_web_response_digest(item) for item in responses
-                }
+                bundle_receipts[key] = digests
             for response in responses:
                 if (response.source, response.requested_ticker) not in pairs or (
                     response.receipt_id in selected_digests
@@ -190,16 +187,14 @@ def _import_confirmed_originals(
                     raise ValueError("external assessment raw attempt identity mismatch")
                 else:
                     previous[2].append(response.receipt_id)
-                selected_digests[response.receipt_id] = equity_web_response_digest(response)
+                selected_digests[response.receipt_id] = digests[response.receipt_id]
                 source_months.add((response.received_at_utc.year, response.received_at_utc.month))
             source_inserted += equity_web_import_responses(sqlite_path, responses)
             if retained is not None:
                 retained[0].update(
                     (item.received_at_utc.year, item.received_at_utc.month) for item in responses
                 )
-                retained[1].update(
-                    (item.receipt_id, equity_web_response_digest(item)) for item in responses
-                )
+                retained[1].update(digests)
             # Responses and their decompressed bodies die with this bundle iteration.
             del responses
         for entry in stage.result.entries:
