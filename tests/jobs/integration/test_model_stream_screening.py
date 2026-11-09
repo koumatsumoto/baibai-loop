@@ -159,11 +159,11 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     oracle_path = tmp_path / "oracle.sqlite"
     publish_generation(expected[0], path=oracle_path)
     assert rows(arguments["runs"]) == rows(oracle_path)
-    # edf987d3の合成fixtureのcanonical Selection全体を固定。評価関数をoracleにしない。
+    # 合成fixtureのcanonical Selection全体を固定。根拠のない旧flagは含めない。
     expected_sha256 = (
         "9500136a68701c7697ddbbc46198406c9dcca56ccb821290aea2eec71ba2b5d7"
         if empty
-        else "dec98922516ec65dbbb8ec3c19cd8b268e1fcaff9051f12be098837804c847fe"
+        else "54937205e3f3d73c2dac20f066fdc914286f233f05f15ffeef38c92b8f803a8f"
     )
     publication = read_publication(path=arguments["runs"])
     assert publication.selection.generation_id == "models-new-release"
