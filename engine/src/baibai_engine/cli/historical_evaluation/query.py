@@ -51,7 +51,6 @@ def run_show_command(
         run = ScreeningRunReader(source).get_run(run_revision_id)
         if run is None:
             raise ValueError(f"unknown run_revision_id: {run_revision_id}")
-        payload = published_run_payload(run)
         if candidates_only:
             rows = candidate_rows(run.stock_analyses)
             payload = {
@@ -66,7 +65,12 @@ def run_show_command(
                 "input_basis": "saved_stock_analyses",
             }
         rendered = (
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+            json.dumps(
+                payload if candidates_only else published_run_payload(run),
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            + "\n"
             if output_format == "json"
             else (
                 yaml.dump(payload, Dumper=_NoAliasDumper, allow_unicode=True, sort_keys=False)
