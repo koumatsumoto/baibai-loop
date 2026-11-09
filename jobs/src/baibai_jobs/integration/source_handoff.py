@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess  # nosec B404
 import sys
 from collections.abc import Mapping
 from contextlib import closing
@@ -50,28 +49,6 @@ _JPX_COLLECTION = {
     "jpx-financial-pdfs": "financial_statements",
     "jpx-capital-actions": "capital_actions",
 }
-
-
-def _command(source: str, asof: date, *, database: Path) -> list[str]:
-    if source == "edinet-list":
-        raise ValueError("EDINET list acquisition moved to edinet-list-native")
-    if source == "jquants-financial":
-        raise ValueError("financial acquisition moved to jquants-financial-native")
-    if source == "jquants-market":
-        raise ValueError("market acquisition uses native J-Quants L1 commands")
-    if source not in {"jpx-earnings", "jpx-regulations"}:
-        raise ValueError("unsupported acquisition source group")
-    return [
-        "baibai-jobs",
-        "maintain-market",
-        "bootstrap-cache",
-        "--source-group",
-        source,
-        "--asof",
-        asof.isoformat(),
-        "--sqlite-path",
-        str(database),
-    ]
 
 
 def _export(
@@ -852,16 +829,22 @@ def main(argv: list[str] | None = None) -> int:
                     with Path(output).open("a", encoding="utf-8") as stream:
                         print("stage_ready=false\nnative_l1=true", file=stream)
                 return int(not ok)
+            if args.command == "acquire" and args.source in {"jpx-earnings", "jpx-regulations"}:
+                from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
+                from baibai_jobs.acquisition.jpx_native import acquire as acquire_jpx
+
+                with closing(JPXHTTP()) as client:
+                    ok = acquire_jpx(args.source, args.asof, directory, client)
+                if output := os.environ.get("GITHUB_OUTPUT"):
+                    with Path(output).open("a", encoding="utf-8") as stream:
+                        print("stage_ready=true", file=stream)
+                return int(not ok)
             since = args.since or datetime.now(UTC)
             status = 0
             if args.command == "acquire":
-                if args.source in {"tradingview", "jpx-financial-pdfs", "jpx-capital-actions"}:
-                    raise ValueError(
-                        "Use the source's explicit original receipt import; no live client here"
-                    )
-                status = subprocess.run(
-                    _command(args.source, args.asof, database=args.database), check=False
-                ).returncode  # nosec B603
+                raise ValueError(
+                    "Use the source's explicit original receipt import; no live client here"
+                )
             master_input = None
             calendar_input = None
             if args.source == "tradingview":

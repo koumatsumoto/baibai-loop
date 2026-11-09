@@ -10,11 +10,13 @@ from html.parser import HTMLParser
 from io import BytesIO
 from itertools import groupby
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
+from baibai_engine.data_collection.providers.jpx.discovery import earnings_urls
+from baibai_engine.data_collection.providers.jpx.models import JPXAcquisitionError
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
     JPXEarningsCalendarEntry,
     JPXEarningsCalendarSnapshot,
@@ -28,7 +30,6 @@ from baibai_engine.primitives.stocks import normalize_ticker
 
 _JPX_ALLOWED_SCHEME = "https"
 _JPX_ALLOWED_HOST = "www.jpx.co.jp"
-_JPX_EXCEL_SUFFIXES = {".xls", ".xlsx"}
 _JPX_EARNINGS_PATH_PREFIX = "/listing/event-schedules/financial-announcement/"
 # Publication stamp carried by the archived cohort files, matched on
 # whitespace-stripped cells.
@@ -269,28 +270,10 @@ def validate_earnings_calendar_url(url: str) -> None:
 def resolve_earnings_calendar_urls(
     content: bytes, index_url: str, content_type_header: str = ""
 ) -> tuple[str, ...]:
-    validate_allowed_url(index_url)
-    html = _decode_html_text(content, index_url, content_type_header)
-    indexer = _JpxHtmlIndexer()
-    indexer.feed(html)
-    urls: list[str] = []
-    for link in indexer.links:
-        resolved = urljoin(index_url, link.href)
-        parsed = urlparse(resolved)
-        path_lower = parsed.path.lower()
-        if parsed.scheme != _JPX_ALLOWED_SCHEME or parsed.netloc != _JPX_ALLOWED_HOST:
-            continue
-        if not path_lower.startswith(_JPX_EARNINGS_PATH_PREFIX):
-            continue
-        if Path(path_lower).suffix not in _JPX_EXCEL_SUFFIXES:
-            continue
-        if "kessan" not in Path(path_lower).name:
-            continue
-        if resolved not in urls:
-            urls.append(resolved)
-    if not urls:
-        raise JPXProviderError(f"failed to locate JPX earnings calendar Excel links: {index_url}")
-    return tuple(urls)
+    try:
+        return earnings_urls(content, index_url, content_type_header)
+    except JPXAcquisitionError as error:
+        raise JPXProviderError(str(error)) from error
 
 
 def parse_earnings_calendar_excel(content: bytes, url: str) -> _EarningsCalendarFile:

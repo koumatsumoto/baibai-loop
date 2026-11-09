@@ -2,7 +2,6 @@
 
 import json
 import sqlite3
-import subprocess
 from contextlib import closing
 from datetime import UTC, datetime
 
@@ -12,6 +11,7 @@ from tests.helpers.http_doubles import FakeSession, html_response, response
 from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
 from tests.helpers.r2_store import MemoryR2Store
 
+from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
 from baibai_engine.data_collection.providers.jpx.receipts import read_bundle
 from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
     JPX_EARNINGS_CALENDAR_INDEX_URL,
@@ -19,8 +19,6 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import 
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration import source_handoff
-from baibai_jobs.maintenance.market import cli
-from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
 
@@ -40,11 +38,10 @@ def refuse(*args, **kwargs):
 def test_actual_acquisition_entrypoint_and_stage(source, failure, tmp_path, monkeypatch):
     for key in ("JQUANTS_API_KEY", "EDINET_API_KEY", "BAIBAI_ACQUISITION_DEADLINE"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(cli, "load_project_env", lambda: None)
     monkeypatch.setattr(requests, "Session", refuse)
     monkeypatch.setattr(source_handoff, "Boto3R2Store", refuse)
     monkeypatch.setattr(source_handoff, "datetime", Clock)
-    monkeypatch.setattr("baibai_jobs.maintenance.source_refresh.jpx.datetime", Clock)
+    monkeypatch.setattr("baibai_jobs.acquisition.jpx_native.datetime", Clock)
     monkeypatch.setattr("baibai_engine.data_collection.providers.jpx.http.datetime", Clock)
     if source == "jpx-earnings":
         answers = {
@@ -70,19 +67,9 @@ def test_actual_acquisition_entrypoint_and_stage(source, failure, tmp_path, monk
         answers[list(answers)[failure == "partial_http"]] = response(status_code=503)
     session = FakeSession(by_url=answers)
     monkeypatch.setattr(
-        cli,
-        "JPXRefresh",
-        lambda *, sqlite_path: JPXRefresh(sqlite_path=sqlite_path, session=session),
+        "baibai_engine.data_collection.providers.jpx.http.JPXHTTP",
+        lambda: JPXHTTP(session=session),
     )
-    calls = []
-
-    def child(command, **kwargs):
-        calls.append(command)
-        assert command[:2] == ["baibai-jobs", "maintain-market"]
-        assert kwargs == {"check": False}
-        return subprocess.CompletedProcess(command, cli.main(command[2:]))
-
-    monkeypatch.setattr(source_handoff.subprocess, "run", child)
     db, packet, output = tmp_path / "fresh.sqlite", tmp_path / "packet", tmp_path / "github-output"
     assert not db.exists()
     monkeypatch.setenv("GITHUB_OUTPUT", str(output))
@@ -99,24 +86,22 @@ def test_actual_acquisition_entrypoint_and_stage(source, failure, tmp_path, monk
             str(packet),
         ]
     )
-    assert code == (failure != "none")
-    assert len(calls) == 1
+    assert code == (failure in {"first_http", "partial_http"})
     assert output.read_text() == "stage_ready=true\n"
     report = json.loads((packet / "result.json").read_bytes())
     assert "input_generation" not in report
-    assert report["acquisition"]["status"] == ("received" if failure == "none" else "failed")
+    assert report["acquisition"]["status"] == (
+        "failed" if failure in {"first_http", "partial_http"} else "received"
+    )
     assert len(report["bundle_ids"]) == 1
     bundle_id = report["bundle_ids"][0]
     expected_count = (
         0 if failure == "first_http" else 1 if failure == "partial_http" else len(answers)
     )
-    with (
-        closing(open_connection(db)) as original,
-        closing(sqlite3.connect(packet / "receipts.sqlite")) as exported,
-    ):
-        received = read_bundle(original, bundle_id)
+    assert not db.exists()
+    with closing(sqlite3.connect(packet / "receipts.sqlite")) as exported:
+        received = read_bundle(exported, bundle_id)
         assert len(received.responses) == expected_count
-        assert read_bundle(exported, bundle_id) == received
         assert (received.completed_at is not None) == (failure in {"none", "parse"})
         assert (
             exported.execute(
