@@ -1,8 +1,7 @@
 """Retained J-Quants response pages, independent of their L2 interpretation.
 
-The caller provisions the shared market store and supplies a dedicated connection.
-A received page is committed before JSON parsing or the next HTTP request. A
-complete request is established by its stored pagination chain, not by an L2 row
+Import preserves original bytes and metadata under the caller's transaction.
+A complete request is established by its stored pagination chain, not by an L2 row
 count. Failed requests can therefore leave useful, explicitly incomplete evidence.
 """
 
