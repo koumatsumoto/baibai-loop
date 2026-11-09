@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CircleAlert } from 'lucide-react'
-import { Pie, PieChart } from 'recharts'
+import { Pie, PieChart, ResponsiveContainer, Tooltip, type TooltipContentProps } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type {
@@ -23,7 +23,6 @@ import { YenAmount } from '../components/YenAmount'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatPct, formatUnitPriceYen, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
@@ -38,11 +37,25 @@ const HINT = {
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
-const allocationConfig = {
-  holdings: { label: '保有株式', color: 'var(--chart-1)' },
-  available: { label: '未予約現金', color: 'var(--chart-2)' },
-  reserved: { label: '予約', color: 'var(--chart-3)' },
-} satisfies ChartConfig
+const allocationLabels: Record<string, string> = {
+  holdings: '保有株式',
+  available: '未予約現金',
+  reserved: '予約',
+}
+
+export function AllocationTooltip({ active, payload }: Pick<TooltipContentProps, 'active' | 'payload'>) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+      {payload.filter((item) => item.type !== 'none' && item.value !== undefined && item.name).map((item, index) => (
+        <div className="flex w-full min-w-40 items-center justify-between gap-4" key={index}>
+          <span className="text-muted-foreground">{allocationLabels[String(item.name)] ?? String(item.name)}</span>
+          <span className="font-mono font-medium tabular-nums">{formatYen(Number(item.value))}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   const {
@@ -53,9 +66,9 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   } = data
   const allocation = total !== null && holdingsValue !== null && available !== null && reserved !== null
     ? [
-        { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--color-holdings)' },
-        { key: 'available', name: '未予約現金', value: available, fill: 'var(--color-available)' },
-        { key: 'reserved', name: '予約', value: reserved, fill: 'var(--color-reserved)' },
+        { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--chart-1)' },
+        { key: 'available', name: '未予約現金', value: available, fill: 'var(--chart-2)' },
+        { key: 'reserved', name: '予約', value: reserved, fill: 'var(--chart-3)' },
       ]
     : []
   const hasAllocation = allocation.some((item) => item.value > 0)
@@ -90,19 +103,14 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           )}
           <div className="relative mx-auto min-h-[230px] w-full max-w-[360px] flex-1">
             {hasAllocation ? (
-              <ChartContainer className="h-full w-full" config={allocationConfig}>
-                <PieChart accessibilityLayer>
-                  <ChartTooltip
-                    content={<ChartTooltipContent formatter={(value, name) => (
-                      <div className="flex w-full min-w-40 items-center justify-between gap-4">
-                        <span className="text-muted-foreground">{allocationConfig[String(name) as keyof typeof allocationConfig]?.label ?? String(name)}</span>
-                        <span className="font-mono font-medium tabular-nums">{formatYen(Number(value))}</span>
-                      </div>
-                    )} hideLabel />}
-                  />
-                  <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
-                </PieChart>
-              </ChartContainer>
+              <div className="flex h-full w-full aspect-video justify-center text-xs [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-surface]:outline-hidden">
+                <ResponsiveContainer initialDimension={{ width: 320, height: 200 }}>
+                  <PieChart accessibilityLayer>
+                    <Tooltip content={AllocationTooltip} />
+                    <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <div className="grid h-full place-items-center text-sm text-muted-foreground">配分データなし</div>
             )}
