@@ -518,3 +518,31 @@ def test_ambiguous_same_day_basis_revision_does_not_revive_bps(correction_time):
     )
     for rows in ([annual, correction], [correction, annual]):
         assert _latest_non_null_row(rows, "bps") is None
+
+
+def test_negative_previous_financial_values_do_not_emit_reversed_yoy():
+    prior = replace(
+        document(date(2023, 4, 1), date(2024, 3, 31), -10.0),
+        sales=100.0,
+        cfo=-10.0,
+        cumulative_eps=-10.0,
+    )
+    current = replace(
+        document(date(2024, 4, 1), date(2025, 3, 31), -5.0),
+        sales=120.0,
+        cfo=5.0,
+        cumulative_eps=-5.0,
+    )
+    financial = build_financial_snapshot(
+        10.0,
+        [prior, current],
+        None,
+        DEFAULT_TTM_RULES,
+        adjustment_events=(),
+        asof_date=date(2025, 9, 1),
+    )
+    assert financial.eps_yoy is None
+    assert financial.operating_profit_yoy is None
+    assert financial.cfo_yoy is None
+    assert financial.operating_profit_loss_narrowing is True
+    assert financial.sales_yoy == pytest.approx(0.2)
