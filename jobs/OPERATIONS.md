@@ -430,11 +430,10 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 <a id="calendar-native-l1"></a>
 **master/calendar。** TradingView/外部評価はcalendarを先に固定し、休場なら直前営業日のbasis masterから銘柄集合を固定する。unknown/partialを休場へ変えず、空/failed/held masterを旧値で補わない。保存packetの元master/calendarはhead削除/訂正後も保持参照から再生し、新しいheadへ再固定しない。
 
-masterの明示日付は過去L2不要、月末backfillだけ既存bars gridを使う。未来日/空gridを拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
+masterは明示した日付を取得し、過去L2を使わない。未来日は拒否する。calendarの明示取得は他source/L2/release不要で、必要範囲を指定する。空/partialを成功へ変えない。
 
 ```bash
 uv run baibai-jobs maintain-market backfill-master --asof <DATE> --asof <DATE>
-uv run baibai-jobs maintain-market backfill-master --month-end-from <DATE> --month-end-to <DATE>
 uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>
 ```
 

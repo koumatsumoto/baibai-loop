@@ -108,15 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--asof",
         action="append",
         dest="asofs",
+        required=True,
         help="master snapshot date (YYYY-MM-DD; repeatable)",
-    )
-    backfill_master_parser.add_argument(
-        "--month-end-from",
-        help="add each month's last qualifying observed date through --month-end-to (YYYY-MM-DD)",
-    )
-    backfill_master_parser.add_argument(
-        "--month-end-to",
-        help="last date considered for --month-end-from (YYYY-MM-DD)",
     )
 
     extract_parser = subparsers.add_parser(
@@ -312,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "backfill-master":
         from baibai_jobs.maintenance.master_native_backfill import backfill_native_master
 
-        return backfill_native_master(args, sqlite_path=sqlite_path)
+        return backfill_native_master(args)
 
     if args.command == "build-tender-offer-exits":
         exits_path = Path(args.sqlite_path)

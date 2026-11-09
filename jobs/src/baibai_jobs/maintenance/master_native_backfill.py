@@ -16,23 +16,12 @@ from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
 from baibai_engine.data_collection.providers.jquants.master_native import MasterL1
 from baibai_engine.storage.objects.r2 import Boto3R2Store
 from baibai_jobs.acquisition.jquants_master_native import acquire_master_native
-from baibai_jobs.maintenance.market.grid import month_end_asof_grid
 
 
-def backfill_native_master(args: argparse.Namespace, *, sqlite_path: Path) -> int:
-    """Cohort-grid selection may read bars; explicit dates never require previous L2."""
+def backfill_native_master(args: argparse.Namespace) -> int:
+    """Acquire explicit dates without requiring previous L2."""
     try:
         dates = [date.fromisoformat(value) for value in (args.asofs or [])]
-        if bool(args.month_end_from) != bool(args.month_end_to):
-            raise ValueError("--month-end-from and --month-end-to must be given together")
-        if args.month_end_from:
-            start, end = (
-                date.fromisoformat(args.month_end_from),
-                date.fromisoformat(args.month_end_to),
-            )
-            if start > end:
-                raise ValueError("invalid month-end cohort interval")
-            dates.extend(month_end_asof_grid(sqlite_path, start=start, end=end))
         dates = sorted(set(dates))
         if not dates or any(day > datetime.now(ZoneInfo("Asia/Tokyo")).date() for day in dates):
             raise ValueError("master backfill requires explicit nonfuture snapshot dates")
