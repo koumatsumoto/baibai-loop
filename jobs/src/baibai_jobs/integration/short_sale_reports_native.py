@@ -169,16 +169,14 @@ def materialize_saved_input(
     if not isinstance(clock, str):
         raise ValueError("short-sale reports input requires its evaluation clock")
     evaluated_at = datetime.fromisoformat(clock)
-    selected = read_short_sale_reports_input(store, descriptor, days=days)
-    scopes = selected["scopes"]
-    _validate_clock(scopes, evaluated_at)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("xb"):
         pass  # Never modify an existing cache or a production SQLite path.
     try:
         with closing(open_connection(output)) as connection:
             connection.execute("BEGIN")
-            _project_days(store, saved, connection, days=days, output=output)
+            scopes = _project_days(store, saved, connection, days=days, output=output)
+            _record_unresolved(connection, scopes, evaluated_at)
             unresolved = [
                 day
                 for day in days
@@ -210,16 +208,16 @@ def _project_days(
     *,
     days: tuple[date, ...],
     output: Path,
-) -> None:
+) -> dict[str, Any]:
     """Replace only requested disclosure days; the caller owns the transaction."""
     if not days:
-        return
+        return {}
     descriptor = _descriptor(saved)
     summary = descriptor["summary"]
     assert isinstance(summary, dict)
     evaluated_at = datetime.fromisoformat(str(summary["evaluated_at"]))
     selected = read_short_sale_reports_input(store, descriptor, days=days)
-    scopes = selected["scopes"]
+    scopes: dict[str, Any] = selected["scopes"]
     _validate_clock(scopes, evaluated_at)
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     found = set()
@@ -255,7 +253,7 @@ def _project_days(
         found.add(item.request_id)
     if found != set(adopted):
         raise ValueError("short-sale reports selection lacks an adopted original")
-    _record_unresolved(connection, scopes, evaluated_at)
+    return scopes
 
 
 def _record_unresolved(
