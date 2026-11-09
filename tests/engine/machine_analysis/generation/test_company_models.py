@@ -488,7 +488,13 @@ def test_interim_flows_are_reported_without_inventing_ttm_or_measurement_dates(
     )
     assert financial["fcf_yield"] is None
     assert financial["ev_ebitda"] is None
-    assert not {"fcf_ttm", "edinet_ocf_ttm", "capex_ttm", "ebitda_ttm"}.intersection(financial)
+    assert not {
+        "fcf_ttm",
+        "edinet_ocf_ttm",
+        "capex_ttm",
+        "ebitda_ttm",
+        "depreciation_and_amortization_ttm",
+    }.intersection(financial)
     assert financial["ocf_ttm"] is None
     assert financial["ocf_ttm_period"] is None
     # The physical extracted record still retains exactly the reported amounts.
