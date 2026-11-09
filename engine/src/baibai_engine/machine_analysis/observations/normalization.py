@@ -7,10 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_decode import (
-    is_missing_scalar as _is_missing_scalar,
-)
 from baibai_engine.machine_analysis.observations.jquants_decode import to_float as to_float
+from baibai_engine.primitives.missing import is_missing_scalar
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
 
@@ -63,13 +61,13 @@ def first(record: Mapping[str, Any], *keys: str) -> Any:
 
 
 def to_str_or_none(value: Any) -> str | None:
-    if _is_missing_scalar(value):
+    if is_missing_scalar(value):
         return None
     return str(value).strip()
 
 
 def date_iso(value: Any) -> str | None:
-    if _is_missing_scalar(value):
+    if is_missing_scalar(value):
         return None
     text = str(value)
     return text[:10]

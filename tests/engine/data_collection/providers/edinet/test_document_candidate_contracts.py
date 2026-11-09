@@ -5,13 +5,13 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+from baibai_engine.data_collection.providers.edinet.document_events import (
     parse_doc_id,
 )
-from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
+from baibai_engine.data_collection.providers.edinet.selection import (
     select_document_candidates,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 
 
 class EDINETCandidateTests(unittest.TestCase):

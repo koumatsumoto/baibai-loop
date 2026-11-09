@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError, fetchJson } from '../src/api/client'
-import { bootstrapSharedAccess, clearViewPassword, getSharedToken, getViewPassword, setViewPassword, subscribeAuthRequired } from '../src/api/auth'
+import { clearViewPassword, getViewPassword, setViewPassword, subscribeAuthRequired } from '../src/api/auth'
 
 function createLocalStorage(): Storage {
   const store = new Map<string, string>()
@@ -37,7 +37,6 @@ function requestHeaders(): Headers {
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', createLocalStorage())
-  vi.stubGlobal('sessionStorage', createLocalStorage())
   setViewPassword('')
   clearViewPassword()
   fetchMock = vi.fn()
@@ -120,79 +119,15 @@ describe('fetchJson non-Latin-1 password self-recovery', () => {
   })
 })
 
-describe('shared read session', () => {
-  function bootstrap(query = '?share=shared-secret&keep=1') {
-    const replaceState = vi.fn()
-    vi.stubGlobal('window', {
-      location: { href: `https://example.test/${query}#holdings` },
-      history: { state: { existing: true }, replaceState },
-    })
-    bootstrapSharedAccess()
-    return replaceState
-  }
-
-  it('consumes share before the first request and retains the session across navigation/reload bootstrap', async () => {
-    setViewPassword('owner-secret')
-    const replace = bootstrap()
-    expect(replace).toHaveBeenCalledWith({ existing: true }, '', '/?keep=1#holdings')
-    expect(getSharedToken()).toBe('shared-secret')
-    expect(getViewPassword()).toBe('owner-secret')
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true }))
-    await fetchJson('/api/dashboard')
-    expect(requestHeaders().get('Authorization')).toBe('Bearer shared-secret')
-    bootstrap('?keep=1')
-    expect(getSharedToken()).toBe('shared-secret')
-  })
-
-  it.each(['?share=', '?share=a&share=b'])('removes invalid bootstrap credentials: %s', (query) => {
-    bootstrap()
-    const replace = bootstrap(query)
-    expect(getSharedToken()).toBeNull()
-    expect(replace).toHaveBeenCalledWith({ existing: true }, '', '/#holdings')
-  })
-
-  it('clears only shared credentials on 401 and returns to normal owner authentication', async () => {
-    setViewPassword('owner-secret')
-    bootstrap()
-    fetchMock.mockResolvedValue(jsonResponse({}, 401))
-    await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
-    expect(getSharedToken()).toBeNull()
-    expect(getViewPassword()).toBe('owner-secret')
-    fetchMock.mockClear().mockResolvedValue(jsonResponse({ ok: true }))
-    await fetchJson('/api/dashboard')
-    expect(requestHeaders().get('Authorization')).toBe('Bearer owner-secret')
-  })
-
-  it('does not clear owner credentials when multiple shared requests fail concurrently', async () => {
-    setViewPassword('owner-secret')
-    bootstrap()
-    fetchMock.mockResolvedValue(jsonResponse({}, 401))
-    await Promise.allSettled([fetchJson('/api/dashboard'), fetchJson('/api/outcomes'), fetchJson('/api/proposal/latest')])
-    expect(getSharedToken()).toBeNull()
-    expect(getViewPassword()).toBe('owner-secret')
-  })
-
-  it('keeps owner credentials when shared token cannot be a header', async () => {
-    setViewPassword('owner-secret')
-    bootstrap('?share=%E3%81%B2%E3%81%BF%E3%81%A4')
-    await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)
-    expect(getSharedToken()).toBeNull()
-    expect(getViewPassword()).toBe('owner-secret')
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-})
-
 describe('obsolete 401 responses', () => {
-  it.each(['owner', 'none', 'shared'] as const)('does not relock a new owner after a %s request', async (source) => {
+  it.each(['owner', 'none'] as const)('does not relock a new owner after a %s request', async (source) => {
     if (source === 'owner') setViewPassword('old-secret')
-    if (source === 'shared') sessionStorage.setItem('baibai-shared-read-token', 'new-secret')
     let respond!: (response: Response) => void
     fetchMock.mockReturnValue(new Promise<Response>((resolve) => { respond = resolve }))
     const listener = vi.fn()
     const unsubscribe = subscribeAuthRequired(listener)
     try {
       const pending = fetchJson('/api/dashboard')
-      sessionStorage.clear()
       setViewPassword('new-secret')
       respond(jsonResponse({}, 401))
       await expect(pending).rejects.toMatchObject({ status: 401 })
@@ -203,21 +138,7 @@ describe('obsolete 401 responses', () => {
     }
   })
 
-  it('notifies when the current shared credential is rejected', async () => {
-    sessionStorage.setItem('baibai-shared-read-token', 'shared-secret')
-    setViewPassword('owner-secret')
-    const listener = vi.fn()
-    const unsubscribe = subscribeAuthRequired(listener)
-    fetchMock.mockResolvedValue(jsonResponse({}, 401))
-    try {
-      await expect(fetchJson('/api/dashboard')).rejects.toMatchObject({ status: 401 })
-      expect(listener).toHaveBeenCalledExactlyOnceWith('rejected')
-      expect(getSharedToken()).toBeNull()
-      expect(getViewPassword()).toBe('owner-secret')
-    } finally {
-      unsubscribe()
-    }
-  })
+
 })
 
 

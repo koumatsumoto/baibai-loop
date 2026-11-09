@@ -5,20 +5,12 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { cn } from '../lib/utils'
 
 interface InfoHintProps {
-  // What the hint explains. Names the trigger for assistive technology, so it reads as
-  // "percentile の説明" rather than an unlabelled icon among a hundred others.
   label: string
   children: ReactNode
   className?: string
 }
 
-// A term that needs a sentence to be read correctly carries it next to its own label,
-// instead of in a paragraph above the table: the explanation is one gesture away and
-// never sits between the reader and the numbers.
-//
-// A mouse opens it on hover so a glance suffices. Touch has no hover at all, so the same
-// trigger opens on tap — the hint is unreadable on a phone otherwise. Pointer type, not a
-// media query, decides which applies, so a hybrid device gets both.
+// Mouse uses hover; touch and keyboard use the same trigger to toggle.
 export function InfoHint({ label, children, className }: InfoHintProps) {
   const [open, setOpen] = useState(false)
   const pointerType = useRef('')
@@ -35,9 +27,7 @@ export function InfoHint({ label, children, className }: InfoHintProps) {
           className,
         )}
         onClick={(event) => {
-          // Hover already governs the mouse, and letting the click through would close
-          // the hint the moment a reader clicks what looks like a button. A keyboard
-          // activation carries no pointer (detail 0) and must still toggle.
+          // Keep hover open on mouse click; keyboard activation must still toggle.
           if (event.detail !== 0 && pointerType.current === 'mouse') event.preventDefault()
         }}
         onPointerEnter={onHover(true)}
@@ -48,8 +38,7 @@ export function InfoHint({ label, children, className }: InfoHintProps) {
       </PopoverTrigger>
       <PopoverContent
         className="text-xs leading-relaxed font-normal text-foreground"
-        // The content is text, so moving focus into it would only strand the keyboard
-        // user; Escape still closes because the dismiss layer listens on the document.
+        // Text-only content does not need to take focus.
         onOpenAutoFocus={(event) => event.preventDefault()}
         onPointerEnter={onHover(true)}
         onPointerLeave={onHover(false)}

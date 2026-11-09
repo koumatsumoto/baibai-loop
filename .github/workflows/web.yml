@@ -18,6 +18,8 @@ on:
       - web/frontend/**
       - web/edge/**
       - web/contracts/**
+      - .github/workflows/web.yml
+      - .node-version
   workflow_dispatch:
 
 permissions:

@@ -152,7 +152,7 @@ def test_native_price_export_reports_its_dataset(tmp_path, progress):
             producer_git_commit="a" * 40,
             build_id=CANARY,
         )
-    assert report.build.manifest.totals.rows == 2
+    assert report.manifest.totals.rows == 2
     assert "phase=export.jquants.daily_bars state=start\n" in progress.flushed
     assert "phase=export.jquants.daily_bars state=done elapsed_seconds=" in progress.flushed
     assert CANARY not in progress.getvalue()

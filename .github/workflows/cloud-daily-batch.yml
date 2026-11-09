@@ -1,6 +1,5 @@
 name: cloud-daily-batch
-# Display the requested recovery day. The watchdog reads the actual notice as-of
-# from the terminal step result, including for delayed starts and reruns.
+# The watchdog reads the actual as-of from the terminal result.
 run-name: "daily ${{ inputs.asof || '' }}"
 
 on:
@@ -39,9 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The notification script must import on the runner's system python3
-      # (before setup-python), so the final notification step can run it without
-      # uv. The import is what guarantees the stdlib-only / no-3.13-syntax contract.
+      # Notification must work on system Python even when setup fails.
       - name: Smoke-check notification script
         id: smoke
         env:
@@ -116,7 +113,6 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.integration.sources plan --directory "$RUNNER_TEMP/integration"
 
-      # failure policy: 1 — the batch cannot compute without the canonical stores.
       - name: Pull stores
         id: pull
         env:
@@ -126,12 +122,7 @@ jobs:
         run: |
           jobs/scripts/r2_transfer.sh pull-machine
 
-      # The market store arrives holding only what the lake does not own — the coverage
-      # ledger and store metadata. Filling lake-owned observations and originals from current
-      # is what makes it the store every reader already expects. It fails closed on the
-      # published row counts, so a fill that silently did nothing cannot reach screening
-      # as an empty universe.
-      # failure policy: 2 — incomplete hydration would make the screening output invalid.
+      # Incomplete hydration must not reach screening as an empty universe.
       - name: Hydrate market store from the lake release
         id: hydrate
         env:
@@ -255,24 +246,14 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: uv run python -m baibai_jobs.publication.lease release --handle "$RUNNER_TEMP/publication-lease-handle.json"
 
-      # `cancelled()` is a status-check function: it is only evaluated in an `if`
-      # conditional, and interpolating it into a `run:` block makes the whole
-      # workflow file invalid. Capture the state as a step output instead.
+      # Status functions cannot be interpolated directly into a run block.
       - name: Record cancellation
         id: cancellation
         if: ${{ cancelled() }}
         run: echo "cancelled=true" >> "$GITHUB_OUTPUT"
 
-      # Single notification point. Runs once for every terminal state after all
-      # prior step outcomes are known. `always()` rather than `!cancelled()`:
-      # GitHub reports a `timeout-minutes` expiry as a *cancellation*, and a hung
-      # batch is exactly the silent failure this notification exists to catch —
-      # `!cancelled()` would skip it. A manual cancel costs one extra
-      # `[CANCELLED]` message, which is far cheaper than losing every timeout.
-      # The webhook secret is scoped to this step only. A delivery failure never
-      # fails the run: data/publication failures have their own step outcomes,
-      # and a delivery failure must not overwrite them. A red job alone does not
-      # prove publication never happened, since later steps can also fail.
+      # `always()` includes timeouts, which GitHub reports as cancellations.
+      # Notification failure must not overwrite the publication result.
       - name: "Notify Discord #batch-runs for ${{ steps.batch.outputs.asof || steps.source-plan.outputs.asof || 'unknown' }}"
         id: notify
         if: ${{ always() }}

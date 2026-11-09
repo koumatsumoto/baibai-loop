@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from io import BytesIO
 
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 
 
 @dataclass

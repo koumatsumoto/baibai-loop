@@ -10,13 +10,13 @@ from tests.helpers.edinet_csv_zip import _edinet_csv_zip
 from tests.helpers.edinet_receipts import seed_list_response
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition import edinet_archives as subject
+from baibai_jobs.maintenance import edinet_extraction as subject
 
 ASOF = date(2026, 11, 5)
 START = ASOF - timedelta(days=540)

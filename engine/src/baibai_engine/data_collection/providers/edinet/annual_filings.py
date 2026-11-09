@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    _canonicalize_document_events,
+from baibai_engine.data_collection.providers.edinet.document_events import (
+    canonicalize_document_events,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+from baibai_engine.data_collection.providers.edinet.fields import (
     document_period,
     is_usable_filing_status,
     parse_sec_code,
@@ -23,7 +23,7 @@ def annual_documents(
     Select the family before checking validity or XBRL availability. An invalid or
     unsupported latest filing must not make an older annual report look current.
     """
-    origins, quarantined = _canonicalize_document_events(documents, origin_start=None)
+    origins, quarantined = canonicalize_document_events(documents, origin_start=None)
     by_id = {str(doc["docID"]): doc for doc in origins}
     annual_ids = {
         key for key, doc in by_id.items() if str(doc.get("docTypeCode")) in {"120", "130"}

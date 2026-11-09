@@ -1,4 +1,4 @@
-"""Pure EDINET filing candidate selection from document observations."""
+"""Pure EDINET filing candidate selection from native document evidence."""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ from typing import Any
 from pydantic import ConfigDict, field_validator
 from pydantic.dataclasses import dataclass
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+from baibai_engine.data_collection.providers.edinet.document_events import (
     QuarantinedDocumentEvent,
-    _canonicalize_document_events,
+    canonicalize_document_events,
     parse_doc_id,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
+from baibai_engine.data_collection.providers.edinet.fields import (
     coalesce_field,
     document_period,
     is_usable_filing_status,
@@ -72,7 +72,7 @@ def select_document_candidates(
 ) -> DocumentSelection:
     """Select the latest usable EDINET CSV-capable filing per ticker."""
     candidates: dict[str, EdinetDocumentCandidate] = {}
-    folded, quarantined = _canonicalize_document_events(documents, origin_start=origin_start)
+    folded, quarantined = canonicalize_document_events(documents, origin_start=origin_start)
     for document in folded:
         raw_doc_id = coalesce_field(document, "docID", "doc_id")
         raw_type = text_or_none(coalesce_field(document, "docTypeCode", "doc_type_code"))

@@ -7,9 +7,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
-    _edinet_document_rows,
-)
+from baibai_engine.data_collection.providers.edinet.document_rows import document_rows
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     date_range_row_count,
     delete_overlapping_source_coverage,
@@ -36,7 +34,7 @@ def store_edinet_documents(
             "EDINET document resultset count mismatch: "
             f"metadata={expected_count} results={len(records_list)}"
         )
-    rows = _edinet_document_rows(on_date.isoformat(), records_list)
+    rows = document_rows(on_date.isoformat(), records_list)
     conn = open_connection(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")

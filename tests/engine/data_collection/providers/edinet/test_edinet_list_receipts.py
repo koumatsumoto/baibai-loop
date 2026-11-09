@@ -14,11 +14,11 @@ from tests.helpers.http_doubles import FakeResponse, FakeSession, response
 from tests.helpers.lake_policy import narrow_release_policy
 
 from baibai_engine.data_collection.providers.edinet import http
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.snapshots.hydrate import hydrate_market_store
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource

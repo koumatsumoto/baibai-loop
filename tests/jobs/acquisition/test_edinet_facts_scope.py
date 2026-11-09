@@ -14,6 +14,7 @@ from tests.helpers.edinet_research_sources import source_zip
 from tests.jobs.acquisition.test_edinet_archive_native_acquisition import setup
 
 from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
+from baibai_engine.data_collection.providers.edinet.archive_plan import prepare_fact_acquisition
 from baibai_engine.data_collection.providers.edinet.archives import (
     read_source_archive,
     retain_source_archive,
@@ -27,6 +28,9 @@ from baibai_engine.data_collection.providers.edinet.models import (
     EdinetRateLimitError,
     EdinetResponse,
 )
+from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
+    read_stored_documents,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     rebuild_edinet_document_day,
 )
@@ -35,7 +39,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_facts.service
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.acquisition.edinet_fact_plan import prepare_fact_acquisition
 from baibai_jobs.integration.edinet_list_native import materialize_lists
 from baibai_jobs.integration.source_cache_merge import merge_stores
 from baibai_jobs.maintenance.edinet_extraction import refresh_edinet_facts_command
@@ -75,6 +78,15 @@ def scope(path):
         return read_scope(connection)
 
 
+def save_fact_plan(path):
+    with closing(open_connection(path)) as connection, connection:
+        plan = prepare_fact_acquisition(
+            read_stored_documents(connection, through=DAY), read_scope(connection)
+        )
+        merge_scope(connection, plan.scope)
+    return plan.documents
+
+
 @pytest.mark.parametrize("raw_only", [False, True])
 def test_saved_scope_and_originals_do_not_depend_on_l2_status(tmp_path, raw_only):
     new = tmp_path / "market.sqlite"
@@ -108,7 +120,7 @@ def test_saved_scope_and_originals_do_not_depend_on_l2_status(tmp_path, raw_only
         connection.execute(
             "INSERT INTO source_coverage VALUES ('edinet_research_facts','initialized',NULL,NULL,'bad',0,'ok','not-json')"
         )
-    selected = prepare_fact_acquisition(new, asof=DAY)
+    selected = save_fact_plan(new)
     assert {doc["docID"] for doc in selected} == (
         {"S100OLD", "S100SINCE", "S100LATEST"} | ({"S100UNRELATED"} if raw_only else set())
     )
@@ -152,7 +164,7 @@ def test_requested_scope_without_global_since_does_not_enable_fetches(tmp_path):
         retain_source_archive(connection, "S100RAW", 1, source_zip(), stored_on=DAY)
         merge_scope(connection, saved)
     assert scope(path) == saved
-    assert prepare_fact_acquisition(path, asof=DAY) is None
+    assert save_fact_plan(path) is None
 
 
 def test_selected_unavailable_and_failed_ids_survive_family_change_and_merge(tmp_path):
@@ -161,10 +173,10 @@ def test_selected_unavailable_and_failed_ids_survive_family_change_and_merge(tmp
     save_list(local, [old])
     with closing(open_connection(local)) as connection, connection:
         merge_scope(connection, FactsScope(since=DAY))
-    assert [doc["docID"] for doc in prepare_fact_acquisition(local, asof=DAY)] == ["S100OLD"]
+    assert [doc["docID"] for doc in save_fact_plan(local)] == ["S100OLD"]
     # Later normal family appears while the old requested family becomes usable.
     save_list(local, [{**old, "xbrlFlag": "1"}, filing("S100LATEST", 2026)])
-    assert {doc["docID"] for doc in prepare_fact_acquisition(local, asof=DAY)} == {
+    assert {doc["docID"] for doc in save_fact_plan(local)} == {
         "S100OLD",
         "S100LATEST",
     }

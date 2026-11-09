@@ -11,24 +11,26 @@ from typing import TYPE_CHECKING, TextIO
 
 from pydantic import JsonValue
 
-from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
-    _canonicalize_document_events,
+from baibai_engine.data_collection.providers.edinet.annual_filings import (
+    usable_document,
 )
+from baibai_engine.data_collection.providers.edinet.archive_native import FixedEdinetArchives
+from baibai_engine.data_collection.providers.edinet.document_events import (
+    canonicalize_document_events,
+)
+from baibai_engine.data_collection.providers.edinet.fields import parse_sec_code
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_observed_documents,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
+)
+from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
     extract_comparisons,
     successful_comparison_seed,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import parse_sec_code
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.models import (
     filing_identity,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_facts.selection import (
-    usable_document,
 )
 
 if TYPE_CHECKING:
@@ -55,7 +57,7 @@ def read_comparison_population(
     """
     if known_at is not None and known_at.tzinfo is None:
         raise ValueError("comparison cutoff requires an aware datetime")
-    documents, quarantined = _canonicalize_document_events(
+    documents, quarantined = canonicalize_document_events(
         read_observed_documents(connection, through=as_of), origin_start=None
     )
     selected = set(tickers) if tickers is not None else None

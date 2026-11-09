@@ -10,18 +10,18 @@ from pydantic import ConfigDict
 from pydantic.dataclasses import dataclass
 
 from baibai_engine.data_collection.providers.edinet.fields import (
-    parse_doc_id as _parse_doc_id,
-)
-from baibai_engine.data_collection.providers.edinet.fields import (
-    validate_document_statuses as _validate_native_statuses,
-)
-from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     coalesce_field,
     parse_sec_code,
     safe_error_value,
     text_or_none,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
+from baibai_engine.data_collection.providers.edinet.fields import (
+    parse_doc_id as _parse_doc_id,
+)
+from baibai_engine.data_collection.providers.edinet.fields import (
+    validate_document_statuses as _validate_native_statuses,
+)
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 
 _MODEL_CONFIG = ConfigDict(strict=True, arbitrary_types_allowed=False)
 
@@ -51,7 +51,7 @@ class QuarantinedDocumentEvent:
     ticker: str | None = None
 
 
-def _canonicalize_document_events(
+def canonicalize_document_events(
     documents: Sequence[Mapping[str, Any]],
     *,
     origin_start: date | None,

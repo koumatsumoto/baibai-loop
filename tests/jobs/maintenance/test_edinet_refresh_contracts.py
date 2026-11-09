@@ -11,9 +11,9 @@ from tests.jobs.acquisition.test_edinet_archive_native_acquisition import setup
 
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
+    EDINETProviderError,
     EdinetRateLimitError,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_reader import EDINETReader
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
 

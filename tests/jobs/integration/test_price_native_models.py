@@ -291,9 +291,9 @@ def test_native_publication_is_derived_from_saved_selection_not_latest_or_source
             created_at=AT,
         )
         assert store.get_keys == []
-    assert exported.build.manifest.coverage_status == "complete"
-    assert len(exported.build.manifest.partitions) == 2
-    for partition in exported.build.manifest.partitions:
+    assert exported.manifest.coverage_status == "complete"
+    assert len(exported.manifest.partitions) == 2
+    for partition in exported.manifest.partitions:
         assert len(partition.sources) == 1
         source = partition.sources[0]
         assert source.kind == "native_l1"
@@ -302,7 +302,7 @@ def test_native_publication_is_derived_from_saved_selection_not_latest_or_source
     paths = materialize_partitions(
         LakeObjectCache(root=tmp_path / "mirror", source=LocalMirrorSource(tmp_path / "mirror")),
         dataset=LAKE_DATASETS["jquants.daily_bars"],
-        partitions=exported.build.manifest.partitions,
+        partitions=exported.manifest.partitions,
     )
     with duckdb.connect(":memory:") as connection:
         assert connection.execute(
@@ -477,5 +477,35 @@ def test_partial_normalization_never_claims_complete_coverage(tmp_path):
             producer_git_commit="a" * 40,
             created_at=AT,
         )
-    assert result.build.manifest.coverage_status == "partial"
-    assert result.build.manifest.totals.rows == 1
+    assert result.manifest.coverage_status == "partial"
+    assert result.manifest.totals.rows == 1
+
+
+@pytest.mark.parametrize(
+    ("first", "last"),
+    [(date.min, date.max), (DAY, DAY), (DAY, DAY - timedelta(days=1))],
+)
+def test_saved_price_interval_validates_bounds_without_expanding_history(monkeypatch, first, last):
+    import hashlib
+
+    from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
+    from baibai_engine.machine_analysis.generation.price_inputs import INPUT_FORMAT
+    from baibai_engine.primitives.json import canonical_json
+    from baibai_jobs.integration import price_native
+
+    descriptor = {
+        "format": INPUT_FORMAT,
+        "summary": {"selection_start": first.isoformat(), "selection_end": last.isoformat()},
+    }
+    digest = hashlib.sha256(canonical_json(descriptor).encode()).hexdigest()
+    saved = InputSnapshot(
+        kind="native_l1", reference="jquants-price-" + digest, sha256=digest, descriptor=descriptor
+    )
+    monkeypatch.setattr(
+        price_native, "_days", lambda *args: pytest.fail("interval validation must not expand days")
+    )
+    if first <= last:
+        assert price_native.saved_interval(saved) == (first, last)
+    else:
+        with pytest.raises(ValueError, match="invalid saved price interval"):
+            price_native.saved_interval(saved)

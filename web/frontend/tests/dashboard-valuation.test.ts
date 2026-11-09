@@ -1,11 +1,12 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router'
+import type { TooltipContentProps } from 'recharts'
 import { describe, expect, it } from 'vitest'
 
 import type { DashboardView, HoldingView, ReservationView } from '../src/api/types'
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { HoldingsTable, OutcomeCard, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
+import { AllocationTooltip, HoldingsTable, OutcomeCard, PendingOrdersCard, PortfolioAllocationCard } from '../src/pages/DashboardPage'
 
 function holding(ticker: string): HoldingView {
   return {
@@ -36,6 +37,14 @@ function render(data: DashboardView): string {
 }
 
 describe('Dashboard valuation display', () => {
+  it('shows the allocation label and amount in the chart tooltip', () => {
+    const payload: TooltipContentProps['payload'] = [{ name: 'holdings', value: 110_000, graphicalItemId: 'allocation' }]
+    const html = renderToStaticMarkup(createElement(AllocationTooltip, { active: true, payload }))
+    expect(html).toContain('保有株式')
+    expect(html).toContain('￥110,000')
+    expect(renderToStaticMarkup(createElement(AllocationTooltip, { active: false, payload }))).toBe('')
+  })
+
   it('labels ledger cash and returns without claiming settlement or unreported costs', () => {
     const allocation = render(dashboard())
     const outcomes = renderToStaticMarkup(createElement(OutcomeCard, { outcomes: [] }))

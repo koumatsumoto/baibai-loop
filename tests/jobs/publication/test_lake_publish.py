@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
-from tests.helpers.lake_release import market_store
+from tests.helpers.lake_release import export_market_fixture, market_store
 from tests.helpers.master_calendar_native import (
     native_master_calendar_publication as native_master_calendar_publication,
 )
@@ -36,7 +36,6 @@ from baibai_engine.storage.snapshots.release import (
 from baibai_engine.storage.snapshots.writer import (
     LakeBuildError,
     export_dataset_snapshot,
-    export_market_store,
     sealed_sqlite_snapshot,
 )
 from baibai_engine.storage.sqlite.snapshot import backup_to_new_file
@@ -990,7 +989,7 @@ def _two_month_release(tmp_path: Path) -> tuple[Path, Path, Path]:
     connection.commit()
     connection.close()
     mirror = tmp_path / "mirror"
-    build = export_market_store(
+    build = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -1025,7 +1024,7 @@ def test_a_one_month_correction_moves_only_that_month(tmp_path: Path) -> None:
     connection.execute("UPDATE jquants_daily_bars SET close = 9.0 WHERE traded_at = '2026-02-04'")
     connection.commit()
     connection.close()
-    corrected = export_market_store(
+    corrected = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,

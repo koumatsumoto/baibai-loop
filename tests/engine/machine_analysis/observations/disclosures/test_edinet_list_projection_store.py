@@ -15,6 +15,7 @@ from baibai_engine.data_collection.providers.edinet.list_projection import (
     document_list_rechecked_asof,
     project_document_list,
 )
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.data_collection.providers.edinet.receipts import read_list_responses
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_current_filing_documents,
@@ -24,7 +25,6 @@ from baibai_engine.machine_analysis.observations.disclosures.edinet_document_sto
 from baibai_engine.machine_analysis.observations.disclosures.edinet_list_rebuild import (
     store_edinet_document_projection,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 _DAY = date(2026, 10, 15)

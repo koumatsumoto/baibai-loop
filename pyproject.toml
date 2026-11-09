@@ -547,7 +547,7 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "provider observation models, decoding and selection do not load acquisition or storage"
 type = "forbidden"
-source_modules = ["baibai_engine.machine_analysis.observations.financials.edinet_models", "baibai_engine.machine_analysis.observations.disclosures.edinet_selection", "baibai_engine.machine_analysis.observations.disclosures.jpx_models", "baibai_engine.machine_analysis.observations.financials.jquants_models", "baibai_engine.machine_analysis.observations.trading_activity.models", "baibai_engine.machine_analysis.observations.jquants_decode", "baibai_engine.machine_analysis.observations.prices.price_models", "baibai_engine.machine_analysis.observations.prices.calendar"]
+source_modules = ["baibai_engine.machine_analysis.observations.financials.edinet_models", "baibai_engine.data_collection.providers.edinet.selection", "baibai_engine.machine_analysis.observations.disclosures.jpx_models", "baibai_engine.machine_analysis.observations.financials.jquants_models", "baibai_engine.machine_analysis.observations.trading_activity.models", "baibai_engine.machine_analysis.observations.jquants_decode", "baibai_engine.machine_analysis.observations.prices.price_models", "baibai_engine.machine_analysis.observations.prices.calendar"]
 forbidden_modules = ["baibai_engine.machine_analysis.observations.financials.edinet_metrics.csv", "baibai_engine.storage", "baibai_engine.machine_analysis.screening", "baibai_engine.investment_judgment", "baibai_jobs", "tools"]
 
 
@@ -731,9 +731,14 @@ name = "native acquisition never depends on L2"
 type = "forbidden"
 source_modules = [
   "baibai_jobs.acquisition.edinet_list_native",
+  "baibai_jobs.acquisition.edinet_archive_native",
   "baibai_jobs.acquisition.jquants_full_day_native",
   "baibai_jobs.acquisition.jquants_financial_native",
   "baibai_jobs.acquisition.jquants_price_native",
   "baibai_jobs.acquisition.jquants_master_native",
+  "baibai_jobs.acquisition.jquants_calendar_native",
+  "baibai_jobs.acquisition.jquants_margin_alerts_native",
+  "baibai_jobs.acquisition.jquants_short_sale_reports_native",
+  "baibai_jobs.acquisition.jquants_margin_interest_native",
 ]
 forbidden_modules = ["baibai_engine.machine_analysis", "baibai_engine.investment_judgment", "baibai_engine.portfolio"]

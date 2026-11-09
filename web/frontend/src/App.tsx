@@ -18,7 +18,7 @@ function App() {
             <Route element={<AppLayout />}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/proposal" element={<ProposalPage />} />
-              <Route path="*" element={<p className="p-6">この画面は廃止しました。上のナビゲーションをご利用ください。</p>} />
+              <Route path="*" element={<main className="p-6">ページが見つかりません。</main>} />
             </Route>
           </Routes>
         </PasswordGate>

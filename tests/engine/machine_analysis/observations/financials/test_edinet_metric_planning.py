@@ -7,10 +7,10 @@ import pytest
 from tests.helpers.edinet_metrics import _edinet_document
 from tests.helpers.edinet_receipts import seed_list_response
 
-from baibai_engine.machine_analysis.observations.disclosures.edinet_document_events import (
+from baibai_engine.data_collection.providers.edinet.document_events import (
     QuarantinedDocumentEvent,
 )
-from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
+from baibai_engine.data_collection.providers.edinet.selection import (
     DocumentSelection,
     EdinetDocumentCandidate,
 )

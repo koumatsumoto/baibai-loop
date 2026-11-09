@@ -24,13 +24,13 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
 )
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAcquisitionError,
+    EDINETProviderError,
     EdinetRateLimitError,
     EdinetResponse,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_facts.service import (
     extract_edinet_facts_command,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_models import EDINETProviderError
 from baibai_engine.storage.objects.r2 import LakePublishError
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.edinet_archive_native import acquire_archives
@@ -216,7 +216,7 @@ def test_uninitialized_annual_still_gets_holder_batch_without_all_zip_hydration(
 def test_holder_planning_failure_does_not_discard_annual_originals(tmp_path, monkeypatch):
     owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
     monkeypatch.setattr(
-        "baibai_jobs.acquisition.edinet_archive_native.holder_archive_candidates",
+        "baibai_jobs.acquisition.edinet_archive_native.select_holder_archives",
         Mock(side_effect=ValueError("bad holder")),
     )
     report = acquire_archives(
@@ -349,3 +349,18 @@ def test_xbrl_identity_does_not_satisfy_csv_original(tmp_path):
     assert fixed.read_archive("S100ONE", 1) == xbrl.body
     assert fixed.metadata("S100ONE", 1).received_at_utc == xbrl.received_at
     assert fixed.read_archive("S100ONE", 5) == csv
+
+
+def test_unrelated_native_row_mismatch_cannot_block_uninitialized_holder_get(tmp_path, monkeypatch):
+    owner, client, _, lists = setup(
+        tmp_path,
+        [
+            filing(" S100UNRELATED ", docTypeCode="160"),
+            filing("S100HOLDER", docTypeCode="350", secCode=None),
+        ],
+    )
+    monkeypatch.setattr("baibai_jobs.acquisition.edinet_archive_native.time.sleep", Mock())
+    report = acquire_archives(owner, client, lists, group="edinet-facts", asof=DAY)
+    assert report["status"] == "received"
+    assert report["annual_archive_plan"] == "skipped_not_initialized"
+    client.fetch_archive.assert_called_once_with("S100HOLDER", 1)

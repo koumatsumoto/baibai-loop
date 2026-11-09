@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, FiniteFloat
+
+from baibai_engine.data_collection.providers.edinet.fields import filing_submitted_at
 
 
 class FactIdentity(BaseModel):
@@ -59,10 +59,7 @@ class ExtractedFacts:
 
 
 def filing_identity(ticker: str, doc_id: str, submitted: str) -> FactIdentity:
-    stamp = datetime.fromisoformat(submitted)
-    if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=ZoneInfo("Asia/Tokyo"))
-    stamp = stamp.astimezone(ZoneInfo("Asia/Tokyo"))
+    stamp = filing_submitted_at(submitted)
     return FactIdentity(
         ticker=ticker,
         source_doc_id=doc_id,

@@ -10,6 +10,14 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def test_web_push_and_pull_request_validate_the_same_inputs():
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/web.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )
+    events = workflow["on"]
+    assert set(events["push"]["paths"]) == set(events["pull_request"]["paths"])
+
+
 def _target_step() -> dict[str, object]:
     workflow = yaml.load(
         (ROOT / ".github/workflows/web.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader

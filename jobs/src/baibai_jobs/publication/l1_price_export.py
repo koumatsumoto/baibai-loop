@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import cast
@@ -17,15 +16,6 @@ from baibai_engine.storage.snapshots.writer import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class PriceExport:
-    build: LakeBuildReport
-    source_days: int
-    missing_days: int
-    partial_days: int
-    unknown_requests: int
-
-
 def export_prices_from_native_input(
     *,
     source_snapshot: SealedSQLiteSnapshot,
@@ -34,13 +24,13 @@ def export_prices_from_native_input(
     producer_git_commit: str,
     build_id: str | None = None,
     created_at: datetime | None = None,
-) -> PriceExport:
+) -> LakeBuildReport:
     """Export this run's rebuilt seal; never GET/decode native originals a second time."""
     from baibai_engine.machine_analysis.generation.price_inputs import INPUT_PREFIX
     from baibai_engine.storage.snapshots.models import NativeL1SourceRef
-    from baibai_jobs.integration.price_native import saved_days
+    from baibai_jobs.integration.price_native import saved_interval
 
-    days = saved_days(saved)
+    saved_interval(saved)
     assert saved.descriptor is not None
     digest = saved.descriptor["selection_sha256"]
     summary = saved.descriptor["summary"]
@@ -56,7 +46,7 @@ def export_prices_from_native_input(
         namespace="jquants-price",
         key=INPUT_PREFIX + "selections/" + digest + ".json",
     )
-    build = export_dataset_snapshot(
+    return export_dataset_snapshot(
         dataset=JQUANTS_DAILY_BARS,
         source_snapshot=source_snapshot,
         native_source=source,
@@ -66,11 +56,4 @@ def export_prices_from_native_input(
         producer_git_commit=producer_git_commit,
         build_id=build_id,
         created_at=created_at,
-    )
-    return PriceExport(
-        build,
-        len(days),
-        cast(int, summary["unavailable_days"]),
-        cast(int, summary["partial_days"]),
-        cast(int, summary["incomplete_days"]),
     )

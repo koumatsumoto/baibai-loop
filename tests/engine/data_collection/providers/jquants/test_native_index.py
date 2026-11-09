@@ -133,6 +133,23 @@ def test_calendar_sessions_preserve_missing_days():
     assert unknown == ()
 
 
+def test_calendar_sessions_keep_unrecognized_division_unknown():
+    from baibai_engine.data_collection.providers.jquants.native_index import calendar_sessions
+
+    source = receipt(
+        "calendar",
+        "market_calendar",
+        {"from": "20261102", "to": "20261102"},
+        [{"Date": "2026-11-02", "HolDiv": "future-code"}],
+    )
+    sessions, _ = calendar_sessions(
+        index_market_originals([source], source="market_calendar"),
+        start=date(2026, 11, 2),
+        end=date(2026, 11, 2),
+    )
+    assert sessions[date(2026, 11, 2)] is None
+
+
 def test_daily_margin_waits_for_next_session_and_retains_calendar_gaps():
     from baibai_engine.data_collection.providers.jquants.native_index import plan_daily_margin
 

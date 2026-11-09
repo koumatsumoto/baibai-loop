@@ -3,11 +3,11 @@
 from contextlib import closing
 from datetime import date, timedelta
 
+from baibai_engine.data_collection.providers.edinet.selection import (
+    select_document_candidates,
+)
 from baibai_engine.machine_analysis.observations.disclosures.edinet_document_store import (
     read_observed_documents,
-)
-from baibai_engine.machine_analysis.observations.disclosures.edinet_selection import (
-    select_document_candidates,
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revision import (
     EDINET_METRIC_REVISION,

@@ -14,7 +14,7 @@ from typing import Literal
 
 import pytest
 from tests.helpers.lake_policy import narrow_release_policy
-from tests.helpers.lake_release import market_store
+from tests.helpers.lake_release import export_market_fixture, market_store
 
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
@@ -38,7 +38,6 @@ from baibai_engine.storage.snapshots.objects import open_lake
 from baibai_engine.storage.snapshots.prefetch import prefetching_hydration_cache
 from baibai_engine.storage.snapshots.reader import resolve_current_release
 from baibai_engine.storage.snapshots.release import LakeReleasePointer, create_release
-from baibai_engine.storage.snapshots.writer import export_market_store
 from baibai_jobs.publication.datasets import (
     LAKE_DATASETS,
 )
@@ -228,7 +227,7 @@ def test_actual_r2_lake_publish_and_read_back_into_a_market_store(
     store = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_market_store(
+    build = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="a" * 40,
@@ -339,7 +338,7 @@ def test_actual_r2_reconciles_a_real_pointer_commit_after_a_wrapper_error(
     delegate = _store()
     mirror = tmp_path / "publisher"
     sqlite_path = _tiny_market(tmp_path / "market.sqlite")
-    build = export_market_store(
+    build = export_market_fixture(
         sqlite_path=sqlite_path,
         mirror_root=mirror,
         producer_git_commit="b" * 40,

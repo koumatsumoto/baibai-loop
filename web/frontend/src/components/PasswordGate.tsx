@@ -14,8 +14,6 @@ interface PasswordFormProps {
   onSubmit: (event: FormEvent) => void
 }
 
-// Presentational full-screen password form. `notice` surfaces a validation error or the
-// "password rejected" state so a repeat prompt is distinguishable from the first one.
 export function PasswordForm({ value, notice, onValueChange, onSubmit }: PasswordFormProps) {
   return (
     <main className="grid min-h-screen place-items-center bg-background px-6">
@@ -52,10 +50,7 @@ interface PasswordGateProps {
   children: ReactNode
 }
 
-// Renders its children normally until a `/api/` request answers 401. On that signal it
-// takes the full screen with the password form; submitting a valid value stores it and
-// remounts the children (bumped key) so their data fetch retries with the new header.
-// Without a 401 this never activates, so local operation is unchanged.
+// Remount children after authentication so their requests use the new password.
 export function PasswordGate({ children }: PasswordGateProps) {
   const [locked, setLocked] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)

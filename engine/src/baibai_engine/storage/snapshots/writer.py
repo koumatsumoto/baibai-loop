@@ -339,30 +339,6 @@ def export_dataset_snapshot(
         raise LakeBuildError(str(exc)) from exc
 
 
-def export_market_store(
-    *,
-    catalog: Mapping[str, LakeDataset],
-    sqlite_path: Path,
-    mirror_root: Path,
-    producer_git_commit: str,
-    expected_store_origin: LakeStoreOrigin | None,
-    created_at: datetime | None = None,
-    previous: Mapping[str, DatasetManifest] | None = None,
-) -> LakeExportReport:
-    """Export every lake dataset from one sealed SQLite generation."""
-    catalog = freeze_catalog(catalog)
-    with sealed_sqlite_snapshot(sqlite_path=sqlite_path, mirror_root=mirror_root) as snapshot:
-        return export_market_snapshot(
-            source_snapshot=snapshot,
-            mirror_root=mirror_root,
-            producer_git_commit=producer_git_commit,
-            expected_store_origin=expected_store_origin,
-            catalog=catalog,
-            created_at=created_at,
-            previous=previous,
-        )
-
-
 def export_market_snapshot(
     *,
     catalog: Mapping[str, LakeDataset],

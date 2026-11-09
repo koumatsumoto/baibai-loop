@@ -8,6 +8,7 @@ from datetime import date, datetime
 from math import isfinite
 from typing import Any
 
+from baibai_engine.primitives.missing import is_missing_scalar
 from baibai_engine.primitives.stocks import SecurityCodeError, parse_security_code_parts
 
 JQUANTS_NUMERIC_PROJECTION_REVISION = "jquants-numeric-v2"
@@ -50,21 +51,6 @@ def to_period(value: Any) -> str | None:
     if is_missing_scalar(value):
         return None
     return str(value).strip().upper()
-
-
-def is_missing_scalar(value: Any) -> bool:
-    """Recognize scalar missing markers produced by JSON and pandas without importing pandas."""
-
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return value.strip() in {"", "NaT", "nan", "null", "<NA>"}
-    if str(value).strip() in {"NaT", "nan", "<NA>"}:
-        return True
-    try:
-        return bool(value != value)
-    except (TypeError, ValueError):
-        return False
 
 
 def to_float(value: Any) -> float | None:

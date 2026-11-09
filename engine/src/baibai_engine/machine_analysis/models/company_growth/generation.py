@@ -20,7 +20,7 @@ from baibai_engine.machine_analysis.models.company_growth.pdf_selection import (
     apply_pdf_changes,
     apply_pdf_periods,
 )
-from baibai_engine.machine_analysis.observations.financials.edinet_comparisons import (
+from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
 from baibai_engine.machine_analysis.observations.financials.financial_periods import period_days

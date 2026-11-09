@@ -487,6 +487,18 @@ def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path,
     assert not (tmp_path / "stores/market/market.sqlite").exists()
 
 
+def test_native_backfill_accepts_only_explicit_dates():
+    from baibai_jobs.maintenance.market import cli
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["backfill-master", "--asof", "2026-10-30", "--asof", "2026-11-02"])
+    assert args.asofs == ["2026-10-30", "2026-11-02"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["backfill-master", "--asof", "2026-01-30", "--month-end-from", "2026-01-01"]
+        )
+
+
 def test_legacy_tradingview_master_is_verified_against_finite_native_migration(
     tmp_path, monkeypatch
 ):

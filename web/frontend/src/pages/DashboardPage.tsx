@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CircleAlert } from 'lucide-react'
-import { Pie, PieChart } from 'recharts'
+import { Pie, PieChart, ResponsiveContainer, Tooltip, type TooltipContentProps } from 'recharts'
 
 import { fetchJson } from '../api/client'
 import type {
@@ -23,14 +23,11 @@ import { YenAmount } from '../components/YenAmount'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '../components/ui/chart'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table'
 import { EMPTY, formatJstDateTime, formatPct, formatUnitPriceYen, formatYen } from '../lib/format'
 import { totalUnrealizedPnl } from '../lib/portfolio'
 import { cn } from '../lib/utils'
 
-// Why each section is on this page, carried behind its own ⓘ instead of a subtitle that
-// repeats what the numbers already say.
 const HINT = {
   allocation: '台帳で未予約の現金と、これまでの判断が実際に効いているかを 1 か所で確かめる。売却代金は約定時に計上し、受渡済み資金や証券会社の発注可能額とは照合していない。配分は判断材料であり、比率を目安へ近づけること自体は目的ではない。',
   holdings: '保有中の各銘柄の取得原価・保存終値・評価損益。未評価とゼロを区別して示す。',
@@ -38,11 +35,25 @@ const HINT = {
   outcomes: '記録済みの税・費用を反映した return を、同じ期間の配当込み TOPIX と比べた結果。未報告の税・費用は含まない。短期の数字で方針を変えるためではなく、見積りが実現と合っているかを年単位で確かめるために置いている。',
 } as const
 
-const allocationConfig = {
-  holdings: { label: '保有株式', color: 'var(--chart-1)' },
-  available: { label: '未予約現金', color: 'var(--chart-2)' },
-  reserved: { label: '予約', color: 'var(--chart-3)' },
-} satisfies ChartConfig
+const allocationLabels: Record<string, string> = {
+  holdings: '保有株式',
+  available: '未予約現金',
+  reserved: '予約',
+}
+
+export function AllocationTooltip({ active, payload }: Pick<TooltipContentProps, 'active' | 'payload'>) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+      {payload.filter((item) => item.type !== 'none' && item.value !== undefined && item.name).map((item, index) => (
+        <div className="flex w-full min-w-40 items-center justify-between gap-4" key={index}>
+          <span className="text-muted-foreground">{allocationLabels[String(item.name)] ?? String(item.name)}</span>
+          <span className="font-mono font-medium tabular-nums">{formatYen(Number(item.value))}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   const {
@@ -53,15 +64,13 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
   } = data
   const allocation = total !== null && holdingsValue !== null && available !== null && reserved !== null
     ? [
-        { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--color-holdings)' },
-        { key: 'available', name: '未予約現金', value: available, fill: 'var(--color-available)' },
-        { key: 'reserved', name: '予約', value: reserved, fill: 'var(--color-reserved)' },
+        { key: 'holdings', name: '保有株式', value: holdingsValue, fill: 'var(--chart-1)' },
+        { key: 'available', name: '未予約現金', value: available, fill: 'var(--chart-2)' },
+        { key: 'reserved', name: '予約', value: reserved, fill: 'var(--chart-3)' },
       ]
     : []
   const hasAllocation = allocation.some((item) => item.value > 0)
   const unvaluedHoldings = data.holdings.filter((holding) => holding.market_value_yen === null)
-  // What the capital is split into, and what it has earned so far: the card answers both,
-  // because a total says nothing about whether holding it has been worth anything.
   const pnl = totalUnrealizedPnl(data.holdings)
   const hasPnl = data.holdings.length > 0
 
@@ -77,7 +86,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
             <p className="text-xs text-muted-foreground">株価基準 {data.valuation_as_of.slice(0, 10)}</p>
           )}
           {data.valuation_error !== null && (
-            <Alert className="mt-2" variant="destructive">
+            <Alert className="mt-2">
               <CircleAlert />
               <AlertTitle>市場評価を読み込めません。台帳の現金・保有数量・未約定注文は表示しています。</AlertTitle>
               <AlertDescription>{data.valuation_error}</AlertDescription>
@@ -90,19 +99,14 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           )}
           <div className="relative mx-auto min-h-[230px] w-full max-w-[360px] flex-1">
             {hasAllocation ? (
-              <ChartContainer className="h-full w-full" config={allocationConfig}>
-                <PieChart accessibilityLayer>
-                  <ChartTooltip
-                    content={<ChartTooltipContent formatter={(value, name) => (
-                      <div className="flex w-full min-w-40 items-center justify-between gap-4">
-                        <span className="text-muted-foreground">{allocationConfig[String(name) as keyof typeof allocationConfig]?.label ?? String(name)}</span>
-                        <span className="font-mono font-medium tabular-nums">{formatYen(Number(value))}</span>
-                      </div>
-                    )} hideLabel />}
-                  />
-                  <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
-                </PieChart>
-              </ChartContainer>
+              <div className="flex h-full w-full aspect-video justify-center text-xs [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-surface]:outline-hidden">
+                <ResponsiveContainer initialDimension={{ width: 320, height: 200 }}>
+                  <PieChart accessibilityLayer>
+                    <Tooltip content={AllocationTooltip} />
+                    <Pie data={allocation} dataKey="value" innerRadius={72} isAnimationActive={false} nameKey="key" outerRadius={100} paddingAngle={2} strokeWidth={0} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <div className="grid h-full place-items-center text-sm text-muted-foreground">配分データなし</div>
             )}
@@ -110,9 +114,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
               <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
                 <span className="text-xs text-muted-foreground">総資産</span>
                 <YenAmount className="mt-1 text-lg font-semibold tracking-tight" value={data.total_capital_yen} />
-                {/* Amount only. A percentage here would sit under the total and read as a
-                    share of it, when it is measured against deployed cost — the row list
-                    states that denominator alongside its own figure. */}
+                {/* The percentage uses cost, not total assets, as its denominator. */}
                 {hasPnl && <YenAmount className="mt-1.5 text-xs font-medium" sign tone="pnl" value={pnl.yen} />}
               </div>
             )}
@@ -130,8 +132,7 @@ export function PortfolioAllocationCard({ data }: { data: DashboardView }) {
           ].map((metric) => (
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-5 py-5 sm:px-6" key={metric.label}>
               <div className="flex min-w-0 items-center gap-3">
-                {/* Only the ring's own slices get a swatch. P&L is not one of them, so it
-                    keeps the column's alignment without claiming a fourth segment. */}
+                {/* P&L is not a slice of the allocation chart. */}
                 <span className={cn('size-2.5 shrink-0 rounded-sm', metric.color)} aria-hidden="true" />
                 <div>
                   <p className="text-sm font-medium">{metric.label}</p>
@@ -257,7 +258,7 @@ export function HoldingsTable({ holdings, warnings, ledgerAsOf = null }: { holdi
             return (
               <TableRow key={holding.ticker}>
                 <TableCell className="pl-5 sm:pl-6">
-                  <span className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" >{holding.ticker}</span>
+                  <span className="font-mono font-semibold text-foreground">{holding.ticker}</span>
                   <span className="mt-1 block max-w-44 truncate text-xs text-muted-foreground">{holding.company_name ?? '—'}</span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{holding.sector}</TableCell>
@@ -296,11 +297,6 @@ const STATUS_LABEL: Record<string, string> = {
   unresolved: '未確定',
 }
 
-// Performance belongs on the dashboard because the portfolio has one owner asking one
-// question — is this working — and there is nowhere else that question is answered. A
-// dedicated screen is the natural home once an outcome carries more than a period
-// comparison (annual review notes, per-holding attribution, calibration against the
-// entry estimate); that surface does not exist yet.
 export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) {
   return (
     <SectionCard
@@ -320,9 +316,7 @@ export function OutcomeCard({ outcomes }: { outcomes: PortfolioOutcomeView[] }) 
                 <Badge variant="outline">{STATUS_LABEL[item.status] ?? item.status}</Badge>
               </div>
               <p className="break-all text-xs text-muted-foreground">{item.outcome_id}</p>
-              {/* The benchmark is a market index, but here it exists only to be read
-                  against the portfolio's own return — the pair is one comparison, so both
-                  wear the money colors rather than splitting across two systems. */}
+              {/* Use the same gain/loss colors for the comparison. */}
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span>ポート TWR <PctBadge className="text-xs" tone="pnl" value={item.portfolio_twr_pct} /></span>
                 <span>ベンチマーク <PctBadge className="text-xs" tone="pnl" value={item.benchmark_cumulative_return_pct} /></span>
@@ -348,7 +342,7 @@ export function PendingOrdersCard({ reservations }: { reservations: ReservationV
       <TableBody>{reservations.map((reservation) => <TableRow key={reservation.reservation_id}>
         <TableCell className="pl-5 sm:pl-6">
           <span className="mr-2">{reservation.side === 'sell' ? '売' : '買'}</span>
-          <span className="font-mono font-semibold text-foreground underline-offset-4 hover:underline" >{reservation.ticker}</span>
+          <span className="font-mono font-semibold text-foreground">{reservation.ticker}</span>
           {reservation.route_label && <span className="ml-2 text-xs text-muted-foreground">{reservation.route_label}</span>}
         </TableCell>
         <TableCell className="text-right font-mono tabular-nums">
@@ -395,7 +389,7 @@ export function DashboardPage() {
       </div>
     )} title="Dashboard">
       {data.ledger_error !== null && (
-        <Alert variant="destructive"><CircleAlert /><AlertTitle>台帳を読み込めません。資産・保有・未約定注文を確認できません。</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
+        <Alert><CircleAlert /><AlertTitle>台帳を読み込めません。資産・保有・未約定注文を確認できません。</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
       )}
 
       {data.ledger_error === null && <PortfolioAllocationCard data={data} />}
@@ -415,9 +409,9 @@ export function DashboardPage() {
       {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
       {outcomesError !== null
-        ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomesError}</AlertDescription></Alert>
+        ? <Alert><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomesError}</AlertDescription></Alert>
         : outcomes && (outcomes.error != null
-          ? <Alert variant="destructive"><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomes.error}</AlertDescription></Alert>
+          ? <Alert><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomes.error}</AlertDescription></Alert>
           : <OutcomeCard outcomes={outcomes.outcomes} />)}
     </PageShell>
   )

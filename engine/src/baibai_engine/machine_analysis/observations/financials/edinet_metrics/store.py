@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 
+from baibai_engine.data_collection.providers.edinet.models import EDINETProviderError
 from baibai_engine.machine_analysis.observations.financials.edinet_decode import (
     normalize_metric_record,
 )
@@ -19,7 +20,6 @@ from baibai_engine.machine_analysis.observations.financials.edinet_metrics.revis
 )
 from baibai_engine.machine_analysis.observations.financials.edinet_models import (
     EdinetMetricRecord,
-    EDINETProviderError,
 )
 from baibai_engine.storage.sqlite.source_cache.coverage import date_covered
 from baibai_engine.storage.sqlite.source_cache.schema import connect_current

@@ -131,9 +131,9 @@ def test_known_closed_unrequested_days_publish_and_rebuild_without_mutable_input
         exported = export_prices_from_native_input(
             source_snapshot=seal, saved=saved, mirror_root=mirror, producer_git_commit="a" * 40
         )
-    assert exported.build.manifest.coverage_status == "complete"
+    assert exported.manifest.coverage_status == "complete"
     create_release(
-        dataset_manifest_paths=[exported.build.manifest_path],
+        dataset_manifest_paths=[exported.manifest_path],
         mirror_root=mirror,
         release_id="known-closures",
         catalog=LAKE_DATASETS,

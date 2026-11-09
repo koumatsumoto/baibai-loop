@@ -5,8 +5,7 @@ import { pnlTone } from '../lib/portfolio'
 interface YenAmountProps {
   value: number | null
   sign?: boolean
-  // `pnl` colors the amount as a gain or a loss; the default leaves it in the inherited
-  // text color, which is what a plain balance wants.
+  // Only profit and loss amounts use gain/loss colors.
   tone?: 'plain' | 'pnl'
   className?: string
 }

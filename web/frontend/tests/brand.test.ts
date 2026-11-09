@@ -28,8 +28,7 @@ function declarations(css: string): ReadonlyMap<string, string> {
 const tokens = declarations(rootBlock)
 const themeMappings = declarations(styles.match(/@theme inline\s*\{(?<body>[\s\S]*?)\n\}/)?.groups?.body ?? '')
 
-// A token's value only means something once its var() chain is followed: --chart-1 reads
-// `var(--primary-action)`, and it is the green at the end of that chain a viewer sees.
+// Resolve aliases before measuring contrast.
 function tokenValue(name: string, seen: readonly string[] = []): string {
   const value = tokens.get(name)
   if (value === undefined) throw new Error(`token ${name} is not declared in :root`)
@@ -50,9 +49,7 @@ function linearToSrgb(channel: number): number {
   return Math.round(encoded * 255)
 }
 
-// CSS Color 4 oklch() -> linear-light sRGB, before clamping. A channel outside [0, 1] means
-// sRGB cannot hold the color, so the browser gamut-maps it to something other than the pixels
-// measured here.
+// Convert OKLCH to unclamped linear sRGB so out-of-gamut colors remain detectable.
 function oklchToLinear(lightness: number, chroma: number, hue: number): readonly number[] {
   const radians = (hue * Math.PI) / 180
   const a = chroma * Math.cos(radians)
@@ -148,16 +145,11 @@ describe('light-only appearance', () => {
   })
 })
 
-// The colors a bare number can wear, and the colors a chart series can. Every check below
-// derives its cases from these two lists, so a color added to the palette cannot be added
-// to some checks and forgotten by the rest.
 const VALUE_COLORS = ['--positive', '--destructive', '--profit', '--loss'] as const
 const SERIES_COLORS = ['--chart-1', '--chart-2', '--chart-3'] as const
 
 describe('brand palette', () => {
-  // What the palette has to hold whatever the hex values become. Each color is measured
-  // against the surface it actually sits on, at the AA threshold for text (4.5) and the
-  // non-text threshold for focus outlines and chart marks (3.0).
+  // Use text and non-text contrast thresholds for their actual surfaces.
   it.each([
     ...VALUE_COLORS.map((token): [string, string, number] => [token, '--surface', 4.5]),
     ['--primary-action', '--surface', 4.5],
@@ -171,17 +163,12 @@ describe('brand palette', () => {
     expect(contrastRatio(tokenValue(token), tokenValue(background))).toBeGreaterThanOrEqual(minimum)
   })
 
-  // Tailwind only emits `text-profit` / `bg-chart-2` for tokens re-exported through
-  // `@theme inline`. A missing line there costs no error — the class is simply never
-  // generated and the element keeps whatever color it inherited.
+  // Tailwind only emits utilities for tokens exposed through @theme.
   it.each([...VALUE_COLORS, ...SERIES_COLORS])('exposes %s as a utility', (token) => {
     expect(themeMappings.get(`--color${token.slice(1)}`)).toBe(`var(${token})`)
   })
 
-  // A token dropped from the palette leaves its references behind as `var(--gone)`, which
-  // costs no error: the declaration is simply discarded and the element keeps whatever it
-  // inherited. The palette's own aliases are followed as well as the utility layer, since
-  // an alias is one more place a name outlives the color it stood for.
+  // CSS silently discards unresolved variable references.
   it('points no declaration at a token that no longer exists', () => {
     for (const [name, value] of [...themeMappings, ...tokens]) {
       const reference = value.match(/^var\((--[\w-]+)\)$/)
@@ -205,16 +192,9 @@ describe('brand palette', () => {
     expect(painted).toEqual([])
   })
 
-  // Tailwind emits a rule for `bg-primary-soft` only because `--color-primary-soft` is
-  // re-exported through `@theme inline`. Painting with a name that is not costs no error: the
-  // class matches nothing and the element keeps whatever it inherited, so dropping a mapping
-  // empties every class string that named it without a word. Only names whose first segment
-  // belongs to the palette are checked, which leaves Tailwind's own scale (text-sm, border-b)
-  // alone.
+  // Check palette classes, not Tailwind's built-in scale.
   it('paints with no color the theme layer does not export', () => {
-    // Which names belong to the palette is read from the palette, not from the utility layer this
-    // checks: taking it from `@theme` would let the last mapping under a name take the check with
-    // it when it goes.
+    // Read roots from tokens so deleting a theme mapping cannot hide a missing class.
     const roots = new Set([...tokens.keys()].map((name) => name.slice(2).split('-')[0]))
     const missing = new Set<string>()
     for (const text of componentSources()) {
@@ -236,11 +216,8 @@ describe('brand palette', () => {
   })
 })
 
-// The three families that fill a badge or a banner. Each owns an opaque `-surface` to paint
-// with and an opaque `-ink` to write on it, because a translucent fill has no fixed contrast:
-// the ratio depends on whatever is behind it, and it changes when a page moves the badge from
-// a white card to a tinted one.
-const STATUS_FAMILIES = ['--positive', '--warning', '--destructive'] as const
+// The warning banner uses an opaque surface and ink with a fixed contrast ratio.
+const STATUS_FAMILIES = ['--warning'] as const
 const STATUS_NAMES = 'positive|warning|destructive'
 
 // Everything under src/ that can name a color, with the palette itself excludable: a token

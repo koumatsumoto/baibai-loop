@@ -779,7 +779,6 @@ def test_retired_manual_publication_cli_rejects_before_io(
         pytest.fail("retired publication CLI must not open a store")
 
     monkeypatch.setattr(snapshot_write_cli, "open_lake", unexpected_io)
-    monkeypatch.setattr(snapshot_write_cli, "export_market_store", unexpected_io, raising=False)
     monkeypatch.setattr(snapshot_write_cli, "create_release", unexpected_io, raising=False)
     arguments = (
         ["export-all", "--sqlite", str(tmp_path / "market.sqlite")]
