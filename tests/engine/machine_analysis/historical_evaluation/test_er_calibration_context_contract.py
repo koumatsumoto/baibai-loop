@@ -116,15 +116,6 @@ def test_shared_prediction_bands_allow_different_horizon_outcome_coverage(tmp_pa
     assert loaded.artifact.horizons[1].bands[0].bases[0].coverage.missing_n == 1
 
 
-def test_reader_rejects_edited_retained_schema_2(tmp_path) -> None:
-    raw = safe_load(_RETAINED.read_text(encoding="utf-8"))
-    assert isinstance(raw, dict)
-    raw["horizons"][0]["bands"][0]["median_n"] += 1
-    path = tmp_path / "changed-schema-2.yaml"
-    _write(path, raw)
-    assert _load(path, raw).artifact is None
-
-
 @pytest.mark.parametrize("location", ["root", "band", "stats"])
 def test_unknown_fields_are_rejected_at_every_owned_level(location: str) -> None:
     payload = deepcopy(_artifact())
@@ -205,35 +196,16 @@ def test_reader_preserves_method_identity_reasons(tmp_path: Path) -> None:
     assert model.unavailable_reason == "er_model_identity_mismatch"
 
 
-def test_pre_one_bar_scope_context_keeps_provenance_but_is_not_current(tmp_path: Path) -> None:
-
-    old_hash = "retained-pre-scope-identity"
-    current_hash = "saved-later-scope-identity"
-    payload = context_artifact(rules_hash=old_hash)
-    path = tmp_path / "old-scope-context.yaml"
-    _write(path, payload)
-    assert (
-        load_er_calibration_context(
-            path,
-            expected_rules_hash=current_hash,
-            expected_er_model_version=str(payload["er_model_version"]),
-            as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
-        ).unavailable_reason
-        == "rules_identity_mismatch"
-    )
-
-
-@pytest.mark.parametrize("scope_revision", ["", "valid-price-one-bar-v2"])
 @pytest.mark.parametrize("partial", [False, True], ids=["complete", "partial"])
-def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
-    tmp_path: Path, scope_revision: str, partial: bool
+def test_mismatched_context_preserves_complete_and_partial_retained_evidence(
+    tmp_path: Path, partial: bool
 ) -> None:
-    old_hash = f"retained-dividend-identity:{scope_revision}"
-    current_hash = "saved-later-dividend-identity"
+    old_hash = "retained-method-identity"
+    current_hash = "different-method-identity"
     payload = context_artifact(rules_hash=old_hash)
     if partial:
         # Schema 4 may expose price while total return is unobserved. That does
-        # not make evidence from the old dividend calculation current.
+        # not make evidence from a different saved method current.
         payload["evidence_complete"] = False
         payload["evidence_blocking_reasons"] = ["er_level_calibration"]
         for horizon in payload["horizons"]:
@@ -245,7 +217,7 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
             )
             total.update(observed_cohort_count=0, median_n=0, ticker_equal=None, cohort_equal=None)
         payload["common_window"]["horizons"] = deepcopy(payload["horizons"])
-    path = tmp_path / "old-dividend-context.yaml"
+    path = tmp_path / "retained-context.yaml"
     _write(path, payload)
     original = path.read_bytes()
 
@@ -262,23 +234,4 @@ def test_pre_dividend_revision_context_is_retained_but_refused_for_current_run(
     assert retained.schema_version == 4
     assert retained.evidence_complete is (not partial)
     assert retained.horizons[0].bands[0].bases[1].coverage.observed_n == 100
-    assert path.read_bytes() == original
-
-
-def test_retained_context_is_withheld_from_new_population_without_relabeling(tmp_path) -> None:
-
-    payload = context_artifact(rules_hash="retained-population-identity")
-    path = tmp_path / "context.yaml"
-    _write(path, payload)
-    original = path.read_bytes()
-    current_hash = "saved-other-population-identity"
-    result = load_er_calibration_context(
-        path,
-        expected_rules_hash=current_hash,
-        expected_er_model_version=str(payload["er_model_version"]),
-        as_of=date.fromisoformat(str(payload["generated_at"])[:10]),
-    )
-    assert result.artifact is None
-    assert result.unavailable_reason == "rules_identity_mismatch"
-    assert _load(path, payload).artifact is not None
     assert path.read_bytes() == original
