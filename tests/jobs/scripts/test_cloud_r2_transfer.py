@@ -272,9 +272,10 @@ def _pull_machine(tmp_path: Path, *, receipt: str | None) -> subprocess.Complete
 def test_a_push_that_stops_partway_leaves_no_receipt_for_the_set_it_made(
     tmp_path: Path,
 ) -> None:
-    """Three conditional PUTs cannot be one commit, so the second one failing leaves the
-    bucket holding a set no batch produced. The receipt is written only after all three,
-    so what survives is the previous set's receipt — which is what the next pull reads."""
+    """Two store PUTs cannot be one commit, so a failed second PUT leaves a mixed set.
+
+    No new receipt is written; the next pull refuses the previous set's receipt.
+    """
 
     bin_dir, log = _fake_aws(tmp_path)
     env = _environment(bin_dir, log)
@@ -297,7 +298,7 @@ def test_a_push_that_stops_partway_leaves_no_receipt_for_the_set_it_made(
         for command in commands
         if command.startswith("s3api put-object ") and "--key machine-manifest.json" not in command
     ]
-    # The market store went out; runs failed; macro was never attempted.
+    # Market went out and runs failed; the independent economic store was untouched.
     assert len(pushed) == 2
     assert "--key market.sqlite" in pushed[0]
     assert "--key runs.sqlite" in pushed[1]
@@ -307,7 +308,7 @@ def test_a_push_that_stops_partway_leaves_no_receipt_for_the_set_it_made(
 
 def test_a_bundle_pull_refuses_a_set_the_receipt_does_not_name(tmp_path: Path) -> None:
     """Per key the mixed set looks intact — the straddle check compares each object with
-    itself — so only the receipt can tell the pull that these three were never together."""
+    itself — so only the receipt can tell the pull that these stores were never together."""
 
     stale = (
         '{\n  "schema_version": 1,\n  "written_at_utc": "2026-08-18T08:37:45Z",\n'
@@ -356,11 +357,9 @@ def test_a_bundle_pull_accepts_the_set_the_receipt_names(
     assert "machine bundle receipt matches" in completed.stdout
 
 
-@pytest.mark.parametrize(
-    ("indicator_key", "expected_exit"), [("macro.sqlite", 0), ("indicators.sqlite", 0)]
-)
+@pytest.mark.parametrize("indicator_key", ["macro.sqlite", "indicators.sqlite"])
 def test_machine_receipt_ignores_retired_economic_member(
-    tmp_path: Path, indicator_key: str, expected_exit: int
+    tmp_path: Path, indicator_key: str
 ) -> None:
     receipt = json.dumps(
         {
@@ -373,12 +372,8 @@ def test_machine_receipt_ignores_retired_economic_member(
         indent=2,
     )
     result = _pull_machine(tmp_path, receipt=receipt)
-    assert result.returncode == expected_exit
-    if expected_exit:
-        assert "R2 holds indicators.sqlite at generation etag-stable" in result.stderr
-        assert "receipt names no generation" in result.stderr
-    else:
-        assert "machine bundle receipt matches" in result.stdout
+    assert result.returncode == 0
+    assert "machine bundle receipt matches" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -943,9 +938,7 @@ def test_indicator_push_merges_the_cloud_store_before_uploading(tmp_path: Path) 
     assert "--source" not in commands[merges[0]]
     assert "stores/market_context/indicators.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
-    # Only the indicator store is published; market and runs stay owned by the batch.
-    # The receipt that follows reads their generations back, so what has to stay absent
-    # is a write of them, not a mention.
+    # The indicator push does not publish machine stores or their receipt.
     writes = [
         command
         for command in commands
@@ -1012,8 +1005,7 @@ def test_market_push_merges_the_cloud_store_before_uploading(tmp_path: Path) -> 
     assert downloads[0] < merges[0] < uploads[0]
     assert "stores/market/market.sqlite" in commands[merges[0]]
     assert '--if-match "etag-stable"' in commands[uploads[0]]
-    # Only the market store is published. The receipt that follows reads the other two
-    # generations back, so what has to stay absent is a write of them, not a mention.
+    # The receipt reads the run-store generation, but only market rows are uploaded.
     writes = [
         command
         for command in commands
@@ -1463,8 +1455,10 @@ def _remote_writes(log):
     "operation",
     ["push-machine", "push-runs", "push-market", "push-indicators", "upload-portfolio-views"],
 )
-@pytest.mark.parametrize("state", ["unconnected", "missing", "malformed", "expired", "released"])
-def test_shared_transfer_refuses_invalid_lease_before_any_remote_write(tmp_path, operation, state):
+@pytest.mark.parametrize("state", ["unconnected", "missing", "rejected"])
+def test_shared_transfer_refuses_unavailable_lease_before_any_remote_write(
+    tmp_path, operation, state
+):
     root = _fake_repo(tmp_path)
     binary, log = _fake_aws(tmp_path)
     env = _environment(binary, log)
@@ -1474,9 +1468,9 @@ def test_shared_transfer_refuses_invalid_lease_before_any_remote_write(tmp_path,
     elif state == "missing":
         handle.unlink()
     else:
-        handle.write_text(state)
-    # A shell sentinel exercises the caller gate; real handle/expiry validation
-    # is owned by test_publication_lease's verify CLI tests.
+        handle.write_text("synthetic-rejected")
+    # This stub models a rejected verify command, not real expiry or release states.
+    # Those belong to test_publication_lease's verify CLI tests.
     args = [root / "jobs/scripts/r2_transfer.sh", operation]
     if operation == "upload-portfolio-views":
         env["GITHUB_ACTIONS"] = "true"

@@ -279,12 +279,8 @@ case "${script}" in
       printf 'error: publish refused\\n' >&2
       exit "${PUBLISH_FAKE_EXIT}"
     fi
-    if [[ -n "${PUBLISH_FAKE_PAYLOAD:-}" ]]; then
-      printf '%s\\n' "${PUBLISH_FAKE_PAYLOAD}"
-    else
-      printf '{"release_id": "release-after-rebuild", "release_manifest_sha256": "%s"}\\n' \\
-        "0000000000000000000000000000000000000000000000000000000000000000"
-    fi
+    printf '{"release_id": "release-after-rebuild", "release_manifest_sha256": "%s"}\\n' \\
+      "0000000000000000000000000000000000000000000000000000000000000000"
     exit 0
     ;;
   snapshot)

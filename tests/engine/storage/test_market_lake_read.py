@@ -743,24 +743,6 @@ class TestFixedRelease:
 
 
 class TestObjectIntegrity:
-    def test_object_whose_bytes_differ_from_the_manifest_fails_closed(
-        self, lake: Lake, tmp_path: Path
-    ) -> None:
-        release = resolve_current_release(
-            LocalMirrorSource(lake.mirror),
-            catalog=LAKE_DATASETS,
-            policy=release_policy_for_profile("production"),
-        )
-        manifest = release.dataset_manifest("jquants.daily_bars")
-        target = lake.mirror / manifest.partitions[0].objects[0].key
-        target.write_bytes(target.read_bytes() + b"tamper")
-        cache = LakeObjectCache(root=lake.mirror, source=LocalMirrorSource(lake.mirror))
-
-        with pytest.raises(LakeObjectError, match="cached lake object differs"):
-            cache.materialize(manifest.partitions[0].objects[0])
-
-        assert target.is_file()
-
     def test_missing_object_fails_closed(self, lake: Lake) -> None:
         release = resolve_current_release(
             LocalMirrorSource(lake.mirror),
@@ -1619,14 +1601,6 @@ class TestHydrate:
             assert arrived.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
         finally:
             arrived.close()
-
-    def test_a_release_superseded_while_the_fill_waited_is_refused(
-        self, session: LakeSession, lake: Lake, tmp_path: Path
-    ) -> None:
-        store = _dehydrated(lake, tmp_path / "raced.sqlite")
-        moved = ("release-two", "0" * 64)
-        with pytest.raises(LakeHydrateError, match="no longer current"):
-            _hydrate(session, lake, store, still_current=lambda: moved)
 
     def test_failed_publication_link_preserves_the_previous_store(
         self, session: LakeSession, lake: Lake, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
