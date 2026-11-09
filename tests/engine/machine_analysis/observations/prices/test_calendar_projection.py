@@ -11,10 +11,13 @@ from baibai_engine.machine_analysis.observations.jquants_writer import store_jqu
 from baibai_engine.machine_analysis.observations.prices.calendar import JQuantsMarketCalendarDay
 from baibai_engine.machine_analysis.observations.prices.calendar_context import (
     market_calendar_business_day,
+    observation_calendar_context,
+    read_price_calendar,
 )
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     read_market_calendar,
 )
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_MARKET_CALENDAR,
 )
@@ -80,3 +83,28 @@ def test_calendar_reads_native_timestamp_and_half_day(tmp_path, source_date, div
     assert read_market_calendar(database, day, day) == [
         JQuantsMarketCalendarDay(day=day, is_business_day=True)
     ]
+
+
+def test_unknown_calendar_category_is_not_treated_as_a_closed_day(tmp_path):
+    start, unknown, end = date(2026, 11, 6), date(2026, 11, 7), date(2026, 11, 8)
+    database = tmp_path / "market.sqlite"
+    store_jquants_market_calendar(
+        database,
+        [
+            {"Date": start.isoformat(), "HolDiv": "1"},
+            {"Date": unknown.isoformat(), "HolDiv": "9"},
+            {"Date": end.isoformat(), "HolDiv": "0"},
+        ],
+        requested_start=start,
+        requested_end=end,
+    )
+    assert market_calendar_business_day(database, unknown) is None
+    assert read_market_calendar(database, start, end) is None
+    with closing(sqlite3.connect(database)) as connection:
+        calendar = read_price_calendar(connection, as_of=end)
+        assert unknown not in calendar
+        assert price_calendar(calendar, as_of=end).expected_price_date is None
+        with pytest.raises(ValueError, match="Exact-date"):
+            observation_calendar_context(connection, unknown)
+        with pytest.raises(ValueError, match="Continuous"):
+            observation_calendar_context(connection, end)
