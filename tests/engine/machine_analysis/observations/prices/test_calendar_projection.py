@@ -17,6 +17,7 @@ from baibai_engine.machine_analysis.observations.prices.calendar_context import 
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import (
     read_market_calendar,
 )
+from baibai_engine.machine_analysis.observations.prices.price_observation import price_calendar
 from baibai_engine.machine_analysis.observations.prices.snapshot_contracts import (
     JQUANTS_MARKET_CALENDAR,
 )
@@ -100,7 +101,9 @@ def test_unknown_calendar_category_is_not_treated_as_a_closed_day(tmp_path):
     assert market_calendar_business_day(database, unknown) is None
     assert read_market_calendar(database, start, end) is None
     with closing(sqlite3.connect(database)) as connection:
-        assert unknown not in read_price_calendar(connection, as_of=end)
+        calendar = read_price_calendar(connection, as_of=end)
+        assert unknown not in calendar
+        assert price_calendar(calendar, as_of=end).expected_price_date is None
         with pytest.raises(ValueError, match="Exact-date"):
             observation_calendar_context(connection, unknown)
         with pytest.raises(ValueError, match="Continuous"):
