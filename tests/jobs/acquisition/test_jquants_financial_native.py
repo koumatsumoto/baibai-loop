@@ -388,3 +388,31 @@ def test_commit_work_reports_current_scope_not_historical_failures(tmp_path, mon
     assert report["failed"] == ["failed"]
     assert report["changed"] == ["recovered"]
     assert report["unresolved"] == {}
+
+
+def test_commit_work_rejects_legacy_pending_head_without_changing_originals(
+    tmp_path, monkeypatch, capsys
+):
+    from baibai_engine.data_collection.providers.jquants.financial_native import HEAD_KEY
+    from baibai_jobs.acquisition import jquants_financial_native as acquisition
+
+    class Store(MemoryR2Store):
+        def close(self):
+            pass
+
+    store = Store()
+    owner = FinancialL1(store, tmp_path / "work")
+    owner.initialize()
+    value = owner.fixed().value()
+    value["pending"] = {"days": [DAY.isoformat()], "packs": ["old-pack"]}
+    store.store_object(HEAD_KEY, json.dumps(value).encode())
+    before = dict(store.values)
+    writes = len(store.put_keys)
+    monkeypatch.setattr(acquisition, "Boto3R2Store", lambda **_: store)
+
+    assert acquisition.main(["commit-work", "--directory", str(owner.directory)]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "LakePublishError" in output.err
+    assert store.values == before
+    assert len(store.put_keys) == writes

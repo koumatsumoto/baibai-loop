@@ -68,16 +68,17 @@ def full_day_content_id(request: JQuantsRequest, contract: FullDayContract) -> s
     envelope fields do not change content; non-pagination envelope fields remain.
     Exact page bytes, queries and timestamps are retained for changed requests.
     """
-    extras = [
-        extra
-        for page in request.pages
-        if (
-            extra := {
-                k: v for k, v in page_envelope(page).items() if k not in {"data", "pagination_key"}
-            }
-        )
-    ]
-    return _digest(_json([contract.format, _day(request, contract), request.records(), extras]))
+    rows: list[dict[str, Any]] = []
+    extras = []
+    for page in request.pages:
+        payload = page_envelope(page)
+        rows.extend(payload["data"])
+        extra = {
+            key: value for key, value in payload.items() if key not in {"data", "pagination_key"}
+        }
+        if extra:
+            extras.append(extra)
+    return _digest(_json([contract.format, _day(request, contract), rows, extras]))
 
 
 @dataclass(frozen=True, slots=True)
