@@ -5,10 +5,9 @@ two are joined by one rule: the serving release must still be the one the store 
 filled from. That identity lives in the SQLite file itself: a sidecar can be restored or
 copied independently and therefore cannot prove which rows the export is reading.
 
-Native prices and master snapshots use this execution's rebuilt projection and fixed L1
-identity. Other datasets remain on the legacy store path during migration. The serving
-release is read for two facts only — the origin the store must be bound to, and the
-history floor the new release must still reach — and none of its partitions are carried.
+Native source projections use fixed L1 identities; other datasets use the store snapshot.
+The serving release supplies the required store origin and history floor; its partitions
+are not carried forward.
 """
 
 from __future__ import annotations
