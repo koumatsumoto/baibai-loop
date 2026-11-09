@@ -234,6 +234,8 @@ def render_generation(notice: Mapping[str, object]) -> list[str]:
         return ["モデル生成: 完了 / 件数未確認"]
     companies, models, candidates = counts
     lines = [f"モデル生成: {companies}社 / {models}件 / 候補{candidates}社"]
+    if "pruned_generation_count" in notice and notice["pruned_generation_count"] is None:
+        lines.append("モデルcache整理: 未完了")
     coverage = notice.get("screening_price_inputs")
     if isinstance(coverage, dict):
         valid, universe = coverage.get("valid_count"), coverage.get("universe_count")
