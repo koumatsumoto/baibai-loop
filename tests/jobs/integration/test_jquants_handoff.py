@@ -23,7 +23,27 @@ from baibai_engine.data_collection.providers.jquants.http import (
 from baibai_engine.machine_analysis.observations.jquants_projection import project_request
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES, export_handoff, import_handoff
+from baibai_jobs.integration.jquants_handoff import (
+    MARKET_SOURCES,
+    export_handoff,
+    import_handoff,
+    validate_source_handoff,
+)
+
+
+def test_retired_financial_handoff_is_rejected_before_opening_a_store(tmp_path):
+    with pytest.raises(ValueError, match="unsupported J-Quants handoff sources"):
+        export_handoff(
+            tmp_path / "missing.sqlite",
+            tmp_path / "stage.sqlite",
+            since=FIRST_AT,
+            sources=("financial_summaries",),
+        )
+    with (
+        closing(open_connection(tmp_path / "source.sqlite")) as connection,
+        pytest.raises(ValueError, match="unsupported J-Quants handoff sources"),
+    ):
+        validate_source_handoff(connection, sources=("financial_summaries",))
 
 
 def test_late_old_calendar_keeps_its_nonoverlap_and_the_newer_overlap(tmp_path):
