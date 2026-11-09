@@ -336,7 +336,12 @@ def render_message(
     if (integration_report or {}).get("economic_l1_published") is True:
         details.append("経済L1: 公開・読戻し済み（後段L2の成否とは独立）")
     source_failures = render_source_failures(integration_report or {})
-    if outcome == OUTCOME_OK and source_failures:
+    cache_failed = (
+        notice.get("models_ready") is True
+        and "pruned_generation_count" in notice
+        and notice["pruned_generation_count"] is None
+    )
+    if outcome == OUTCOME_OK and (source_failures or cache_failed):
         outcome = OUTCOME_DEGRADED
     details.extend(source_failures)
     details.extend(render_deferred_inputs(integration_report or {}))

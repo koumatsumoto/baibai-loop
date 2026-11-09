@@ -26,7 +26,7 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
-from baibai_jobs.observability.discord import render_generation
+from baibai_jobs.observability.discord import render_generation, render_message
 
 
 @pytest.fixture
@@ -254,6 +254,9 @@ def test_cache_prune_failure_does_not_block_published_models(integration, monkey
         "モデル生成: 完了 / 件数未確認",
         "モデルcache整理: 未完了",
     ]
+    notice = render_message(outcome="ok", asof="2026-11-09", failed_steps=[], notice=result, url="")
+    assert "[DEGRADED]" in notice
+    assert "モデルcache整理: 未完了" in notice
 
 
 def test_failed_lake_publication_does_not_prune_existing_generations(integration, monkeypatch):
