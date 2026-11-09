@@ -1,4 +1,4 @@
-/** 保有・運用成績・保存提案の読取専用配信。認証方式は既存のまま。 */
+/** 保有・運用成績・保存提案の読取専用配信。 */
 
 import routeContract from '../../contracts/routes.json'
 
@@ -35,11 +35,6 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     const asset = await env.ASSETS.fetch(request)
     const headers = new Headers(asset.headers)
     headers.set('Strict-Transport-Security', HSTS_HEADER)
-    if (url.searchParams.has('share')) {
-      headers.set('Cache-Control', 'no-store')
-      headers.set('Referrer-Policy', 'no-referrer')
-      headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
-    }
     return new Response(asset.body, {
       status: asset.status,
       statusText: asset.statusText,
@@ -47,10 +42,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     })
   }
 
-  if (url.searchParams.getAll('share').length > 1) {
-    return jsonResponse({ detail: 'duplicate share parameter' }, 400)
-  }
-  if (!(await isAuthorized(request, url, env))) {
+  if (!(await isAuthorized(request, env))) {
     return jsonResponse({ detail: 'unauthorized' }, 401, {
       'WWW-Authenticate': 'Bearer',
     })
@@ -68,18 +60,10 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   return new Response(object.body, { status: 200, headers: API_HEADERS })
 }
 
-async function isAuthorized(request: Request, url: URL, env: Env): Promise<boolean> {
+async function isAuthorized(request: Request, env: Env): Promise<boolean> {
   const authorization = request.headers.get('Authorization')
-  if (authorization !== null) {
-    if (!authorization.startsWith('Bearer ')) return false
-    const supplied = authorization.slice('Bearer '.length)
-    const [owner, shared] = await Promise.all([
-      matchesToken(supplied, env.VIEW_PASSWORD),
-      matchesToken(supplied, env.READ_ACCESS_TOKEN),
-    ])
-    return owner || shared
-  }
-  return matchesToken(url.searchParams.get('share') ?? '', env.READ_ACCESS_TOKEN)
+  if (!authorization?.startsWith('Bearer ')) return false
+  return matchesToken(authorization.slice('Bearer '.length), env.VIEW_PASSWORD)
 }
 
 async function matchesToken(supplied: string, expected: string | undefined): Promise<boolean> {

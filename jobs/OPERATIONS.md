@@ -622,4 +622,4 @@ uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 これはlocal生成だけ。公開はworkflow内の`jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving`を使い、全viewの全bytes読戻しを同lease内で確認する。成功main run確認後にUIの対象HEADをmainで配備し、認証API/画面を受入れる。PR CIを本番更新とせず、旧object/secretを削除しない。提案emptyと保存ID/基準日/発行時刻付き本文の表示受入は別。
 
 <a id="web-authentication"></a>
-VIEW_PASSWORDはowner Bearer、READ_ACCESS_TOKENは共有Bearerまたは?share=で、同じviewを読める独立credential。owner変更/UI再配備で共有tokenは失効しない。実Workerのsecret更新/削除/空値、旧拒否と新/owner読取の維持を別途認可された操作として確認する。秘密/共有URLを本文・shell引数・logへ残さず、R2 credentialと混ぜない。
+VIEW_PASSWORDをBearerとして使う。実Workerのsecret更新は別途認可された操作として行い、秘密を本文・shell引数・logへ残さず、R2 credentialと混ぜない。

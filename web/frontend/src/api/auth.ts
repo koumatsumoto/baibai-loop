@@ -1,4 +1,4 @@
-// Web閲覧の資格情報をowner永続保存とshared sessionに分けて保持する。
+// Web閲覧のパスワードを保持する。
 let pendingAuthRequired: AuthRequiredReason | null = null
 
 const VIEW_PASSWORD_KEY = 'baibai-view-password'
@@ -40,25 +40,4 @@ export function subscribeAuthRequired(listener: AuthRequiredListener): () => voi
 export function notifyAuthRequired(reason: AuthRequiredReason): void {
   pendingAuthRequired = reason
   for (const listener of authRequiredListeners) listener(reason)
-}
-
-const SHARED_TOKEN_KEY = 'baibai-shared-read-token'
-
-export function getSharedToken(): string | null {
-  return sessionStorage.getItem(SHARED_TOKEN_KEY)
-}
-
-export function clearSharedToken(): void {
-  sessionStorage.removeItem(SHARED_TOKEN_KEY)
-}
-
-/** Consume sharing credentials before rendering can trigger API requests. */
-export function bootstrapSharedAccess(): void {
-  const url = new URL(window.location.href)
-  const tokens = url.searchParams.getAll('share')
-  if (tokens.length === 0) return
-  url.searchParams.delete('share')
-  window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
-  clearSharedToken()
-  if (tokens.length === 1 && tokens[0]) sessionStorage.setItem(SHARED_TOKEN_KEY, tokens[0])
 }

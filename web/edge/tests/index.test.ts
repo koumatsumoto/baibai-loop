@@ -11,7 +11,6 @@ function environment(get: ReturnType<typeof vi.fn>) {
     BAIBAI_SERVING: { get } as unknown as R2Bucket,
     ASSETS: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) } as unknown as Fetcher,
     VIEW_PASSWORD: PASSWORD,
-    READ_ACCESS_TOKEN: '',
   }
 }
 
@@ -167,54 +166,13 @@ describe('view routing', () => {
   })
 })
 
-describe('shared read authentication', () => {
-  it.each([
-    [null, 'shared-secret', 200],
-    ['shared-secret', null, 200],
-    [PASSWORD, 'wrong', 200],
-    ['wrong', 'shared-secret', 401],
-    [null, PASSWORD, 401],
-    [null, '', 401],
-    [null, 'wrong', 401],
-  ])('authenticates header %s and share %s', async (bearer, share, status) => {
-    for (const [path] of materializedRoutes) {
-      const get = vi.fn().mockResolvedValue(objectBody())
-      const env = { ...environment(get), READ_ACCESS_TOKEN: 'shared-secret' }
-      const query = share === null ? '' : `?share=${share}`
-      expect((await handleRequest(request(`${path}${query}`, bearer), env)).status).toBe(status)
-      if (status === 401) expect(get).not.toHaveBeenCalled()
-    }
-  })
-
-  it('rejects duplicate share even with valid owner authentication', async () => {
-    expect((await handleRequest(request('/api/health?share=a&share=b'), environment(vi.fn()))).status).toBe(400)
-  })
-
-  it.each(['', undefined])('disables only shared access when token is %s', async (value) => {
-    const env = environment(vi.fn())
-    if (value === undefined) Reflect.deleteProperty(env, 'READ_ACCESS_TOKEN')
-    else env.READ_ACCESS_TOKEN = value
-    expect((await handleRequest(request('/api/health?share=shared-secret', null), env)).status).toBe(401)
+describe('removed shared access', () => {
+  it('does not accept the former shared token in a query or bearer header', async () => {
+    const get = vi.fn()
+    const env = { ...environment(get), READ_ACCESS_TOKEN: 'old-shared-token' }
+    expect((await handleRequest(request('/api/health?share=old-shared-token', null), env)).status).toBe(401)
+    expect((await handleRequest(request('/api/health', 'old-shared-token'), env)).status).toBe(401)
     expect((await handleRequest(request('/api/health'), env)).status).toBe(200)
-  })
-
-  it('does not rescue an empty or malformed Authorization header with share', async () => {
-    const env = { ...environment(vi.fn()), READ_ACCESS_TOKEN: 'shared-secret' }
-    for (const authorization of ['', 'Basic shared-secret']) {
-      const req = new Request('https://example.test/api/health?share=shared-secret', { headers: { Authorization: authorization } })
-      expect((await handleRequest(req, env)).status).toBe(401)
-    }
-  })
-
-  it('protects shared bootstrap responses without changing ordinary static caching', async () => {
-    const env = environment(vi.fn())
-    const shared = await handleRequest(request('/?share=secret', null), env)
-    expect(shared.headers.get('Cache-Control')).toBe('no-store')
-    expect(shared.headers.get('Referrer-Policy')).toBe('no-referrer')
-    expect(shared.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive')
-    const ordinary = await handleRequest(request('/', null), env)
-    expect(ordinary.headers.get('Cache-Control')).toBeNull()
-    expect(ordinary.headers.get('Referrer-Policy')).toBeNull()
+    expect(get).not.toHaveBeenCalled()
   })
 })
-
