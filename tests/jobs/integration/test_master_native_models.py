@@ -24,8 +24,6 @@ from baibai_engine.machine_analysis.generation.master_inputs import read_master_
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.machine_analysis.observations.stocks.reader import (
-    read_eq_master_asof,
-    read_eq_master_exact,
     read_master_snapshot,
 )
 from baibai_engine.storage.snapshots.objects import LakeObjectCache, LocalMirrorSource
@@ -112,8 +110,8 @@ def test_sparse_history_all_products_and_unknown_fields_survive_cold_rebuild(tmp
         assert connection.execute(
             "SELECT coverage_start,status FROM source_coverage WHERE source='jquants_master_snapshots' ORDER BY 1"
         ).fetchall() == [(DAY.isoformat(), "ok"), (NEXT.isoformat(), "ok")]
-    assert read_eq_master_exact(market, DAY) is not None
-    assert read_eq_master_asof(market, NEXT + timedelta(days=1)).status == "prior_snapshot"
+    assert read_master_snapshot(market, as_of=DAY).as_of == DAY
+    assert read_master_snapshot(market, as_of=NEXT + timedelta(days=1)).as_of == NEXT
     assert read_master_snapshot(market, as_of=DAY - timedelta(days=1)) is None
     selected = read_master_input(store, saved.descriptor, days=(DAY, DAY + timedelta(days=1), NEXT))
     assert set(selected["scopes"]) == {DAY.isoformat(), NEXT.isoformat()}
@@ -212,8 +210,7 @@ def test_newer_failed_or_held_keeps_native_adopted_with_explicit_partial(tmp_pat
         store, owner.fixed(), as_of=DAY, evaluated_at=AT + timedelta(hours=1), market=market
     )
     assert json.loads(stored_rows(market)[0][2])["CoName"] != "changed"
-    assert read_eq_master_exact(market, DAY) is None
-    assert read_eq_master_asof(market, DAY).status == "exact_date"
+    assert read_master_snapshot(market, as_of=DAY).as_of == DAY
     assert saved.descriptor["summary"]["coverage_status"] == "partial"
     assert saved.descriptor["summary"]["held_days" if held else "failed_days"] == 1
     result = rebuild_saved_input(store, saved, start=DAY, end=DAY, output=tmp_path / "cold")
@@ -237,7 +234,7 @@ def test_preflight_materializes_only_explicit_exact_date_without_head(tmp_path):
     store.get_keys.clear()
     materialize_saved_input(store, saved, market=market, days=(NEXT,))
     assert HEAD_KEY not in store.get_keys
-    assert read_eq_master_exact(market, NEXT) is not None
+    assert read_master_snapshot(market, as_of=NEXT).as_of == NEXT
     assert any(code == "99990" for _, code, _ in stored_rows(market))
     with pytest.raises(ValueError, match="outside"):
         materialize_saved_input(store, saved, market=market, days=(DAY,))
@@ -347,7 +344,7 @@ def test_normal_models_and_publication_share_native_master_and_price(
     saved = read_generation(result["generation_id"], path=tmp_path / "runs")
     assert saved.inputs["master"].descriptor["head_sha256"] == fixed.content_id
     assert "price" in saved.inputs
-    assert read_eq_master_exact(market, DAY) is not None
+    assert read_master_snapshot(market, as_of=DAY).as_of == DAY
     release = resolve_current_release(
         SimpleNamespace(read_bytes=store.get_bytes),
         catalog=LAKE_DATASETS,
@@ -371,7 +368,7 @@ def test_unavailable_requested_snapshot_does_not_reuse_old_projection(tmp_path):
         assert connection.execute(
             "SELECT status,record_count FROM source_coverage WHERE source='jquants_master_snapshots'"
         ).fetchall() == [("unavailable", 0)]
-    assert read_eq_master_exact(market, DAY) is None
+    assert read_master_snapshot(market, as_of=DAY) is None
 
 
 def test_saved_metadata_missing_fails_without_latest_fallback(tmp_path):
@@ -442,14 +439,11 @@ def test_historical_invalid_is_unavailable_boundary_but_newer_valid_recovers(
     assert summary["invalid_days"] == summary["unavailable_days"] == 1
     assert summary["invalid_snapshot_dates"] == [DAY.isoformat()]
     assert summary["snapshot_date"] == NEXT.isoformat()
-    assert read_eq_master_asof(market, DAY - timedelta(days=1)).status == "prior_snapshot"
-    assert read_eq_master_asof(market, prior - timedelta(days=1)).status == "future_snapshot"
+    assert read_master_snapshot(market, as_of=DAY - timedelta(days=1)).as_of == prior
+    assert read_master_snapshot(market, as_of=prior - timedelta(days=1)) is None
     for day in (DAY, DAY + timedelta(days=1), NEXT - timedelta(days=1)):
         assert read_master_snapshot(market, as_of=day) is None
-        assert read_eq_master_asof(market, day).status == "unavailable"
-        assert read_eq_master_exact(market, day) is None
     assert read_master_snapshot(market, as_of=NEXT).as_of == NEXT
-    assert read_eq_master_exact(market, NEXT) is not None
     old = stored_rows(market)
     with pytest.raises(JQuantsProviderError):
         model_input(store, owner.fixed(), as_of=DAY, evaluated_at=AT, market=market)

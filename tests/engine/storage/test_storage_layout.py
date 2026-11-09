@@ -68,7 +68,7 @@ assert jpx_reader.JPXEarningsCalendarEntry is jpx_models.JPXEarningsCalendarEntr
 assert callable(financial_reader.read_fin_summaries)
 assert callable(calendar_reader.read_market_calendar)
 assert callable(price_reader.read_daily_bars)
-assert callable(master_reader.read_eq_master_exact)
+assert callable(master_reader.read_master_snapshot)
 """
     subprocess.run([sys.executable, "-c", code], check=True)
 

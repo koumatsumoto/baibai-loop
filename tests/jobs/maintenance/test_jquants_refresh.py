@@ -16,7 +16,7 @@ from baibai_engine.machine_analysis.observations.jquants_writer import (
     store_jquants_master,
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import read_daily_bars
-from baibai_engine.machine_analysis.observations.stocks.reader import read_eq_master_exact
+from baibai_engine.machine_analysis.observations.stocks.reader import read_master_snapshot
 from baibai_engine.storage.sqlite.source_cache.coverage import range_covered
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
@@ -32,14 +32,15 @@ def database(tmp_path):
     return path
 
 
-def test_cached_exact_master_uses_offline_reader_without_acquisition(database):
+def test_cached_master_uses_offline_reader_without_acquisition(database):
     target = day("2026-05-07")
     records = make_master_records(target)
     records[0]["CoName"] = "極洋"
     store_jquants_master(database, records, requested_asof=target)
-    masters = read_eq_master_exact(database, target)
-    assert masters is not None
-    assert masters[0].name == "極洋"
+    master = read_master_snapshot(database, as_of=target)
+    assert master is not None
+    assert master.as_of == target
+    assert master.securities[records[0]["Code"][:4]].name == "極洋"
 
 
 def test_rejected_financial_quality_does_not_claim_coverage(database):
