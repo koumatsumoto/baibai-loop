@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from baibai_engine.storage.objects.r2 import (
@@ -123,11 +123,6 @@ class PublishReport:
 class _RemotePublication:
     """One publication's remote reads: counted, bounded, and never repeated.
 
-    An immutable key is proved once per publication. Verifying it again for the
-    pointer precondition would double the bytes this run moves without adding a
-    guarantee, because nothing in between can replace a key the store refuses to
-    overwrite.
-
     A newly written object is read back in full: that is the only evidence that the
     bytes this run sealed are the bytes the store now holds. An object that was
     already present is proved by its identity metadata, which was bound to its bytes
@@ -137,7 +132,6 @@ class _RemotePublication:
 
     store: ObjectStore
     verified_readback_root: Path | None = None
-    verified: dict[str, tuple[str, int, str]] = field(default_factory=dict)
     uploaded_objects: int = 0
     reused_objects: int = 0
     uploaded_bytes: int = 0
@@ -165,33 +159,6 @@ class _RemotePublication:
         self.downloaded_bytes += len(payload)
         return payload
 
-    def require_identity(
-        self,
-        *,
-        key: str,
-        expected_sha256: str,
-        expected_size: int,
-        content_type: str,
-        read_back: bool = False,
-    ) -> None:
-        """Prove one immutable key holds this identity, at most once per publication."""
-
-        if self._already_verified(
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-            content_type=content_type,
-        ):
-            return
-        self.accept_existing(
-            self.head(key),
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-            content_type=content_type,
-            read_back=read_back,
-        )
-
     def accept_existing(
         self,
         remote: RemoteObject | None,
@@ -204,14 +171,6 @@ class _RemotePublication:
     ) -> None:
         """Prove an already-fetched HEAD result describes the identity the graph names."""
 
-        expected = (expected_sha256, expected_size, content_type)
-        if self._already_verified(
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-            content_type=content_type,
-        ):
-            return
         if remote is None:
             raise LakePublishError(f"remote object is missing: {key}")
         if (
@@ -226,17 +185,6 @@ class _RemotePublication:
             self._require_bytes(
                 key=key, expected_sha256=expected_sha256, expected_size=expected_size
             )
-        self.verified[key] = expected
-
-    def _already_verified(
-        self, *, key: str, expected_sha256: str, expected_size: int, content_type: str
-    ) -> bool:
-        previous = self.verified.get(key)
-        if previous is None:
-            return False
-        if previous != (expected_sha256, expected_size, content_type):
-            raise LakePublishError(f"remote graph has conflicting identities: {key}")
-        return True
 
     def put(
         self,
@@ -426,10 +374,8 @@ def publish_release(
     validate_lake_release_policy(
         release, manifests, catalog=LAKE_DATASETS, policy=release_policy_for_profile("production")
     )
-    # Every reachable node is proved once. The publication memo makes this both the
-    # per-upload postcondition and the pointer precondition: nothing between the two
-    # can replace a key the store refuses to overwrite, so re-reading the closure
-    # would move the whole history's bytes again to learn what is already known.
+    # Reject conflicting shared keys before upload, then verify each unique graph
+    # node once. Immutable writes keep that proof valid through the pointer switch.
     inventory: dict[str, tuple[str, int, str]] = {}
     for key, _, content_type, expected_sha256, expected_size in uploads:
         expected = (expected_sha256, expected_size, content_type)
@@ -564,14 +510,6 @@ def _ensure_immutable(
     expected_size: int,
     existing: RemoteObject | None,
 ) -> bool:
-    if key in publication.verified:
-        publication.require_identity(
-            key=key,
-            expected_sha256=expected_sha256,
-            expected_size=expected_size,
-            content_type=content_type,
-        )
-        return False
     if existing is not None:
         publication.accept_existing(
             existing,
