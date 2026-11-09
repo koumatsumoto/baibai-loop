@@ -26,19 +26,10 @@ from baibai_engine.machine_analysis.observations.disclosures.delistings import (
     DelistingRecord,
     resolve_delisting_archive_urls,
 )
-from baibai_engine.machine_analysis.observations.disclosures.jpx_decode import (
-    resolve_earnings_calendar_urls,
-)
 from baibai_engine.machine_analysis.observations.disclosures.jpx_models import (
-    JPXEarningsCalendarSnapshot,
     JPXProviderError,
-    JPXRegulationSnapshot,
 )
 from baibai_engine.machine_analysis.observations.disclosures.jpx_rebuild import rebuild_jpx_snapshot
-from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import (
-    JPX_EARNINGS_CALENDAR_INDEX_URL,
-    JPX_REGULATION_URLS,
-)
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 
 
@@ -49,53 +40,6 @@ class JPXRefresh:
 
     def close(self) -> None:
         self._http.close()
-
-    def refresh_regulation_snapshot(self, asof_date: date) -> JPXRegulationSnapshot:
-        try:
-            with closing(open_connection(self._sqlite_path)) as conn:
-                bundle_id = create_bundle(
-                    conn,
-                    "regulations",
-                    asof_date,
-                    datetime.now(UTC),
-                    tuple(JPX_REGULATION_URLS.items()),
-                )
-                for name, url in JPX_REGULATION_URLS.items():
-                    retain_bundle_response(conn, bundle_id, name, self._http.fetch(url))
-                complete_bundle(conn, bundle_id)
-            snapshot = rebuild_jpx_snapshot(self._sqlite_path, bundle_id)
-            assert isinstance(snapshot, JPXRegulationSnapshot)
-            return snapshot
-        except (JPXAcquisitionError, JPXBundleError) as exc:
-            raise JPXProviderError(str(exc)) from exc
-
-    def refresh_earnings_calendar_snapshot(self, asof_date: date) -> JPXEarningsCalendarSnapshot:
-        try:
-            with closing(open_connection(self._sqlite_path)) as conn:
-                bundle_id = create_bundle(conn, "earnings_calendar", asof_date, datetime.now(UTC))
-                index = self._http.fetch(JPX_EARNINGS_CALENDAR_INDEX_URL)
-                retain_bundle_response(conn, bundle_id, "index", index)
-                urls = resolve_earnings_calendar_urls(
-                    index.body, index.requested_url, index.content_type
-                )
-                declare_bundle_resources(
-                    conn,
-                    bundle_id,
-                    (
-                        ("index", index.requested_url),
-                        *((f"workbook:{number}", url) for number, url in enumerate(urls)),
-                    ),
-                )
-                for number, url in enumerate(urls):
-                    retain_bundle_response(
-                        conn, bundle_id, f"workbook:{number}", self._http.fetch(url)
-                    )
-                complete_bundle(conn, bundle_id)
-            snapshot = rebuild_jpx_snapshot(self._sqlite_path, bundle_id)
-            assert isinstance(snapshot, JPXEarningsCalendarSnapshot)
-            return snapshot
-        except (JPXAcquisitionError, JPXBundleError) as exc:
-            raise JPXProviderError(str(exc)) from exc
 
     def refresh_capital_policy_snapshot(self, asof_date: date) -> TSECapitalPolicyRefreshSummary:
         """Capture the workbook first, then rebuild from that completed bundle."""

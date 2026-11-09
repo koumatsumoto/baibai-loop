@@ -981,9 +981,6 @@ class ControlEventExitBuildTest(unittest.TestCase):
                 patch.object(
                     app, "EDINETRefresh", side_effect=AssertionError("acquisition constructed")
                 ),
-                patch.object(
-                    app, "ProviderBundle", side_effect=AssertionError("bundle constructed")
-                ),
                 redirect_stdout(output),
             ):
                 result = app.main(
