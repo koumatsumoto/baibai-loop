@@ -36,6 +36,8 @@ class Session:
                     s: {"close": 1, "update_mode": "delayed_streaming_900"} for s in args["symbols"]
                 },
                 "missing": [],
+                "count": len(args["symbols"]),
+                "missing_count": 0,
             }
             return CallToolResult(content=[], structuredContent=payload)
         sample = capture(bars=True).result.structured_content

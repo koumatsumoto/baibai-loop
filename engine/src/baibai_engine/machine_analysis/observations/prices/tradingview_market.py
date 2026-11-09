@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
+from baibai_engine.data_collection.providers.tradingview.accounting import account_batch
 from baibai_engine.data_collection.providers.tradingview.contract import BATCH_TOOL_IDENTIFIERS
 from baibai_engine.data_collection.providers.tradingview.market_models import MarketToolCapture
 
@@ -36,16 +37,8 @@ def read_market_observation(capture: MarketToolCapture) -> dict[str, Any]:
     if payload.get("success") is not True:
         return {**base, "status": "failed", "observations": []}
     if capture.tool_name in BATCH_TOOL_IDENTIFIERS:
-        data, missing = payload.get("data"), payload.get("missing")
         symbols = capture.request_parameters["symbols"]
-        if (
-            not isinstance(data, dict)
-            or not isinstance(missing, list)
-            or any(not isinstance(symbol, str) for symbol in missing)
-            or set(data) & set(missing)
-            or set(data) | set(missing) != set(symbols)
-        ):
-            raise ValueError("market quote symbols differ from the exact request")
+        data, missing = account_batch(payload, symbols)
         quotes = []
         for symbol in symbols:
             if symbol in missing:

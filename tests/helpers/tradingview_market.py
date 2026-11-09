@@ -52,7 +52,7 @@ def capture(*, receipt_id="synthetic-market", bars=False, received=CLOCK, error=
             "data": {
                 "CME:SYNTH": {"close": 10, "change": 0, "update_mode": "delayed_streaming_600"}
             },
-            "missing": ["TSE:SYNTH"],
+            "missing": [{"symbol": "TSE:SYNTH", "reason": "Quote data not found"}],
             "missing_count": 1,
         }
         tool = BATCH_TOOL
