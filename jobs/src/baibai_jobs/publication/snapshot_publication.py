@@ -44,6 +44,7 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
 from baibai_engine.storage.snapshots.identity import verified_git_commit as lake_verified_git_commit
@@ -117,6 +118,10 @@ def _phase_progress(phase: str, started: float | None = None) -> float:
     return now
 
 
+def _publication_day(as_of: date | None, evaluated_at: datetime) -> date:
+    return as_of if as_of is not None else evaluated_at.astimezone(JST).date()
+
+
 @dataclass(frozen=True, slots=True)
 class MarketLakePublishReport:
     release_id: str
@@ -177,6 +182,7 @@ def prepare_market_lake(
     edinet_input: InputSnapshot | None = None,
 ) -> Iterator[PreparedMarketLake]:
     """一回のseal/exportから新releaseを固定する。公開pointer/originは動かさない。"""
+    as_of = _publication_day(as_of, datetime.now(UTC))
     fixed_edinet = read_edinet_input(store, edinet_input) if edinet_input is not None else None
     policy = release_policy_for_profile("production")
     policy_names = {item.dataset for item in policy.datasets}
@@ -193,7 +199,7 @@ def prepare_market_lake(
     calendar_identity = native_calendar_model_input(
         store,
         fixed_calendar,
-        as_of=as_of or evaluated_at.date(),
+        as_of=as_of,
         evaluated_at=evaluated_at,
         market=sqlite_path,
     )
@@ -204,7 +210,7 @@ def prepare_market_lake(
     master_identity = native_master_model_input(
         store,
         fixed_master,
-        as_of=as_of or evaluated_at.date(),
+        as_of=as_of,
         evaluated_at=evaluated_at,
         market=sqlite_path,
     )
@@ -215,7 +221,7 @@ def prepare_market_lake(
     price_identity = native_price_model_input(
         store,
         fixed,
-        as_of=as_of or evaluated_at.date(),
+        as_of=as_of,
         evaluated_at=evaluated_at,
         market=sqlite_path,
         calendar_input=calendar_identity,
@@ -272,7 +278,7 @@ def prepare_market_lake(
         alerts_identity = native_alerts_model_input(
             store,
             fixed_alerts,
-            as_of=as_of or evaluated_at.date(),
+            as_of=as_of,
             evaluated_at=evaluated_at,
             market=sqlite_path,
             mirror_root=mirror_root,
@@ -294,7 +300,7 @@ def prepare_market_lake(
         shorts_identity = native_shorts_model_input(
             store,
             fixed_shorts,
-            as_of=as_of or evaluated_at.date(),
+            as_of=as_of,
             evaluated_at=evaluated_at,
             market=sqlite_path,
             mirror_root=mirror_root,
@@ -317,7 +323,7 @@ def prepare_market_lake(
             store,
             fixed_interest,
             fixed_calendar,
-            as_of=as_of or evaluated_at.date(),
+            as_of=as_of,
             evaluated_at=evaluated_at,
             market=sqlite_path,
             mirror_root=mirror_root,
