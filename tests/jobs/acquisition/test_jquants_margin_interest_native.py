@@ -228,6 +228,14 @@ def test_weekly_backfill_keeps_thursday_when_friday_is_closed(tmp_path):
     assert balance_days(cal, start=thursday, end=thursday) == ((thursday,), (), ())
 
 
+def test_fixed_input_retains_the_calendar_evidence_after_selection_end(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    store, owner, cal = setup(tmp_path, start=thursday, end=friday, closed=(friday,))
+    saved = fixed_input(store, owner.fixed(), cal, start=thursday, end=thursday, evaluated_at=AT)
+    calendar_input = saved.descriptor["summary"]["calendar_input"]
+    assert calendar_input["descriptor"]["summary"]["selection_end"] == friday.isoformat()
+
+
 def test_acquire_uses_compact_dates_and_frozen_calendar_without_l2(tmp_path):
     store, owner, cal = setup(tmp_path)
     client = Client(callback=lambda: store.values.pop(CALENDAR_HEAD, None))

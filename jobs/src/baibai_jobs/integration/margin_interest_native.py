@@ -99,8 +99,12 @@ def fixed_input(
     scopes = {day.isoformat(): head["scopes"].get(day.isoformat(), {}) for day in days}
     _validate_clock(scopes, evaluated_at)
     expected, unknown, incomplete = balance_days(calendar, start=start, end=end)
+    # Preserve the calendar evidence used to rule out a midweek balance day.
+    calendar_end = end
+    if end <= LEGACY_WEEKLY_LAST_BALANCE_DATE and end.weekday() < 4:
+        calendar_end = min(end + timedelta(days=4 - end.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE)
     saved_calendar = fixed_calendar_input(
-        store, calendar, as_of=end, evaluated_at=evaluated_at, days=days
+        store, calendar, as_of=end, evaluated_at=evaluated_at, days=_days(start, calendar_end)
     )
     summary: dict[str, Any] = {
         "selection_start": start.isoformat(),
