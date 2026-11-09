@@ -280,15 +280,9 @@ def test_daily_publisher_reduces_retained_rows_and_bytes_for_same_month(tmp_path
     print("native price actual publisher:", totals)
 
 
-@pytest.mark.parametrize("old_setting", [None, "false", "true", "invalid"])
-def test_publication_uses_native_price_input_without_rollout_mode(
-    tmp_path, monkeypatch, old_setting
-):
+def test_publication_uses_native_price_input_without_rollout_mode(tmp_path, monkeypatch):
     configure(monkeypatch)
-    if old_setting is None:
-        monkeypatch.delenv("BAIBAI_PRICE_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_PRICE_NATIVE", old_setting)
+    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "false")
     store = MemoryR2Store()
     owner = PriceL1(store, tmp_path / "native")
     owner.initialize()

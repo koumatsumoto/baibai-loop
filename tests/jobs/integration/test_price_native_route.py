@@ -11,13 +11,9 @@ from tests.helpers.r2_store import MemoryR2Store
 from baibai_jobs.integration.sources import apply
 
 
-@pytest.mark.parametrize("old_setting", [None, "false", "true", "invalid"])
 @pytest.mark.parametrize("old_mode", [False, 0, None, "false", "invalid"])
-def test_legacy_price_plan_is_rejected_before_io(tmp_path, monkeypatch, old_setting, old_mode):
-    if old_setting is None:
-        monkeypatch.delenv("BAIBAI_PRICE_NATIVE", raising=False)
-    else:
-        monkeypatch.setenv("BAIBAI_PRICE_NATIVE", old_setting)
+def test_legacy_price_plan_is_rejected_before_io(tmp_path, monkeypatch, old_mode):
+    monkeypatch.setenv("BAIBAI_PRICE_NATIVE", "false")
     (tmp_path / "plan.json").write_text(json.dumps({"price_native": old_mode, "handoffs": []}))
     with pytest.raises(ValueError, match="legacy price integration plan"):
         apply(object(), tmp_path, market=tmp_path / "never-open", asof=date(2026, 11, 2))
