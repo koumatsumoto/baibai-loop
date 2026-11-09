@@ -12,6 +12,10 @@ from tests.helpers.r2_store import MemoryR2Store
 from baibai_engine.data_collection.providers.jquants.calendar_native import (
     HEAD_KEY as CALENDAR_HEAD,
 )
+from baibai_engine.data_collection.providers.jquants.calendar_native import (
+    CalendarAttempt,
+    CalendarL1,
+)
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsPage,
     JQuantsRateLimitError,
@@ -205,6 +209,62 @@ def test_force_backfill_is_finite_and_includes_last_day(tmp_path):
     for kwargs in ({"force": True}, {"start": DAY}, {"start": DAY, "end": DAY + timedelta(days=1)}):
         with pytest.raises(ValueError, match=r"backfill|interval"):
             plan_margin_interest_days(owner.fixed(), cal, asof=DAY, **kwargs)
+
+
+def test_weekly_backfill_does_not_treat_midweek_range_end_as_week_end(tmp_path):
+    monday, friday = date(2026, 9, 14), date(2026, 9, 18)
+    _, _, cal = setup(tmp_path, start=monday, end=friday)
+    assert balance_days(cal, start=monday, end=monday) == ((), (), ())
+    assert balance_days(cal, start=monday, end=friday)[0] == (friday,)
+
+
+def test_weekly_backfill_reports_missing_later_calendar_days(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    store, owner, cal = setup(tmp_path, start=thursday, end=thursday)
+    expected, unknown, _ = balance_days(cal, start=thursday, end=thursday)
+    assert expected == ()
+    assert unknown == (friday,)
+
+    saved = fixed_input(store, owner.fixed(), cal, start=thursday, end=thursday, evaluated_at=AT)
+    result = materialize_saved_input(store, saved, output=tmp_path / "unknown-friday.sqlite")
+    assert result["weekly_coverage_status"] == "partial"
+
+
+def test_weekly_backfill_keeps_thursday_when_friday_is_closed(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    _, _, cal = setup(tmp_path, start=thursday, end=friday, closed=(friday,))
+    assert balance_days(cal, start=thursday, end=thursday) == ((thursday,), (), ())
+
+
+def test_fixed_input_retains_the_calendar_evidence_after_selection_end(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    store, owner, cal = setup(tmp_path, start=thursday, end=friday, closed=(friday,))
+    saved = fixed_input(store, owner.fixed(), cal, start=thursday, end=thursday, evaluated_at=AT)
+    calendar_input = saved.descriptor["summary"]["calendar_input"]
+    assert calendar_input["descriptor"]["summary"]["selection_end"] == friday.isoformat()
+
+
+def test_fixed_input_rejects_later_calendar_evidence_from_the_future(tmp_path):
+    thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
+    store, owner, _ = setup(tmp_path, start=thursday, end=thursday)
+    calendar_owner = CalendarL1(store, tmp_path / "calendar")
+    later = AT + timedelta(days=1)
+    page = JQuantsPage(
+        "market_calendar",
+        {"from": friday.isoformat(), "to": friday.isoformat()},
+        later,
+        body([{"Date": friday.isoformat(), "HolDiv": "0"}]),
+    )
+    calendar_owner.commit([CalendarAttempt("future-friday", friday, friday, later, (page,))])
+    with pytest.raises(ValueError, match="later than the evaluation clock"):
+        fixed_input(
+            store,
+            owner.fixed(),
+            calendar_owner.fixed(),
+            start=thursday,
+            end=thursday,
+            evaluated_at=AT,
+        )
 
 
 def test_acquire_uses_compact_dates_and_frozen_calendar_without_l2(tmp_path):
