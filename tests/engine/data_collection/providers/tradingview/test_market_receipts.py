@@ -75,6 +75,7 @@ def test_native_tool_error_is_retained_and_not_a_zero_price(tmp_path):
 def test_delay_missing_and_bar_clock_are_not_realtime_or_trade_clock():
     quote = read_market_observation(capture())
     assert quote["formal_proposal_price"] is False
+    assert quote["observations"][0]["status"] == "received"
     assert quote["observations"][0]["delay_seconds"] == 600
     assert quote["observations"][0]["fields"]["change"] == 0
     assert quote["observations"][0]["last_trade_at"] is None
@@ -86,6 +87,14 @@ def test_delay_missing_and_bar_clock_are_not_realtime_or_trade_clock():
     assert bars["update_mode"] is None
     assert bars["last_trade_at"] is None
     assert bars["last_bar_at"] != bars["available_at"]
+
+
+@pytest.mark.parametrize("field", ["count", "missing_count"])
+def test_market_batch_uses_native_response_counts(field):
+    value = capture().model_dump(by_alias=True)
+    value["result"]["structuredContent"][field] = 0
+    with pytest.raises(ValueError, match="response_count_mismatch"):
+        read_market_observation(MarketToolCapture.model_validate(value))
 
 
 @pytest.mark.parametrize("count", [0, 501, True, "2"])
