@@ -15,7 +15,6 @@ function holding(overrides: Partial<HoldingView>): HoldingView {
     market_value_yen: 110_000,
     unrealized_pnl_yen: 10_000,
     unrealized_pnl_pct: 10,
-   
     ...overrides,
   }
 }
@@ -43,8 +42,7 @@ describe('totalUnrealizedPnl', () => {
 })
 
 describe('pnlTone', () => {
-  // Money outcomes wear gold and blue so they never read as the green/red every other
-  // number uses for direction. Nothing else in the suite checks which token gets picked.
+  // Monetary gains/losses use a different palette from other directional metrics.
   it.each([
     [12_000, 'text-profit'],
     [-12_000, 'text-loss'],

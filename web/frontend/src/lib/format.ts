@@ -1,5 +1,4 @@
-// Single source for how the UI renders values. Saved timestamps may use different
-// offsets; datetime display is anchored to Asia/Tokyo rather than the browser timezone.
+// Saved timestamps use their own offsets; display is anchored to Asia/Tokyo.
 
 export const EMPTY = '—'
 
@@ -11,11 +10,7 @@ function isDateOnly(value: string): boolean {
   return DATE_ONLY.test(value)
 }
 
-// Persisted stamps retain their explicit offset, including UTC. A date carries no
-// time at all; midnight JST is only its formatting anchor. An offset-less stamp
-// is read as JST wall-clock rather than the viewer's local time. Appending an offset
-// to a bare date would build
-// `2026-07-29+09:00`, which is not a parseable ISO string.
+// Date-only values use midnight solely for formatting; offset-less times use JST.
 function toInstant(value: string): Date {
   if (isDateOnly(value)) return new Date(`${value}T00:00:00+09:00`)
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
