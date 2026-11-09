@@ -35,7 +35,6 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.periods im
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.profit import (
     _accruals_to_assets,
-    _loss_narrowing,
     _select_operating_profit,
 )
 from baibai_engine.machine_analysis.models.company_financials.metrics.ratios import (
@@ -55,7 +54,6 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
     JQuantsFinancialSummary,
 )
 from baibai_engine.machine_analysis.observations.financials.metric_quality import (
-    OperatingProfitSource,
     TTMQuality,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_selection import (
@@ -115,13 +113,8 @@ def build_financial_snapshot(
     # 合成は 1 株当たりでなく円で行う。1 株当たりの各項は自分の期の株数で割られており、
     # 株数が動いた会社では和・差が成立しない (新株発行で株数が倍になった期を跨ぐと、
     # 黒字の会社が赤字に見える)。1 株当たりへの換算は最後に 1 回だけ行う。
-    eps_row = _latest_actual_row(summaries, field_names=("cumulative_eps",))
-    eps_prior = _prior_year_summary(summaries, ttm_rules, field_name="cumulative_eps")
     sales_row = _latest_actual_row(summaries, field_names=("sales",))
-    sales_prior = _prior_year_summary(summaries, ttm_rules, field_name="sales")
     cfo_row = _latest_actual_row(summaries, field_names=("cfo",))
-    cfo_prior = _prior_year_summary(summaries, ttm_rules, field_name="cfo")
-    eps_cumulative = eps_row.cumulative_eps if eps_row else None
     profit_ttm, profit_quality = _ttm_value(summaries, "profit", ttm_rules)
     selected_pdf = pdf_selection is not None and (
         pdf_selection.current is not None or pdf_selection.blocks_legacy_ttm
@@ -170,21 +163,6 @@ def build_financial_snapshot(
         ("operating_profit", "ordinary_profit", "profit"),
     )
     operating_profit, operating_profit_source = _select_operating_profit(operating_row)
-    operating_field = {
-        OperatingProfitSource.OPERATING_PROFIT: "operating_profit",
-        OperatingProfitSource.ORDINARY_PROFIT: "ordinary_profit",
-        OperatingProfitSource.PROFIT: "profit",
-    }.get(operating_profit_source)
-    operating_prior_row = (
-        _prior_year_summary(summaries, ttm_rules, field_name=operating_field)
-        if operating_field is not None
-        else None
-    )
-    operating_profit_prior_year = (
-        getattr(operating_prior_row, operating_field)
-        if operating_prior_row is not None and operating_field is not None
-        else None
-    )
     capital_basis = _resolve_capital_basis(
         summaries,
         capital_basis_barrier=capital_basis_barrier,
@@ -409,20 +387,6 @@ def build_financial_snapshot(
         operating_profit=operating_profit,
         operating_profit_ttm=operating_profit_ttm,
         operating_profit_source=operating_profit_source,
-        eps_yoy=_yoy_ratio(eps_cumulative, eps_prior.cumulative_eps if eps_prior else None),
-        sales_yoy=_yoy_ratio(
-            sales_row.sales if sales_row else None,
-            sales_prior.sales if sales_prior else None,
-        ),
-        operating_profit_yoy=_yoy_ratio(operating_profit, operating_profit_prior_year),
-        cfo_yoy=_yoy_ratio(
-            cfo_row.cfo if cfo_row else None,
-            cfo_prior.cfo if cfo_prior else None,
-        ),
-        operating_profit_loss_narrowing=_loss_narrowing(
-            operating_profit,
-            operating_profit_prior_year,
-        ),
         ttm_quality_ev_ebitda=(edinet_metrics.ttm_quality_ev_ebitda if edinet_metrics else None),
         ttm_quality_per_trailing=profit_quality,
         ttm_quality_p_s=sales_quality,
