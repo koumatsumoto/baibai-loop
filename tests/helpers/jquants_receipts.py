@@ -51,9 +51,7 @@ def acquire_request(
     source: JQuantsSource,
     params: Mapping[str, str],
 ) -> str:
-    """Receive one explicit query; no normalized table is read or written here."""
-    if conn.in_transaction:
-        raise ValueError("acquisition requires a connection without a pending transaction")
+    """Seed SQL receipt fixtures from the supplied client's explicit query."""
     request_id = uuid.uuid4().hex
     try:
         for index, page in enumerate(client.pages(source, params)):

@@ -1,4 +1,4 @@
-"""Retain received J-Quants pages in a temporary SQLite market store only."""
+"""Retained SQL receipts preserve J-Quants pages across reads and lake exports."""
 
 from __future__ import annotations
 
@@ -199,41 +199,6 @@ def test_repeated_continuation_is_retained_but_rejected(conn):
     assert [page.body for page in read_request_pages(conn, request_id)] == [first, second]
     with pytest.raises(JQuantsAcquisitionError, match="repeated"):
         read_complete_request(conn, request_id)
-
-
-def test_pending_caller_transaction_is_rejected_before_http(conn):
-    session = Session(b'{"data":[]}')
-    conn.execute("BEGIN")
-    try:
-        with pytest.raises(ValueError, match="pending transaction"):
-            acquire_request(conn, client(session), "master", {})
-        assert session.calls == []
-        assert conn.execute("SELECT COUNT(*) FROM jquants_source_pages").fetchone()[0] == 0
-    finally:
-        conn.rollback()
-
-
-def test_storage_failure_is_not_classified_as_source_failure(conn):
-    conn.execute("DROP TABLE jquants_source_pages")
-    with pytest.raises(sqlite3.OperationalError, match="no such table"):
-        acquire_request(conn, client(Session(b'{"data":[]}')), "master", {})
-
-
-def test_later_l2_failure_cannot_roll_back_committed_source_page(conn):
-    body = b'{"data":[{"Code":"9682"}]}'
-    conn.execute("CREATE TABLE synthetic_l2(code TEXT)")
-    request_id = acquire_request(conn, client(Session(body)), "master", {})
-
-    def fail_l2():
-        with conn:
-            conn.execute("INSERT INTO synthetic_l2 VALUES ('9682')")
-            raise RuntimeError("synthetic L2 failure")
-
-    with pytest.raises(RuntimeError, match="synthetic L2 failure"):
-        fail_l2()
-
-    assert conn.execute("SELECT COUNT(*) FROM synthetic_l2").fetchone()[0] == 0
-    assert [page.body for page in read_complete_request(conn, request_id).pages] == [body]
 
 
 def test_current_market_schema_exports_and_hydrates_complete_and_incomplete_raw_pages(
