@@ -106,6 +106,55 @@ it('keeps portfolio information visible when the independent outcomes request fa
   expect(html).not.toContain('Dashboard read error')
 })
 
+it.each([{ outcomes: [] }, { outcomes: [{
+  outcome_id: 'retained-outcome', horizon: '1y', period_start_date: '2025-01-01',
+  period_end_date: '2025-12-31', status: 'resolved', reason: null,
+  portfolio_twr_pct: 10.2, benchmark_cumulative_return_pct: 8.2,
+}] }])('keeps readable outcomes visible when the portfolio request fails (%j)', ({ outcomes }) => {
+  hooks.values.set(1, { error: null, outcomes })
+  hooks.values.set(3, 'API request failed: 503 Service Unavailable')
+  const html = render()
+  expect(html).toContain('資産・保有・未約定注文を読み込めません')
+  expect(html).toContain('API request failed: 503 Service Unavailable')
+  expect(html).toContain(outcomes.length ? 'retained-outcome' : '運用成績はまだありません')
+  expect(html).not.toContain('資産と損益')
+  expect(html).not.toContain('保有銘柄はありません')
+  expect(html).not.toContain('表示データ生成')
+})
+
+it('shows both independent request errors without inventing empty data', () => {
+  hooks.values.set(2, 'outcomes unavailable')
+  hooks.values.set(3, 'portfolio unavailable')
+  const html = render()
+  expect(html).toContain('portfolio unavailable')
+  expect(html).toContain('outcomes unavailable')
+  expect(html).not.toContain('運用成績はまだありません')
+  expect(html).not.toContain('保有銘柄はありません')
+})
+
+it('keeps an unreadable outcome view distinct when the portfolio request also fails', () => {
+  hooks.values.set(1, { error: 'saved outcomes unavailable', outcomes: [] })
+  hooks.values.set(3, 'portfolio unavailable')
+  const html = render()
+  expect(html).toContain('portfolio unavailable')
+  expect(html).toContain('saved outcomes unavailable')
+  expect(html).not.toContain('運用成績はまだありません')
+})
+
+it('routes a portfolio request failure to its own state, not the outcomes error', async () => {
+  const outcomes = { error: null, outcomes: [] }
+  vi.mocked(fetchJson)
+    .mockRejectedValueOnce(new Error('portfolio unavailable'))
+    .mockResolvedValueOnce(outcomes)
+  DashboardPage()
+  hooks.effects[0]()
+  await Promise.resolve()
+  await Promise.resolve()
+  expect(hooks.setters[3]).toHaveBeenCalledWith('portfolio unavailable')
+  expect(hooks.setters[2]).not.toHaveBeenCalled()
+  expect(hooks.setters[1]).toHaveBeenCalledWith(outcomes)
+})
+
 it('routes an outcomes request failure to its own state, not the portfolio error', async () => {
   vi.mocked(fetchJson)
     .mockResolvedValueOnce(dashboard())

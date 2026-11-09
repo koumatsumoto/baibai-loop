@@ -14,7 +14,6 @@ import type {
 import { InfoHint } from '../components/InfoHint'
 import { LoadingPage } from '../components/LoadingIndicator'
 import { PageShell } from '../components/PageShell'
-import { PageState } from '../components/PageState'
 import { PctBadge } from '../components/PctBadge'
 import { SectionCard } from '../components/SectionCard'
 import { TradingViewButton } from '../components/TradingViewButton'
@@ -379,23 +378,24 @@ export function DashboardPage() {
     return () => controller.abort()
   }, [])
 
-  if (error !== null) return <PageState message={error} title="Dashboard read error" />
-  if (!data) return <LoadingPage label="資産状況を読み込んでいます" />
+  if (!data && error === null) return <LoadingPage label="資産状況を読み込んでいます" />
   return (
-    <PageShell lead="株価・評価額は表示の基準日の保存終値に基づきます。リアルタイム価格ではありません。" meta={(
+    <PageShell lead="株価・評価額は表示の基準日の保存終値に基づきます。リアルタイム価格ではありません。" meta={data && (
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>表示データ生成 <time dateTime={data.generated_at}>{formatJstDateTime(data.generated_at)} JST</time></span>
         {data.ledger_as_of !== null && <span>台帳最終記録 <time dateTime={data.ledger_as_of}>{formatJstDateTime(data.ledger_as_of)} JST</time></span>}
       </div>
     )} title="Dashboard">
-      {data.ledger_error !== null && (
+      {error !== null && (
+        <Alert><CircleAlert /><AlertTitle>資産・保有・未約定注文を読み込めません</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
+      )}
+      {data !== null && data.ledger_error !== null && (
         <Alert><CircleAlert /><AlertTitle>台帳を読み込めません。資産・保有・未約定注文を確認できません。</AlertTitle><AlertDescription>{data.ledger_error}</AlertDescription></Alert>
       )}
 
-      {data.ledger_error === null && <PortfolioAllocationCard data={data} />}
+      {data !== null && data.ledger_error === null && <PortfolioAllocationCard data={data} />}
 
-
-      {data.ledger_error === null && (!data.ledger_exists ? (
+      {data !== null && data.ledger_error === null && (!data.ledger_exists ? (
         <Card className="border-dashed shadow-none"><CardContent className="py-8 text-center text-sm text-muted-foreground">portfolio ledger がありません。</CardContent></Card>
       ) : data.holdings.length > 0 ? (
         <HoldingsTable holdings={data.holdings} ledgerAsOf={data.ledger_as_of} warnings={data.warnings} />
@@ -406,7 +406,7 @@ export function DashboardPage() {
         </Card>
       ))}
 
-      {data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
+      {data !== null && data.ledger_error === null && data.reservations.length > 0 && <PendingOrdersCard reservations={data.reservations} />}
 
       {outcomesError !== null
         ? <Alert><CircleAlert /><AlertTitle>運用成績を読み込めません</AlertTitle><AlertDescription>{outcomesError}</AlertDescription></Alert>
