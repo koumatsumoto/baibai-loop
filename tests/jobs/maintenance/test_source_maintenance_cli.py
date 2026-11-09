@@ -31,7 +31,6 @@ from tests.helpers.edinet_native import native_edinet_store
 from tests.helpers.http_doubles import FakeSession, response
 from tests.helpers.market_maintenance import (
     FakeEDINETProvider,
-    FakeJPXProvider,
 )
 from tests.helpers.screening_sqlite import add_source_coverage
 
@@ -71,7 +70,6 @@ def _run_cli(
     argv: list[str],
     *,
     edinet: _SeamEDINETProvider | None = None,
-    jpx: FakeJPXProvider | None = None,
 ) -> _CliResult:
     """Run ``argv`` through ``main()`` with the provider constructors replaced.
 
@@ -87,7 +85,6 @@ def _run_cli(
             {"JQUANTS_API_KEY": "test-jquants-key", "EDINET_API_KEY": "test-edinet-key"},
         ),
         patch.object(app, "EDINETRefresh", lambda *_args, **_kwargs: edinet),
-        patch.object(app, "JPXRefresh", lambda *_args, **_kwargs: jpx),
         contextlib.redirect_stdout(stdout),
         contextlib.redirect_stderr(stderr),
     ):
@@ -107,17 +104,11 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
         patch.object(
             app, "EDINETRefresh", side_effect=AssertionError("EDINET provider constructed")
         ) as edinet,
-        patch.object(
-            app, "JPXRefresh", side_effect=AssertionError("JPX provider constructed")
-        ) as jpx,
-        patch.object(
-            app, "ProviderBundle", side_effect=AssertionError("provider bundle constructed")
-        ) as bundle,
         contextlib.redirect_stdout(stdout),
         contextlib.redirect_stderr(stderr),
     ):
         exit_code = app.main(argv)
-    for constructor in (session, edinet, jpx, bundle):
+    for constructor in (session, edinet):
         constructor.assert_not_called()
     return _CliResult(exit_code=exit_code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
 
@@ -126,45 +117,6 @@ def _run_offline_metrics_cli(argv: list[str]) -> _CliResult:
 def _work_in_tmp_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Resolve the store path, and the project ``.env`` lookup, inside the tmp tree."""
     monkeypatch.chdir(tmp_path)
-
-
-def test_main_bootstrap_routes_and_closes_maintenance() -> None:
-    jpx = FakeJPXProvider()
-    with patch.object(app, "bootstrap_cache_command", return_value=0) as command:
-        result = _run_cli(
-            ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jpx-earnings"],
-            edinet=_SeamEDINETProvider(),
-            jpx=jpx,
-        )
-
-    assert result.exit_code == 0, result.stderr
-    providers = command.call_args.kwargs["providers"]
-    assert providers.jpx_refresh is jpx
-    assert jpx.close_count == 1
-
-
-def test_main_bootstrap_cache_uses_fixed_jpx_urls_despite_stale_env() -> None:
-    with (
-        patch.dict(
-            os.environ,
-            {
-                "JQUANTS_API_KEY": "test-jquants-key",
-                "EDINET_API_KEY": "test-edinet-key",
-                "JPX_SPECIAL_CAUTION_URL": "https://example.com/alert",
-                "JPX_REORGANIZATION_URL": "https://example.com/supervision",
-                "JPX_TRADING_HALT_URL": "https://example.com/halt",
-                "JPX_DELISTING_WARNING_URL": "https://example.com/delisted",
-            },
-        ),
-        patch.object(app, "EDINETRefresh", return_value=_SeamEDINETProvider()),
-        patch.object(app, "JPXRefresh", return_value=FakeJPXProvider()) as jpx_factory,
-    ):
-        assert (
-            app.main(["bootstrap-cache", "--asof", "2026-05-08", "--source-group", "jpx-earnings"])
-            == 0
-        )
-
-    assert jpx_factory.call_args.kwargs["sqlite_path"].name == "market.sqlite"
 
 
 @pytest.mark.parametrize(
@@ -340,7 +292,6 @@ def test_main_refresh_edinet_metrics_reports_source_acquisition_failure(
     result = _run_cli(
         ["refresh-edinet-metrics", "--asof", "2026-04-24", "--lookback-days", "0"],
         edinet=edinet,
-        jpx=FakeJPXProvider(),
     )
     assert result.exit_code == 1
     assert "LakePublishError" in result.stderr
@@ -396,20 +347,6 @@ def test_main_invalidate_coverage_deletes_only_the_rows_overlapping_the_argv_win
     assert "stored observations unchanged" in result.stdout
 
 
-@pytest.mark.parametrize("group", ["jpx-earnings", "jpx-regulations"])
-def test_main_bootstrap_acquires_only_one_jpx_source_and_closes_it(group):
-    jpx = FakeJPXProvider()
-    with patch.object(app, "EDINETReader", side_effect=AssertionError("reader constructed")):
-        result = _run_cli(
-            ["bootstrap-cache", "--asof", "2026-05-08", "--source-group", group], jpx=jpx
-        )
-    assert result.exit_code == 0, result.stderr
-    assert jpx.earnings_requests == ([date(2026, 5, 8)] if group == "jpx-earnings" else [])
-    assert jpx.regulation_requests == ([date(2026, 5, 8)] if group == "jpx-regulations" else [])
-    assert jpx.close_count == 1
-    assert "bootstrap-cache done" in result.stdout
-
-
 @pytest.mark.parametrize(
     "argv",
     [
@@ -425,7 +362,6 @@ def test_removed_jquants_commands_fail_before_environment_or_provider_setup(argv
     with (
         patch.object(app, "load_project_env", side_effect=AssertionError("env read")),
         patch.object(app, "EDINETRefresh", side_effect=AssertionError("EDINET constructed")),
-        patch.object(app, "JPXRefresh", side_effect=AssertionError("JPX constructed")),
         patch.object(app, "EDINETReader", side_effect=AssertionError("reader constructed")),
         patch("requests.Session", side_effect=AssertionError("HTTP constructed")),
         pytest.raises(SystemExit) as caught,

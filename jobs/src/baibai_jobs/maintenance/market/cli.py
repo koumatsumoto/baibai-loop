@@ -37,7 +37,6 @@ from baibai_jobs.maintenance.edinet_extraction import (
     refresh_edinet_metrics_command,
 )
 from baibai_jobs.maintenance.market.cache import (
-    bootstrap_cache_command,
     invalidate_coverage_command,
 )
 from baibai_jobs.maintenance.market.config import (
@@ -54,32 +53,12 @@ from baibai_jobs.maintenance.market.delisting_cli import (
 from baibai_jobs.maintenance.market.disclosures_cli import (
     refresh_tse_capital_policy_command,
 )
-from baibai_jobs.maintenance.market.providers import ProviderBundle
 from baibai_jobs.maintenance.source_refresh.edinet import EDINETRefresh
-from baibai_jobs.maintenance.source_refresh.jpx import JPXRefresh
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="baibai-jobs maintain-market")
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    bootstrap_parser = subparsers.add_parser(
-        "bootstrap-cache",
-        help="acquire one JPX source group into its scoped store",
-    )
-    bootstrap_parser.add_argument(
-        "--asof",
-        required=True,
-        help="snapshot target date (YYYY-MM-DD)",
-    )
-
-    bootstrap_parser.add_argument("--sqlite-path", help="scoped acquisition store path")
-    bootstrap_parser.add_argument(
-        "--source-group",
-        required=True,
-        choices=("jpx-earnings", "jpx-regulations"),
-        help="acquire only one independent source group",
-    )
 
     rebuild_lists_parser = subparsers.add_parser(
         "rebuild-edinet-lists",
@@ -296,10 +275,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sqlite_path = config.sqlite_cache_dir / "market.sqlite"
 
-    if (
-        args.command in {"bootstrap-cache", "extract-edinet-metrics", "refresh-edinet-metrics"}
-        and args.sqlite_path
-    ):
+    if args.command in {"extract-edinet-metrics", "refresh-edinet-metrics"} and args.sqlite_path:
         sqlite_path = Path(args.sqlite_path)
 
     if args.command == "backfill-master":
@@ -380,36 +356,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         if edinet_refresh is not None:
             resources.callback(edinet_refresh.close)
-        jpx_refresh = (
-            JPXRefresh(sqlite_path=sqlite_path) if args.command == "bootstrap-cache" else None
-        )
-        if jpx_refresh is not None:
-            resources.callback(jpx_refresh.close)
-        providers = ProviderBundle(
-            edinet_refresh=edinet_refresh,
-            jpx_refresh=jpx_refresh,
-        )
-
-        if args.command == "bootstrap-cache":
-            return bootstrap_cache_command(
-                asof_date=_parse_iso_date(args.asof),
-                providers=providers,
-                sqlite_path=sqlite_path,
-                source_group=args.source_group,
-            )
-
         if args.command == "refresh-edinet-metrics":
             if args.lookback_days < 0:
                 print("--lookback-days must be zero or greater", file=sys.stderr)
                 return 1
-            if providers.edinet_refresh is None:
+            if edinet_refresh is None:
                 print("EDINET_API_KEY is required for refresh-edinet-metrics", file=sys.stderr)
                 return 1
             return refresh_edinet_metrics_command(
                 asof_date=_parse_iso_date(args.asof),
                 lookback_days=args.lookback_days,
                 reader=EDINETReader(sqlite_path),
-                acquisition=providers.edinet_refresh,
+                acquisition=edinet_refresh,
                 sqlite_path=sqlite_path,
             )
 

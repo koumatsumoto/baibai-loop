@@ -472,7 +472,7 @@ def test_native_backfill_alias_does_not_refetch_fulfilled_cohort_dates(tmp_path,
     def forbidden(*_, **__):
         pytest.fail("native backfill alias must not initialize unrelated legacy providers")
 
-    for name in ("EDINETRefresh", "JPXRefresh", "EDINETReader", "ProviderBundle"):
+    for name in ("EDINETRefresh", "EDINETReader"):
         monkeypatch.setattr(cli, name, forbidden)
 
     class Client:

@@ -151,7 +151,7 @@ def test_screening_provider_protocols_do_not_import_command_implementations():
             "-c",
             """
 import sys
-from baibai_jobs.maintenance.market.providers import ProviderBundle
+from baibai_jobs.maintenance.market.providers import EDINETMaintenance
 for module in ("app", "cache", "run", "query"):
     assert f"baibai_engine.cli.historical_evaluation.{module}" not in sys.modules
 """,
@@ -171,7 +171,8 @@ def test_market_judgment_is_owned_by_research_cli():
 
 def test_source_maintenance_is_owned_by_collection_not_legacy_screening():
     source = _choices(build_source_parser())
-    assert {"bootstrap-cache", "extract-edinet-metrics", "backfill-master"} <= source
+    assert {"extract-edinet-metrics", "backfill-master"} <= source
+    assert "bootstrap-cache" not in source
     assert "verify-cache-coverage" not in source
     assert not source.intersection(_choices(build_screening_parser()))
     with pytest.raises(SystemExit) as help_result:

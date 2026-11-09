@@ -8,7 +8,6 @@ from datetime import date
 from pathlib import Path
 from typing import TextIO
 
-from baibai_engine.machine_analysis.observations.disclosures.jpx_models import JPXProviderError
 from baibai_engine.storage.sqlite.source_cache.coverage import (
     count_overlapping_source_coverage,
     count_source_coverage,
@@ -17,7 +16,6 @@ from baibai_engine.storage.sqlite.source_cache.coverage import (
     source_coverage_sources,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError, open_connection
-from baibai_jobs.maintenance.market.providers import ProviderBundle
 
 
 def invalidate_coverage_command(
@@ -86,47 +84,3 @@ def invalidate_coverage_command(
         file=out,
     )
     return 0
-
-
-def bootstrap_cache_command(
-    *,
-    asof_date: date,
-    providers: ProviderBundle,
-    sqlite_path: Path,
-    source_group: str,
-    stdout: TextIO | None = None,
-) -> int:
-    groups = {
-        "jpx-earnings": _bootstrap_jpx_earnings,
-        "jpx-regulations": _bootstrap_jpx_regulations,
-    }
-    if source_group not in groups:
-        raise ValueError("unsupported acquisition source group")
-    out = stdout if stdout is not None else sys.stdout
-    print(f"bootstrap-cache start: asof={asof_date.isoformat()}", file=out, flush=True)
-    try:
-        groups[source_group](asof_date, providers, sqlite_path, out)
-    except (JPXProviderError, sqlite3.Error) as exc:
-        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        print("bootstrap-cache incomplete", file=out, flush=True)
-        return 1
-    print("bootstrap-cache done", file=out, flush=True)
-    return 0
-
-
-def _bootstrap_jpx_earnings(
-    asof_date: date, providers: ProviderBundle, _path: Path, out: TextIO
-) -> None:
-    if providers.jpx_refresh is None:
-        raise JPXProviderError("JPX maintenance provider is not configured")
-    result = providers.jpx_refresh.refresh_earnings_calendar_snapshot(asof_date)
-    print(f"JPX earnings_calendar: {result.valid_record_count} row(s)", file=out, flush=True)
-
-
-def _bootstrap_jpx_regulations(
-    asof_date: date, providers: ProviderBundle, _path: Path, out: TextIO
-) -> None:
-    if providers.jpx_refresh is None:
-        raise JPXProviderError("JPX maintenance provider is not configured")
-    result = providers.jpx_refresh.refresh_regulation_snapshot(asof_date)
-    print(f"JPX regulations: {len(result.flags_by_ticker)} ticker(s)", file=out, flush=True)
