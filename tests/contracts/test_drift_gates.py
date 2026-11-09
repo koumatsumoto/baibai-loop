@@ -389,6 +389,19 @@ def test_markdown_link_gate_checks_colocated_links_and_bare_path_anchors(tmp_pat
     ]
 
 
-def test_documented_jobs_command_resolves_lazy_module_name(tmp_path: Path) -> None:
-    _skill(tmp_path, "```bash\nuv run baibai-jobs acquire-economic groups\n```\n")
-    assert check_documented_commands.check(tmp_path) == []
+@pytest.mark.parametrize(
+    ("command", "valid"),
+    [
+        ("acquire-economic groups", True),
+        ("acquire-economic groups --typo", False),
+        ("maintain-market extract-edinet-metrics --asof <DATE>", True),
+        ("maintain-market extract-edinet-metrics", False),
+    ],
+)
+def test_documented_jobs_command_resolves_lazy_module_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str, valid: bool
+) -> None:
+    # Jobs resolves its own command table, without the engine's nested parser stubs.
+    monkeypatch.setattr(check_documented_commands, "DELEGATED_GROUPS", {})
+    _skill(tmp_path, f"```bash\nuv run baibai-jobs {command}\n```\n")
+    assert (not check_documented_commands.check(tmp_path)) is valid

@@ -65,7 +65,6 @@ def test_metadata_order_and_exclusive_writer():
         "tradingview",
         "stage",
         "cooldown-save",
-        "cancellation",
         "summary",
     ]
     assert "PYTHONPATH" in steps[1]["env"]
@@ -84,6 +83,26 @@ def test_metadata_order_and_exclusive_writer():
         "actual_start_jst",
     ):
         assert f'"{field}"' in target["run"]
+
+
+def test_notification_uses_job_result_and_only_retained_outputs():
+    data = workflow()
+    assert "workflow_call" not in data["on"]
+    assert data["jobs"]["snapshot"]["outputs"] == {
+        "handoff": "${{ steps.stage.outputs.handoff }}",
+        "target-target-date": "${{ steps.target.outputs.target_date }}",
+    }
+    notify = data["jobs"]["notify"]
+    assert notify["needs"] == "snapshot"
+    assert notify["if"] == "${{ always() }}"
+    env = next(step for step in notify["steps"] if step.get("id") == "notify")["env"]
+    # GitHub's terminal job result already carries failures and cancellation.
+    assert env["ACQUIRE_RESULT"] == "${{ needs.snapshot.result }}"
+    assert env["ASOF"] == "${{ needs.snapshot.outputs.target-target-date }}"
+    assert (
+        env["STAGE_RESULT"]
+        == "${{ needs.snapshot.outputs.handoff != '' && 'success' || 'skipped' }}"
+    )
 
 
 @pytest.mark.parametrize(

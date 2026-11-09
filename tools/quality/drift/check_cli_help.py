@@ -23,8 +23,6 @@ from typing import cast
 # 表を更新し忘れた delegation は gate をすり抜けない。
 DELEGATED_GROUPS: Mapping[str, str] = {
     "baibai-engine investment-judgment proposal-records": "baibai_engine.cli.proposal_records",
-    "baibai-jobs maintain-market": "baibai_jobs.maintenance.market.cli",
-    "baibai-jobs acquire-economic": "baibai_jobs.acquisition.economic_cli",
     "baibai-engine market-context snapshot": ("baibai_engine.cli.market_snapshot"),
     "baibai-engine market-context indicators": ("baibai_engine.cli.economic_indicators"),
     "baibai-engine market-context reading": ("baibai_engine.cli.market_reading"),
