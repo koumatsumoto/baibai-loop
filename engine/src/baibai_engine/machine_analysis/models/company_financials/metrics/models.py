@@ -149,9 +149,6 @@ class FinancialSnapshot:
     # 入れるだけで発行済株式総数を減らさないので、上の量と別の年に動く。carry へは入れず、
     # 事前登録した比較の入力として持つだけである。自己株式数が観測できない行は答えない。
     tradable_share_change_yoy: float | None = None
-    # 同じ予想期の純利益が経常利益を上回ることの注記。
-    # 原因・持続性を確定せず、rankやE[r]を変更しない。
-    forecast_special_gain_flag: bool = False
     # 予想経常利益または予想純利益の赤字を注記する。
     # 予想EPSとFV anchorへの影響は実際の入力に依存する。
     forecast_full_year_loss_flag: bool = False

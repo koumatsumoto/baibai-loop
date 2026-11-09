@@ -201,7 +201,7 @@ def test_forecast_ratios_keep_their_numeric_inputs_not_only_warning_flags():
     assert financial["forecast_profit_yen"] == 160.0
     assert financial["forecast_ordinary_profit_yen"] == -10.0
     assert financial["per_forward"] == 5.0
-    assert financial["forecast_special_gain_flag"] is True
+    assert "forecast_special_gain_flag" not in financial
     assert financial["forecast_full_year_loss_flag"] is True
 
 

@@ -90,16 +90,8 @@ def build_financial_snapshot(
     latest = _latest_summary(summaries)
     forecast = latest_forecast_source(summaries)
     forecast_eps = forecast.forecast_eps if forecast is not None else None
-    # 同じ予想期の純利益>経常利益はdata-quality注記。原因・持続性は一次開示で確認する。
-    # 純利益/経常は同じ予想期・basis・開示候補から投影する分割不変の絶対額なので、
-    # 両方揃うときだけ比較する。flag は warning で per_forward / E[r] / rank を変えない。
     forecast_profit = forecast.forecast_profit if forecast is not None else None
     forecast_ordinary_profit = forecast.forecast_ordinary_profit if forecast is not None else None
-    forecast_special_gain_flag = (
-        forecast_profit is not None
-        and forecast_ordinary_profit is not None
-        and forecast_profit > forecast_ordinary_profit
-    )
     # 予想経常利益または予想純利益の赤字を注記する。
     # flagだけでは予想EPSの符号や採用FV anchorは確定しない。
     # 未開示と赤字の確認を区別する。
@@ -395,6 +387,5 @@ def build_financial_snapshot(
         tradable_share_change_yoy=tradable_share_change_yoy,
         bs_carry_forward_fields=bs_carry_forward_fields or None,
         bs_carry_forward_lag_days=bs_carry_forward_lag_days,
-        forecast_special_gain_flag=forecast_special_gain_flag,
         forecast_full_year_loss_flag=forecast_full_year_loss_flag,
     )
