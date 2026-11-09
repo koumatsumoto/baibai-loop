@@ -1,24 +1,15 @@
-"""Shared market.sqlite fixtures for source readers, model generation and calibration.
-
-Common fixture builders that previously appeared verbatim across multiple
-test modules. Keep these strictly minimal — only the duplications that exist
-in real test code.
-"""
+"""Shared market.sqlite fixtures for source readers and model generation."""
 
 from __future__ import annotations
 
-import hashlib
 import json
-import shutil
 import sqlite3
-import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from baibai_engine.storage.sqlite.source_cache.coverage import record_range_source_coverage
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
-from tests.helpers.master import insert_master_rows
 
 
 def insert_financial_record(conn: sqlite3.Connection, record: dict[str, Any]) -> None:
@@ -128,165 +119,6 @@ def insert_daily_bars_from_closes(
         conn.commit()
     finally:
         conn.close()
-
-
-CALIBRATION_FIXTURE_ASOF = date(2026, 6, 30)
-
-# Forty call sites build the same two-name store, and a panel build only reads it, so
-# it is written once per session and copied after that.
-_CALIBRATION_TEMPLATE: tempfile.TemporaryDirectory[str] | None = None
-_CALIBRATION_TEMPLATE_PATH: Path | None = None
-_CALIBRATION_TEMPLATE_SHA256: str | None = None
-
-
-def build_calibration_fixture_sqlite(sqlite_path: Path) -> None:
-    """Two priced, disclosed names — the smallest market store a panel build accepts."""
-
-    global _CALIBRATION_TEMPLATE, _CALIBRATION_TEMPLATE_PATH, _CALIBRATION_TEMPLATE_SHA256
-    if _CALIBRATION_TEMPLATE_PATH is None:
-        _CALIBRATION_TEMPLATE = tempfile.TemporaryDirectory()
-        _CALIBRATION_TEMPLATE_PATH = Path(_CALIBRATION_TEMPLATE.name) / "market.sqlite"
-        _write_calibration_fixture_sqlite(_CALIBRATION_TEMPLATE_PATH)
-        _CALIBRATION_TEMPLATE_SHA256 = _file_sha256(_CALIBRATION_TEMPLATE_PATH)
-    # Callers write to their own copy, so nothing should reach the shared bytes. Checked
-    # rather than assumed: a template mutated once would change every later caller with
-    # nothing failing.
-    assert _file_sha256(_CALIBRATION_TEMPLATE_PATH) == _CALIBRATION_TEMPLATE_SHA256, (
-        "calibration fixture template was mutated"
-    )
-    assert sqlite_path != _CALIBRATION_TEMPLATE_PATH
-    shutil.copyfile(_CALIBRATION_TEMPLATE_PATH, sqlite_path)
-
-
-def _file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _write_calibration_fixture_sqlite(sqlite_path: Path) -> None:
-    ASOF = CALIBRATION_FIXTURE_ASOF
-
-    conn = open_connection(sqlite_path)
-    try:
-        insert_master_rows(
-            conn,
-            [
-                ("2026-06-01", "9001", "キャッシュリッチ", "プライム", "サービス業", "011"),
-                ("2026-06-01", "9002", "割高", "プライム", "サービス業", "011"),
-            ],
-        )
-        add_source_coverage(
-            conn,
-            source="jquants_master_snapshots",
-            coverage_key="latest",
-            record_count=2,
-            min_date="2026-06-01",
-            max_date="2026-06-01",
-        )
-        for ticker, values in (
-            (
-                "9001",
-                {
-                    "EPS": 10.0,
-                    "BPS": 200.0,
-                    "Sales": 5e9,
-                    "CFO": 1e9,
-                    "CashEq": 4e9,
-                    "TA": 3e10,
-                    "Eq": 2e10,
-                    "OP": 5e8,
-                    "OdP": 5e8,
-                    "NP": 1e9,
-                    "DivAnn": 4.0,
-                    "NxFEPS": 11.0,
-                    "NxFDivAnn": 4.5,
-                    "EqAR": 2e10 / 3e10,
-                },
-            ),
-            (
-                "9002",
-                {
-                    "EPS": 1.0,
-                    "BPS": 10.0,
-                    "Sales": 5e9,
-                    "CFO": 1e8,
-                    "CashEq": 1e8,
-                    "TA": 2e10,
-                    "Eq": 5e9,
-                    "OP": 5e8,
-                    "OdP": 5e8,
-                    "NP": 1e8,
-                    "NxFEPS": 1.0,
-                    "EqAR": 5e9 / 2e10,
-                },
-            ),
-        ):
-            insert_financial_record(
-                conn,
-                {
-                    "Code": f"{ticker}0",
-                    "DiscDate": "2026-05-10",
-                    "DiscTime": "15:00:00",
-                    "DiscNo": f"statement-{ticker}",
-                    "DocType": "FYFinancialStatements_Consolidated_JP",
-                    "CurPerType": "FY",
-                    "CurFYSt": "2025-04-01",
-                    "CurFYEn": "2026-03-31",
-                    "CurPerSt": "2025-04-01",
-                    "CurPerEn": "2026-03-31",
-                    "NxtFYSt": "2026-04-01",
-                    "NxtFYEn": "2027-03-31",
-                    "ShOutFY": 1e8,
-                    "TrShFY": 0.0,
-                    **values,
-                },
-            )
-        add_source_coverage(
-            conn,
-            source="jquants_fin_summaries",
-            coverage_key="2026",
-            record_count=2,
-            min_date="2026-05-10",
-            max_date="2026-06-30",
-        )
-        conn.execute(
-            # 同じ連結scopeを申告し、総資産の規模比較を通る入力。
-            # 数値の一致だけで会計entityの同一性が証明されるわけではない。
-            "INSERT INTO edinet_metrics("
-            "asof_date, ticker, debt, cash, net_cash, investment_securities, "
-            "total_assets, consolidation_basis, failure_reasons, extractor_revision"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                ASOF.isoformat(),
-                "9001",
-                1e9,
-                4e9,
-                3e9,
-                2e9,
-                3e10,
-                "consolidated",
-                "[]",
-                "a" * 64,
-            ),
-        )
-        add_source_coverage(
-            conn,
-            source="edinet_metrics",
-            coverage_key=ASOF.isoformat(),
-            record_count=1,
-            min_date=ASOF.isoformat(),
-            max_date=ASOF.isoformat(),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    for ticker in ("9001", "9002"):
-        insert_daily_bars_from_closes(
-            sqlite_path,
-            ticker,
-            [100.0] * 200,
-            end_date=ASOF,
-            turnover_value=2e8,
-        )
 
 
 def seed_daily_bars(
