@@ -236,11 +236,8 @@ describe('brand palette', () => {
   })
 })
 
-// The three families that fill a badge or a banner. Each owns an opaque `-surface` to paint
-// with and an opaque `-ink` to write on it, because a translucent fill has no fixed contrast:
-// the ratio depends on whatever is behind it, and it changes when a page moves the badge from
-// a white card to a tinted one.
-const STATUS_FAMILIES = ['--positive', '--warning', '--destructive'] as const
+// The warning banner uses an opaque surface and ink with a fixed contrast ratio.
+const STATUS_FAMILIES = ['--warning'] as const
 const STATUS_NAMES = 'positive|warning|destructive'
 
 // Everything under src/ that can name a color, with the palette itself excludable: a token
