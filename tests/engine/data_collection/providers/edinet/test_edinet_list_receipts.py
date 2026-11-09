@@ -163,10 +163,14 @@ def test_invalid_json_or_encoding_is_retained_with_failed_coverage(tmp_path, bod
     projection = rebuild_edinet_document_day(path, _DAY)
     assert projection.error is not None
     assert "test-key" not in projection.error
+    ids = _stored_ids(path)
+    assert len(ids) == 1
     with closing(sqlite3.connect(path)) as conn:
-        saved = _receipt(conn, _stored_ids(path)[0])
+        saved = _receipt(conn, ids[0])
         assert saved is not None
         assert saved.body == body
+        assert conn.execute("SELECT COUNT(*) FROM edinet_document_lists").fetchone() == (1,)
+        assert conn.execute("SELECT COUNT(*) FROM edinet_documents").fetchone() == (0,)
         assert conn.execute(
             "SELECT status FROM source_coverage WHERE source = 'edinet_documents'"
         ).fetchone() == ("failed",)
@@ -174,23 +178,16 @@ def test_invalid_json_or_encoding_is_retained_with_failed_coverage(tmp_path, bod
 
 @pytest.mark.parametrize(
     "failure",
-    ["malformed_json", "count_mismatch", "invalid_row", "missing_doc_id", "invalid_seq"],
+    ["count_mismatch", "invalid_row", "missing_doc_id", "invalid_seq"],
 )
 def test_invalid_projection_still_retains_received_body(tmp_path, failure):
-    if failure == "malformed_json":
-        body = b"{not valid JSON"
-    else:
-        results = {
-            "count_mismatch": [],
-            "invalid_row": [42],
-            "missing_doc_id": [{"seqNumber": 1}],
-            "invalid_seq": [{"docID": "S100TEST", "seqNumber": "invalid"}],
-        }[failure]
-        payload = {
-            "metadata": {"resultset": {"count": 1}},
-            "results": results,
-        }
-        body = _wire(payload)
+    results = {
+        "count_mismatch": [],
+        "invalid_row": [42],
+        "missing_doc_id": [{"seqNumber": 1}],
+        "invalid_seq": [{"docID": "S100TEST", "seqNumber": "invalid"}],
+    }[failure]
+    body = _wire({"metadata": {"resultset": {"count": 1}}, "results": results})
     path = tmp_path / "market.sqlite"
     with closing(open_connection(path)) as conn:
         seed_list_response(

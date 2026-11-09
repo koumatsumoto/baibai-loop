@@ -99,24 +99,6 @@ def test_identity_conflict_never_overwrites(tmp_path, change):
     assert writer.freeze().identity == fixed.identity
 
 
-@pytest.mark.parametrize("tamper", ["missing", "body", "metadata"])
-def test_missing_or_tampered_body_blocks_read_and_new_head(tmp_path, tamper):
-    writer, store = owner(tmp_path)
-    fixed = writer.publish([receipt()])
-    key = next(key for key in store.values if key != HEAD_KEY)
-    if tamper == "missing":
-        del store.values[key]
-    elif tamper == "body":
-        store.store_object(key, gzip.compress(b"tampered", mtime=0))
-    else:
-        store.values[key].metadata["sha256"] = "0" * 64
-    with pytest.raises(LakePublishError):
-        list(fixed.iter_receipts())
-    with pytest.raises(LakePublishError):
-        writer.publish([receipt(2)])
-    assert store.values[HEAD_KEY].body == canonical_json(fixed.value())
-
-
 def test_competing_head_writer_keeps_winner_and_local_bytes(tmp_path):
     class Competing(MemoryR2Store):
         race = False
@@ -270,7 +252,7 @@ def test_owner_freeze_read_and_publish_share_verified_body_cache(tmp_path):
 
 
 @pytest.mark.parametrize("tamper", ["missing", "body", "metadata"])
-def test_verified_cache_does_not_hide_missing_or_changed_object(tmp_path, tamper):
+def test_verified_cache_rejects_changed_object_and_blocks_new_head(tmp_path, tamper):
     writer, store = owner(tmp_path)
     fixed = writer.publish([receipt()])
     assert list(fixed.iter_receipts()) == [receipt()]
@@ -285,3 +267,4 @@ def test_verified_cache_does_not_hide_missing_or_changed_object(tmp_path, tamper
         list(fixed.iter_receipts())
     with pytest.raises(LakePublishError):
         writer.publish([receipt(2)])
+    assert store.values[HEAD_KEY].body == canonical_json(fixed.value())
