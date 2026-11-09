@@ -10,20 +10,8 @@ generation_dir="${R2_GENERATION_DIR:-${repo_root}/stores/.r2-generations}"
 # the mirror root is the directory the stores live in and not one of them.
 lake_mirror="${R2_LAKE_MIRROR:-${repo_root}/stores}"
 copy_read_timeout=300
-# The market/runs pair is pushed sequentially, each conditional on the pulled
-# generation. Economic L1 is a separate single-object authority. A pair push that
-# stops partway therefore leaves a set nothing ever wrote: the earlier keys at the new
-# generation, the rest at the old one. Per key that state is indistinguishable from a
-# healthy one — the pull's straddle check compares each object with itself — so the
-# receipt is what records which two generations were last seen together. It is
-# rewritten by every push that changes a member and checked before a bundle pull
-# replaces the local stores.
-# The application store is the one object here nothing regenerates: it holds the
-# judgments and the ledger. A single `.bak` is a single undo, and a store damaged before
-# anyone looked at it has already spent that undo by the second push, so this key keeps
-# one dated backup key per day instead, retaining the latest 14 distinct dates.
-# Further pushes on the same date replace that day's backup; this is not an archive
-# of every application update.
+# The machine receipt prevents a partial sequential push from looking like a coherent pair.
+# The non-regenerable application store keeps 14 daily backups; same-day pushes replace one.
 app_backup_generations=14
 machine_manifest_key="machine-manifest.json"
 machine_bundle_keys=(market.sqlite runs.sqlite)
@@ -308,19 +296,10 @@ PYTHON
 }
 
 require_machine_manifest() {
-  # Each argument is `key=version` for the generation this pull is about to take. A
-  # mismatch is either a push running right now or one that stopped partway. The two
-  # need different answers: the first clears itself when that push finishes, and the
-  # second clears nothing on its own — the conditional PUTs are bound to the generation
-  # the failed run pulled, so re-running the same command is refused by its own
-  # precheck. The message names both rather than telling the reader to retry.
+  # A mismatch may be an active push or an interrupted one; blind retry cannot fix both.
   local file entry key expected actual
   file="${transfer_staging}/machine-manifest.json"
-  # Absence is decided by the existence check, not by the download failing: a download
-  # that fails for any other reason must refuse the pull rather than read as "no receipt
-  # was ever written", which is the shape a hole in this check would take. The existence
-  # check distinguishes a missing object from authentication, network or server errors;
-  # success for another key does not establish that this request succeeded.
+  # Only confirmed absence permits the unverified legacy pull.
   if ! remote_object_exists "${machine_manifest_key}"; then
     printf 'no machine bundle receipt in s3://%s yet; taking the store set unverified. ' \
       "${stores_bucket}" >&2
@@ -362,13 +341,7 @@ pull_keys() {
   fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
   local key target index
-  # The stores download one after another, so a daily batch that pushes partway
-  # through leaves a local set whose members come from either side of that push:
-  # a run store that knows a screening run the market store has no bars for.
-  # `check_sqlite` reads each store on its own and passes such a set, and nothing
-  # downstream re-derives the combination, so screening would read a cross-section
-  # that never existed. Comparing each object's version before and after the
-  # downloads catches exactly that straddle, and the local stores stay untouched.
+  # Verify all generations around the downloads before replacing local stores.
   local -a versions=()
   clear_pulled_versions "$@"
   for key in "$@"; do
@@ -469,21 +442,8 @@ prune_app_backups() {
 }
 
 backup_remote_key() {
-  # Keep one generation of the object being replaced. A store is rebuildable from
-  # its sources in principle, but some of it is not re-fetchable in practice (the
-  # PMI history depends on release URLs the publisher eventually drops), so an
-  # overwrite by a damaged or wrongly pruned snapshot must stay recoverable. R2
-  # copies server-side, so this costs a request and no transfer.
-  # The copy goes through CopyObject directly because `aws s3 cp` switches implementation
-  # by object size and R2 rejects both branches: a multipart copy asks for the source tags
-  # through GetObjectTagging, and a single-part one sends x-amz-tagging-directive, neither
-  # of which R2 implements. CopyObject sends no directive, is one server-side request with
-  # no transfer, and covers objects up to 5GB (the largest store here is well inside that).
-  # R2 answers CopyObject only once the copy is finished, and that wait grows with the
-  # object size: the several-hundred-MB stores do not fit the CLI's 60s default read
-  # timeout, which surfaces as `Read timeout on endpoint URL` and aborts the whole push.
-  # The wider limit below is a ceiling, not a delay — retries stay at the CLI default so a
-  # copy that is genuinely stuck still fails the step inside the job's time budget.
+  # Retain the prior generation: some source history cannot be fetched again.
+  # R2 needs direct CopyObject rather than `aws s3 cp`; large copies need a longer timeout.
   local key="$1" expected_version="${2:-}"
   if remote_object_exists "${key}"; then
     local backup_key
@@ -511,12 +471,7 @@ _push_keys() {
     return 2
   fi
   transfer_staging="$(mktemp -d "${repo_root}/.r2-transfer.XXXXXX")"
-  # A push is three waits, and only one of them moves bytes over the link: the local
-  # full copy the snapshot makes, the server-side copy that keeps a generation, and
-  # the upload. Sending fewer bytes — compressed, or as a diff — shortens the third
-  # and leaves the other two exactly as they are, so the split is what says whether
-  # either is worth its machinery. The stores differ by a factor of 30 in size, and
-  # the two server-side phases scale with it, so the split is reported per key.
+  # Report snapshot, backup and upload times separately for each store.
   local key source started uploaded_version
   local -a snapshot_seconds=()
   for key in "$@"; do
