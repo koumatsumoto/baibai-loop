@@ -35,10 +35,12 @@ from baibai_engine.data_collection.receipts.articles.store import (
     read_receipt,
     retain_receipt,
 )
+from baibai_engine.data_collection.receipts.articles.store import (
+    open_receipt_store as open_connection,
+)
 from baibai_engine.data_collection.transport.articles import ArticleBudget, fetch_article
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_discovery import (
     DISCOVERY_SOURCES,
     MAX_DISCOVERY_BYTES,

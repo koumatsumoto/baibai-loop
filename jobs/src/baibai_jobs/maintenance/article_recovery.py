@@ -17,12 +17,12 @@ from baibai_engine.data_collection.receipts.articles.contracts import digest_jso
 from baibai_engine.data_collection.receipts.articles.store import (
     connect_read_only,
     copy_receipt_closure,
+    open_receipt_store,
     read_body,
     read_receipt,
 )
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
-from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.article_discovery import DISCOVERY_SOURCES, DiscoveryWork
 from baibai_jobs.acquisition.article_evidence import exact_entry
 from baibai_jobs.acquisition.article_planning import (
@@ -91,7 +91,7 @@ def register_discovery(
     evidence: dict[str, dict[str, str]] = {}
     with (
         closing(connect_read_only(original_dir / "receipts.sqlite")) as raw,
-        closing(open_connection(output / "receipts.sqlite")) as retained,
+        closing(open_receipt_store(output / "receipts.sqlite")) as retained,
         retained,
     ):
         for identity in sorted(selected):

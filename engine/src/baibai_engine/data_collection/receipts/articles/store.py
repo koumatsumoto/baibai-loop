@@ -41,6 +41,19 @@ def validate_receipt_schema(conn: sqlite3.Connection) -> None:
         raise ArticleStoreError("article receipt table shape differs from its native contract")
 
 
+def open_receipt_store(path: Path) -> sqlite3.Connection:
+    """Create a receipt-only acquisition store, or reopen a compatible one."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(ARTICLE_RECEIPTS_DDL)
+        validate_receipt_schema(conn)
+        return conn
+    except BaseException:
+        conn.close()
+        raise
+
+
 def connect_read_only(path: Path) -> sqlite3.Connection:
     """Read retained article bytes without migrating their enclosing SQLite store."""
     conn = connect_sqlite_read_only(path)
