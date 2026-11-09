@@ -220,10 +220,14 @@ def test_weekly_backfill_does_not_treat_midweek_range_end_as_week_end(tmp_path):
 
 def test_weekly_backfill_reports_missing_later_calendar_days(tmp_path):
     thursday, friday = date(2026, 9, 17), date(2026, 9, 18)
-    _, _, cal = setup(tmp_path, start=thursday, end=thursday)
+    store, owner, cal = setup(tmp_path, start=thursday, end=thursday)
     expected, unknown, _ = balance_days(cal, start=thursday, end=thursday)
     assert expected == ()
     assert unknown == (friday,)
+
+    saved = fixed_input(store, owner.fixed(), cal, start=thursday, end=thursday, evaluated_at=AT)
+    result = materialize_saved_input(store, saved, output=tmp_path / "unknown-friday.sqlite")
+    assert result["weekly_coverage_status"] == "partial"
 
 
 def test_weekly_backfill_keeps_thursday_when_friday_is_closed(tmp_path):

@@ -247,6 +247,16 @@ def _project_selection(
         for day in raw_expected
         if isinstance(day, str) and start.isoformat() <= day <= end.isoformat()
     }
+    # A missing later weekday can leave the last selected weekly balance unknown
+    # even though all calendar days inside the selected interval are available.
+    raw_unknown = summary.get("unknown_calendar_days", [])
+    if not isinstance(raw_unknown, list) or not all(isinstance(day, str) for day in raw_unknown):
+        raise ValueError("invalid unknown margin calendar dates")
+    later_unknown = 0
+    if end <= LEGACY_WEEKLY_LAST_BALANCE_DATE and end.weekday() < 4:
+        friday = min(end + timedelta(days=4 - end.weekday()), LEGACY_WEEKLY_LAST_BALANCE_DATE)
+        later_unknown = sum(end < date.fromisoformat(day) <= friday for day in raw_unknown)
+    calendar_incomplete = calendar_result["coverage_status"] != "complete" or later_unknown > 0
     adopted = {scope["adopted"]: day for day, scope in scopes.items() if scope.get("adopted")}
     changed = tuple(day for day in days if day not in reusable)
     for table, column in (
@@ -376,14 +386,14 @@ def _project_selection(
         "expected_balance_days": len(expected),
         "unresolved_days": unresolved,
         "unsupported_days": sorted(unsupported),
-        "calendar_unavailable_days": calendar_result["unavailable_days"],
+        "calendar_unavailable_days": calendar_result["unavailable_days"] + later_unknown,
         "coverage_status": "partial"
-        if unresolved or unsupported or calendar_result["coverage_status"] != "complete"
+        if unresolved or unsupported or calendar_incomplete
         else "complete",
         "weekly_coverage_status": "partial"
         if any(day <= LEGACY_WEEKLY_LAST_BALANCE_DATE.isoformat() for day in unresolved)
         or unsupported
-        or calendar_result["coverage_status"] != "complete"
+        or calendar_incomplete
         else "complete",
         "daily_coverage_status": "partial"
         if any(day >= ALL_ISSUES_DAILY_FIRST_BALANCE_DATE.isoformat() for day in unresolved)
