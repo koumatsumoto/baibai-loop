@@ -55,7 +55,6 @@ MARKET_SOURCES: tuple[JQuantsSource, ...] = (
     "margin_alerts",
     "short_sale_reports",
 )
-FINANCIAL_SOURCES: tuple[JQuantsSource, ...] = ("financial_summaries",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +92,7 @@ def export_handoff(
         raise FileExistsError(output)
     if since.tzinfo is None:
         raise ValueError("J-Quants handoff cutoff requires a timezone")
-    allowed = set(MARKET_SOURCES + FINANCIAL_SOURCES)
+    allowed = set(MARKET_SOURCES)
     if not sources or not set(sources) <= allowed:
         raise ValueError("unsupported J-Quants handoff sources")
     with (
@@ -171,7 +170,6 @@ def _coverage_source(scope: _Scope) -> str:
         "master": "jquants_master_snapshots",
         "daily_bars": "jquants_daily_bars",
         "market_calendar": "jquants_market_calendar",
-        "financial_summaries": "jquants_fin_summaries",
         "margin_alerts": "jquants_margin_alerts",
         "short_sale_reports": "jquants_short_sale_reports",
     }[scope.source]
@@ -181,15 +179,15 @@ def validate_source_handoff(
     original: sqlite3.Connection, *, sources: Sequence[JQuantsSource]
 ) -> None:
     """Accept either the native-page transport or the current full source store."""
+    if not sources or not set(sources) <= set(MARKET_SOURCES):
+        raise ValueError("unsupported J-Quants handoff sources")
     tables = {
         row[0]
         for row in original.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         )
     }
-    if set(sources) in (set(FINANCIAL_SOURCES), set(MARKET_SOURCES)) and tables == {
-        "jquants_source_pages"
-    }:
+    if set(sources) == set(MARKET_SOURCES) and tables == {"jquants_source_pages"}:
         columns = [
             (row[1], row[2], row[3], row[5])
             for row in original.execute("PRAGMA table_info(jquants_source_pages)")
