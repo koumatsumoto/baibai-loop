@@ -170,7 +170,7 @@ jobs/scripts/publish.sh
 
 publish.shは引数なし。台帳preflight→取得世代への条件付きbackup/PUT→次回ETag記録→Web生成dispatchの順。時価/quote不足と取引保存障害を分け、DBだけの世代交換・未知世代の現HEAD補完はしない。backupは実行JST日の日別keyを同日置換する。R2_APP_BACKUP_PRUNE=skipでも同日置換は止まらないため、保全/置換の依頼範囲を確認する。
 
-保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。current schemaだけを開き、移行は限定source version・別copyで検証後、code/store反映後に一回toolを撤去する。
+保存・反映・readbackを分け、対象Proposal/評価のexact IDを確認する。競合時は未公開差分を退避し、最新正本へ正規serviceで再適用する。PUT後の記録失敗で旧DBを再送しない。dispatchだけ失敗/不明ならActionsを確認し、run未作成時だけcloud-materializeを再dispatchする。publish.sh全体は繰り返さない。通常はcurrent schemaだけを開く。確認済み分割の29→30切替だけは[限定互換と撤去条件](../.agents/skills/ledger-record/SKILL.md#confirmed-share-conversions)に従い、通常dailyでは移行しない。
 
 ### application DB を復元する
 

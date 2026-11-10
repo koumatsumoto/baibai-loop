@@ -1,7 +1,7 @@
 """Application database infrastructure.
 
 This package owns writable SQLite connections and current-schema initialization.
-Domain packages expose all business mutations; older stores require an explicit cutover.
+Domain packages own mutations; the temporary 29/30 bridge does not migrate a store.
 """
 
 from baibai_engine.storage.sqlite.application.schema import (

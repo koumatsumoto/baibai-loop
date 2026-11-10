@@ -11,7 +11,11 @@ from pathlib import Path
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.application.paths import DEFAULT_DB_PATH as DEFAULT_DB_PATH
 from baibai_engine.storage.sqlite.application.paths import database_path as database_path
-from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION, SCHEMA_SQL
+from baibai_engine.storage.sqlite.application.schema import (
+    APPLICATION_SCHEMA_VERSION,
+    SCHEMA_SQL,
+    SUPPORTED_APPLICATION_SCHEMA_VERSIONS,
+)
 
 
 def connect_rw(path: Path | None = None) -> sqlite3.Connection:
@@ -37,10 +41,10 @@ _BACKUP_GLOB = "baibai-*.sqlite"
 def initialize_database(
     path: Path | None = None,
 ) -> int:
-    """Create the current schema or reject a store that needs an explicit cutover."""
+    """Create the current schema or open a supported store without migrating it."""
     with closing(connect_rw(path)) as connection:
         current = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if current == APPLICATION_SCHEMA_VERSION:
+        if current in SUPPORTED_APPLICATION_SCHEMA_VERSIONS:
             return current
         tables = connection.execute(
             "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
@@ -48,7 +52,7 @@ def initialize_database(
         if current != 0 or tables is not None:
             raise RuntimeError(
                 "application database requires an explicit semantic cutover "
-                f"(found user_version={current}, expected={APPLICATION_SCHEMA_VERSION})"
+                f"(found user_version={current}, supported={SUPPORTED_APPLICATION_SCHEMA_VERSIONS})"
             )
         try:
             # executescript commits a pending transaction before executing its SQL.
