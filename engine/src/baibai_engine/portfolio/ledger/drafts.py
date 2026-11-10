@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Callable
 from datetime import date, datetime, time
 from decimal import Decimal
+from fractions import Fraction
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -33,6 +34,7 @@ from baibai_engine.portfolio.ledger.events import (
     PortfolioLedgerDocument,
     ReleaseEvent,
     ReservationEvent,
+    ShareConversionEvent,
     WithdrawalEvent,
     active_human_overrides,
     replay_events_through,
@@ -42,7 +44,9 @@ from baibai_engine.portfolio.ledger.store import LedgerApplyResult, LedgerStoreS
 from baibai_engine.primitives.time import JST
 from baibai_engine.primitives.yaml import safe_load
 
-DraftKind = Literal["event", "broker-fact", "sell-execution", "override", "meta"]
+DraftKind = Literal[
+    "event", "broker-fact", "sell-execution", "override", "meta", "share-conversion"
+]
 HumanEvent = ContributionEvent | WithdrawalEvent | IncomeEvent | CostEvent | ConfirmedTaxEvent
 
 
@@ -585,6 +589,70 @@ def build_sell_execution_draft(
     )
 
 
+def build_share_conversion_draft(
+    ledger_service: LedgerStoreService,
+    *,
+    action_id: str,
+    ticker: str,
+    basis_date: date,
+    numerator: int,
+    denominator: int,
+    quantity_before: int,
+    quantity_after: int,
+    confirmed_at: datetime,
+    source_ref: str,
+) -> LedgerDraft | None:
+    """Record a reported whole-position conversion without inferring broker activity."""
+    source, head = ledger_service.load_with_head()
+    if numerator <= 0 or denominator <= 0:
+        raise ValueError("share conversion ratio must be positive")
+    ratio = Fraction(numerator, denominator)
+    event = ShareConversionEvent(
+        type="share_conversion",
+        event_id="share-conversion-" + hashlib.sha256(action_id.encode()).hexdigest(),
+        action_id=action_id,
+        ticker=ticker,
+        occurred_on=basis_date,
+        occurred_at=datetime.combine(basis_date, time.min, tzinfo=JST),
+        confirmed_at=confirmed_at,
+        numerator=ratio.numerator,
+        denominator=ratio.denominator,
+        quantity_before=quantity_before,
+        quantity_after=quantity_after,
+        source_ref=source_ref,
+    )
+    for saved in source.events:
+        if not isinstance(saved, ShareConversionEvent):
+            continue
+        if saved.action_id == action_id:
+            # The same confirmed fact can be reported again at a later clock.
+            if saved.model_dump(exclude={"confirmed_at"}) == event.model_dump(
+                exclude={"confirmed_at"}
+            ):
+                return None
+            raise ValueError(
+                "share conversion action has different content; correction is unsupported"
+            )
+        if (saved.ticker, saved.occurred_on) == (ticker, basis_date):
+            raise ValueError("share conversion already recorded for ticker/basis date")
+    raw = source.model_dump(mode="json")
+    raw["schema_version"] = 4
+    raw["events"] = [
+        item.model_dump(mode="json")
+        for item in sorted((*source.events, event), key=lambda item: item.occurred_at)
+    ]
+    raw["as_of"] = max(source.as_of, confirmed_at).isoformat()
+    replacement = PortfolioLedgerDocument.model_validate(raw)
+    replay_events_through(replacement.events, replacement.as_of)
+    return LedgerDraft(
+        kind="share-conversion",
+        expected_head=head,
+        source=source,
+        replacement=replacement,
+        confirmation_required=True,
+    )
+
+
 def date_only_replay_key(
     source: PortfolioLedgerDocument, occurred_on: date, reservation_id: str | None
 ) -> datetime:
@@ -689,6 +757,7 @@ __all__ = [
     "build_meta_draft",
     "build_override_draft",
     "build_sell_execution_draft",
+    "build_share_conversion_draft",
     "date_only_replay_key",
     "known_broker_reference",
     "load_draft",

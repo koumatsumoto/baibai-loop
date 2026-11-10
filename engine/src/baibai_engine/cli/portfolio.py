@@ -43,6 +43,7 @@ from baibai_engine.portfolio.ledger.drafts import (
     build_meta_draft,
     build_override_draft,
     build_sell_execution_draft,
+    build_share_conversion_draft,
     date_only_replay_key,
     known_broker_reference,
     load_draft,
@@ -59,6 +60,7 @@ from baibai_engine.portfolio.ledger.events import (
     WithdrawalEvent,
     replay_events_through,
     require_resolved_expiries,
+    share_conversions,
     snapshot_to_payload,
 )
 from baibai_engine.portfolio.ledger.read import LedgerConflictError
@@ -205,6 +207,20 @@ def build_parser() -> argparse.ArgumentParser:
     sell_parser.add_argument("--tax-yen", type=int)
     sell_parser.add_argument("--decision-reference")
     sell_parser.add_argument("--out", type=Path, required=True)
+    conversion_parser = subparsers.add_parser(
+        "share-conversion-draft", help="record a confirmed split/consolidation, without a trade"
+    )
+    conversion_parser.add_argument("--db", type=Path)
+    conversion_parser.add_argument("--action-id", required=True)
+    conversion_parser.add_argument("--ticker", required=True)
+    conversion_parser.add_argument("--basis-date", type=_date_argument, required=True)
+    conversion_parser.add_argument("--numerator", type=int, required=True)
+    conversion_parser.add_argument("--denominator", type=int, required=True)
+    conversion_parser.add_argument("--quantity-before", type=int, required=True)
+    conversion_parser.add_argument("--quantity-after", type=int, required=True)
+    conversion_parser.add_argument("--confirmed-at", type=_datetime_argument, required=True)
+    conversion_parser.add_argument("--source-ref", required=True)
+    conversion_parser.add_argument("--out", type=Path, required=True)
     apply_parser = subparsers.add_parser(
         "apply-draft", help="apply a source-bound ledger draft after explicit human confirmation"
     )
@@ -270,6 +286,27 @@ def main(argv: list[str] | None = None, *, now: datetime | None = None) -> int:
         return _run_record_broker_fact(args, now=now)
     if args.command == "sell-execution-draft":
         return _run_sell_execution_draft(args)
+    if args.command == "share-conversion-draft":
+        try:
+            draft = build_share_conversion_draft(
+                LedgerStoreService(args.db),
+                action_id=args.action_id,
+                ticker=args.ticker,
+                basis_date=args.basis_date,
+                numerator=args.numerator,
+                denominator=args.denominator,
+                quantity_before=args.quantity_before,
+                quantity_after=args.quantity_after,
+                confirmed_at=args.confirmed_at,
+                source_ref=args.source_ref,
+            )
+            if draft is not None:
+                write_draft(args.out, draft)
+        except (OSError, ValueError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        yaml.safe_dump({"status": "no_change" if draft is None else "draft_created"}, sys.stdout)
+        return 0
     if args.command == "apply-draft":
         try:
             result = apply_draft(
@@ -507,6 +544,7 @@ def _run_outcome(
                     ticker=ticker,
                     from_date=first,
                     through_date=last,
+                    conversions=share_conversions(ledger.events),
                     connection=connection,
                 ),
             )

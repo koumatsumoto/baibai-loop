@@ -35,7 +35,7 @@ from baibai_engine.machine_analysis.observations.prices.calendar_context import 
 from baibai_engine.storage.sqlite.application.read import (
     connect_read_only as connect_application_read_only,
 )
-from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
+from baibai_engine.storage.sqlite.application.schema import SUPPORTED_APPLICATION_SCHEMA_VERSIONS
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_engine.storage.sqlite.machine_analysis import RUN_STORE_SCHEMA_VERSION
 from baibai_engine.storage.sqlite.read import read_rows
@@ -104,7 +104,9 @@ def test_application_reader_rejects_an_obsolete_store_before_querying(tmp_path: 
     store = tmp_path / "application-v16.sqlite"
     initialize_database(store)
     with closing(sqlite3.connect(store)) as connection, connection:
-        connection.execute(f"PRAGMA user_version = {APPLICATION_SCHEMA_VERSION - 1}")
+        connection.execute(
+            f"PRAGMA user_version = {min(SUPPORTED_APPLICATION_SCHEMA_VERSIONS) - 1}"
+        )
 
     with (
         pytest.raises(RuntimeError, match="obsolete application database schema"),

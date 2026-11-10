@@ -14,7 +14,11 @@ from baibai_engine.portfolio.ledger.decision_references import (
     DecisionReferenceBinding,
     add_manual_fact_binding,
 )
-from baibai_engine.portfolio.ledger.events import LedgerEvent, PortfolioLedgerDocument
+from baibai_engine.portfolio.ledger.events import (
+    LedgerEvent,
+    PortfolioLedgerDocument,
+    ShareConversionEvent,
+)
 from baibai_engine.portfolio.ledger.read import (
     LedgerConflictError,
     ledger_append_head,
@@ -67,6 +71,16 @@ class LedgerStoreService:
         with closing(connect_rw(self._db_path)) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                # Keep every schema-29 write readable by pre-conversion clients,
+                # including a metadata-only v4 update without a conversion event.
+                if connection.execute("PRAGMA user_version").fetchone()[0] == 29 and (
+                    replacement.schema_version != 3
+                    or any(isinstance(event, ShareConversionEvent) for event in replacement.events)
+                ):
+                    raise LedgerConflictError(
+                        "schema 29 permits only metadata v3 and legacy events; "
+                        "share conversions require the explicit schema 30 cutover"
+                    )
                 current, current_head = load_ledger_in_transaction(connection)
                 if current_head != expected_head or current != expected_document:
                     raise LedgerConflictError("stale ledger draft")

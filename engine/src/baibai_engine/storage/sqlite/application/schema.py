@@ -1,12 +1,15 @@
 """Current application-store schema.
 
-Runtime code creates the current shape or rejects a different version; semantic
-cutovers are explicit operator work against a verified backup.
+Runtime creates the current shape; the share-conversion cutover temporarily also
+accepts schema 29. Semantic cutovers remain explicit work against a verified copy.
 """
 
-# The removed task feature leaves existing tables untouched. No retained domain
-# changes its record contract, so these stores keep the same schema version.
-APPLICATION_SCHEMA_VERSION = 29
+# Confirmed share conversions extend the ledger event discriminator. Existing
+# stores require an explicit copy/cutover; runtime never migrates the ledger.
+APPLICATION_SCHEMA_VERSION = 30
+# Remove the schema-29 bridge with enable_share_conversions after canonical readback
+# and all active writers have moved to 30. Never infer a migration from this set.
+SUPPORTED_APPLICATION_SCHEMA_VERSIONS = (29, APPLICATION_SCHEMA_VERSION)
 
 SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL = """
 CREATE TABLE selection_identity_migration (
@@ -223,7 +226,7 @@ CREATE TABLE ledger_event (
     event_type TEXT NOT NULL CHECK (
         event_type IN (
             'opening_balance', 'contribution', 'withdrawal', 'reservation',
-            'release', 'execution', 'income', 'cost', 'tax_confirmed'
+            'release', 'execution', 'income', 'cost', 'tax_confirmed', 'share_conversion'
         )
     ),
     ticker TEXT,
@@ -274,4 +277,5 @@ __all__ = [
     "JUDGMENT_RETROSPECTIVE_SCHEMA_SQL",
     "SCHEMA_SQL",
     "SELECTION_IDENTITY_MIGRATION_SCHEMA_SQL",
+    "SUPPORTED_APPLICATION_SCHEMA_VERSIONS",
 ]

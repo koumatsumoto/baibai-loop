@@ -19,7 +19,9 @@ from baibai_engine.portfolio.ledger.events import (
     MarketPrice,
     PortfolioLedgerDocument,
     PortfolioSnapshot,
+    holding_episodes,
     replay_events_through,
+    share_conversions,
     summarize_portfolio,
 )
 from baibai_engine.portfolio.policy import PORTFOLIO_POLICY
@@ -31,26 +33,17 @@ def holding_episode(
     ledger: PortfolioLedgerDocument, ticker: str, now: datetime
 ) -> tuple[ExecutionEvent | None, datetime | None]:
     """Return the first buy of the open holding episode and its latest trade."""
-    balance = 0
-    first_buy: ExecutionEvent | None = None
-    last_trade: datetime | None = None
-    for event in ledger.events:
-        if (
-            not isinstance(event, ExecutionEvent)
-            or event.ticker != ticker
-            or event.occurred_at > now
-        ):
-            continue
-        last_trade = event.occurred_at
-        if event.side == "buy":
-            if balance == 0:
-                first_buy = event
-            balance += event.quantity
-        else:
-            balance -= event.quantity
-            if balance == 0:
-                first_buy = None
-    return first_buy, last_trade
+    episodes = tuple(
+        item
+        for item in holding_episodes(
+            tuple(event for event in ledger.events if event.occurred_at <= now)
+        )
+        if item.first_buy.ticker == ticker
+    )
+    episode = next((item for item in episodes if not item.closed), None)
+    if episode is not None:
+        return episode.first_buy, episode.last_trade.occurred_at
+    return None, None if not episodes else episodes[-1].last_trade.occurred_at
 
 
 class UnresolvedHoldingQuantityError(ValueError):
@@ -61,29 +54,20 @@ def require_closed_holding_basis(
     ledger: PortfolioLedgerDocument, *, now: datetime, connection: sqlite3.Connection
 ) -> None:
     """Do not let a reported full sale erase a known unresolved share-unit change."""
-    balances: dict[str, int] = {}
-    acquired: dict[str, datetime] = {}
-    for event in ledger.events:
-        if not isinstance(event, ExecutionEvent) or event.occurred_at > now:
-            continue
-        balance = balances.get(event.ticker, 0)
-        if event.side == "buy":
-            if balance == 0:
-                acquired[event.ticker] = event.occurred_at
-            balances[event.ticker] = balance + event.quantity
-        else:
-            balances[event.ticker] = balance - event.quantity
-            if balances[event.ticker] == 0 and has_received_share_action(
-                connection,
-                ticker=event.ticker,
-                after=acquired[event.ticker].astimezone(JST).date(),
-                through=event.occurred_at.astimezone(JST).date(),
-            ):
-                raise UnresolvedHoldingQuantityError(
-                    f"{event.ticker}: 保有中の株数変更を照合できず、"
-                    "全売却後の数量を確認できません。"
-                    "分割・併合後の確認済み数量の記帳が必要です。"
-                )
+    events = tuple(event for event in ledger.events if event.occurred_at <= now)
+    for episode in holding_episodes(events):
+        if episode.closed and has_received_share_action(
+            connection,
+            ticker=episode.first_buy.ticker,
+            after=episode.first_buy.occurred_at.astimezone(JST).date(),
+            through=episode.last_trade.occurred_at.astimezone(JST).date(),
+            conversions=share_conversions(events),
+        ):
+            raise UnresolvedHoldingQuantityError(
+                f"{episode.first_buy.ticker}: 保有中の株数変更を照合できず、"
+                "全売却後の数量を確認できません。"
+                "分割・併合後の確認済み数量の記帳が必要です。"
+            )
 
 
 def holding_quote(
@@ -110,10 +94,17 @@ def holding_quote(
             sqlite_path=sqlite_path, ticker=ticker, at=now, connection=connection
         )
         first_buy, last_trade = holding_episode(ledger, ticker, now)
+        conversions = share_conversions(
+            tuple(event for event in ledger.events if event.occurred_at <= now)
+        )
         confirmed = (
             first_buy is not None
             and last_trade is not None
             and quote is not None
+            and not any(
+                event.ticker == ticker and event.occurred_on > quote.price_as_of
+                for event in conversions
+            )
             and market_basis_is_confirmed(
                 basis="shares",
                 sqlite_path=sqlite_path,
@@ -121,6 +112,7 @@ def holding_quote(
                 from_date=min(first_buy.occurred_at.astimezone(JST).date(), quote.price_as_of),
                 through_date=max(last_trade.astimezone(JST).date(), quote.price_as_of),
                 known_actions_through=now.astimezone(JST).date(),
+                conversions=conversions,
                 connection=connection,
             )
         )
