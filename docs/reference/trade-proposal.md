@@ -68,6 +68,8 @@ sell limitは作者の一株回収下限。実quoteの上下とも可能だがgr
 
 別作業者の内容Reviewを正規checkの`draft_sha256`へ束縛し、valid/file hashで代用しない。内容変更は再Review、入力事実変更はsnapshotも取り直す。読取時刻差だけを事実変更にせず、検証は実時刻、公開はエンジンの初回発行時計を保つ。
 
+提案のReviewは参照評価の独立Review完了以後に行う。評価pairの保存だけが遅れた場合は、内容の完成が遅れた場合と区別する。
+
 公開時に固定scope・exact評価pair・現入力を照合する。previewは保存案と現在再試算を分け、旧保存を下限比較済みとせず、現在上限超でもlimit/数量を書換えない。利用不能を当時の誤りと即断せず、過去本文/hashへ現在条件を適用しない。
 
 saved/current warningを分け、人間へ示す。既知factor比率が下限ならcoverageを示す。保有時価/NAVと取引は[Ledger](../../.agents/skills/ledger-record/SKILL.md)に従う。
