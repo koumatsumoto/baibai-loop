@@ -8,7 +8,7 @@ import tempfile
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Never, Protocol
+from typing import TYPE_CHECKING, Any, Never, Protocol, runtime_checkable
 
 import boto3
 from botocore.config import Config
@@ -66,6 +66,13 @@ class ObjectStore(Protocol):
         if_match: str | None = None,
         if_none_match: bool = False,
     ) -> RemoteObject: ...
+
+
+@runtime_checkable
+class ObjectMetadataReader(Protocol):
+    """Optional atomic GET response access; byte-only stores retain their read contract."""
+
+    def get_bytes_with_metadata(self, key: str) -> tuple[bytes, RemoteObject] | None: ...
 
 
 class Boto3R2Store:
@@ -130,12 +137,7 @@ class Boto3R2Store:
             raise R2Error("R2 head-object timed out") from exc
         except BotoCoreError as exc:
             raise R2Error("R2 head-object failed") from exc
-        return RemoteObject(
-            etag=str(value["ETag"]).strip('"'),
-            size=int(value["ContentLength"]),
-            metadata={str(k): str(v) for k, v in value.get("Metadata", {}).items()},
-            content_type=str(value.get("ContentType", "application/octet-stream")),
-        )
+        return _remote_object(value)
 
     def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]:
         """List keys and sizes under one prefix without downloading object bodies."""
@@ -163,6 +165,24 @@ class Boto3R2Store:
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
+            _raise_r2_error("get-object", exc)
+        except BotoCoreError as exc:
+            raise R2Error("R2 get-object failed") from exc
+
+    def get_bytes_with_metadata(self, key: str) -> tuple[bytes, RemoteObject] | None:
+        """Return the body and metadata from the same GET, without an extra HEAD."""
+        try:
+            response = self._client().get_object(Bucket=self.bucket, Key=key)
+            body = response["Body"]
+            try:
+                return body.read(), _remote_object(response)
+            finally:
+                body.close()
+        except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            raise R2Error("R2 get-object timed out") from exc
+        except ClientError as exc:
+            if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
+                return None
             _raise_r2_error("get-object", exc)
         except BotoCoreError as exc:
             raise R2Error("R2 get-object failed") from exc
@@ -266,6 +286,15 @@ class Boto3R2Store:
         if result is None:
             raise R2Error(f"R2 object missing after successful put: {key}")
         return result
+
+
+def _remote_object(value: Mapping[str, Any]) -> RemoteObject:
+    return RemoteObject(
+        etag=str(value["ETag"]).strip('"'),
+        size=int(value["ContentLength"]),
+        metadata={str(k): str(v) for k, v in value.get("Metadata", {}).items()},
+        content_type=str(value.get("ContentType", "application/octet-stream")),
+    )
 
 
 def _error_code(error: ClientError) -> str:

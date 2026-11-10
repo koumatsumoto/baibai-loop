@@ -293,3 +293,90 @@ def test_operation_timeout_covers_the_object_it_transfers() -> None:
     assert object_storage._operation_timeout(None) == 120
     assert object_storage._operation_timeout(0) == 120
     assert object_storage._operation_timeout(two_gigabytes) > measured_upload_seconds
+
+
+def metadata_store():
+    return Boto3R2Store(
+        bucket="integration-test",
+        env={
+            "R2_ACCOUNT_ID": "a" * 32,
+            "R2_ACCESS_KEY_ID": "not-logged",
+            "R2_SECRET_ACCESS_KEY": "not-logged",
+        },
+    )
+
+
+def test_get_metadata_is_from_one_response_and_closes_body(monkeypatch):
+    from io import BytesIO
+
+    store = metadata_store()
+    body = BytesIO(b"complete")
+    metadata = {"sha256": "a" * 64}
+    calls = []
+
+    class Client:
+        def get_object(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "Body": body,
+                "ETag": '"generation"',
+                "ContentLength": 8,
+                "Metadata": metadata,
+                "ContentType": "application/gzip",
+            }
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    assert store.get_bytes_with_metadata("body") == (
+        b"complete",
+        object_storage.RemoteObject("generation", 8, {"sha256": "a" * 64}, "application/gzip"),
+    )
+    assert calls == [{"Bucket": "integration-test", "Key": "body"}]
+    assert body.closed
+
+
+@pytest.mark.parametrize("code", ["NoSuchKey", "404", "403", "429"])
+def test_get_metadata_only_treats_missing_as_absent(monkeypatch, code):
+    store = metadata_store()
+    error = ClientError({"Error": {"Code": code, "Message": "private-response"}}, "GetObject")
+    calls = []
+
+    class Client:
+        def get_object(self, **kwargs):
+            calls.append(kwargs)
+            raise error
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    if code in {"NoSuchKey", "404"}:
+        assert store.get_bytes_with_metadata("body") is None
+    else:
+        with pytest.raises(R2Error, match=r"^R2 get-object failed$") as caught:
+            store.get_bytes_with_metadata("body")
+        assert caught.value.__cause__ is error
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("fault", ["timeout", "metadata"])
+def test_get_metadata_failure_closes_stream(monkeypatch, fault):
+    store = metadata_store()
+
+    class Body:
+        closed = False
+
+        def read(self):
+            if fault == "timeout":
+                raise ReadTimeoutError(endpoint_url="https://redacted.invalid")
+            return b"complete"
+
+        def close(self):
+            self.closed = True
+
+    body = Body()
+
+    class Client:
+        def get_object(self, **kwargs):
+            return {"Body": body}
+
+    monkeypatch.setattr(store, "_client", lambda *_: Client())
+    with pytest.raises(R2Error if fault == "timeout" else KeyError):
+        store.get_bytes_with_metadata("body")
+    assert body.closed

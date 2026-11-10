@@ -162,3 +162,77 @@ def test_exact_jpx_recovery_rejects_mismatched_selection_without_writes(failed_s
     with pytest.raises((ValueError, sources.LakePublishError)):
         sources._jpx_recovery_handoffs(store, selections)
     assert {key: row.body for key, row in store.values.items()} == before
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_jpx_recovery_keeps_full_fixed_edinet_withdrawal_projection(tmp_path, failed_stages, warm):
+    from datetime import timedelta
+
+    from tests.jobs.acquisition.test_edinet_list_native_route import payload, receipt
+
+    from baibai_engine.data_collection.providers.edinet.archive_native import EdinetArchiveL1
+    from baibai_engine.data_collection.providers.edinet.list_native import EdinetListL1
+    from baibai_engine.machine_analysis.generation.edinet_inputs import retain_edinet_input
+    from baibai_jobs.integration.edinet_list_native import materialize_lists
+
+    store, selections = failed_stages
+    lists = EdinetListL1(store, tmp_path / "edinet-lists")
+    lists.freeze(False)
+    first = {
+        "seqNumber": 1,
+        "docID": "S100TEST",
+        "legalStatus": "1",
+        "secCode": "20000",
+        "withdrawalStatus": "0",
+    }
+    original = receipt(DAY, at=STAMP, body=payload(DAY, rows=[first]))
+    before = lists.publish([original])
+    market = tmp_path / "market.sqlite"
+    with closing(open_connection(market)):
+        pass
+    if warm:
+        materialize_lists(before, market)
+    withdrawal = receipt(
+        DAY,
+        at=STAMP + timedelta(seconds=1),
+        body=payload(
+            DAY,
+            rows=[
+                {"seqNumber": 1, "docID": "S100TEST", "withdrawalStatus": "2", "legalStatus": "0"}
+            ],
+        ),
+    )
+    corrected = lists.publish([withdrawal])
+    archives = EdinetArchiveL1(store, tmp_path / "edinet-archives").initialize()
+    saved = retain_edinet_input(
+        store, corrected, archives, selected_at=STAMP + timedelta(seconds=2)
+    )
+    work = tmp_path / "apply"
+    work.mkdir()
+    (work / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": sources._jpx_recovery_handoffs(store, selections),
+                "external": [],
+                "external_failed": [],
+                "edinet_input": saved.model_dump(mode="json"),
+            }
+        )
+    )
+    seed_calendar(store, market, tmp_path / "calendar", as_of=DAY)
+    seed_master(store, market, tmp_path / "master", as_of=DAY)
+    result = sources.apply(store, work, market=market, asof=DAY)
+    assert all(row["applied"] and not row["failed"] for row in result["handoffs"])
+    assert result["edinet_input"] == saved.model_dump(mode="json")
+    with closing(open_connection(market)) as conn:
+        assert conn.execute(
+            "SELECT sec_code,withdrawal_status,legal_status FROM edinet_documents WHERE doc_id='S100TEST'"
+        ).fetchone() == ("20000", "2", "0")
+        rows = conn.execute(
+            "SELECT receipt_id,received_at_utc,body_gzip FROM edinet_list_responses ORDER BY received_at_utc"
+        ).fetchall()
+        assert rows == [
+            (item.receipt_id, item.received_at.isoformat(timespec="microseconds"), item.body_gzip)
+            for item in (original, withdrawal)
+        ]
+        assert conn.execute("SELECT COUNT(*) FROM jpx_source_bundles").fetchone()[0] == 2
