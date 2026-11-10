@@ -394,6 +394,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _require_historical_window(payload: object, *, window_start: datetime) -> None:
+    """A truncated first page cannot establish absence beyond its history."""
+    if not isinstance(payload, Mapping):
+        return  # The normal parser reports malformed listings.
+    entries, total = payload.get("workflow_runs"), payload.get("total_count")
+    if not isinstance(entries, list) or type(total) is not int or total <= len(entries):
+        return
+    runs = parse_runs(payload)
+    if not runs or min(run.created_at for run in runs) > window_start:
+        raise WatchdogInputError(
+            "insufficient run history for the requested window; "
+            "the truncated listing does not reach its start"
+        )
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -404,6 +419,7 @@ def main(
     env = os.environ
     try:
         payload = json.loads(args.runs_json.read_text(encoding="utf-8"))
+        history = payload.copy() if isinstance(payload, dict) else payload
         window_end = resolve_window_end(
             args.check_date,
             now=datetime.now(UTC),
@@ -480,6 +496,9 @@ def main(
                 if any(item.state == STATE_IN_FLIGHT for item in verdicts)
                 else STATE_HEALTHY,
             )
+        if args.check_date and verdict.alerting:
+            # Use the unfiltered page: source selection is not history coverage.
+            _require_historical_window(history, window_start=verdict.window_start)
     except (OSError, json.JSONDecodeError, WatchdogInputError) as exc:
         print(f"error: cannot evaluate the batch window: {exc}", file=sys.stderr)
         return 1

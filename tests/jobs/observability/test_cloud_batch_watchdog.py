@@ -975,3 +975,115 @@ def test_market_watchdog_does_not_let_later_edinet_slots_mask_a_missing_market_i
     )
     assert code == 0
     assert transport.calls == []
+
+
+@pytest.mark.parametrize(
+    ("mode", "title"),
+    [(None, "daily"), ("--economic", "economic all all"), ("--market", "market-acquisition all")],
+)
+@pytest.mark.parametrize("offset", [timedelta(days=1), timedelta(hours=-19)])
+def test_truncated_historical_window_is_unverified_not_missing(
+    tmp_path, monkeypatch, capsys, mode, title, offset
+):
+    check = ACQUISITION_CHECK if mode else FIRED_AT
+    # A first page may be entirely newer than the requested day, or may cut
+    # through its window. Neither case proves the omitted part had no success.
+    rows = [
+        _run(
+            number=index + 1,
+            created_at=check + offset + timedelta(days=index),
+            display_title=title,
+            conclusion="success" if offset > timedelta(0) else "failure",
+        )
+        for index in range(100)
+    ]
+    payload = {**_listing(*rows), "total_count": 101}
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        payload,
+        argv=["--check-date", "2026-08-03", *([mode] if mode else [])],
+    )
+    assert code == 1
+    assert transport.calls == []
+    captured = capsys.readouterr()
+    assert "insufficient run history for the requested window" in captured.err
+    assert "[MISSING]" not in captured.out
+
+
+@pytest.mark.parametrize(
+    ("mode", "title"),
+    [(None, "daily"), ("--economic", "economic all all"), ("--market", "market-acquisition all")],
+)
+@pytest.mark.parametrize("status", ["completed", "in_progress"])
+def test_truncated_history_keeps_confirmed_success_or_in_flight(
+    tmp_path, monkeypatch, capsys, mode, title, status
+):
+    check = ACQUISITION_CHECK if mode else FIRED_AT
+    payload = _listing(
+        _run(
+            created_at=check - timedelta(hours=1),
+            display_title=title,
+            status=status,
+            conclusion="success" if status == "completed" else "",
+        )
+    )
+    payload["total_count"] = 101
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        payload,
+        argv=["--check-date", "2026-08-03", *([mode] if mode else [])],
+    )
+    assert code == 0
+    assert transport.calls == []
+    expected = "healthy" if status == "completed" else "in_flight"
+    assert f"watchdog: {expected}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("mode", "title"),
+    [
+        (None, "daily"),
+        ("--economic", "economic fred_csv fred-payems"),
+        ("--market", "market-acquisition jpx-earnings"),
+    ],
+)
+def test_history_window_uses_all_listed_runs_before_source_selection(
+    tmp_path, monkeypatch, mode, title
+):
+    check = ACQUISITION_CHECK if mode else FIRED_AT
+    payload = _listing(
+        _run(
+            created_at=check - timedelta(hours=20),
+            display_title=title,
+            conclusion="failure",
+        )
+    )
+    payload["total_count"] = 101
+    code, transport = _run_main(
+        tmp_path,
+        monkeypatch,
+        payload,
+        argv=["--check-date", "2026-08-03", *([mode] if mode else [])],
+    )
+    assert code == 0
+    assert "[MISSING]" in _delivered_message(transport)
+
+
+def test_scheduled_check_keeps_its_existing_missing_notice_with_truncated_history(
+    tmp_path, monkeypatch
+):
+    from baibai_jobs.observability import watchdog
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return FIRED_AT.astimezone(tz)
+
+    monkeypatch.setattr(watchdog, "datetime", Clock)
+    payload = _listing(_run(created_at=FIRED_AT - timedelta(hours=1), conclusion="failure"))
+    payload["total_count"] = 101
+    code, transport = _run_main(tmp_path, monkeypatch, payload)
+    assert code == 0
+    assert "[MISSING]" in _delivered_message(transport)

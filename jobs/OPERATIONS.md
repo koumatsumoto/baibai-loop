@@ -44,7 +44,9 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 
 停止時は最後の未完phase、store/release・generation/selection・lease解放を確認する。logのdoneや通知成功は反映の証明でなく、限定source成功を全体成功にしない。候補0を投資機会なしとせず、[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。既定読取は発行時計より新しいas_ofを優先する。過去計算はexact IDで読み、古い非空候補へfallbackしない。
 
-取得期限にはexport/stageの余白を残す。Retry-Afterを短縮せず、認証/403/解析失敗へretryを広げない。継続不能429は同quota groupのそのpassを止める。H.15のbrowser起動不能とsource拒否を分ける。[watchdog](../.github/workflows/cloud-batch-watchdog.yml)のMISSINGは対象日を固定して調べる。
+取得期限にはexport/stageの余白を残す。Retry-Afterを短縮せず、認証/403/解析失敗へretryを広げない。継続不能429は同quota groupのそのpassを止める。H.15のbrowser起動不能とsource拒否を分ける。
+
+[watchdog](../.github/workflows/cloud-batch-watchdog.yml)のMISSINGは対象日を固定して調べる。取得履歴は各workflowの最新100runまで。成功/進行中を確認できず履歴が過去日の確認窓へ届かなければ、履歴不足で停止しMISSING通知を送らない。古いrunの再試行・削除前の状態までは復元せず、過去の診断には対象日を含む保存履歴を使う。
 
 ```bash
 gh workflow run cloud-batch-watchdog.yml -f check_date=<YYYY-MM-DD>
