@@ -1,6 +1,9 @@
 """保存した候補政策の結果と、根拠にした生成世代。投資採否ではない。"""
 
 from dataclasses import dataclass
+from typing import Annotated
+
+from pydantic import Field, JsonValue
 
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.machine_analysis.screening.policies.two_views import ViewSelection
@@ -14,3 +17,7 @@ class ScreeningSelection:
     generation_id: str
     universe_tickers: tuple[str, ...]
     result: ScreeningResult
+    # 未記録の旧成果へ集計を補わず、canonical/hashを保つ。
+    price_inputs: Annotated[
+        dict[str, JsonValue] | None, Field(exclude_if=lambda value: value is None)
+    ] = None

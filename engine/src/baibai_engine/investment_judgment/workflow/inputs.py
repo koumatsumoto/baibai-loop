@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
 from typing import cast
 
@@ -55,6 +56,11 @@ def project_research_inputs(
                 else None,
                 "generation_id": selection.inputs.generation.generation_id,
                 "universe_count": len(selection.inputs.screening_selection.universe_tickers),
+                **(
+                    {"price_inputs": deepcopy(selection.inputs.screening_selection.price_inputs)}
+                    if selection.inputs.screening_selection.price_inputs is not None
+                    else {}
+                ),
                 "result": selection.inputs.model_dump(mode="json", include={"screening_selection"})[
                     "screening_selection"
                 ]["result"],
