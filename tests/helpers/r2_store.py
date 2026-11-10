@@ -64,13 +64,25 @@ class MemoryR2Store:
         return RemoteObject(
             etag=value.etag,
             size=len(value.body),
-            metadata=value.metadata,
+            metadata=dict(value.metadata),
             content_type=value.content_type,
         )
 
     def get_bytes(self, key: str) -> bytes:
         self.get_keys.append(key)
         return self.values[key].body
+
+    def get_bytes_with_metadata(self, key: str) -> tuple[bytes, RemoteObject] | None:
+        self.get_keys.append(key)
+        value = self.values.get(key)
+        if value is None:
+            return None
+        return value.body, RemoteObject(
+            etag=value.etag,
+            size=len(value.body),
+            metadata=dict(value.metadata),
+            content_type=value.content_type,
+        )
 
     def download_file(self, key: str, path: Path, *, expect_bytes: int | None = None) -> None:
         self.get_keys.append(key)

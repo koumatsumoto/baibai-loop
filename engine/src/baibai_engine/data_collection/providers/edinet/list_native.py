@@ -21,6 +21,7 @@ from baibai_engine.storage.json import canonical_json, write_json_atomic
 from baibai_engine.storage.objects.r2 import (
     LakeCASConflict,
     LakePublishError,
+    ObjectMetadataReader,
     ObjectStore,
     RemoteObject,
 )
@@ -122,16 +123,31 @@ def _head_bytes(value: dict[str, Any] | bytes) -> bytes:
 
 
 def _read(
-    store: ObjectStore, key: str, *, cache: _BodyCache | None = None
+    store: ObjectStore,
+    key: str,
+    *,
+    cache: _BodyCache | None = None,
+    fixed_body: bool = False,
 ) -> tuple[bytes, str] | None:
-    before = store.head(key)
-    if before is None:
-        if cache is not None:
-            cache.pop(key, None)
-        return None
-    if cache is not None and (cached := cache.get(key)) is not None and cached[1] == before:
-        return cached[0], before.etag
-    body = store.get_bytes(key)
+    cached = cache.get(key) if cache is not None else None
+    before: RemoteObject | None
+    if fixed_body and cached is None and isinstance(store, ObjectMetadataReader):
+        # The fixed head binds body bytes, not pre-GET metadata. Use the GET's
+        # generation, then retain the post-transfer check. Mutable heads and
+        # write reconciliation keep their original HEAD/GET/HEAD path.
+        downloaded = store.get_bytes_with_metadata(key)
+        if downloaded is None:
+            return None
+        body, before = downloaded
+    else:
+        before = store.head(key)
+        if before is None:
+            if cache is not None:
+                cache.pop(key, None)
+            return None
+        if cached is not None and cached[1] == before:
+            return cached[0], before.etag
+        body = store.get_bytes(key)
     after = store.head(key)
     if (
         after is None
@@ -180,7 +196,7 @@ class FixedEdinetLists:
 
         def read_body(digest: str) -> tuple[str, bytes]:
             key = _body_key(digest)
-            saved = _read(self._store, key, cache=self._body_cache)
+            saved = _read(self._store, key, cache=self._body_cache, fixed_body=True)
             if saved is None or _digest(saved[0]) != digest:
                 self._body_cache.pop(key, None)
                 raise LakePublishError("EDINET list body missing or hash mismatch")
