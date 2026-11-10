@@ -161,6 +161,7 @@ def _sector_table(
         table.append(
             {
                 "sector_33": sector,
+                "observation_date": observation_date.isoformat(),
                 "ticker_count": len(returns_20d),
                 "median_return_20d": statistics.median(returns_20d),
                 "median_return_60d": statistics.median(returns_60d) if returns_60d else None,

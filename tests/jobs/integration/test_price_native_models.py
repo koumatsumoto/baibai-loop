@@ -206,6 +206,7 @@ def test_invalid_native_close_does_not_enter_market_model_populations(tmp_path, 
     assert good["relative"]["sector"] is None  # The invalid peer is not a -100% observation.
     shared = generation.result("market_context", "market").payload["market"]
     assert shared["points"][-1]["breadth_sample_size"] == 1
+    assert shared["sectors"][0]["observation_date"] == as_of.isoformat()
     assert shared["sectors"][0]["ticker_count"] == 1
     assert shared["sectors"][0]["median_return_20d"] == pytest.approx(0.1)
 

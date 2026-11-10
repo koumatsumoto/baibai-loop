@@ -180,6 +180,8 @@ class MarketSnapshotCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             sqlite_path = Path(tmpdir) / "market.sqlite"
             _insert_bars(sqlite_path, "1321", [100.0] * 120, end=_ASOF)
+            _insert_bars(sqlite_path, "1234", [100.0] * 61, end=_ASOF)
+            _insert_sector(sqlite_path, "1234", "機械")
             buffer = io.StringIO()
             exit_code = market_snapshot_command(
                 asof=_ASOF.isoformat(),
@@ -191,6 +193,7 @@ class MarketSnapshotCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             payload = json.loads(buffer.getvalue())
             self.assertEqual(payload["as_of"], _ASOF.isoformat())
+            self.assertEqual(payload["sectors"][0]["observation_date"], _ASOF.isoformat())
 
     def test_default_asof_keeps_actual_old_date_and_excludes_future_bars(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -253,6 +256,7 @@ class SectorObservationDateTests(unittest.TestCase):
                         [
                             {
                                 "sector_33": "建設業",
+                                "observation_date": "2026-09-18",
                                 "ticker_count": 1,
                                 "median_return_20d": 0.0,
                                 "median_return_60d": 0.0,
@@ -272,6 +276,7 @@ class SectorObservationDateTests(unittest.TestCase):
             payload = build_market_snapshot(
                 sqlite_path=path, asof_date=date(2026, 9, 18), history_weeks=1
             )
+            self.assertEqual(payload["sectors"][0]["observation_date"], "2026-09-17")
             self.assertEqual(payload["sectors"][0]["ticker_count"], 1)
             self.assertEqual(payload["sectors"][0]["median_return_20d"], 0.0)
 
