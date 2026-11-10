@@ -24,6 +24,7 @@ from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execut
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.store import PortfolioOutcomeStore
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
+from baibai_engine.storage.sqlite.application.schema import APPLICATION_SCHEMA_VERSION
 from baibai_engine.storage.sqlite.application.write import initialize_database
 from baibai_engine.storage.sqlite.source_cache.schema import SQLiteSchemaError
 from baibai_web.materialize import export_read_models
@@ -101,7 +102,7 @@ def test_retired_task_data_remains_untouched_and_cannot_block_portfolio_views(tm
             ),
         )
     before = app.read_bytes()
-    assert initialize_database(app) == 29
+    assert initialize_database(app) == APPLICATION_SCHEMA_VERSION
     output = tmp_path / "export"
     old_view = output / "views/tasks.json"
     old_view.parent.mkdir(parents=True)

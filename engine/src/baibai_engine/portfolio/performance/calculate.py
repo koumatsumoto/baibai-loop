@@ -26,7 +26,10 @@ from baibai_engine.portfolio.ledger.events import (
     PortfolioLedgerError,
     WithdrawalEvent,
     estimated_exit_tax_yen,
+    holding_episodes,
+    matches_share_conversion,
     replay_events_through,
+    share_conversions,
     value_replayed_state,
 )
 
@@ -265,7 +268,22 @@ def compute_portfolio_outcome(
                 and days[-1] == through
                 and all(
                     (bar := bars_by_ticker_day.get((ticker, day))) is not None
-                    and bar.adjustment_factor == 1.0
+                    and (
+                        (
+                            bar.adjustment_factor == 1.0
+                            and not any(
+                                conversion.ticker == ticker and conversion.occurred_on == day
+                                for conversion in share_conversions(ledger.events)
+                            )
+                        )
+                        or matches_share_conversion(
+                            share_conversions(ledger.events),
+                            ticker=ticker,
+                            day=day,
+                            factor=bar.adjustment_factor,
+                            kind=bar.ex_right_type,
+                        )
+                    )
                     for day in days
                 )
             )
@@ -331,26 +349,27 @@ def _holding_basis_intervals(
     end: date,
 ) -> tuple[tuple[str, date, date], ...]:
     """Unit-check intervals for reconciled positions relevant after opening close."""
-    balances: dict[str, int] = {}
-    acquired: dict[str, date] = {}
+    dates = {
+        event.event_id: effective for event, effective in zip(events, effective_dates, strict=True)
+    }
+    scoped = tuple(
+        event
+        for event in events
+        if (effective_day := dates[event.event_id]) is not None and effective_day <= end
+    )
     intervals: list[tuple[str, date, date]] = []
-    for event, effective in zip(events, effective_dates, strict=True):
-        if not isinstance(event, ExecutionEvent) or effective is None or effective > end:
-            continue
-        ticker = event.ticker
-        day = event.occurred_on or event.occurred_at.astimezone(_TOKYO).date()
-        balance = balances.get(ticker, 0)
-        if event.side == "buy":
-            if balance == 0:
-                acquired[ticker] = day
-            balances[ticker] = balance + event.quantity
-        else:
-            balances[ticker] = balance - event.quantity
-            if balances[ticker] == 0:
-                first = acquired.pop(ticker)
-                if effective > start:
-                    intervals.append((ticker, first, day))
-    intervals.extend((ticker, first, end) for ticker, first in acquired.items())
+    for episode in holding_episodes(scoped):
+        first = (
+            episode.first_buy.occurred_on or episode.first_buy.occurred_at.astimezone(_TOKYO).date()
+        )
+        if not episode.closed:
+            intervals.append((episode.first_buy.ticker, first, end))
+        elif (effective := dates[episode.last_trade.event_id]) is not None and effective > start:
+            through = (
+                episode.last_trade.occurred_on
+                or episode.last_trade.occurred_at.astimezone(_TOKYO).date()
+            )
+            intervals.append((episode.first_buy.ticker, first, through))
     return tuple(intervals)
 
 

@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
+from math import gcd, isclose, isfinite
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -210,6 +212,39 @@ class ConfirmedTaxEvent(_EventBase):
     amount_yen: Annotated[int, Field(ge=0)]
 
 
+class ShareConversionEvent(_EventBase):
+    """A confirmed whole-position share-unit change, not a trade or cash flow."""
+
+    type: Literal["share_conversion"]
+    action_id: Annotated[str, Field(min_length=1)]
+    ticker: Annotated[str, Field(pattern=_TICKER_PATTERN)]
+    occurred_on: date
+    confirmed_at: datetime
+    numerator: Annotated[int, Field(gt=0)]
+    denominator: Annotated[int, Field(gt=0)]
+    quantity_before: Annotated[int, Field(gt=0)]
+    quantity_after: Annotated[int, Field(gt=0)]
+    source_ref: Annotated[str, Field(min_length=1)]
+
+    @field_validator("confirmed_at", mode="before")
+    @classmethod
+    def _parse_confirmed_at(cls, value: object) -> datetime:
+        return _datetime(value)
+
+    @model_validator(mode="after")
+    def _validate_conversion(self) -> ShareConversionEvent:
+        local = self.occurred_at.astimezone(JST)
+        if (local.hour, local.minute, local.second, local.microsecond) != (0, 0, 0, 0):
+            raise ValueError("share conversion uses a day-start ordering key, not a clock claim")
+        if self.confirmed_at < self.occurred_at:
+            raise ValueError("share conversion must already be effective when confirmed")
+        if self.numerator == self.denominator or gcd(self.numerator, self.denominator) != 1:
+            raise ValueError("share conversion requires a reduced, non-unit ratio")
+        if self.quantity_before * self.numerator != self.quantity_after * self.denominator:
+            raise ValueError("confirmed share quantities do not match the conversion ratio")
+        return self
+
+
 type LedgerEvent = Annotated[
     OpeningBalanceEvent
     | ContributionEvent
@@ -219,7 +254,8 @@ type LedgerEvent = Annotated[
     | ExecutionEvent
     | IncomeEvent
     | CostEvent
-    | ConfirmedTaxEvent,
+    | ConfirmedTaxEvent
+    | ShareConversionEvent,
     Field(discriminator="type"),
 ]
 
@@ -275,7 +311,7 @@ class LedgerMetadata(BaseModel):
 
     model_config = _MODEL_CONFIG
 
-    schema_version: Literal[3]
+    schema_version: Literal[3, 4]
     portfolio_scope: Literal["repository_only"]
     as_of: datetime
     estimated_exit_tax_rate_bps: Annotated[int, Field(ge=0, le=10_000)] | None = None
@@ -321,6 +357,13 @@ class PortfolioLedgerDocument(LedgerMetadata):
         opening_count = sum(isinstance(event, OpeningBalanceEvent) for event in self.events)
         if opening_count != 1:
             raise ValueError("the ledger must contain exactly one opening_balance")
+        conversions = tuple(
+            event for event in self.events if isinstance(event, ShareConversionEvent)
+        )
+        if conversions and self.schema_version != 4:
+            raise ValueError("share conversions require ledger schema_version=4")
+        if any(event.confirmed_at > self.as_of for event in conversions):
+            raise ValueError("share conversion confirmation cannot be after as_of")
         event_ids = [event.event_id for event in self.events]
         if len(set(event_ids)) != len(event_ids):
             raise ValueError("event_id must be unique")
@@ -422,8 +465,12 @@ class _Reservation:
 
 @dataclass(slots=True)
 class _Lot:
-    quantity: int
-    price_yen: Decimal
+    quantity: Fraction
+    cost_yen: int
+    allocation_quantity: Fraction
+    allocation_cost_yen: int
+    consumed_quantity: Fraction = Fraction(0)
+    converted: bool = False
 
 
 @dataclass(slots=True)
@@ -457,6 +504,82 @@ class ReplayedPortfolioValue:
     holdings: tuple[HoldingSnapshot, ...]
 
 
+def matches_share_conversion(
+    conversions: tuple[ShareConversionEvent, ...],
+    *,
+    ticker: str,
+    day: date,
+    factor: float | None,
+    kind: str | None,
+) -> bool:
+    """Only the same received split/consolidation is resolved by a confirmed fact."""
+    if not conversions or factor is None:
+        return False
+    try:
+        factor = float(factor)
+    except (TypeError, ValueError):
+        return False
+    if not isfinite(factor) or factor <= 0:
+        return False
+    return any(
+        event.ticker == ticker
+        and event.occurred_on == day
+        and kind == ("1" if event.numerator > event.denominator else "2")
+        and isclose(factor, event.denominator / event.numerator, rel_tol=1e-9, abs_tol=0.0)
+        for event in conversions
+    )
+
+
+def ordered_replay_events(events: tuple[LedgerEvent, ...]) -> tuple[LedgerEvent, ...]:
+    """A confirmed unit day precedes that day's fills; old same-instant order is stable."""
+    return tuple(
+        sorted(
+            events,
+            key=lambda event: (
+                event.occurred_at,
+                0 if isinstance(event, ShareConversionEvent) else 1,
+            ),
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class HoldingEpisode:
+    first_buy: ExecutionEvent
+    last_trade: ExecutionEvent
+    closed: bool
+
+
+def holding_episodes(events: tuple[LedgerEvent, ...]) -> tuple[HoldingEpisode, ...]:
+    """Share changes alter balances, never the original buy reference."""
+    balances: dict[str, int] = {}
+    buys: dict[str, ExecutionEvent] = {}
+    trades: dict[str, ExecutionEvent] = {}
+    result: list[HoldingEpisode] = []
+    for event in ordered_replay_events(events):
+        if isinstance(event, ShareConversionEvent):
+            if balances.get(event.ticker, 0) != event.quantity_before:
+                raise PortfolioLedgerError("share conversion pre-action quantity differs")
+            balances[event.ticker] = event.quantity_after
+        elif isinstance(event, ExecutionEvent):
+            balance = balances.get(event.ticker, 0)
+            if event.side == "buy":
+                if balance == 0:
+                    buys[event.ticker] = event
+                balances[event.ticker] = balance + event.quantity
+            else:
+                balances[event.ticker] = balance - event.quantity
+                if balances[event.ticker] == 0:
+                    result.append(HoldingEpisode(buys.pop(event.ticker), event, True))
+            trades[event.ticker] = event
+    result.extend(HoldingEpisode(buy, trades[ticker], False) for ticker, buy in buys.items())
+    return tuple(result)
+
+
+def share_conversions(events: tuple[LedgerEvent, ...]) -> tuple[ShareConversionEvent, ...]:
+    return tuple(event for event in events if isinstance(event, ShareConversionEvent))
+
+
 def replay_events_through(
     events: tuple[LedgerEvent, ...],
     as_of: datetime,
@@ -487,7 +610,9 @@ def replay_events_through(
     metadata: dict[str, tuple[str, tuple[str, ...]]] = {}
     board_lot = policy["order_constraints"]["board_lot"]
 
-    for event in events:
+    seen_actions: set[str] = set()
+    seen_action_days: set[tuple[str, date]] = set()
+    for event in ordered_replay_events(events):
         if event.occurred_at > as_of:
             continue
         match event:
@@ -498,6 +623,24 @@ def replay_events_through(
             case WithdrawalEvent():
                 _require_cash(available_cash, event.amount_yen, event.event_id)
                 available_cash -= event.amount_yen
+            case ShareConversionEvent():
+                identity = (event.ticker, event.occurred_on)
+                if event.action_id in seen_actions or identity in seen_action_days:
+                    raise PortfolioLedgerError("share conversion already recorded for action/day")
+                if any(item.ticker == event.ticker for item in active.values()):
+                    raise PortfolioLedgerError(
+                        "share conversion has an unresolved order across its basis date"
+                    )
+                if sum(lot.quantity for lot in lots[event.ticker]) != event.quantity_before:
+                    raise PortfolioLedgerError("share conversion pre-action quantity differs")
+                ratio = Fraction(event.numerator, event.denominator)
+                for lot in lots[event.ticker]:
+                    lot.quantity *= ratio
+                    lot.allocation_quantity *= ratio
+                    lot.consumed_quantity *= ratio
+                    lot.converted = True
+                seen_actions.add(event.action_id)
+                seen_action_days.add(identity)
             case ReservationEvent():
                 if event.reservation_id in seen_reservations:
                     raise PortfolioLedgerError(
@@ -628,7 +771,9 @@ def replay_events_through(
                     if reservation.remaining_quantity == 0:
                         del active[event.reservation_id]
                 seen_executions.add(event.execution_id)
-                lots[event.ticker].append(_Lot(event.quantity, event.price_yen))
+                lots[event.ticker].append(
+                    _Lot(Fraction(event.quantity), paid, Fraction(event.quantity), paid)
+                )
             case ExecutionEvent(side="sell"):
                 if event.execution_id in seen_executions:
                     raise PortfolioLedgerError(f"execution_id already used: {event.execution_id}")
@@ -646,7 +791,9 @@ def replay_events_through(
                         raise PortfolioLedgerError("sell execution exceeds ordered quantity")
                     if event.price_yen < reservation.price_guard_yen:
                         raise PortfolioLedgerError("sell execution below limit price")
-                if event.quantity % board_lot:
+                if event.quantity % board_lot and not any(
+                    lot.converted for lot in lots[event.ticker]
+                ):
                     raise PortfolioLedgerError(
                         f"execution quantity must be a multiple of board_lot {board_lot}"
                     )
@@ -969,17 +1116,28 @@ def _consume_fifo(lots: list[_Lot], quantity: int, ticker: str) -> int:
         raise PortfolioLedgerError(
             f"sell quantity exceeds repository holding for {ticker}: {quantity} > {available}"
         )
-    remaining = quantity
-    consumed_cost = Decimal(0)
+    remaining = Fraction(quantity)
+    consumed_cost = 0
     while remaining:
         lot = lots[0]
         consumed = min(lot.quantity, remaining)
-        consumed_cost += lot.price_yen * consumed
+        if (
+            not lot.converted
+            and (lot.allocation_cost_yen * consumed / lot.allocation_quantity).denominator != 1
+        ):
+            raise PortfolioLedgerError("sell FIFO cost must resolve to whole yen")
+        lot.consumed_quantity += consumed
+        # Cumulative whole-yen FIFO allocation preserves the original total and
+        # is independent of splitting one reported sale into partial fills.
+        allocated = int(lot.allocation_cost_yen * lot.consumed_quantity // lot.allocation_quantity)
+        cost = allocated - (lot.allocation_cost_yen - lot.cost_yen)
+        lot.cost_yen -= cost
+        consumed_cost += cost
         lot.quantity -= consumed
         remaining -= consumed
         if lot.quantity == 0:
             lots.pop(0)
-    return _yen_notional(1, consumed_cost, field="sell FIFO cost")
+    return consumed_cost
 
 
 def _holding_snapshots(
@@ -989,14 +1147,14 @@ def _holding_snapshots(
 ) -> tuple[HoldingSnapshot, ...]:
     holdings: list[HoldingSnapshot] = []
     for ticker, ticker_lots in sorted(lots.items()):
-        quantity = sum(lot.quantity for lot in ticker_lots)
+        exact_quantity = sum((lot.quantity for lot in ticker_lots), Fraction(0))
+        if exact_quantity.denominator != 1:
+            raise PortfolioLedgerError("fractional position settlement is not supported")
+        quantity = int(exact_quantity)
         if quantity == 0:
             continue
         sector, factors = metadata[ticker]
-        deployed = sum(
-            _yen_notional(lot.quantity, lot.price_yen, field="holding deployed cost")
-            for lot in ticker_lots
-        )
+        deployed = sum(lot.cost_yen for lot in ticker_lots)
         market_price = prices.get(ticker)
         holdings.append(
             HoldingSnapshot(

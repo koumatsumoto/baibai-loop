@@ -15,6 +15,7 @@ DB更新は作業コピーへの保存で、クラウド反映とは別。[appli
 | --- | --- |
 | 買付注文・約定、売付の未約定注文 | `portfolio broker-fact-draft`（売付は`--side sell`） |
 | 売却・部分売却の約定 | `portfolio sell-execution-draft` |
+| 確認済み分割・併合 | `portfolio share-conversion-draft` |
 | 入出金・income・費用・確定税 | `portfolio event-draft` |
 | 人間のwarning受容・税の見積り | `portfolio override-draft`・`portfolio meta-draft` |
 
@@ -68,7 +69,23 @@ raw closeと保有episodeの数量basisを合わせ、[価格source](../../../do
 
 quote不足/古さ/権利未解決は該当時価を未評価とし、cash・予約・数量・原価を保つ。全保有を評価できなければNAV/集中比率を作らず、cash-only/旧台帳価格で埋めない。再評価でledger_as_ofを進めない。
 
-保有中の受領済み分割/併合等は、記帳上の全売却や買直しでも解決したとみなさない。該当時は現在評価と新規提案を止め、DashboardのNAV/実現損益を未評価にする。これは通常の現金のみ・全売却や価格欠測を一律停止する制約ではない。確認済み数量変更の記帳契約は未対応で、原本係数から自動補正したり架空の売買/入出金で調整したりしない。
+保有中の受領済み分割/併合等は、記帳上の全売却や買直しでも解決したとみなさない。該当時は現在評価と新規提案を止め、DashboardのNAV/実現損益を未評価にする。これは通常の現金のみ・全売却や価格欠測を一律停止する制約ではない。確認済み数量変更は下記のdraftで記帳する。原本係数から自動補正したり架空の売買/入出金で調整したりしない。
+
+## 確認済み分割・併合
+
+`share-conversion-draft`へaction ID・銘柄・新株/旧株の比率・直前/直後数量・市場単位の基準日・確認日時・出典を渡す。基準日は新しい株数/株価単位で取引する日で、法的効力日と同一とは推測しない。基準日当日の取引より先に再生し、後日報告でも旧eventのID・同時刻順・物理append順を変えない。確認時計を実際の取引時計には使わない。
+
+数量だけを強制上書きせず、原価・FIFO順・当初買付の参照を持ち越す。株数変更そのものはcash・実現損益・税を動かさない。3分割等の部分売却原価は累積比例額を円単位で切捨て、最後の売却へ残額を配賦するため、約定を分けても総原価は同じ。これはrepositoryのgross分析原価で、税務取得単価やNISA判定ではない。変更後の確認済み単元未満売却は記帳できるが、提案/新規注文の単元ルールは変えない。
+
+合計実保有が整数株となる分割/併合だけを扱う。同じactionの同内容再送はno-change、異内容や同銘柄同日への別action IDは保留する。端株精算・金銭交付・誤記訂正、基準日を跨ぐ同銘柄の未解決注文には対応せず、取消や注文条件変更を推測しない。確認済みの注文取消は従来のreleaseで記帳する。
+
+受領済みactionと基準日・種別・比率が一致した分だけ数量basisを解決する。別action・粗い係数で照合不能・価格/calendar欠測は未評価のまま残す。確認済みeventより前のraw quoteを新数量に掛けない。既存保存Proposal/Outcomeは不変で、新しい提案・新IDの実績だけへ反映する。
+
+schema29のapplicationは、そのまま新コードで更新しない。保持した作業copyを次の明示コマンドで別ファイルへ切替え、読戻し後に[application手順](../../../jobs/OPERATIONS.md#application-db-を反映する)で反映する。元ファイル・過去公開は保持し、通常dailyでは移行しない。
+
+```bash
+uv run python -m tools.enable_share_conversions --source <SCHEMA29_COPY> --destination <NEW_SCHEMA30_COPY>
+```
 
 <a id="historical-outcome"></a>
 ## Historical Outcome

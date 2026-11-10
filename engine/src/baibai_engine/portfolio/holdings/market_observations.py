@@ -38,6 +38,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
 )
 from baibai_engine.machine_analysis.observations.prices.price_reader import _read_ticker_bars
 from baibai_engine.machine_analysis.observations.prices.sessions import latest_eligible_close_date
+from baibai_engine.portfolio.ledger.events import ShareConversionEvent, matches_share_conversion
 from baibai_engine.storage.sqlite.source_cache.read import connect_read_only
 from baibai_engine.storage.sqlite.source_cache.schema import (
     SQLITE_SCHEMA_VERSION,
@@ -122,6 +123,7 @@ def market_basis_is_confirmed(
     through_date: date,
     connection: sqlite3.Connection | None = None,
     known_actions_through: date | None = None,
+    conversions: tuple[ShareConversionEvent, ...] = (),
 ) -> bool:
     """Confirm unchanged price or share basis across the retained calendar range.
 
@@ -179,7 +181,24 @@ def market_basis_is_confirmed(
     finally:
         if owns_connection:
             conn.close()
+    received = {str(row[0]): row for row in bar_rows}
+    for conversion in conversions:
+        if conversion.ticker != ticker or not from_date < conversion.occurred_on <= through_date:
+            continue
+        row = received.get(conversion.occurred_on.isoformat())
+        if row is None or not matches_share_conversion(
+            (conversion,), ticker=ticker, day=conversion.occurred_on, factor=row[1], kind=row[2]
+        ):
+            return False
     for traded_at, adjustment_factor, ex_right_type in bar_rows:
+        if matches_share_conversion(
+            conversions,
+            ticker=ticker,
+            day=date.fromisoformat(str(traded_at)),
+            factor=adjustment_factor,
+            kind=ex_right_type,
+        ):
+            continue
         try:
             factor = float(adjustment_factor)
         except (TypeError, ValueError):
@@ -201,30 +220,55 @@ def market_basis_is_confirmed(
 
 
 def has_received_share_action(
-    connection: sqlite3.Connection, *, ticker: str, after: date, through: date
+    connection: sqlite3.Connection,
+    *,
+    ticker: str,
+    after: date,
+    through: date,
+    conversions: tuple[ShareConversionEvent, ...] = (),
 ) -> bool:
     """Detect received unit changes during a closed holding, without inventing missing ones.
 
     Closed positions need no current quote or complete historical calendar. Only
     received action evidence can contradict their reported zero balance.
     """
+    confirmed_days = {
+        event.occurred_on.isoformat()
+        for event in conversions
+        if event.ticker == ticker and after < event.occurred_on <= through
+    }
+    extra = (
+        ""
+        if not confirmed_days
+        else " OR traded_at IN (" + ",".join("?" for _ in confirmed_days) + ")"
+    )
     rows = connection.execute(
         "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
         "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? "
-        "AND (adjustment_factor != 1 OR ex_right_type IN ('1', '2'))",
-        (ticker, after.isoformat(), through.isoformat()),
+        "AND (adjustment_factor != 1 OR ex_right_type IN ('1', '2')" + extra + ")",
+        (ticker, after.isoformat(), through.isoformat(), *sorted(confirmed_days)),
     ).fetchall()
     return any(
-        factor is None
-        or share_unit_factor(
-            JQuantsAdjustmentFactorEvent(
-                ticker=ticker,
-                traded_at=date.fromisoformat(str(traded_at)),
-                adjustment_factor=factor,
-                ex_right_type=kind,
-            )
+        not matches_share_conversion(
+            conversions,
+            ticker=ticker,
+            day=date.fromisoformat(str(traded_at)),
+            factor=factor,
+            kind=kind,
         )
-        != 1.0
+        and (
+            str(traded_at) in confirmed_days
+            or factor is None
+            or share_unit_factor(
+                JQuantsAdjustmentFactorEvent(
+                    ticker=ticker,
+                    traded_at=date.fromisoformat(str(traded_at)),
+                    adjustment_factor=factor,
+                    ex_right_type=kind,
+                )
+            )
+            != 1.0
+        )
         for traded_at, factor, kind in rows
     )
 
