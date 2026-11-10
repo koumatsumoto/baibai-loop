@@ -889,3 +889,26 @@ def test_outcome_export_succeeds_once_and_rejects_a_preexisting_file(tmp_path, c
     assert "refusing to overwrite existing outcome" in capsys.readouterr().err
     assert output.read_bytes() == retained
     assert PortfolioOutcomeStore(application).list() == (emitted,)
+
+
+def test_outcome_cli_rejects_premature_benchmark_without_publication_or_export(tmp_path, capsys):
+    import yaml
+
+    ledger = _ledger()
+    args, application = _prepare_outcome_cli(
+        tmp_path, ledger.model_copy(update={"events": ledger.events[:1]})
+    )
+    observation = tmp_path / "benchmark.yaml"
+    raw = yaml.safe_load(observation.read_text())
+    raw.update(published_at="2026-01-05", retrieved_at="2026-01-05T18:00:00+09:00")
+    observation.write_text(yaml.safe_dump(raw))
+    before = application.read_bytes()
+    export = tmp_path / "outcome.yaml"
+
+    assert main([*args, "--out", str(export)]) == 2
+    emitted = capsys.readouterr()
+    assert "period_end_date cannot be after published_at" in emitted.err
+    assert emitted.out == ""
+    assert not export.exists()
+    assert PortfolioOutcomeStore(application).list() == ()
+    assert application.read_bytes() == before
