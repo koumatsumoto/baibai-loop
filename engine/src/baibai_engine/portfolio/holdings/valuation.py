@@ -10,6 +10,7 @@ from pathlib import Path
 
 from baibai_engine.portfolio.holdings.market_observations import (
     UnadjustedCloseObservation,
+    has_received_share_action,
     market_basis_is_confirmed,
     read_unadjusted_close,
 )
@@ -50,6 +51,39 @@ def holding_episode(
             if balance == 0:
                 first_buy = None
     return first_buy, last_trade
+
+
+class UnresolvedHoldingQuantityError(ValueError):
+    """A received share action contradicts an apparently closed ledger holding."""
+
+
+def require_closed_holding_basis(
+    ledger: PortfolioLedgerDocument, *, now: datetime, connection: sqlite3.Connection
+) -> None:
+    """Do not let a reported full sale erase a known unresolved share-unit change."""
+    balances: dict[str, int] = {}
+    acquired: dict[str, datetime] = {}
+    for event in ledger.events:
+        if not isinstance(event, ExecutionEvent) or event.occurred_at > now:
+            continue
+        balance = balances.get(event.ticker, 0)
+        if event.side == "buy":
+            if balance == 0:
+                acquired[event.ticker] = event.occurred_at
+            balances[event.ticker] = balance + event.quantity
+        else:
+            balances[event.ticker] = balance - event.quantity
+            if balances[event.ticker] == 0 and has_received_share_action(
+                connection,
+                ticker=event.ticker,
+                after=acquired[event.ticker].astimezone(JST).date(),
+                through=event.occurred_at.astimezone(JST).date(),
+            ):
+                raise UnresolvedHoldingQuantityError(
+                    f"{event.ticker}: 保有中の株数変更を照合できず、"
+                    "全売却後の数量を確認できません。"
+                    "分割・併合後の確認済み数量の記帳が必要です。"
+                )
 
 
 def holding_quote(
@@ -131,9 +165,13 @@ def current_portfolio(
     """Value all holdings from one market snapshot without erasing unresolved capital facts."""
     state = replay_events_through(ledger.events, now)
     prices: dict[str, MarketPrice] = {}
-    if any(state.lots.values()) and sqlite_path.exists():
+    has_trades = any(
+        isinstance(event, ExecutionEvent) and event.occurred_at <= now for event in ledger.events
+    )
+    if has_trades and sqlite_path.exists():
         with closing(connect_read_only(sqlite_path)) as connection:
             connection.execute("BEGIN")
+            require_closed_holding_basis(ledger, now=now, connection=connection)
             for ticker, lots in state.lots.items():
                 if not lots:
                     continue

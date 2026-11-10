@@ -175,3 +175,44 @@ def test_fresh_morning_proposal_observes_received_price_action(tmp_path, mode):
         assert row["current_quote_calculation"] is None
     assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
     assert case.app.read_bytes() == before
+
+
+def test_saved_proposal_survives_unresolved_closed_quantity_without_rebinding(tmp_path):
+    from baibai_engine.investment_judgment.trade_proposal.inputs import collect_proposal_inputs
+    from baibai_engine.portfolio.ledger.drafts import apply_draft, build_sell_execution_draft
+    from baibai_engine.portfolio.ledger.store import LedgerStoreService
+    from baibai_engine.storage.sqlite.application.read import connect_read_only as read_app
+
+    case = backend_case(tmp_path, holding=True)
+    draft = reviewed_proposal(case, action="hold")
+    now = datetime.fromisoformat("2026-10-14T16:20:00+09:00")
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: now)
+    saved = service.publish(draft)
+    now = datetime.fromisoformat("2026-10-16T18:00:00+09:00")
+    ledger = LedgerStoreService(case.app)
+    sale = build_sell_execution_draft(
+        ledger,
+        occurred_at=now,
+        ticker="1234",
+        quantity=100,
+        price_yen=Decimal(550),
+        execution_id="synthetic-post-action-sale",
+    )
+    apply_draft(ledger, sale, human_confirmed=True)
+    seed_daily_bars(case.market, [("1234", "2026-10-15", None, 0.5)])
+    before = case.app.read_bytes()
+    assert read_saved_proposal(proposal_id=saved.proposal_id, db_path=case.app) == saved
+    assert service.publish(draft) == saved
+    with closing(read_app(case.app)) as connection:
+        connection.execute("BEGIN")
+        with pytest.raises(ValueError, match="株数変更"):
+            collect_proposal_inputs(
+                connection,
+                tickers=(),
+                proposal_id="",
+                now=now,
+                sqlite_path=case.market,
+                budget_min_yen=200000,
+                budget_max_yen=300000,
+            )
+    assert case.app.read_bytes() == before

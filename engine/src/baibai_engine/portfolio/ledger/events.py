@@ -393,7 +393,7 @@ class PortfolioSnapshot:
     confirmed_cost_yen: int
     confirmed_tax_yen: int
     confirmed_cost_tax_yen: int
-    realized_gross_pnl_yen: int
+    realized_gross_pnl_yen: int | None
     book_capital_yen: int
     total_capital_yen: int | None
     estimated_exit_tax_rate_bps: int | None
