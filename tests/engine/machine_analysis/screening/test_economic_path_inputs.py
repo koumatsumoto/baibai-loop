@@ -660,6 +660,50 @@ def test_external_context_preserves_actual_group_comparisons_without_original_sn
     assert "snapshot_only_payload" not in str(external)
 
 
+@pytest.mark.parametrize("legacy_saved_summary", [False, True])
+def test_minkabu_receipt_clock_survives_selection_and_brief_without_rewriting_history(
+    tmp_path, legacy_saved_summary
+):
+    data = payloads()
+    latest = {"availability": "available", "display_as_of_date": "2025-12-30"}
+    data["external_assessment"] = {"minkabu": {"latest": latest}}
+    baseline = project(data)
+    received = "2026-01-04T15:30:00Z"
+    latest["fetched_at_utc"] = received
+    source = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    assert data == source
+    summary = projected.context["external_assessment"]["minkabu_latest"]
+    assert summary["fetched_at_utc"] == received
+    assert summary["display_as_of_date"] == "2025-12-30"
+    if legacy_saved_summary:
+        # Existing saved cards lack the field; reading them must not backfill it.
+        del summary["fetched_at_utc"]
+    header = metadata()
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
+    result = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    prior = select_economic_paths((baseline,), policy=EconomicPathPolicy()).cards[0]
+    assert (result.cards[0].rank, result.cards[0].priority) == (prior.rank, prior.priority)
+    selected = ScreeningSelection(header.generation_id, ("1234",), result)
+    store = ScreeningSelectionStore(runs)
+    assert store.publish("minkabu-clock", selected)
+    stored_bytes = runs.read_bytes()
+    restored = store.read("minkabu-clock")
+    assert restored == selected
+    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
+    before = canonical_json(saved)
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["external_assessment"]["minkabu"]
+    if legacy_saved_summary:
+        assert "fetched_at_utc" not in brief
+    else:
+        assert brief["fetched_at_utc"] == received
+    assert brief["display_as_of_date"] == "2025-12-30"
+    assert canonical_json(saved) == before
+    assert runs.read_bytes() == stored_bytes
+
+
 @pytest.mark.parametrize(
     "state", ["first_observation", "recovered", "count_changed", "not_comparable"]
 )
