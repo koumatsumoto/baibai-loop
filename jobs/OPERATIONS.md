@@ -11,7 +11,7 @@ baibai-storesは非公開正本。秘密・endpoint・原文・私有DB/原稿�
 
 - 原本受領・L2・公開/readback・seal・次input発行を分け、正常空/partial/未試行/失敗を残す。L2失敗で保存L1を戻さない。
 - 固定plan/receipt/ID/hash・原bytes・実受領時計を保つ。結果不明は現objectを照合し、新UUID・日付付替え・marker手修正・古いcopyの盲再送で解消しない。
-- schema/origin/CAS/必要なlease不一致は停止する。通常writerは現schemaだけを扱い、旧作業DB/stageを変換しない。旧release・stage/input・原本と移送証拠を保ち、保存済み固定入力の読取契約を維持する。通常dailyへ移行/全期間再取得を代行させない。
+- schema/origin/CAS/必要なlease不一致は停止する。通常writerは現schemaだけを扱い、旧作業DB/stageを変換しない。旧release・原本・実受領stageと移送証拠を保ち、保存済み固定入力の読取契約を維持する。完了済み移行の作業copy・取得計画inputは、本人がexact key・不可逆性・失う再開能力を確認して削除承認した範囲だけ保持・再開対象から外す。通常dailyへ移行/全期間再取得を代行させない。
 
 ## 操作を選ぶ
 
@@ -279,7 +279,7 @@ ledgerを`head`へpipeせず復元対象時点と照合する。不一致は手�
 
 独立取得はsource固有原本を使い、全market/applicationをhydrateしない。L2不足を再GETで埋めず、同source/groupの取得〜stageを直列化し、共有quotaを守る。J-Quantsはnative head、未移行sourceは固定L1/未統合原本から計画する。
 
-共有[source input](src/baibai_jobs/acquisition/source_inputs.py)・記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。inputは再生成可能な計画材料で正本ではない。元bindingで再開し、欠落を全DB取得/空seedで迂回しない。形式切替では対応readerを先行させ、非対応のactive/queued writerをdrainする。旧input/stageは保持する。
+共有[source input](src/baibai_jobs/acquisition/source_inputs.py)・記事planningを使う経路だけ、取得有効化前に共通統合から初回発行する。inputは再生成可能な計画材料で正本ではない。元bindingで再開し、欠落を全DB取得/空seedで迂回しない。形式切替では対応readerを先行させ、非対応のactive/queued writerをdrainする。原本stage・現役inputは保持する。明示承認で廃止した旧計画inputは再開せず、その残存pointer/handoff/checkpointは履歴証拠として扱う（[限定整理の記録](https://github.com/koumatsumoto/baibai-loop/issues/1820#issuecomment-6769520506)）。
 
 破損handoff/decodeは当該sourceを報告し他を進め、正本破損/R2全体障害は停止する。遅着は次統合へ渡し、needs_explicit_recoveryは元ID/hash/時計/markerを保ってexact回復する。正常nullを全期間取得で埋めない。
 
