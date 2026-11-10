@@ -572,12 +572,12 @@ uv run baibai-engine historical-evaluation candidates show --run-revision-id <RU
 
 <a id="financials-identity-cutover"></a>
 <a id="company-financialsの保存idと公開時入力の読取"></a>
-## 保存IDと古いworkspace
+## 保存IDと公開時入力の読取
 
-通常open/dailyは旧schemaを変換しない。撤去済converter/publisherの代わりに、固定Git履歴・私有backup/planを保つ。元公開hashのcanonicalを現在名へ再署名せず、Operationの不変移行証拠をexact Proposal/Review/scopeと照合して読む。
+[正本の保存方針](../docs/architecture.md#store-authority)に従い、元公開hashのcanonicalを現在名へ再署名せず、Operationの不変移行証拠をexact Proposal/Review/scopeと照合して読む。schema切替は[application手順](#application-db-を反映する)に従う。
 
 ```bash
-uv run baibai-engine operation --db <APP29> selection-evidence <OPERATION_ID> \
+uv run baibai-engine operation --db <PRIVATE_APPLICATION_COPY> selection-evidence <OPERATION_ID> \
   --selection-sha256 <PUBLISHED_SELECTION_SHA256> --proposal-id <EXACT_PROPOSAL_ID>
 ```
 
@@ -609,7 +609,7 @@ TSE資本政策/JPX廃止は翌月15日以降に既存refresh/buildと必要な�
 <a id="web-serving"></a>
 ## 保有・運用Webの表示更新
 
-[Web契約](../web/backend/src/baibai_web/materialize.py)を使い、core保存後にapplicationと同local marketから生成する。表示失敗でsource/model sealを止めたり戻したりしない。廃止Taskの保存行/旧viewも通常初期化/公開で消さない。
+[Web契約](../web/backend/src/baibai_web/materialize.py)を使い、core保存後にapplicationと同local marketから生成する。表示失敗でsource/model sealを止めたり戻したりしない。
 
 mainのcloud-materializeは検証済applicationと固定releaseを使う。market失敗は赤いrunに残し、未検証値を読ませず時価等を未評価にしてledger fact/保存成績/提案を配信する。market復旧と表示公開を別確認する。
 
