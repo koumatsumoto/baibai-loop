@@ -158,6 +158,7 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
             input_fact_ids=metric.input_fact_ids,
             unit=metric.unit,
             facts=facts,
+            as_of=metric.as_of,
         )
         if errors:
             raise ValueError("; ".join(errors))
