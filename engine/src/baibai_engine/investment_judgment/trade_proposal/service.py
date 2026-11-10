@@ -343,6 +343,13 @@ def _check_proposal(
                     message="参照評価の公開が今回提案時刻より後です。",
                 )
             )
+        if pair.review.reviewed_at > proposal.review.reviewed_at:
+            blockers.append(
+                GateReason(
+                    code="assessment_after_review",
+                    message="参照評価の独立Reviewは、提案の独立Review以前である必要があります。",
+                )
+            )
         if item.action in {"buy", "hold", "sell"}:
             action_blockers, calculation = _validate_action(
                 connection,
