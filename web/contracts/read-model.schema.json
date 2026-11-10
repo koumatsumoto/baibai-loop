@@ -1253,6 +1253,19 @@
           ],
           "title": "Analysis As Of"
         },
+        "price_window_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Window End"
+        },
         "adv_yen": {
           "anyOf": [
             {
@@ -1278,6 +1291,7 @@
       },
       "required": [
         "analysis_as_of",
+        "price_window_end",
         "adv_yen",
         "unavailable_reason"
       ],

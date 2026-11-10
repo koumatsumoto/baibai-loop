@@ -134,8 +134,38 @@ def test_saved_buy_preserves_clocks_conditions_precision_warnings_and_exposure(p
     assert view.warnings == ["保存警告の全文"]
     assert view.portfolio_exposure.ticker.prospective_pct == "100"
     assert item.liquidity.adv_yen is None
+    assert item.liquidity.price_window_end is None
     assert item.liquidity.unavailable_reason == proposal.liquidity_context[0].unavailable_reason
     assert not {"inputs", "review", "research_scope", "current_eligibility"} & view.model_fields_set
+
+
+@pytest.mark.parametrize("window_end", [None, "2026-10-07"])
+def test_saved_generated_liquidity_keeps_window_end_separate_from_analysis_date(
+    payload, window_end
+):
+    pair = _pair()
+    _current(payload, pair)
+    payload["liquidity_context"] = [
+        {
+            "ticker": "1234",
+            "generation_id": "synthetic",
+            "analysis_as_of": "2026-10-14",
+            "calculation_revision": "synthetic-v1",
+            "adv_yen": "100000000.000000001",
+            "unavailable_reason": None,
+            **({"price_window_end": window_end} if window_end is not None else {}),
+        }
+    ]
+    proposal = TradeProposal.model_validate(payload)
+    before = proposal.model_dump_json()
+    row = project_saved_proposal(proposal, {pair.assessment_id: pair}).items[0].liquidity
+    assert row.model_dump(mode="json") == {
+        "analysis_as_of": "2026-10-14",
+        "price_window_end": window_end,
+        "adv_yen": "100000000.000000001",
+        "unavailable_reason": None,
+    }
+    assert proposal.model_dump_json() == before
 
 
 @pytest.mark.parametrize("timing", ["wait_limit", "place_limit"])

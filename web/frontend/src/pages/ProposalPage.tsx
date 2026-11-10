@@ -221,7 +221,9 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
             <dl className="grid gap-4 sm:grid-cols-2">
               <Field label="保存ADV（平均売買代金）">{item.liquidity.adv_yen === null ? '保存値なし' : `${item.liquidity.adv_yen} 円`}</Field>
               <Field label="流動性の分析基準日">{item.liquidity.analysis_as_of === null ? '保存値なし' : <time dateTime={item.liquidity.analysis_as_of}>{item.liquidity.analysis_as_of}</time>}</Field>
+              <Field label="ADVの価格窓終端日">{item.liquidity.price_window_end == null ? '保存値なし' : <time dateTime={item.liquidity.price_window_end}>{item.liquidity.price_window_end}</time>}</Field>
             </dl>
+            <p className="text-sm text-muted-foreground">価格窓の終端であり、売買代金の最終有効日や鮮度の保証ではありません。</p>
             {item.liquidity.unavailable_reason !== null && <Prose>{item.liquidity.unavailable_reason}</Prose>}
             <p className="text-xs leading-6 text-muted-foreground">保存値であり、現在の板や約定可能性を示しません。</p>
           </div>
