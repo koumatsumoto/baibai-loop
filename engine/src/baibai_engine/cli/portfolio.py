@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from pathlib import Path
@@ -28,7 +28,11 @@ from baibai_engine.portfolio.holdings.market_observations import (
     market_basis_is_confirmed,
     read_portfolio_market_inputs,
 )
-from baibai_engine.portfolio.holdings.valuation import current_portfolio
+from baibai_engine.portfolio.holdings.valuation import (
+    UnresolvedHoldingQuantityError,
+    current_portfolio,
+    require_closed_holding_basis,
+)
 from baibai_engine.portfolio.ledger.broker_facts import BrokerFactRecordingError
 from baibai_engine.portfolio.ledger.decision_references import resolve_buy_reference
 from baibai_engine.portfolio.ledger.drafts import (
@@ -61,6 +65,7 @@ from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
     compute_portfolio_outcome,
+    outcome_ledger_at_close,
     outcome_market_tickers,
     outcome_to_payload,
 )
@@ -490,10 +495,11 @@ def _run_outcome(
             payload = _outcome_unresolved_payload(benchmark, "missing_market_price")
         else:
             assert connection is not None
+            business_days = tuple(day.day for day in calendar_days if day.is_business_day)
             outcome = compute_portfolio_outcome(
                 ledger,
                 benchmark,
-                business_days=tuple(day.day for day in calendar_days if day.is_business_day),
+                business_days=business_days,
                 bars=tuple(bars),
                 confirm_price_basis=lambda ticker, first, last: market_basis_is_confirmed(
                     basis="price",
@@ -505,6 +511,21 @@ def _run_outcome(
                 ),
             )
             payload = outcome_to_payload(outcome)
+            if outcome.status == "resolved":
+                period_ledger = outcome_ledger_at_close(
+                    ledger,
+                    business_days=business_days,
+                    start=benchmark.period_start_date,
+                    end=benchmark.period_end_date,
+                )
+                try:
+                    require_closed_holding_basis(
+                        period_ledger,
+                        now=datetime.combine(benchmark.period_end_date, time.max, tzinfo=JST),
+                        connection=connection,
+                    )
+                except UnresolvedHoldingQuantityError:
+                    payload = _outcome_unresolved_payload(benchmark, "corporate_action_unresolved")
     finally:
         if connection is not None:
             connection.close()

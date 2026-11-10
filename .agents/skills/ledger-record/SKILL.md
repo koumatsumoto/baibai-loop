@@ -77,6 +77,8 @@ JPX営業日closeごとに全資産をreplayする。入出金だけexternal flo
 
 開始日closeから終了日closeを測り、開始NAVのeventを期間flowへ重ねない。非営業日eventは次営業日BODへ繰り越す。開始前分割/全売却日のactionも含むepisodeを確認するが、購入当日actionを過去保有の変更にしない。calendar・価格・basisは同じSQLite snapshotを使う。
 
+開始前に全売却と記帳されても、保有中に受領済みの株数変更が未解決ならcash-onlyの実績にしない。この確認だけのために過去全期間の株価を要求せず、計測終了後の取引は持ち込まない。
+
 価格/権利/分母不足や不正NAVは補完せずunresolved。確認済み損失/費用で正の資本が0になった場合は-100%の実績で、欠測でない。
 
 primary benchmarkは同期間のJPX TOPIX gross total return。ETF price-onlyを代用せず、portfolioとの税/費用差を示す。売却済み銘柄/勝率だけで成果を測らない。

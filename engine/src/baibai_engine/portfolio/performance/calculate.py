@@ -115,6 +115,26 @@ def compute_time_weighted_return(
     )
 
 
+def outcome_ledger_at_close(
+    ledger: PortfolioLedgerDocument,
+    *,
+    business_days: tuple[date, ...],
+    start: date,
+    end: date,
+) -> PortfolioLedgerDocument:
+    """Scope quantity checks to the same reported-day/close boundary as the outcome."""
+    return ledger.model_copy(
+        update={
+            "events": tuple(
+                event
+                for event in ledger.events
+                if _effective_date_for_period(event, business_days, start=start, end=end)
+                is not None
+            )
+        }
+    )
+
+
 def outcome_market_tickers(
     ledger: PortfolioLedgerDocument,
     *,
