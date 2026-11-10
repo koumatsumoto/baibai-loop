@@ -73,7 +73,7 @@ Company Research factsは年次/訂正と比較年度の任意入力。外部/�
 <a id="market-context-reads"></a>
 ## 価格・市場・業種の比較
 
-各時点以下の最新masterの普通株を使い、除外銘柄を旧snapshotから戻したり母集団を候補へ縮めたりしない。市場breadthはbenchmarkと同じ価格日、個社相対はbenchmark/自己除外peerと両端日を揃える。業種表の成立はbreadth成功でなく、各社bar窓の中央値も共通開始日を保証しない。補間/業種中央値で端点不足を埋めず、ratio差0.1は10 percentage pointsで割安ではなく、自己価格順位と旧倍率レンジ位置も別である。
+各時点以下の最新masterの普通株を使い、除外銘柄を旧snapshotから戻したり母集団を候補へ縮めたりしない。市場breadthはbenchmarkと同じ価格日、個社相対はbenchmark/自己除外peerと両端日を揃える。業種表は採用価格日を保持し、benchmark欠測時は既存の最新価格日fallbackを使う。過去成果に日付がなければ不明のまま読み、as_ofで補わない。業種表の成立はbreadth成功でなく、各社bar窓の中央値も共通開始日を保証しない。補間/業種中央値で端点不足を埋めず、ratio差0.1は10 percentage pointsで割安ではなく、自己価格順位と旧倍率レンジ位置も別である。
 
 不正な価格は依存する比較端点・窓を欠測にし、古い価格日へ繰り上げない。他社や独立した端点比較まで一律に消さない。
 
