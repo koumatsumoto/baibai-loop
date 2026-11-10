@@ -114,8 +114,12 @@ def native_main(
 ) -> int:
     args = parser.parse_args(argv)
     try:
+        # Native writers read back bytes and ETag themselves after every PUT.
         with closing(
-            store_factory(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            store_factory(
+                bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
+                verify_put_with_head=False,
+            )
         ) as store:
             owner = owner_type(store, args.directory)
             if args.command == "initialize":

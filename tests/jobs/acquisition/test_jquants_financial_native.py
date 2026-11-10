@@ -223,7 +223,12 @@ def test_cli_dispatch_acquires_commits_retries_and_rebuilds(tmp_path, monkeypatc
             pass
 
     store = Store()
-    monkeypatch.setattr(acquisition, "Boto3R2Store", lambda **_: store)
+
+    def native_store(*, bucket, verify_put_with_head):
+        assert verify_put_with_head is False
+        return store
+
+    monkeypatch.setattr(acquisition, "Boto3R2Store", native_store)
     monkeypatch.setattr(integration, "Boto3R2Store", lambda **_: store)
     monkeypatch.setattr(acquisition, "JQuantsHTTP", lambda _: ClosingClient(AT))
     work = str(tmp_path / "acquire")

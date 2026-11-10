@@ -131,7 +131,12 @@ def test_price_commits_before_an_independent_source_failure(tmp_path, monkeypatc
     PriceL1(store, tmp_path / "init").initialize()
     native_market_dependencies(store, tmp_path, monkeypatch)
     monkeypatch.setattr(windows, "FINANCIAL_HISTORY_DAYS", 0)
-    monkeypatch.setattr(handoff, "Boto3R2Store", lambda **_: store)
+
+    def native_store(*, bucket, verify_put_with_head):
+        assert verify_put_with_head is False
+        return store
+
+    monkeypatch.setattr(handoff, "Boto3R2Store", native_store)
     monkeypatch.setattr(http, "JQuantsHTTP", lambda _: Client())
 
     def fail_source(*args, **kwargs):
