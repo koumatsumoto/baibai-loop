@@ -123,6 +123,13 @@ class ResearchStoreService:
             if str(existing[0]) != payload or record.prior_research_ref != draft.prior_research_ref:
                 raise ResearchConflictError(f"immutable Research differs: {draft.research_id}")
             return record
+        # New authoring only: historical reads and same-content retries retain their snapshot.
+        sources = {source.source_id: source for source in draft.document.sources}
+        for fact in draft.document.facts:
+            if fact.postdates_cited_retrievals(sources):
+                raise ValueError(
+                    f"market_price {fact.fact_id} postdates all cited source retrievals"
+                )
         now = _datetime(self._clock())
         # An unbounded header selection enforces one chain, including records after a skewed clock.
         latest = latest_research_id(

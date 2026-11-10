@@ -473,15 +473,7 @@ def evaluate_assessment(
                 errors.append("market_price observation time mismatch")
             # A cited retrieval can support an observation, not authenticate its price.
             # Historical publications remain exact records, not new authoring attempts.
-            if (
-                identity is UnpublishedAssessment.DRAFT
-                and fact.observed_at is not None
-                and fact.source_ids
-                and all(
-                    ref in sources and fact.observed_at > sources[ref].retrieved_at
-                    for ref in fact.source_ids
-                )
-            ):
+            if identity is UnpublishedAssessment.DRAFT and fact.postdates_cited_retrievals(sources):
                 errors.append(f"market_price {fact.fact_id} postdates all cited source retrievals")
             if (
                 fact.price_basis == "last_close_unadjusted"

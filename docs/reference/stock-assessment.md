@@ -6,7 +6,7 @@
 
 入力・出典は[固定保存](../architecture.md#store-authority)と[時点・欠測](model-observations.md#source-owners)に従う。機械ER/FVは転記せず、価格は未調整1株basis、日次終値に架空時刻を付けない。
 
-新規作成の価格観測時刻は少なくとも一つの引用取得以前とする。記録整合の検査でprovider時計/価格の真偽を証明せず、保存pairの読取・再送には適用しない。
+新規Research・Assessmentで時刻付きの価格観測は少なくとも一つの引用取得以前とする。記録整合の検査でprovider時計/価格の真偽を証明せず、保存済みResearch・pairの読取・同内容再送には適用しない。
 
 新規の派生比率は、計算断面のas_ofを参照Factの日付より前に置かない。入力同士の同日性は要求せず、会計期間・連結scopeの比較可能性は原典とReviewで確認する。保存済みpairの日付・hashは変更しない。
 

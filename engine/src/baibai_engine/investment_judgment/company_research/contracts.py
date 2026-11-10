@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Annotated, Literal
 
@@ -108,6 +109,17 @@ class ObservedFact(BaseModel):
         elif self.observed_at is not None or self.price_basis is not None:
             raise ValueError("observed_at and price_basis are reserved for market_price")
         return self
+
+    def postdates_cited_retrievals(self, sources: Mapping[str, Source]) -> bool:
+        """価格時刻の矛盾だけを判定し、日付精度・参照の妥当性は別で扱う。"""
+        return (
+            self.observed_at is not None
+            and bool(self.source_ids)
+            and all(
+                ref in sources and self.observed_at > sources[ref].retrieved_at
+                for ref in self.source_ids
+            )
+        )
 
 
 class InputSnapshot(BaseModel):
