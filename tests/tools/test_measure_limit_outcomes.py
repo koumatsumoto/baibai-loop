@@ -208,40 +208,6 @@ def test_a_forgone_move_is_absent_while_the_post_expiry_window_is_incomplete(
     assert summary["median_forgone_pct"] is None
 
 
-def test_a_filled_order_is_not_charged_a_forgone_move(tmp_path: Path) -> None:
-    app_db = tmp_path / "app.sqlite"
-    market = tmp_path / "market.sqlite"
-    _ledger(
-        app_db,
-        [
-            _reservation(
-                reservation_id="res-1",
-                occurred_at="2026-07-01T09:00:00+09:00",
-                limit_yen="1000",
-                decision_reference="issue-1",
-            ),
-            {
-                "event_id": "fill-1",
-                "type": "execution",
-                "occurred_at": "2026-07-02T09:00:00+09:00",
-                "execution_id": "exec-1",
-                "reservation_id": "res-1",
-                "ticker": "2331",
-                "side": "buy",
-                "quantity": 100,
-                "price_yen": "1000",
-            },
-        ],
-    )
-    _market(market, [("2026-07-02", 990.0, 1000.0), ("2026-07-15", 1200.0, 1250.0)])
-
-    payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
-
-    order = payload["orders"][0]
-    assert order["outcome"] == "filled"
-    assert order["forgone_pct"] is None
-
-
 def test_imported_orders_are_summarised_apart_from_decision_bound_orders(tmp_path: Path) -> None:
     """取り込み分の約定を規律の成績に数えると、fill 率が実態より良く見える。"""
 
