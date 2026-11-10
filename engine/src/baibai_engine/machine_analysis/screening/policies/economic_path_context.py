@@ -23,6 +23,7 @@ def _external_context(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
             key: minkabu.get(key)
             for key in (
                 "availability",
+                "fetched_at_utc",
                 "display_as_of_date",
                 "origin",
                 "source_url",
