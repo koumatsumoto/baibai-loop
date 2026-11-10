@@ -7,8 +7,10 @@ from datetime import UTC, datetime
 
 import pytest
 import requests
+from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.http_doubles import FakeSession, html_response, response
 from tests.helpers.jpx_earnings import FILE_A, FIXTURES, SOURCE_FILES, _workbook
+from tests.helpers.master_calendar_native import seed_calendar, seed_master
 from tests.helpers.r2_store import MemoryR2Store
 
 from baibai_engine.data_collection.providers.jpx.http import JPXHTTP
@@ -18,7 +20,9 @@ from baibai_engine.machine_analysis.observations.disclosures.jpx_sources import 
     JPX_REGULATION_URLS,
 )
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
+from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.integration import source_handoff
+from baibai_jobs.integration.sources import apply
 
 STAMP = datetime(2026, 10, 15, 7, tzinfo=UTC)
 
@@ -35,7 +39,7 @@ def refuse(*args, **kwargs):
 
 @pytest.mark.parametrize("source", ["jpx-earnings", "jpx-regulations"])
 @pytest.mark.parametrize("failure", ["none", "first_http", "partial_http", "parse"])
-def test_actual_acquisition_entrypoint_and_stage(source, failure, tmp_path, monkeypatch):
+def test_actual_acquisition_stage_and_daily_apply(source, failure, tmp_path, monkeypatch):
     for key in ("JQUANTS_API_KEY", "EDINET_API_KEY", "BAIBAI_ACQUISITION_DEADLINE"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(requests, "Session", refuse)
@@ -150,3 +154,37 @@ def test_actual_acquisition_entrypoint_and_stage(source, failure, tmp_path, monk
     assert session.calls == before_http
     assert {key: value.body for key, value in store.values.items()} == saved
     assert not any("source-inputs" in key for key in store.values)
+
+    # Daily integration must accept the same original-only stage as replay-copy.
+    # Use a fresh canonical DB so the manual replay above cannot hide a skipped L2.
+    daily_market, work = tmp_path / "daily.sqlite", tmp_path / "daily"
+    with closing(open_connection(daily_market)):
+        pass
+    seed_calendar(store, daily_market, tmp_path / "calendar", as_of=STAMP.date())
+    seed_master(store, daily_market, tmp_path / "master", as_of=STAMP.date())
+    edinet_input = empty_edinet_input(store, tmp_path)
+    work.mkdir()
+    (work / "plan.json").write_text(
+        json.dumps(
+            {
+                "handoffs": available_handoffs(store),
+                "edinet_input": edinet_input.model_dump(mode="json"),
+            }
+        )
+    )
+    projection_table = (
+        "jpx_earnings_calendar" if source == "jpx-earnings" else "jpx_regulation_flags"
+    )
+    for repeat in range(2):
+        applied = apply(store, work, market=daily_market, asof=STAMP.date())
+        (outcome,) = applied["handoffs"]
+        assert outcome["applied"] is True, outcome
+        assert outcome["failed"] is (failure != "none")
+        assert outcome["recovery"] is (failure != "none")
+        assert outcome["result"]["raw_rows_added"] == (0 if repeat else 1 + expected_count)
+        with closing(open_connection(daily_market)) as canonical:
+            assert read_bundle(canonical, bundle_id) == received
+            assert canonical.execute("SELECT COUNT(*) FROM jpx_source_bundles").fetchone()[0] == 1
+            projected = canonical.execute(f"SELECT COUNT(*) FROM {projection_table}").fetchone()[0]
+            assert (projected > 0) is (failure == "none")
+    assert session.calls == before_http
