@@ -9,6 +9,7 @@ from datetime import datetime
 from baibai_engine.investment_judgment.stock_assessment.store import ReviewedAssessment
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     ExposureRow,
+    GeneratedLiquidityContext,
     LimitTerms,
     ProposalItem,
     TradeProposal,
@@ -172,6 +173,11 @@ def _item(
             if liquidity is None
             else SavedLiquidityView(
                 analysis_as_of=liquidity.analysis_as_of,
+                price_window_end=(
+                    liquidity.price_window_end
+                    if isinstance(liquidity, GeneratedLiquidityContext)
+                    else None
+                ),
                 adv_yen=None if liquidity.adv_yen is None else str(liquidity.adv_yen),
                 unavailable_reason=liquidity.unavailable_reason,
             )

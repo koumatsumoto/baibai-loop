@@ -157,6 +157,10 @@ describe('保存提案レポート', () => {
     const html = renderProposal()
     expect(html).toContain('保存された流動性の補足')
     expect(html).toContain('9876543.0000000001 円')
+    expect(html).toContain('ADVの価格窓終端日')
+    expect(html).toContain('dateTime="2026-10-23"')
+    expect(html).toContain('dateTime="2026-10-26"')
+    expect(html).toContain('価格窓の終端であり、売買代金の最終有効日や鮮度の保証ではありません。')
     expect(html).toContain('売買代金の保存モデルが未取得。')
     expect(html).toContain('保存された資本集中の補足')
     expect(html).toContain('1000000.0000000001 円')
@@ -169,6 +173,15 @@ describe('保存提案レポート', () => {
     expect(absent).toContain('銘柄別集中：保存値なし')
     expect(absent).not.toContain('0 円')
     expect(absent).not.toContain('0 %')
+  })
+
+  it('日付のない旧表示データは分析基準日から価格窓終端を補完しない', () => {
+    const legacy = structuredClone(buyFixture)
+    Reflect.deleteProperty(legacy.liquidity!, 'price_window_end')
+    const html = renderToStaticMarkup(createElement(ProposalItemCard, { item: legacy }))
+    expect(html).toMatch(/ADVの価格窓終端日<\/dt><dd[^>]*>保存値なし<\/dd>/)
+    expect(html).not.toContain('dateTime="2026-10-23"')
+    expect(html).toContain('dateTime="2026-10-26"')
   })
 
   it('正常empty、読取不能、loadingを区別して空提案を捏造しない', () => {

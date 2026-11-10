@@ -196,6 +196,7 @@ export interface SavedLimitTermsView {
 
 export interface SavedLiquidityView {
   analysis_as_of: string | null
+  price_window_end: string | null
   adv_yen: string | null
   unavailable_reason: string | null
 }

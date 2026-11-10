@@ -66,6 +66,7 @@ class SavedRemainingRewardView(BaseModel):
 
 class SavedLiquidityView(BaseModel):
     analysis_as_of: date | None
+    price_window_end: date | None = None
     adv_yen: str | None
     unavailable_reason: str | None
 

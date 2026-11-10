@@ -309,6 +309,9 @@ def proposal_liquidity_context(
                     generation_id=generation.generation_id,
                     analysis_as_of=generation.as_of,
                     calculation_revision=None if model is None else model.calculation_revision,
+                    price_window_end=price.get("resolved_date")
+                    if isinstance(price, dict)
+                    else None,
                     adv_yen=adv,
                     unavailable_reason=None if adv is not None else "保存モデルにADV値が無い",
                 )

@@ -399,6 +399,8 @@ class GeneratedLiquidityContext(_ProposalValue):
     generation_id: NonEmptyStr
     analysis_as_of: ISODate
     calculation_revision: NonEmptyStr | None
+    # 旧提案のhashを保つ。売買代金の最終有効日ではなく、元の価格窓の終端。
+    price_window_end: ISODate | None = Field(default=None, exclude_if=lambda value: value is None)
     adv_yen: Money | None
     unavailable_reason: NonEmptyStr | None
 

@@ -25,6 +25,7 @@ from baibai_engine.investment_judgment.trade_proposal.conditions import (
 from baibai_engine.investment_judgment.trade_proposal.contracts import (
     BuyItem,
     GateReason,
+    GeneratedLiquidityContext,
     HoldItem,
     ProposalConflictError,
     ProposalError,
@@ -253,7 +254,20 @@ def _check_proposal(
         raise ProposalConflictError(str(error)) from error
     if proposal.prepared_at < selection.input_known_at:
         raise ProposalConflictError("proposal preparation precedes its saved Research inputs")
-    if proposal.liquidity_context != proposal_liquidity_context(selection):
+    expected_liquidity = proposal_liquidity_context(selection)
+    # 日付を持たない旧draftは当時のcontextで照合し、後から日付を補完しない。
+    undated = {
+        item.ticker
+        for item in proposal.liquidity_context
+        if isinstance(item, GeneratedLiquidityContext) and item.price_window_end is None
+    }
+    expected_liquidity = tuple(
+        item.model_copy(update={"price_window_end": None})
+        if isinstance(item, GeneratedLiquidityContext) and item.ticker in undated
+        else item
+        for item in expected_liquidity
+    )
+    if proposal.liquidity_context != expected_liquidity:
         raise ProposalConflictError("proposal liquidity differs from the saved selection snapshot")
     market_context = saved_market_assessment(selection)
     context_id = market_context.get("context_id") if isinstance(market_context, dict) else None
