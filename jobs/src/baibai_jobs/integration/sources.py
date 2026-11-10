@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 from contextlib import closing
@@ -29,6 +31,7 @@ from baibai_engine.machine_analysis.observations.financials.edinet_integration i
 )
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
 from baibai_engine.storage.json import write_json_atomic
+from baibai_engine.storage.objects.json import read_private
 from baibai_engine.storage.objects.r2 import (
     Boto3R2Store,
     LakeCASConflict,
@@ -48,6 +51,7 @@ from baibai_jobs.acquisition.article_planning import (
     pending_handoffs,
     publish_planning_input,
 )
+from baibai_jobs.acquisition.economic_staging import stage_prefix
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.receipts import available_handoffs, download_fixed, seal_integrated
 from baibai_jobs.acquisition.source_inputs import GuardedInputStore, publish_inputs
@@ -319,6 +323,53 @@ def canonical_generations(store: ObjectStore) -> dict[str, str]:
     }
 
 
+def _jpx_recovery_handoffs(
+    store: ObjectStore, selections: list[list[str]]
+) -> list[dict[str, object]]:
+    """Select only named failed stages; retain their original identity and clock."""
+    entries: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for source, stage_id, digest in selections:
+        if source not in _JPX_COLLECTION or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            raise ValueError("JPX recovery requires a JPX source and exact manifest digest")
+        if stage_id in seen:
+            raise ValueError("duplicate JPX recovery stage")
+        seen.add(stage_id)
+        prefix = stage_prefix(stage_id, market=True)
+        saved = read_private(store, prefix + "/handoff.json")
+        if saved is None or hashlib.sha256(saved.payload).hexdigest() != digest:
+            raise LakePublishError("exact JPX recovery manifest differs or is missing")
+        report = json.loads(saved.payload)["result"]
+        clock = datetime.fromisoformat(report["started_at"])
+        if report["source"] != source or clock.utcoffset() is None:
+            raise ValueError("JPX recovery source or original clock differs")
+        date.fromisoformat(report["asof"])
+        saved_marker = read_private(store, prefix + "/integrated.json")
+        marker = {} if saved_marker is None else json.loads(saved_marker.payload)
+        if (
+            marker.get("status") != "needs_explicit_recovery"
+            or marker.get("manifest_sha256") != digest
+            or marker.get("source") != source
+            or datetime.fromisoformat(marker["started_at"]) != clock
+        ):
+            raise ValueError("JPX recovery requires the matching failed integration marker")
+        if read_private(store, prefix + f"/recovered-{digest}.json") is not None:
+            raise ValueError("JPX stage already has an explicit recovery receipt")
+        entries.append(
+            {
+                "market": True,
+                "source": source,
+                "stage_id": stage_id,
+                "manifest_sha256": digest,
+                "started_at": report["started_at"],
+                "asof": report["asof"],
+                "integration": marker,
+                "explicit_jpx_recovery": True,
+            }
+        )
+    return entries
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "apply", "seal", "inputs", "check"))
@@ -328,12 +379,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--identity")
     parser.add_argument("--group", help="Reissue only this scoped input group")
     parser.add_argument("--lease-handle", type=Path)
+    parser.add_argument(
+        "--recover-jpx-stage",
+        nargs=3,
+        action="append",
+        metavar=("SOURCE", "STAGE_ID", "MANIFEST_SHA256"),
+        help="Plan only these exact failed JPX stages; do not discover other pending sources",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.recover_jpx_stage and args.command != "plan":
+            raise ValueError("--recover-jpx-stage is only valid with plan")
         directory = args.directory
         if args.command == "check":
             report = json.loads((directory / "applied.json").read_text())
@@ -399,25 +459,31 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "plan":
             if (directory / "plan.json").exists():
                 raise FileExistsError("integration inputs are already fixed")
-            external, failed = available_ready(store)
+            if args.recover_jpx_stage:
+                handoffs = _jpx_recovery_handoffs(store, args.recover_jpx_stage)
+                external: list[dict[str, str]] = []
+                failed: list[dict[str, str]] = []
+            else:
+                external, failed = available_ready(store)
+                handoffs = [
+                    entry
+                    for entry in [
+                        *available_handoffs(store, market=True),
+                        *pending_handoffs(store),
+                    ]
+                    if entry.get("source")
+                    not in {
+                        "jquants-financial",
+                        "edinet-list",
+                        "edinet-metrics",
+                        "edinet-facts",
+                    }
+                ]
             edinet_input = fix_edinet_input(store, directory).model_dump(mode="json")
             write_json_atomic(
                 directory / "plan.json",
                 {
-                    "handoffs": [
-                        entry
-                        for entry in [
-                            *available_handoffs(store, market=True),
-                            *pending_handoffs(store),
-                        ]
-                        if entry.get("source")
-                        not in {
-                            "jquants-financial",
-                            "edinet-list",
-                            "edinet-metrics",
-                            "edinet-facts",
-                        }
-                    ],
+                    "handoffs": handoffs,
                     "edinet_input": edinet_input,
                     "external": external,
                     "external_failed": failed,
