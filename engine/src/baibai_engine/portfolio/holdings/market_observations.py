@@ -200,6 +200,35 @@ def market_basis_is_confirmed(
     return True
 
 
+def has_received_share_action(
+    connection: sqlite3.Connection, *, ticker: str, after: date, through: date
+) -> bool:
+    """Detect received unit changes during a closed holding, without inventing missing ones.
+
+    Closed positions need no current quote or complete historical calendar. Only
+    received action evidence can contradict their reported zero balance.
+    """
+    rows = connection.execute(
+        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
+        "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? "
+        "AND (adjustment_factor != 1 OR ex_right_type IN ('1', '2'))",
+        (ticker, after.isoformat(), through.isoformat()),
+    ).fetchall()
+    return any(
+        factor is None
+        or share_unit_factor(
+            JQuantsAdjustmentFactorEvent(
+                ticker=ticker,
+                traded_at=date.fromisoformat(str(traded_at)),
+                adjustment_factor=factor,
+                ex_right_type=kind,
+            )
+        )
+        != 1.0
+        for traded_at, factor, kind in rows
+    )
+
+
 def next_order_session(
     *, sqlite_path: Path, now: datetime, connection: sqlite3.Connection | None = None
 ) -> date | None:

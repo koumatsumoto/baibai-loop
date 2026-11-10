@@ -48,9 +48,11 @@ from baibai_engine.machine_analysis.observations.stocks.reader import (
 )
 from baibai_engine.portfolio.holdings.market_observations import read_unadjusted_close
 from baibai_engine.portfolio.holdings.valuation import (
+    UnresolvedHoldingQuantityError,
     holding_episode,
     holding_market_price,
     holding_quote,
+    require_closed_holding_basis,
 )
 from baibai_engine.portfolio.ledger.events import (
     ExecutionEvent,
@@ -177,6 +179,10 @@ def collect_proposal_inputs(
     prices: dict[str, MarketPrice] = {}
     with proposal_market_snapshot(sqlite_path, connection=market_connection) as market_connection:
         if market_connection is not None:
+            try:
+                require_closed_holding_basis(ledger, now=now, connection=market_connection)
+            except UnresolvedHoldingQuantityError as error:
+                raise ProposalError(str(error)) from error
             for ticker in sorted(set(tickers) | held_tickers):
                 if ticker in held_tickers:
                     observed, confirmed = holding_quote(

@@ -168,3 +168,50 @@ def test_cash_only_dashboard_keeps_ledger_facts_without_inventing_a_quote_date(t
     assert view.valuation_as_of is None
     assert app.read_bytes() == before
     assert not market.exists()
+
+
+@pytest.mark.parametrize("action", [False, True])
+def test_reported_full_sale_does_not_turn_unresolved_share_units_into_cash_only_nav(
+    holding_case, mocker, action
+):
+    db, market, _ = holding_case
+    service = LedgerStoreService(db)
+    draft = build_sell_execution_draft(
+        service,
+        occurred_at=NOW,
+        ticker="2331",
+        quantity=200,
+        price_yen=Decimal(550),
+        execution_id="synthetic-full-sale",
+    )
+    apply_draft(service, draft, human_confirmed=True)
+    if action:
+        with closing(sqlite3.connect(market)) as connection, connection:
+            connection.execute(
+                "UPDATE jquants_daily_bars SET adjustment_factor=0.5, ex_right_type='1' "
+                "WHERE traded_at='2026-09-04'"
+            )
+    for module in (db_sources, dashboard):
+        mocker.patch.object(module, "datetime").now.return_value = NOW
+    before = db.read_bytes(), market.read_bytes()
+    view = build_dashboard(DbLedgerSource(db, market), DbMarketSource(market))
+    assert view.ledger_exists
+    assert view.ledger_error is None
+    assert view.holdings == []  # Do not invent an unreported replacement quantity.
+    assert view.available_cash_yen == 10190500
+    assert view.reserved_cash_yen == 119000
+    assert view.ledger_as_of == NOW
+    if action:
+        assert view.valuation_error is not None
+        assert "2331" in view.valuation_error
+        assert "株数変更" in view.valuation_error
+        assert view.total_capital_yen is view.holdings_market_value_yen is None
+        assert view.realized_gross_pnl_yen is None
+        assert view.cash_pct is view.reserved_pct is view.deployed_pct is None
+        assert view.warnings == []
+    else:
+        assert view.valuation_error is None
+        assert view.total_capital_yen == 10309500
+        assert view.holdings_market_value_yen == 0
+        assert view.realized_gross_pnl_yen == -93000
+    assert (db.read_bytes(), market.read_bytes()) == before

@@ -5,13 +5,17 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Mapping
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
 from baibai_engine.machine_analysis.observations.stocks.reader import (
     read_master_snapshot,
 )
-from baibai_engine.portfolio.holdings.valuation import current_portfolio
+from baibai_engine.portfolio.holdings.valuation import (
+    UnresolvedHoldingQuantityError,
+    current_portfolio,
+)
 from baibai_engine.portfolio.ledger.events import (
     PortfolioLedgerDocument,
     replay_events_through,
@@ -42,6 +46,17 @@ class DbLedgerSource:
         now = datetime.now().astimezone()
         try:
             snapshot = current_portfolio(document, sqlite_path=self._market_path, now=now)
+        except UnresolvedHoldingQuantityError as error:
+            state = replay_events_through(document.events, now)
+            snapshot = replace(
+                summarize_portfolio(document, state, {}),
+                holdings_market_value_yen=None,
+                total_capital_yen=None,
+                realized_gross_pnl_yen=None,
+                estimated_exit_tax_yen=None,
+                warnings=(),
+            )
+            return PortfolioRead(snapshot, str(error))
         except (SQLiteSchemaError, sqlite3.Error, ValueError):
             # Only this presentation boundary may retain unvalued ledger facts on a
             # market read failure. Judgment readers still reject the broken store.
