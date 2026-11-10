@@ -74,7 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.asof is None:
             raise ValueError("short-sale reports requires --asof")
         with closing(
-            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            Boto3R2Store(
+                bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
+                verify_put_with_head=False,
+            )
         ) as store:
             owner = ShortSaleReportsL1(store, args.directory)
             if args.command == "plan":

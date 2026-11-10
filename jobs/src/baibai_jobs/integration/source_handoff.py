@@ -290,7 +290,10 @@ def _acquire_financial_l1(asof: date, directory: Path) -> bool:
 
     with (
         closing(
-            Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+            Boto3R2Store(
+                bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
+                verify_put_with_head=False,
+            )
         ) as store,
         closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
     ):
@@ -316,7 +319,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     )
 
     with (
-        closing(Boto3R2Store(bucket=bucket)) as calendar_store,
+        closing(Boto3R2Store(bucket=bucket, verify_put_with_head=False)) as calendar_store,
         closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as calendar_client,
     ):
         owner = CalendarL1(calendar_store, directory / "calendar-native")
@@ -341,7 +344,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
         # Commit price originals before independent sources and L2 work.
         try:
             with (
-                closing(Boto3R2Store(bucket=bucket)) as price_store,
+                closing(Boto3R2Store(bucket=bucket, verify_put_with_head=False)) as price_store,
                 closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as price_client,
             ):
                 price_owner = PriceL1(price_store, directory / "price-native")
@@ -371,7 +374,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     else:
         try:
             with (
-                closing(Boto3R2Store(bucket=bucket)) as master_store,
+                closing(Boto3R2Store(bucket=bucket, verify_put_with_head=False)) as master_store,
                 closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as master_client,
             ):
                 master_owner = MasterL1(master_store, directory / "master-native")
@@ -408,7 +411,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     else:
         # Independent source commits survive later acquisition or L2 failures.
         with (
-            closing(Boto3R2Store(bucket=bucket)) as alerts_store,
+            closing(Boto3R2Store(bucket=bucket, verify_put_with_head=False)) as alerts_store,
             closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as alerts_client,
         ):
             acquired_alerts = acquire_margin_alerts_native(
@@ -433,7 +436,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
     else:
         # Independent source commits survive later acquisition or L2 failures.
         with (
-            closing(Boto3R2Store(bucket=bucket)) as shorts_store,
+            closing(Boto3R2Store(bucket=bucket, verify_put_with_head=False)) as shorts_store,
             closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as shorts_client,
         ):
             acquired_shorts = acquire_short_sale_reports_native(
@@ -457,7 +460,7 @@ def _acquire_market_l1(asof: date, directory: Path) -> bool:
         interest_ok = False
     else:
         with (
-            closing(Boto3R2Store(bucket=bucket)) as interest_store,
+            closing(Boto3R2Store(bucket=bucket, verify_put_with_head=False)) as interest_store,
             closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as interest_client,
         ):
             acquired_interest = acquire_margin_interest_native(

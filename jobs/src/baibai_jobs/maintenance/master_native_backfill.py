@@ -28,7 +28,10 @@ def backfill_native_master(args: argparse.Namespace) -> int:
         with (
             tempfile.TemporaryDirectory(prefix="master-native-backfill-") as temporary,
             closing(
-                Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores")
+                Boto3R2Store(
+                    bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores",
+                    verify_put_with_head=False,
+                )
             ) as store,
             closing(JQuantsHTTP(os.environ.get("JQUANTS_API_KEY", ""))) as client,
         ):
