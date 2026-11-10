@@ -12,6 +12,9 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from baibai_engine.data_collection.providers.jpx.receipt_store import (
+    validate_receipts as validate_jpx_receipts,
+)
 from baibai_engine.data_collection.receipts.articles.store import validate_receipt_schema
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
 from baibai_engine.machine_analysis.generation.edinet_inputs import (
@@ -52,7 +55,7 @@ from baibai_jobs.integration.external_assessment_ready import available_ready
 from baibai_jobs.integration.external_assessments import merge_ready, verify_and_seal
 from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MARKET_SOURCES
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
-from baibai_jobs.integration.source_handoff import _replay
+from baibai_jobs.integration.source_handoff import _JPX_COLLECTION, _replay
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
@@ -210,6 +213,8 @@ def apply(
                             validate_source_handoff(raw, sources=JQUANTS_MARKET_SOURCES)
                         elif entry["source"] in ARTICLE_SOURCES:
                             validate_receipt_schema(raw)
+                        elif entry["source"] in _JPX_COLLECTION:
+                            validate_jpx_receipts(raw)
                         else:
                             validate_market_schema(raw)
                 except sqlite3.DatabaseError as error:
