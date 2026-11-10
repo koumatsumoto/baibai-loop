@@ -235,7 +235,7 @@ def test_portfolio_outcome_includes_idle_cash_and_confirmed_cashflows() -> None:
     assert result.estimated_exit_tax_yen == 20
 
 
-@pytest.mark.parametrize("factor", [None, 0.5, 2.0])
+@pytest.mark.parametrize("factor", [None, 0.0, 0.5, 2.0])
 def test_portfolio_outcome_rejects_unresolved_corporate_action(factor) -> None:
     from baibai_engine.portfolio.performance.calculate import compute_portfolio_outcome
 
@@ -249,20 +249,6 @@ def test_portfolio_outcome_rejects_unresolved_corporate_action(factor) -> None:
         ),
     )
 
-    assert result.status == "unresolved"
-    assert result.reason == "corporate_action_unresolved"
-
-
-def test_portfolio_outcome_does_not_assume_zero_factor_is_neutral() -> None:
-    result = compute_portfolio_outcome(
-        _ledger(),
-        _benchmark(),
-        business_days=(date(2025, 1, 6), date(2026, 1, 6)),
-        bars=(
-            JQuantsDailyBar("1234", date(2025, 1, 6), 5.0, None, adjustment_factor=1.0),
-            JQuantsDailyBar("1234", date(2026, 1, 6), 6.0, None, adjustment_factor=0.0),
-        ),
-    )
     assert result.status == "unresolved"
     assert result.reason == "corporate_action_unresolved"
 
