@@ -180,3 +180,87 @@ def test_historical_schema_one_outcome_reads_without_rewrite_or_republication(tm
             (current.outcome_id,),
         ).fetchone() == (encoded,)
     assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("retrieved_at", ["2025-12-30T18:00:00+09:00", "2026-01-01T12:00:00+09:00"])
+@pytest.mark.parametrize("status", ["resolved", "unresolved"])
+def test_new_outcome_rejects_benchmark_published_before_period_end(tmp_path, retrieved_at, status):
+    publication = _publication(status=status)
+    benchmark = publication.payload["benchmark_observation"]
+    assert isinstance(benchmark, dict)
+    benchmark.update(published_at="2025-12-30", retrieved_at=retrieved_at)
+    path = tmp_path / "app.sqlite"
+    initialize_database(path)
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="period_end_date cannot be after published_at"):
+        PortfolioOutcomeStore(path).publish(publication)
+
+    assert PortfolioOutcomeStore(path).list() == ()
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("basis", "published_at", "retrieved_at"),
+    [
+        ("official_explicit", "2025-12-31", "2025-12-30T15:00:00Z"),
+        ("official_month_end_rule", "2025-12-31", "2025-12-31T00:00:00+09:00"),
+        ("official_explicit", "2026-01-01", "2026-01-02T12:00:00+09:00"),
+    ],
+)
+def test_new_outcome_preserves_benchmark_date_precision(
+    tmp_path, basis, published_at, retrieved_at
+):
+    publication = _publication()
+    benchmark = publication.payload["benchmark_observation"]
+    assert isinstance(benchmark, dict)
+    benchmark.update(
+        period_basis=basis,
+        period_rule_source_url="https://www.jpx.co.jp/rule"
+        if basis == "official_month_end_rule"
+        else None,
+        published_at=published_at,
+        retrieved_at=retrieved_at,
+    )
+    store = PortfolioOutcomeStore(tmp_path / "app.sqlite")
+    assert store.publish(publication)
+    assert not store.publish(publication)
+    assert store.list() == ({"outcome_id": publication.outcome_id, **publication.payload},)
+
+
+def test_saved_benchmark_clock_conflict_keeps_readback_retry_and_identity(tmp_path):
+    from dataclasses import replace
+
+    from baibai_engine.primitives.json import canonical_json
+
+    publication = _publication()
+    benchmark = publication.payload["benchmark_observation"]
+    assert isinstance(benchmark, dict)
+    benchmark.update(published_at="2025-12-30", retrieved_at="2025-12-30T18:00:00+09:00")
+    encoded = canonical_json(publication.payload)
+    path = tmp_path / "app.sqlite"
+    initialize_database(path)
+    # A schema-2 row accepted before the publication-time check, without rewriting it.
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            "INSERT INTO portfolio_outcome "
+            "(outcome_id, horizon, period_start_date, period_end_date, status, payload) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                publication.outcome_id,
+                publication.horizon,
+                publication.period_start_date,
+                publication.period_end_date,
+                publication.status,
+                encoded,
+            ),
+        )
+    before = path.read_bytes()
+    store = PortfolioOutcomeStore(path)
+    assert store.list() == ({"outcome_id": publication.outcome_id, **publication.payload},)
+    assert not store.publish(publication)
+    with pytest.raises(ValueError, match="period_end_date cannot be after published_at"):
+        store.publish(replace(publication, outcome_id="new-id"))
+    with pytest.raises(PortfolioOutcomeConflictError):
+        store.publish(replace(publication, payload={**publication.payload, "ending_cash_yen": 101}))
+    assert path.read_bytes() == before

@@ -40,7 +40,7 @@ class PortfolioOutcomeStore:
         self._db_path = db_path
 
     def publish(self, publication: PortfolioOutcomePublication) -> bool:
-        _validate(publication)
+        payload = _validate(publication)
         encoded = canonical_json(publication.payload)
         initialize_database(self._db_path)
         with closing(connect_rw(self._db_path)) as connection:
@@ -65,6 +65,8 @@ class PortfolioOutcomeStore:
                         )
                     connection.commit()
                     return False
+                # Preserve exact retries of results saved before this input check.
+                payload.benchmark_observation.require_completed_period()
                 connection.execute(
                     "INSERT INTO portfolio_outcome "
                     "(outcome_id, horizon, period_start_date, period_end_date, status, payload) "
@@ -90,7 +92,7 @@ class PortfolioOutcomeStore:
         )
 
 
-def _validate(publication: PortfolioOutcomePublication) -> None:
+def _validate(publication: PortfolioOutcomePublication) -> PortfolioOutcomePayload:
     payload = PortfolioOutcomePayload.model_validate(publication.payload)
     required = {
         "kind": "portfolio_outcome",
@@ -105,3 +107,4 @@ def _validate(publication: PortfolioOutcomePublication) -> None:
             actual = actual.isoformat()
         if actual != expected:
             raise ValueError(f"outcome payload {field} does not match publication")
+    return payload

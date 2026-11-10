@@ -89,3 +89,8 @@ class BenchmarkObservation(BaseModel):
         if self.published_at > self.retrieved_at.astimezone(JST).date():
             raise ValueError("published_at cannot be after retrieved_at")
         return self
+
+    def require_completed_period(self) -> None:
+        """Check new publication without revalidating historical saved outcomes."""
+        if self.period_end_date > self.published_at:
+            raise ValueError("period_end_date cannot be after published_at")
