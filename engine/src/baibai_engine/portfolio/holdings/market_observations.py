@@ -242,8 +242,9 @@ def has_received_share_action(
         if not confirmed_days
         else " OR traded_at IN (" + ",".join("?" for _ in confirmed_days) + ")"
     )
+    # Only fixed SQL and generated placeholders are joined; all values are bound below.
     rows = connection.execute(
-        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "
+        "SELECT traded_at, adjustment_factor, ex_right_type FROM jquants_daily_bars "  # nosec B608
         "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? "
         "AND (adjustment_factor != 1 OR ex_right_type IN ('1', '2')" + extra + ")",
         (ticker, after.isoformat(), through.isoformat(), *sorted(confirmed_days)),
