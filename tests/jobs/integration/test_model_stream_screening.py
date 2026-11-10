@@ -2,6 +2,7 @@
 
 import gzip
 import hashlib
+import json
 import sqlite3
 import weakref
 from collections import Counter
@@ -33,6 +34,7 @@ from baibai_engine.machine_analysis.generation.store import (
 )
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
+from baibai_engine.primitives.json import canonical_json
 
 
 def rows(path):
@@ -159,7 +161,7 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
     oracle_path = tmp_path / "oracle.sqlite"
     publish_generation(expected[0], path=oracle_path)
     assert rows(arguments["runs"]) == rows(oracle_path)
-    # 合成fixtureのcanonical Selection全体を固定。根拠のない旧flagは含めない。
+    # 既存の選定内容は不変。新規集計は同じ日次結果として別に照合する。
     expected_sha256 = (
         "9500136a68701c7697ddbbc46198406c9dcca56ccb821290aea2eec71ba2b5d7"
         if empty
@@ -172,7 +174,10 @@ def test_normal_stream_matches_fixed_expectations_without_decoding_models_again(
             "SELECT payload_gzip FROM screening_selection WHERE selection_id=?",
             (result["selection_id"],),
         ).fetchone()[0]
-    assert hashlib.sha256(gzip.decompress(payload)).hexdigest() == expected_sha256
+    saved_payload = json.loads(gzip.decompress(payload))
+    assert saved_payload.pop("price_inputs") == result["screening_price_inputs"]
+    assert hashlib.sha256(canonical_json(saved_payload).encode()).hexdigest() == expected_sha256
+    assert publication.selection.price_inputs == result["screening_price_inputs"]
     assert result["screening_price_inputs"] == {
         "universe_count": 0 if empty else 4,
         "valid_count": 0 if empty else 3,

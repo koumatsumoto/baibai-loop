@@ -17,7 +17,7 @@ from baibai_engine.investment_judgment.market_assessment.query import latest_ass
 from baibai_engine.investment_judgment.workflow.screening_brief import economic_screening_brief
 from baibai_engine.investment_judgment.workflow.selection import ResearchRequest
 from baibai_engine.investment_judgment.workflow.selection_policy import CURRENT_RESEARCH_CAPACITY
-from baibai_engine.machine_analysis.screening.contracts import ScreeningResult
+from baibai_engine.machine_analysis.screening.contracts import ScreeningResult, ScreeningSelection
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathSelection
 from baibai_engine.portfolio.ledger.events import replay_events_through
 from baibai_engine.portfolio.ledger.read import load_ledger_document
@@ -155,7 +155,7 @@ def load_generated_selection_context(
         "generation_id": generation_id,
         "screening_selection_id": screening_selection_id,
         "capacity": CURRENT_RESEARCH_CAPACITY.model_dump(mode="json"),
-        "screening": None if screening is None else _project_screening(screening.result),
+        "screening": None if screening is None else _project_screening(screening),
         "candidate_tickers": list(candidates),
         "candidate_order_semantics": (
             "ticker_code_order_attention_priority_in_screening_cards_rank"
@@ -182,9 +182,12 @@ def load_generated_selection_context(
     }
 
 
-def _project_screening(result: ScreeningResult) -> dict[str, Any]:
+def _project_screening(selection: ScreeningSelection) -> dict[str, Any]:
+    result = selection.result
     adapter = TypeAdapter[ScreeningResult](ScreeningResult)
     projection = cast(dict[str, Any], adapter.dump_python(result, mode="json"))
     if isinstance(result, EconomicPathSelection):
-        return economic_screening_brief(projection)
+        projection = economic_screening_brief(projection)
+    if selection.price_inputs is not None:
+        projection["price_inputs"] = deepcopy(selection.price_inputs)
     return projection

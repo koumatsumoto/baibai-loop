@@ -39,12 +39,14 @@ def evaluate_economic_coordinates(
         else project_company(subject, models=(), metadata=metadata)
         for subject in subjects
     )
+    price_inputs = _price_inputs(companies)
     selection = ScreeningSelection(
         generation_id=metadata.generation_id,
         universe_tickers=subjects,
         result=select_economic_paths(companies, policy=policy),
+        price_inputs=price_inputs,
     )
-    return EconomicSelectionEvaluation(selection=selection, price_inputs=_price_inputs(companies))
+    return EconomicSelectionEvaluation(selection=selection, price_inputs=price_inputs)
 
 
 def _universe(tickers: Sequence[str]) -> tuple[str, ...]:

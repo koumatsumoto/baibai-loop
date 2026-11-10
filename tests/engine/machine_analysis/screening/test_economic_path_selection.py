@@ -62,7 +62,10 @@ def test_coordinates_select_fixed_universe_and_project_only_missing_companies(
     actual = economic_path_selection.evaluate_economic_coordinates(
         fixed, tickers=subjects, coordinates=coordinates, policy=policy
     )
-    assert actual.selection == expected
+    assert actual.selection.generation_id == expected.generation_id
+    assert actual.selection.universe_tickers == expected.universe_tickers
+    assert actual.selection.result == expected.result
+    assert actual.selection.price_inputs == actual.price_inputs
     assert projected == (["0000"] if subjects else [])
     if subjects:
         assert tuple(card.ticker for card in actual.selection.result.cards) == ("5678", "1234")
@@ -93,6 +96,7 @@ def test_price_diagnostics_distinguish_unavailable_inputs_without_changing_selec
         policy=EconomicPathPolicy(),
     )
     assert result.selection.result.cards == ()
+    assert result.selection.price_inputs == result.price_inputs
     assert result.price_inputs == {
         "universe_count": 3,
         "valid_count": 1,
