@@ -226,7 +226,8 @@ def seal_integrated(
     prefix = stage_prefix(str(entry["stage_id"]), market=bool(entry["market"]), namespace=namespace)
     terminal = (
         f"recovered-{entry['manifest_sha256']}.json"
-        if entry.get("explicit_article_recovery") and not recovery
+        if (entry.get("explicit_article_recovery") or entry.get("explicit_jpx_recovery"))
+        and not recovery
         else "integrated.json"
     )
     key = prefix + "/" + terminal
