@@ -852,7 +852,9 @@ def replay_events_through(
     )
 
 
-def require_resolved_expiries(state: ReplayedPortfolioState) -> None:
+def require_resolved_expiries(
+    state: ReplayedPortfolioState, *, expired_by: datetime | None = None
+) -> None:
     """Reject a state that still owes a human's report on a lapsed reservation.
 
     This is a claim about the ledger being current, not about the events being
@@ -860,12 +862,15 @@ def require_resolved_expiries(state: ReplayedPortfolioState) -> None:
     exactly what the ledger looks like between the lapse and the evening the human
     reports it. Broker-fact completion and outcome publication require that report.
     Readers retain the confirmed reservation; historical replay also preserves it.
+    A historical publication only requires terminal reports for expiries reached
+    by its ending close, not unrelated orders or expiries in a later period.
     """
 
+    cutoff = state.as_of if expired_by is None else min(state.as_of, expired_by)
     expired = sorted(
         item.reservation_id
         for item in state.active_reservations.values()
-        if item.expires_at is not None and item.expires_at <= state.as_of
+        if item.expires_at is not None and item.expires_at <= cutoff
     )
     if expired:
         raise PortfolioLedgerError(f"expired reservations require an explicit release: {expired}")

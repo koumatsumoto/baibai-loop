@@ -97,7 +97,7 @@ uv run python -m tools.enable_share_conversions --source <SCHEMA29_COPY> --desti
 
 JPX営業日closeごとに全資産をreplayする。入出金だけexternal flow、売買/予約/income/費用/税は内部event。記録済み費用/税だけを反映し、resolvedでも未報告分の不存在を保証しない。
 
-開始日closeから終了日closeを測り、開始NAVのeventを期間flowへ重ねない。非営業日eventは次営業日BODへ繰り越す。開始前分割/全売却日のactionも含むepisodeを確認するが、購入当日actionを過去保有の変更にしない。calendar・価格・basisは同じSQLite snapshotを使う。
+開始日closeから終了日closeを測り、開始NAVのeventを期間flowへ重ねない。非営業日eventは次営業日BODへ繰り越す。開始前分割/全売却日のactionも含むepisodeを確認するが、購入当日actionを過去保有の変更にしない。calendar・価格・basisは同じSQLite snapshotを使う。失効の本人報告は終了closeまでに失効した注文だけで要求し、後の注文/失効で過去実績や同内容再送を止めない。
 
 開始前に全売却と記帳されても、保有中に受領済みの株数変更が未解決ならcash-onlyの実績にしない。この確認だけのために過去全期間の株価を要求せず、計測終了後の取引は持ち込まない。
 
