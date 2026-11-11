@@ -25,7 +25,6 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
 from baibai_engine.data_collection.providers.edinet.models import (
     EdinetAccessDeniedError,
     EdinetAcquisitionError,
-    EDINETProviderError,
     EdinetRateLimitError,
     EdinetResponse,
 )
@@ -106,14 +105,63 @@ def test_metrics_gets_ignore_l2_and_do_not_retrieve_retained_zip_bodies(tmp_path
 
 
 @pytest.mark.parametrize("lookback", [1, 540])
-def test_missing_list_coverage_cannot_be_replaced_by_provider_get(tmp_path, lookback):
-    owner, client, _, lists = setup(tmp_path, [filing("S100ONE")])
-    with pytest.raises(EDINETProviderError, match="unavailable"):
-        acquire_archives(
-            owner, client, lists, group="edinet-metrics", asof=DAY, lookback_days=lookback
+@pytest.mark.parametrize("missing_kind", ["unreceived", "failed"])
+def test_missing_list_days_do_not_block_known_metric_originals_or_complete_l2(
+    tmp_path, lookback, missing_kind
+):
+    from baibai_engine.machine_analysis.observations.financials.edinet_integration import (
+        extract_saved_edinet,
+    )
+
+    owner, client, list_owner, lists = setup(tmp_path, [filing("S100ONE")])
+    client.fetch_archive.return_value = EdinetResponse(AT, _edinet_csv_zip())
+    failed_day = DAY - timedelta(days=1)
+    if missing_kind == "failed":
+        lists = list_owner.publish(
+            [
+                NativeListReceipt.from_response(
+                    failed_day, EdinetResponse(AT + timedelta(seconds=2), b"{"), UUID(int=2).hex
+                )
+            ]
         )
-    client.fetch_archive.assert_not_called()
-    assert not owner.freeze().archive_keys
+    report = acquire_archives(
+        owner, client, lists, group="edinet-metrics", asof=DAY, lookback_days=lookback
+    )
+    assert report["status"] == "failed"
+    assert report["list_unavailable_days"] == [
+        (DAY - timedelta(days=offset)).isoformat() for offset in range(lookback, 0, -1)
+    ]
+    assert report["list_failed_days"] == (
+        [failed_day.isoformat()] if missing_kind == "failed" else []
+    )
+    assert report["downloaded"] == 1
+    client.fetch_archive.assert_called_once_with("S100ONE", 5)
+    fixed = owner.freeze()
+    original = fixed.metadata("S100ONE", 5)
+    assert original.received_at_utc == AT
+    database = tmp_path / "market.sqlite"
+    materialize_lists(lists, database)
+    result = extract_saved_edinet(
+        database, asof=DAY, lookback_days=lookback, metric_archives=fixed, fact_archives=fixed
+    )
+    assert result["edinet-metrics"]["status"] == "deferred_input"
+    assert result["edinet-metrics"]["snapshot_asof"] is None
+    assert result["edinet-metrics"]["deferred_inputs"] == ["document_window_incomplete"]
+
+    # Once the missing list arrives, the same fixed-window acquisition reuses the
+    # already received ZIP and clock. List repair does not authorize a replacement GET.
+    if lookback == 1:
+        complete_lists = save_lists(list_owner, [], day=failed_day, receipt=3)
+        client.reset_mock()
+        resumed = acquire_archives(
+            owner, client, complete_lists, group="edinet-metrics", asof=DAY, lookback_days=1
+        )
+        assert resumed["status"] == "received"
+        assert resumed["list_unavailable_days"] == []
+        assert resumed["retained_archives_reused"] == 1
+        assert owner.freeze().metadata("S100ONE", 5) == original
+        assert owner.freeze().identity == fixed.identity
+        client.fetch_archive.assert_not_called()
 
 
 def test_scope_precedes_get_partial_429_and_resume_preserve_success(tmp_path):
@@ -276,6 +324,7 @@ def test_malformed_latest_list_is_reported_while_retaining_usable_prior_archive(
     )
     assert report["status"] == "failed"
     assert report["list_failed_days"] == [DAY.isoformat()]
+    assert report["list_unavailable_days"] == []
     assert report["downloaded"] == 1
     assert owner.freeze().archive_keys == frozenset({("S100ONE", 5)})
 

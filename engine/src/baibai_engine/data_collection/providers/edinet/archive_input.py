@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from baibai_engine.data_collection.providers.edinet.archive_plan import holder_document_scope
@@ -40,13 +40,6 @@ class ArchiveListInput:
             if day <= through and day not in self.available_days:
                 raise EDINETProviderError(f"EDINET document coverage failed: {day.isoformat()}")
         return self.observed_documents(through=through)
-
-    def require_complete_window(self, start: date, end: date) -> None:
-        day = start
-        while day <= end:
-            if day not in self.available_days:
-                raise EDINETProviderError("stored EDINET document list is unavailable")
-            day += timedelta(days=1)
 
 
 def read_archive_list_input(fixed: FixedEdinetLists) -> ArchiveListInput:
