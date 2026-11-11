@@ -348,6 +348,7 @@ def import_handoff(
             "raw_receipts_added": raw_added,
             "rows_before": before.get("rows", 0),
             "rejected_receipts": rejected,
+            "receipt_ids": list(handoff.receipt_ids),
         },
         complete=not rejected,
     )
