@@ -167,6 +167,7 @@ def acquire_source(
     cooldown = state.not_before
     pages = 0
     bodies = 0
+    access_denied = False
     next_page: str | None = None
     partial = False
     evidence_by_url: dict[str, list[dict[str, str]]] = {}
@@ -345,7 +346,7 @@ def acquire_source(
         def receive(
             url: str, kind: Literal["index", "document"]
         ) -> tuple[ArticleReceipt, bytes | None]:
-            nonlocal cooldown
+            nonlocal access_denied, cooldown
             budget.check()
             previous = planning.get(url)
             baseline = ArticleReceipt.model_validate(previous["receipt"]) if previous else None
@@ -408,6 +409,10 @@ def acquire_source(
                     retain_receipt(conn, receipt, body=response.body)
                 receipt_ids.append(receipt.receipt_id)
                 kinds[receipt.receipt_id] = kind
+                if receipt.http_status in {401, 403}:
+                    # Preserve the refusal, then end this source's pass. Other
+                    # URLs, headers or sessions are not a way around that result.
+                    access_denied = True
                 if receipt.status == "ok":
                     # Updating an existing mapping moves it to the bounded recent end.
                     planning.pop(url, None)
@@ -509,7 +514,9 @@ def acquire_source(
                 pages += 1
                 if body is None:
                     partial = True
-                    if receipt.cooldown_until is None and entry_urls:
+                    if access_denied:
+                        next_page = cursor.get("next_page") if pages == 1 else page_url
+                    if not access_denied and receipt.cooldown_until is None and entry_urls:
                         page_url = entry_urls.pop(0)
                         continue
                     break
@@ -578,7 +585,7 @@ def acquire_source(
             pending_urls = []
             seen_bodies: set[str] = set()
             redirect_ancestors: dict[str, set[str]] = {}
-            while queue and bodies < policy.max_bodies:
+            while not access_denied and queue and bodies < policy.max_bodies:
                 if discovery is not None and discovery.encoded_size(queue) > MAX_DISCOVERY_BYTES:
                     failed.append("discovery_capacity_exceeded")
                     partial = True
@@ -643,7 +650,7 @@ def acquire_source(
                     queue = discover(identity, receipt, body, queue)
                     discovery.children.pop(url, None)
                 active_url = None
-                if receipt.cooldown_until is not None:
+                if receipt.http_status in {401, 403} or receipt.cooldown_until is not None:
                     partial = True
                     break
             pending_urls.extend(queue)
@@ -688,16 +695,16 @@ def acquire_source(
             if omitted_urls:
                 failed.append("legacy_omission_unresolved")
         else:
-            # Legacy attachment discovery remains independently bounded.
-            omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
+            # The validator cache may evict entries; unfinished work may not.
+            # Keep the full cursor. commit_stage retains it in the immutable
+            # handoff before enforcing the existing planning byte budget.
+            omitted_urls = int(cursor.get("omitted_url_count", 0))
             if omitted_urls:
-                failed.append("pending_cursor_overflow")
+                failed.append("legacy_omission_unresolved")
             cursor = {
-                "pending_urls": pending_urls[:MAX_REQUEST_STATES],
+                "pending_urls": pending_urls,
                 "pending_evidence": {
-                    url: link
-                    for url in pending_urls[:MAX_REQUEST_STATES]
-                    if (link := evidence_for(url)) is not None
+                    url: link for url in pending_urls if (link := evidence_for(url)) is not None
                 },
                 "next_page": next_page,
                 "omitted_url_count": omitted_urls,

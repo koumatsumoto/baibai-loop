@@ -97,23 +97,31 @@ def test_world_index_replay_and_later_correction_keep_original_receipts(
     assert skipped["status"] == "not_due"
 
 
-@pytest.mark.parametrize("first_status", [200, 403, 302])
-def test_bbc_one_failed_feed_does_not_discard_second_original(tmp_path, monkeypatch, first_status):
+@pytest.mark.parametrize("first_status", [200, 401, 403, 302])
+def test_bbc_refusal_stops_but_other_failures_keep_second_original(
+    tmp_path, monkeypatch, first_status
+):
     monkeypatch.setattr(
         "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
     )
     store = MemoryR2Store()
     publish_planning_input(store, "bbc_news", {})
     packet = tmp_path / "partial"
+    refused = first_status in {401, 403}
+    responses = [Response(first_status, b"<html/>")]
+    if not refused:
+        responses.append(Response(200, FEED))
+    session = Session(responses)
     report = articles.acquire_source(
         store,
         source="bbc_news",
         slot=SLOT,
         identity="partial",
         directory=packet,
-        session=Session([Response(first_status, b"<html/>"), Response(200, FEED)]),
+        session=session,
     )
-    assert report["pages"] == 2
+    assert session.urls == list(SOURCES["bbc_news"].entry_urls)[: 1 if refused else 2]
+    assert report["pages"] == (1 if refused else 2)
     assert report["status"] == "partial"
     expected_failure = "index_parse_failed" if first_status == 200 else "http_error"
     assert expected_failure in report["failures"]
@@ -121,5 +129,5 @@ def test_bbc_one_failed_feed_does_not_discard_second_original(tmp_path, monkeypa
     # Importing an HTTP error receipt succeeds without claiming acquisition succeeded.
     assert imported.complete is (first_status != 200)
     assert imported.report["acquisition_status"] == "partial"
-    assert len(imported.report["receipt_ids"]) == 2
-    assert len(imported.report["observation_ids"]) == 1
+    assert len(imported.report["receipt_ids"]) == (1 if refused else 2)
+    assert len(imported.report["observation_ids"]) == (0 if refused else 1)

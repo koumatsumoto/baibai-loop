@@ -604,8 +604,8 @@ def test_missing_old_200_closure_uses_one_unconditional_get_instead_of_repeated_
     assert session.headers[2]["If-None-Match"] == '"feed-v1"'
 
 
-@pytest.mark.parametrize(("status", "expected_pages"), [(403, 4), (429, 1), (200, 4)])
-def test_nhk_independent_feed_failure_continues_except_cooldown(
+@pytest.mark.parametrize(("status", "expected_pages"), [(401, 1), (403, 1), (429, 1), (200, 4)])
+def test_nhk_feed_refusal_stops_but_parse_failure_keeps_independent_feeds(
     tmp_path, monkeypatch, status, expected_pages
 ):
     class Clock(datetime):
@@ -620,7 +620,7 @@ def test_nhk_independent_feed_failure_continues_except_cooldown(
     store = MemoryR2Store()
     publish_planning_input(store, "nhk_news", {"lake_release_id": "before"})
     responses = [Response(status, b"<invalid>" if status == 200 else b"")]
-    if status != 429:
+    if status == 200:
         responses.extend(Response(200, b"<rss><channel /></rss>") for _ in range(3))
     session = Session(responses)
     report = articles.acquire_source(
