@@ -514,8 +514,8 @@ def acquire_source(
                 pages += 1
                 if body is None:
                     partial = True
-                    if access_denied and pages == 1:
-                        next_page = cursor.get("next_page")
+                    if access_denied:
+                        next_page = cursor.get("next_page") if pages == 1 else page_url
                     if not access_denied and receipt.cooldown_until is None and entry_urls:
                         page_url = entry_urls.pop(0)
                         continue
@@ -695,16 +695,16 @@ def acquire_source(
             if omitted_urls:
                 failed.append("legacy_omission_unresolved")
         else:
-            # Legacy attachment discovery remains independently bounded.
-            omitted_urls = max(0, len(pending_urls) - MAX_REQUEST_STATES)
+            # The validator cache may evict entries; unfinished work may not.
+            # Keep the full cursor. commit_stage retains it in the immutable
+            # handoff before enforcing the existing planning byte budget.
+            omitted_urls = int(cursor.get("omitted_url_count", 0))
             if omitted_urls:
-                failed.append("pending_cursor_overflow")
+                failed.append("legacy_omission_unresolved")
             cursor = {
-                "pending_urls": pending_urls[:MAX_REQUEST_STATES],
+                "pending_urls": pending_urls,
                 "pending_evidence": {
-                    url: link
-                    for url in pending_urls[:MAX_REQUEST_STATES]
-                    if (link := evidence_for(url)) is not None
+                    url: link for url in pending_urls if (link := evidence_for(url)) is not None
                 },
                 "next_page": next_page,
                 "omitted_url_count": omitted_urls,
