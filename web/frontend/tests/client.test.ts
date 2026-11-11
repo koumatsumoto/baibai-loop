@@ -143,6 +143,54 @@ describe('obsolete 401 responses', () => {
 
 
 describe('auth signal before the password gate subscribes', () => {
+  it('does not reset an open prompt when a second unauthenticated request returns 401', async () => {
+    const responses: ((response: Response) => void)[] = []
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { responses.push(resolve) }))
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    try {
+      const dashboard = fetchJson('/api/dashboard')
+      const outcomes = fetchJson('/api/outcomes')
+      responses[0](jsonResponse({}, 401))
+      await expect(dashboard).rejects.toMatchObject({ status: 401 })
+      expect(listener).toHaveBeenCalledExactlyOnceWith('required')
+      // The user may already be typing in the prompt opened by the first response.
+      responses[1](jsonResponse({}, 401))
+      await expect(outcomes).rejects.toMatchObject({ status: 401 })
+      expect(listener).toHaveBeenCalledExactlyOnceWith('required')
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('keeps a rejected prompt when an already-started passwordless request returns 401', async () => {
+    setViewPassword('ひみつ')
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    try {
+      await expect(fetchJson('/api/dashboard')).rejects.toMatchObject({ status: 401 })
+      fetchMock.mockResolvedValue(jsonResponse({}, 401))
+      await expect(fetchJson('/api/outcomes')).rejects.toMatchObject({ status: 401 })
+      expect(listener).toHaveBeenCalledExactlyOnceWith('rejected')
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('allows a new rejection after the user submits another password', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}, 401))
+    const listener = vi.fn()
+    const unsubscribe = subscribeAuthRequired(listener)
+    try {
+      await expect(fetchJson('/api/dashboard')).rejects.toMatchObject({ status: 401 })
+      setViewPassword('another-rejected-secret')
+      await expect(fetchJson('/api/dashboard')).rejects.toMatchObject({ status: 401 })
+      expect(listener.mock.calls).toEqual([['required'], ['rejected']])
+    } finally {
+      unsubscribe()
+    }
+  })
+
   it('replays a synchronous invalid-header rejection after initial mounting', async () => {
     setViewPassword('ひみつ')
     await expect(fetchJson('/api/dashboard')).rejects.toBeInstanceOf(ApiError)

@@ -38,6 +38,9 @@ export function subscribeAuthRequired(listener: AuthRequiredListener): () => voi
 
 /** Fire the auth-required signal so the password gate takes over. */
 export function notifyAuthRequired(reason: AuthRequiredReason): void {
+  // Parallel reads can reject after the first prompt is already being edited.
+  // A new submit clears pendingAuthRequired; until then keep the same prompt.
+  if (pendingAuthRequired !== null) return
   pendingAuthRequired = reason
   for (const listener of authRequiredListeners) listener(reason)
 }
