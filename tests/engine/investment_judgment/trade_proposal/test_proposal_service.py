@@ -311,6 +311,54 @@ def test_future_review_is_rejected_even_with_a_later_caller_publication_time(cas
     assert case.app.read_bytes() == before
 
 
+def test_cli_context_check_and_preview_keep_limit_arithmetic_separate_from_the_close(
+    case, tmp_path, capsys
+):
+    common = ["--db", str(case.app), "--sqlite-path", str(case.market)]
+    assert (
+        main(
+            ["trade-proposal-context", "--operation-id", case.operation.operation_id, *common],
+            now=PREPARED,
+        )
+        == 0
+    )
+    context = yaml.safe_load(capsys.readouterr().out)["calculations"]["1234"]
+    calculations = [context["buy_at_actual_quote"], context["calculation_at_maximum_price"]]
+    proposal = reviewed_proposal(case)
+    draft = tmp_path / "proposal.yaml"
+    draft.write_text(yaml.safe_dump(proposal.payload()))
+    assert main(["trade-proposal-check", str(draft), *common], now=PUBLISHED) == 0
+    checked = yaml.safe_load(capsys.readouterr().out)
+    assert checked["valid"] is True
+    assert checked["draft_sha256"] == proposal.review.draft_sha256
+    calculations.append(checked["calculations"]["1234"])
+    service = TradeProposalService(case.app, sqlite_path=case.market, clock=lambda: PUBLISHED)
+    saved = service.publish(proposal)
+    before = case.app.read_bytes()
+    assert (
+        main(
+            ["trade-proposal-preview", "--proposal-id", proposal.proposal_id, *common],
+            now=PUBLISHED,
+        )
+        == 0
+    )
+    row = yaml.safe_load(capsys.readouterr().out)["items"][0]
+    calculations.extend((row["current_quote_calculation"], row["saved_limit_revalidation"]))
+    for calculation, limit in zip(
+        calculations, ("1100.0", "1000", "1000", "1100", "1000"), strict=True
+    ):
+        assert calculation["current_price_projection"]["price_yen"] == 1100
+        ceiling = calculation["limit_price_projection"]
+        assert ceiling["price_context"] == "buy_limit_ceiling"
+        assert Decimal(ceiling["calculation_price_yen"]) == Decimal(limit)
+        assert Decimal(ceiling["observed_quote"]["price_yen"]) == 1100
+        assert ceiling["observed_quote"]["price_as_of"] == PREPARED.date().isoformat()
+        assert ceiling["observed_quote"]["price_basis"] == "last_close_unadjusted"
+        assert not {"price_yen", "price_as_of", "price_basis"} & ceiling.keys()
+    assert case.app.read_bytes() == before
+    assert read_saved_proposal(proposal_id=proposal.proposal_id, db_path=case.app) == saved
+
+
 def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     raw = reviewed_proposal(case).payload()
     with closing(sqlite3.connect(case.market)) as connection, connection:
@@ -341,7 +389,11 @@ def test_place_limit_publishes_and_previews_separate_quote_and_ceiling(case):
     assert saved_limit["hard_blockers"] == []
     assert saved_limit["quantity"] == 300
     assert saved_limit["current_price_projection"]["price_yen"] == 875
-    assert saved_limit["limit_price_projection"]["price_yen"] == 880
+    ceiling = saved_limit["limit_price_projection"]
+    assert ceiling["price_context"] == "buy_limit_ceiling"
+    assert ceiling["calculation_price_yen"] == "880"
+    assert Decimal(ceiling["observed_quote"]["price_yen"]) == 875
+    assert not {"price_yen", "price_as_of", "price_basis"} & ceiling.keys()
     assert saved_limit["limit_price_projection"]["base"]["total_return_pct"] == 25
     assert _ledger_snapshot(case.app) == ledger_before
     changed = published.payload()

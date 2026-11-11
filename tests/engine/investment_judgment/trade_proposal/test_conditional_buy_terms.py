@@ -67,9 +67,27 @@ def test_real_close_above_pmax_keeps_limit_proposal_and_separate_returns():
     assert result.quantity == 300
     assert result.current_price_projection["price_yen"] == 1100
     assert result.current_price_projection["base"]["total_return_pct"] == 0
-    assert result.limit_price_projection["price_yen"] == 1000
+    assert result.limit_price_projection["calculation_price_yen"] == "1000"
     assert result.limit_price_projection["base"]["total_return_pct"] == 10
     assert result.limit_price_projection["downside"]["total_return_pct"] == -30
+
+
+@pytest.mark.parametrize("limit", [Decimal(900), Decimal(1000), Decimal(1200)])
+def test_buy_ceiling_projection_never_labels_the_authors_limit_as_an_observed_close(limit):
+    observed = quote("1000")
+    result = evaluate(quote=observed, proposed_limit_yen=limit)
+    ceiling = result.limit_price_projection
+    assert result.current_price_projection["price_yen"] == 1000
+    assert result.current_price_projection["price_as_of"] == AS_OF.isoformat()
+    assert result.current_price_projection["price_basis"] == "last_close_unadjusted"
+    assert ceiling["price_context"] == "buy_limit_ceiling"
+    assert Decimal(ceiling["calculation_price_yen"]) == limit
+    assert ceiling["observed_quote"] == observed.model_dump(mode="json")
+    assert not {"price_yen", "price_as_of", "price_basis"} & ceiling.keys()
+    assert ceiling["base"]["total_return_pct"] == pytest.approx(
+        float((Decimal(1100) / limit - 1) * 100), abs=0.0001
+    )
+    assert ceiling["horizon_months"] == result.current_price_projection["horizon_months"]
 
 
 @pytest.mark.parametrize(("limit", "expected"), [("999", 300), ("1000", 300), ("1001", 0)])
@@ -134,7 +152,7 @@ def test_above_quote_ceiling_uses_limit_for_cash_quantity_and_return():
     assert result.quantity == 300
     assert result.quantity * Decimal(880) == 264000
     assert result.current_price_projection["price_yen"] == 875
-    assert result.limit_price_projection["price_yen"] == 880
+    assert result.limit_price_projection["calculation_price_yen"] == "880"
     assert result.limit_price_projection["base"]["total_return_pct"] == 25
     assert result.current_price_projection["base"]["total_return_pct"] > 25
     # 263,000円は875円なら300株を賄えるが、上限880円では200株となる。
