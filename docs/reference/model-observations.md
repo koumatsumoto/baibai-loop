@@ -46,7 +46,7 @@ EDINETは同じmarket sealに適格な任意入力で、未取得でも全社生
 
 発行済総数/平均株数、普通株自己資本/非支配持分込み純資産を分ける。自己株控除は同じ資本状態で行い、新しい自己株欠測を旧状態で補って処分/消却を推測しない。
 
-期末株数と遡及分割EPS/BPSの混在は[資本補正](../../engine/src/baibai_engine/machine_analysis/models/company_financials/metrics/capital.py)の裏付けで扱い、数値一致だけで誤転記にしない。JPX PDFの転換も完了と普通株basisを確認し、新発行済数と旧自己株を混ぜない。
+期末株数と遡及分割EPS/BPSの混在は[資本補正](../../engine/src/baibai_engine/machine_analysis/models/company_financials/metrics/capital.py)の裏付けで扱い、数値一致だけで誤転記にしない。連続する分割の一部だけが反映済みの場合も、各per-share値と独立総額で既知の株式basisを照合し、複数basisが成立するfieldは未解決にする。JPX PDFの転換も完了と普通株basisを確認し、新発行済数と旧自己株を混ぜない。
 
 大量保有報告は第三者申告で、発行会社確認/変更日確定ではなく、時価総額/順位を自動補正しない。受領UTC日だけなら翌日以降、評価前の固定snapshotがある場合だけ同日その固定時刻まで利用できる。通常生成は同じ固定EDINET pairのnative在庫/selected receipt、旧SQL/body-only readerはSQLの在庫/受領日を使う。latest確認や精密時計でcoarse dayの採否を広げない。
 

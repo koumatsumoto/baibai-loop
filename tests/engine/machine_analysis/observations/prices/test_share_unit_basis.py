@@ -16,6 +16,8 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.dividends 
 )
 from baibai_engine.machine_analysis.observations.prices.price_basis import (
     asof_basis_prices,
+    cumulative_share_unit_factor_after,
+    share_unit_basis_factors_after,
     share_unit_factor,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -114,3 +116,21 @@ def test_price_basis_applies_same_day_event_only_to_earlier_prices():
         [(action, 0.5)],
         asof_date=after,
     ) == [50.0, 50.0, 55.0]
+
+
+@pytest.mark.parametrize("include_boundary", [False, True])
+def test_successive_share_bases_keep_cancelling_changes_and_respect_cutoff(include_boundary):
+    boundary, second, future = date(2026, 8, 1), date(2026, 9, 1), date(2026, 10, 1)
+    events = [
+        JQuantsAdjustmentFactorEvent("1111", future, 0.1, "unknown"),
+        JQuantsAdjustmentFactorEvent("1111", second, 2.0, "2"),
+        JQuantsAdjustmentFactorEvent("1111", boundary, 0.5, "1"),
+        JQuantsAdjustmentFactorEvent("1111", date(2026, 8, 15), 0.8, "3"),
+    ]
+    assert share_unit_basis_factors_after(
+        events, boundary, second, include_boundary_day=include_boundary
+    ) == ((1.0, 0.5, 1.0) if include_boundary else (1.0, 2.0))
+    assert cumulative_share_unit_factor_after(
+        events, boundary, second, include_boundary_day=include_boundary
+    ) == (1.0 if include_boundary else 2.0)
+    assert share_unit_basis_factors_after(events, boundary, future) is None

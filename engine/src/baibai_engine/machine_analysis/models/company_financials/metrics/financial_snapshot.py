@@ -64,7 +64,7 @@ from baibai_engine.machine_analysis.observations.prices.price_models import (
     JQuantsDailyBar,
 )
 
-VALUATION_CALCULATION_REVISION = "continuous-annual-input-v50-next-year-dividend-revision"
+VALUATION_CALCULATION_REVISION = "continuous-annual-input-v51-partial-split-basis"
 
 
 def build_financial_snapshot(

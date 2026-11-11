@@ -81,13 +81,32 @@ def cumulative_share_unit_factor_after(
     kinds leave the unit basis unresolved. Disclosure-day inclusion follows the
     existing boundary convention; it does not prove a filing's share basis.
     """
-    factor = 1.0
-    for bar in ticker_bars:
+    factors = share_unit_basis_factors_after(
+        ticker_bars, after, asof_date, include_boundary_day=include_boundary_day
+    )
+    return None if factors is None else factors[-1]
+
+
+def share_unit_basis_factors_after(
+    ticker_bars: Sequence[JQuantsAdjustmentFactorEvent | JQuantsDailyBar],
+    after: date,
+    asof_date: date,
+    *,
+    include_boundary_day: bool = False,
+) -> tuple[float, ...] | None:
+    """Known successive share bases, including the initial and final basis.
+
+    A filing can already reflect an earlier announced split without reflecting a
+    later one. Keep those intermediate bases even if subsequent actions cancel.
+    """
+    factors = [1.0]
+    for bar in sorted(ticker_bars, key=lambda item: item.traded_at):
         before_start = bar.traded_at < after if include_boundary_day else bar.traded_at <= after
         if before_start or bar.traded_at > asof_date:
             continue
         adjustment = share_unit_factor(bar)
         if adjustment is None:
             return None
-        factor *= adjustment
-    return factor
+        if adjustment != 1.0:
+            factors.append(factors[-1] * adjustment)
+    return tuple(factors)
