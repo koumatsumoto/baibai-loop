@@ -36,7 +36,7 @@ type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v2"
+REVISION = "retained-pdf-restatement-selection-v3"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -256,6 +256,16 @@ def select_pdf_financials(
             status="unavailable", current=current, reason="annual_disclosure_missing_or_ambiguous"
         )
     if current.accounting_standard == "JP":
+        # 参考実績は年次訂正の原本ではなく、その後の訂正まで再確認していない。
+        if not certainly_disclosed_by(annual_row, current_row):
+            return PdfFinancialSelection(
+                status="unavailable",
+                current=current,
+                annual_latest_disclosure_number=annual_row.disclosure_number,
+                reason="annual_revised_after_current_disclosure"
+                if certainly_disclosed_by(current_row, annual_row)
+                else "annual_disclosure_order_unresolved",
+            )
         # 新基準の比較期と合成するため、旧年度ではなく同日公表の組替済み年度実績を使う。
         references = {
             item.source_sha256: item
