@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from tests.helpers.http_doubles import BodyTimeout
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _FakeBrowserFetcher
 from urllib3.connectionpool import HTTPConnectionPool
 from urllib3.exceptions import ProtocolError

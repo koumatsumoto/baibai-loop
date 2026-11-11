@@ -7,7 +7,6 @@ from contextlib import closing
 from datetime import date
 from unittest import TestCase
 
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _source
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition

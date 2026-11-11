@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from unittest import TestCase
 
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _multpl_monthly_table, _source
 
 from baibai_engine.data_collection.providers.multpl import parse_multpl_table

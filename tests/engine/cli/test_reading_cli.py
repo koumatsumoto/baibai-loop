@@ -14,7 +14,6 @@ from tests.helpers.indicator_store import (
     store_h15_observations,
     store_reader,
 )
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.cli.market_reading as cli
 from baibai_engine.data_collection.receipts.native_sources import store as db

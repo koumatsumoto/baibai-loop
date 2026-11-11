@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.network import _no_real_network as _no_real_network
+
 # Real operational stores that a test must never open. App DB and run store resolve
 # their default from these env vars; the indicators and market stores have no env
 # override and are guarded by fingerprint detection alone. The market store is the one

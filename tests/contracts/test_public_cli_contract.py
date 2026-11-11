@@ -214,9 +214,7 @@ def test_minimal_job_read_boundary_does_not_load_judgment_or_legacy_views():
 @pytest.mark.parametrize(
     "command", ["calibration-build", "calibration-evaluate", "verify-cache-coverage", "prune"]
 )
-def test_historical_write_commands_are_removed(command, tmp_path) -> None:
-    before = set(tmp_path.iterdir())
+def test_historical_write_commands_are_removed(command) -> None:
     with pytest.raises(SystemExit) as error:
         main(["historical-evaluation", command])
     assert error.value.code == 2
-    assert set(tmp_path.iterdir()) == before

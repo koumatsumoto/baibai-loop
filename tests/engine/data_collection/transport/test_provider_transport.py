@@ -7,7 +7,6 @@ from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import requests
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _FakeResponse,
     _ForbiddenResponse,

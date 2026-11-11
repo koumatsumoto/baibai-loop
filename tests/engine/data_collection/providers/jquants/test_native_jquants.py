@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime
 from unittest.mock import Mock
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.providers.jquants.flows as jquants_flows
 import baibai_engine.data_collection.providers.jquants.indices as jquants_indices

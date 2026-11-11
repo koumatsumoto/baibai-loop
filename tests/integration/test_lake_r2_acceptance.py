@@ -52,6 +52,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_network() -> None:
+    """Only the explicitly enabled dedicated-bucket acceptance uses live network."""
+
+
 def _content_md5(path: Path) -> str:
     digest = hashlib.md5(usedforsecurity=False)  # nosec B324
     with path.open("rb") as source:
