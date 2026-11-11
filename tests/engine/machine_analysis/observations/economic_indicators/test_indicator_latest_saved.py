@@ -4,7 +4,6 @@ from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.machine_analysis.observations.economic_indicators.service as indicator_service
 from baibai_engine.data_collection.receipts.native_sources.records import store_snapshot

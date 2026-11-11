@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.indicator_store import observation
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.machine_analysis.observations.economic_indicators.service as service

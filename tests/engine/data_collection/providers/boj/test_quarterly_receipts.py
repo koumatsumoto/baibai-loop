@@ -6,7 +6,6 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 import requests
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.acquisition.policy import recovery_ranges

@@ -9,7 +9,6 @@ from tests.helpers.indicator_store import (
     store_h15_observations,
     store_mof_observations,
 )
-from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.data_collection.receipts.native_sources.store import initialize_database
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (

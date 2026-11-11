@@ -258,7 +258,7 @@ def test_private_capture_roundtrip_preserves_original_receipt(tmp_path):
 
 
 def test_cli_collect_captures_only_and_import_requires_explicit_db(monkeypatch, tmp_path, capsys):
-    original = _original()
+    original = _original(attempt_id="00000000-0000-4000-8000-000000002024")
     observed = monex.parse_html(
         monex_html(),
         ticker="7203",
@@ -291,7 +291,9 @@ def test_cli_collect_captures_only_and_import_requires_explicit_db(monkeypatch, 
     with closing(sqlite3.connect(db)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
     assert cli.main(["import", "--input", str(path), "--db", str(db)]) == 0
-    assert "2024" not in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert original.attempt_id in output
+    assert observed.fetched_at_utc.date().isoformat() not in output
 
 
 def test_cli_import_reports_storage_failure_without_values_or_http(monkeypatch, tmp_path, capsys):

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from tests.helpers.master import insert_master_rows
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import insert_daily_bars_from_closes
 
 from baibai_engine.machine_analysis.generation.runners.market_snapshot import (

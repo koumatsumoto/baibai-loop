@@ -2,7 +2,6 @@ import socket
 from functools import partial
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 
 @pytest.mark.parametrize("operation", ["connect", "connect_ex", "create_connection", "getaddrinfo"])

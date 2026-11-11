@@ -13,7 +13,6 @@ import requests
 from tests.helpers.jquants_receipts import Session, acquire_request
 from tests.helpers.lake_policy import narrow_release_policy
 from tests.helpers.lake_release import market_store
-from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.data_collection.providers.jquants.contract import JQUANTS_SOURCE_PAGES_DDL
 from baibai_engine.data_collection.providers.jquants.contracts import (

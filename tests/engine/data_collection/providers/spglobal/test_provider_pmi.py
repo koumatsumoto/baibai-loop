@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import cast
 from unittest import TestCase
 
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _context_with_browser,
     _FakeBrowserFetcher,

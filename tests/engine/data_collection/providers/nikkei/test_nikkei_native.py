@@ -7,7 +7,6 @@ from datetime import date
 from unittest import TestCase
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 import baibai_engine.data_collection.providers.nikkei.indices as nikkei_indexes
