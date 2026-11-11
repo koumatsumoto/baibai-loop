@@ -1,8 +1,11 @@
 from datetime import date
 
+import pytest
+
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     _normalize_summaries_with_status,
 )
+from baibai_engine.machine_analysis.models.company_financials.metrics.periods import _carry_forward
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
 )
@@ -165,3 +168,159 @@ def test_two_separate_splits_do_not_double_adjust_per_share_values():
     assert current.treasury_shares == 40
     assert current.bps == 2.5
     assert current.cumulative_eps == 2.5
+
+
+@pytest.mark.parametrize(
+    ("first_factor", "second_factor"),
+    [(0.5, 0.5), (0.5, 2.0), (2.0, 0.5), (2.0, 2.0)],
+)
+@pytest.mark.parametrize("profit", [-900.0, 900.0])
+def test_only_first_announced_split_is_already_reflected(first_factor, second_factor, profit):
+    source = row(
+        disclosed_at=date(2026, 7, 31),
+        period_end=date(2026, 6, 30),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        average_shares=90.0,
+        bps=10.0 * first_factor,
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        profit=profit,
+        cumulative_eps=profit / 90 * first_factor,
+        forecast_profit=profit * 2,
+        forecast_eps=profit / 90 * 2 * first_factor,
+        dps_actual_annual=6.0,
+    )
+    events = [
+        JQuantsAdjustmentFactorEvent(
+            "7988", date(2026, 9, 29), first_factor, "1" if first_factor < 1 else "2"
+        ),
+        JQuantsAdjustmentFactorEvent(
+            "7988", date(2026, 12, 1), second_factor, "1" if second_factor < 1 else "2"
+        ),
+    ]
+    result = _normalize_summaries_with_status([source], events, date(2026, 12, 2))
+    normalized = result.summaries[0]
+    factor = first_factor * second_factor
+    assert normalized.shares_outstanding == 100 / factor
+    assert normalized.treasury_shares == 10 / factor
+    assert normalized.average_shares == 90 / factor
+    assert normalized.bps == 10 * factor
+    assert normalized.cumulative_eps == profit / 90 * factor
+    assert normalized.forecast_eps == profit / 90 * 2 * factor
+    assert normalized.dps_actual_annual == 6
+    assert result.basis_adjustments[0]["bps_conversion_factor"] == second_factor
+
+
+def test_each_per_share_field_needs_its_own_reflected_basis():
+    source = row(
+        disclosed_at=date(2026, 7, 31),
+        period_end=date(2026, 6, 30),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        average_shares=90.0,
+        bps=5.0,
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        profit=900.0,
+        cumulative_eps=10.0,
+        forecast_profit=1800.0,
+        forecast_eps=5.0,
+    )
+    events = [
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 9, 29), 0.5, "1"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 12, 1), 0.5, "1"),
+    ]
+    result = _normalize_summaries_with_status([source], events, date(2026, 12, 2))
+    normalized = result.summaries[0]
+    assert normalized.bps == 2.5
+    assert normalized.cumulative_eps == 2.5
+    assert normalized.forecast_eps == 5.0
+    adjustment = result.basis_adjustments[0]
+    assert adjustment["bps_conversion_factor"] == 0.5
+    assert adjustment["eps_conversion_factor"] == 0.25
+    assert adjustment["forecast_eps_conversion_factor"] == 1.0
+
+
+def test_ambiguous_intermediate_basis_does_not_guess_a_per_share_value():
+    source = row(
+        disclosed_at=date(2026, 7, 31),
+        period_end=date(2026, 6, 30),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        average_shares=90.0,
+        bps=5.05,
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        profit=900.0,
+        cumulative_eps=10.0,
+    )
+    events = [
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 9, 29), 0.5, "1"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 12, 1), 1.02, "2"),
+    ]
+    prior = row(
+        disclosed_at=date(2026, 5, 1),
+        period_end=date(2026, 3, 31),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        bps=10.0,
+    )
+    result = _normalize_summaries_with_status([prior, source], events, date(2026, 12, 2))
+    normalized = result.summaries[-1]
+    assert normalized.bps is None
+    assert normalized.cumulative_eps == 5.1
+    assert normalized.shares_outstanding == 100 / 0.51
+    assert normalized.total_assets == 900
+    assert normalized.unresolved_actual_fields == ("bps",)
+    assert _carry_forward(result.summaries, "bps", normalized) == (None, None)
+    assert result.basis_adjustments[0]["bps_conversion_factor"] is None
+
+
+def test_intermediate_basis_without_its_independent_amount_is_not_asserted():
+    source = row(
+        disclosed_at=date(2026, 7, 31),
+        period_end=date(2026, 6, 30),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        bps=5.0,
+        # A matching equity route is not evidence about forecast EPS.
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        forecast_eps=10.0,
+    )
+    events = [
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 9, 29), 0.5, "1"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 12, 1), 0.5, "1"),
+    ]
+    normalized = _normalize_summaries_with_status([source], events, date(2026, 12, 2)).summaries[0]
+    assert normalized.bps == 2.5
+    assert normalized.forecast_eps is None
+
+
+def test_cancelling_nonbinary_factors_do_not_create_ambiguous_bases():
+    source = row(
+        disclosed_at=date(2026, 1, 1),
+        period_end=date(2025, 12, 31),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        average_shares=90.0,
+        bps=15.0,
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        profit=900.0,
+        cumulative_eps=15.0,
+        forecast_profit=1800.0,
+        forecast_eps=30.0,
+    )
+    events = [
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 2, 1), 1.5, "2"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 3, 1), 0.8, "1"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 4, 1), 1.25, "2"),
+    ]
+    normalized = _normalize_summaries_with_status([source], events, date(2026, 5, 1)).summaries[0]
+    assert normalized.bps == pytest.approx(15)
+    assert normalized.cumulative_eps == pytest.approx(15)
+    assert normalized.forecast_eps == pytest.approx(30)
+    assert normalized.shares_outstanding == pytest.approx(100 / 1.5)
+    assert normalized.unresolved_actual_fields == ()

@@ -29,6 +29,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 )
 from baibai_engine.machine_analysis.observations.prices.price_basis import (
     cumulative_share_unit_factor_after,
+    share_unit_basis_factors_after,
     share_unit_factor,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import (
@@ -247,11 +248,14 @@ def _normalize_summaries_with_status(
                     "reported_equity_ratio": original.equity_to_asset_ratio,
                 }
             )
-        factor = cumulative_share_unit_factor_after(
+        factors = share_unit_basis_factors_after(
             ticker_bars, summary.disclosed_at, asof_date, include_boundary_day=True
         )
-        interim, basis = _interim_split_basis(summaries, index, ticker_bars)
-        if factor is None or basis is _ShareBasis.INDETERMINATE:
+        _, basis = _interim_split_basis(summaries, index, ticker_bars)
+        if basis is _ShareBasis.AS_OF_PERIOD_END:
+            assert summary.period_end is not None
+            factors = share_unit_basis_factors_after(ticker_bars, summary.period_end, asof_date)
+        if factors is None or basis is _ShareBasis.INDETERMINATE:
             normalized.append(_without_share_basis(summary))
             observation_key = _accounting_observation_key(summary)
             if (summary.shares_outstanding is not None or summary.treasury_shares is not None) and (
@@ -259,10 +263,8 @@ def _normalize_summaries_with_status(
             ):
                 capital_basis_barrier = observation_key
             continue
-        if basis is _ShareBasis.AS_OF_PERIOD_END:
-            # 期末基準のまま公表された行なので、期末と開示日の間の権利落ちも数える。
-            factor *= interim
-        if factor <= 0 or factor == 1.0:
+        factor = factors[-1]
+        if len(factors) == 1:
             normalized.append(summary)
             continue
         # Issuers may retrospectively adjust per-share amounts for an announced
@@ -277,16 +279,27 @@ def _normalize_summaries_with_status(
             if summary.total_assets is not None and summary.equity_to_asset_ratio is not None
             else None
         )
-        bps_already_adjusted = _post_split_field_is_consistent(
-            summary.bps, raw_shares, equity, factor
+        bps_factor = _per_share_conversion_factor(summary.bps, raw_shares, equity, factors)
+        eps_factor = _per_share_conversion_factor(
+            summary.cumulative_eps, summary.average_shares, summary.profit, factors
         )
-        eps_already_adjusted = _post_split_field_is_consistent(
-            summary.cumulative_eps, summary.average_shares, summary.profit, factor
+        forecast_factor = _per_share_conversion_factor(
+            summary.forecast_eps, raw_shares, summary.forecast_profit, factors
         )
-        forecast_already_adjusted = _post_split_field_is_consistent(
-            summary.forecast_eps, raw_shares, summary.forecast_profit, factor
-        )
-        if bps_already_adjusted or eps_already_adjusted or forecast_already_adjusted:
+        bps_already_adjusted = bps_factor is not None and bps_factor != factor
+        eps_already_adjusted = eps_factor is not None and eps_factor != factor
+        forecast_already_adjusted = forecast_factor is not None and forecast_factor != factor
+        unresolved = {
+            field
+            for field, conversion in (("bps", bps_factor), ("cumulative_eps", eps_factor))
+            if conversion is None
+        }
+        if (
+            bps_already_adjusted
+            or eps_already_adjusted
+            or forecast_already_adjusted
+            or None in (bps_factor, eps_factor, forecast_factor)
+        ):
             basis_adjustments.append(
                 {
                     "disclosure_number": summary.disclosure_number,
@@ -296,19 +309,31 @@ def _normalize_summaries_with_status(
                     "bps_already_adjusted": bps_already_adjusted,
                     "eps_already_adjusted": eps_already_adjusted,
                     "forecast_eps_already_adjusted": forecast_already_adjusted,
+                    "bps_conversion_factor": bps_factor,
+                    "eps_conversion_factor": eps_factor,
+                    "forecast_eps_conversion_factor": forecast_factor,
                 }
             )
         normalized.append(
             replace(
                 summary,
-                cumulative_eps=summary.cumulative_eps * (1.0 if eps_already_adjusted else factor)
-                if summary.cumulative_eps is not None
+                unresolved_actual_fields=tuple(
+                    sorted(set(summary.unresolved_actual_fields) | unresolved)
+                ),
+                cumulative_eps=summary.cumulative_eps * eps_factor
+                if summary.cumulative_eps is not None and eps_factor is not None
                 else None,
-                forecast_eps=summary.forecast_eps if forecast_already_adjusted else None,
+                forecast_eps=summary.forecast_eps * forecast_factor
+                if summary.forecast_eps is not None
+                and forecast_factor is not None
+                and (forecast_already_adjusted or factor == 1.0)
+                else None,
                 # 実績 DPS は原本のまま配当 resolver へ渡す。予想の明示 0 は残す。
-                dps_forecast_annual=(0.0 if summary.dps_forecast_annual == 0 else None),
-                bps=summary.bps * (1.0 if bps_already_adjusted else factor)
-                if summary.bps is not None
+                dps_forecast_annual=summary.dps_forecast_annual
+                if factor == 1.0
+                else (0.0 if summary.dps_forecast_annual == 0 else None),
+                bps=summary.bps * bps_factor
+                if summary.bps is not None and bps_factor is not None
                 else None,
                 shares_outstanding=(
                     summary.shares_outstanding / factor
@@ -334,6 +359,31 @@ def _normalize_summaries_with_status(
         capital_basis_barrier=capital_basis_barrier,
         basis_adjustments=tuple(basis_adjustments),
     )
+
+
+def _per_share_conversion_factor(
+    per_share: float | None,
+    shares: float | None,
+    amount: float | None,
+    factors: tuple[float, ...],
+) -> float | None:
+    """Exclude only independently corroborated, already-reflected unit changes.
+
+    Match known chronological share bases, not an arbitrary amount/share ratio.
+    Overlapping precision bands cannot establish which basis the filing used.
+    Without evidence of pre-adjustment, keep the ordinary reported-basis rule.
+    """
+    supported: list[float] = []
+    for candidate in factors:
+        if _post_split_field_is_consistent(per_share, shares, amount, candidate) and not any(
+            # Cancelling actions can return to the same basis with machine rounding.
+            isclose(candidate, known, rel_tol=1e-12)
+            for known in supported
+        ):
+            supported.append(candidate)
+    if len(supported) > 1:
+        return None
+    return factors[-1] / supported[0] if supported else factors[-1]
 
 
 def _post_split_field_is_consistent(
