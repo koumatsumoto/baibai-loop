@@ -55,7 +55,9 @@ class EDINETHTTP:
             response: requests.Response | None = None
             network_error: str | None = None
             try:
-                response = self._session.get(url, timeout=timeout, allow_redirects=False)
+                response = self._session.get(
+                    url, timeout=timeout, allow_redirects=False, stream=True
+                )
                 # A broken refusal body must not turn a known denial into transport retries.
                 if response.status_code in {401, 403}:
                     raise EdinetAccessDeniedError(response.status_code)

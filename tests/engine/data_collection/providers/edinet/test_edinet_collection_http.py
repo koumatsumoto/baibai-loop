@@ -29,7 +29,8 @@ class Session:
         self.calls: list[tuple[str, int, bool]] = []
         self.close_count = 0
 
-    def get(self, url: str, *, timeout: int, allow_redirects: bool) -> FakeResponse:
+    def get(self, url: str, *, timeout: int, allow_redirects: bool, stream: bool) -> FakeResponse:
+        assert stream is True
         self.calls.append((url, timeout, allow_redirects))
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
@@ -333,33 +334,59 @@ def test_server_retry_after_beyond_deadline_stops_without_early_request(clock, m
     assert clock == []
 
 
-@pytest.mark.parametrize("status", [401, 403])
-def test_known_refusal_does_not_read_or_retry_a_broken_error_body(status, clock):
-    class BrokenRefusal:
-        status_code = status
-        headers: dict[str, str] = {}
-
+@pytest.mark.parametrize("status", [200, 401, 403])
+def test_real_session_exposes_refusal_headers_before_a_broken_body(status, clock):
+    class BrokenRaw:
         def __init__(self):
-            self.close_count = 0
             self.body_reads = 0
+            self.close_count = 0
+            self.releases = 0
 
-        @property
-        def content(self):
+        def stream(self, amt, decode_content=False):
             self.body_reads += 1
-            raise requests.ConnectionError("https://api.edinet-fsa.go.jp/?Subscription-Key=" + KEY)
+            raise requests.ConnectionError("synthetic body failure " + KEY)
+            yield b""  # pragma: no cover
 
         def close(self):
             self.close_count += 1
 
-    reply = BrokenRefusal()
-    session = Session(reply)
-    with pytest.raises(EdinetAccessDeniedError) as caught:
-        http.EDINETHTTP(KEY, session=session).fetch_archive("S100ONE", 1)
-    assert caught.value.status_code == status
-    assert len(session.calls) == 1
-    assert reply.body_reads == 0
-    assert reply.close_count == 1
-    assert clock == []
+        def release_conn(self):
+            self.releases += 1
+
+    class Adapter(requests.adapters.BaseAdapter):
+        def __init__(self):
+            self.replies = []
+            self.streams = []
+
+        def send(self, request, **kwargs):
+            self.streams.append(kwargs["stream"])
+            reply = requests.Response()
+            reply.status_code = status
+            reply.raw = BrokenRaw()
+            reply.request = request
+            reply.url = request.url
+            self.replies.append(reply)
+            return reply
+
+        def close(self):
+            pass
+
+    adapter = Adapter()
+    error_type = EdinetAccessDeniedError if status in {401, 403} else EdinetAcquisitionError
+    with requests.Session() as session:
+        session.trust_env = False
+        session.mount("https://api.edinet-fsa.go.jp/", adapter)
+        with pytest.raises(error_type) as caught:
+            http.EDINETHTTP(KEY, session=session).fetch_archive("S100ONE", 1)
+    refused = status in {401, 403}
+    assert len(adapter.replies) == (1 if refused else 6)
+    assert all(adapter.streams)
+    assert [reply.raw.body_reads for reply in adapter.replies] == [0 if refused else 1] * len(
+        adapter.replies
+    )
+    assert all(reply.raw.close_count == reply.raw.releases == 1 for reply in adapter.replies)
+    assert clock == ([] if refused else [3, 6, 12, 24, 48])
+    assert isinstance(caught.value, EdinetAccessDeniedError) is refused
     assert KEY not in str(caught.value)
     assert caught.value.__cause__ is None
     assert caught.value.__context__ is None
