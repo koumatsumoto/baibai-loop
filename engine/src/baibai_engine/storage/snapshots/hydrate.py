@@ -198,7 +198,7 @@ def hydrate_market_store(
                 connection.execute("PRAGMA journal_mode=OFF")
                 for name in sorted(partitions):
                     dataset = accepted_dataset(release, catalog[name])
-                    _require_contract_shape(connection, dataset)
+                    _require_contract_shape(connection, catalog[name])
                     # The store's own DDL is what gets restored, so the fill cannot
                     # invent an index the schema does not declare or lose one it does.
                     # Loading into an indexed table costs several times the load itself.
@@ -209,6 +209,7 @@ def hydrate_market_store(
                         session=session,
                         cache=cache,
                         dataset=dataset,
+                        destination=catalog[name],
                         partitions=partitions[name],
                     )
                     for statement in indexes:
@@ -520,6 +521,7 @@ def load_dataset_rows(
     cache: LakeObjectCache,
     dataset: LakeDataset,
     partitions: Sequence[PartitionManifest],
+    destination: LakeDataset | None = None,
 ) -> int:
     """Load one dataset a partition at a time, in bounded row batches.
 
@@ -529,10 +531,12 @@ def load_dataset_rows(
     partitions arrive in does not change the result.
     """
 
+    destination = destination or dataset
     names = tuple(column.name for column in dataset.columns)
+    target_names = tuple(column.name for column in destination.columns)
     statement = (
-        f"INSERT INTO {dataset.sqlite_table}({', '.join(names)}) "  # nosec B608
-        f"VALUES ({', '.join('?' for _ in names)})"
+        f"INSERT INTO {destination.sqlite_table}({', '.join(target_names)}) "  # nosec B608
+        f"VALUES ({', '.join('?' for _ in target_names)})"
     )
     loaded = 0
     for partition in partitions:
@@ -544,7 +548,12 @@ def load_dataset_rows(
                 else iter_partition_rows(session, dataset=dataset, paths=paths, columns=names)
             )
             for batch in batches:
-                connection.executemany(statement, batch)
+                connection.executemany(
+                    statement,
+                    batch
+                    if destination == dataset
+                    else (destination.project_read_row(dataset, tuple(row)) for row in batch),
+                )
                 loaded += len(batch)
         finally:
             # The R2 mirror is a derived cache. Retaining a 4 GB archive beside the

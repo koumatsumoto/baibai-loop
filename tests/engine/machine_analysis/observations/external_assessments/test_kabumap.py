@@ -4,8 +4,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from tests.helpers.external_assessment_html import kabumap_html as html
+from tests.helpers.external_assessment_html import kabumap_not_computed_html
 from tests.helpers.external_assessment_http import RawSession as Session
 from tests.helpers.external_assessment_http import connect as connect
+from tests.helpers.external_assessment_responses import response
 from tests.helpers.external_assessment_stages import FakeObjectStore, plan, stage
 from tests.helpers.external_assessment_universe import ASOF
 
@@ -53,6 +55,7 @@ def observation(ticker="130A", *, text=None, received=RECEIVED):
 def test_identity_na_factors_scales_and_explicit_date_are_separate_from_receipt(ticker):
     result = observation(ticker)
     assert isinstance(result, QuantsScoreObservation)
+    assert result.availability == "available"
     assert result.origin == "Quants Research"
     assert result.distributor == "kabumap"
     assert (
@@ -82,7 +85,7 @@ def test_tse_identity_accepts_an_omitted_market_segment(ticker, market):
     text = html(ticker).replace(f"(東証グロース : {ticker})", f"(東証{market}:{ticker})")
     result = observation(ticker, text=text)
     assert result.ticker == ticker
-    assert result.parser_version == "kabumap-quants-3"
+    assert result.parser_version == "kabumap-quants-4"
     assert result.fetched_at_utc == RECEIVED
 
 
@@ -159,6 +162,96 @@ def test_missing_identity_date_or_score_structure_is_rejected(replacement, missi
         observation(text=html(missing=missing).replace(*replacement))
 
 
+def test_explicit_not_computed_keeps_receipt_without_inventing_provider_date():
+    result = observation("660A", text=kabumap_not_computed_html())
+    assert result.availability == "not_computed"
+    assert result.score_as_of_date is None
+    assert result.fetched_at_utc == RECEIVED
+    assert result.snapshot_date == date(2026, 10, 13)
+    assert result.parser_version == "kabumap-quants-4"
+    assert all(
+        getattr(result, field) is None
+        for field in (*kabumap.LABELS.values(), "composite_score", "industry_average_score")
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "reason"),
+    [
+        ("(東証グロース : 660A)", "(東証グロース : 130A)", "ticker_identity"),
+        ("(東証グロース : 660A)", "(名証 : 660A)", "ticker_identity"),
+        ("（まだ計算されていない銘柄です）", "", "missing_quants_date"),
+        ("（まだ計算されていない銘柄です）", "（対象外）", "missing_quants_date"),
+        ("（まだ計算されていない銘柄です）", "(2026-10-09更新)", "missing_quants_date"),
+        ("クォンツスコアはまだ計算されていません", "", "missing_quants_date"),
+        ("クォンツスコアはまだ計算されていません", "表示できません", "missing_quants_date"),
+        ("--/10", "0/10", "changed_quants_score"),
+        ("--/10", "不明/10", "changed_quants_score"),
+        ("--</strong>/100", "0</strong>/100", "changed_quants_score"),
+        ("割安性", "未対応項目", "changed_quants_score"),
+        ("割安性", "成長性", "changed_quants_score"),
+        ("scoreTable", "missingTable", "missing_quants_scores"),
+        ("sectorRow", "missingSector", "missing_quants_scores"),
+    ],
+)
+def test_not_computed_requires_complete_consistent_explicit_evidence(old, new, reason):
+    with pytest.raises(ParseError, match=f"^{reason}$"):
+        observation("660A", text=kabumap_not_computed_html().replace(old, new))
+
+
+@pytest.mark.parametrize("tag", ["script", "style", "template", "head"])
+def test_non_body_message_does_not_establish_not_computed(tag):
+    text = kabumap_not_computed_html().replace(
+        "<p>クォンツスコアはまだ計算されていません</p>",
+        f"<{tag}>クォンツスコアはまだ計算されていません</{tag}>",
+    )
+    with pytest.raises(ParseError, match=r"^missing_quants_date$"):
+        observation("660A", text=text)
+
+
+@pytest.mark.parametrize(
+    ("extra", "reason"),
+    [
+        ("<h2>クォンツスコア情報 (2026-10-09更新)</h2>", "missing_quants_date"),
+        ("<h2>クォンツスコア情報 （まだ計算されていない銘柄です）</h2>", "missing_quants_date"),
+        ("<h2>クォンツスコア情報 （不明）</h2>", "missing_quants_date"),
+        ('<div id="scoreTable"></div>', "missing_quants_scores"),
+        ('<li id="totalRow">--/100</li>', "missing_quants_scores"),
+        ('<li id="sectorRow">--/100</li>', "missing_quants_scores"),
+        ('<span id="stockCode">(東証:660A)</span>', "ticker_identity"),
+    ],
+)
+def test_not_computed_rejects_duplicate_or_conflicting_structure(extra, reason):
+    with pytest.raises(ParseError, match=f"^{reason}$"):
+        observation("660A", text=kabumap_not_computed_html() + extra)
+
+
+def test_not_computed_requires_all_six_individual_scores():
+    text = kabumap_not_computed_html().replace(
+        '<li class="scoreBase"><span class="scoreName">割安性</span>'
+        '<span class="scoreFigure">--/10</span></li>',
+        "",
+    )
+    with pytest.raises(ParseError, match=r"^missing_quants_scores$"):
+        observation("660A", text=text)
+
+
+def test_dated_all_null_remains_available_and_unknown_undated_page_fails():
+    assert observation(text=html(missing=True)).availability == "available"
+    with pytest.raises(ParseError, match=r"^missing_quants_date$"):
+        observation(text=html(missing=True).replace(" (2026-10-09更新)", ""))
+
+
+def test_not_computed_requires_the_requested_source_url():
+    with pytest.raises(ParseError, match=r"^source_identity$"):
+        kabumap.parse_html(
+            kabumap_not_computed_html(),
+            ticker="660A",
+            source_url=kabumap.public_url("130A"),
+            fetched_at_utc=RECEIVED,
+        )
+
+
 def test_wrong_source_is_rejected():
     with pytest.raises(ParseError, match="source_identity"):
         kabumap.parse_html(
@@ -179,9 +272,13 @@ def test_cutoff_immutable_replay_and_conflict(tmp_path):
         save_observations(path, [first.model_copy(update={"undervaluation_score": 4})])
 
 
-@pytest.mark.parametrize("missing", [False, True])
-def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect, missing):
-    payload = html(missing=missing).encode("shift_jis")
+@pytest.mark.parametrize("availability", ["available", "all_null", "not_computed"])
+def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect, availability):
+    missing = availability != "available"
+    not_computed = availability == "not_computed"
+    payload = (kabumap_not_computed_html("130A") if not_computed else html(missing=missing)).encode(
+        "shift_jis"
+    )
     session = Session([(200, payload, "SHIFT_JIS")])
     connect(session)
     p, store = plan(tickers=("130A",), sources=("kabumap",)), FakeObjectStore()
@@ -194,7 +291,8 @@ def test_shift_jis_daily_checkpoint_and_single_root_raw_reparse(connect, missing
     assert entry.http_status == 200
     parsed = saved.result.observations[0]
     assert isinstance(parsed, QuantsScoreObservation)
-    assert parsed.score_as_of_date == date(2026, 10, 9)
+    assert parsed.availability == ("not_computed" if not_computed else "available")
+    assert parsed.score_as_of_date == (None if not_computed else date(2026, 10, 9))
     assert (
         parsed.growth_score,
         parsed.undervaluation_score,
@@ -258,3 +356,45 @@ def test_bank_is_in_saved_ordinary_universe_without_financial_eligibility_filter
     saved = fix_master_dependency(store, directory=tmp_path / "fixed", day=ASOF)
     tickers = received_master_universe(saved_master_dependency(store, saved, day=ASOF), ASOF)
     assert "8306" in tickers
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_retained_v3_replay_preserves_recorded_version_and_its_heading_contract(missing):
+    text = html(missing=missing)
+    # v3 ignored additional undated score headings/body markers, but required a date.
+    text += "<h2>クォンツスコア情報 （不明）</h2><p>クォンツスコアはまだ計算されていません</p>"
+    raw = response(
+        "kabumap", "130A", text.encode(), url=kabumap.public_url("130A"), received_at_utc=RECEIVED
+    )
+    old = decode_attempt([raw], expected_parser_version="kabumap-quants-3")
+    assert old.parser_version == "kabumap-quants-3"
+    assert old.availability == "available"
+    assert old.score_as_of_date == date(2026, 10, 9)
+    assert old.undervaluation_score == (None if missing else 1)
+    assert old.fetched_at_utc == RECEIVED
+    with pytest.raises(ParseError, match="missing_quants_date"):
+        decode_attempt([raw])
+
+
+def test_retained_v3_replay_cannot_reinterpret_an_undated_not_computed_page():
+    raw = response(
+        "kabumap",
+        "660A",
+        kabumap_not_computed_html().encode(),
+        url=kabumap.public_url("660A"),
+        received_at_utc=RECEIVED,
+    )
+    assert decode_attempt([raw]).availability == "not_computed"
+    with pytest.raises(ParseError, match="missing_quants_date"):
+        decode_attempt([raw], expected_parser_version="kabumap-quants-3")
+    with pytest.raises(ParseError, match="unsupported_parser_version"):
+        decode_attempt([raw], expected_parser_version="kabumap-quants-unknown")
+
+
+def test_not_computed_requires_composite_scores_inside_the_complete_table():
+    text = (
+        kabumap_not_computed_html().replace('<li id="sectorRow"><strong>--</strong>/100</li>', "")
+        + '<li id="sectorRow"><strong>--</strong>/100</li>'
+    )
+    with pytest.raises(ParseError, match="missing_quants_scores"):
+        observation("660A", text=text)

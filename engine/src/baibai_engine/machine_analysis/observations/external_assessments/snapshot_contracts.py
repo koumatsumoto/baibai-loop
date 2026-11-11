@@ -1,4 +1,4 @@
-"""Owner-declared physical snapshot schema; persisted identity and field semantics are unchanged."""
+"""Owner-declared current and retained physical snapshot contracts."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.contract i
     MODEL_VALUATION_COLUMNS,
     MODEL_VALUATION_TABLE,
     QUANTS_SCORE_COLUMNS,
+    QUANTS_SCORE_SCHEMA50_COLUMNS,
     QUANTS_SCORE_TABLE,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.identity import (
@@ -74,8 +75,25 @@ EXTERNAL_ASSESSMENT_ANALYST_RATING_OBSERVATIONS = LakeDataset(
     ),
 )
 
+EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS_V1 = LakeDataset(
+    name=QUANTS_SCORE_DATASET,
+    layer="l2_processed",
+    sqlite_table=QUANTS_SCORE_TABLE,
+    date_column="snapshot_date",
+    coverage_authority="unproven",
+    columns=tuple(
+        LakeColumn(
+            name, kind, {"TEXT": _TEXT, "REAL": _REAL, "INTEGER": _INTEGER}[kind], nullable, pk
+        )
+        for name, kind, nullable, pk in QUANTS_SCORE_SCHEMA50_COLUMNS
+    ),
+)
+
 EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS = LakeDataset(
     name=QUANTS_SCORE_DATASET,
+    contract_version=2,
+    legacy_read_contracts=(EXTERNAL_ASSESSMENT_QUANTS_SCORE_OBSERVATIONS_V1,),
+    legacy_read_defaults=(("availability", "available"),),
     layer="l2_processed",
     sqlite_table=QUANTS_SCORE_TABLE,
     date_column="snapshot_date",

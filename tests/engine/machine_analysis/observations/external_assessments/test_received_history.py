@@ -19,6 +19,7 @@ from baibai_engine.machine_analysis.observations.external_assessments.history im
     ObservationHistory,
 )
 from baibai_engine.machine_analysis.observations.external_assessments.models import (
+    QUANTS_METRICS,
     AnalystForecastObservation,
     ModelValuationObservation,
     QuantsScoreObservation,
@@ -354,3 +355,38 @@ for columns, model in (
     assert {column[0] for column in columns} == set(model.model_fields)
 """
     subprocess.run([sys.executable, "-c", code], check=True, env=os.environ.copy())
+
+
+@pytest.mark.parametrize("availability", ["available", "not_computed"])
+def test_quants_availability_retains_old_default_and_rejects_conflicting_date(availability):
+    fields = {
+        "ticker": "1234",
+        "fetched_at_utc": RECEIVED,
+        "source_url": "https://example.invalid/quants",
+        "parser_version": "synthetic-1",
+        "score_as_of_date": date(2026, 10, 9) if availability == "available" else None,
+    }
+    if availability == "not_computed":
+        fields["availability"] = availability
+    observation = QuantsScoreObservation.model_validate(fields)
+    assert observation.availability == availability
+    assert QuantsScoreObservation.model_validate(observation.model_dump(mode="json")) == observation
+    with pytest.raises(ValidationError, match="date"):
+        QuantsScoreObservation.model_validate(
+            {**fields, "score_as_of_date": None if availability == "available" else "2026-10-09"}
+        )
+
+
+@pytest.mark.parametrize("metric", [*QUANTS_METRICS, "composite_score", "industry_average_score"])
+def test_not_computed_quants_rejects_every_non_null_score_including_zero(metric):
+    with pytest.raises(ValidationError, match="not-computed quants scores"):
+        QuantsScoreObservation.model_validate(
+            {
+                "ticker": "1234",
+                "fetched_at_utc": RECEIVED,
+                "source_url": "https://example.invalid/quants",
+                "parser_version": "synthetic-1",
+                "availability": "not_computed",
+                metric: 0,
+            }
+        )

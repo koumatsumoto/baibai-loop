@@ -370,6 +370,8 @@ def _external(external: dict[str, Any]) -> dict[str, Any]:
             "source_url",
             "fetched_at_utc",
             "score_as_of_date",
+            "availability",
+            "previous_availability",
             "basis",
             "target_period",
             "previous_target_period",

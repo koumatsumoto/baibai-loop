@@ -230,7 +230,11 @@ def export_dataset_snapshot(
             if not periods:
                 raise LakeBuildError("dataset holds no rows")
             built = []
-            previous_parts = _manifest_partitions(previous) if previous is not None else {}
+            previous_parts = (
+                _manifest_partitions(previous)
+                if previous is not None and previous.contract_version == dataset.contract_version
+                else {}
+            )
             date_index = tuple(column.name for column in dataset.columns).index(dataset.date_column)
             for period in periods:
                 prior = previous_parts.get(period)

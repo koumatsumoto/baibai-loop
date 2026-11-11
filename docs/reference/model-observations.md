@@ -115,6 +115,8 @@ IVの満期/30日補間は[計算owner](../../engine/src/baibai_engine/machine_a
 
 モデル価格・予想/rating・Quants score・投稿/総合診断を分け、origin/尺度を揃える。初回/欠測回復/人数変更は改善でなく、保存最新値は現在値/最新試行成功でない。受領間比較を自己評価との比較とせず、人数/年表示/過去列から未記載の期末/EPS/履歴を作らない。銘柄同一性のない404/「情報なし」は正常欠測でない。
 
+株マップの銘柄同一性と明示的な未計算表示が成立する場合は、提供元日付・scoreのない`not_computed`観測を元の受領時計で保存する。日付のない未知HTMLや数値との矛盾は解析失敗のまま残す。最新の未計算観測を捨てて過去scoreを現在値へ戻さず、日付のある通常欠測とも区別する。
+
 <a id="tradingview"></a>
 保存HTML/SDK応答はnative表現でwire bytesではない。取得単位・拒否・再開は[外部評価](../../jobs/OPERATIONS.md#external-assessment-acquisition)・[TradingView](../../jobs/OPERATIONS.md#tradingview-expectations)へ。
 

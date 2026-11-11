@@ -136,7 +136,8 @@ class QuantsScoreObservation(ReceivedObservation):
 
     distributor: Literal["kabumap"] = "kabumap"
     origin: Literal["Quants Research"] = "Quants Research"
-    score_as_of_date: date
+    availability: Literal["available", "not_computed"] = "available"
+    score_as_of_date: date | None = None
     score_scale_max: Literal[10] = 10
     composite_scale_max: Literal[100] = 100
     growth_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
@@ -147,6 +148,18 @@ class QuantsScoreObservation(ReceivedObservation):
     market_trend_score: FiniteFloat | None = Field(default=None, ge=0, le=10)
     composite_score: FiniteFloat | None = Field(default=None, ge=0, le=100)
     industry_average_score: FiniteFloat | None = Field(default=None, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def consistent_availability(self) -> Self:
+        if self.availability == "available":
+            if self.score_as_of_date is None:
+                raise ValueError("available quants scores require their displayed date")
+        elif self.score_as_of_date is not None or any(
+            getattr(self, name) is not None
+            for name in (*QUANTS_METRICS, "composite_score", "industry_average_score")
+        ):
+            raise ValueError("not-computed quants scores cannot carry scores or a date")
+        return self
 
 
 class AnalystForecastObservation(ReceivedObservation):

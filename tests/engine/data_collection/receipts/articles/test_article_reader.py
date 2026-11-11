@@ -37,7 +37,7 @@ def test_old_enclosing_version_reads_exact_article_without_rewriting(tmp_path):
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             conn.execute("DELETE FROM article_source_receipts")
     assert path.read_bytes() == before
-    with pytest.raises(SQLiteSchemaError, match="expected=50"):
+    with pytest.raises(SQLiteSchemaError, match="expected=51"):
         read_market(path)
 
 

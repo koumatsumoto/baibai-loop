@@ -112,7 +112,12 @@ def resolve_current_release(
             release.manifest,
             release.dataset_manifests,
             policy=policy,
-            catalog=catalog,
+            catalog={
+                name: descriptor.read_contract(release.dataset_manifests[name].contract_version)
+                if name in release.dataset_manifests
+                else descriptor
+                for name, descriptor in catalog.items()
+            },
         )
     except ValueError as exc:
         raise LakeReadError(f"market current release fails operational policy: {exc}") from None
@@ -259,6 +264,7 @@ def accepted_dataset(release: FixedRelease, dataset: LakeDataset) -> LakeDataset
     """Require the exact owner-declared name, layer, version and partition layout."""
     manifest = release.dataset_manifest(dataset.name)
     try:
+        dataset = dataset.read_contract(manifest.contract_version)
         validate_dataset_contract(manifest, dataset)
     except ValueError as error:
         raise LakeReadError(str(error)) from error

@@ -76,7 +76,7 @@ from baibai_engine.storage.sqlite.source_cache.storage_contracts import (
     SOURCE_COVERAGE_DDL,
 )
 
-SQLITE_SCHEMA_VERSION = 50
+SQLITE_SCHEMA_VERSION = 51
 SCHEMA_VERSION = str(SQLITE_SCHEMA_VERSION)
 
 # EDINET list projection reconstructs the current rows from retained source receipts.

@@ -385,3 +385,46 @@ def test_optional_population_read_can_skip_tradingview_rows(tmp_path):
     assert result["1234"].tradingview.latest is None
     assert result["1234"].model_valuations[0].latest.consensus_target == 1200
     assert path.read_bytes() == before
+
+
+def test_quants_success_not_computed_success_history_keeps_missing_latest_at_cutoff(tmp_path):
+    path = tmp_path / "market.sqlite"
+    first = quants(RECEIVED, "2026-10-09", growth_score=6, composite_score=60)
+    missing = quants(RECEIVED + timedelta(days=1), None, availability="not_computed")
+    recovered = quants(
+        RECEIVED + timedelta(days=2), "2026-10-11", growth_score=8, composite_score=65
+    )
+    assert save_observations(path, [first, missing, recovered]) == 3
+    assert save_observations(path, [first, missing, recovered]) == 0
+    assert read(path, RECEIVED - timedelta(microseconds=1)).quants_scores == ()
+    assert read(path, RECEIVED).quants_scores[0].inputs.latest == first
+    assert (
+        read(path, missing.fetched_at_utc - timedelta(microseconds=1))
+        .quants_scores[0]
+        .inputs.latest
+        == first
+    )
+    at_missing = read(path, missing.fetched_at_utc)
+    series = at_missing.quants_scores[0]
+    assert series.inputs.latest == missing
+    assert series.inputs.previous == first
+    assert series.inputs.latest.score_as_of_date is None
+    assert series.inputs.latest.availability == "not_computed"
+    assert series.comparisons[0].previous_value == 6
+    assert all(item.state == "missing" for item in series.comparisons)
+    assert all(item.latest_value is None and item.delta is None for item in series.comparisons)
+    assert all(group.origin != "Quants Research" for group in at_missing.origin_groups)
+    assert (
+        read(path, recovered.fetched_at_utc - timedelta(microseconds=1))
+        .quants_scores[0]
+        .inputs.latest
+        == missing
+    )
+    at_recovery = read(path, recovered.fetched_at_utc).quants_scores[0]
+    assert at_recovery.inputs.latest == recovered
+    assert at_recovery.inputs.previous == missing
+    for index in (0, 6):
+        assert at_recovery.comparisons[index].state == "recovered"
+        assert at_recovery.comparisons[index].previous_value is None
+        assert at_recovery.comparisons[index].delta is None
+        assert not at_recovery.comparisons[index].comparable

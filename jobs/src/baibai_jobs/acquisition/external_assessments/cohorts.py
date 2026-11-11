@@ -468,6 +468,21 @@ def load_plan(payload: bytes) -> RunPlan:
     return plan
 
 
+def _observation_value(
+    observation: ExternalAssessmentObservation | None,
+) -> dict[str, object] | None:
+    if observation is None:
+        return None
+    value: dict[str, object] = observation.model_dump(mode="json")
+    # 旧confirmed-stageの内容hashは、新しいdefault fieldで変えない。
+    if (
+        isinstance(observation, ExternalAssessmentQuantsScoreObservation)
+        and observation.availability == "available"
+    ):
+        value.pop("availability")
+    return value
+
+
 def result_value(plan: RunPlan, result: CohortResult) -> dict[str, object]:
     validate_result(plan, result)
     return {
@@ -481,9 +496,7 @@ def result_value(plan: RunPlan, result: CohortResult) -> dict[str, object]:
                 "reason": item.reason,
                 "http_status": item.http_status,
                 "attempt_id": item.attempt_id,
-                "observation": item.observation.model_dump(mode="json")
-                if item.observation is not None
-                else None,
+                "observation": _observation_value(item.observation),
             }
             for item in result.entries
         ],

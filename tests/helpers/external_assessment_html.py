@@ -76,6 +76,19 @@ def kabumap_html(ticker="130A", *, cheap="1/10", missing=False):
     )
 
 
+def kabumap_not_computed_html(ticker="660A"):
+    # 660Aの保存原本から、日付のない未計算表示だけを合成している。
+    return (
+        kabumap_html(ticker, missing=True)
+        .replace(
+            "<h2>クォンツスコア情報 (2026-10-09更新)</h2>",
+            "<h2>クォンツスコア情報 （まだ計算されていない銘柄です）</h2>"
+            "<p>クォンツスコアはまだ計算されていません</p>",
+        )
+        .replace("NA", "--")
+    )
+
+
 def minkabu_html(ticker="7203", *, eps="4.5", with_forecast=True):
     forecast = """
     <div class="ly_content_wrapper"><h3>2027年の業績予想</h3>
