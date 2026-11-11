@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import os
@@ -48,7 +49,8 @@ class LakeCASConflict(LakePublishError):
 
 
 def _retry_after(error: ClientError) -> str | int | None:
-    value = error.response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get("retry-after")
+    headers = _response_metadata(error).get("HTTPHeaders")
+    value = headers.get("retry-after") if isinstance(headers, Mapping) else None
     if value is None:
         return None
     if not isinstance(value, str) or len(value) > 128:
@@ -85,12 +87,13 @@ class _SerialRequests:
             try:
                 yield
             except ClientError as error:
-                status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                status = _response_metadata(error).get("HTTPStatusCode")
                 if status in (429, "429") or _error_code(error) == "429":
                     self.stopped = True
                     logging.getLogger(__name__).warning(
-                        "R2 serial request stopped: operation=%s status=429 retry_after=%s",
+                        "R2 serial request stopped: operation=%s status=%s retry_after=%s",
                         operation,
+                        _http_status(error) or "unknown",
                         _retry_after(error),
                     )
                 raise
@@ -226,10 +229,12 @@ class Boto3R2Store:
         except ClientError as exc:
             if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
                 return None
-            _raise_r2_error("head-object", exc)
+            _raise_r2_error("head-object", exc, key=key)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            _log_r2_failure("head-object", exc, key=key)
             raise R2Error("R2 head-object timed out") from exc
         except BotoCoreError as exc:
+            _log_r2_failure("head-object", exc, key=key)
             raise R2Error("R2 head-object failed") from exc
         return _remote_object(value)
 
@@ -248,6 +253,7 @@ class Boto3R2Store:
         except ClientError as exc:
             _raise_r2_error("list-objects", exc)
         except BotoCoreError as exc:
+            _log_r2_failure("list-objects", exc)
             raise R2Error("R2 list-objects failed") from exc
 
     def get_bytes(self, key: str) -> bytes:
@@ -260,10 +266,12 @@ class Boto3R2Store:
                 finally:
                     body.close()
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
-            _raise_r2_error("get-object", exc)
+            _raise_r2_error("get-object", exc, key=key)
         except BotoCoreError as exc:
+            _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object failed") from exc
 
     def get_bytes_with_metadata(self, key: str) -> tuple[bytes, RemoteObject] | None:
@@ -277,12 +285,14 @@ class Boto3R2Store:
                 finally:
                     body.close()
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
             if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
                 return None
-            _raise_r2_error("get-object", exc)
+            _raise_r2_error("get-object", exc, key=key)
         except BotoCoreError as exc:
+            _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object failed") from exc
 
     def download_file(
@@ -324,10 +334,12 @@ class Boto3R2Store:
             temporary_path.replace(path)
             fsync_directory(path.parent)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
-            _raise_r2_error("get-object", exc)
+            _raise_r2_error("get-object", exc, key=key)
         except BotoCoreError as exc:
+            _log_r2_failure("get-object", exc, key=key)
             raise R2Error("R2 get-object failed") from exc
         finally:
             temporary_path.unlink(missing_ok=True)
@@ -363,10 +375,12 @@ class Boto3R2Store:
                 request["Body"] = body
                 response = self._client(path.stat().st_size).put_object(**request)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
+            _log_r2_failure("put-object", exc, key=key)
             raise R2Error("R2 put-object timed out") from exc
         except ClientError as exc:
-            _raise_r2_error("put-object", exc)
+            _raise_r2_error("put-object", exc, key=key)
         except BotoCoreError as exc:
+            _log_r2_failure("put-object", exc, key=key)
             raise R2Error("R2 put-object failed") from exc
         if not self.verify_put_with_head:
             # Private acquisition uses the acknowledged conditional PUT generation.
@@ -383,7 +397,7 @@ class Boto3R2Store:
             )
         result = self.head(key)
         if result is None:
-            raise R2Error(f"R2 object missing after successful put: {key}")
+            raise R2Error("R2 object missing after successful put")
         return result
 
 
@@ -397,16 +411,45 @@ def _remote_object(value: Mapping[str, Any]) -> RemoteObject:
 
 
 def _error_code(error: ClientError) -> str:
-    return str(error.response.get("Error", {}).get("Code", ""))
+    details = error.response.get("Error")
+    code = details.get("Code") if isinstance(details, Mapping) else None
+    return str(code) if isinstance(code, (str, int)) else ""
 
 
-def _raise_r2_error(operation: str, error: ClientError) -> Never:
+def _response_metadata(error: ClientError) -> Mapping[str, Any]:
+    metadata = error.response.get("ResponseMetadata")
+    return metadata if isinstance(metadata, Mapping) else {}
+
+
+def _http_status(error: ClientError) -> int | None:
+    # Error.Code is a service code, not evidence of the HTTP response status.
+    status = _response_metadata(error).get("HTTPStatusCode")
+    if isinstance(status, str) and re.fullmatch(r"[1-5][0-9]{2}", status):
+        return int(status)
+    return status if type(status) is int and 100 <= status <= 599 else None
+
+
+def _log_r2_failure(
+    operation: str, error: ClientError | BotoCoreError, *, key: str | None = None
+) -> None:
+    status = _http_status(error) if isinstance(error, ClientError) else None
+    # Never attach the exception: its message/cause can contain private request data.
+    logging.getLogger(__name__).warning(
+        "R2 request failed: operation=%s status=%s key_sha256=%s",
+        operation,
+        status if status is not None else "unknown",
+        hashlib.sha256(key.encode("utf-8")).hexdigest() if key is not None else "none",
+    )
+
+
+def _raise_r2_error(operation: str, error: ClientError, *, key: str | None = None) -> Never:
+    _log_r2_failure(operation, error, key=key)
     code = _error_code(error)
-    status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-    if code in {"PreconditionFailed", "ConditionalRequestConflict", "412", "409"} or status in {
+    status = _response_metadata(error).get("HTTPStatusCode")
+    if code in {"PreconditionFailed", "ConditionalRequestConflict", "412", "409"} or status in (
         409,
         412,
-    }:
+    ):
         raise LakeCASConflict(f"R2 conditional write conflict: {operation}") from error
     raise R2Error(f"R2 {operation} failed") from error
 
