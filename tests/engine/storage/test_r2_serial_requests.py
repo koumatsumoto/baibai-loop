@@ -176,7 +176,9 @@ def test_429_stops_waiter_even_if_worker_exception_swallowed(store, monkeypatch,
     ("status", "expected"),
     [(403, r2.R2Error), (500, r2.R2Error), (409, r2.LakeCASConflict), (412, r2.LakeCASConflict)],
 )
-def test_non429_preserves_translation_and_does_not_stop_scope(store, monkeypatch, status, expected):
+def test_non429_preserves_translation_and_does_not_stop_scope(
+    store, monkeypatch, caplog, status, expected
+):
     failure = error(status)
     monkeypatch.setattr(
         store,
@@ -188,6 +190,9 @@ def test_non429_preserves_translation_and_does_not_stop_scope(store, monkeypatch
             with pytest.raises(expected) as observed:
                 store.head("key")
             assert observed.value.__cause__ is failure
+    diagnostics = [r.message for r in caplog.records if r.message.startswith("R2 request failed:")]
+    assert len(diagnostics) == 2
+    assert all(f"operation=head-object status={status} key_sha256=" in r for r in diagnostics)
 
 
 def test_client_cache_attempts_and_default_are_separate(store, monkeypatch):
@@ -270,3 +275,45 @@ def test_spacing_includes_client_setup_and_body_time(store, monkeypatch):
         store.get_bytes("key")
         store.get_bytes("key")
     assert sent == [11.0, 13.5]
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({"HTTPStatusCode": 429, "HTTPHeaders": None}, "429"),
+        ({"HTTPStatusCode": "429", "HTTPHeaders": ["PRIVATE_HEADER"]}, "429"),
+        (None, "unknown"),
+        ({"HTTPStatusCode": "429 PRIVATE_HEADER"}, "unknown"),
+        ({"HTTPStatusCode": []}, "unknown"),
+    ],
+)
+def test_serial_stop_diagnostic_does_not_infer_http_status_from_code(
+    store, monkeypatch, caplog, metadata, expected
+):
+    failure = error()
+    failure.response["ResponseMetadata"] = metadata
+    calls = []
+
+    def get(**kwargs):
+        calls.append(kwargs)
+        raise failure
+
+    monkeypatch.setattr(store, "_client", lambda *_: SimpleNamespace(get_object=get))
+
+    def run():
+        with store.serial_requests(min_interval_seconds=0.001):
+            with pytest.raises(r2.R2Error) as caught:
+                store.get_bytes_with_metadata("PRIVATE_KEY")
+            assert caught.value.__cause__ is failure
+            with pytest.raises(r2.R2Error, match="stopped after HTTP 429"):
+                store.get_bytes("PRIVATE_KEY")
+
+    with pytest.raises(r2.R2Error, match="stopped after HTTP 429"):
+        run()
+    assert len(calls) == 1
+    assert len(caplog.records) == 2
+    assert f"operation=get-object status={expected} retry_after=None" in caplog.text
+    assert f"operation=get-object status={expected} key_sha256=" in caplog.text
+    for secret in ("PRIVATE_KEY", "PRIVATE_HEADER", "NEVER_LOG"):
+        assert secret not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
