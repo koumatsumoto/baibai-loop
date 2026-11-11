@@ -348,9 +348,9 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
         metric_value(reader.observation(reader.latest_period, "quarter"), "parent_profit")
         == 247_000_000
     )
-    assert "v13-pdf-annual-disclosure-order" in financial.calculation_revision
+    assert "v14-pdf-operand-disclosure-order" in financial.calculation_revision
     assert growth.payload["calculation_method"] == (
-        "company_growth_retrospective_v13-pdf-annual-disclosure-order"
+        "company_growth_retrospective_v14-pdf-operand-disclosure-order"
     )
 
 

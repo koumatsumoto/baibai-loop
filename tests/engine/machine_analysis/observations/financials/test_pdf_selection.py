@@ -192,6 +192,97 @@ def test_future_correction_ignored_and_annual_correction_does_not_mix_vintages()
     assert result.reason == "annual_revised_after_current_disclosure"
 
 
+def annual_correction_on_quarter_day(*, time="16:00:00"):
+    row = replace(
+        document(True),
+        disclosure_number="annual-profit-correction",
+        disclosed_at=document().disclosed_at,
+        disclosed_time=time,
+        profit=2_489_123_000,
+    )
+    pdf = statement(True).model_copy(
+        update={
+            "disclosure_number": row.disclosure_number,
+            "published_on": row.disclosed_at,
+            "source_sha256": "c" * 64,
+            "pairs": tuple(
+                pair.model_copy(update={"current": 2489, "current_text": "2,489"})
+                if pair.metric == "parent_profit"
+                else pair
+                for pair in statement(True).pairs
+            ),
+        }
+    )
+    return row, pdf
+
+
+@pytest.mark.parametrize(
+    ("annual_time", "current_time", "reason"),
+    [
+        ("14:00:00", "15:00:00", None),
+        ("15:00:00", "15:00:00", None),
+        ("16:00:00", "15:00:00", "annual_revised_after_current_disclosure"),
+        (None, "15:00:00", "annual_disclosure_order_unresolved"),
+        ("14:00:00", None, "annual_disclosure_order_unresolved"),
+        (None, None, "annual_disclosure_order_unresolved"),
+    ],
+)
+def test_ifrs_same_day_annual_operand_uses_its_own_native_clock(annual_time, current_time, reason):
+    row, pdf = annual_correction_on_quarter_day(time=annual_time)
+    quarter = replace(document(), disclosed_time=current_time)
+    for docs in permutations([document(True), quarter, row]):
+        result = select_pdf_financials(docs, [statement(True), statement(), pdf], as_of=ASOF)
+        assert result.reason == reason
+        assert result.status == ("available" if reason is None else "unavailable")
+        assert result.amounts_yen == (
+            {}
+            if reason
+            else {
+                "sales": 353_037_000_000,
+                "operating_profit": 11_386_000_000,
+                "parent_profit": 3_047_000_000,
+            }
+        )
+
+
+def test_ifrs_same_day_unchanged_operand_does_not_borrow_later_eps_revision_clock():
+    earlier = replace(
+        document(True), disclosed_at=document().disclosed_at, disclosed_time="14:00:00"
+    )
+    pdf = statement(True).model_copy(update={"published_on": earlier.disclosed_at})
+    later = replace(
+        earlier,
+        disclosure_number="eps-only-correction",
+        disclosed_time="16:00:00",
+        cumulative_eps=36.1,
+    )
+    result = select_pdf_financials([earlier, document(), later], [pdf, statement()], as_of=ASOF)
+    assert result.status == "available"
+    assert result.annual_revision_basis == "latest_reconfirmed_unchanged_amounts"
+    assert result.amounts_yen["parent_profit"] == 3_027_000_000
+
+
+def test_ifrs_earlier_day_operand_needs_no_invented_intraday_clock():
+    annual = replace(document(True), disclosed_time=None)
+    quarter = replace(document(), disclosed_time=None)
+    result = select_pdf_financials([annual, quarter], [statement(True), statement()], as_of=ASOF)
+    assert result.status == "available"
+
+
+def test_later_ifrs_annual_operand_is_not_promoted_through_shared_model_generation():
+    row, pdf = annual_correction_on_quarter_day()
+    financial, growth, _ = models(
+        documents=[document(True), document(), row], pdfs=[statement(True), statement(), pdf]
+    )
+    assert financial.payload["earnings_price"]["profit_ttm_yen"] is None
+    assert financial.payload["financial"]["sales_ttm"] is None
+    reader = CompanyGrowthReader(growth.payload)
+    annual = reader.observation(reader.latest_period, "annual_ttm")
+    assert metric_value(annual, "parent_profit") is None
+    quarter = reader.observation(reader.latest_period, "quarter")
+    assert metric_value(quarter, "parent_profit") == 924_000_000
+
+
 def test_models_share_selected_ttm_and_restated_quarter_comparison():
     financial, growth, _ = models()
     result = financial.payload
