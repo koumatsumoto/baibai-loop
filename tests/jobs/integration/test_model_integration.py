@@ -58,8 +58,8 @@ def integration(tmp_path, monkeypatch):
         yield prepared
         events.append("release-snapshot")
 
-    retain = job.retain_economic_input
-    rebuild = job.rebuild_economic_input
+    retain = job.EconomicInputSession.retain
+    rebuild = job.EconomicInputSession.rebuild
 
     def retain_input(*args, **kwargs):
         events.append("retain")
@@ -163,8 +163,8 @@ def integration(tmp_path, monkeypatch):
     monkeypatch.setattr(job, "_load_handle", lambda path: object())
     monkeypatch.setattr(job, "verify_held", lambda store, handle: events.append("lease"))
     monkeypatch.setattr(job, "prepare_market_lake", prepare)
-    monkeypatch.setattr(job, "retain_economic_input", retain_input)
-    monkeypatch.setattr(job, "rebuild_economic_input", rebuild_input)
+    monkeypatch.setattr(job.EconomicInputSession, "retain", retain_input)
+    monkeypatch.setattr(job.EconomicInputSession, "rebuild", rebuild_input)
     monkeypatch.setattr(job, "read_and_generate_models", generate)
     monkeypatch.setattr(job, "publish_prepared_market_lake", publish)
     store = MemoryR2Store()

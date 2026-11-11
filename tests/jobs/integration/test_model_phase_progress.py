@@ -276,8 +276,8 @@ def test_model_generation_done_waits_for_lazy_stream(integration, monkeypatch, p
 @pytest.mark.parametrize(
     ("phase", "operation"),
     [
-        ("economic_input_retain", "retain_economic_input"),
-        ("economic_input_rebuild", "rebuild_economic_input"),
+        ("economic_input_retain", "retain"),
+        ("economic_input_rebuild", "rebuild"),
         ("model_inputs", "read_and_generate_models"),
         ("screening", "evaluate_economic_coordinates"),
         ("lake_publish", "publish_prepared_market_lake"),
@@ -293,7 +293,8 @@ def test_failed_phase_never_logs_done_or_prunes(
         assert_started(progress, phase)
         raise error
 
-    monkeypatch.setattr(models, operation, fail)
+    target = models.EconomicInputSession if operation in {"retain", "rebuild"} else models
+    monkeypatch.setattr(target, operation, fail)
     with pytest.raises(ValueError, match=CANARY) as caught:
         models.integrate_models(**arguments)
     assert caught.value is error

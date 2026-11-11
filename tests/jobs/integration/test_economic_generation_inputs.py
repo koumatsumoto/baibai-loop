@@ -146,7 +146,7 @@ def test_economic_fixed_input_failure_does_not_publish_generation_or_lake(
         monkeypatch.setattr(args["store"], "put_file", fail_metadata)
         error = LakePublishError
     else:
-        retain = job.retain_economic_input
+        retain = job.EconomicInputSession.retain
 
         def remove_original(*values, **kwargs):
             saved = retain(*values, **kwargs)
@@ -154,7 +154,7 @@ def test_economic_fixed_input_failure_does_not_publish_generation_or_lake(
                 connection.execute("DELETE FROM economic_source_records")
             return saved
 
-        monkeypatch.setattr(job, "retain_economic_input", remove_original)
+        monkeypatch.setattr(job.EconomicInputSession, "retain", remove_original)
         error = ValueError
     with pytest.raises(error):
         job.integrate_models(**args)

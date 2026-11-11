@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import re
 import tempfile
+import time
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC
+from email.utils import parsedate_to_datetime
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Never, Protocol, runtime_checkable
 
 import boto3
@@ -38,6 +45,58 @@ class R2Error(LakePublishError):
 
 class LakeCASConflict(LakePublishError):
     pass
+
+
+def _retry_after(error: ClientError) -> str | int | None:
+    value = error.response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get("retry-after")
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 128:
+        return "invalid"
+    if value.isascii() and value.isdecimal():
+        return int(value)
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            return "invalid"
+        return parsed.astimezone(UTC).isoformat()
+    except (TypeError, ValueError, OverflowError):
+        return "invalid"
+
+
+class _SerialRequests:
+    def __init__(self, interval: float) -> None:
+        self.interval = interval
+        self.lock = Lock()
+        self.next_start = 0.0
+        self.stopped = False
+
+    def check(self) -> None:
+        if self.stopped:
+            raise R2Error("R2 serial request scope stopped after HTTP 429")
+
+    @contextmanager
+    def request(self, operation: str) -> Iterator[None]:
+        with self.lock:
+            self.check()
+            delay = self.next_start - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                yield
+            except ClientError as error:
+                status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                if status in (429, "429") or _error_code(error) == "429":
+                    self.stopped = True
+                    logging.getLogger(__name__).warning(
+                        "R2 serial request stopped: operation=%s status=429 retry_after=%s",
+                        operation,
+                        _retry_after(error),
+                    )
+                raise
+            finally:
+                # Completion-based spacing also covers client setup and streamed bodies.
+                self.next_start = time.monotonic() + self.interval
 
 
 @dataclass(frozen=True)
@@ -93,12 +152,46 @@ class Boto3R2Store:
         self.endpoint = f"https://{account_id}.r2.cloudflarestorage.com"
         self.access_key_id = _required(source, "R2_ACCESS_KEY_ID")
         self.secret_access_key = _required(source, "R2_SECRET_ACCESS_KEY")
-        self._clients: dict[int, S3Client] = {}
+        self._clients: dict[tuple[int, int], S3Client] = {}
+        self._serial: _SerialRequests | None = None
+        self._scope_lock = Lock()
         self.verify_put_with_head = verify_put_with_head
+
+    @contextmanager
+    def serial_requests(self, *, min_interval_seconds: float) -> Iterator[None]:
+        """Pace one joined group of small-object requests; never retry a 429.
+
+        The caller must join its workers before leaving this store-wide scope.
+        Unrelated work should use another store. The default adapter is unchanged.
+        """
+        if not math.isfinite(min_interval_seconds) or min_interval_seconds <= 0:
+            raise ValueError("serial request interval must be positive and finite")
+        state = _SerialRequests(min_interval_seconds)
+        with self._scope_lock:
+            if self._serial is not None:
+                raise ValueError("serial request scopes cannot overlap")
+            self._serial = state
+        try:
+            yield
+            state.check()
+        finally:
+            with self._scope_lock:
+                self._serial = None
+
+    @contextmanager
+    def _request(self, operation: str) -> Iterator[None]:
+        state = self._serial
+        if state is None:
+            yield
+        else:
+            with state.request(operation):
+                yield
 
     def _client(self, payload_bytes: int | None = None) -> S3Client:
         timeout = _operation_timeout(payload_bytes)
-        cached = self._clients.get(timeout)
+        attempts = 1 if self._serial is not None else 3
+        cache_key = (timeout, attempts)
+        cached = self._clients.get(cache_key)
         if cached is not None:
             return cached
         # A store can be owned by a prefetch worker; never share boto3's default
@@ -112,12 +205,12 @@ class Boto3R2Store:
             config=Config(
                 connect_timeout=_BASE_OPERATION_TIMEOUT_SECONDS,
                 read_timeout=timeout,
-                retries={"mode": "standard", "total_max_attempts": 3},
+                retries={"mode": "standard", "total_max_attempts": attempts},
                 request_checksum_calculation="when_required",
                 response_checksum_validation="when_required",
             ),
         )
-        self._clients[timeout] = client
+        self._clients[cache_key] = client
         return client
 
     def close(self) -> None:
@@ -128,7 +221,8 @@ class Boto3R2Store:
 
     def head(self, key: str) -> RemoteObject | None:
         try:
-            value = self._client().head_object(Bucket=self.bucket, Key=key)
+            with self._request("head-object"):
+                value = self._client().head_object(Bucket=self.bucket, Key=key)
         except ClientError as exc:
             if _error_code(exc) in {"404", "NoSuchKey", "NotFound"}:
                 return None
@@ -141,6 +235,8 @@ class Boto3R2Store:
 
     def iter_objects(self, prefix: str) -> Iterator[tuple[str, int]]:
         """List keys and sizes under one prefix without downloading object bodies."""
+        if self._serial is not None:
+            raise ValueError("serial request scope supports small objects, not listing")
         try:
             for page in (
                 self._client()
@@ -156,12 +252,13 @@ class Boto3R2Store:
 
     def get_bytes(self, key: str) -> bytes:
         try:
-            response = self._client().get_object(Bucket=self.bucket, Key=key)
-            body = response["Body"]
-            try:
-                return body.read()
-            finally:
-                body.close()
+            with self._request("get-object"):
+                response = self._client().get_object(Bucket=self.bucket, Key=key)
+                body = response["Body"]
+                try:
+                    return body.read()
+                finally:
+                    body.close()
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
@@ -172,12 +269,13 @@ class Boto3R2Store:
     def get_bytes_with_metadata(self, key: str) -> tuple[bytes, RemoteObject] | None:
         """Return the body and metadata from the same GET, without an extra HEAD."""
         try:
-            response = self._client().get_object(Bucket=self.bucket, Key=key)
-            body = response["Body"]
-            try:
-                return body.read(), _remote_object(response)
-            finally:
-                body.close()
+            with self._request("get-object"):
+                response = self._client().get_object(Bucket=self.bucket, Key=key)
+                body = response["Body"]
+                try:
+                    return body.read(), _remote_object(response)
+                finally:
+                    body.close()
         except (ConnectTimeoutError, ReadTimeoutError) as exc:
             raise R2Error("R2 get-object timed out") from exc
         except ClientError as exc:
@@ -204,20 +302,21 @@ class Boto3R2Store:
         os.close(descriptor)
         temporary_path = Path(temporary_name)
         try:
-            response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
-            body = response["Body"]
-            try:
-                written = 0
-                with temporary_path.open("wb") as target:
-                    while chunk := body.read(8 * 1024 * 1024):
-                        written += len(chunk)
-                        if max_bytes is not None and written > max_bytes:
-                            raise R2Error(f"R2 get-object exceeds size limit: {max_bytes}")
-                        target.write(chunk)
-                    target.flush()
-                    os.fsync(target.fileno())
-            finally:
-                body.close()
+            with self._request("get-object"):
+                response = self._client(expect_bytes).get_object(Bucket=self.bucket, Key=key)
+                body = response["Body"]
+                try:
+                    written = 0
+                    with temporary_path.open("wb") as target:
+                        while chunk := body.read(8 * 1024 * 1024):
+                            written += len(chunk)
+                            if max_bytes is not None and written > max_bytes:
+                                raise R2Error(f"R2 get-object exceeds size limit: {max_bytes}")
+                            target.write(chunk)
+                        target.flush()
+                        os.fsync(target.fileno())
+                finally:
+                    body.close()
             if expect_bytes is not None and written != expect_bytes:
                 raise R2Error(
                     f"R2 get-object size mismatch: expected {expect_bytes}, got {written}"
@@ -260,7 +359,7 @@ class Boto3R2Store:
         if if_none_match:
             request["IfNoneMatch"] = "*"
         try:
-            with path.open("rb") as body:
+            with self._request("put-object"), path.open("rb") as body:
                 request["Body"] = body
                 response = self._client(path.stat().st_size).put_object(**request)
         except (ConnectTimeoutError, ReadTimeoutError) as exc:

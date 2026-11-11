@@ -7,11 +7,13 @@ import importlib.metadata
 import sqlite3
 import sys
 import tempfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from threading import Lock
 from typing import Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
@@ -52,6 +54,8 @@ from baibai_engine.storage.objects.r2 import LakePublishError, ObjectStore
 from baibai_engine.storage.sqlite.read import connect_read_only
 
 _PREFIX = "fixed-inputs/economic/v1/"
+_MAX_RETAINED_BYTES = 64 * 1024 * 1024
+_MAX_RETAINED_OBJECTS = 4096
 # Only these native columns can be fetched. Run error messages are never copied.
 _COLUMNS = {
     "records": "source_id,observed_at,fetched_at,record_count,payload",
@@ -157,6 +161,10 @@ def _key(digest: str) -> str:
 
 
 def _retain(store: ObjectStore, value: Any) -> str:
+    return _retain_verified(store, value)[0]
+
+
+def _retain_verified(store: ObjectStore, value: Any) -> tuple[str, bytes]:
     payload = canonical_json(value).encode()
     digest = hashlib.sha256(payload).hexdigest()
     key = _key(digest)
@@ -173,7 +181,7 @@ def _retain(store: ObjectStore, value: Any) -> str:
             saved = _find(store, digest)
     if saved != payload:
         raise LakePublishError("economic selection object failed integrity")
-    return digest
+    return digest, saved
 
 
 def _find(store: ObjectStore, digest: str) -> bytes | None:
@@ -203,6 +211,48 @@ def _read(store: ObjectStore, digest: str) -> bytes:
     return payload
 
 
+class _RetainedObjects:
+    """Hand verified immutable metadata to the next read on this exact store only."""
+
+    def __init__(self, store: ObjectStore, *, max_bytes: int) -> None:
+        self._store = store
+        self._max_bytes = max_bytes
+        self._payloads: dict[str, bytes] = {}
+        self._bytes = 0
+        self._lock = Lock()
+
+    def retain(self, value: Any) -> str:
+        digest, payload = _retain_verified(self._store, value)
+        with self._lock:
+            if (
+                digest not in self._payloads
+                and len(self._payloads) < _MAX_RETAINED_OBJECTS
+                and self._bytes + len(payload) <= self._max_bytes
+            ):
+                self._payloads[digest] = payload
+                self._bytes += len(payload)
+        return digest
+
+    def read(self, digest: str) -> bytes:
+        _key(digest)
+        with self._lock:
+            payload = self._payloads.get(digest)
+        if payload is None:
+            # Do not evict retained later blocks while reading an uncached prefix.
+            return _read(self._store, digest)
+        if (
+            not 0 < len(payload) <= MAX_PRIVATE_OBJECT_BYTES
+            or hashlib.sha256(payload).hexdigest() != digest
+        ):
+            raise LakePublishError("retained economic selection object failed integrity")
+        return payload
+
+    def clear(self) -> None:
+        with self._lock:
+            self._payloads.clear()
+            self._bytes = 0
+
+
 def _row(connection: sqlite3.Connection, kind: str, key: tuple[str, ...]) -> tuple[Any, ...]:
     names = _KEYS[kind]
     if len(key) != len(names):
@@ -227,9 +277,26 @@ def retain_economic_input(
 ) -> InputSnapshot:
     """Save native membership and acquisition state, never a daily SQLite/body copy.
 
-    Both regular calculation and cold calculation use ``rebuild_economic_input``
-    with the returned identity. The canonical native originals remain the owner.
+    Regular and cold calculation share the same reconstruction of these receipts.
+    The canonical native originals remain the owner.
     """
+    return _retain_economic_input(
+        lambda value: _retain(store, value),
+        source,
+        as_of=as_of,
+        evaluation_time=evaluation_time,
+        rules_path=rules_path,
+    )
+
+
+def _retain_economic_input(
+    retain: Callable[[Any], str],
+    source: Path,
+    *,
+    as_of: date,
+    evaluation_time: datetime,
+    rules_path: Path,
+) -> InputSnapshot:
     if evaluation_time.utcoffset() is None:
         raise ValueError("economic input requires a timezone-aware evaluation time")
     definitions = load_definitions()
@@ -333,7 +400,7 @@ def retain_economic_input(
 
     def retain_block(item: tuple[str, dict[str, list[_Receipt]]]) -> tuple[str, str]:
         name, rows = item
-        return name, _retain(store, _Block(**rows).model_dump(mode="json"))
+        return name, retain(_Block(**rows).model_dump(mode="json"))
 
     # Independent immutable objects otherwise serialize thousands of
     # network round trips. Keep their order and all per-object integrity checks.
@@ -352,7 +419,7 @@ def retain_economic_input(
     )
     descriptor = {
         "format": "economic-input-v2",
-        "selection_sha256": _retain(store, selection.model_dump(mode="json")),
+        "selection_sha256": retain(selection.model_dump(mode="json")),
     }
     digest = _digest(descriptor)
     return InputSnapshot(
@@ -372,6 +439,18 @@ def rebuild_economic_input(
     Canonical schema-13 originals must still exist. The temporary projection is
     calculation-only and never returned, published, or merged into an L1 store.
     """
+    return _rebuild_economic_input(
+        lambda digest: _read(store, digest), source, saved, rules_path=rules_path
+    )
+
+
+def _rebuild_economic_input(
+    read: Callable[[str], bytes],
+    source: Path,
+    saved: InputSnapshot,
+    *,
+    rules_path: Path,
+) -> EconomicModelInput:
     saved = InputSnapshot.model_validate_json(saved.model_dump_json())
     descriptor = saved.descriptor
     if (
@@ -383,7 +462,7 @@ def rebuild_economic_input(
     digest = descriptor.get("selection_sha256")
     if not isinstance(digest, str):
         raise ValueError("saved economic selection digest is required")
-    selection = _Selection.model_validate_json(_read(store, digest))
+    selection = _Selection.model_validate_json(read(digest))
     if selection.recipe_sha256 != _recipe(rules_path):
         raise ValueError("economic calculation recipe differs from the saved input")
     with (
@@ -412,7 +491,7 @@ def rebuild_economic_input(
                 return row
 
             def read_block(block_digest: str) -> _Block:
-                return _Block.model_validate_json(_read(store, block_digest))
+                return _Block.model_validate_json(read(block_digest))
 
             # Only metadata transport runs concurrently. SQLite reads/writes
             # and fixed receipt checks stay on this transaction's owning thread.
@@ -461,3 +540,67 @@ def rebuild_economic_input(
                 ),
             },
         )
+
+
+class EconomicInputSession:
+    """One retain/rebuild pair on one store, with bounded verified metadata reuse.
+
+    The handoff does not cache native originals or calculated context. Cold reads
+    still verify remote objects; all calculations check the recipe and each receipt.
+    """
+
+    def __init__(self, store: ObjectStore) -> None:
+        self._objects = _RetainedObjects(store, max_bytes=_MAX_RETAINED_BYTES)
+        self._state: Literal["new", "retaining", "retained", "closed"] = "new"
+        self._saved_json: str | None = None
+
+    def _close(self) -> None:
+        self._state = "closed"
+        self._saved_json = None
+        self._objects.clear()
+
+    def retain(
+        self,
+        source: Path,
+        *,
+        as_of: date,
+        evaluation_time: datetime,
+        rules_path: Path = DEFAULT_RULES_PATH,
+    ) -> InputSnapshot:
+        if self._state != "new":
+            self._close()
+            raise ValueError("economic input session retains once")
+        self._state = "retaining"
+        try:
+            saved = _retain_economic_input(
+                self._objects.retain,
+                source,
+                as_of=as_of,
+                evaluation_time=evaluation_time,
+                rules_path=rules_path,
+            )
+            # InputSnapshot freezes fields, but its descriptor still contains dicts.
+            self._saved_json = canonical_json(saved.model_dump(mode="json"))
+            self._state = "retained"
+            return saved
+        finally:
+            if self._state != "retained":
+                self._close()
+
+    def rebuild(
+        self,
+        source: Path,
+        saved: InputSnapshot,
+        *,
+        rules_path: Path = DEFAULT_RULES_PATH,
+    ) -> EconomicModelInput:
+        try:
+            if (
+                self._state != "retained"
+                or canonical_json(saved.model_dump(mode="json")) != self._saved_json
+            ):
+                raise ValueError("economic input session requires its retained identity once")
+            self._state = "closed"
+            return _rebuild_economic_input(self._objects.read, source, saved, rules_path=rules_path)
+        finally:
+            self._close()
