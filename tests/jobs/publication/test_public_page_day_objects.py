@@ -254,11 +254,19 @@ def test_publication_keeps_exact_old_months_and_splits_only_changed_periods(tmp_
         target=LakeStoreOrigin(original.release_id, hashlib.sha256(path.read_bytes()).hexdigest()),
     )
     monkeypatch.setattr(publication, "lake_verified_git_commit", lambda: "a" * 40)
+    # Keep the dataset and release on one fixture clock as real time moves past it.
+    fixed_now = AT + timedelta(days=41)
+    export = publication.export_market_snapshot
+    monkeypatch.setattr(
+        publication,
+        "export_market_snapshot",
+        lambda **kwargs: export(created_at=fixed_now, **kwargs),
+    )
     create = publication.create_lake_release
     monkeypatch.setattr(
         publication,
         "create_lake_release",
-        lambda **kwargs: create(created_at=AT + timedelta(days=41), **kwargs),
+        lambda **kwargs: create(created_at=fixed_now, **kwargs),
     )
     # A cold mirror proves that prior body files are not the source of these rows.
     for index, (added, expected_puts, sizes) in enumerate(
@@ -280,6 +288,7 @@ def test_publication_keeps_exact_old_months_and_splits_only_changed_periods(tmp_
             release_id=f"retained-{index}",
         ) as prepared:
             manifest = prepared.export.datasets[DATASET.name].manifest
+            assert manifest.created_at == prepared.release.created_at == fixed_now
             assert tuple(len(part.objects) for part in manifest.partitions) == sizes
             if index < 3:
                 assert (
