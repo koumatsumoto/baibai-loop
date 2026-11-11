@@ -217,6 +217,18 @@ def evaluate_buy_terms(
 
     current_projection = projection_at(price)
     limit_projection = projection_at(limit)
+    if limit_projection is not None:
+        # 指値は計算条件。鮮度/basisを確かめた実quoteの観測日・終値へ置換しない。
+        limit_projection = {
+            key: value
+            for key, value in limit_projection.items()
+            if key not in {"price_yen", "price_as_of", "price_basis"}
+        }
+        limit_projection.update(
+            price_context="buy_limit_ceiling",
+            calculation_price_yen=str(limit),
+            observed_quote=None if quote is None else quote.model_dump(mode="json"),
+        )
     return BuyTermsEvaluation(
         tuple(blockers),
         maximum,
