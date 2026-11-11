@@ -7,7 +7,6 @@ from typing import cast
 from unittest import TestCase
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _FakeResponse, _source, _StaticSession
 
 import baibai_engine.data_collection.providers.ecb.fx as ecb

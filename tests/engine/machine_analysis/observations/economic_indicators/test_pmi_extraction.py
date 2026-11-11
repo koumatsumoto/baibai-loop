@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import date
 from unittest import TestCase
 
-from tests.helpers.network import _no_real_network as _no_real_network
-
 from baibai_engine.data_collection.providers.spglobal.pmi import MANIFEST_PATH, load_manifest
 from baibai_engine.machine_analysis.observations.economic_indicators.definitions import (
     load_definitions,

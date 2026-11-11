@@ -14,7 +14,6 @@ from tests.helpers.indicator_store import (
     observation,
     store_h15_observations,
 )
-from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.cli.economic_indicators import main
 from baibai_engine.data_collection.receipts.native_sources.store import open_connection

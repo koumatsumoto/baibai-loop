@@ -9,7 +9,6 @@ from types import SimpleNamespace
 from urllib.parse import parse_qsl
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _dashboard_payload, _estat_payload, _FakeResponse
 from tests.helpers.r2_store import MemoryR2Store
 

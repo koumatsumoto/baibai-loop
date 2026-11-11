@@ -15,7 +15,6 @@ from tests.helpers.indicator_store import (
     store_h15_observations,
     store_mof_observations,
 )
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_engine.data_collection.receipts.native_sources.records import (

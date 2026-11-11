@@ -14,7 +14,6 @@ from urllib.parse import parse_qs, urlsplit
 import jquantsapi
 import pytest
 from tests.helpers.http_doubles import BodyTimeout
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.option_chain import (
     ASOF,
     _chain_records,
