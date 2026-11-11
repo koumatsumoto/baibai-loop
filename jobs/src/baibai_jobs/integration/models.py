@@ -111,6 +111,7 @@ def integrate_models(
     growth_start: date | None,
     policy: EconomicPathPolicy,
     edinet_input: InputSnapshot | None = None,
+    preserve_generation_ids: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """leaseで順序を守り、モデル生成後に別releaseを作らない。"""
     handle = _load_handle(lease_handle)
@@ -229,7 +230,11 @@ def integrate_models(
         _phase_progress("lake_publish", phase_started)
     phase_started = _phase_progress("model_cache_prune")
     try:
-        pruned = prune_model_cache(runs, keep=3, preserve=(generation.metadata.generation_id,))
+        pruned = prune_model_cache(
+            runs,
+            keep=3,
+            preserve=(*preserve_generation_ids, generation.metadata.generation_id),
+        )
     except (OSError, sqlite3.Error) as error:
         # Cache retention is optional; store upload still checks the SQLite snapshot.
         logging.getLogger(__name__).warning(

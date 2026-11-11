@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import date
 
@@ -32,6 +33,11 @@ def validate_watchdog_input(*, check_date: str) -> None:
     _validate_optional_date(check_date, label="check_date")
 
 
+def validate_recovery_input(*, contract_sha256: str) -> None:
+    if re.fullmatch(r"[0-9a-f]{64}", contract_sha256) is None:
+        raise WorkflowInputError("recovery contract must be a lowercase SHA-256 digest")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -41,6 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     watchdog = subparsers.add_parser("watchdog")
     watchdog.add_argument("--check-date", default="")
+    recovery = subparsers.add_parser("jpx-recovery")
+    recovery.add_argument("--contract-sha256", required=True)
     return parser
 
 
@@ -49,8 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "daily":
             validate_daily_input(asof=args.asof)
-        else:
+        elif args.command == "watchdog":
             validate_watchdog_input(check_date=args.check_date)
+        else:
+            validate_recovery_input(contract_sha256=args.contract_sha256)
     except WorkflowInputError as exc:
         print(f"invalid workflow input: {exc}", file=sys.stderr)
         return 2

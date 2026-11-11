@@ -145,6 +145,26 @@ logと現objectを先に確認する。lakeだけ進みmarket/runsの両ETagが�
 
 JPXのsealはapplyで固定したbundle原本と、決算予定の全体/規制の対象日を公開releaseから読戻す。未公開applyや異なる本文/投影では成功markerを発行しない。旧applied.jsonに読戻し計画がなければ、元stageを保ってfresh正本へ同じplanを再applyし、通常の生成・公開・読戻しへ進む。現在の値から旧計画を補わない。
 
+### JPX旧2stageの固定contractによる復旧
+
+[cloud-jpx-recovery](../.github/workflows/cloud-jpx-recovery.yml)は、旧失敗2stage・公開済み後続2stage・未統合2stageを照合した非公開contractだけを受ける手動入口。通常dailyの代用や任意script実行ではない。標準ubuntu-24.04と既存R2 credential、共通cloud-publish queue/leaseを使い、原本取得・経済L1公開・次input発行・Portfolio更新を含まない。実行用branchを検証済みcommitへ固定し、[contract](src/baibai_jobs/integration/jpx_recovery_contract.py)のsource_commitとActionsのhead_shaも一致させる。
+
+contractは元planの文字列bytesとSHA、固定EDINET入力、現在のlake/current・machine receipt/pair・経済ETag、6stageの原本/marker、JPX5表・EDINET6表・quantsの全行指紋とcoverageを持つ。既存証拠から用意し、R2の`coordination/jpx-recovery/v1/contracts/<SHA256>.json`へcreate-onlyで保存し全byteを読戻す。本文SHA metadataを付けた通常private JSON ownerを使い、実値やDBをGit・Issue・公開log/artifactへ置かない。dispatch前にdecode_contractで検査する。workflowへの入力はこのSHAだけで、URL・path・commandを受けない。
+
+```bash
+gh workflow run cloud-jpx-recovery.yml --ref <REVIEWED_FIXED_BRANCH> -f contract_sha256=<SHA256>
+```
+
+開始前に他publisherと旧実行の到達点を照合する。旧applyが独立したlocal copyだけを変更し今後publishへ進まないなら、そのchildの終端不明自体をfresh runnerの禁止条件にしない。旧leaseを正規手順で解決し、復旧は新lease下でfresh machine pull/hydrate・経済read→元plan apply/check→全表/coverage受入→通常モデル生成→machine push→新current/全表/全旧新モデル/Selection/pair読戻し→2回復receipt seal→release/readbackと進む。旧integrated marker・後続原本・未統合markerは変更しない。
+
+対象日はcontractのasof、評価時計は今回の実時間。J-Quantsは各ownerの最新受領原本を一度固定し、EDINETは元の固定list/archive pairだけを使う。過去時点に知り得た財務情報の再現ではない。信用3入力のas_ofは保持区間末日で、生成対象日と同一とは限らない。旧Generation/モデルpayload/Selection全行は生成前・生成後・本番読戻しの指紋で保持を確認し、正規prune ownerへ全旧IDを渡す。
+
+runnerは開始時20GiB以上の空きを要求する。small-runner query profileはDuckDBを1GB/2threads/接続ごと4GB spill上限にし、接続終了時にその一時領域だけ片付ける。容量・時間内の本番完了をfixture成功から推測しない。AWS CLIとPython転送はこの操作だけ1attempt。Pythonで確認できたHTTP403/429は永続stop latchで後続R2操作を止め、AWS CLIの失敗はchild終了codeで即停止する。CLI文言からHTTPstatusを推測しない。lease解放のためにも再接続せず、held/未完を後で照合する。
+
+私有phase receiptは`coordination/jpx-recovery/v1/attempts/<CONTRACT_SHA>/<RUN_ID>-1/`へ残す。prepare成功には全旧行指紋、apply成功には元JPX公開読戻し計画、models/readback成功には新モデル証拠を含む。公開logは終了codeとphase/error型/確認済み拒否statusだけ。詳細private logは公開artifactにせず、runner消失後の判断は残存receiptと実objectを使う。
+
+「startedのみ」は終端不明で、成功扱いしない。ActionsのRe-runは拒否する。新dispatchは前run終端、receipt、current/pair、leaseを照合した後だけ判断する。公開前の確定した検証失敗なら正規releaseを確認して同contractで新runを開始できる。403/429・child転送失敗・公開開始後の不明結果は自動release/full retryしない。currentだけ進んでrunnerが消えた場合、元IDを付けたモデル再生成やreceipt捏造ではなく前節の部分公開復旧へ戻る。両store反映済みなら保存済みapplied証拠とexact publicationを再検証してsealを判断する。contractを永久lockにせず、進んだbaselineを無断で旧値へ戻さない。
+
 ```bash
 uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_WORK> \
   --group <GROUP> --identity <NEW_EXECUTION_ID> --asof <YYYY-MM-DD> \

@@ -129,6 +129,12 @@ class R2ObjectSource:
                 "R2_ACCOUNT_ID": credentials.account_id,
                 "R2_ACCESS_KEY_ID": credentials.access_key_id,
                 "R2_SECRET_ACCESS_KEY": credentials.secret_access_key,
+                # These operation controls must survive the credential-only read adapter.
+                **{
+                    name: os.environ[name]
+                    for name in ("R2_STOP_ON_REJECTION", "R2_REJECTION_STOP_FILE")
+                    if name in os.environ
+                },
             },
         )
 
