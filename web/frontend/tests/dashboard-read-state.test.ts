@@ -106,6 +106,46 @@ it('keeps portfolio information visible when the independent outcomes request fa
   expect(html).not.toContain('Dashboard read error')
 })
 
+it('keeps the initial loading state while both requests are pending', () => {
+  const html = render()
+  expect(html).toContain('資産状況を読み込んでいます')
+  expect(html).not.toContain('資産と損益')
+  expect(html).not.toContain('運用成績はまだありません')
+})
+
+it('keeps portfolio information visible while outcomes are pending', () => {
+  hooks.values.set(0, dashboard())
+  const html = render()
+  expect(html).toContain('資産と損益')
+  expect(html).toContain('保有銘柄はありません')
+  expect(html).not.toContain('運用成績はまだありません')
+})
+
+it.each([{ outcomes: [] }, { outcomes: [{
+  outcome_id: 'retained-outcome', horizon: '1y', period_start_date: '2025-01-01',
+  period_end_date: '2025-12-31', status: 'resolved', reason: null,
+  portfolio_twr_pct: 10.2, benchmark_cumulative_return_pct: 8.2,
+}] }])('keeps readable outcomes visible while the portfolio request is pending (%j)', ({ outcomes }) => {
+  hooks.values.set(1, { error: null, outcomes })
+  const html = render()
+  expect(html).toContain(outcomes.length ? 'retained-outcome' : '運用成績はまだありません')
+  expect(html).toMatch(/role="status"[^>]*>資産状況を読み込んでいます/)
+  expect(html).not.toContain('資産と損益')
+  expect(html).not.toContain('保有銘柄はありません')
+  expect(html).not.toContain('表示データ生成')
+})
+
+it.each(['request', 'saved-view'])('shows an outcomes %s error while the portfolio request is pending', failure => {
+  if (failure === 'request') hooks.values.set(2, 'outcomes unavailable')
+  else hooks.values.set(1, { error: 'outcomes unavailable', outcomes: [] })
+  const html = render()
+  expect(html).toContain('運用成績を読み込めません')
+  expect(html).toContain('outcomes unavailable')
+  expect(html).toMatch(/role="status"[^>]*>資産状況を読み込んでいます/)
+  expect(html).not.toContain('資産と損益')
+  expect(html).not.toContain('運用成績はまだありません')
+})
+
 it.each([{ outcomes: [] }, { outcomes: [{
   outcome_id: 'retained-outcome', horizon: '1y', period_start_date: '2025-01-01',
   period_end_date: '2025-12-31', status: 'resolved', reason: null,
