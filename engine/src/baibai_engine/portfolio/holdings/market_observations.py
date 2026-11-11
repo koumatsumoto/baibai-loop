@@ -10,8 +10,8 @@ An absent store or genuinely missing observation has no value. Schema mismatches
 and SQL errors propagate; they are not ordinary missing market data.
 
 For target-session planning, the resolved price is the raw/unadjusted ``close`` on the full-universe
-daily bars' latest observed market-wide date eligible at that instant (today after
-15:30 JST, otherwise prior). This reader does not certify full-market coverage. A
+daily bars' latest observed market-wide date eligible at that instant (today at or
+after its session close, otherwise prior). This reader does not certify full-market coverage. A
 missing ticker row or NULL ``close`` on that exact date returns no price; an older
 ticker row is never used as a substitute. A raw quote is an observation, not a
 claim that its price/share basis matches another date. Consumers check that
