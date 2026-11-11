@@ -42,7 +42,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "show":
             payload = service.read(args.proposal_id)
         else:
-            raw = yaml.safe_load(args.draft.read_text(encoding="utf-8"))
+            try:
+                raw = yaml.safe_load(args.draft.read_text(encoding="utf-8"))
+            except yaml.YAMLError:
+                print("error: invalid proposal record YAML", file=sys.stderr)
+                return 3
             record: ProposalCorrection | HumanProposalReport
             if args.command == "correct":
                 record = service.correct(
@@ -59,9 +63,6 @@ def main(argv: list[str] | None = None) -> int:
             payload = record.model_dump(mode="json")
         print(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
         return 0
-    except yaml.YAMLError:
-        print("error: invalid proposal record YAML", file=sys.stderr)
-        return 3
     except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return 3
