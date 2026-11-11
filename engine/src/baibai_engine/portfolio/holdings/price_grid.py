@@ -13,28 +13,22 @@ from decimal import Decimal, localcontext
 from baibai_engine.machine_analysis.observations.stocks.universe import ELIGIBLE_MARKETS
 from baibai_engine.primitives.numbers import finite_decimal
 
-PRICE_GRID_RULE_ID = "tse-common-conservative-20261014"
-PRICE_GRID_SOURCE_URL = "https://www.jpx.co.jp/equities/trading/domestic/07.html"
 PRICE_GRID_CONFIRMED_AT = date(2026, 10, 14)
 PRICE_GRID_VALID_UNTIL = date(2027, 3, 1)
 
-# JPX 公式の「その他の銘柄」。価格帯上限は inclusive。
+# JPX 公式「その他の銘柄」の同じ呼値が続く帯をまとめる。上限は inclusive。
+# https://www.jpx.co.jp/equities/trading/domestic/07.html
 _TICKS: tuple[tuple[Decimal | None, Decimal], ...] = tuple(
     (None if upper is None else Decimal(upper), Decimal(tick))
     for upper, tick in (
-        (1000, 1),
         (3000, 1),
         (5000, 5),
-        (10000, 10),
         (30000, 10),
         (50000, 50),
-        (100000, 100),
         (300000, 100),
         (500000, 500),
-        (1000000, 1000),
         (3000000, 1000),
         (5000000, 5000),
-        (10000000, 10000),
         (30000000, 10000),
         (50000000, 50000),
         (None, 100000),
