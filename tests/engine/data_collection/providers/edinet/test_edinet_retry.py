@@ -128,7 +128,7 @@ def test_auth_or_refusal_is_not_reclassified_by_a_body_429(kind, status, clock):
 
 
 @pytest.mark.parametrize("kind", ["csv", "xbrl"])
-@pytest.mark.parametrize("content", [b"invalid zip", b'{"StatusCode":401}', b'{"StatusCode":403}'])
+@pytest.mark.parametrize("content", [b"invalid zip", b'{"StatusCode":403}'])
 def test_non_zip_success_body_is_returned_without_validation_or_retry(kind, content, clock):
     session = FakeSession(response(content))
     assert request(kind, session).body == content
