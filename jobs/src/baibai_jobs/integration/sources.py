@@ -61,6 +61,12 @@ from baibai_jobs.integration.jquants_handoff import MARKET_SOURCES as JQUANTS_MA
 from baibai_jobs.integration.jquants_handoff import validate_source_handoff
 from baibai_jobs.integration.source_handoff import _JPX_COLLECTION, _replay
 from baibai_jobs.publication.article_verification import capture_delta, verify_delta
+from baibai_jobs.publication.jpx_verification import (
+    capture_publication as capture_jpx_publication,
+)
+from baibai_jobs.publication.jpx_verification import (
+    verify_publication as verify_jpx_publication,
+)
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
 
@@ -290,6 +296,17 @@ def apply(
         "external": external,
         "external_failed": plan.get("external_failed", []),
     }
+    jpx_bundles = [
+        bundle_id
+        for outcome in outcomes
+        if outcome["entry"]["source"] in _JPX_COLLECTION and outcome["applied"]
+        for bundle_id in (
+            *outcome["result"].get("retained_bundles", []),
+            *outcome["result"].get("replayed_bundles", []),
+        )
+    ]
+    if jpx_bundles:
+        report["jpx_publication"] = capture_jpx_publication(market, jpx_bundles)
     write_json_atomic(directory / "applied.json", report)
     return report
 
@@ -494,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--asof is required")
             report = apply(store, directory, market=args.market, asof=args.asof)
             public_report = dict(report)
+            if "jpx_publication" in public_report:
+                public_report["jpx_publication"] = "private readback plan"
             public_report["handoffs"] = [
                 {
                     **item,
@@ -560,6 +579,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(input_report, sort_keys=True))
                 return int(bool(input_report["failed"]))
             report = json.loads((directory / "applied.json").read_text(encoding="utf-8"))
+            if any(
+                item["entry"]["source"] in _JPX_COLLECTION
+                and item["applied"]
+                and item["result"]["retained_bundles"]
+                for item in report["handoffs"]
+            ):
+                report["jpx_readback"] = verify_jpx_publication(
+                    store,
+                    expected=report.get("jpx_publication", {}),
+                    directory=directory / "jpx-readback",
+                    generations=generations,
+                )
             if report.get("external"):
                 report["external_results"] = verify_and_seal(
                     store,

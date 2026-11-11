@@ -143,6 +143,8 @@ logと現objectを先に確認する。lakeだけ進みmarket/runsの両ETagが�
 - machine成功/seal失敗: 公開releaseと原本を読み、同じapplied.jsonからsealする。再GETしない。
 - seal成功/input途中: fresh正本と同じleaseから対象inputを再発行して取得を再開する。
 
+JPXのsealはapplyで固定したbundle原本と、決算予定の全体/規制の対象日を公開releaseから読戻す。未公開applyや異なる本文/投影では成功markerを発行しない。旧applied.jsonに読戻し計画がなければ、元stageを保ってfresh正本へ同じplanを再applyし、通常の生成・公開・読戻しへ進む。現在の値から旧計画を補わない。
+
 ```bash
 uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_WORK> \
   --group <GROUP> --identity <NEW_EXECUTION_ID> --asof <YYYY-MM-DD> \
