@@ -189,13 +189,13 @@ def test_representable_long_delay_is_not_truncated_to_attempt_or_job_budget(cloc
     assert result.requests == 1
 
 
-@pytest.mark.parametrize("status", [403, 500])
+@pytest.mark.parametrize("status", [401, 403, 500])
 def test_other_http_failures_never_adopt_retry_after(clock, status):
     result = collect(Session(clock, status=status, header="999999999999999"))
     assert result.outcomes[0].http_status == status
     assert result.retry_after_not_before_utc is None
     assert result.retry_after_unrepresentable is False
-    assert (result.stop_reason == "access_denied") is (status == 403)
+    assert (result.stop_reason == "access_denied") is (status in {401, 403})
 
 
 def test_transport_timeout_is_not_a_confirmed_429(clock):

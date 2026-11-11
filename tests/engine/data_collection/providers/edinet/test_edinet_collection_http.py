@@ -11,6 +11,7 @@ from tests.helpers.http_doubles import FakeResponse, response
 
 from baibai_engine.data_collection.providers.edinet import http
 from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAccessDeniedError,
     EdinetAcquisitionError,
     EdinetRateLimitError,
 )
@@ -237,6 +238,9 @@ def test_auth_missing_and_redirect_fail_immediately_without_secret(status, clock
     session = Session(reply)
     with pytest.raises(EdinetAcquisitionError, match=f"status {status}") as caught:
         http.EDINETHTTP(KEY, session=session).fetch_list(DAY)
+    assert isinstance(caught.value, EdinetAccessDeniedError) is (status in {401, 403})
+    if isinstance(caught.value, EdinetAccessDeniedError):
+        assert caught.value.status_code == status
     assert len(session.calls) == 1
     assert session.calls[0][2] is False
     assert reply.close_count == 1

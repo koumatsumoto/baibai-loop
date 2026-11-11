@@ -23,6 +23,7 @@ from baibai_engine.data_collection.providers.edinet.list_native import (
     NativeListReceipt,
 )
 from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAccessDeniedError,
     EdinetAcquisitionError,
     EDINETProviderError,
     EdinetRateLimitError,
@@ -228,7 +229,8 @@ def test_holder_planning_failure_does_not_discard_annual_originals(tmp_path, mon
     assert owner.freeze().scope.since == DAY
 
 
-def test_holder_auth_failure_stops_without_global_annual_scope(tmp_path, monkeypatch):
+@pytest.mark.parametrize("status", [401, 403])
+def test_holder_auth_failure_stops_without_global_annual_scope(tmp_path, monkeypatch, status):
     owner, client, _, lists = setup(
         tmp_path,
         [
@@ -237,7 +239,7 @@ def test_holder_auth_failure_stops_without_global_annual_scope(tmp_path, monkeyp
         ],
     )
     monkeypatch.setattr("baibai_jobs.acquisition.edinet_archive_native.time.sleep", Mock())
-    client.fetch_archive.side_effect = EdinetAcquisitionError("request failed status 403")
+    client.fetch_archive.side_effect = EdinetAccessDeniedError(status)
     report = acquire_archives(owner, client, lists, group="edinet-facts", asof=DAY)
     assert report["status"] == "failed"
     assert client.fetch_archive.call_count == 1
@@ -364,3 +366,53 @@ def test_unrelated_native_row_mismatch_cannot_block_uninitialized_holder_get(tmp
     assert report["status"] == "received"
     assert report["annual_archive_plan"] == "skipped_not_initialized"
     client.fetch_archive.assert_called_once_with("S100HOLDER", 1)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+@pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
+def test_archive_refusal_stops_after_partial_original_and_resumes_missing_only(
+    tmp_path, status, group
+):
+    owner, client, _, lists = setup(
+        tmp_path, [filing("S100ONE"), filing("S100TWO", "67580"), filing("S100THREE", "94320")]
+    )
+    client.fetch_archive.side_effect = [
+        EdinetResponse(AT, source_zip()),
+        EdinetAccessDeniedError(status),
+    ]
+    options = {"lookback_days": 0} if group == "edinet-metrics" else {"initialize_facts": True}
+    report = acquire_archives(owner, client, lists, group=group, asof=DAY, **options)
+    assert client.fetch_archive.call_count == 2
+    assert report["status"] == "failed"
+    assert report["downloaded"] == 1
+    assert len(report["failed"]) == 1
+    first = owner.freeze()
+    assert len(first.archive_keys) == 1
+    doc_id, source_type = client.fetch_archive.call_args_list[0].args
+    retained = first.metadata(doc_id, source_type)
+    client.reset_mock()
+    client.fetch_archive.side_effect = None
+    client.fetch_archive.return_value = EdinetResponse(AT + timedelta(hours=1), source_zip())
+    resumed = acquire_archives(owner, client, lists, group=group, asof=DAY, **options)
+    assert resumed["status"] == "received"
+    assert resumed["downloaded"] == 2
+    assert client.fetch_archive.call_count == 2
+    assert owner.freeze().metadata(doc_id, source_type) == retained
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        EdinetAcquisitionError("EDINET request failed with status 404"),
+        EdinetResponse(AT, b"invalid ZIP"),
+    ],
+)
+def test_document_specific_failure_does_not_stop_other_archive_requests(tmp_path, failure):
+    owner, client, _, lists = setup(tmp_path, [filing("S100ONE"), filing("S100TWO", "67580")])
+    client.fetch_archive.side_effect = [failure, EdinetResponse(AT, source_zip())]
+    report = acquire_archives(
+        owner, client, lists, group="edinet-metrics", asof=DAY, lookback_days=0
+    )
+    assert client.fetch_archive.call_count == 2
+    assert report["status"] == "failed"
+    assert report["downloaded"] == 1

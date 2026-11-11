@@ -171,7 +171,9 @@ def acquire_source(
     saved = read_stages(store, plan)
     results = [stage.result for stage, _ in saved.values()]
     accounting = summarize(plan, results)
-    blocked = any(entry.http_status in {403, 429} for result in results for entry in result.entries)
+    blocked = any(
+        entry.http_status in {401, 403, 429} for result in results for entry in result.entries
+    )
     # Completion of all attempts includes parse/HTTP failures. Keep their raw
     # receipts available to handoff, but do not report that as successful data.
     failed = any(entry.state == "failure" for result in results for entry in result.entries)
@@ -226,7 +228,7 @@ def inspect_ready(
         results = [stage.result for stage, _ in saved.values()]
         accounting = summarize(plan, results)
         blocked = any(
-            item.http_status in {403, 429} for result in results for item in result.entries
+            item.http_status in {401, 403, 429} for result in results for item in result.entries
         )
         if not (confirmed_partial or cumulative) and (
             blocked or not accounting["attempted_completeness"]

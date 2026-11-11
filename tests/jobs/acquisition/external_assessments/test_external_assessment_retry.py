@@ -264,13 +264,25 @@ def test_timeout_has_one_attempt_and_controlled_wall_clock_stop_saves_partial(mo
     assert saved.raw_bundle_keys == ()
 
 
-def test_403_stops_current_cohort_after_one_request(monkeypatch, clock):
+@pytest.mark.parametrize("status", [401, 403])
+def test_refusal_stops_current_cohort_and_resumes_only_unattempted_pair(monkeypatch, clock, status):
     p, store = plan(tickers=("6758", "7203")), FakeObjectStore()
-    client = wire_collector(monkeypatch, store, p, clock, [(403, None, "denied")])
+    client = wire_collector(monkeypatch, store, p, clock, [(status, None, "denied")])
     report = daily.acquire_cohort(store, p, 0)
     assert report["stop_reason"] == "access_denied"
     assert report["cohort_complete"] is False
     assert len(client.calls) == 1
+    before = staging.read_stage(store, p, 0)[0].result.entries[0]
+    assert before.reason == ("http_failure" if status == 401 else "access_denied")
+    assert before.http_status == status
+    store.events.clear()
+    resumed = wire_collector(monkeypatch, store, p, clock, [(200, None, monex_html("7203"))])
+    recovered = daily.acquire_cohort(store, p, 0)
+    assert len(resumed.calls) == 1
+    assert recovered["cohort_complete"] is True
+    after = staging.read_stage(store, p, 0)[0].result.entries
+    assert after[0] == before
+    assert after[1].state == "success"
 
 
 def test_host_bucket_is_shared_across_pairs_and_resets_without_restart_credit(monkeypatch, clock):

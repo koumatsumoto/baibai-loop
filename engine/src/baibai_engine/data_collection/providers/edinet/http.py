@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 import requests
 
 from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAccessDeniedError,
     EdinetAcquisitionError,
     EdinetRateLimitError,
     EdinetResponse,
@@ -76,6 +77,8 @@ class EDINETHTTP:
             )
             if response.status_code == 200 and not rate_limited:
                 return EdinetResponse(received_at=received_at, body=body)
+            if response.status_code in {401, 403}:
+                raise EdinetAccessDeniedError(response.status_code)
             if not rate_limited and response.status_code not in {500, 502, 503, 504}:
                 raise EdinetAcquisitionError(
                     f"EDINET request failed with status {response.status_code}"

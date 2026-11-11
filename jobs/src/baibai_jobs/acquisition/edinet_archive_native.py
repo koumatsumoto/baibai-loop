@@ -24,6 +24,7 @@ from baibai_engine.data_collection.providers.edinet.facts_scope import (
 )
 from baibai_engine.data_collection.providers.edinet.list_native import FixedEdinetLists
 from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAccessDeniedError,
     EdinetAcquisitionError,
     EDINETProviderError,
     EdinetRateLimitError,
@@ -140,10 +141,8 @@ def acquire_archives(
         except (EdinetAcquisitionError, AcquisitionDeadlineExceeded, ValueError, OSError) as error:
             failed.append({"doc_id": doc_id, "reason": type(error).__name__})
             annual_failed |= doc_id in selected_ids
-            if isinstance(error, (AcquisitionDeadlineExceeded, EdinetRateLimitError)) or (
-                doc_id in holder_ids
-                and isinstance(error, EdinetAcquisitionError)
-                and str(error).endswith(("status 401", "status 403"))
+            if isinstance(
+                error, (AcquisitionDeadlineExceeded, EdinetRateLimitError, EdinetAccessDeniedError)
             ):
                 break
         else:

@@ -16,12 +16,14 @@ import baibai_jobs.acquisition.external_assessments.staging as staging
 from baibai_engine.machine_analysis.observations.external_assessments.normalization.decode import (
     decode_attempt as external_assessment_decode_attempt,
 )
+from baibai_jobs.acquisition.external_assessments.sources import inspect_ready
 from baibai_jobs.integration.external_assessment_ready import prepare_plan
 
 
 @pytest.mark.parametrize("normal_null", [False, True])
+@pytest.mark.parametrize("status", [401, 403])
 def test_partial_common_integration_preserves_unattempted_pairs_and_fixed_checkpoint(
-    publication, normal_null
+    publication, normal_null, status
 ):
     store, previous, _, _, _, _ = publication
     plan = _plan(
@@ -40,7 +42,14 @@ def test_partial_common_integration_preserves_unattempted_pairs_and_fixed_checkp
         0,
         [
             ("monex", "6758", "observed", responses[0].attempt_id, observation, 200),
-            ("monex", "7203", "access_denied", str(uuid.uuid4()), None, 403),
+            (
+                "monex",
+                "7203",
+                "http_failure" if status == 401 else "access_denied",
+                str(uuid.uuid4()),
+                None,
+                status,
+            ),
         ],
         responses,
     )
@@ -68,3 +77,18 @@ def test_partial_handoff_requires_a_confirmed_typed_observation(publication):
     _stage(store, plan, 0, [("monex", "7203", "http_failure", str(uuid.uuid4()), None, 503)])
     with pytest.raises(ValueError, match="confirmed typed observations"):
         prepare_plan(store, plan, confirmed_partial=True)
+
+
+def test_saved_complete_401_is_blocked_without_rewriting_legacy_failure(publication):
+    store, previous, *_ = publication
+    plan = _plan(previous, run_id="monex-complete-auth-refusal", tickers=("7203",))
+    staging.save_new_plan(store, plan)
+    _stage(store, plan, 0, [("monex", "7203", "http_failure", str(uuid.uuid4()), None, 401)])
+    before = store.values[staging.stage_key(plan, 0)].body
+    with pytest.raises(ValueError, match="explicit confirmed partial"):
+        prepare_plan(store, plan)
+    assert prepare_plan(store, plan, cumulative=True).accounting["state_counts"]["failure"] == 1
+    ready, reports = inspect_ready(store, [{"source": "monex", "run_id": plan.run_id}])
+    assert not ready
+    assert reports["monex"]["status"] == "blocked"
+    assert store.values[staging.stage_key(plan, 0)].body == before
