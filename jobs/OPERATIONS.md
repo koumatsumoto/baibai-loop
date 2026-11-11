@@ -9,7 +9,7 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 
 baibai-storesは非公開正本。秘密・endpoint・原文・私有DB/原稿をGit・Issue・公開log/artifactへ出さない。writer secretは取得/公開step、DISCORD_WEBHOOK_URLは通知stepだけへ渡し、通常開発へwriter credentialを流用しない。認証/403/429を別経路や権限拡大で迂回しない。
 
-ローカルで認証付きCLIを直接使う場合、以降の例は必要な変数がshellへexport済みであることを前提とする。`.env`は全CLIが自動読込するわけではなく、`setup-dev.sh`も読み込まない。[`.env.sample`](../.env.sample)から認可済みの値を用意する場合は、repository rootで次を実行する。秘密を表示する`set -x`や環境変数のdumpはしない。
+ローカルで認証付きCLIを直接使う場合、以降の例は必要な変数がshellへexport済みであることを前提とする。`.env`は全CLIが自動読込するわけではなく、`setup-dev.sh`も読み込まない。[`.env.sample`](../.env.sample)から認可済みの値を用意する場合は、Bash構文で値の特殊文字を適切に引用し、repository rootで次を実行する。秘密を表示する`set -x`や環境変数のdumpはしない。
 
 ```bash
 set -a
