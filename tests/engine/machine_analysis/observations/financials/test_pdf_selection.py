@@ -242,11 +242,12 @@ def test_annual_direct_selection_and_no_pdf_unchanged():
     assert "pdf_selection" not in models(pdfs=[])[0].payload["financial"]
 
 
-def test_annual_eps_only_revision_keeps_verified_unchanged_amount_operand():
+@pytest.mark.parametrize("revision_date", [date(2026, 6, 19), date(2026, 9, 1)])
+def test_annual_eps_only_revision_keeps_verified_unchanged_amount_operand(revision_date):
     revised = replace(
         document(True),
         disclosure_number="annual-eps-correction",
-        disclosed_at=date(2026, 6, 19),
+        disclosed_at=revision_date,
         cumulative_eps=36.1,
     )
     result = select_pdf_financials(

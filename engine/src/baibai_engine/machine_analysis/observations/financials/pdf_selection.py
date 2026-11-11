@@ -36,7 +36,7 @@ type AnnualRevisionBasis = Literal[
     "same_disclosure", "latest_reconfirmed_unchanged_amounts", "same_day_restated_reference_actual"
 ]
 
-REVISION = "retained-pdf-restatement-selection-v2"
+REVISION = "retained-pdf-restatement-selection-v3"
 _FIELDS: dict[Metric, str] = {
     "sales": "sales",
     "operating_profit": "operating_profit",
@@ -178,6 +178,35 @@ def _unchanged_annual_pdf(
     return next(iter(candidates.values())) if len(candidates) == 1 else None
 
 
+def _annual_reference_order_reason(
+    annual: JQuantsFinancialSummary,
+    reference: PdfStatement,
+    documents: Sequence[JQuantsFinancialSummary],
+) -> str | None:
+    assert reference.published_on is not None
+    if annual.disclosed_at < reference.published_on:
+        return None
+    if annual.disclosed_at > reference.published_on:
+        return "annual_revised_after_reference_disclosure"
+    sources = [
+        row
+        for row in documents
+        if row.disclosure_number == reference.disclosure_number
+        and row.disclosed_at == reference.published_on
+    ]
+    # PDFの公表日は日単位。別文書である四半期の時刻を参考実績へ借用しない。
+    if len({row.disclosed_time for row in sources}) != 1:
+        return "annual_reference_disclosure_order_unresolved"
+    source = sources[0]
+    if certainly_disclosed_by(annual, source):
+        return None
+    return (
+        "annual_revised_after_reference_disclosure"
+        if certainly_disclosed_by(source, annual)
+        else "annual_reference_disclosure_order_unresolved"
+    )
+
+
 def select_pdf_financials(
     documents: Sequence[JQuantsFinancialSummary], statements: Sequence[PdfStatement], *, as_of: date
 ) -> PdfFinancialSelection | None:
@@ -191,9 +220,10 @@ def select_pdf_financials(
     ]
     if not retained:
         return None
+    projected = project_financial_documents(documents, as_of)
     rows = [
         row
-        for row in reporting_basis_rows(project_financial_documents(documents, as_of))
+        for row in reporting_basis_rows(projected)
         if row.period_start is not None
         and row.period_end is not None
         and row.period_start <= row.period_end <= as_of
@@ -256,6 +286,16 @@ def select_pdf_financials(
             status="unavailable", current=current, reason="annual_disclosure_missing_or_ambiguous"
         )
     if current.accounting_standard == "JP":
+        # 参考実績は年次訂正の原本ではなく、その後の訂正まで再確認していない。
+        if not certainly_disclosed_by(annual_row, current_row):
+            return PdfFinancialSelection(
+                status="unavailable",
+                current=current,
+                annual_latest_disclosure_number=annual_row.disclosure_number,
+                reason="annual_revised_after_current_disclosure"
+                if certainly_disclosed_by(current_row, annual_row)
+                else "annual_disclosure_order_unresolved",
+            )
         # 新基準の比較期と合成するため、旧年度ではなく同日公表の組替済み年度実績を使う。
         references = {
             item.source_sha256: item
@@ -274,6 +314,15 @@ def select_pdf_financials(
                 reason="restated_annual_reference_missing_or_ambiguous",
             )
         reference = next(iter(references.values()))
+        reference_order_reason = _annual_reference_order_reason(annual_row, reference, projected)
+        if reference_order_reason is not None:
+            return PdfFinancialSelection(
+                status="unavailable",
+                current=current,
+                annual=reference,
+                annual_latest_disclosure_number=annual_row.disclosure_number,
+                reason=reference_order_reason,
+            )
         assert reference.annual_reference is not None
         assert current.comparative_end is not None
         start = current.comparative_end + timedelta(days=1)

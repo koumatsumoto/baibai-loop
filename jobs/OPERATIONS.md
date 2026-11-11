@@ -9,6 +9,14 @@ repository rootのBashで、依頼された対象だけを操作する。[archit
 
 baibai-storesは非公開正本。秘密・endpoint・原文・私有DB/原稿をGit・Issue・公開log/artifactへ出さない。writer secretは取得/公開step、DISCORD_WEBHOOK_URLは通知stepだけへ渡し、通常開発へwriter credentialを流用しない。認証/403/429を別経路や権限拡大で迂回しない。
 
+ローカルで認証付きCLIを直接使う場合、以降の例は必要な変数がshellへexport済みであることを前提とする。`.env`は全CLIが自動読込するわけではなく、`setup-dev.sh`も読み込まない。[`.env.sample`](../.env.sample)から認可済みの値を用意する場合は、Bash構文で値の特殊文字を適切に引用し、repository rootで次を実行する。秘密を表示する`set -x`や環境変数のdumpはしない。
+
+```bash
+set -a
+source .env
+set +a
+```
+
 R2転送失敗の診断はstorage ownerが操作名・検証済みHTTP status・keyのSHA-256だけを記録する。status不明をservice codeや本文から推測しない。key hashは固定対象を手元で照合するためで、公開可能性を保証する匿名化ではない。例外causeには私有情報が残り得るためtracebackを公開せず、key・bucket・endpoint・応答本文/headersを追加でdumpしない。診断の追加は429解消や本番受入を意味しない。
 
 - 原本受領・L2・公開/readback・seal・次input発行を分け、正常空/partial/未試行/失敗を残す。L2失敗で保存L1を戻さない。
@@ -655,7 +663,17 @@ mainのcloud-materializeは検証済applicationと固定releaseを使う。marke
 uv run python -m baibai_web.materialize --output-dir /tmp/baibai-serving
 ```
 
-これはlocal生成だけ。公開はworkflow内の`jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving`を使い、全viewの全bytes読戻しを同lease内で確認する。成功main run確認後にUIの対象HEADをmainで配備し、認証API/画面を受入れる。PR CIを本番更新とせず、旧object/secretを削除しない。提案emptyと保存ID/基準日/発行時刻付き本文の表示受入は別。
+これはlocal生成だけ。公開はworkflow内の`jobs/scripts/r2_transfer.sh upload-portfolio-views /tmp/baibai-serving`を使い、全viewの全bytes読戻しを同lease内で確認する。
+
+必要な表示データを公開・読戻しした成功main runを確認後、[web workflow](../.github/workflows/web.yml)をmainで明示dispatchする。push/PRのweb runは検証だけで、Worker/UIを配備しない。
+
+```bash
+gh workflow run web.yml --ref main
+gh run list --workflow web.yml --branch main --event workflow_dispatch --limit 5
+gh run watch <WEB_RUN_ID> --exit-status --interval 60
+```
+
+対象SHAの`Deploy Worker and UI assets`が実行・成功したことを確認する。待機中にmainのWeb入力が変わると配備はskipされるため、run成功だけで配備済みとしない。認証APIは対話terminalで`bash web/edge/scripts/verify-deployment.sh`を実行し、閲覧パスワードはpromptへ入力する。画面のDashboard・提案emptyまたは保存ID/基準日/発行時刻付き本文の表示受入は別に確認する。旧object/secretは削除しない。
 
 <a id="web-authentication"></a>
-VIEW_PASSWORDをBearerとして使う。実Workerのsecret更新は別途認可された操作として行い、秘密を本文・shell引数・logへ残さず、R2 credentialと混ぜない。
+VIEW_PASSWORDをBearerとして使う。閲覧画面は空白なしの半角英数字・記号（印字可能ASCII）だけを受け付け、入力の前後空白を除くため、secretもこの範囲で用意する。実Workerのsecret更新は別途認可された操作として行い、秘密を本文・shell引数・logへ残さず、R2 credentialと混ぜない。
