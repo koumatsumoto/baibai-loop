@@ -85,7 +85,7 @@ def tradingview_rows_at_cutoff(
     *,
     ticker: str | None = None,
 ) -> list[sqlite3.Row]:
-    """Read saved TradingView values at the exact received-time cutoff."""
+    """Select two received rows per ticker without decoding discarded history."""
     if (
         conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TV_TABLE,)
@@ -102,10 +102,17 @@ def tradingview_rows_at_cutoff(
     rows = conn.execute(
         f"SELECT {names} FROM {TV_TABLE} WHERE {predicate}",  # nosec B608
         (day, ticker) if ticker is not None else (day,),
-    ).fetchall()
-    return [
-        row for row in rows if utc_datetime(datetime.fromisoformat(row["fetched_at_utc"])) <= cutoff
-    ]
+    )
+    latest: dict[str, list[tuple[datetime, sqlite3.Row]]] = {}
+    for row in rows:
+        received = utc_datetime(datetime.fromisoformat(row["fetched_at_utc"]))
+        if received > cutoff:
+            continue
+        series = latest.setdefault(row["ticker"], [])
+        series.append((received, row))
+        series.sort(key=lambda item: item[0], reverse=True)
+        del series[2:]
+    return [row for series in latest.values() for _, row in series]
 
 
 def read_observations(sqlite_path: Path, ticker: str, cutoff: datetime) -> ObservationHistory:

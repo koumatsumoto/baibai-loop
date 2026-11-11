@@ -14,6 +14,24 @@ from baibai_engine.machine_analysis.observations.economic_indicators.tsr_bankrup
 
 
 class ReadingTests(TestCase):
+    def test_tsr_does_not_parse_values_outside_the_requested_months(self) -> None:
+        series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
+        rows = [
+            {"period_division": "月次", "title": "2025年1月の全国企業倒産状況（別文型）"},
+            {"period_division": "月次", "title": "2026年6月の全国企業倒産1,021件"},
+            {"period_division": "月次", "title": "2026年7月の全国企業倒産100件"},
+            {"period_division": "月次", "title": "2026年7月の全国企業倒産200件"},
+        ]
+        result = parse_tsr_bankruptcies_json(
+            series, json.dumps(rows), start=date(2026, 6, 1), end=date(2026, 6, 30)
+        )
+        self.assertEqual(
+            [(item.observed_at, item.value) for item in result],
+            [
+                (date(2026, 6, 1), 1021.0),
+            ],
+        )
+
     def test_parse_tsr_bankruptcies_json_reads_current_and_legacy_entries(self) -> None:
         series = _series("tsr_bankruptcies", "jp_bankruptcies_tsr", unit="count")
         text = json.dumps(
