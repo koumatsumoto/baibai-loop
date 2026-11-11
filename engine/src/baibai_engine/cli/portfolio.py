@@ -67,6 +67,7 @@ from baibai_engine.portfolio.ledger.read import LedgerConflictError
 from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.portfolio.performance.calculate import (
     compute_portfolio_outcome,
+    outcome_close_instant,
     outcome_ledger_at_close,
     outcome_market_tickers,
     outcome_to_payload,
@@ -489,12 +490,12 @@ def _run_outcome(
         return 2
     try:
         ledger = LedgerStoreService(db_path).load()
-        # An outcome is written once and never corrected, so it must not be derived
-        # from a ledger the current snapshot would refuse. Historical valuation
-        # tolerates a reservation still awaiting its release while replaying a prefix;
-        # that tolerance must not extend to publishing from a ledger whose end state a
-        # human has yet to resolve.
-        require_resolved_expiries(replay_events_through(ledger.events, ledger.as_of))
+        # Later terminal reports can resolve a period's lapsed orders. A newer
+        # unrelated expiry must not block that historical result or an exact retry.
+        require_resolved_expiries(
+            replay_events_through(ledger.events, ledger.as_of),
+            expired_by=outcome_close_instant(benchmark.period_end_date),
+        )
     except (LedgerConflictError, PortfolioLedgerError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

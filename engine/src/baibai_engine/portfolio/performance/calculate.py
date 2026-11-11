@@ -194,7 +194,7 @@ def compute_portfolio_outcome(
     if opening is None or (
         opening.occurred_on > start
         if opening.occurred_on is not None
-        else opening.occurred_at > _close_instant(start)
+        else opening.occurred_at > outcome_close_instant(start)
     ):
         return _unresolved(benchmark, "insufficient_portfolio_history")
 
@@ -452,7 +452,8 @@ def _effective_date_for_period(
     return effective if effective is not None and effective <= end else None
 
 
-def _close_instant(day: date) -> datetime:
+def outcome_close_instant(day: date) -> datetime:
+    """The close boundary used for outcome facts and expiry-report requirements."""
     return datetime.combine(day, _JPX_CLOSE, tzinfo=_TOKYO)
 
 

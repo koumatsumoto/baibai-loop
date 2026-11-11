@@ -912,3 +912,84 @@ def test_outcome_cli_rejects_premature_benchmark_without_publication_or_export(t
     assert not export.exists()
     assert PortfolioOutcomeStore(application).list() == ()
     assert application.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("order_at", "expires_at"),
+    [
+        ("2026-01-06T16:00:00+09:00", "2026-01-06T18:00:00+09:00"),
+        ("2026-01-07T09:00:00+09:00", "2026-01-07T15:30:00+09:00"),
+    ],
+)
+def test_outcome_cli_ignores_expiry_of_an_order_started_after_the_ending_close(
+    tmp_path, capsys, order_at, expires_at
+):
+    import yaml
+
+    ledger = _ledger()
+    raw = ledger.model_dump(mode="json")
+    raw["events"] = [
+        raw["events"][0],
+        {
+            "event_id": "later-order",
+            "type": "reservation",
+            "occurred_at": order_at,
+            "reservation_id": "later-order",
+            "order_id": "later-order",
+            "ticker": "1234",
+            "sector": "test",
+            "quantity": 100,
+            "price_guard_yen": "5",
+            "expires_at": expires_at,
+        },
+    ]
+    raw["as_of"] = "2026-01-08T18:00:00+09:00"
+    args, application = _prepare_outcome_cli(tmp_path, PortfolioLedgerDocument.model_validate(raw))
+
+    assert main(args) == 0
+    result = yaml.safe_load(capsys.readouterr().out)
+    assert result["portfolio_twr_pct"] == 0.0
+    assert result["ending_cash_yen"] == 1000
+    assert result["ending_reserved_cash_yen"] == 0
+    assert main(args) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == result
+    assert PortfolioOutcomeStore(application).list() == (result,)
+
+
+def test_outcome_retry_survives_a_later_unreported_expiry(tmp_path, capsys):
+    import yaml
+
+    ledger = _ledger()
+    source = ledger.model_copy(update={"events": ledger.events[:1]})
+    args, application = _prepare_outcome_cli(tmp_path, source)
+    assert main(args) == 0
+    original = yaml.safe_load(capsys.readouterr().out)
+    store = PortfolioOutcomeStore(application)
+    raw = source.model_dump(mode="json")
+    raw["as_of"] = "2026-01-08T18:00:00+09:00"
+    raw["events"].append(
+        {
+            "event_id": "later-order",
+            "type": "reservation",
+            "occurred_at": "2026-01-07T09:00:00+09:00",
+            "reservation_id": "later-order",
+            "order_id": "later-order",
+            "ticker": "1234",
+            "sector": "test",
+            "quantity": 100,
+            "price_guard_yen": "5",
+            "expires_at": "2026-01-07T15:30:00+09:00",
+        }
+    )
+    service = LedgerStoreService(application)
+    current, head = service.load_with_head()
+    service.apply_document(
+        expected_head=head,
+        expected_document=current,
+        replacement=PortfolioLedgerDocument.model_validate(raw),
+    )
+    before = application.read_bytes()
+    assert main(args) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == original
+    assert store.list() == (original,)
+    assert application.read_bytes() == before
