@@ -177,7 +177,8 @@ def model_input(
             connection.execute("DELETE FROM jquants_daily_bars")
             connection.execute("DELETE FROM jquants_source_pages WHERE source='daily_bars'")
             connection.execute("DELETE FROM source_coverage WHERE source='jquants_daily_bars'")
-            cursor = projection.execute("SELECT * FROM daily_bars ORDER BY traded_at,ticker")
+            # SQLite enforces the key; insertion order does not require a full-history sort.
+            cursor = projection.execute("SELECT * FROM daily_bars")
             while rows := cursor.fetchmany(10000):
                 connection.executemany(
                     "INSERT INTO jquants_daily_bars VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
