@@ -634,8 +634,8 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 if (
                     outcome["entry"].get("namespace") == ARTICLE_NAMESPACE
-                    and not outcome["applied"]
-                ):
+                    or outcome["entry"]["source"] == "tradingview"
+                ) and not outcome["applied"]:
                     # No seal without a captured closure; keep the handoff discoverable for repair.
                     continue
                 if outcome["entry"].get("namespace") == ARTICLE_NAMESPACE and outcome["applied"]:

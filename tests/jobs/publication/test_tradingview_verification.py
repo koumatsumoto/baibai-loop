@@ -22,6 +22,7 @@ from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition.economic_staging import save_handoff, stage_prefix
 from baibai_jobs.acquisition.receipts import available_handoffs
 from baibai_jobs.integration import sources
+from baibai_jobs.integration.master_native import fixed_input, materialize_saved_input
 from baibai_jobs.integration.tradingview_handoff import export_handoff, import_handoff
 from baibai_jobs.publication import tradingview_verification as verification
 from baibai_jobs.publication.datasets import LAKE_DATASETS
@@ -266,6 +267,88 @@ def test_apply_freezes_the_final_same_day_original_and_projection_closure(
         database, [DAY], receipt_ids=[identity]
     )
     assert result["tradingview_publication"]["tradingview.source_receipts"]["rows"] == 2
+
+
+@pytest.mark.parametrize("failure", ["master_context", "receipt_context", "late_arrival"])
+def test_context_failure_keeps_the_original_stage_pending_without_readback_closure(
+    tmp_path, monkeypatch, publication, failure
+):
+    after_raw_commit = failure == "receipt_context"
+    remote, database, publish = publication
+    publish(identity="old")
+    old_remote = remote.values["market.sqlite"]
+    raw = tradingview_store(tmp_path / "source.sqlite", 2)
+    seed_calendar(remote, database, tmp_path / "calendar", as_of=DAY)
+    native_master = seed_master(remote, database, tmp_path / "master", as_of=DAY)
+    if after_raw_commit:
+        master_input = fixed_input(remote, native_master.fixed(), as_of=DAY, evaluated_at=NOW)
+        materialize_saved_input(remote, master_input, market=raw, days=[DAY])
+        # A native receipt can be retained even though its requested fields do not
+        # match this consumer. Replay detects this only after committing L1.
+        identity = retain_result(raw, _sdk(payload(["TSE:1000"])), columns=("unexpected",))
+    else:
+        # Its older two-symbol master disagrees before replay copies originals.
+        identity = retain_result(raw, _sdk(payload(["TSE:1000"])))
+    with closing(open_connection(raw)) as conn:
+        original = conn.execute(
+            "SELECT * FROM tradingview_source_receipts WHERE receipt_id=?", (identity,)
+        ).fetchone()
+    packet = tmp_path / "packet"
+    packet.mkdir()
+    handoff = export_handoff(
+        raw, packet / "receipts.sqlite", day=DAY, since=NOW - timedelta(seconds=1)
+    )
+    (packet / "result.json").write_text(
+        json.dumps(
+            {
+                "source": "tradingview",
+                "asof": str(DAY),
+                "started_at": NOW.isoformat(),
+                **handoff.to_json(),
+            }
+        )
+    )
+    save_handoff(remote, "tradingview-context-error", packet, market=True)
+    entry = available_handoffs(remote, market=True)[0]
+    available_entry = dict(entry)
+    if failure == "late_arrival":
+        entry["late_before_integrated"] = True
+    saved_handoff = {
+        key: value
+        for key, value in remote.values.items()
+        if key.startswith(stage_prefix(entry["stage_id"], market=True) + "/")
+    }
+    saved_edinet = empty_edinet_input(remote, tmp_path)
+    work = tmp_path / "context-failure"
+    work.mkdir()
+    (work / "plan.json").write_text(
+        json.dumps({"handoffs": [entry], "edinet_input": saved_edinet.model_dump(mode="json")})
+    )
+    handle, _ = acquire(remote, "operator")
+    lease = tmp_path / "lease.json"
+    _save_handle(lease, handle)
+    monkeypatch.setattr(sources, "Boto3R2Store", lambda **_: remote)
+    for _ in range(2):
+        report = sources.apply(remote, work, market=database, asof=DAY)
+        outcome = report["handoffs"][0]
+        assert outcome["applied"] is False
+        assert outcome["failed"] is outcome["recovery"] is True
+        assert outcome["result"] == {
+            "reason": "older_than_integrated_source_watermark"
+            if failure == "late_arrival"
+            else "SourceDataError"
+        }
+        assert "tradingview_publication" not in report
+        with closing(open_connection(database)) as conn:
+            assert conn.execute(
+                "SELECT * FROM tradingview_source_receipts WHERE receipt_id=?", (identity,)
+            ).fetchone() == (original if after_raw_commit else None)
+        remote.put_keys.clear()
+        assert sources.main(["seal", "--directory", str(work), "--lease-handle", str(lease)]) == 0
+        assert remote.put_keys == []
+        assert remote.values["market.sqlite"] == old_remote
+        assert available_handoffs(remote, market=True) == [available_entry]
+        assert all(remote.values[key] == value for key, value in saved_handoff.items())
 
 
 def test_lost_lease_after_readback_stops_before_the_first_tradingview_marker(
