@@ -378,7 +378,9 @@ export function DashboardPage() {
     return () => controller.abort()
   }, [])
 
-  if (!data && error === null) return <LoadingPage label="資産状況を読み込んでいます" />
+  if (data === null && error === null && outcomes === null && outcomesError === null) {
+    return <LoadingPage label="資産状況を読み込んでいます" />
+  }
   return (
     <PageShell lead="株価・評価額は表示の基準日の保存終値に基づきます。リアルタイム価格ではありません。" meta={data && (
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -386,6 +388,7 @@ export function DashboardPage() {
         {data.ledger_as_of !== null && <span>台帳最終記録 <time dateTime={data.ledger_as_of}>{formatJstDateTime(data.ledger_as_of)} JST</time></span>}
       </div>
     )} title="Dashboard">
+      {data === null && error === null && <p className="text-sm text-muted-foreground" role="status">資産状況を読み込んでいます</p>}
       {error !== null && (
         <Alert><CircleAlert /><AlertTitle>資産・保有・未約定注文を読み込めません</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
       )}
