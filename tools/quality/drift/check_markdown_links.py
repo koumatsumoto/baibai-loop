@@ -64,18 +64,24 @@ def _scan_paths(root: Path) -> list[Path]:
 
 
 def check(root: Path) -> list[str]:
+    texts: dict[Path, str] = {}
     anchor_cache: dict[Path, set[str]] = {}
 
+    def text_of(path: Path) -> str:
+        key = path.resolve()
+        if key not in texts:
+            texts[key] = path.read_text(encoding="utf-8")
+        return texts[key]
+
     def anchors_of(path: Path) -> set[str]:
-        if path not in anchor_cache:
-            anchor_cache[path] = (
-                _anchors(path.read_text(encoding="utf-8")) if path.is_file() else set()
-            )
-        return anchor_cache[path]
+        key = path.resolve()
+        if key not in anchor_cache:
+            anchor_cache[key] = _anchors(text_of(path)) if path.is_file() else set()
+        return anchor_cache[key]
 
     errors: list[str] = []
     for path in _scan_paths(root):
-        for match in _LINK.finditer(path.read_text(encoding="utf-8")):
+        for match in _LINK.finditer(text_of(path)):
             target = match.group("target")
             anchor = match.group("anchor")
             if target is None and anchor is None:

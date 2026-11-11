@@ -104,6 +104,49 @@ def test_markdown_link_gate_accepts_duplicate_heading_suffix(tmp_path: Path) -> 
     assert check_markdown_links.check(tmp_path) == []
 
 
+def test_markdown_link_gate_reads_each_document_once_across_links_and_anchors(
+    tmp_path, monkeypatch
+):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    outside = tmp_path / "support"
+    outside.mkdir()
+    home, guide, target = tmp_path / "README.md", docs / "guide.md", outside / "target.md"
+    home.write_text(
+        "# Home\n[a](docs/guide.md#scope) [b](/docs/guide.md#scope) "
+        "[c](docs/../docs/guide.md#scope) [self](#home) [extra](support/target.md#extra)\n"
+    )
+    guide.write_text(
+        "# Guide\n## Scope\n[home](../README.md#home) [self](guide.md#scope) "
+        "[extra](../support/target.md#extra)\n"
+    )
+    # An anchor target outside scan roots is read, without expanding the scan scope.
+    target.write_text("# Extra\n[outside](missing.md)\n")
+    reads = []
+    read_text = Path.read_text
+
+    def tracked(path, *args, **kwargs):
+        reads.append(path.resolve())
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", tracked)
+    assert check_markdown_links.check(tmp_path) == []
+    assert sorted(reads) == sorted(path.resolve() for path in (home, guide, target))
+
+
+def test_markdown_link_gate_rereads_changed_anchor_target_on_next_check(tmp_path):
+    outside = tmp_path / "support"
+    outside.mkdir()
+    target = outside / "target.md"
+    target.write_text("# Original\n")
+    (tmp_path / "README.md").write_text("[x](support/target.md#original)\n")
+    assert check_markdown_links.check(tmp_path) == []
+    target.write_text("# Changed\n")
+    assert check_markdown_links.check(tmp_path) == [
+        "README.md: missing Markdown anchor support/target.md#original"
+    ]
+
+
 def _parser_with(*, described: bool) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="demo")
     commands = parser.add_subparsers(dest="command", required=True)
