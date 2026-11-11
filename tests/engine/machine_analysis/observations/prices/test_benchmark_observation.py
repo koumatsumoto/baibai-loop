@@ -2,7 +2,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.machine_analysis.observations.prices.benchmark_observation import (
     BenchmarkObservation,

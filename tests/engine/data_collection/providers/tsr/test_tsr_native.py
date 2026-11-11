@@ -1,7 +1,6 @@
 """TSRの原受領は形状に依存した値抽出より先に保持する。"""
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _FakeResponse, _StaticSession
 
 from baibai_engine.data_collection.catalog import require_source

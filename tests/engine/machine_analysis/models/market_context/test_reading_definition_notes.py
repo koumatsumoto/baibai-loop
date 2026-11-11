@@ -3,7 +3,6 @@
 from datetime import date
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.machine_analysis.generation.runners.reading_rules import (
     DEFAULT_RULES_PATH,

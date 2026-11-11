@@ -6,7 +6,6 @@ import sqlite3
 from datetime import date
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.screening_sqlite import make_master_records
 
 from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries

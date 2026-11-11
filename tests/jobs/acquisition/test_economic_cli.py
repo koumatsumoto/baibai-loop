@@ -3,7 +3,6 @@
 import unittest
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition
 from baibai_jobs.acquisition.economic_cli import main as economic_main

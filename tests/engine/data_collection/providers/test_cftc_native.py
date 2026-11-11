@@ -6,7 +6,6 @@ import json
 from datetime import date
 from unittest import TestCase
 
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import _source
 
 from baibai_engine.data_collection.providers.cftc import parse_cftc_records

@@ -6,7 +6,6 @@ from datetime import date
 from typing import cast
 from unittest import TestCase
 
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _DASHBOARD_SELECTORS,
     _dashboard_payload,

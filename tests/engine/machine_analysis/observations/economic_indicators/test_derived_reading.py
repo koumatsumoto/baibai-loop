@@ -7,7 +7,6 @@ from unittest import TestCase
 from tests.helpers.indicator_store import (
     observation,
 )
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _series,
 )

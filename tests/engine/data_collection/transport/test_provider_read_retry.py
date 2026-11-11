@@ -14,7 +14,6 @@ import pytest
 from tests.helpers.economic_wire import BASE, DAY, END, IDS, START, payload
 from tests.helpers.economic_wire import wire as wire
 from tests.helpers.http_doubles import BodyTimeout
-from tests.helpers.network import _no_real_network as _no_real_network
 
 from baibai_engine.data_collection.acquisition.refresh import (
     SourceRefreshFailure,

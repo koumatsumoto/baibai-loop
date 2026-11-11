@@ -3,8 +3,6 @@
 from contextlib import closing
 from datetime import UTC, date, datetime, timedelta
 
-from tests.helpers.network import _no_real_network as _no_real_network
-
 from baibai_engine.data_collection.receipts.native_sources.records import (
     read_snapshots,
     store_snapshot,
