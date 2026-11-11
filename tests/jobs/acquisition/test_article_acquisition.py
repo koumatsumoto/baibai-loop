@@ -22,6 +22,14 @@ from baibai_jobs.acquisition.receipts import download_fixed
 from baibai_jobs.integration.article_handoff import import_handoff
 
 
+@pytest.fixture(autouse=True)
+def _no_transport_wait(monkeypatch):
+    # Request spacing has virtual-clock coverage at the transport owner.
+    monkeypatch.setattr(
+        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
+    )
+
+
 def test_external_assessment_quota_wait_blocks_article_before_http(tmp_path):
     store = MemoryR2Store()
     publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
@@ -63,9 +71,6 @@ def _nhk_description(text):
 def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
     tmp_path, monkeypatch, target_status, bureau
 ):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     notice_url = "https://www.mof.go.jp/insideLink/synthetic.html"
     target_url = (
         "https://lfb.mof.go.jp/renkei/torikumi.html"
@@ -143,9 +148,6 @@ def test_mof_inside_link_retains_notice_and_target_as_separate_receipts(
 
 
 def test_mof_csv_does_not_abort_later_documents_and_keeps_original_receipt(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     csv_url = "https://www.mof.go.jp/jgbs/reference/interest_rate/jgbcm.csv"
     html_url = "https://www.mof.go.jp/synthetic.html"
     feed = (
@@ -194,9 +196,6 @@ def test_mof_csv_does_not_abort_later_documents_and_keeps_original_receipt(tmp_p
 
 
 def test_mof_redirect_target_remains_pending_when_body_budget_is_spent(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     monkeypatch.setitem(
         articles.SOURCES, "mof_news", replace(articles.SOURCES["mof_news"], max_bodies=1)
     )
@@ -299,9 +298,6 @@ def test_failure_in_one_source_does_not_stop_another_private_stage(tmp_path, mon
 
 
 def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     source = "tsr_data"
     urls = [f"/data/detail/synthetic-{index}.html" for index in range(9)]
     index = json.dumps(
@@ -353,9 +349,6 @@ def test_saved_tsr_body_limit_is_a_successful_finite_continuation(tmp_path, monk
 
 
 def test_saved_next_page_alone_is_a_successful_finite_continuation(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     pages = [
         Response(
             200,
@@ -388,9 +381,6 @@ def test_saved_next_page_alone_is_a_successful_finite_continuation(tmp_path, mon
 def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     store = MemoryR2Store()
     publish_planning_input(store, "minkabu_news", {"lake_release_id": "before"})
     packet = tmp_path / "self-link"
@@ -423,9 +413,6 @@ def test_self_linked_next_page_retains_index_but_is_not_successful_continuation(
 
 
 def test_large_index_retains_all_pending_work_outside_the_mutable_summary(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     entries = [
         {"url": f"/data/detail/synthetic-{index}.html", "title": f"Synthetic {index}"}
         for index in range(articles.MAX_REQUEST_STATES + 9)
@@ -486,9 +473,6 @@ def test_nhk_four_feeds_keep_each_summary_and_fetch_shared_guid_once(tmp_path, m
             return SLOT + timedelta(minutes=1)
 
     monkeypatch.setattr(articles, "datetime", Clock)
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     store = MemoryR2Store()
     publish_planning_input(store, "nhk_news", {"lake_release_id": "before"})
     feeds = [
@@ -614,9 +598,6 @@ def test_nhk_feed_refusal_stops_but_parse_failure_keeps_independent_feeds(
             return SLOT + timedelta(minutes=1)
 
     monkeypatch.setattr(articles, "datetime", Clock)
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     store = MemoryR2Store()
     publish_planning_input(store, "nhk_news", {"lake_release_id": "before"})
     responses = [Response(status, b"<invalid>" if status == 200 else b"")]
@@ -658,9 +639,6 @@ def test_nhk_pending_body_keeps_exact_guid_when_item_leaves_feed(
             return SLOT + timedelta(hours=5)
 
     monkeypatch.setattr(articles, "datetime", Clock)
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     feed = (
         b"<rss><channel><item><guid>synthetic-guid</guid>"
         b"<link>https://news.web.nhk/news/example</link>"
@@ -739,9 +717,6 @@ def test_nhk_guid_evidence_survives_document_and_later_304(tmp_path, monkeypatch
             return SLOT + timedelta(hours=5)
 
     monkeypatch.setattr(articles, "datetime", Clock)
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     feed = (
         b"<rss><channel><item><guid>synthetic-guid</guid>"
         b"<link>https://news.web.nhk/news/example</link>"
@@ -835,9 +810,6 @@ def test_nhk_conflicting_guids_for_one_url_keep_raw_without_guessed_projection(
             return SLOT + timedelta(minutes=1)
 
     monkeypatch.setattr(articles, "datetime", Clock)
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
 
     def feed(guid):
         return (
@@ -878,9 +850,6 @@ def test_nhk_conflicting_guids_for_one_url_keep_raw_without_guessed_projection(
 def test_native_tsr_multislot_frontier_reaches_urls_evicted_from_validator_cache(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(
-        "baibai_engine.data_collection.transport.articles.wait_for_read_retry", lambda _: None
-    )
     source = "tsr_data"
     rows = [{"url": f"/data/detail/native-{i}.html", "title": f"Synthetic {i}"} for i in range(137)]
     feed = json.dumps(rows).encode()
