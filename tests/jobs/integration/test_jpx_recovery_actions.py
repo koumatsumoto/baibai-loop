@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 from contextlib import closing
@@ -400,6 +401,15 @@ def test_entry_stops_before_lease_with_safe_public_diagnostics(
         "GITHUB_SHA": "a" * 40,
     }.items():
         monkeypatch.setenv(key, entry)
+    for name in (
+        "R2_STOP_ON_REJECTION",
+        "R2_REJECTION_STOP_FILE",
+        "AWS_MAX_ATTEMPTS",
+        "AWS_RETRY_MODE",
+        "AWS_EC2_METADATA_DISABLED",
+        "BAIBAI_LAKE_QUERY_PROFILE",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(recovery, "verified_git_commit", lambda: "a" * 40)
     monkeypatch.setattr(recovery, "Boto3R2Store", lambda **kwargs: store)
     store.close = lambda: None
@@ -416,9 +426,12 @@ def test_entry_stops_before_lease_with_safe_public_diagnostics(
             raise R2OperationStopped("private exception text must not reach summary")
 
         monkeypatch.setattr(recovery, "read_private", reject)
-    assert recovery.main(["--contract-sha256", digest, "--directory", str(directory)]) == (
-        75 if fault == "rejection" else 1
-    )
+    previous_umask = os.umask(0o077)
+    try:
+        code = recovery.main(["--contract-sha256", digest, "--directory", str(directory)])
+    finally:
+        os.umask(previous_umask)
+    assert code == (75 if fault == "rejection" else 1)
     summary = json.loads((directory / "stopped.json").read_text())
     assert summary["phase"] == "validation"
     assert summary["lease_may_be_held"] is False

@@ -163,7 +163,7 @@ runnerは開始時20GiB以上の空きを要求する。small-runner query profi
 
 私有phase receiptは`coordination/jpx-recovery/v1/attempts/<CONTRACT_SHA>/<RUN_ID>-1/`へ残す。prepare成功には全旧行指紋、apply成功には元JPX公開読戻し計画、models/readback成功には新モデル証拠を含む。公開logは終了codeとphase/error型/確認済み拒否statusだけ。詳細private logは公開artifactにせず、runner消失後の判断は残存receiptと実objectを使う。
 
-「startedのみ」は終端不明で、成功扱いしない。ActionsのRe-runは拒否する。新dispatchは前run終端、receipt、current/pair、leaseを照合した後だけ判断する。公開前の確定した検証失敗なら正規releaseを確認して同contractで新runを開始できる。403/429・child転送失敗・公開開始後の不明結果は自動release/full retryしない。currentだけ進んでrunnerが消えた場合、元IDを付けたモデル再生成やreceipt捏造ではなく前節の部分公開復旧へ戻る。両store反映済みなら保存済みapplied証拠とexact publicationを再検証してsealを判断する。contractを永久lockにせず、進んだbaselineを無断で旧値へ戻さない。
+「startedのみ」は終端不明で、成功扱いしない。ActionsのRe-runは拒否する。新dispatchは前run終端、receipt、current/pair、leaseを照合した後だけ判断する。公開前の確定した検証失敗なら正規releaseを確認して同contractで新runを開始できる。403/429・child転送失敗・公開開始後の不明結果は自動release/full retryしない。currentだけ進んでrunnerが消えた場合、新runs/作業marketのbytesは失われ、同じGeneration/Selectionの再開はできない。残存lake/固定入力・旧machine pair・私有指紋/適用証拠を照合し、元IDの再生成やreceipt捏造ではなく前節の部分公開復旧へ戻る。この限定scopeで前進再計算する場合は、新baseline contractと実評価時計の別Generationを判断し、他pendingを混ぜる通常dailyを無条件に呼ばない。両store反映済みなら保存済みapplied証拠とexact publicationを再検証してsealを判断する。contractを永久lockにせず、進んだbaselineを無断で旧値へ戻さない。
 
 ```bash
 uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_WORK> \
