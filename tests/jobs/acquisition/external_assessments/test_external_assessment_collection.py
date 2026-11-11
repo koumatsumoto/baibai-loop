@@ -127,7 +127,10 @@ def test_live_collector_separates_acquisition_and_receipt_time(monkeypatch):
     assert all(call[1] == {"timeout": 10, "allow_redirects": False} for call in client.calls)
 
 
-@pytest.mark.parametrize(("status", "category"), [(403, "access_denied"), (429, "rate_limited")])
+@pytest.mark.parametrize(
+    ("status", "category"),
+    [(401, "http_failure"), (403, "access_denied"), (429, "rate_limited")],
+)
 def test_limit_response_stops_only_that_source(status, category, monkeypatch):
     fake_clock(monkeypatch)
     client = Session(
@@ -150,18 +153,21 @@ def test_limit_response_stops_only_that_source(status, category, monkeypatch):
     ]
     assert result.outcomes[0].http_status == status
     assert result.outcomes[1].http_status is None
-    assert result.outcomes[1].reason == category
+    assert result.outcomes[1].reason == ("access_denied" if status == 401 else category)
     assert sum("monex.co.jp" in url for url, _ in client.calls) == 1
     assert "secret" not in json.dumps(result.summary())
 
 
-def test_iframe_403_stops_remaining_rakuten_tickers(monkeypatch):
+@pytest.mark.parametrize("status", [401, 403])
+def test_iframe_refusal_stops_remaining_rakuten_tickers(monkeypatch, status):
     fake_clock(monkeypatch)
-    client = Session([(200, official_html()), (403, "secret")])
+    client = Session([(200, official_html()), (status, "secret")])
     result = collection.collect(["7203", "9432"], sources=("rakuten",), session=client)
     assert result.requests == 2
     assert not result.observations
-    assert result.outcomes[0].status == "access_denied"
+    assert result.outcomes[0].status == ("http_failure" if status == 401 else "access_denied")
+    assert result.outcomes[1].status == "not_attempted"
+    assert result.outcomes[1].reason == "access_denied"
 
 
 def test_budget_counts_official_and_iframe_separately(monkeypatch):
@@ -252,7 +258,7 @@ def test_private_capture_roundtrip_preserves_original_receipt(tmp_path):
 
 
 def test_cli_collect_captures_only_and_import_requires_explicit_db(monkeypatch, tmp_path, capsys):
-    original = _original()
+    original = _original(attempt_id="00000000-0000-4000-8000-000000002024")
     observed = monex.parse_html(
         monex_html(),
         ticker="7203",
@@ -285,7 +291,9 @@ def test_cli_collect_captures_only_and_import_requires_explicit_db(monkeypatch, 
     with closing(sqlite3.connect(db)) as conn:
         assert conn.execute("SELECT COUNT(*) FROM equity_web_source_responses").fetchone() == (1,)
     assert cli.main(["import", "--input", str(path), "--db", str(db)]) == 0
-    assert "2024" not in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert original.attempt_id in output
+    assert observed.fetched_at_utc.date().isoformat() not in output
 
 
 def test_cli_import_reports_storage_failure_without_values_or_http(monkeypatch, tmp_path, capsys):

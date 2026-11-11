@@ -61,7 +61,7 @@ def prepare_saved_stages(
         raise ValueError("cumulative publication cannot close an explicit partial plan")
     results = [stage.result for stage, _ in stages.values()]
     if not (confirmed_partial or cumulative) and any(
-        entry.http_status in {403, 429} for result in results for entry in result.entries
+        entry.http_status in {401, 403, 429} for result in results for entry in result.entries
     ):
         raise ValueError(
             "blocked provider response requires explicit confirmed partial publication"

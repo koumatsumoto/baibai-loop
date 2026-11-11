@@ -6,7 +6,6 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.provider_fixtures import (
     _estat_payload,
     _registry_yaml,

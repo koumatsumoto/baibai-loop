@@ -30,7 +30,7 @@ browserが必要なら`--with-browser`を追加する。Web編集時は`.node-ve
 
 [AGENTS](../AGENTS.md)に従いbranchで変更し、対象HEADのCIを確認する。検証コマンドは[workflows](../.github/workflows/)・`pyproject.toml`・各package設定が正本。domain契約はowner、CLI/Jobsは入出力と接続をtestする。
 
-実store/provider受入は合成fixtureと分け、CIのskipを受入成功としない。R2 integration testは書込・削除を伴うため、明示依頼された専用空bucketでのみ実行し、共有bucketなら`-n 0`で逐次実行する。
+通常testは共通fixtureで実network通信を禁止する。実store/provider受入は合成fixtureと分け、CIのskipを受入成功としない。通信の例外は明示有効化したR2 integration testだけで、書込・削除を伴うため、明示依頼された専用空bucketでのみ`-n 0`で逐次実行する。
 
 指標・取得・Reading method変更時の観測store確認は[運用](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ。
 

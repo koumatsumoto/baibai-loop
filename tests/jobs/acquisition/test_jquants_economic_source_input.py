@@ -9,7 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from tests.helpers.network import _no_real_network as _no_real_network
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_engine.data_collection.acquisition.refresh as acquisition

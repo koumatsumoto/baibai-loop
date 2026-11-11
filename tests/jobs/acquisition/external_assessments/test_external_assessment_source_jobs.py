@@ -131,13 +131,14 @@ def test_one_source_shares_session_limiter_and_remaining_budget_across_cohorts(
         assert report["state_counts"]["unattempted"] == 1
 
 
-def test_one_source_403_stops_its_unattempted_pairs_while_other_source_acquires(
-    monkeypatch,
+@pytest.mark.parametrize("status", [401, 403])
+def test_one_source_refusal_stops_its_unattempted_pairs_while_other_source_acquires(
+    monkeypatch, status
 ):
     timer = Clock()
     monkeypatch.setattr(sources.time, "monotonic", timer.monotonic)
     monkeypatch.setattr(sources.time, "sleep", timer.sleep)
-    denied = Session(timer, [(403, "synthetic denial", {})])
+    denied = Session(timer, [(status, "synthetic denial", {})])
     available = Session(timer, [(200, official_html(), {}), (200, rakuten_html(), {})])
     clients = iter((denied, available))
     monkeypatch.setattr(sources.requests, "Session", lambda: next(clients))

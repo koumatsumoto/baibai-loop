@@ -90,9 +90,14 @@ class FakeSession:
         self.calls: list[str] = []
 
     def get(
-        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+        self,
+        url: str,
+        timeout: int | None = None,
+        *,
+        allow_redirects: bool = True,
+        stream: bool = False,
     ) -> FakeResponse:
-        del timeout, allow_redirects
+        del timeout, allow_redirects, stream
         self.calls.append(url)
         answer: Any = _UNSET
         if url in self._by_url:
@@ -130,8 +135,13 @@ class ExplodingSession:
         self.calls: list[str] = []
 
     def get(
-        self, url: str, timeout: int | None = None, *, allow_redirects: bool = True
+        self,
+        url: str,
+        timeout: int | None = None,
+        *,
+        allow_redirects: bool = True,
+        stream: bool = False,
     ) -> FakeResponse:
-        del timeout, allow_redirects
+        del timeout, allow_redirects, stream
         self.calls.append(url)
         raise AssertionError(self._reason)

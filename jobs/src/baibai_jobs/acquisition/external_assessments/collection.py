@@ -273,9 +273,15 @@ def collect(
                                 attempt_id=active_attempt_id,
                             )
                         )
-                        if exc.status in {403, 429}:
+                        # Keep the saved 401 http_failure category; stopping a pass is separate.
+                        if exc.status in {401, 403, 429}:
                             outcomes.extend(
-                                CollectionOutcome(source, pending, "not_attempted", category)
+                                CollectionOutcome(
+                                    source,
+                                    pending,
+                                    "not_attempted",
+                                    "access_denied" if exc.status == 401 else category,
+                                )
                                 for pending in selected[index + 1 :]
                             )
                             break
@@ -463,8 +469,13 @@ def collect_pair(
                 ),
                 stop_reason="wall_clock_limit",
             )
-        if result.outcomes[0].http_status in {403, 429}:
-            result = replace(result, stop_reason=result.outcomes[0].status)
+        if result.outcomes[0].http_status in {401, 403, 429}:
+            result = replace(
+                result,
+                stop_reason="access_denied"
+                if result.outcomes[0].http_status in {401, 403}
+                else "rate_limited",
+            )
         return result
     finally:
         if wrapped is not None:

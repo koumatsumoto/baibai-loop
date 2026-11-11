@@ -109,7 +109,10 @@ def test_initial_pacing_deadline_is_zero_requests(clock):
     assert result.response_content_bytes == 0
 
 
-@pytest.mark.parametrize(("status", "reason"), [(403, "access_denied"), (429, "rate_limited")])
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    [(401, "access_denied"), (403, "access_denied"), (429, "rate_limited")],
+)
 def test_access_limits_request_whole_run_halt_with_confirmed_status(clock, status, reason):
     client = Session([(status, "synthetic denied page")], clock=clock)
     result = pair(client)
@@ -119,8 +122,9 @@ def test_access_limits_request_whole_run_halt_with_confirmed_status(clock, statu
     assert not result.observations
 
 
-def test_iframe_access_limit_confirms_two_requests_and_stops(clock):
-    client = Session([(200, official_html()), (403, "synthetic denial")], clock=clock)
+@pytest.mark.parametrize("status", [401, 403])
+def test_iframe_access_limit_confirms_two_requests_and_stops(clock, status):
+    client = Session([(200, official_html()), (status, "synthetic denial")], clock=clock)
     result = pair(client, source="rakuten")
     assert result.requests == 2
     assert result.stop_reason == "access_denied"
