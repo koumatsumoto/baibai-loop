@@ -13,6 +13,11 @@ on:
         description: "モデル基準日 YYYY-MM-DD。空欄は元run作成時のJST日（直近完了日ではない）。寄前・場中はJSTの前日を明示"
         required: false
         type: string
+      preserve_existing_generations:
+        description: "今回の統合で既存の全モデル世代とSelectionを保持する（将来の既定実行には継承されない）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -45,16 +50,18 @@ jobs:
           PYTHONPATH: jobs/src
         run: python3 -c "import baibai_jobs.observability.discord"
 
-      # Validate the untrusted dispatch value before any credential-bearing step.
-      # The scheduled event supplies an empty value, which is valid.
+      # Validate untrusted dispatch values before any credential-bearing step.
+      # The scheduled event supplies empty values, which are valid.
       - name: Validate dispatch input
         id: validate-input
         env:
           MANUAL_ASOF: ${{ inputs.asof }}
+          PRESERVE_EXISTING_GENERATIONS: ${{ inputs.preserve_existing_generations }}
           PYTHONPATH: jobs/src
         run: |
-          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF"
+          python3 -m baibai_jobs.integration.workflow_inputs daily --asof "$MANUAL_ASOF" --preserve-existing-generations "$PRESERVE_EXISTING_GENERATIONS"
           echo "asof=$MANUAL_ASOF" >> "$GITHUB_OUTPUT"
+          echo "preserve_existing_generations=$PRESERVE_EXISTING_GENERATIONS" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         id: setup
@@ -147,11 +154,13 @@ jobs:
         shell: bash
         env:
           INTEGRATION_ASOF: ${{ steps.source-plan.outputs.asof }}
+          PRESERVE_EXISTING_GENERATIONS: ${{ steps.validate-input.outputs.preserve_existing_generations }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           args=(--asof "$INTEGRATION_ASOF" --integration-report "$RUNNER_TEMP/integration/applied.json" --lease-handle "$RUNNER_TEMP/publication-lease-handle.json" --notice-output "$RUNNER_TEMP/batch-notice.json")
+          if [[ "$PRESERVE_EXISTING_GENERATIONS" == 'true' ]]; then args+=(--preserve-existing-generations); fi
           set +e
           uv run baibai-jobs model-integration "${args[@]}"
           code=$?

@@ -99,6 +99,7 @@ def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
             "RUNNER_TEMP": str(tmp_path),
             "GITHUB_OUTPUT": str(output),
             "INTEGRATION_ASOF": "2026-10-25",
+            "PRESERVE_EXISTING_GENERATIONS": "",
         },
         capture_output=True,
         check=False,
@@ -110,6 +111,80 @@ def test_batch_outputs_are_finalized_before_failure_without_a_web_artifact(
         "asof": "2026-10-25",
         "models_ready": "true" if exit_code == 0 else "false",
     }
+
+
+@pytest.mark.parametrize("value", ["", "false", "true"])
+def test_dispatch_retention_reaches_model_cli_only_when_explicit(tmp_path, workflow, by_id, value):
+    declaration = workflow["on"]["workflow_dispatch"]["inputs"]["preserve_existing_generations"]
+    assert declaration["type"] == "boolean"
+    assert declaration["default"] == "false"
+    validate = by_id["validate-input"]
+    assert validate["env"]["PRESERVE_EXISTING_GENERATIONS"] == (
+        "${{ inputs.preserve_existing_generations }}"
+    )
+    assert by_id["batch"]["env"]["PRESERVE_EXISTING_GENERATIONS"] == (
+        "${{ steps.validate-input.outputs.preserve_existing_generations }}"
+    )
+    output = tmp_path / "outputs"
+    env = {
+        **os.environ,
+        "MANUAL_ASOF": "",
+        "PRESERVE_EXISTING_GENERATIONS": value,
+        "PYTHONPATH": str(ROOT / "jobs/src"),
+        "GITHUB_OUTPUT": str(output),
+    }
+    validated = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", validate["run"]],
+        env=env,
+        capture_output=True,
+        check=False,
+    )
+    assert validated.returncode == 0, validated.stderr
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values == {"asof": "", "preserve_existing_generations": value}
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    uv = binary / "uv"
+    uv.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/arguments"\n')
+    uv.chmod(0o755)
+    batch = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", by_id["batch"]["run"]],
+        env={
+            **env,
+            "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+            "RUNNER_TEMP": str(tmp_path),
+            "INTEGRATION_ASOF": "2026-10-25",
+            "PRESERVE_EXISTING_GENERATIONS": values["preserve_existing_generations"],
+        },
+        capture_output=True,
+        check=False,
+    )
+    assert batch.returncode == 0, batch.stderr
+    args = (tmp_path / "arguments").read_text().splitlines()
+    assert args[:3] == ["run", "baibai-jobs", "model-integration"]
+    assert args.count("--preserve-existing-generations") == (1 if value == "true" else 0)
+
+
+def test_invalid_retention_never_emits_workflow_outputs(tmp_path, steps, by_id):
+    validate = by_id["validate-input"]
+    assert all("secrets." not in str(step) for step in steps[: steps.index(validate) + 1])
+    output = tmp_path / "outputs"
+    value = "true\nasof=2099-01-01"
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", validate["run"]],
+        env={
+            **os.environ,
+            "MANUAL_ASOF": "",
+            "PRESERVE_EXISTING_GENERATIONS": value,
+            "PYTHONPATH": str(ROOT / "jobs/src"),
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert value.encode() not in result.stderr
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("exit_code", [0, 2, 127])
