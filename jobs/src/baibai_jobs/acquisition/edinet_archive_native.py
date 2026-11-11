@@ -90,7 +90,12 @@ def acquire_archives(
     documents: list[tuple[str, Literal[1, 5]]]
     if group == "edinet-metrics":
         start = asof - timedelta(days=lookback_days)
-        inputs.require_complete_window(start, asof)
+        unavailable_days = [
+            (start + timedelta(days=offset)).isoformat()
+            for offset in range(lookback_days + 1)
+            if start + timedelta(days=offset) not in inputs.available_days
+        ]
+        report["list_unavailable_days"] = unavailable_days
         candidates, quarantined = select_metric_archives(
             inputs.observed_documents(through=asof), origin_start=start
         )
@@ -155,7 +160,12 @@ def acquire_archives(
     if initialize_facts and not tickers and selected_ids and not annual_failed:
         owner.publish((), scope=FactsScope(since=asof))
     report.update(
-        status="failed" if failed or holder_planning_failed or inputs.failed_days else "received",
+        status="failed"
+        if failed
+        or holder_planning_failed
+        or inputs.failed_days
+        or report.get("list_unavailable_days")
+        else "received",
         downloaded=downloaded,
         retained_archives_reused=reused,
         failed=failed,

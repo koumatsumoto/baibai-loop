@@ -109,9 +109,8 @@ def test_unavailable_day_remains_failed_for_annual_planning_but_retains_other_ev
     assert [doc["docID"] for doc in inputs.observed_documents(through=bad_day)] == ["S100KNOWN"]
     with pytest.raises(EDINETProviderError, match="coverage failed"):
         inputs.stored_documents(through=bad_day)
-    inputs.require_complete_window(DAY, DAY)
-    with pytest.raises(EDINETProviderError, match="unavailable"):
-        inputs.require_complete_window(DAY, bad_day)
+    assert inputs.available_days == frozenset({DAY})
+    assert inputs.failed_days == (bad_day,)
 
 
 def test_document_identity_checks_follow_date_and_holder_scope(tmp_path):
