@@ -296,3 +296,31 @@ def test_intermediate_basis_without_its_independent_amount_is_not_asserted():
     normalized = _normalize_summaries_with_status([source], events, date(2026, 12, 2)).summaries[0]
     assert normalized.bps == 2.5
     assert normalized.forecast_eps is None
+
+
+def test_cancelling_nonbinary_factors_do_not_create_ambiguous_bases():
+    source = row(
+        disclosed_at=date(2026, 1, 1),
+        period_end=date(2025, 12, 31),
+        shares_outstanding=100.0,
+        treasury_shares=10.0,
+        average_shares=90.0,
+        bps=15.0,
+        total_assets=900.0,
+        equity_to_asset_ratio=1.0,
+        profit=900.0,
+        cumulative_eps=15.0,
+        forecast_profit=1800.0,
+        forecast_eps=30.0,
+    )
+    events = [
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 2, 1), 1.5, "2"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 3, 1), 0.8, "1"),
+        JQuantsAdjustmentFactorEvent("7988", date(2026, 4, 1), 1.25, "2"),
+    ]
+    normalized = _normalize_summaries_with_status([source], events, date(2026, 5, 1)).summaries[0]
+    assert normalized.bps == pytest.approx(15)
+    assert normalized.cumulative_eps == pytest.approx(15)
+    assert normalized.forecast_eps == pytest.approx(30)
+    assert normalized.shares_outstanding == pytest.approx(100 / 1.5)
+    assert normalized.unresolved_actual_fields == ()

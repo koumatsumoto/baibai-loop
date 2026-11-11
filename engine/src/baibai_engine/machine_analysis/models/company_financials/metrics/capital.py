@@ -373,14 +373,17 @@ def _per_share_conversion_factor(
     Overlapping precision bands cannot establish which basis the filing used.
     Without evidence of pre-adjustment, keep the ordinary reported-basis rule.
     """
-    supported = {
-        candidate
-        for candidate in factors
-        if _post_split_field_is_consistent(per_share, shares, amount, candidate)
-    }
+    supported: list[float] = []
+    for candidate in factors:
+        if _post_split_field_is_consistent(per_share, shares, amount, candidate) and not any(
+            # Cancelling actions can return to the same basis with machine rounding.
+            isclose(candidate, known, rel_tol=1e-12)
+            for known in supported
+        ):
+            supported.append(candidate)
     if len(supported) > 1:
         return None
-    return factors[-1] / next(iter(supported)) if supported else factors[-1]
+    return factors[-1] / supported[0] if supported else factors[-1]
 
 
 def _post_split_field_is_consistent(
