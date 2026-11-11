@@ -13,7 +13,48 @@ from baibai_engine.machine_analysis.generation.contracts import (
     ModelGeneration,
 )
 from baibai_engine.primitives.json import canonical_json
-from baibai_engine.storage.sqlite.machine_analysis import connect_read_only
+from baibai_engine.storage.sqlite.machine_analysis import connect_read_only, initialize_run_store
+
+
+def test_generation_ids_read_all_headers_without_decoding_or_changing_rows(tmp_path, monkeypatch):
+    path = tmp_path / "runs.sqlite"
+    initialize_run_store(path)
+    assert query.read_generation_ids(path=path) == ()
+    for identity in ("z-old", "a-new", "bare"):
+        publish_generation(generation().model_copy(update={"generation_id": identity}), path=path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE model_generation SET header='not-json'")
+        connection.execute("UPDATE generated_model SET payload_gzip=?", (b"not-gzip",))
+    before = path.read_bytes()
+    connection = connect_read_only(path)
+    statements = []
+    connection.set_trace_callback(statements.append)
+    monkeypatch.setattr(query, "connect_read_only", lambda _path: connection)
+    assert query.read_generation_ids(path=path) == ("a-new", "bare", "z-old")
+    assert statements == ["SELECT generation_id FROM model_generation ORDER BY generation_id"]
+    assert path.read_bytes() == before
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        connection.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("state", ["missing", "uninitialized", "corrupt", "old-schema", "no-table"])
+def test_generation_ids_never_treat_unreadable_stores_as_empty(tmp_path, state):
+    path = tmp_path / "runs.sqlite"
+    if state == "corrupt":
+        path.write_bytes(b"not a database")
+    elif state == "uninitialized":
+        path.touch()
+    elif state in ("old-schema", "no-table"):
+        initialize_run_store(path)
+        with sqlite3.connect(path) as connection:
+            if state == "old-schema":
+                connection.execute("PRAGMA user_version = 1")
+            else:
+                connection.execute("DROP TABLE model_generation")
+    before = path.read_bytes() if path.exists() else None
+    with pytest.raises((sqlite3.Error, RuntimeError)):
+        query.read_generation_ids(path=path)
+    assert (path.read_bytes() if path.exists() else None) == before
 
 
 def test_storage_totals_read_only_one_generation_without_expanding_payloads(tmp_path, monkeypatch):

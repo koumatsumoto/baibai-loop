@@ -26,6 +26,17 @@ def read_generation(generation_id: str, *, path: Path | None = None) -> ModelGen
     return _read(generation_id, collection=ModelGeneration, path=path)
 
 
+def read_generation_ids(*, path: Path | None = None) -> tuple[str, ...]:
+    """既存世代のIDだけを読む。保持対象を読めないstoreは空と扱わない。"""
+    with closing(connect_read_only(path)) as connection:
+        return tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT generation_id FROM model_generation ORDER BY generation_id"
+            )
+        )
+
+
 def read_generation_storage_totals(
     generation_id: str, *, path: Path | None = None
 ) -> tuple[tuple[str, int, int], ...]:

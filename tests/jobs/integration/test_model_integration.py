@@ -436,9 +436,9 @@ def test_comparison_evidence_uses_only_previous_serving_pointer(
         assert source is None
 
 
-@pytest.mark.parametrize("preserve_prior", [False, True])
-def test_explicit_recovery_retains_all_prior_generations_and_selection_rows(
-    integration, preserve_prior
+@pytest.mark.parametrize("mode", ["default", "recovery", "cli"])
+def test_explicit_retention_keeps_all_prior_generations_and_selection_rows(
+    integration, monkeypatch, mode
 ):
     arguments, _ = integration
     path = arguments["runs"]
@@ -449,7 +449,8 @@ def test_explicit_recovery_retains_all_prior_generations_and_selection_rows(
             update={"generation_id": identity, "as_of": date(2026, 10, 10 + index)}
         )
         publish_generation(item, path=path)
-        policies.publish(f"selection-{identity}", empty_selection(identity))
+        if index != 4:
+            policies.publish(f"selection-{identity}", empty_selection(identity))
     policies.publish("prior-extra-policy", empty_selection(prior_ids[0], candidate_limit=5))
 
     def prior_rows():
@@ -465,9 +466,50 @@ def test_explicit_recovery_retains_all_prior_generations_and_selection_rows(
             }
 
     before = prior_rows()
-    if preserve_prior:
+    preserve_prior = mode != "default"
+    if mode == "recovery":
         arguments["preserve_generation_ids"] = prior_ids
-    result = job.integrate_models(**arguments)
+    if mode == "cli":
+
+        class LocalStore:
+            def __new__(cls, **kwargs):
+                return arguments["store"]
+
+        monkeypatch.setattr(job, "Boto3R2Store", LocalStore)
+        report = path.parent / "applied.json"
+        report.write_text(
+            json.dumps(
+                {
+                    "asof": arguments["as_of"].isoformat(),
+                    "edinet_input": arguments["edinet_input"].model_dump(mode="json"),
+                }
+            )
+        )
+        notice = path.parent / "notice.json"
+        assert (
+            job.main(
+                [
+                    "--asof",
+                    arguments["as_of"].isoformat(),
+                    "--growth-start",
+                    arguments["growth_start"].isoformat(),
+                    "--integration-report",
+                    str(report),
+                    "--notice-output",
+                    str(notice),
+                    "--preserve-existing-generations",
+                    *(
+                        part
+                        for key in ("market", "economic", "runs", "mirror", "lease_handle")
+                        for part in ("--" + key.replace("_", "-"), str(arguments[key]))
+                    ),
+                ]
+            )
+            == 0
+        )
+        result = json.loads(notice.read_bytes())
+    else:
+        result = job.integrate_models(**arguments)
     assert result["models_ready"] is True
     assert result["pruned_generation_count"] == (0 if preserve_prior else 3)
     assert read_generation(result["generation_id"], path=path) is not None
@@ -481,3 +523,44 @@ def test_explicit_recovery_retains_all_prior_generations_and_selection_rows(
         assert policies.read("prior-extra-policy") is None
         with closing(sqlite3.connect(path)) as connection:
             assert connection.execute("SELECT COUNT(*) FROM model_generation").fetchone() == (3,)
+
+
+@pytest.mark.parametrize("preserve", [False, True])
+@pytest.mark.parametrize("state", ["empty", "missing", "unreadable"])
+def test_cli_retention_read_precedes_integration_and_failure_never_falls_back(
+    tmp_path, monkeypatch, preserve, state
+):
+    from baibai_engine.storage.sqlite.machine_analysis import initialize_run_store
+
+    runs = tmp_path / "runs.sqlite"
+    if state == "empty":
+        initialize_run_store(runs)
+    elif state == "unreadable":
+        runs.write_bytes(b"not a database")
+    before = runs.read_bytes() if runs.exists() else None
+    constructor = Mock(return_value=object())
+    integrate = Mock(return_value={"models_ready": True})
+    monkeypatch.setattr(job, "Boto3R2Store", constructor)
+    monkeypatch.setattr(job, "integrate_models", integrate)
+    notice = tmp_path / "notice.json"
+    args = [
+        "--asof",
+        "2026-10-23",
+        "--runs",
+        str(runs),
+        "--lease-handle",
+        str(tmp_path / "lease"),
+        "--notice-output",
+        str(notice),
+    ]
+    if preserve:
+        args.append("--preserve-existing-generations")
+    failed = preserve and state != "empty"
+    assert job.main(args) == (1 if failed else 0)
+    if failed:
+        constructor.assert_not_called()
+        integrate.assert_not_called()
+        assert json.loads(notice.read_bytes())["models_ready"] is False
+    else:
+        assert integrate.call_args.kwargs["preserve_generation_ids"] == ()
+    assert (runs.read_bytes() if runs.exists() else None) == before

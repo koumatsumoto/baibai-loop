@@ -44,6 +44,8 @@ asof空欄は元run作成JST日。寄前/場中に完了済み日次が必要な
 
 [通常生成](src/baibai_jobs/integration/models.py)は候補外を含む全対象モデルを保存する。個社投影失敗は新Generationをrollbackして旧世代を保ち、Selection・lakeを発行しない。保存後の政策失敗ではGeneration cacheが残る。容量計測だけの失敗は生成失敗と分けて続行し、未計測を0と扱わない。
 
+既存の全Generation/Selectionを残す実行は、上のdispatchへ`-f preserve_existing_generations=true`を加える。localの`model-integration`では`--preserve-existing-generations`を使う。生成前にrunsの既存IDをread-onlyで固定し、読取不能は空扱いせず停止する。通常のschedule/省略時のcache整理は変わらず、この指定は将来の実行へ継承されない。保持が必要な次回も明示し、単一世代の`.bak`を恒久的な履歴保管と扱わない。
+
 停止時は最後の未完phase、store/release・generation/selection・lease解放を確認する。logのdoneや通知成功は反映の証明でなく、限定source成功を全体成功にしない。候補0を投資機会なしとせず、[不足理由](../docs/reference/screening-runtime.md#入力不足と品質)を確認する。既定読取は発行時計より新しいas_ofを優先する。過去計算はexact IDで読み、古い非空候補へfallbackしない。
 
 経済固定metadataのretain/rebuildは、検証済みbytesの同一実行内handoffと、その区間だけの逐次・間隔付きR2転送を使う。転送量の削減はquota保証ではない。429ではそのscopeの待機requestも止め、Retry-Afterは次回判断の最早時刻として扱い、自動でpassを再実行しない。

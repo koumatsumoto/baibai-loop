@@ -1,4 +1,4 @@
-"""Validate privileged workflow dispatch dates before credentials are exposed."""
+"""Validate privileged workflow dispatch inputs before credentials are exposed."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from datetime import date
 
 
 class WorkflowInputError(ValueError):
-    """A dispatch input does not satisfy the workflow date contract."""
+    """A dispatch input does not satisfy the workflow contract."""
 
 
 def _validate_optional_date(value: str, *, label: str) -> None:
@@ -23,9 +23,11 @@ def _validate_optional_date(value: str, *, label: str) -> None:
         raise WorkflowInputError(f"{label} must use YYYY-MM-DD")
 
 
-def validate_daily_input(*, asof: str) -> None:
-    """Validate the optional manual daily-batch as-of date."""
+def validate_daily_input(*, asof: str, preserve_existing_generations: str = "") -> None:
+    """Validate the manual daily-batch date and explicit retention choice."""
     _validate_optional_date(asof, label="asof")
+    if preserve_existing_generations not in ("", "true", "false"):
+        raise WorkflowInputError("preserve_existing_generations must be empty, true, or false")
 
 
 def validate_watchdog_input(*, check_date: str) -> None:
@@ -44,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     daily = subparsers.add_parser("daily")
     daily.add_argument("--asof", default="")
+    daily.add_argument("--preserve-existing-generations", default="")
 
     watchdog = subparsers.add_parser("watchdog")
     watchdog.add_argument("--check-date", default="")
@@ -56,7 +59,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "daily":
-            validate_daily_input(asof=args.asof)
+            validate_daily_input(
+                asof=args.asof, preserve_existing_generations=args.preserve_existing_generations
+            )
         elif args.command == "watchdog":
             validate_watchdog_input(check_date=args.check_date)
         else:

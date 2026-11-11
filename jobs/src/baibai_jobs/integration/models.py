@@ -33,7 +33,10 @@ from baibai_engine.machine_analysis.generation.economic_inputs import (
 )
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
-from baibai_engine.machine_analysis.generation.query import read_generation_storage_totals
+from baibai_engine.machine_analysis.generation.query import (
+    read_generation_ids,
+    read_generation_storage_totals,
+)
 from baibai_engine.machine_analysis.generation.store import ModelGenerationStore
 from baibai_engine.machine_analysis.models.company_financials.metrics.models import (
     DEFAULT_TTM_RULES,
@@ -277,6 +280,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--candidate-limit", type=int, default=36)
     parser.add_argument("--integration-report", type=Path)
+    parser.add_argument(
+        "--preserve-existing-generations",
+        action="store_true",
+        help="retain every existing model generation and its selections for this integration",
+    )
     return parser
 
 
@@ -290,6 +298,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("source integration report differs from the model date")
             if report.get("edinet_input") is not None:
                 edinet_input = InputSnapshot.model_validate(report["edinet_input"])
+        preserve_generation_ids = (
+            read_generation_ids(path=args.runs) if args.preserve_existing_generations else ()
+        )
         result = integrate_models(
             store=Boto3R2Store(bucket=os.environ.get("R2_STORES_BUCKET") or "baibai-stores"),
             market=args.market,
@@ -301,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
             growth_start=args.growth_start,
             policy=EconomicPathPolicy(candidate_limit=args.candidate_limit),
             edinet_input=edinet_input,
+            preserve_generation_ids=preserve_generation_ids,
         )
     except Exception as error:
         write_json_atomic(
