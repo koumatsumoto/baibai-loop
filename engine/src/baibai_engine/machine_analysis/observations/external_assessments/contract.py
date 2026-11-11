@@ -57,13 +57,37 @@ ANALYST_RATING_COLUMNS: tuple[Column, ...] = (
 )
 QUANTS_SCORE_COLUMNS: tuple[Column, ...] = (
     *_COMMON_COLUMNS,
-    ("score_as_of_date", "TEXT", False, 0),
+    ("availability", "TEXT", False, 0),
+    ("score_as_of_date", "TEXT", True, 0),
     ("score_scale_max", "INTEGER", False, 0),
     ("composite_scale_max", "INTEGER", False, 0),
     *(
         (name, "REAL", True, 0)
         for name in (*QUANTS_METRICS, "composite_score", "industry_average_score")
     ),
+)
+
+# Frozen published v1 / SQLite schema-50 shape, independent of future owner fields.
+QUANTS_SCORE_SCHEMA50_COLUMNS: tuple[Column, ...] = (
+    ("ticker", "TEXT", False, 1),
+    ("fetched_at_utc", "TEXT", False, 2),
+    ("snapshot_date", "TEXT", False, 0),
+    ("distributor", "TEXT", False, 0),
+    ("origin", "TEXT", True, 0),
+    ("source_url", "TEXT", False, 0),
+    ("parser_version", "TEXT", False, 0),
+    ("contract_version", "TEXT", False, 0),
+    ("score_as_of_date", "TEXT", False, 0),
+    ("score_scale_max", "INTEGER", False, 0),
+    ("composite_scale_max", "INTEGER", False, 0),
+    ("growth_score", "REAL", True, 0),
+    ("undervaluation_score", "REAL", True, 0),
+    ("size_score", "REAL", True, 0),
+    ("technical_score", "REAL", True, 0),
+    ("financial_health_score", "REAL", True, 0),
+    ("market_trend_score", "REAL", True, 0),
+    ("composite_score", "REAL", True, 0),
+    ("industry_average_score", "REAL", True, 0),
 )
 
 

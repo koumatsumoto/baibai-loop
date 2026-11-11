@@ -116,7 +116,7 @@ def _pair(conn, *, ticker="7203", at=RECEIVED):
     ("source", "expected_version", "time_shift"),
     [
         ("monex", "monex-theory-4", 0),
-        ("kabumap", "kabumap-quants-3", 0),
+        ("kabumap", "kabumap-quants-4", 0),
         ("rakuten", "rakuten-rating-5", 2),
     ],
 )

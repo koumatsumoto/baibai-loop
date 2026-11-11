@@ -89,6 +89,14 @@ def _external_comparisons(kind: str, assessment: dict[str, JsonValue]) -> list[J
                 "source_url": latest.get("source_url"),
                 "fetched_at_utc": latest.get("fetched_at_utc"),
                 "score_as_of_date": latest.get("score_as_of_date"),
+                **(
+                    {
+                        "availability": latest.get("availability"),
+                        "previous_availability": previous.get("availability"),
+                    }
+                    if kind == "quants_scores"
+                    else {}
+                ),
                 "basis": {
                     key: latest[key]
                     for key in (

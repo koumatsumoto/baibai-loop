@@ -704,6 +704,86 @@ def test_minkabu_receipt_clock_survives_selection_and_brief_without_rewriting_hi
     assert runs.read_bytes() == stored_bytes
 
 
+@pytest.mark.parametrize("legacy_saved_summary", [False, True])
+def test_quants_not_computed_availability_survives_selection_and_brief(
+    tmp_path, legacy_saved_summary
+):
+    data = payloads()
+    baseline = project(data)
+    data["external_assessment"] = {
+        "method_version": "same-series-v4",
+        "quants_scores": [
+            {
+                "inputs": {
+                    "latest": {
+                        "distributor": "kabumap",
+                        "origin": "Quants Research",
+                        "availability": "not_computed",
+                        "score_as_of_date": None,
+                        "fetched_at_utc": "2026-01-04T15:30:00Z",
+                        "source_url": "https://example.invalid/quants/1234",
+                    },
+                    "previous": {"availability": "available", "origin": "Quants Research"},
+                },
+                "comparisons": [
+                    {
+                        "metric": metric,
+                        "state": "missing",
+                        "reason": "latest_missing",
+                        "comparable": False,
+                        "latest_value": None,
+                        "previous_value": previous,
+                        "delta": None,
+                    }
+                    for metric, previous in (("growth_score", 8.0), ("composite_score", 65.0))
+                ],
+            }
+        ],
+    }
+    source = deepcopy(data)
+    projected = project(data)
+    assert projected.paths == baseline.paths
+    assert data == source
+    summaries = projected.context["external_assessment"]["comparisons"]
+    assert all(item["availability"] == "not_computed" for item in summaries)
+    assert all(item["previous_availability"] == "available" for item in summaries)
+    assert all(item["latest_value"] is None for item in summaries)
+    assert all(item["score_as_of_date"] is None for item in summaries)
+    if legacy_saved_summary:
+        for item in summaries:
+            del item["availability"]
+            del item["previous_availability"]
+    header = metadata()
+    runs = tmp_path / "runs.sqlite"
+    publish_generation(ModelGeneration(**header.model_dump(), models=models(data)), path=runs)
+    result = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    selected = ScreeningSelection(header.generation_id, ("1234",), result)
+    store = ScreeningSelectionStore(runs)
+    assert store.publish("quants-missing", selected)
+    stored_bytes = runs.read_bytes()
+    restored = store.read("quants-missing")
+    assert restored == selected
+    saved = TypeAdapter(EconomicPathSelection).dump_python(restored.result, mode="json")
+    before = canonical_json(saved)
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["external_assessment"]
+    assert brief["comparable_changes"] == []
+    group = brief["sources"][0]
+    if legacy_saved_summary:
+        assert "availability" not in group
+        assert "previous_availability" not in group
+    else:
+        assert group["availability"] == "not_computed"
+        assert group["previous_availability"] == "available"
+    assert group["fetched_at_utc"] == "2026-01-04T15:30:00Z"
+    assert "score_as_of_date" not in group
+    state = group["states"][0]
+    assert state["state"] == "missing"
+    assert state["metrics"] == {"growth_score": None, "composite_score": None}
+    assert state["previous_values"] == {"growth_score": 8.0, "composite_score": 65.0}
+    assert canonical_json(saved) == before
+    assert runs.read_bytes() == stored_bytes
+
+
 @pytest.mark.parametrize(
     "state", ["first_observation", "recovered", "count_changed", "not_comparable"]
 )

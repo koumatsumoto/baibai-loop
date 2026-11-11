@@ -62,6 +62,42 @@ class LakeDataset:
     population_column: str | None = "ticker"
     """The column whose distinct values are the dataset's population, if it has one."""
 
+    legacy_read_contracts: tuple[LakeDataset, ...] = ()
+    """Exact owner-declared historical schemas; never used to publish new objects."""
+    legacy_read_defaults: tuple[tuple[str, str], ...] = ()
+    """Owner-declared values for fields absent from historical rows."""
+
+    def read_contract(self, version: int) -> LakeDataset:
+        if version == self.contract_version:
+            return self
+        if not self.legacy_read_contracts:
+            raise ValueError(
+                f"dataset {self.name} publishes contract v{version}; "
+                f"this reader accepts only v{self.contract_version}"
+            )
+        matches = [item for item in self.legacy_read_contracts if item.contract_version == version]
+        if len(matches) != 1:
+            raise ValueError(f"dataset {self.name} has no declared read contract v{version}")
+        selected = matches[0]
+        if selected.name != self.name or selected.layer != self.layer:
+            raise ValueError("historical read contract differs from its owner identity")
+        return selected
+
+    def project_read_row(self, source: LakeDataset, row: tuple[object, ...]) -> tuple[object, ...]:
+        """Project a verified historical row using only explicit owner defaults."""
+        if source != self.read_contract(source.contract_version):
+            raise ValueError("row source differs from its declared read contract")
+        source_names = tuple(column.name for column in source.columns)
+        target_names = tuple(column.name for column in self.columns)
+        values = dict(zip(source_names, row, strict=True))
+        if source == self:
+            return row
+        defaults = dict(self.legacy_read_defaults)
+        missing = set(target_names) - set(source_names)
+        if set(source_names) - set(target_names) or missing != defaults.keys():
+            raise ValueError("historical row projection differs from declared owner defaults")
+        return tuple(values[name] if name in values else defaults[name] for name in target_names)
+
     @property
     def has_binary_payload(self) -> bool:
         return any(column.sqlite_type == "BLOB" for column in self.columns)

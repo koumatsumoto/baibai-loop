@@ -207,7 +207,11 @@ def _import_confirmed_originals(
                 uri = sqlite_path.resolve().as_uri() + "?mode=ro"
                 with closing(sqlite3.connect(uri, uri=True)) as conn:
                     attempt = equity_web_read_responses(conn, attempt_info[2])
-                parsed = external_assessment_decode_attempt(attempt)
+                if entry.observation is None:
+                    raise ValueError("selected external assessment observation is missing")
+                parsed = external_assessment_decode_attempt(
+                    attempt, expected_parser_version=entry.observation.parser_version
+                )
                 if parsed != entry.observation:
                     raise ValueError("external assessment staged observation differs from original")
                 typed.append(parsed)

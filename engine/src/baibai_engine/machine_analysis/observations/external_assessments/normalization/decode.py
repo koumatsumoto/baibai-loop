@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from functools import partial
 
 from baibai_engine.data_collection.receipts.public_pages.models import (
     EquityWebSourceResponse,
@@ -20,7 +21,13 @@ from baibai_engine.machine_analysis.observations.external_assessments.normalizat
 
 
 def parse_source_html(
-    html: str, *, source: Source, ticker: str, source_url: str, fetched_at_utc: datetime
+    html: str,
+    *,
+    source: Source,
+    ticker: str,
+    source_url: str,
+    fetched_at_utc: datetime,
+    expected_parser_version: str | None = None,
 ) -> Observation:
     """Select the source parser without acquiring pages or rebinding receipts."""
     parser = (
@@ -28,11 +35,19 @@ def parse_source_html(
         if source == "monex"
         else minkabu.parse_html
         if source == "minkabu"
-        else kabumap.parse_html
+        else partial(
+            kabumap.parse_html, parser_version=expected_parser_version or kabumap.PARSER_VERSION
+        )
         if source == "kabumap"
         else rakuten.parse_html
     )
-    return parser(html, ticker=ticker, source_url=source_url, fetched_at_utc=fetched_at_utc)
+    observation = parser(html, ticker=ticker, source_url=source_url, fetched_at_utc=fetched_at_utc)
+    if (
+        expected_parser_version is not None
+        and observation.parser_version != expected_parser_version
+    ):
+        raise ParseError("unsupported_parser_version")
+    return observation
 
 
 def _html(response: EquityWebSourceResponse) -> str:
@@ -42,7 +57,9 @@ def _html(response: EquityWebSourceResponse) -> str:
         raise ParseError("response_encoding") from None
 
 
-def decode_attempt(responses: Sequence[EquityWebSourceResponse]) -> Observation:
+def decode_attempt(
+    responses: Sequence[EquityWebSourceResponse], *, expected_parser_version: str | None = None
+) -> Observation:
     """Parse exactly one complete attempt using its own bytes, URLs and receipt times."""
     if not responses:
         raise ParseError("incomplete_attempt")
@@ -83,4 +100,5 @@ def decode_attempt(responses: Sequence[EquityWebSourceResponse]) -> Observation:
         ticker=ticker,
         source_url=response.requested_url,
         fetched_at_utc=response.received_at_utc,
+        expected_parser_version=expected_parser_version,
     )

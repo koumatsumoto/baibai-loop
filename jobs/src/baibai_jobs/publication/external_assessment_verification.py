@@ -130,12 +130,12 @@ def verify_release_history(
         names = tuple(column.name for column in dataset.columns)
         digest = hashlib.sha256()
         manifest = release.dataset_manifests.get(dataset.name)
-        if manifest is not None:
-            accepted_dataset(release, dataset)
+        source_dataset = accepted_dataset(release, dataset) if manifest is not None else dataset
+        source_names = tuple(column.name for column in source_dataset.columns)
         paths = (
             materialize_partitions(
                 cache,
-                dataset=dataset,
+                dataset=source_dataset,
                 partitions=tuple(
                     part
                     for part in manifest.partitions
@@ -146,8 +146,11 @@ def verify_release_history(
             if manifest is not None
             else ()
         )
-        for batch in iter_partition_rows(session, dataset=dataset, paths=paths, columns=names):
-            for row in batch:
+        for batch in iter_partition_rows(
+            session, dataset=source_dataset, paths=paths, columns=source_names
+        ):
+            for source_row in batch:
+                row = dataset.project_read_row(source_dataset, tuple(source_row))
                 digest.update(_row_bytes(row))
                 key = (cast("str", row[0]), cast("str", row[1]))
                 if key in expected:
