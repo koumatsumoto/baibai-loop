@@ -103,6 +103,16 @@ def docs():
     ]
 
 
+def reference_document(disclosed_time):
+    return JQuantsFinancialSummary(
+        ticker="9127",
+        disclosed_at=date(2026, 8, 5),
+        disclosed_time=disclosed_time,
+        disclosure_number=pdf(True).disclosure_number,
+        document_type="EarnForecastRevision",
+    )
+
+
 def test_actual_reference_not_forecast_or_old_annual():
     c, a = pdf(), pdf(True)
     assert c.reason is a.reason is None
@@ -225,7 +235,7 @@ def test_restated_reference_cannot_reconfirm_later_or_unordered_annual_revision(
         disclosure_number="annual-correction",
         profit=900_000_000 if changed else annual.profit,
     )
-    inputs = [current, annual, correction]
+    inputs = [current, annual, correction, reference_document("14:45:00")]
     statements = [pdf(), pdf(True)]
     selected = select_pdf_financials(inputs, statements, as_of=ASOF)
     assert selected == select_pdf_financials(inputs[::-1], statements[::-1], as_of=ASOF)
@@ -241,17 +251,71 @@ def test_restated_reference_cannot_reconfirm_later_or_unordered_annual_revision(
 
 
 @pytest.mark.parametrize("changed", [False, True])
-def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(changed):
+@pytest.mark.parametrize(
+    ("reference_time", "reason"),
+    [
+        ("14:00:00", "annual_revised_after_reference_disclosure"),
+        ("14:30:00", None),
+        ("14:40:00", None),
+        ("15:00:00", None),
+        (None, "annual_reference_disclosure_order_unresolved"),
+        ("not_received", "annual_reference_disclosure_order_unresolved"),
+        ("conflicting", "annual_reference_disclosure_order_unresolved"),
+        ("different_disclosure", "annual_reference_disclosure_order_unresolved"),
+    ],
+)
+def test_reference_uses_its_own_publication_clock(changed, reference_time, reason):
     current, annual = docs()
     correction = replace(
         annual,
-        disclosed_at=date(2026, 9, 1),
+        disclosed_at=current.disclosed_at,
+        disclosed_time="14:30:00",
         disclosure_number="annual-correction",
         profit=900_000_000 if changed else annual.profit,
     )
+    inputs = [current, annual, correction]
+    if reference_time == "conflicting":
+        inputs.extend([reference_document("14:00:00"), reference_document("14:40:00")])
+    elif reference_time == "different_disclosure":
+        inputs.append(replace(reference_document("14:40:00"), disclosure_number="other"))
+    elif reference_time != "not_received":
+        inputs.append(reference_document(reference_time))
+    statements = [pdf(), pdf(True)]
+    selected = select_pdf_financials(inputs, statements, as_of=ASOF)
+    assert selected == select_pdf_financials(inputs[::-1], statements[::-1], as_of=ASOF)
+    assert selected.reason == reason
+    assert selected.status == ("available" if reason is None else "unavailable")
+    if reason is None:
+        assert selected.amounts_yen["parent_profit"] == 1109_000_000
+    else:
+        assert not selected.amounts_yen
+        assert selected.current == pdf()
+        assert selected.annual == pdf(True)
+        assert selected.annual_latest_disclosure_number == correction.disclosure_number
+
+
+@pytest.mark.parametrize("changed", [False, True])
+@pytest.mark.parametrize("clock", ["after_current", "after_reference", "unknown_reference"])
+def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(changed, clock):
+    current, annual = docs()
+    correction = replace(
+        annual,
+        disclosed_at=date(2026, 9, 1) if clock == "after_current" else current.disclosed_at,
+        disclosed_time="14:30:00",
+        disclosure_number="annual-correction",
+        profit=900_000_000 if changed else annual.profit,
+    )
+    inputs = [current, annual, correction]
+    if clock == "after_reference":
+        inputs.append(reference_document("14:00:00"))
+    reason = {
+        "after_current": "annual_revised_after_current_disclosure",
+        "after_reference": "annual_revised_after_reference_disclosure",
+        "unknown_reference": "annual_reference_disclosure_order_unresolved",
+    }[clock]
     financial, growth, *_ = generate_financial_and_price_models(
         ticker="9127",
-        documents=[current, annual, correction],
+        documents=inputs,
         pdf_statements=[pdf(), pdf(True)],
         adjusted_bars=[PriceBar(date(2026, 11, 2), 3475, None)],
         adjustment_events=[],
@@ -264,7 +328,7 @@ def test_annual_revision_masks_both_models_ttm_but_preserves_current_quarter(cha
     )
     selected = financial.payload["financial"]["pdf_selection"]
     assert selected == growth.payload["pdf_selection"]
-    assert selected["reason"] == "annual_revised_after_current_disclosure"
+    assert selected["reason"] == reason
     assert financial.payload["earnings_price"]["profit_ttm_yen"] is None
     assert financial.payload["earnings_price"]["earnings_yield"] is None
     assert financial.payload["earnings_price"]["market_cap_yen"] == 5_316_645_750

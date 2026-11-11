@@ -37,7 +37,7 @@ EDINETは同じmarket sealに適格な任意入力で、未取得でも全社生
 | 経路 | 固有の成立範囲 |
 | --- | --- |
 | [EDINET同一文書](../../engine/src/baibai_engine/machine_analysis/observations/financials/edinet_comparisons.py) | IFRS年次/半期本表の当期・比較期を別系列へ保存する。J-Quants TTM/倍率へ横結合せず、単体利益を親利益、相対年度名を比較日に読み替えない。 |
-| [PDF組替](../../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_selection.py) | 最新期/訂正を照合した同一基準の比較欄/TTM。日本基準の遡及変更は同日公表の組替済み前期実績を要し、表示丸めの近似/不明を精密XBRL値としない。参考実績は年度の訂正原本ではなく、後の年次訂正や公表順不明を再確認済みとしない。 |
+| [PDF組替](../../engine/src/baibai_engine/machine_analysis/observations/financials/pdf_selection.py) | 最新期/訂正を照合した同一基準の比較欄/TTM。日本基準の遡及変更は同日公表の組替済み前期実績を要し、表示丸めの近似/不明を精密XBRL値としない。参考実績は年度の訂正原本ではなく、四半期とは別の公表時計で照合する。後の年次訂正や公表順不明を再確認済みとしない。 |
 
 訂正系列を保ち、組替成功でも未受領訂正や金融業/業種不明の利益率制約を解除しない。[fixture](../../tests/fixtures/edinet/comparisons/README.md)の年次/半期をQ1/Q3・全本表へ、PDF受領をXBRL取得へ一般化しない。
 
