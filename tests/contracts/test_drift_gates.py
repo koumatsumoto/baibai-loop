@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,44 @@ def test_markdown_link_gate_scans_store_docs(tmp_path: Path) -> None:
     (stores / "README.md").write_text("[broken](./missing.md)\n", encoding="utf-8")
     assert check_markdown_links.check(tmp_path) == [
         "stores/README.md: missing Markdown link target ./missing.md"
+    ]
+
+
+@pytest.mark.parametrize("ignored", ["node_modules", "dist", ".venv", "__pycache__"])
+def test_markdown_link_gate_does_not_walk_ignored_trees(tmp_path, monkeypatch, ignored):
+    web = tmp_path / "web"
+    ignored_tree = web / "frontend" / ignored / "nested"
+    ignored_tree.mkdir(parents=True)
+    (ignored_tree / "README.md").write_text("[excluded](missing.md)\n")
+    owned = web / "frontend" / "src" / "guide.md"
+    owned.parent.mkdir()
+    owned.write_text("[owned](missing.md)\n")
+    scandir = os.scandir
+
+    def checked(path):
+        assert ignored not in Path(path).relative_to(tmp_path).parts
+        return scandir(path)
+
+    monkeypatch.setattr(os, "scandir", checked)
+    assert check_markdown_links.check(tmp_path) == [
+        "web/frontend/src/guide.md: missing Markdown link target missing.md"
+    ]
+
+
+def test_markdown_link_gate_preserves_scan_order_and_symlink_scope(tmp_path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    target = tmp_path / "support"
+    target.mkdir()
+    (target / "README.md").write_text("[outside](missing.md)\n")
+    (docs / "linked-directory").symlink_to(target, target_is_directory=True)
+    (docs / "b.md").symlink_to(target / "README.md")
+    (docs / "a.md").write_text("[owned](missing.md)\n")
+    (docs / "dangling.md").symlink_to(target / "missing.md")
+
+    assert check_markdown_links.check(tmp_path) == [
+        "docs/a.md: missing Markdown link target missing.md",
+        "docs/b.md: missing Markdown link target missing.md",
     ]
 
 

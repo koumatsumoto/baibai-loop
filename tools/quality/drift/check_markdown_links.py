@@ -52,14 +52,18 @@ def _scan_paths(root: Path) -> list[Path]:
     for relative in _SCAN_DIRECTORIES:
         directory = root / relative
         if directory.is_dir():
-            paths.extend(
-                sorted(
-                    path
-                    for path in directory.rglob("*.md")
-                    if path.is_file()
-                    and not _IGNORED_DIRECTORY_NAMES.intersection(path.relative_to(root).parts)
+            found: list[Path] = []
+            for parent, directories, files in directory.walk():
+                # Skip dependency/build trees before walking their descendants.
+                directories[:] = [
+                    name for name in directories if name not in _IGNORED_DIRECTORY_NAMES
+                ]
+                found.extend(
+                    parent / name
+                    for name in files
+                    if name.endswith(".md") and (parent / name).is_file()
                 )
-            )
+            paths.extend(sorted(found))
     return paths
 
 
