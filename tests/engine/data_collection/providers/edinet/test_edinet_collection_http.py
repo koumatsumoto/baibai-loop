@@ -390,3 +390,26 @@ def test_real_session_exposes_refusal_headers_before_a_broken_body(status, clock
     assert KEY not in str(caught.value)
     assert caught.value.__cause__ is None
     assert caught.value.__context__ is None
+
+
+@pytest.mark.parametrize(
+    ("method", "args"),
+    [
+        ("fetch_list", (DAY,)),
+        ("fetch_archive", ("S100TEST", 1)),
+        ("fetch_archive", ("S100TEST", 5)),
+    ],
+)
+def test_http_200_official_body_401_is_a_refusal_without_retry(method, args, clock):
+    reply = response(b'{"StatusCode":401,"message":"private source text"}')
+    session = Session(reply)
+    receiver = http.EDINETHTTP(KEY, session=session)
+    with pytest.raises(EdinetAccessDeniedError) as caught:
+        getattr(receiver, method)(*args)
+    assert caught.value.status_code == 401
+    assert len(session.calls) == reply.close_count == 1
+    assert clock == []
+    assert KEY not in str(caught.value)
+    assert "private source text" not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None

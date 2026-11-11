@@ -465,3 +465,42 @@ def test_document_specific_failure_does_not_stop_other_archive_requests(tmp_path
     assert client.fetch_archive.call_count == 2
     assert report["status"] == "failed"
     assert report["downloaded"] == 1
+
+
+@pytest.mark.parametrize("group", ["edinet-metrics", "edinet-facts"])
+def test_official_body_401_stops_after_saved_original_and_resumes_missing_only(tmp_path, group):
+    from tests.engine.data_collection.providers.edinet.test_edinet_collection_http import Session
+    from tests.helpers.http_doubles import response
+
+    from baibai_engine.data_collection.providers.edinet.http import EDINETHTTP
+
+    owner, _, _, lists = setup(
+        tmp_path, [filing("S100ONE"), filing("S100TWO", "67580"), filing("S100THREE", "94320")]
+    )
+    replies = [response(source_zip()), response(b'{"StatusCode":401}'), response(source_zip())]
+    session = Session(*replies)
+    options = {"lookback_days": 0} if group == "edinet-metrics" else {"initialize_facts": True}
+    report = acquire_archives(
+        owner, EDINETHTTP("synthetic", session=session), lists, group=group, asof=DAY, **options
+    )
+    assert len(session.calls) == 2
+    assert [item.close_count for item in replies] == [1, 1, 0]
+    assert report["status"] == "failed"
+    assert report["downloaded"] == 1
+    assert report["failed"][0]["reason"] == "EdinetAccessDeniedError"
+    fixed = owner.freeze()
+    key = next(iter(fixed.archive_keys))
+    original = fixed.metadata(*key)
+    resumed_session = Session(response(source_zip()), response(source_zip()))
+    resumed = acquire_archives(
+        owner,
+        EDINETHTTP("synthetic", session=resumed_session),
+        lists,
+        group=group,
+        asof=DAY,
+        **options,
+    )
+    assert resumed["status"] == "received"
+    assert len(resumed_session.calls) == resumed["downloaded"] == 2
+    assert resumed["retained_archives_reused"] == 1
+    assert owner.freeze().metadata(*key) == original

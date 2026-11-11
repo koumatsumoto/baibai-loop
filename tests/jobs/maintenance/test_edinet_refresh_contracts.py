@@ -10,6 +10,7 @@ from tests.helpers.http_doubles import ExplodingSession, FakeSession, response
 from tests.jobs.acquisition.test_edinet_archive_native_acquisition import setup
 
 from baibai_engine.data_collection.providers.edinet.models import (
+    EdinetAccessDeniedError,
     EdinetAcquisitionError,
     EDINETProviderError,
     EdinetRateLimitError,
@@ -89,13 +90,22 @@ def test_exhausted_csv_retry_does_not_publish_or_create_sql_copy(tmp_path, nativ
     assert not (tmp_path / "edinet/csv_zips/S100TEST.zip").exists()
 
 
-@pytest.mark.parametrize("body", [b"invalid zip", b'{"StatusCode":401}', b'{"StatusCode":403}'])
-def test_non_zip_csv_response_is_not_retried_or_published(tmp_path, native_owner, body):
+@pytest.mark.parametrize(
+    ("body", "error", "message"),
+    [
+        (b"invalid zip", EDINETProviderError, "not a ZIP"),
+        (b'{"StatusCode":401}', EdinetAccessDeniedError, "status 401"),
+        (b'{"StatusCode":403}', EDINETProviderError, "not a ZIP"),
+    ],
+)
+def test_non_zip_csv_response_is_not_retried_or_published(
+    tmp_path, native_owner, body, error, message
+):
     session = FakeSession(response(body))
     database = tmp_path / "market.sqlite"
     with (
         closing(EDINETRefresh("key", sqlite_path=database, session=session)) as provider,
-        pytest.raises(EDINETProviderError, match="not a ZIP"),
+        pytest.raises(error, match=message),
     ):
         provider.download_csv_zip("S100TEST")
     assert len(session.calls) == 1

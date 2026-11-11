@@ -618,8 +618,15 @@ def test_native_xbrl_acquisition_retries_rate_limit_and_reuses_raw_zip(tmp_path,
     assert not (tmp_path / "absent.sqlite").exists()
 
 
-@pytest.mark.parametrize("body", [b"invalid zip", b'{"StatusCode":401}', b'{"StatusCode":403}'])
-def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body):
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        (b"invalid zip", "ValueError"),
+        (b'{"StatusCode":401}', "EdinetAccessDeniedError"),
+        (b'{"StatusCode":403}', "ValueError"),
+    ],
+)
+def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body, reason):
     owner, _, _, lists = setup(tmp_path, [filing("S100YR5P")])
     old_file = tmp_path / "edinet/xbrl_zips/S100YR5P.zip"
     old_file.parent.mkdir(parents=True)
@@ -639,7 +646,7 @@ def test_native_xbrl_rejects_non_zip_without_importing_old_file(tmp_path, body):
             include_holder_archives=False,
         )
     assert report["status"] == "failed"
-    assert report["failed"] == [{"doc_id": "S100YR5P", "reason": "ValueError"}]
+    assert report["failed"] == [{"doc_id": "S100YR5P", "reason": reason}]
     assert not owner.freeze().archive_keys
     assert len(session.calls) == 1
     assert old_file.read_bytes() == original

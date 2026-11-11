@@ -77,9 +77,11 @@ class EDINETHTTP:
                 time.sleep(3 * (2**attempt))
                 continue
             assert response is not None
-            rate_limited = response.status_code == 429 or (
-                response.status_code == 200 and _body_status(body) == "429"
-            )
+            body_status = _body_status(body) if response.status_code == 200 else None
+            # EDINET's documented invalid-key response uses HTTP 200 + StatusCode 401.
+            if body_status == "401":
+                raise EdinetAccessDeniedError(401)
+            rate_limited = response.status_code == 429 or body_status == "429"
             if response.status_code == 200 and not rate_limited:
                 return EdinetResponse(received_at=received_at, body=body)
             if not rate_limited and response.status_code not in {500, 502, 503, 504}:
