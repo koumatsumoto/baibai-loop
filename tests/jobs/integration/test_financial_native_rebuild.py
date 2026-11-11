@@ -39,9 +39,11 @@ def attempt(identity, value=1, *, at=AT, partial=False):
     )
 
 
+@pytest.mark.parametrize("query_profile", ["", "small-runner"])
 def test_saved_input_cli_rebuilds_same_rows_and_shortages_without_latest_head(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, query_profile
 ):
+    monkeypatch.setenv("BAIBAI_LAKE_QUERY_PROFILE", query_profile)
     store = MemoryR2Store()
     store.close = lambda: None
     owner = FinancialL1(store, tmp_path / "native")

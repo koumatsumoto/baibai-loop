@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
-import duckdb
 import pytest
 from tests.helpers.lake_release import market_store
 from tests.helpers.r2_store import MemoryR2Store
@@ -17,6 +16,7 @@ from baibai_engine.machine_analysis.observations.prices.adjusted_prices import r
 from baibai_engine.machine_analysis.observations.prices.price_observation_reader import (
     read_price_day_states,
 )
+from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_jobs.integration import price_native
 
 DAY = date(2026, 10, 31)
@@ -125,11 +125,11 @@ def transfer_order(monkeypatch, order):
             return rows
 
     @contextmanager
-    def connect(*args):
-        with duckdb.connect(*args) as connection:
-            yield Projection(connection)
+    def projected_session():
+        with lake_session() as session:
+            yield SimpleNamespace(connection=Projection(session.connection))
 
-    monkeypatch.setattr(price_native, "duckdb", SimpleNamespace(connect=connect))
+    monkeypatch.setattr(price_native, "lake_session", projected_session)
     return transferred
 
 
@@ -208,3 +208,48 @@ def test_transfer_or_coverage_failure_rolls_back_all_replaced_tables(
         )
     assert len(transferred) >= 4  # Failure follows a successful insert batch.
     assert rows_at(market) == before
+
+
+def test_native_price_paths_use_small_runner_session(tmp_path, monkeypatch, fixed_prices):
+    from pathlib import Path
+
+    monkeypatch.setenv("BAIBAI_LAKE_QUERY_PROFILE", "small-runner")
+    observed = []
+
+    @contextmanager
+    def recorded_session():
+        with lake_session() as session:
+            settings = dict(
+                session.connection.execute(
+                    "SELECT name,value FROM duckdb_settings() WHERE name IN "
+                    "('memory_limit','threads','max_temp_directory_size','temp_directory',"
+                    "'autoload_known_extensions','autoinstall_known_extensions')"
+                ).fetchall()
+            )
+            observed.append(settings)
+            assert Path(settings["temp_directory"]).is_dir()
+            yield session
+
+    monkeypatch.setattr(price_native, "lake_session", recorded_session)
+    store, fixed = fixed_prices
+    end = DAY + timedelta(days=2)
+    market = market_store(tmp_path / "limited.sqlite")
+    saved = price_native.model_input(
+        store, fixed, as_of=end, evaluated_at=AT + timedelta(hours=1), market=market
+    )
+    cold = price_native.rebuild_saved_input(
+        store, saved, start=DAY, end=end, output=tmp_path / "cold"
+    )
+    direct = price_native.rebuild(store, fixed, start=DAY, end=end, output=tmp_path / "direct")
+    assert cold["rows"] == direct["rows"] == 4
+    with sqlite3.connect(market) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone() == (4,)
+    assert len(observed) == 3
+    assert len({item["temp_directory"] for item in observed}) == 3
+    for settings in observed:
+        assert settings["memory_limit"] == "953.6 MiB"
+        assert settings["threads"] == "2"
+        assert settings["max_temp_directory_size"] == "3.7 GiB"
+        assert settings["autoload_known_extensions"] == "false"
+        assert settings["autoinstall_known_extensions"] == "false"
+        assert not Path(settings["temp_directory"]).exists()

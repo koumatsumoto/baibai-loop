@@ -1,7 +1,7 @@
 import hashlib
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,6 +11,7 @@ from pydantic import TypeAdapter
 from tests.helpers.edinet_native import empty_edinet_input
 from tests.helpers.financial_native import seed_empty_financial
 from tests.helpers.lake_release import market_store
+from tests.helpers.model_generation import empty_selection, generation, publish_generation
 from tests.helpers.r2_store import MemoryR2Store
 
 import baibai_jobs.integration.models as job
@@ -26,6 +27,7 @@ from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
 from baibai_engine.machine_analysis.screening.selection_query import read_publication
+from baibai_engine.machine_analysis.screening.selection_store import ScreeningSelectionStore
 from baibai_jobs.observability.discord import render_generation, render_message
 
 
@@ -432,3 +434,50 @@ def test_comparison_evidence_uses_only_previous_serving_pointer(
         assert source.market.reference != generate.call_args.kwargs["market_release"].release_id
     else:
         assert source is None
+
+
+@pytest.mark.parametrize("preserve_prior", [False, True])
+def test_explicit_recovery_retains_all_prior_generations_and_selection_rows(
+    integration, preserve_prior
+):
+    arguments, _ = integration
+    path = arguments["runs"]
+    policies = ScreeningSelectionStore(path)
+    prior_ids = tuple(f"prior-{index}" for index in range(5))
+    for index, identity in enumerate(prior_ids):
+        item = generation().model_copy(
+            update={"generation_id": identity, "as_of": date(2026, 10, 10 + index)}
+        )
+        publish_generation(item, path=path)
+        policies.publish(f"selection-{identity}", empty_selection(identity))
+    policies.publish("prior-extra-policy", empty_selection(prior_ids[0], candidate_limit=5))
+
+    def prior_rows():
+        with closing(sqlite3.connect(path)) as connection:
+            return {
+                table: sorted(
+                    connection.execute(
+                        f"SELECT * FROM {table} WHERE generation_id IN (?, ?, ?, ?, ?)",
+                        prior_ids,
+                    ).fetchall()
+                )
+                for table in ("model_generation", "generated_model", "screening_selection")
+            }
+
+    before = prior_rows()
+    if preserve_prior:
+        arguments["preserve_generation_ids"] = prior_ids
+    result = job.integrate_models(**arguments)
+    assert result["models_ready"] is True
+    assert result["pruned_generation_count"] == (0 if preserve_prior else 3)
+    assert read_generation(result["generation_id"], path=path) is not None
+    assert policies.read(result["selection_id"]) is not None
+    if preserve_prior:
+        assert prior_rows() == before
+        assert all(read_generation(identity, path=path) is not None for identity in prior_ids)
+        assert policies.read("prior-extra-policy") is not None
+    else:
+        assert read_generation(prior_ids[0], path=path) is None
+        assert policies.read("prior-extra-policy") is None
+        with closing(sqlite3.connect(path)) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM model_generation").fetchone() == (3,)

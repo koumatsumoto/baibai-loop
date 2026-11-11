@@ -10,7 +10,7 @@ import re
 import tempfile
 import time
 from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC
 from email.utils import parsedate_to_datetime
@@ -46,6 +46,10 @@ class R2Error(LakePublishError):
 
 class LakeCASConflict(LakePublishError):
     pass
+
+
+class R2OperationStopped(BaseException):
+    """A requested fail-closed pass must not continue through source error handlers."""
 
 
 def _retry_after(error: ClientError) -> str | int | None:
@@ -159,6 +163,22 @@ class Boto3R2Store:
         self._serial: _SerialRequests | None = None
         self._scope_lock = Lock()
         self.verify_put_with_head = verify_put_with_head
+        mode = source.get("R2_STOP_ON_REJECTION", "0")
+        if mode not in {"0", "1"}:
+            raise ValueError("invalid R2 rejection stop mode")
+        self._stop_on_rejection = mode == "1"
+        stop_file = source.get("R2_REJECTION_STOP_FILE")
+        self._stop_file = Path(stop_file) if stop_file else None
+        if self._stop_file is not None and (
+            not self._stop_on_rejection
+            or not self._stop_file.is_absolute()
+            or not self._stop_file.parent.is_dir()
+        ):
+            raise ValueError(
+                "R2 rejection stop file requires strict mode and an existing directory"
+            )
+        self._rejected = False
+        self._rejection_lock = Lock()
 
     @contextmanager
     def serial_requests(self, *, min_interval_seconds: float) -> Iterator[None]:
@@ -183,16 +203,42 @@ class Boto3R2Store:
 
     @contextmanager
     def _request(self, operation: str) -> Iterator[None]:
-        state = self._serial
-        if state is None:
-            yield
-        else:
-            with state.request(operation):
-                yield
+        # Serialize this strict store so queued requests cannot pass a rejection.
+        # A shared file also stops subsequent stores and child processes; already
+        # in-flight requests owned by other processes cannot be recalled.
+        with self._rejection_lock if self._stop_on_rejection else nullcontext():
+            if self._rejected or (self._stop_file is not None and self._stop_file.exists()):
+                raise R2OperationStopped("R2 operation previously stopped")
+            state = self._serial
+            try:
+                with state.request(operation) if state is not None else nullcontext():
+                    yield
+            except ClientError as error:
+                status = _http_status(error)
+                if not self._stop_on_rejection or status not in {403, 429}:
+                    raise
+                self._rejected = True
+                if self._stop_file is not None:
+                    try:
+                        descriptor = os.open(
+                            self._stop_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+                        )
+                        with os.fdopen(descriptor, "w") as output:
+                            output.write(f"{status}\n")
+                            output.flush()
+                            os.fsync(output.fileno())
+                        fsync_directory(self._stop_file.parent)
+                    except FileExistsError:
+                        pass
+                    except OSError:
+                        raise R2OperationStopped(
+                            "R2 rejection stop could not be persisted"
+                        ) from None
+                raise R2OperationStopped(f"R2 operation stopped after HTTP {status}") from None
 
     def _client(self, payload_bytes: int | None = None) -> S3Client:
         timeout = _operation_timeout(payload_bytes)
-        attempts = 1 if self._serial is not None else 3
+        attempts = 1 if self._stop_on_rejection or self._serial is not None else 3
         cache_key = (timeout, attempts)
         cached = self._clients.get(cache_key)
         if cached is not None:
@@ -243,11 +289,17 @@ class Boto3R2Store:
         if self._serial is not None:
             raise ValueError("serial request scope supports small objects, not listing")
         try:
-            for page in (
+            pages = iter(
                 self._client()
                 .get_paginator("list_objects_v2")
                 .paginate(Bucket=self.bucket, Prefix=prefix)
-            ):
+            )
+            while True:
+                try:
+                    with self._request("list-objects"):
+                        page = next(pages)
+                except StopIteration:
+                    break
                 for item in page.get("Contents", []):
                     yield item["Key"], item["Size"]
         except ClientError as exc:

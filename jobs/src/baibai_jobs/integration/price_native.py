@@ -39,6 +39,7 @@ from baibai_engine.machine_analysis.observations.prices.from_l1 import (
 from baibai_engine.primitives.json import canonical_json
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+from baibai_engine.storage.snapshots.duck import lake_session
 from baibai_engine.storage.sqlite.source_cache.coverage import record_source_coverage
 
 
@@ -122,7 +123,8 @@ def model_input(
     }
     ranges: list[dict[str, str]] = []
     required_unresolved = False
-    with duckdb.connect(":memory:") as projection:
+    with lake_session() as session:
+        projection = session.connection
         for index, month in enumerate(_months(days)):
             requests = tuple(fixed.requests(store, days=month))
             if any(
@@ -286,7 +288,8 @@ def rebuild_saved_input(
     days = _days(start, end)
     saved_interval(saved)
     output.mkdir(parents=True, exist_ok=False)
-    with duckdb.connect(":memory:") as connection:
+    with lake_session() as session:
+        connection = session.connection
         result = materialize_saved_input(store, saved, connection, days=days)
         for table in ("daily_bars", "price_receipt_status"):
             pq.write_table(connection.table(table).to_arrow_table(), output / (table + ".parquet"))
@@ -319,7 +322,8 @@ def rebuild(
         "incomplete": 0,
     }
     complete = True
-    with duckdb.connect(":memory:") as connection:
+    with lake_session() as session:
+        connection = session.connection
         for index, month in enumerate(_months(days)):
             results = rebuild_price_days(fixed.requests(store, days=month), days=month)
             materialize_price_days(

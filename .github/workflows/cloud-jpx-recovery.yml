@@ -1,0 +1,64 @@
+name: cloud-jpx-recovery
+run-name: "JPX exact recovery"
+
+on:
+  workflow_dispatch:
+    inputs:
+      contract_sha256:
+        description: "事前照合済みの非公開復旧contractのSHA-256。再実行前に前runの終端と公開状態を照合する"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: common-source-integration
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    concurrency:
+      group: cloud-publish
+      queue: max
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate finite dispatch input without credentials
+        env:
+          CONTRACT_SHA256: ${{ inputs.contract_sha256 }}
+          PYTHONPATH: jobs/src
+        run: |
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          python3 -m baibai_jobs.integration.workflow_inputs jpx-recovery --contract-sha256 "$CONTRACT_SHA256"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: false
+      - name: Sync locked runtime
+        run: uv sync --locked
+      - name: Apply, verify, publish, read back and seal the exact recovery
+        env:
+          CONTRACT_SHA256: ${{ inputs.contract_sha256 }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          code=0
+          uv run python -m baibai_jobs.integration.jpx_recovery \
+            --contract-sha256 "$CONTRACT_SHA256" --directory "$RUNNER_TEMP/jpx-recovery" \
+            > "$RUNNER_TEMP/jpx-recovery-private.log" 2>&1 || code=$?
+          printf 'recovery_exit_code=%s\n' "$code"
+          if [ "$code" -ne 0 ]; then
+            if [ -f "$RUNNER_TEMP/jpx-recovery/stopped.json" ]; then
+              cat "$RUNNER_TEMP/jpx-recovery/stopped.json"
+            fi
+            printf '%s\n' 'Stopped. Reconcile private phase receipts, current, machine pair and lease. Do not rerun this job.'
+          fi
+          exit "$code"
