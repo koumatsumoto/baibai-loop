@@ -206,6 +206,7 @@ def _seal_cli(tmp_path, lease_path):
                             "started_at": f"{DAY}T00:0{index}:00+00:00",
                         },
                         "applied": True,
+                        "result": {"retained_bundles": []},
                         "recovery": False,
                     }
                     for index in range(2)

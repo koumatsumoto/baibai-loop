@@ -170,6 +170,7 @@ def import_handoff(
     return ReplayResult(
         report={
             "raw_rows_added": added,
+            "retained_bundles": list(bundle_ids),
             "replayed_bundles": replayed,
             "incomplete_bundles": incomplete,
             "projection_failures": failed,
