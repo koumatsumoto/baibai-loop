@@ -13,7 +13,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import duckdb
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 from baibai_engine.data_collection.providers.jquants.contracts import RetainedRequest
@@ -37,6 +36,7 @@ from baibai_engine.machine_analysis.observations.financials.from_l1 import (
 )
 from baibai_engine.storage.json import write_json_atomic
 from baibai_engine.storage.objects.r2 import Boto3R2Store, ObjectStore
+from baibai_engine.storage.snapshots.duck import lake_session
 
 
 def model_input(
@@ -213,7 +213,8 @@ def _write_observations(
     complete = all(
         item.request_id is not None and not item.incomplete_requests for item in results.values()
     )
-    with duckdb.connect(":memory:") as connection:
+    with lake_session() as session:
+        connection = session.connection
         materialize_financial_days(
             connection, results.values(), l1_coverage_status="complete" if complete else "partial"
         )
