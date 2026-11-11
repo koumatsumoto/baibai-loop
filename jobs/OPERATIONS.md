@@ -676,4 +676,4 @@ gh run watch <WEB_RUN_ID> --exit-status --interval 60
 対象SHAの`Deploy Worker and UI assets`が実行・成功したことを確認する。待機中にmainのWeb入力が変わると配備はskipされるため、run成功だけで配備済みとしない。認証APIは対話terminalで`bash web/edge/scripts/verify-deployment.sh`を実行し、閲覧パスワードはpromptへ入力する。画面のDashboard・提案emptyまたは保存ID/基準日/発行時刻付き本文の表示受入は別に確認する。旧object/secretは削除しない。
 
 <a id="web-authentication"></a>
-VIEW_PASSWORDをBearerとして使う。実Workerのsecret更新は別途認可された操作として行い、秘密を本文・shell引数・logへ残さず、R2 credentialと混ぜない。
+VIEW_PASSWORDをBearerとして使う。閲覧画面は空白なしの半角英数字・記号（印字可能ASCII）だけを受け付け、入力の前後空白を除くため、secretもこの範囲で用意する。実Workerのsecret更新は別途認可された操作として行い、秘密を本文・shell引数・logへ残さず、R2 credentialと混ぜない。
