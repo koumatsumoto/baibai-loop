@@ -13,6 +13,7 @@ from baibai_engine.machine_analysis.observations.prices.benchmark_observation im
     BenchmarkObservation,
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import JQuantsDailyBar
+from baibai_engine.machine_analysis.observations.prices.sessions import cash_equity_close_time
 from baibai_engine.portfolio.ledger.events import (
     ConfirmedTaxEvent,
     ContributionEvent,
@@ -34,7 +35,6 @@ from baibai_engine.portfolio.ledger.events import (
 )
 
 _TOKYO = ZoneInfo("Asia/Tokyo")
-_JPX_CLOSE = time(15, 30)
 
 
 class PortfolioOutcomeError(ValueError):
@@ -428,7 +428,11 @@ def _unresolved(benchmark: BenchmarkObservation, reason: str) -> PortfolioOutcom
 def _effective_date(event: LedgerEvent, business_days: tuple[date, ...]) -> date | None:
     local = event.occurred_at.astimezone(_TOKYO)
     event_day = event.occurred_on or local.date()
-    if event.occurred_on is None and event_day in business_days and local.time() > _JPX_CLOSE:
+    if (
+        event.occurred_on is None
+        and event_day in business_days
+        and local.time() > cash_equity_close_time(event_day)
+    ):
         event_day = event_day.fromordinal(event_day.toordinal() + 1)
     return next((day for day in business_days if day >= event_day), None)
 
@@ -454,7 +458,7 @@ def _effective_date_for_period(
 
 def outcome_close_instant(day: date) -> datetime:
     """The close boundary used for outcome facts and expiry-report requirements."""
-    return datetime.combine(day, _JPX_CLOSE, tzinfo=_TOKYO)
+    return datetime.combine(day, cash_equity_close_time(day), tzinfo=_TOKYO)
 
 
 def _external_flow_for_day(
