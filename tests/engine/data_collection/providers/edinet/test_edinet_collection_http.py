@@ -331,3 +331,35 @@ def test_server_retry_after_beyond_deadline_stops_without_early_request(clock, m
         http.EDINETHTTP(KEY, session=session).fetch_list(DAY)
     assert len(session.calls) == 1
     assert clock == []
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_known_refusal_does_not_read_or_retry_a_broken_error_body(status, clock):
+    class BrokenRefusal:
+        status_code = status
+        headers: dict[str, str] = {}
+
+        def __init__(self):
+            self.close_count = 0
+            self.body_reads = 0
+
+        @property
+        def content(self):
+            self.body_reads += 1
+            raise requests.ConnectionError("https://api.edinet-fsa.go.jp/?Subscription-Key=" + KEY)
+
+        def close(self):
+            self.close_count += 1
+
+    reply = BrokenRefusal()
+    session = Session(reply)
+    with pytest.raises(EdinetAccessDeniedError) as caught:
+        http.EDINETHTTP(KEY, session=session).fetch_archive("S100ONE", 1)
+    assert caught.value.status_code == status
+    assert len(session.calls) == 1
+    assert reply.body_reads == 0
+    assert reply.close_count == 1
+    assert clock == []
+    assert KEY not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
