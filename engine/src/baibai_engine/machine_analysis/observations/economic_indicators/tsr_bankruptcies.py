@@ -48,18 +48,22 @@ def parse_tsr_bankruptcies_json(
         if not isinstance(title, str):
             raise ValueError("tsr_bankruptcies: monthly entry has no title")
         observed_match = _MONTH_RE.search(title)
-        value_match = _TITLE_VALUE_RE.search(title)
-        if value_match is None:
-            free_word = entry.get("free_word")
-            if isinstance(free_word, list):
-                value_match = _TABLE_VALUE_RE.search(" ".join(str(item) for item in free_word))
-        if observed_match is None or value_match is None:
+        if observed_match is None:
             raise ValueError(f"tsr_bankruptcies: cannot parse monthly entry: {title!r}")
         observed_at = date(
             int(observed_match.group("year")),
             int(observed_match.group("month")),
             1,
         )
+        if not start <= observed_at <= end:
+            continue
+        value_match = _TITLE_VALUE_RE.search(title)
+        if value_match is None:
+            free_word = entry.get("free_word")
+            if isinstance(free_word, list):
+                value_match = _TABLE_VALUE_RE.search(" ".join(str(item) for item in free_word))
+        if value_match is None:
+            raise ValueError(f"tsr_bankruptcies: cannot parse monthly entry: {title!r}")
         value = float(value_match.group("value").replace(",", ""))
         prior_value = values.get(observed_at)
         if prior_value is not None and prior_value != value:
@@ -72,5 +76,4 @@ def parse_tsr_bankruptcies_json(
     return [
         reading_observation(series, observed_at=observed_at, value=value, vintage_at=vintage_at)
         for observed_at, value in sorted(values.items())
-        if start <= observed_at <= end
     ]

@@ -428,3 +428,33 @@ def test_quants_success_not_computed_success_history_keeps_missing_latest_at_cut
         assert at_recovery.comparisons[index].previous_value is None
         assert at_recovery.comparisons[index].delta is None
         assert not at_recovery.comparisons[index].comparable
+
+
+def test_tradingview_history_only_decodes_latest_two_rows_per_ticker(tmp_path, monkeypatch):
+    from baibai_engine.machine_analysis.observations.external_assessments.history import (
+        TradingViewObservation,
+    )
+
+    path = tmp_path / "market.sqlite"
+    for offset in range(12):
+        for ticker in ("1234", "5678"):
+            tv_row(
+                path,
+                RECEIVED + timedelta(days=offset),
+                ticker=ticker,
+                eps_forecast_next_fy=offset,
+            )
+    cutoff = RECEIVED + timedelta(days=10)
+    validated = []
+    original = TradingViewObservation.model_validate
+
+    def counted(cls, value, *args, **kwargs):
+        validated.append((value["ticker"], value["snapshot_date"]))
+        return original(value, *args, **kwargs)
+
+    monkeypatch.setattr(TradingViewObservation, "model_validate", classmethod(counted))
+    population = read_observation_population(path, tickers=("1234", "5678"), cutoff=cutoff)
+    for history in population.values():
+        assert history.tradingview.latest.eps_forecast_next_fy == 10
+        assert history.tradingview.previous.eps_forecast_next_fy == 9
+    assert len(validated) == 4
