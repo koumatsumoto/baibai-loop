@@ -69,6 +69,12 @@ from baibai_jobs.publication.jpx_verification import (
 )
 from baibai_jobs.publication.lease import _load_handle, verify_held
 from baibai_jobs.publication.snapshot_publication import _serving_pointer
+from baibai_jobs.publication.tradingview_verification import (
+    capture_publication as capture_tradingview_publication,
+)
+from baibai_jobs.publication.tradingview_verification import (
+    verify_publication as verify_tradingview_publication,
+)
 
 
 def fix_edinet_input(store: ObjectStore, directory: Path) -> InputSnapshot:
@@ -307,6 +313,17 @@ def apply(
     ]
     if jpx_bundles:
         report["jpx_publication"] = capture_jpx_publication(market, jpx_bundles)
+    tradingview = [
+        outcome["result"]
+        for outcome in outcomes
+        if outcome["entry"]["source"] == "tradingview" and outcome["applied"]
+    ]
+    if tradingview:
+        report["tradingview_publication"] = capture_tradingview_publication(
+            market,
+            [date.fromisoformat(result["snapshot_date"]) for result in tradingview],
+            receipt_ids=[identity for result in tradingview for identity in result["receipt_ids"]],
+        )
     write_json_atomic(directory / "applied.json", report)
     return report
 
@@ -513,6 +530,8 @@ def main(argv: list[str] | None = None) -> int:
             public_report = dict(report)
             if "jpx_publication" in public_report:
                 public_report["jpx_publication"] = "private readback plan"
+            if "tradingview_publication" in public_report:
+                public_report["tradingview_publication"] = "private readback plan"
             public_report["handoffs"] = [
                 {
                     **item,
@@ -597,6 +616,16 @@ def main(argv: list[str] | None = None) -> int:
                     report["external"],
                     handle=handle,
                     directory=directory / "external-readback",
+                )
+            if any(
+                item["entry"]["source"] == "tradingview" and item["applied"]
+                for item in report["handoffs"]
+            ):
+                report["tradingview_readback"] = verify_tradingview_publication(
+                    store,
+                    expected=report.get("tradingview_publication", {}),
+                    directory=directory / "tradingview-readback",
+                    generations=generations,
                 )
             for outcome in report["handoffs"]:
                 if not outcome["entry"]["market"]:

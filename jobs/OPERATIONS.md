@@ -461,6 +461,8 @@ lease外でacquire→inspect→ready --cumulative、共通統合で固定集合�
 
 receiveはHTTPなしでSDK応答全体/失敗を保存する。同IDは全内容一致の再送だけ、別呼出しは別ID。新受領は共通統合へ渡し、取得copy全体をpushしない。exportには受領時のmaster/calendarを固定したsource-input directoryを渡し、復旧時に最新inputで作り直さない。
 
+共通統合のsealは、applyで固定した対象日の原応答と最終L2を公開releaseから照合してからstageを消費する。追加前から保たれた最初の行とその原本も照合し、受領拒否/投影失敗は原本公開と明示復旧を分ける。旧bundleの整合だけではsealしない。readback計画のない旧applied.jsonはfresh hydrateから再applyし、原本stageや受領時計を作り直さない。
+
 ```bash
 uv run baibai-jobs tradingview-source receive --sqlite <LOCAL_MARKET_COPY> --capture <PRIVATE_NATIVE_CAPTURE_JSON>
 uv run python -m baibai_jobs.integration.source_handoff export --source tradingview \
