@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import time
 from collections.abc import Iterator
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -28,8 +29,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     ModelGenerationStream,
 )
 from baibai_engine.machine_analysis.generation.economic_inputs import (
-    rebuild_economic_input,
-    retain_economic_input,
+    EconomicInputSession,
 )
 from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.inputs import read_and_generate_models
@@ -142,14 +142,21 @@ def integrate_models(
     ) as prepared:
         evaluation_time = max(evaluated_at, prepared.source_snapshot.sealed_at)
         phase_started = _phase_progress("economic_input")
-        step_started = _phase_progress("economic_input_retain")
-        saved_economic = retain_economic_input(
-            store, economic, as_of=as_of, evaluation_time=evaluation_time
+        economic_requests = (
+            store.serial_requests(min_interval_seconds=0.25)
+            if isinstance(store, Boto3R2Store)
+            else nullcontext()
         )
-        _phase_progress("economic_input_retain", step_started)
-        step_started = _phase_progress("economic_input_rebuild")
-        economic_input = rebuild_economic_input(store, economic, saved_economic)
-        _phase_progress("economic_input_rebuild", step_started)
+        with economic_requests:
+            economic_session = EconomicInputSession(store)
+            step_started = _phase_progress("economic_input_retain")
+            saved_economic = economic_session.retain(
+                economic, as_of=as_of, evaluation_time=evaluation_time
+            )
+            _phase_progress("economic_input_retain", step_started)
+            step_started = _phase_progress("economic_input_rebuild")
+            economic_input = economic_session.rebuild(economic, saved_economic)
+            _phase_progress("economic_input_rebuild", step_started)
         _phase_progress("economic_input", phase_started)
         phase_started = _phase_progress("model_inputs")
         generation = read_and_generate_models(
