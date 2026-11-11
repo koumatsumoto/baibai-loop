@@ -522,6 +522,8 @@ uv run baibai-jobs maintain-market backfill-master --asof <DATE> --asof <DATE>
 uv run baibai-jobs rebuild-calendar-native --saved-input <SAVED_INPUT_JSON> --output <NEW_OUTPUT>
 ```
 
+backfill-masterは成功時だけ一時workを整理する。失敗/未充足時に表示されるworkの日付directoryを保持し、受領済みattemptの公開結果を解決するには`jquants-master-native commit-work --directory <WORK>/<DATE>`を使う。元受領の時計/UUIDを変えず、公開結果が不明なまま新しいbackfillで再GETしない。machine自体が失われた場合のlocal work保持までは保証しない。
+
 <a id="margin-alerts-native-l1"></a>
 <a id="short-sale-reports-native-l1"></a>
 **日々公表銘柄/空売り報告。** 取得窓と保持範囲の不足はplanで確認する。固定selection/sealを公開lineageまで渡し、正常空の全履歴0行と観測行を要求する公開policyを分ける。架空行で公開条件を通さない。
