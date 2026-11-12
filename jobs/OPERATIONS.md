@@ -187,7 +187,7 @@ uv run python -m baibai_jobs.integration.sources inputs --directory <NEW_INPUT_W
 
 ### 経済単独公開と失敗再開
 
-fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。L2失敗でL1を再PUT/rollbackしない。
+fresh正本＋固定handoffの受入→一世代backup→条件付きPUT/全bytes読戻し→seal→経済の全group inputの順。byte不変時は同ETag/leaseを確認し、初回検証済みの正本copyを再利用する。seal/input直前にも同ETag/leaseを確認し、読戻し経済入力からモデルを作る。L2失敗でL1を再PUT/rollbackしない。
 
 - 公開/readback失敗: 後段を止め、実bytesを照合する。未確認ではsealせず空DB/旧値へfallbackしない。
 - PUT後/seal前: fresh runnerで未sealの同じ不変stageを再適用する。同sourceの後続watermarkを先に進めない。
