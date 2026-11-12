@@ -1,11 +1,13 @@
-"""Offline replay from retained J-Quants pages into the current market schema."""
+"""J-Quants writer contracts and retained legacy receipt readback."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, date, datetime
+from functools import partial
 
 import pyarrow.parquet as pq
 import pytest
@@ -21,10 +23,6 @@ from tests.helpers.jquants_receipts import (
 )
 from tests.helpers.lake_policy import narrow_release_policy
 
-import baibai_engine.machine_analysis.observations.stocks.master_snapshot as master_snapshot
-from baibai_engine.data_collection.providers.jquants.contracts import (
-    JQuantsAcquisitionError,
-)
 from baibai_engine.data_collection.providers.jquants.http import (
     JQuantsHTTP,
 )
@@ -34,7 +32,15 @@ from baibai_engine.data_collection.providers.jquants.receipts import (
 )
 from baibai_engine.machine_analysis.observations.financials.reader import read_fin_summaries
 from baibai_engine.machine_analysis.observations.jquants_decode import JQuantsProviderError
-from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+from baibai_engine.machine_analysis.observations.jquants_writer import (
+    store_jquants_all_issues_daily_margin,
+    store_jquants_daily_bars,
+    store_jquants_fin_summaries,
+    store_jquants_margin_alerts,
+    store_jquants_market_calendar,
+    store_jquants_short_sale_reports,
+    store_jquants_weekly_margin,
+)
 from baibai_engine.machine_analysis.observations.prices.calendar_reader import read_market_calendar
 from baibai_engine.machine_analysis.observations.prices.price_reader import (
     read_adjustment_factor_bars,
@@ -58,6 +64,8 @@ from baibai_jobs.publication.datasets import LAKE_DATASETS
 from baibai_jobs.publication.policy import release_policy_for_profile
 
 CORRECTION_AT = datetime(2026, 10, 17, 12, 45, tzinfo=UTC)
+FIRST_CLOCK = FIRST_AT.isoformat(timespec="microseconds")
+CORRECTION_CLOCK = CORRECTION_AT.isoformat(timespec="microseconds")
 
 
 @pytest.fixture
@@ -74,6 +82,11 @@ def coverage(db_path, source):
             "record_count, status, error FROM source_coverage WHERE source = ?",
             (source,),
         ).fetchall()
+
+
+def retained_records(db_path, request_id):
+    with closing(sqlite3.connect(db_path)) as connection:
+        return read_complete_request(connection, request_id).records()
 
 
 @pytest.mark.parametrize(
@@ -99,12 +112,11 @@ def coverage(db_path, source):
         "short-sale",
     ),
 )
-def test_source_only_fixed_release_replays_typed_rows_and_coverage(
+def test_legacy_source_only_fixed_release_retains_raw_pages_without_projecting(
     tmp_path, monkeypatch, source, target, table
 ):
     narrow_release_policy(monkeypatch, datasets=("jquants.source_pages",), carries_history=None)
     if source == "master":
-        monkeypatch.setattr(master_snapshot, "MIN_COMMON_STOCK_MASTER_ROWS", 1)
         record = {
             "Date": target,
             "Code": "13010",
@@ -134,14 +146,9 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
             query,
         )
     assert len(received.calls) == 1
-    assert project_request(original, request_id) == 1
     with sqlite3.connect(original) as conn:
-        expected_rows = conn.execute(f"SELECT * FROM {table}").fetchall()
-        expected_coverage = conn.execute(
-            "SELECT * FROM source_coverage WHERE source = ?", (table,)
-        ).fetchall()
-    assert len(expected_rows) == len(expected_coverage) == 1
-    assert FIRST_AT.isoformat(timespec="microseconds") in expected_coverage[0]
+        expected_request = read_complete_request(conn, request_id)
+        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone() == (0,)
 
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=original, mirror_root=mirror) as snapshot:
@@ -191,20 +198,16 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
             "SELECT COUNT(*) FROM source_coverage WHERE source = ?", (table,)
         ).fetchone() == (0,)
         assert [page.body for page in read_request_pages(conn, request_id)] == [body([record])]
-    assert project_request(rebuilt, request_id) == 1
-    with sqlite3.connect(rebuilt) as conn:
-        assert conn.execute(f"SELECT * FROM {table}").fetchall() == expected_rows
-        assert (
-            conn.execute("SELECT * FROM source_coverage WHERE source = ?", (table,)).fetchall()
-            == expected_coverage
-        )
+        assert read_complete_request(conn, request_id) == expected_request
 
 
 @pytest.mark.parametrize(
-    ("source", "target", "outside", "table", "date_column", "coverage_source"),
+    ("source", "writer", "scope", "target", "outside", "table", "date_column", "coverage_source"),
     [
         (
             "financial_summaries",
+            store_jquants_fin_summaries,
+            ("requested_start", "requested_end"),
             DAY,
             "2026-10-09",
             "jquants_fin_summaries",
@@ -213,6 +216,8 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
         ),
         (
             "short_sale_reports",
+            store_jquants_short_sale_reports,
+            ("requested_start", "requested_end"),
             DAY,
             "2026-10-09",
             "jquants_short_sale_reports",
@@ -221,6 +226,8 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
         ),
         (
             "margin_interest",
+            store_jquants_weekly_margin,
+            ("week_end",),
             "2026-07-24",
             "2026-07-17",
             "jquants_weekly_margin",
@@ -229,6 +236,8 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
         ),
         (
             "margin_interest",
+            store_jquants_all_issues_daily_margin,
+            ("balance_date",),
             "2026-10-02",
             "2026-09-25",
             "jquants_all_issues_daily_margin",
@@ -237,6 +246,8 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
         ),
         (
             "margin_alerts",
+            store_jquants_margin_alerts,
+            ("requested_start", "requested_end"),
             DAY,
             "2026-10-09",
             "jquants_margin_alerts",
@@ -247,22 +258,31 @@ def test_source_only_fixed_release_replays_typed_rows_and_coverage(
     ids=("financial", "short-sale", "weekly-margin", "daily-margin", "margin-alert"),
 )
 def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
-    tmp_path, source, target, outside, table, date_column, coverage_source
+    tmp_path, source, writer, scope, target, outside, table, date_column, coverage_source
 ):
-    empty_body = body([])
     target_coverage = []
     for had_rows in (False, True):
         db = tmp_path / ("populated.sqlite" if had_rows else "fresh.sqlite")
         if had_rows:
             for day in (outside, target):
-                key = "disc_date" if source == "short_sale_reports" else "date"
-                request_id = receive(
-                    db, source, {key: day}, body([source_record(source, day)]), FIRST_AT
+                assert (
+                    writer(
+                        db,
+                        [source_record(source, day)],
+                        fetched_at_utc=FIRST_CLOCK,
+                        **dict.fromkeys(scope, date.fromisoformat(day)),
+                    )
+                    == 1
                 )
-                assert project_request(db, request_id) == 1
-        key = "disc_date" if source == "short_sale_reports" else "date"
-        request_id = receive(db, source, {key: target}, empty_body, CORRECTION_AT)
-        assert project_request(db, request_id) == 0
+        assert (
+            writer(
+                db,
+                [],
+                fetched_at_utc=CORRECTION_CLOCK,
+                **dict.fromkeys(scope, date.fromisoformat(target)),
+            )
+            == 0
+        )
 
         with sqlite3.connect(db) as conn:
             assert conn.execute(
@@ -272,27 +292,29 @@ def test_complete_empty_receipt_projects_identically_with_or_without_old_rows(
                 assert conn.execute(
                     f"SELECT COUNT(*) FROM {table} WHERE {date_column} = ?", (outside,)
                 ).fetchone() == (1,)
-            pages = read_request_pages(conn, request_id)
-            assert len(pages) == 1
-            assert pages[0].body == empty_body
-            assert pages[0].received_at == CORRECTION_AT
         selected = [
             row for row in coverage(db, coverage_source) if row[1] == target and row[2] == target
         ]
         assert len(selected) == 1
-        assert selected[0][3:] == (CORRECTION_AT.isoformat(timespec="microseconds"), 0, "ok", None)
+        assert selected[0][3:] == (CORRECTION_CLOCK, 0, "ok", None)
         target_coverage.append(selected[0])
     assert target_coverage[0] == target_coverage[1]
 
 
 def test_daily_bar_correction_and_same_receipt_replay_are_stable(db_path):
+    write = partial(
+        store_jquants_daily_bars,
+        db_path,
+        requested_start=date.fromisoformat(DAY),
+        requested_end=date.fromisoformat(DAY),
+    )
     first_body = body([{"Code": "13010", "Date": DAY, "C": 100.0, "Unknown": "raw"}])
     correction_body = body([{"Code": "13010", "Date": DAY, "C": 111.0}])
     first_id = receive(db_path, "daily_bars", {"date": DAY}, first_body, FIRST_AT)
     correction_id = receive(db_path, "daily_bars", {"date": DAY}, correction_body, CORRECTION_AT)
 
-    assert project_request(db_path, first_id) == 1
-    assert project_request(db_path, correction_id) == 1
+    assert write(retained_records(db_path, first_id), fetched_at_utc=FIRST_CLOCK) == 1
+    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
     with sqlite3.connect(db_path) as conn:
         corrected_rows = conn.execute(
             "SELECT ticker, traded_at, close FROM jquants_daily_bars ORDER BY ticker"
@@ -304,14 +326,14 @@ def test_daily_bar_correction_and_same_receipt_replay_are_stable(db_path):
             f"get_eq_bars_daily_range:{DAY}..{DAY}",
             DAY,
             DAY,
-            CORRECTION_AT.isoformat(timespec="microseconds"),
+            CORRECTION_CLOCK,
             1,
             "ok",
             None,
         )
     ]
 
-    assert project_request(db_path, correction_id) == 1
+    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
     with sqlite3.connect(db_path) as conn:
         assert (
             conn.execute(
@@ -324,6 +346,12 @@ def test_daily_bar_correction_and_same_receipt_replay_are_stable(db_path):
 
 
 def test_financial_correction_and_same_receipt_replay_are_stable(db_path):
+    write = partial(
+        store_jquants_fin_summaries,
+        db_path,
+        requested_start=date.fromisoformat(DAY),
+        requested_end=date.fromisoformat(DAY),
+    )
     original = {
         "Code": "13010",
         "DiscDate": DAY,
@@ -340,8 +368,8 @@ def test_financial_correction_and_same_receipt_replay_are_stable(db_path):
         db_path, "financial_summaries", {"date": DAY}, correction_body, CORRECTION_AT
     )
 
-    assert project_request(db_path, original_id) == 1
-    assert project_request(db_path, correction_id) == 1
+    assert write(retained_records(db_path, original_id), fetched_at_utc=FIRST_CLOCK) == 1
+    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
     with sqlite3.connect(db_path) as conn:
         corrected_rows = conn.execute(
             "SELECT ticker, disclosed_at, disclosure_number, document_payload "
@@ -356,14 +384,14 @@ def test_financial_correction_and_same_receipt_replay_are_stable(db_path):
             f"get_fin_summary_range:{DAY}..{DAY}",
             DAY,
             DAY,
-            CORRECTION_AT.isoformat(timespec="microseconds"),
+            CORRECTION_CLOCK,
             1,
             "ok",
             None,
         )
     ]
 
-    assert project_request(db_path, correction_id) == 1
+    assert write(retained_records(db_path, correction_id), fetched_at_utc=CORRECTION_CLOCK) == 1
     with sqlite3.connect(db_path) as conn:
         assert (
             conn.execute(
@@ -376,64 +404,13 @@ def test_financial_correction_and_same_receipt_replay_are_stable(db_path):
     assert coverage(db_path, "jquants_fin_summaries") == corrected_coverage
 
 
-def test_code_filtered_query_cannot_replace_whole_day(db_path):
-    full_id = receive(
-        db_path,
-        "daily_bars",
-        {"date": DAY},
-        body([{"Code": "13010", "Date": DAY, "C": 100.0}]),
-        FIRST_AT,
-    )
-    filtered_id = receive(
-        db_path,
-        "daily_bars",
-        {"date": DAY, "code": "13010"},
-        body([{"Code": "13010", "Date": DAY, "C": 999.0}]),
-        CORRECTION_AT,
-    )
-    assert project_request(db_path, full_id) == 1
-    before_coverage = coverage(db_path, "jquants_daily_bars")
-
-    with pytest.raises(ValueError, match="unfiltered explicit source date"):
-        project_request(db_path, filtered_id)
-    with sqlite3.connect(db_path) as conn:
-        assert conn.execute("SELECT close FROM jquants_daily_bars").fetchall() == [(100.0,)]
-    assert coverage(db_path, "jquants_daily_bars") == before_coverage
-
-
-def test_incomplete_source_request_is_refused_before_projection(db_path):
-    original_id = receive(
-        db_path,
-        "daily_bars",
-        {"date": DAY},
-        body([{"Code": "13010", "Date": DAY, "C": 100.0}]),
-        FIRST_AT,
-    )
-    assert project_request(db_path, original_id) == 1
-    before_coverage = coverage(db_path, "jquants_daily_bars")
-    session = Session(
-        body([{"Code": "13010", "Date": DAY, "C": 100.0}], cursor="next"),
-        requests.ConnectionError("synthetic-test-key"),
-    )
-    client = JQuantsHTTP("synthetic-test-key", session=session, clock=lambda: FIRST_AT)
-    conn = open_connection(db_path)
-    try:
-        with pytest.raises(JQuantsAcquisitionError, match="ConnectionError") as caught:
-            acquire_request(conn, client, "daily_bars", {"date": DAY})
-        request_id = caught.value.request_id
-    finally:
-        conn.close()
-    assert request_id is not None
-
-    with pytest.raises(JQuantsAcquisitionError, match="incomplete"):
-        project_request(db_path, request_id)
-    with sqlite3.connect(db_path) as conn:
-        assert conn.execute("SELECT close FROM jquants_daily_bars").fetchall() == [(100.0,)]
-        assert len(read_request_pages(conn, request_id)) == 1
-    assert coverage(db_path, "jquants_daily_bars") == before_coverage
-
-
 def test_invalid_financial_record_keeps_partial_coverage_after_raw_projection(db_path):
+    write = partial(
+        store_jquants_fin_summaries,
+        db_path,
+        requested_start=date.fromisoformat(DAY),
+        requested_end=date.fromisoformat(DAY),
+    )
     original_id = receive(
         db_path,
         "financial_summaries",
@@ -441,10 +418,10 @@ def test_invalid_financial_record_keeps_partial_coverage_after_raw_projection(db
         body([source_record("financial_summaries", DAY)]),
         FIRST_AT,
     )
-    assert project_request(db_path, original_id) == 1
+    assert write(retained_records(db_path, original_id), fetched_at_utc=FIRST_CLOCK) == 1
     invalid_body = body([{"Code": "", "DiscDate": DAY, "DiscNo": "invalid-code"}])
     invalid_id = receive(db_path, "financial_summaries", {"date": DAY}, invalid_body, CORRECTION_AT)
-    assert project_request(db_path, invalid_id) == 0
+    assert write(retained_records(db_path, invalid_id), fetched_at_utc=CORRECTION_CLOCK) == 0
     with sqlite3.connect(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM jquants_fin_summaries").fetchone() == (0,)
         assert read_request_pages(conn, invalid_id)[0].body == invalid_body
@@ -453,7 +430,7 @@ def test_invalid_financial_record_keeps_partial_coverage_after_raw_projection(db
             f"get_fin_summary_range:{DAY}..{DAY}",
             DAY,
             DAY,
-            CORRECTION_AT.isoformat(timespec="microseconds"),
+            CORRECTION_CLOCK,
             0,
             "partial",
             "1 rejected records during normalization",
@@ -466,10 +443,16 @@ def test_failed_projection_keeps_retained_raw_body(db_path):
     request_id = receive(db_path, "daily_bars", {"date": DAY}, invalid_body, FIRST_AT)
 
     with pytest.raises(ValueError, match="outside the requested range"):
-        project_request(db_path, request_id)
+        store_jquants_daily_bars(
+            db_path,
+            retained_records(db_path, request_id),
+            requested_start=date.fromisoformat(DAY),
+            requested_end=date.fromisoformat(DAY),
+            fetched_at_utc=FIRST_CLOCK,
+        )
     with sqlite3.connect(db_path) as conn:
         assert [page.body for page in read_request_pages(conn, request_id)] == [invalid_body]
-        assert read_complete_request(conn, request_id).records() == [
+        assert retained_records(db_path, request_id) == [
             {"Code": "13010", "Date": "2026-10-15", "C": 100.0}
         ]
         assert conn.execute("SELECT COUNT(*) FROM jquants_daily_bars").fetchone()[0] == 0
@@ -533,8 +516,20 @@ def test_offline_readers_use_projected_rows_without_writing(db_path, monkeypatch
         body([{"Date": DAY, "HolDiv": "1"}]),
         FIRST_AT,
     )
-    for request_id in (bars_id, financial_id, calendar_id):
-        project_request(db_path, request_id)
+    with sqlite3.connect(db_path) as conn:
+        for request_id, writer in (
+            (bars_id, store_jquants_daily_bars),
+            (financial_id, store_jquants_fin_summaries),
+            (calendar_id, store_jquants_market_calendar),
+        ):
+            request = read_complete_request(conn, request_id)
+            writer(
+                db_path,
+                request.records(),
+                requested_start=day,
+                requested_end=day,
+                fetched_at_utc=request.received_at.isoformat(timespec="microseconds"),
+            )
     original_db = db_path.read_bytes()
 
     def unexpected_http(*args, **kwargs):
@@ -609,6 +604,12 @@ def _margin_alert_records_2018() -> list[dict[str, object]]:
 
 
 def test_margin_alert_offline_replay_keeps_distinct_application_dates(db_path, monkeypatch):
+    write = partial(
+        store_jquants_margin_alerts,
+        db_path,
+        requested_start=date(2018, 8, 10),
+        requested_end=date(2018, 8, 10),
+    )
     records = _margin_alert_records_2018()
     raw = body([*records, records[0]])
     request_id = receive(db_path, "margin_alerts", {"date": "2018-08-10"}, raw, FIRST_AT)
@@ -623,8 +624,8 @@ def test_margin_alert_offline_replay_keeps_distinct_application_dates(db_path, m
         pytest.fail("offline replay attempted HTTP")
 
     monkeypatch.setattr(requests.Session, "get", no_http)
-    assert project_request(db_path, request_id) == 2
-    assert project_request(db_path, request_id) == 2
+    assert write(retained_records(db_path, request_id), fetched_at_utc=FIRST_CLOCK) == 2
+    assert write(retained_records(db_path, request_id), fetched_at_utc=FIRST_CLOCK) == 2
     alerts = read_margin_alerts(db_path, date(2018, 8, 10), date(2018, 8, 10))
     assert alerts is not None
     assert [(row.ticker, row.applied_date, row.short_outstanding) for row in alerts] == [
@@ -642,12 +643,30 @@ def test_margin_alert_later_publication_retains_correction_to_old_application(db
     first_id = receive(
         db_path, "margin_alerts", {"date": "2018-08-10"}, body([later, earlier]), FIRST_AT
     )
-    assert project_request(db_path, first_id) == 2
+    assert (
+        store_jquants_margin_alerts(
+            db_path,
+            retained_records(db_path, first_id),
+            requested_start=date(2018, 8, 10),
+            requested_end=date(2018, 8, 10),
+            fetched_at_utc=FIRST_CLOCK,
+        )
+        == 2
+    )
     correction = {**earlier, "PubDate": "2018-08-11", "LongOut": 3131.0}
     correction_id = receive(
         db_path, "margin_alerts", {"date": "2018-08-11"}, body([correction]), CORRECTION_AT
     )
-    assert project_request(db_path, correction_id) == 3
+    assert (
+        store_jquants_margin_alerts(
+            db_path,
+            retained_records(db_path, correction_id),
+            requested_start=date(2018, 8, 11),
+            requested_end=date(2018, 8, 11),
+            fetched_at_utc=CORRECTION_CLOCK,
+        )
+        == 3
+    )
     alerts = read_margin_alerts(db_path, date(2018, 8, 10), date(2018, 8, 11))
     assert alerts is not None
     assert [(row.publication_date, row.applied_date, row.long_outstanding) for row in alerts] == [
@@ -658,11 +677,17 @@ def test_margin_alert_later_publication_retains_correction_to_old_application(db
 
 
 def test_margin_alert_same_three_column_identity_conflict_preserves_stored_rows(db_path):
+    write = partial(
+        store_jquants_margin_alerts,
+        db_path,
+        requested_start=date(2018, 8, 10),
+        requested_end=date(2018, 8, 10),
+    )
     later, earlier = _margin_alert_records_2018()
     first_id = receive(
         db_path, "margin_alerts", {"date": "2018-08-10"}, body([later, earlier]), FIRST_AT
     )
-    assert project_request(db_path, first_id) == 2
+    assert write(retained_records(db_path, first_id), fetched_at_utc=FIRST_CLOCK) == 2
     with sqlite3.connect(db_path) as conn:
         before_rows = conn.execute(
             "SELECT * FROM jquants_margin_alerts ORDER BY applied_date"
@@ -677,7 +702,10 @@ def test_margin_alert_same_three_column_identity_conflict_preserves_stored_rows(
         CORRECTION_AT,
     )
     with pytest.raises(JQuantsProviderError, match="conflicting margin alerts observation"):
-        project_request(db_path, conflict_id)
+        write(
+            retained_records(db_path, conflict_id),
+            fetched_at_utc=CORRECTION_CLOCK,
+        )
     with sqlite3.connect(db_path) as conn:
         assert (
             conn.execute("SELECT * FROM jquants_margin_alerts ORDER BY applied_date").fetchall()
@@ -695,7 +723,16 @@ def test_margin_alert_lake_round_trip_preserves_three_column_identity(
     narrow_release_policy(monkeypatch, datasets=("jquants.margin_alerts",), carries_history=None)
     records = _margin_alert_records_2018()
     request_id = receive(db_path, "margin_alerts", {"date": "2018-08-10"}, body(records), FIRST_AT)
-    assert project_request(db_path, request_id) == 2
+    assert (
+        store_jquants_margin_alerts(
+            db_path,
+            retained_records(db_path, request_id),
+            requested_start=date(2018, 8, 10),
+            requested_end=date(2018, 8, 10),
+            fetched_at_utc=FIRST_CLOCK,
+        )
+        == 2
+    )
     mirror = tmp_path / "mirror"
     with sealed_sqlite_snapshot(sqlite_path=db_path, mirror_root=mirror) as snapshot:
         exported = export_dataset_snapshot(

@@ -299,14 +299,37 @@ def test_financial_and_calendar_coverage_share_a_read_snapshot(tmp_path, monkeyp
 def test_margin_coverage_and_observations_share_a_snapshot(
     tmp_path, monkeypatch, source, table, day, reader_name
 ):
-    from tests.helpers.jquants_receipts import FIRST_AT, body, receive, source_record
+    from tests.helpers.jquants_receipts import FIRST_AT, source_record
 
-    from baibai_engine.machine_analysis.observations.jquants_projection import project_request
+    from baibai_engine.machine_analysis.observations.jquants_writer import (
+        store_jquants_all_issues_daily_margin,
+        store_jquants_margin_alerts,
+        store_jquants_short_sale_reports,
+        store_jquants_weekly_margin,
+    )
 
     path = tmp_path / "market.sqlite"
-    query = {"disc_date" if source == "short_sale_reports" else "date": day}
-    request_id = receive(path, source, query, body([source_record(source, day)]), FIRST_AT)
-    project_request(path, request_id)
+    writer, scope = {
+        "jquants_weekly_margin": (store_jquants_weekly_margin, ("week_end",)),
+        "jquants_all_issues_daily_margin": (
+            store_jquants_all_issues_daily_margin,
+            ("balance_date",),
+        ),
+        "jquants_margin_alerts": (
+            store_jquants_margin_alerts,
+            ("requested_start", "requested_end"),
+        ),
+        "jquants_short_sale_reports": (
+            store_jquants_short_sale_reports,
+            ("requested_start", "requested_end"),
+        ),
+    }[table]
+    writer(
+        path,
+        [source_record(source, day)],
+        fetched_at_utc=FIRST_AT.isoformat(timespec="microseconds"),
+        **dict.fromkeys(scope, date.fromisoformat(day)),
+    )
     with closing(sqlite3.connect(path)) as conn:
         conn.execute("PRAGMA journal_mode = WAL")
     if "published" in reader_name:

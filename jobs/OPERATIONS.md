@@ -501,7 +501,7 @@ rebuildは選択receipt集合で一日L2を置換するため、部分追加だ�
 | margin-alerts / short-sale-reports | --asof、任意--start。休場も公表確認。 |
 | margin-interest | --asof、有限backfillは--start / --end。固定calendarが必要。 |
 
-`rebuild-<source>-native`は--work-directory / --start / --end / --outputから新しいL2とinput.jsonを作る（calendarは下の専用引数）。保存入力からの再計算はGenerationのinputsにあるdescriptor付きexact InputSnapshotを--saved-inputへ渡す。head/summaryに付け替えず、新outputを使う。欠損/改変/partialのL2や不適格な[投影cache](src/baibai_jobs/integration/native_projection_cache.py)は同じ固定L1から再生成し、原本を再GETしない。
+`rebuild-<source>-native`は--work-directory / --start / --end / --outputから新しいL2とinput.jsonを作る（calendarは下の専用引数）。保存入力からの再計算はGenerationのinputsにあるdescriptor付きexact InputSnapshotを--saved-inputへ渡す。head/summaryに付け替えず、新outputを使う。欠損/改変/partialのL2や不適格な[投影cache](src/baibai_jobs/integration/native_projection_cache.py)は同じ固定L1から再生成し、原本を再GETしない。旧SQLite受領の汎用再投影入口は撤去済みで、旧原本・固定releaseの読取と移送済みstageの照合は保持する。
 
 <a id="sourceごとの通常読取"></a>
 
