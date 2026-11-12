@@ -1,0 +1,21 @@
+要素ID	項目名	コンテキストID	相対年度	連結・個別	期間・時点	ユニットID	単位	値
+jppfs_cor:CashAndDeposits	現金及び預金	Prior1YearInstant	前期末	連結	時点	JPY	円	181219000000
+jppfs_cor:CashAndDeposits	現金及び預金	InterimInstant	当中間期末	連結	時点	JPY	円	244826000000
+jppfs_cor:Assets	資産	Prior1YearInstant	前期末	連結	時点	JPY	円	969454000000
+jppfs_cor:Assets	資産	InterimInstant	当中間期末	連結	時点	JPY	円	1171597000000
+jppfs_cor:ShortTermLoansPayable	短期借入金	Prior1YearInstant	前期末	連結	時点	JPY	円	24727000000
+jppfs_cor:ShortTermLoansPayable	短期借入金	InterimInstant	当中間期末	連結	時点	JPY	円	40534000000
+jppfs_cor:CommercialPapersLiabilities	コマーシャル・ペーパー	Prior1YearInstant	前期末	連結	時点	JPY	円	－
+jppfs_cor:CommercialPapersLiabilities	コマーシャル・ペーパー	InterimInstant	当中間期末	連結	時点	JPY	円	20000000000
+jppfs_cor:CurrentPortionOfBonds	１年内償還予定の社債	Prior1YearInstant	前期末	連結	時点	JPY	円	10000000000
+jppfs_cor:CurrentPortionOfBonds	１年内償還予定の社債	InterimInstant	当中間期末	連結	時点	JPY	円	10000000000
+jppfs_cor:BondsPayable	社債	Prior1YearInstant	前期末	連結	時点	JPY	円	10000000000
+jppfs_cor:BondsPayable	社債	InterimInstant	当中間期末	連結	時点	JPY	円	10000000000
+jppfs_cor:LongTermLoansPayable	長期借入金	Prior1YearInstant	前期末	連結	時点	JPY	円	40250000000
+jppfs_cor:LongTermLoansPayable	長期借入金	InterimInstant	当中間期末	連結	時点	JPY	円	26950000000
+jppfs_cor:NetIncreaseDecreaseInCommercialPapersFinCF	コマーシャル・ペーパーの純増減額（△は減少）、財務活動によるキャッシュ・フロー	Prior1InterimDuration	前中間期	連結	期間	JPY	円	－
+jppfs_cor:NetIncreaseDecreaseInCommercialPapersFinCF	コマーシャル・ペーパーの純増減額（△は減少）、財務活動によるキャッシュ・フロー	InterimDuration	当中間期	連結	期間	JPY	円	20000000000
+jpdei_cor:AccountingStandardsDEI	会計基準、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	Japan GAAP
+jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI	連結決算の有無、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	true
+jpdei_cor:CurrentPeriodEndDateDEI	当会計期間終了日、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	2026-09-30
+jpdei_cor:CurrentFiscalYearEndDateDEI	当事業年度終了日、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	2027-03-31

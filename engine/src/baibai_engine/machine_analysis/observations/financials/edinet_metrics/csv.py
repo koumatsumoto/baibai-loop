@@ -198,6 +198,7 @@ _TAGS: dict[str, tuple[str, ...]] = {
     "total_assets": ("jppfs_cor:Assets",),
     "debt_components": (
         "jppfs_cor:ShortTermLoansPayable",
+        "jppfs_cor:CommercialPapersLiabilities",
         "jppfs_cor:CurrentPortionOfLongTermLoansPayable",
         "jppfs_cor:CurrentPortionOfBonds",
         "jppfs_cor:BondsPayable",

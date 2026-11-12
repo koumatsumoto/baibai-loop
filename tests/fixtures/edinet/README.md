@@ -56,3 +56,11 @@ S100Z12G（2776、連結）、S100ZC1D（9063、連結）、S100Y2OX（3494、�
 - S100Y2OX: CSV ZIP SHA256 `cc8f70eb368fefa725e14c6caaf649bd8d644480a18cb0f5c77bc9783a6ffb61`。中間CF本表は2025-10-01〜2026-03-31、CFO−32.809百万円、有形取得1,233.089百万円。無形取得の全角ダッシュは0に変えない。
 
 CSVの`InterimDuration`と書類metadataの年度末は別である。期間日は原本本文で照合したもので、現在のmetric recordが実context日を保持すると主張しない。既存fieldへ当期部分値を渡すだけで、完全CapEx/FCF・年率化・運転資金内訳の半期対応へ拡張しない。
+
+### 日本基準のコマーシャル・ペーパー残高
+
+S100ZEFD（5803、フジクラ半期）は固定L1の保持済みtype5 CSVから2026-11-12 UTCにread-onlyで取得した抜粋。原本ZIP SHA256は`d9a7acc64e55fbc46b4eab75c49e6a465aca3743d8b6f59d3d3015aac046ff97`、元受領は2026-11-11T16:49:48.568870Z。元のconcept/context・連単・単位・値を保ち、前期・CF純増減・会計/連結/期末DEIを含める。providerからの再取得はしていない。
+
+`AccountingStandardsDEI=Japan GAAP`、連結DEI=true。同じ`InterimInstant`のJPY残高は現金244,826百万円、短期借入40,534、`CommercialPapersLiabilities`20,000、1年内償還社債10,000、社債10,000、長期借入26,950。CPは独立表示であり、借入・社債との合計は107,484百万円、現金との差額は137,342百万円。`NetIncreaseDecreaseInCommercialPapersFinCF`の20,000百万円は別のフローなので加算しない。
+
+当会計期間末DEIは2026-09-30、年度末DEIは2027-03-31。[会社の2027年3月期中間決算短信](https://tdnet-pdf.kabutan.jp/20261110/140120261109569418.pdf)の中間連結BS（印刷ページ3）とも一致する。保持入力にtype1 XBRLはなく、そのcontext日付を検証済みとはしない。この対応は標準CP科目の追加であり、全金融債務・配分可能な株主余剰の完全性や、IFRSの社債借入総額への追加加算を意味しない。
