@@ -450,15 +450,13 @@ uv run python -m baibai_jobs.acquisition.external_assessments.raw --preserve-run
 
 lease外でacquire→inspect→ready --cumulative、共通統合で固定集合を公開/readbackしてackする。後着小集合で後退させない。確定分で明示終了するときだけworkflowの-f operation=stage_confirmed_partialを使う。401/403/429/未完を自動closeしない。pointer後terminal失敗は現状態を読み、未sealならfresh hydrateから再適用する。hard kill前の未保存試行・期限切れ原本の復元は保証しない。history_digestsは保存後baselineで、更新前の全履歴保全を証明しない。
 
-#### 株マップ未計算契約の切替
+#### 株マップの旧入力と未計算原本
 
-この変更はschema 50の通常writerへ投入しない。新codeとschema 51を一組で切り替える前に、対象writerの終了・queueを確認し、現market/runsの組、ETag、固定release、leaseと復帰先を固定する。取得原本や旧stage/readyのID・hash・失敗状態は書き換えない。
+schema 51への切替は[#2093](https://github.com/koumatsumoto/baibai-loop/pull/2093)で完了し、一回toolは撤去した。通常作業はfreshな現行copyを使い、旧schema 50 copyを現在の正本へ上書きしない。未公開の受領を含む旧copyが見つかった場合は、そのcopyを保持して元codeでの明示復旧を別に判断する。通常open/dailyは暗黙移行しない。
 
-- freshなschema 50作業copyを[明示local移行](../docs/development.md#kabumap-uncomputed-migration)で別のschema 51 copyへ変換する。他表・原本・既存観測の値/identity/受領時計を前後照合する。通常dailyによる暗黙移行はない。
 - 旧quants lake v1は元schemaで厳密検証し、hydrate時だけ`available`を補う。新公開はv2だけを使い、全旧partitionを保持する。既存v3成功stageは元parser revisionで照合し、旧failed stageを勝手に正常へ変えない。
-- 保存済み未計算原本の復旧は、移行後の隔離copyに対して明示したattemptだけを`external-assessment rebuild-raw`で再解析する。受領日を現在へ付け替えず、対象L2だけの差分、直前/直後cutoffの最新null、未計算から値が得られた時の比較を確認する。
-- synthetic CIと独立reviewだけで本番受入済みにしない。固定原本・旧release読取、L1/他表の保持、v2公開後のreadback、次の通常取得/統合の受入計画を確かめ、切替範囲の承認後に[共通公開](#machine-publication)を行う。403/429の再試行やprovider追加HTTPはこの移行に含めない。
-- 公開前の失敗は新copyを採用せず元を保つ。部分公開後は新しい受領を失う旧bundleの盲復元をせず、現objectとmachine receiptを照合して[部分pushの復旧](#部分-push-からの復旧)に従う。v2が公開済みなら旧codeはそのreleaseを読めないため、codeだけを戻さない。
+- 保存済み未計算原本の復旧は、現行の隔離copyに対して明示したattemptだけを`external-assessment rebuild-raw`で再解析する。受領日を現在へ付け替えず、対象L2だけの差分、直前/直後cutoffの最新null、未計算から値が得られた時の比較を確認し、[共通公開](#machine-publication)へ進む。403/429の再試行やprovider追加HTTPは含めない。
+- 部分公開後は[部分pushの復旧](#部分-push-からの復旧)に従う。v2を読めない旧codeだけへのrollbackや、新しい受領を失う旧bundleの盲復元はしない。
 
 <a id="tradingview-expectations"></a>
 ### TradingView

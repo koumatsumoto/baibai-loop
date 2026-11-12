@@ -88,12 +88,18 @@ def test_version_only_change_cannot_pass_for_receipt_schema(tmp_path):
         schema.open_connection(path)
 
 
-def test_prior_market_schema_version_is_not_migrated_implicitly(tmp_path):
+@pytest.mark.parametrize("version", [47, 50])
+@pytest.mark.parametrize("opener", [schema.open_connection, schema.connect_current])
+def test_prior_market_schema_version_is_not_migrated_implicitly(tmp_path, version, opener):
     path = tmp_path / "market.sqlite"
     with closing(schema.open_connection(path)) as connection, connection:
-        connection.execute("PRAGMA user_version = 47")
-    with pytest.raises(schema.SQLiteSchemaError, match="found user_version=47, expected=51"):
-        schema.open_connection(path)
+        connection.execute(f"PRAGMA user_version = {version}")
+    before = path.read_bytes()
+    with pytest.raises(
+        schema.SQLiteSchemaError, match=f"found user_version={version}, expected=51"
+    ):
+        opener(path)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(
