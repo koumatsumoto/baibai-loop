@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 
 import pytest
+from tests.helpers.edinet_csv_zip import _edinet_csv_zip
 
 from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
 from baibai_engine.machine_analysis.generation.contracts import (
@@ -272,13 +273,20 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert financial["edinet_source_doc_id"] == "S100TEST"
     assert financial["edinet_snapshot_asof"] == "2026-07-01"
     assert financial["edinet_source_period_end"] == "2026-03-31"
+    assert financial["edinet_reported_balances"]["amounts"] == {
+        "cash": 100.0,
+        "debt": 40.0,
+        "net_cash": 60.0,
+        "investment_securities": 10.0,
+    }
     assert missing[0].payload["financial"]["debt"] is None
     assert missing[0].payload["financial"]["edinet_reported_flows"] is None
+    assert missing[0].payload["financial"]["edinet_reported_balances"] is None
     assert present[0].payload["earnings_price"] == missing[0].payload["earnings_price"]
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))
@@ -325,6 +333,55 @@ def test_edinet_entity_mismatch_keeps_provenance_without_filling_financial_value
     assert financial["debt"] is None
     assert financial["edinet_source_doc_id"] == "S100MISMATCH"
     assert financial["edinet_failure_reasons"]
+    balances = financial["edinet_reported_balances"]
+    assert all(value is None for value in balances["amounts"].values())
+    assert balances["consolidation_basis"] == "non_consolidated"
+    assert balances["source_doc_id"] == "S100MISMATCH"
+    assert balances["failure_reasons"] == financial["edinet_failure_reasons"]
+
+
+@pytest.mark.parametrize("securities", [None, "0", "30"])
+def test_native_balances_keep_source_scope_missing_zero_and_unknown_measurement_date(securities):
+    rows = [
+        ("jppfs_cor:CashAndDeposits", "InterimInstant", "100"),
+        ("jppfs_cor:CashAndCashEquivalents", "InterimInstant", "60"),
+        ("jppfs_cor:LongTermLoansPayable", "InterimInstant", "40"),
+        # Neither a parent-only balance nor an associate is the selected security balance.
+        ("jppfs_cor:InvestmentSecurities", "InterimInstant_NonConsolidatedMember", "999"),
+        ("jppfs_cor:SharesOfSubsidiariesAndAssociates", "InterimInstant", "700"),
+    ]
+    if securities is not None:
+        rows.append(("jppfs_cor:InvestmentSecurities", "InterimInstant", securities))
+    record = parse_csv_zip_metric_record(
+        ticker="1001",
+        doc_id="S100BALANCE",
+        doc_type_code="160",
+        content=_edinet_csv_zip(rows),
+        submit_datetime="2026-08-07 09:00",
+        period_start=date(2026, 1, 1),
+        period_end=date(2026, 12, 31),
+    )
+    financial = generate(
+        documents=(document(),), bars=(PriceBar(ASOF, 10.0, None),), edinet=record
+    )[0].payload["financial"]
+    balances = financial["edinet_reported_balances"]
+    assert balances["amount_unit"] == "JPY"
+    assert balances["amounts"] == {
+        "cash": 100.0,
+        "debt": 40.0,
+        "net_cash": 60.0,
+        "investment_securities": None if securities is None else float(securities),
+    }
+    assert balances["consolidation_basis"] == "consolidated"
+    assert balances["source_doc_id"] == "S100BALANCE"
+    assert balances["source_submit_datetime"] == "2026-08-07 09:00"
+    assert balances["document_type"] == "160"
+    assert balances["filing_fiscal_period"] == {"start": "2026-01-01", "end": "2026-12-31"}
+    assert balances["measurement_date"] == {"date": None, "reason": "fact_date_not_retained"}
+    assert balances["interpretation"] == "reported_financial_balances_not_common_equity_surplus"
+    assert ("metric_unavailable:investment_securities" in balances["failure_reasons"]) == (
+        securities is None
+    )
 
 
 @pytest.mark.parametrize("price", [None, 0.0, -1.0])

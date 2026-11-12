@@ -861,6 +861,56 @@ def test_explicit_missing_book_stays_distinct_from_unrecorded_book():
     )
 
 
+def test_unrecorded_balance_context_does_not_rewrite_old_selection():
+    data = payloads()
+    baseline = project(data)
+    data["company_financials"]["financial"].update(
+        net_cash=100.0,
+        investment_securities=50.0,
+        edinet_source_submit_datetime="2025-08-12 09:00",
+    )
+    assert project(data) == baseline
+    assert "edinet_reported_balances" not in baseline.context["financial"]
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_reported_balances_reach_l3_brief_without_changing_paths_or_filling_claims(available):
+    inputs = payloads()
+    baseline = project(inputs)
+    balances = (
+        {
+            "amount_unit": "JPY",
+            "amounts": {
+                "cash": 100.0,
+                "debt": 40.0,
+                "net_cash": 60.0,
+                "investment_securities": 0.0,
+            },
+            "source_doc_id": "S100BALANCE",
+            "source_submit_datetime": "2025-08-12 09:00",
+            "consolidation_basis": "consolidated",
+            "measurement_date": {"date": None, "reason": "fact_date_not_retained"},
+            "filing_fiscal_period": {"start": "2025-04-01", "end": "2026-03-31"},
+            "interpretation": "reported_financial_balances_not_common_equity_surplus",
+        }
+        if available
+        else None
+    )
+    inputs["company_financials"]["financial"]["edinet_reported_balances"] = balances
+    original = deepcopy(inputs)
+    projected = project(inputs)
+    assert projected.paths == baseline.paths
+    assert projected.context["financial"]["edinet_reported_balances"] == balances
+    selected = select_economic_paths((projected,), policy=EconomicPathPolicy())
+    saved = TypeAdapter(EconomicPathSelection).dump_python(selected, mode="json")
+    brief = economic_screening_brief(saved)["cards"][0]["context"]["financial"]
+    assert "edinet_reported_balances" in brief
+    assert brief["edinet_reported_balances"] == balances
+    if available:
+        brief["edinet_reported_balances"]["amounts"]["cash"] = 1.0
+    assert inputs == original
+
+
 def test_economic_result_roundtrip_and_history_identity(tmp_path):
     header = metadata()
     generation = ModelGeneration(**header.model_dump(), models=models(payloads()))

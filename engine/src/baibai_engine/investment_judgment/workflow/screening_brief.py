@@ -104,6 +104,7 @@ def _card(card: dict[str, Any]) -> dict[str, Any]:
                     "earnings_forecast_source",
                     "forecast_full_year_loss_flag",
                     "book_equity",
+                    "edinet_reported_balances",
                     "cash",
                     "debt",
                     "fcf_ttm",
