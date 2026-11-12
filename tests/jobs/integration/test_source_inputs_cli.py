@@ -19,7 +19,7 @@ from baibai_engine.storage.snapshots.models import canonical_lake_model_bytes
 from baibai_engine.storage.snapshots.release import LakeReleasePointer
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.acquisition import source_inputs
-from baibai_jobs.acquisition.article_planning import ARTICLE_SOURCES, load_planning
+from baibai_jobs.acquisition.article_planning import COLLECTION_SOURCES, load_planning, source_key
 from baibai_jobs.acquisition.inputs import SOURCE_INPUT_GROUPS
 from baibai_jobs.acquisition.source_inputs import input_key, load_input
 from baibai_jobs.integration import sources
@@ -96,7 +96,7 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
     expected = list(SOURCE_INPUT_GROUPS)
     assert sources.main(command) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report == {"updated": expected + list(ARTICLE_SOURCES), "failed": []}
+    assert report == {"updated": expected + list(COLLECTION_SOURCES), "failed": []}
     assert {
         key
         for key in remote.values
@@ -108,7 +108,7 @@ def test_daily_cli_publishes_every_supported_input_and_reads_back_fixed_generati
         assert result["canonical_generations"] == GENERATIONS
         assert result["group"] == group
         assert result["asof"] == str(DAY)
-    for source in ARTICLE_SOURCES:
+    for source in COLLECTION_SOURCES:
         assert load_planning(remote, source)[0].generations == GENERATIONS
     assert not any("economic-" in key for key in remote.put_keys)
 
@@ -141,7 +141,7 @@ def test_native_cli_reports_failed_group_and_preserves_its_previous_input(
     report = json.loads(capsys.readouterr().out)
     assert report == {
         "updated": [group for group in SOURCE_INPUT_GROUPS if group != "tradingview"]
-        + list(ARTICLE_SOURCES),
+        + list(COLLECTION_SOURCES),
         "failed": [{"group": "tradingview", "reason": "ValueError"}],
     }
     assert remote.values[input_key("tradingview")] == prior
@@ -177,6 +177,22 @@ def test_daily_input_publication_leaves_retired_source_inputs_untouched(
         for key in remote.head_keys + remote.get_keys + remote.put_keys
     )
     assert {key: remote.values[key] for key in previous} == previous
+
+
+def test_daily_inputs_leave_on_demand_news_planning_untouched(tmp_path, monkeypatch, capsys):
+    remote, _, command = _input_cli(tmp_path, monkeypatch)
+    keys = {source_key(source) for source in ("minkabu_news", "rakuten_news")}
+    for key in keys:
+        remote.store_object(key, b"retained old planning")
+    previous = {key: remote.values[key] for key in keys}
+    remote.head_keys.clear()
+    remote.get_keys.clear()
+    remote.put_keys.clear()
+    assert sources.main(command) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert not {"minkabu_news", "rakuten_news"}.intersection(report["updated"])
+    assert not keys.intersection(remote.head_keys + remote.get_keys + remote.put_keys)
+    assert {key: remote.values[key] for key in keys} == previous
 
 
 @pytest.mark.parametrize("changed_key", ["market.sqlite", "runs.sqlite"])

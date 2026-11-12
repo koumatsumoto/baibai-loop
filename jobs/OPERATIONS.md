@@ -383,6 +383,8 @@ validateはL2算式/L3履歴の証明でない。原本更新時だけ経済push
 
 起動は[workflow](../.github/workflows/cloud-article-sources.yml)、source/予算は[契約](../engine/src/baibai_engine/data_collection/providers/articles/contracts.py)、cycle/再開は[planning](src/baibai_jobs/acquisition/article_planning.py)に従う。group直列化/共有host queueを守り、試行時計を受領成功にしない。TSRの正常indexでの日次充足とBOJ/MOFの再発見/未処理本文を分ける。
 
+`minkabu_news`と見出し専用の`rakuten_news`は通常・手動workflowの取得と新規planningの既定対象から外し、[必要時L3調査](../docs/reference/stock-assessment.md#recent-news-research)で読む。外部見解の見出しを含む将来の自動発見・取得時点原本は残らず、Web検索は速報性・全件再発見・過去bytesの復元を保証しない。未取得pendingは自動再開せず、保存済みreceipt/stage/世代とparser・遅着回復は保持する。同hostの数値External Assessment、`toushiru`の定性外部評価、他の記事sourceは別であり変更しない。
+
 初回planningは取得前にintegration.sources inputsで発行し、原本stage保存後だけCAS更新する。旧planningからの切替はpendingを新stageへ引継ぎ、旧writerをdrainする。統合は不変stage/markerから発見し、sealでplanningを変えない。L2停止中も原本/worksetを保つ。連鎖照合は失ったroot・CAS未確定孤立stage・導入前pending外の全原本復元を保証しない。
 
 continuation_onlyのpartialは正常継続で全取得完了ではない。HTTP/parse/deadline/CAS/保存失敗を分け、正常sourceを進める。HTTP失敗はDEGRADEDに残し、受領後parser失敗と分ける。401/403を受けたsourceはそのpassを終了し、失敗受領と未完worksetを保存して次の通常slotへ引き継ぐ。未完URLはvalidator cacheの128件上限で切り詰めない。既存のplanning 128KiB上限を超えた場合は全workset入りのimmutable handoffを残して明示失敗し、summary更新や次slotへの自動引継ぎの成功とは扱わない。200同値も別受領、304は具体的200 bodyへの参照。新GETで失った過去原本を復元したとしない。

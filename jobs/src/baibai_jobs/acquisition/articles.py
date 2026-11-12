@@ -56,6 +56,7 @@ from baibai_jobs.acquisition.article_frontier import (
 from baibai_jobs.acquisition.article_metrics import ArticleObjectMetrics
 from baibai_jobs.acquisition.article_planning import (
     ARTICLE_NAMESPACE,
+    COLLECTION_SOURCES,
     MAX_REQUEST_STATES,
     TSR_SOURCES,
     commit_stage,
@@ -70,17 +71,13 @@ from baibai_jobs.acquisition.article_planning import (
 from baibai_jobs.acquisition.cooldown import extend, quota_key, read_deadline
 from baibai_jobs.acquisition.receipts import download_fixed
 
-# The two shared hosts use the same Actions concurrency keys as the existing
-# external-assessment collector. Public providers do not wait behind that work.
+# トウシルは外部評価の楽天host queueを共有し、公的sourceはその待機に巻き込まない。
 GROUPS = {
     "public": tuple(
-        source
-        for source in SOURCES
-        if source not in WORLD_NEWS_SOURCES | {"minkabu_news", "rakuten_news", "toushiru"}
+        source for source in COLLECTION_SOURCES if source not in WORLD_NEWS_SOURCES | {"toushiru"}
     ),
-    "world": tuple(source for source in SOURCES if source in WORLD_NEWS_SOURCES),
-    "minkabu": ("minkabu_news",),
-    "rakuten": ("rakuten_news", "toushiru"),
+    "world": tuple(source for source in COLLECTION_SOURCES if source in WORLD_NEWS_SOURCES),
+    "rakuten": ("toushiru",),
 }
 
 
@@ -88,7 +85,6 @@ GROUPS = {
 GROUP_BYTES = {
     "public": 80 * 1024 * 1024,
     "world": 4 * 1024 * 1024,
-    "minkabu": 24 * 1024 * 1024,
     "rakuten": 24 * 1024 * 1024,
 }
 
@@ -96,10 +92,13 @@ GROUP_BYTES = {
 def cooldown_key(source: str) -> str:
     # Match the existing shared quota across article/equity workflows. Public
     # providers keep independent waits; the two TSR streams share one provider.
-    quota = next(
-        (group for group in ("minkabu", "rakuten") if source in GROUPS[group]),
-        "tsr" if source in {"tsr_data", "tsr_flash"} else source,
-    )
+    quota = {
+        "minkabu_news": "minkabu",
+        "rakuten_news": "rakuten",
+        "toushiru": "rakuten",
+        "tsr_data": "tsr",
+        "tsr_flash": "tsr",
+    }.get(source, source)
     return quota_key(quota)
 
 

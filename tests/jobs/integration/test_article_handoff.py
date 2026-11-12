@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from tests.helpers.edinet_native import empty_edinet_input
 
+from baibai_engine.data_collection.providers.articles.contracts import SOURCES
 from baibai_engine.data_collection.receipts.articles.contracts import ArticleReceipt, BodyRef
 from baibai_engine.data_collection.receipts.articles.store import retain_receipt
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
@@ -13,13 +14,17 @@ from baibai_jobs.integration.article_handoff import import_handoff
 from baibai_jobs.publication.article_verification import capture_delta
 
 
-def _packet(directory, identity, received_at):
+def _packet(directory, identity, received_at, *, source="boj_news"):
     directory.mkdir()
-    body = b"<rss><channel><item><link>https://www.boj.or.jp/synthetic.htm</link><title>Synthetic headline</title><description>Unsupported synthetic summary</description></item></channel></rss>"
+    body = {
+        "boj_news": b"<rss><channel><item><link>https://www.boj.or.jp/synthetic.htm</link><title>Synthetic headline</title><description>Unsupported synthetic summary</description></item></channel></rss>",
+        "minkabu_news": b'<a href="/news/1">Synthetic headline</a>',
+        "rakuten_news": b'<a href="https://www.rakuten-sec.co.jp/Direct_Login/?story=1">Synthetic headline</a>',
+    }[source]
     receipt = ArticleReceipt(
         receipt_id=identity,
-        source="boj_news",
-        requested_url="https://www.boj.or.jp/rss/whatsnew.xml",
+        source=source,
+        requested_url=SOURCES[source].entry_url,
         received_at=received_at,
         status="ok",
         http_status=200,
@@ -30,7 +35,7 @@ def _packet(directory, identity, received_at):
     (directory / "result.json").write_text(
         json.dumps(
             {
-                "source": "boj_news",
+                "source": source,
                 "receipt_ids": [identity],
                 "projection_kinds": {identity: "index"},
                 "status": "completed",
@@ -40,13 +45,14 @@ def _packet(directory, identity, received_at):
     return receipt
 
 
-def test_same_value_200_reuses_artifact_and_readback_keeps_its_original_closure(tmp_path):
+@pytest.mark.parametrize("source", ["boj_news", "minkabu_news", "rakuten_news"])
+def test_same_value_200_reuses_artifact_and_readback_keeps_its_original_closure(tmp_path, source):
     database = tmp_path / "market.sqlite"
     stamp = datetime(2026, 10, 29, tzinfo=UTC)
-    old = _packet(tmp_path / "old", "old-receipt", stamp)
-    new = _packet(tmp_path / "new", "new-receipt", stamp + timedelta(hours=4))
-    first = import_handoff("boj_news", database, tmp_path / "old")
-    second = import_handoff("boj_news", database, tmp_path / "new")
+    old = _packet(tmp_path / "old", "old-receipt", stamp, source=source)
+    new = _packet(tmp_path / "new", "new-receipt", stamp + timedelta(hours=4), source=source)
+    first = import_handoff(source, database, tmp_path / "old")
+    second = import_handoff(source, database, tmp_path / "new")
     assert first.complete
     assert second.complete
     assert first.report["artifact_ids"] == second.report["artifact_ids"]
@@ -56,7 +62,7 @@ def test_same_value_200_reuses_artifact_and_readback_keeps_its_original_closure(
     assert set(delta["articles.source_receipts"]) == {old.receipt_id, new.receipt_id}
     assert set(delta["articles.extraction_artifacts"]) == set(first.report["artifact_ids"])
     # Explicit late replay adds no new original and cannot replace the newer one.
-    assert import_handoff("boj_news", database, tmp_path / "old").complete
+    assert import_handoff(source, database, tmp_path / "old").complete
     with closing(open_connection(database)) as conn:
         rows = conn.execute(
             "SELECT receipt_json FROM article_source_receipts ORDER BY receipt_id"

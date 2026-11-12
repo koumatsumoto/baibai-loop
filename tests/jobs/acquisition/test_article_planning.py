@@ -44,33 +44,34 @@ def test_missing_input_is_not_an_empty_success_and_cooldown_survives_slots():
     assert is_due(state, slot=SLOT + timedelta(hours=8), now=SLOT + timedelta(hours=8))
 
 
-def test_private_raw_precedes_planning_and_seal_never_mutates_acquisition(tmp_path):
+@pytest.mark.parametrize("source", ["boj_news", "minkabu_news", "rakuten_news"])
+def test_private_raw_precedes_planning_and_seal_never_mutates_acquisition(tmp_path, source):
     remote = MemoryR2Store()
-    publish_planning_input(remote, "boj_news", {"lake_release_id": "initial"})
-    state, etag = load_planning(remote, "boj_news")
+    publish_planning_input(remote, source, {"lake_release_id": "initial"})
+    state, etag = load_planning(remote, source)
     entry = commit_stage(
         remote,
         state=state,
         expected_etag=etag,
         slot=SLOT,
-        stage_id="boj_news-slot",
-        directory=_packet(tmp_path),
+        stage_id=f"{source}-slot",
+        directory=_packet(tmp_path, source),
         requests={"request": {"etag": "validator"}},
         cursor={"page": 2},
         not_before=None,
     )
-    assert remote.put_keys.index(source_key("boj_news")) == 0  # initial input
-    assert remote.put_keys[-1] == source_key("boj_news")
+    assert remote.put_keys.index(source_key(source)) == 0  # initial input
+    assert remote.put_keys[-1] == source_key(source)
     assert remote.put_keys[-2].endswith("/handoff.json")
     remote.get_keys.clear()
     (available,) = pending_handoffs(remote)
     assert all(available[key] == value for key, value in entry.items())
     assert all(not key.endswith(".sqlite") for key in remote.get_keys)
-    original_etag = remote.head(source_key("boj_news")).etag
+    original_etag = remote.head(source_key(source)).etag
     seal_integrated(remote, entry, generations={}, recovery=False)
     assert pending_handoffs(remote) == []
-    assert remote.head(source_key("boj_news")).etag == original_etag
-    state, _ = load_planning(remote, "boj_news")
+    assert remote.head(source_key(source)).etag == original_etag
+    state, _ = load_planning(remote, source)
     assert state.last_stage == entry
     assert state.cursor == {"page": 2}
     assert state.requests == {"request": {"etag": "validator"}}
