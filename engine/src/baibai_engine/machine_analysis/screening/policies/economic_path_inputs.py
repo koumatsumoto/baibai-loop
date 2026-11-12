@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date, timedelta
 from math import isclose
+from typing import cast
 
 from pydantic import JsonValue
 
@@ -55,7 +56,7 @@ def project_company(
     earnings = _object(valuation.get("earnings_price"))
     earnings_read = read_earnings_price(earnings) if earnings else None
     growth = payloads.get("company_growth", {})
-    growth_read = CompanyGrowthReader(payloads.get("company_growth"))
+    growth_read = CompanyGrowthReader(_growth_policy_inputs(payloads.get("company_growth")))
     market = payloads.get("market_context", {})
     master = _object(market.get("master"))
     sector = _text(master.get("sector_33"))
@@ -450,6 +451,47 @@ def project_company(
         model_revisions={key: model.calculation_revision for key, model in index.items()},
         not_generated=tuple(model for model in expected if model not in index),
     )
+
+
+def _growth_policy_inputs(payload: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+    if payload is None:
+        return None
+    periods = cast(list[dict[str, JsonValue]], payload.get("periods", []))
+    latest = periods[-1] if periods else None
+    full_fy = next((item for item in reversed(periods) if item["fiscal_period"] == "FY"), None)
+    targets = {
+        (item["measurement"], item["period_start"], item["period_end"])
+        for state in (latest, full_fy)
+        if state is not None
+        for item in cast(list[dict[str, JsonValue]], state["observations"])
+        if item["measurement"] == "annual_ttm"
+        or (state is latest and item["measurement"] == "quarter")
+    }
+    changes = [
+        item
+        for item in cast(list[dict[str, JsonValue]], payload.get("changes", []))
+        if item["metric"] in _PATH_METRICS
+        and (item["measurement"], item["to_start"], item["to_end"]) in targets
+    ]
+    prior = {
+        (item["measurement"], item.get("from_start"), item.get("from_end")) for item in changes
+    }
+    # Only the policy's temporary typed read is bounded. Keep every matching prior
+    # and duplicate comparison, plus untouched coverage/PDF evidence and saved bytes.
+    return {
+        **payload,
+        "periods": [
+            state
+            for state in periods
+            if state is latest
+            or state is full_fy
+            or any(
+                (item["measurement"], item["period_start"], item["period_end"]) in prior
+                for item in cast(list[dict[str, JsonValue]], state["observations"])
+            )
+        ],
+        "changes": list(changes),
+    }
 
 
 def _can_use_full_fy(

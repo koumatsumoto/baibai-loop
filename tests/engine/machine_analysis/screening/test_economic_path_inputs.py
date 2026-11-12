@@ -37,6 +37,7 @@ from baibai_engine.machine_analysis.observations.financials.jquants_models impor
 )
 from baibai_engine.machine_analysis.observations.prices.price_models import PriceBar
 from baibai_engine.machine_analysis.screening.contracts import ScreeningSelection
+from baibai_engine.machine_analysis.screening.policies import economic_path_inputs
 from baibai_engine.machine_analysis.screening.policies.economic_path_inputs import (
     project_company,
 )
@@ -183,6 +184,47 @@ def test_valid_paths_use_fixed_observations_and_periods():
     assert active(result, "earning_power").business_value == 0.1
     assert active(result, "business_expansion").variant == "quarter"
     assert active(result, "operating_recovery").business_value == 0.02
+
+
+def test_growth_policy_read_bounds_history_without_changing_evidence_or_saved_payload(monkeypatch):
+    data = payloads()
+    growth = data["company_growth"]
+    latest = growth["periods"][-1]
+    history = []
+    for year in (2022, 2024, 2024):
+        state = deepcopy(latest)
+        for key in ("fiscal_year_end", "period_start", "period_end"):
+            state[key] = state[key].replace("2025", str(year))
+        for item in state["observations"]:
+            for key in ("period_start", "period_end"):
+                item[key] = item[key].replace("2025", str(year))
+        history.append(state)
+    history[-1]["fiscal_year_end"] = "2025-03-31"
+    growth["periods"] = [*history, latest]
+    old_changes = deepcopy(growth["changes"])
+    for change in old_changes:
+        change["to_start"] = change["to_start"].replace("2025", "2022")
+        change["to_end"] = change["to_end"].replace("2025", "2022")
+    duplicate = deepcopy(growth["changes"][1])
+    duplicate.pop("margin_points")
+    growth["changes"] = [*old_changes, *growth["changes"], duplicate]
+    before = canonical_json(data)
+
+    bounded = economic_path_inputs._growth_policy_inputs(growth)
+    assert bounded["periods"] == [*history[1:], latest]
+    assert len(bounded["changes"]) == 7
+    assert bounded["changes"][-1] is duplicate
+    assert all(
+        bounded[key] is value for key, value in growth.items() if key not in {"periods", "changes"}
+    )
+    result = project(data)
+    assert (
+        result.context["latest_growth_changes"]["operating_profit"]["latest_quarter"]["reason"]
+        == "ambiguous_growth_comparison"
+    )
+    monkeypatch.setattr(economic_path_inputs, "_growth_policy_inputs", lambda payload: payload)
+    assert project(data) == result
+    assert canonical_json(data) == before
 
 
 def test_projected_observation_standard_reaches_the_bounded_brief():
