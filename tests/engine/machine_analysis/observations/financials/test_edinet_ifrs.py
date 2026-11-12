@@ -112,11 +112,63 @@ def test_native_mixed_standard_filing_uses_declared_ifrs_not_japanese_gaap(
     assert record.net_cash is None
 
 
-@pytest.mark.parametrize("namespace", ["issuer", "other", "JPIGP_COR"])
-def test_ifrs_aliases_do_not_guess_issuer_or_other_namespace(namespace):
+def test_native_ifrs_combined_capex_keeps_annual_period_and_missing_components():
+    fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / "S100YG7Z.tsv"
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("facts.csv", fixture.read_text().encode("utf-16-le"))
+    record = parse_csv_zip_metric_record(
+        ticker="6803",
+        doc_id="S100YG7Z",
+        doc_type_code="120",
+        content=buffer.getvalue(),
+        period_start=date(2025, 4, 1),
+        period_end=date(2026, 3, 31),
+        submit_datetime="2026-06-25 13:08",
+    )
+    assert record.consolidation_basis == "consolidated"
+    assert (record.ocf_ttm, record.capex_ttm, record.fcf_ttm) == (
+        1_610_000_000,
+        151_000_000,
+        1_459_000_000,
+    )
+    assert record.ttm_quality_fcf == "exact"
+    assert record.capex_source == "purchase_of_fixed_assets"
+    assert record.capex_ppe_reported is None
+    assert record.capex_intangible_reported is None
+    assert "metric_unavailable:capex" not in record.failure_reasons
+    assert record.source_doc_id == "S100YG7Z"
+    assert record.source_submit_datetime == "2026-06-25 13:08"
+    assert record.source_period_start == date(2025, 4, 1)
+    assert record.source_period_end == date(2026, 3, 31)
+
+
+def test_ifrs_combined_capex_non_jpy_total_does_not_fall_back_to_components():
+    prefix = "jpigp_cor:PurchaseOf"
     text = (
         "要素ID\tコンテキストID\tユニットID\t値\n"
-        f"{namespace}:RevenueIFRS\tInterimDuration\tJPY\t999\n"
+        f"{prefix}PropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS\tCurrentYearDuration\tUSD\t-151\n"
+        f"{prefix}PropertyPlantAndEquipmentInvCFIFRS\tCurrentYearDuration\tJPY\t-100\n"
+        f"{prefix}IntangibleAssetsInvCFIFRS\tCurrentYearDuration\tJPY\t-51\n"
+    )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("facts.csv", text.encode("utf-16-le"))
+    record = parse_csv_zip_metric_record(
+        ticker="0000", doc_id="S100TEST", doc_type_code="120", content=buffer.getvalue()
+    )
+    assert record.capex_ttm is None
+    assert record.fcf_ttm is None
+
+
+@pytest.mark.parametrize("namespace", ["issuer", "other", "JPIGP_COR"])
+@pytest.mark.parametrize(
+    "concept", ["RevenueIFRS", "PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS"]
+)
+def test_ifrs_aliases_do_not_guess_issuer_or_other_namespace(namespace, concept):
+    text = (
+        "要素ID\tコンテキストID\tユニットID\t値\n"
+        f"{namespace}:{concept}\tInterimDuration\tJPY\t999\n"
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -125,4 +177,5 @@ def test_ifrs_aliases_do_not_guess_issuer_or_other_namespace(namespace):
         ticker="0000", doc_id="S100TEST", doc_type_code="160", content=buffer.getvalue()
     )
     assert record.sales_ttm is None
+    assert record.capex_ttm is None
     assert record.consolidation_basis is None
