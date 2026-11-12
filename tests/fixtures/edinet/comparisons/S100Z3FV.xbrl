@@ -1,0 +1,42 @@
+<xbrli:xbrl xmlns:jpdei_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpdei/2013-08-31/jpdei_cor" xmlns:jpigp_cor="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2025-11-01/jpigp_cor" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:iso4217="http://www.xbrl.org/2003/iso4217">
+  <xbrli:context id="FilingDateInstant">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E31036-000</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:instant>2026-09-24</xbrli:instant>
+    </xbrli:period>
+  </xbrli:context>
+  <xbrli:context id="CurrentYearDuration">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E31036-000</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:startDate>2025-07-01</xbrli:startDate>
+      <xbrli:endDate>2026-06-30</xbrli:endDate>
+    </xbrli:period>
+  </xbrli:context>
+  <xbrli:context id="Prior1YearDuration">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://disclosure.edinet-fsa.go.jp">E31036-000</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:startDate>2024-07-01</xbrli:startDate>
+      <xbrli:endDate>2025-06-30</xbrli:endDate>
+    </xbrli:period>
+  </xbrli:context>
+  <xbrli:unit id="JPY">
+    <xbrli:measure>iso4217:JPY</xbrli:measure>
+  </xbrli:unit>
+  <jpigp_cor:Revenue2IFRS contextRef="Prior1YearDuration" decimals="-3" unitRef="JPY">25370424000</jpigp_cor:Revenue2IFRS>
+  <jpigp_cor:Revenue2IFRS contextRef="CurrentYearDuration" decimals="-3" unitRef="JPY">25634193000</jpigp_cor:Revenue2IFRS>
+  <jpigp_cor:OperatingProfitLossIFRS contextRef="Prior1YearDuration" decimals="-3" unitRef="JPY">-1155922000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:OperatingProfitLossIFRS contextRef="CurrentYearDuration" decimals="-3" unitRef="JPY">1100296000</jpigp_cor:OperatingProfitLossIFRS>
+  <jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS contextRef="Prior1YearDuration" decimals="-3" unitRef="JPY">-1711953000</jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS>
+  <jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS contextRef="CurrentYearDuration" decimals="-3" unitRef="JPY">465710000</jpigp_cor:ProfitLossAttributableToOwnersOfParentIFRS>
+  <jpigp_cor:Revenue2IFRS contextRef="Prior1YearDuration" decimals="-3" unitRef="JPY">25370424000</jpigp_cor:Revenue2IFRS>
+  <jpigp_cor:Revenue2IFRS contextRef="CurrentYearDuration" decimals="-3" unitRef="JPY">25634193000</jpigp_cor:Revenue2IFRS>
+  <jpdei_cor:SecurityCodeDEI contextRef="FilingDateInstant">60300</jpdei_cor:SecurityCodeDEI>
+  <jpdei_cor:AccountingStandardsDEI contextRef="FilingDateInstant">IFRS</jpdei_cor:AccountingStandardsDEI>
+  <jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI contextRef="FilingDateInstant">true</jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI>
+</xbrli:xbrl>

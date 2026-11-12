@@ -1,0 +1,7 @@
+<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <link:presentationLink xlink:type="extended" xlink:role="http://disclosure.edinet-fsa.go.jp/role/jpigp/rol_ConsolidatedStatementOfProfitOrLossIFRS">
+    <link:loc xlink:type="locator" xlink:href="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2025-11-01/jpigp_cor_2025-11-01.xsd#jpigp_cor_OperatingProfitLossIFRS" xlink:label="jpigp_cor_OperatingProfitLossIFRS" />
+    <link:loc xlink:type="locator" xlink:href="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2025-11-01/jpigp_cor_2025-11-01.xsd#jpigp_cor_ProfitLossAttributableToOwnersOfParentIFRS" xlink:label="jpigp_cor_ProfitLossAttributableToOwnersOfParentIFRS" />
+    <link:loc xlink:type="locator" xlink:href="http://disclosure.edinet-fsa.go.jp/taxonomy/jpigp/2025-11-01/jpigp_cor_2025-11-01.xsd#jpigp_cor_Revenue2IFRS" xlink:label="jpigp_cor_Revenue2IFRS" />
+  </link:presentationLink>
+</link:linkbase>

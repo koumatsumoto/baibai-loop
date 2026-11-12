@@ -36,8 +36,9 @@ from baibai_engine.machine_analysis.observations.financials.financial_periods im
 )
 
 _ROLES = {
-    "annual": "rol_StatementOfProfitOrLossIFRS",
-    "interim": "rol_CondensedSemiAnnualConsolidatedStatementOfProfitOrLossIFRS",
+    ("annual", False): "rol_StatementOfProfitOrLossIFRS",
+    ("annual", True): "rol_ConsolidatedStatementOfProfitOrLossIFRS",
+    ("interim", True): "rol_CondensedSemiAnnualConsolidatedStatementOfProfitOrLossIFRS",
 }
 _CONCEPTS: dict[ComparativeMetric, tuple[str, ...]] = {
     "sales": ("RevenueIFRS", "NetSalesIFRS"),
@@ -141,7 +142,10 @@ def _dei(instance: Instance, name: str) -> str:
     return values.pop()
 
 
-def _presentation(content: bytes, kind: str) -> tuple[str, str, set[str]]:
+def _presentation(content: bytes, kind: str, *, consolidated: bool) -> tuple[str, str, set[str]]:
+    expected = _ROLES.get((kind, consolidated))
+    if expected is None:
+        raise SourceFormatError("comparison_main_statement_unknown")
     links: list[tuple[str, str, set[str]]] = []
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         files = [
@@ -155,7 +159,7 @@ def _presentation(content: bytes, kind: str) -> tuple[str, str, set[str]]:
             root, _ = xml_root(archive.read(file))
             for link in root:
                 role = link.get(f"{{{XLINK}}}role", "")
-                if role != "http://disclosure.edinet-fsa.go.jp/role/jpigp/" + _ROLES[kind]:
+                if role != "http://disclosure.edinet-fsa.go.jp/role/jpigp/" + expected:
                     continue
                 concepts = {
                     loc.get(f"{{{XLINK}}}href", "").partition("#")[2]
@@ -284,7 +288,7 @@ def extract_comparisons(
             or date.fromisoformat(current.period_end) > base.source_submit_datetime.date()
         ):
             raise SourceFormatError("comparison_periods_incomparable")
-        presentation = _presentation(content, kind)
+        presentation = _presentation(content, kind, consolidated=consolidated)
         base = base.model_copy(
             update={
                 "current_period_start": date.fromisoformat(current.period_start),
