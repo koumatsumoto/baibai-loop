@@ -124,7 +124,10 @@ def test_live_collector_separates_acquisition_and_receipt_time(monkeypatch):
     assert result.stop_reason is None
     assert all(before <= row.fetched_at_utc <= after for row in result.observations)
     assert client.calls[-1][0].endswith("bcode=7203.T")
-    assert all(call[1] == {"timeout": 10, "allow_redirects": False} for call in client.calls)
+    assert all(
+        call[1] == {"timeout": 10, "allow_redirects": False, "stream": True}
+        for call in client.calls
+    )
 
 
 @pytest.mark.parametrize(

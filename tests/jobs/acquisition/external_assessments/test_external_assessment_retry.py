@@ -77,6 +77,7 @@ def wire_collector(monkeypatch, store, p, clock, responses):
             result.encoding = "utf-8"
             result.headers["Content-Type"] = "text/html; charset=utf-8"
             result._content = body.encode()
+            result._content_consumed = True
             if header is not None:
                 result.headers["Retry-After"] = header
             return result
