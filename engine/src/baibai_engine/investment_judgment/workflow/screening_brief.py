@@ -343,6 +343,8 @@ def _market_relative(relative: dict[str, Any]) -> dict[str, Any]:
             "relative_5d",
             "relative_20d",
             "relative_60d",
+            "window_basis",
+            "comparison_windows",
         ),
         "sector": _pick(
             _object(relative.get("sector")),

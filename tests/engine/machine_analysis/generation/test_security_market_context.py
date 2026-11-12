@@ -335,12 +335,18 @@ def test_relative_uses_exact_target_endpoints(tmp_path, missing):
     profile = _security_context(tmp_path, end)
     assert profile["price"]["return_1d"] == pytest.approx(0.21)
     relative = profile["relative"]
+    assert relative["window_basis"] == "observed_security_bar_differences"
+    assert relative["comparison_windows"]["relative_1d"] == {
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+    }
     if missing is None:
         assert relative["relative_1d"] == pytest.approx(0)
     else:
         assert relative["relative_1d"] is None
     for window in (5, 20, 60):
         assert relative[f"relative_{window}d"] is None
+        assert relative["comparison_windows"][f"relative_{window}d"] is None
 
 
 @pytest.mark.parametrize("window", [1, 5, 20, 60])
@@ -360,6 +366,10 @@ def test_relative_loads_suspended_target_interval_and_ignores_later_bars(tmp_pat
     own_return = target[-1][1] / 100 - 1
     assert profile["price"][f"return_{window}d"] == pytest.approx(own_return)
     assert profile["relative"][f"relative_{window}d"] == pytest.approx(own_return - 0.1)
+    assert profile["relative"]["comparison_windows"][f"relative_{window}d"] == {
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+    }
 
 
 @pytest.mark.parametrize("target_count", [20, 21])
