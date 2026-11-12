@@ -220,3 +220,13 @@ def test_acquisition_capabilities_keep_their_bounds_at_the_provider_owner(
     assert spec.all_history_rolling_years == rolling
     assert spec.required_env == required_env
     assert not spec.point_in_time_vintage
+
+
+def test_secondary_pmi_delivery_is_not_an_acquisition_provider():
+    from baibai_engine.data_collection.acquisition.policy import acquisition_groups
+    from baibai_engine.data_collection.transport.context import IndicatorsProviderError
+
+    assert "tradingeconomics_pmi" not in acquisition_groups()
+    assert all(source.provider != "tradingeconomics_pmi" for source in load_sources().values())
+    with pytest.raises(IndicatorsProviderError, match="unsupported indicator provider"):
+        provider_spec("tradingeconomics_pmi")

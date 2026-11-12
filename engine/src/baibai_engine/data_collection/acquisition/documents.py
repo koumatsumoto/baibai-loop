@@ -6,7 +6,6 @@ from datetime import date
 from baibai_engine.data_collection.catalog import SourceDefinition
 from baibai_engine.data_collection.providers.matsui.margin import MatsuiMarginSource
 from baibai_engine.data_collection.providers.spglobal.pmi import SpGlobalPmiSource
-from baibai_engine.data_collection.providers.tradingeconomics.pmi import TradingEconomicsPmiSource
 from baibai_engine.data_collection.providers.tsr.bankruptcies import TsrBankruptciesSource
 from baibai_engine.data_collection.receipts.native_sources.documents import (
     SourceDocument,
@@ -27,17 +26,6 @@ def fetch_source_documents(
 ) -> Iterator[SourceDocument]:
     if source.provider == "spglobal_pmi":
         yield from SpGlobalPmiSource().fetch_documents(
-            source,
-            start=start,
-            end=end,
-            session=context.session,
-            context=context,
-            existing=existing,
-            force=force,
-            recheck_existing=recheck_existing,
-        )
-    elif source.provider == "tradingeconomics_pmi":
-        yield from TradingEconomicsPmiSource().fetch_documents(
             source,
             start=start,
             end=end,
