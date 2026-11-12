@@ -37,6 +37,8 @@ context/check/previewの指値試算は計算条件の上限と実quoteを分け
 
 context/check/previewは同じ未拘束cashで指値全量成立する条件例で、数量未指定の上限量は採用量でない。[分配/税費用の算術](stock-assessment.md#scenario-arithmetic)に従い残cash/現金維持は無利息。全体NAV/約定予測ではなく、待機後の買付・cash利回り・費用が採否を変えるなら同一終期の別案へ反映する。
 
+数量上限は売買代金だけから求め、買付費用を自動確保しない。既知の買付費用があれば、その支払い後も未拘束cash内に収まる数量を選ぶ。比較には確認できた費用と仮定、不明なspread/impactを分けて残し、費用の未算入を0円確認としない。
+
 待機では逃す利益と保持cash・他機会・回避損失・追加情報を比較する。悪材料時の逆選択/event gapも考え、約定率×Base利益だけで選ばない。価値織込済みの毀損をpenaltyへ重ねず、機会損失を事後最高値としない。ADV/日足から板・queue・impact・精密約定率を創作せず、`low <= limit`も約定保証にしない。確率には[根拠・幅・感応度](../doctrine.md#fact-analysis-separation)を示す。
 
 session・前提/イベントと未約定・部分約定・新情報後の確認時点を残す。変更は[再Review](#publication-review)へ。部分約定後は実保有・残注文・cash/no-addで判断し、残数再提案・指値引上げ/延長・上限超追随を自動化しない。

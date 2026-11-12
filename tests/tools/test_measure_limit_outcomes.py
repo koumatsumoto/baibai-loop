@@ -9,7 +9,6 @@ import yaml
 from tests.helpers.db_seed import seed_ledger
 from tests.helpers.screening_sqlite import add_source_coverage
 from tools.experiments.measure_limit_outcomes import (
-    POST_EXPIRY_SESSIONS,
     LimitOutcomeMeasurementError,
     build_limit_outcomes,
     main,
@@ -101,18 +100,6 @@ def _market(path: Path, bars: list[tuple[str, float, float]]) -> None:
         connection.close()
 
 
-def _post_expiry_sessions(
-    *, high_close: float, sessions: int = POST_EXPIRY_SESSIONS
-) -> list[tuple[str, float, float]]:
-    """Bars after the 2026-07-10 expiry, the last one carrying the highest close."""
-
-    days = [date(2026, 7, 13) + timedelta(days=offset) for offset in range(sessions)]
-    return [
-        (day.isoformat(), 1200.0, high_close if index == sessions - 1 else 1210.0)
-        for index, day in enumerate(days)
-    ]
-
-
 def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_path: Path) -> None:
     app_db = tmp_path / "app.sqlite"
     market = tmp_path / "market.sqlite"
@@ -139,73 +126,57 @@ def test_an_expired_order_reports_how_far_the_low_stayed_above_the_limit(tmp_pat
         [
             ("2026-07-02", 1100.0, 1150.0),
             ("2026-07-09", 1050.0, 1080.0),
-            *_post_expiry_sessions(high_close=1250.0),
-        ],
-    )
-
-    before = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
-    assert before["orders"][0]["post_expiry_sessions_observed"] == 19
-    assert before["orders"][0]["forgone_pct"] is None
-    payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=date(2026, 8, 1))
-
-    order = payload["orders"][0]
-    assert order["outcome"] == "expired"
-    assert order["window_low_yen"] == pytest.approx(1050.0)
-    # 窓内の最安値 1,050 は指値 1,000 を 5% 上回った。
-    assert order["distance_to_limit_pct"] == pytest.approx(5.0)
-    assert order["post_expiry_sessions_observed"] == POST_EXPIRY_SESSIONS
-    # 失効後の最高終値 1,250 は指値の +25%。
-    assert order["forgone_pct"] == pytest.approx(25.0)
-
-
-def test_a_forgone_move_is_absent_while_the_post_expiry_window_is_incomplete(
-    tmp_path: Path,
-) -> None:
-    """4 日ぶんの上昇を 20 日窓の「逃した幅」として出さない。
-
-    出すと、まだ測っていないものが測り終えた値の顔で中央値へ入り、直近の失効ほど
-    「逃した幅が小さい」側へ寄る。
-    """
-
-    app_db = tmp_path / "app.sqlite"
-    market = tmp_path / "market.sqlite"
-    _ledger(
-        app_db,
-        [
-            _reservation(
-                reservation_id="res-1",
-                occurred_at="2026-07-01T09:00:00+09:00",
-                limit_yen="1000",
-                decision_reference="issue-1",
-            ),
-            {
-                "event_id": "release-1",
-                "type": "release",
-                "occurred_at": "2026-07-10T15:30:00+09:00",
-                "reservation_id": "res-1",
-                "reason": "expired",
-            },
-        ],
-    )
-    _market(
-        market,
-        [
-            ("2026-07-09", 1050.0, 1080.0),
-            *_post_expiry_sessions(high_close=1250.0, sessions=4),
         ],
     )
 
     payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=ASOF)
-
     order = payload["orders"][0]
-    assert order["post_expiry_sessions_observed"] == 4
-    assert order["post_window_high_close_yen"] is None
-    assert order["forgone_pct"] is None
-    summary = payload["summary"]["all_ledger_orders"]
-    assert summary["expired"] == 1
-    assert summary["forgone_measured_orders"] == 0
-    assert summary["forgone_pending_window_orders"] == 1
-    assert summary["median_forgone_pct"] is None
+    assert order["outcome"] == "expired"
+    assert order["window_low_yen"] == pytest.approx(1050.0)
+    assert order["distance_to_limit_pct"] == pytest.approx(5.0)
+    assert "post_expiry_sessions" not in payload
+    assert (
+        not {"post_expiry_sessions_observed", "post_window_high_close_yen", "forgone_pct"}
+        & order.keys()
+    )
+    assert not any("forgone" in key for key in payload["summary"]["all_ledger_orders"])
+
+
+@pytest.mark.parametrize("future_close", [800.0, 1250.0, 5000.0])
+@pytest.mark.parametrize("future_factor", [1.0, 0.5, None])
+def test_post_expiry_prices_and_actions_cannot_change_order_diagnostics(
+    tmp_path, future_close, future_factor
+):
+    app, market = _expired_case(tmp_path)
+    before = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
+    with closing(open_connection(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET low=?, close=?, adjustment_factor=? "
+            "WHERE traded_at='2026-07-13'",
+            (future_close, future_close, future_factor),
+        )
+    after = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
+    assert before == after
+    assert after["orders"][0]["distance_to_limit_pct"] == 5.0
+
+
+def test_order_low_does_not_require_an_unused_close(tmp_path):
+    app, market = _expired_case(tmp_path)
+    with closing(open_connection(market)) as connection, connection:
+        connection.execute("UPDATE jquants_daily_bars SET close=NULL")
+    payload = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
+    assert payload["orders"][0]["window_low_yen"] == 1050.0
+
+
+@pytest.mark.parametrize("low", [0.0, -1.0, float("inf")])
+def test_invalid_order_window_low_is_not_an_observation(tmp_path, low):
+    app, market = _expired_case(tmp_path)
+    with closing(open_connection(market)) as connection, connection:
+        connection.execute(
+            "UPDATE jquants_daily_bars SET low=? WHERE traded_at='2026-07-02'", (low,)
+        )
+    with pytest.raises(LimitOutcomeMeasurementError, match="order-window price"):
+        build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)
 
 
 def test_imported_orders_are_summarised_apart_from_decision_bound_orders(tmp_path: Path) -> None:
@@ -422,7 +393,7 @@ def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> N
             )
     events.sort(key=lambda event: event["occurred_at"])
     _ledger(app_db, events)
-    _market(market, [("2026-07-02", 990.0, 1000.0), *_post_expiry_sessions(high_close=1250.0)])
+    _market(market, [("2026-07-02", 990.0, 1000.0)])
     original = app_db.read_bytes(), market.read_bytes()
     payload = build_limit_outcomes(app_db=app_db, market_db=market, asof=date(2026, 8, 1))
     state = replay_events_through(
@@ -439,7 +410,7 @@ def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> N
         active = state.active_reservations.get(name)
         assert item["remaining_quantity"] == (active.remaining_quantity if active else 0)
         assert item["unfilled_quantity"] == 200 - filled
-        assert (item["forgone_pct"] is not None) == (reason == "expired")
+        assert (item["distance_to_limit_pct"] is not None) == (reason == "expired")
     assert by_id["full"]["window_end"] == "2026-07-03"
     summary = payload["summary"]["decision_bound_orders"]
     assert summary["orders"] == 9
@@ -450,7 +421,6 @@ def test_broker_states_and_denominators_match_ledger_replay(tmp_path: Path) -> N
     assert summary["partially_filled_open"] == 1
     assert summary["decided_orders"] == 3
     assert summary["full_fill_rate_pct"] == 33.3
-    assert summary["forgone_measured_orders"] == 2
     assert "chase_policy_decision" not in payload
     assert (app_db.read_bytes(), market.read_bytes()) == original
 
@@ -475,7 +445,7 @@ def _expired_case(tmp_path):
             },
         ],
     )
-    _market(market, [("2026-07-02", 1050.0, 1100.0), *_post_expiry_sessions(high_close=1250)])
+    _market(market, [("2026-07-02", 1050.0, 1100.0)])
     return app, market
 
 
@@ -486,18 +456,15 @@ def test_changed_or_unknown_price_basis_keeps_order_facts_without_price_comparis
     app, market = _expired_case(tmp_path)
     with closing(open_connection(market)) as connection, connection:
         connection.execute(
-            "UPDATE jquants_daily_bars SET adjustment_factor=? WHERE traded_at='2026-07-13'",
+            "UPDATE jquants_daily_bars SET adjustment_factor=? WHERE traded_at='2026-07-02'",
             (factor,),
         )
     payload = build_limit_outcomes(app_db=app, market_db=market, asof=date(2026, 8, 1))
     order = payload["orders"][0]
     assert order["outcome"] == "expired"
-    assert order["post_expiry_sessions_observed"] == POST_EXPIRY_SESSIONS
     assert order["price_comparison_unavailable_reason"] == "price_basis_unconfirmed"
     assert order["distance_to_limit_pct"] is None
-    assert order["forgone_pct"] is None
     assert payload["summary"]["all_ledger_orders"]["price_incomparable_orders"] == 1
-    assert payload["summary"]["all_ledger_orders"]["forgone_pending_window_orders"] == 0
 
 
 def test_cutoff_and_placed_day_use_tokyo_even_for_utc_event(tmp_path):
@@ -586,7 +553,6 @@ def test_expired_window_uses_the_same_tokyo_date_for_any_offset(tmp_path, releas
     order = build_limit_outcomes(app_db=app, market_db=market, asof=ASOF)["orders"][0]
     assert order["window_end"] == "2026-07-10"
     assert order["window_low_yen"] == 1050.0
-    assert order["post_expiry_sessions_observed"] == 0
 
 
 @pytest.mark.parametrize("target", ["ledger", "market"])
