@@ -6,9 +6,9 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 import pytest
+from tests.helpers.jquants_receipts import receive_page
 from tests.helpers.margin_interest_native import AT, DAY, attempt, calendar
 from tests.helpers.r2_store import MemoryR2Store
-from tests.jobs.integration.test_margin_alerts_native_route import receive_page
 
 from baibai_engine.data_collection.providers.jquants.contracts import JQuantsPage
 from baibai_engine.data_collection.providers.jquants.margin_interest_native import MarginInterestL1

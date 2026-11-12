@@ -11,6 +11,7 @@ import requests
 
 from baibai_engine.data_collection.providers.jquants.contracts import (
     JQuantsAcquisitionError,
+    JQuantsPage,
     JQuantsSource,
 )
 from baibai_engine.data_collection.providers.jquants.http import JQuantsHTTP
@@ -43,6 +44,21 @@ def body(records, *, cursor=None):
     if cursor is not None:
         payload["pagination_key"] = cursor
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def receive_page(connection, page: JQuantsPage, *, request_id, page_index):
+    connection.execute(
+        "INSERT INTO jquants_source_pages VALUES (?,?,?,?,?,?,?)",
+        (
+            request_id,
+            page_index,
+            page.source,
+            json.dumps(dict(page.query)),
+            page.received_at.isoformat(),
+            page.received_at.date().isoformat(),
+            gzip.compress(page.body, mtime=0),
+        ),
+    )
 
 
 def acquire_request(
