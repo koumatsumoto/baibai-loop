@@ -145,6 +145,29 @@ def load_generated_selection_context(
             security = model_inputs["securities"][model.subject]
             detail = security if models.subject_plan is None else security["models"]
             detail["company_growth"] = deepcopy(model.payload)
+            continue
+        if model.model_id not in {"company_growth", "market_context"}:
+            continue
+        if models.subject_plan is None:
+            payload = (
+                model_inputs["market_context"]
+                if model.subject == "market"
+                else model_inputs["securities"][model.subject][model.model_id]
+            )
+        else:
+            group = (
+                "securities"
+                if models.subject_plan[model.subject].scope == "stock"
+                else "shared_subjects"
+            )
+            payload = model_inputs[group][model.subject]["models"][model.model_id]
+        if payload.pop("full_result_ref", None) is not None:
+            # A slice index need not match the full Generation's model order.
+            payload["generation_model_ref"] = {
+                "generation_id": models.generation_id,
+                "subject": model.subject,
+                "model_id": model.model_id,
+            }
     context = latest_assessment(app_path, as_of=as_of, known_at=known_at)
     return {
         "schema_version": 3,
