@@ -116,7 +116,11 @@ with_publication_lease() (
 
 releaseを保証するため関数内でset -eを使わない。busyはowner/expiry/runを確認し、release失敗時はhandleを保つ。queueだけではlocal writerを排除しない。malformed leaseは自動修復せず、全active/pending writer不在を確認した明示復旧だけexact lease keyを調べて削除→通常acquireとする。prefix削除/手書きJSONで直さない。
 
-job上限は[日次workflow](../.github/workflows/cloud-daily-batch.yml)、新規leaseの期限は[lease owner](src/baibai_jobs/publication/lease.py)が正本。既存handleは元期限を保ち、hard cancel後もexpiryまでbusyが残り得る。形式変更時は非対応のactive/queued writerをdrainする。
+job上限は[日次workflow](../.github/workflows/cloud-daily-batch.yml)、新規leaseの期限は[lease owner](src/baibai_jobs/publication/lease.py)が正本。既存handleは元期限を保ち、hard cancel後もexpiryまでbusyが残り得る。
+
+publication leaseのv2は、正常なacquireで旧unversioned recordをCAS更新し、release後もversionを保持する。旧v1 clientはこの正規recordを読めず、同じ公開入口へ再入場できない。mainへのmergeだけでは切り替わらない。切替前にactive writerの終端とlease解放を照合し、次の依頼済みpublisherをv2対応codeで実行してacquire/releaseを読戻す。待機中の旧runを取消済みとは扱わず、実際に開始した場合のlease拒否と公開未到達を確認する。切替CASで別ownerが先行したら停止し、再取得や旧run取消を繰り返さない。
+
+既存v1 handleは元期限・formatのままverify/releaseできるが、v2へ進んだleaseを旧handleで戻せない。v2 recordをmalformedとして削除したり、versionを外して古いcodeへrollbackしない。計算codeの切戻しが必要でもv2対応の公開ownerを保つ。この境界はunversioned writerの再入場防止で、全ての計算revisionの新旧を判定するものではない。通常の世代保持数、R2権限、queue、TTLは変わらない。
 
 | 変更 | 反映経路 |
 | --- | --- |
