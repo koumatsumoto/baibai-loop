@@ -1,6 +1,7 @@
 """Native standard IFRS facts, without issuer-specific or standalone substitutes."""
 
 import zipfile
+from dataclasses import replace
 from datetime import date
 from io import BytesIO
 from pathlib import Path
@@ -161,21 +162,124 @@ def test_ifrs_combined_capex_non_jpy_total_does_not_fall_back_to_components():
     assert record.fcf_ttm is None
 
 
+@pytest.mark.parametrize(
+    ("kind", "context"), [("120", "CurrentYearDuration"), ("160", "InterimDuration")]
+)
 @pytest.mark.parametrize("namespace", ["issuer", "other", "JPIGP_COR"])
 @pytest.mark.parametrize(
-    "concept", ["RevenueIFRS", "PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS"]
+    "concept",
+    [
+        "RevenueIFRS",
+        "PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS",
+        "DecreaseIncreaseInInventoriesOpeCFIFRS",
+    ],
 )
-def test_ifrs_aliases_do_not_guess_issuer_or_other_namespace(namespace, concept):
+def test_ifrs_aliases_do_not_guess_issuer_or_other_namespace(namespace, concept, kind, context):
+    text = f"要素ID\tコンテキストID\tユニットID\t値\n{namespace}:{concept}\t{context}\tJPY\t999\n"
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("facts.csv", text.encode("utf-16-le"))
+    record = parse_csv_zip_metric_record(
+        ticker="0000", doc_id="S100TEST", doc_type_code=kind, content=buffer.getvalue()
+    )
+    assert record.ocf_inventories_cash_effect is None
+    assert record.sales_ttm is None
+    assert record.capex_ttm is None
+    assert record.consolidation_basis is None
+
+
+@pytest.mark.parametrize(
+    ("doc_id", "ticker", "kind", "period_start", "period_end", "effect"),
+    [
+        ("S100YG7Z", "6803", "120", date(2025, 4, 1), date(2026, 3, 31), 562_000_000),
+        ("S100YRX1", "9268", "130", date(2025, 4, 1), date(2026, 3, 31), -10_059_000_000),
+        ("S100Z3FV", "6030", "120", date(2025, 7, 1), date(2026, 6, 30), 11_812_000),
+    ],
+)
+def test_native_ifrs_inventory_cash_effect_only_adds_reported_detail(
+    doc_id, ticker, kind, period_start, period_end, effect
+):
+    # Fixed-input CSV/XBRL checked on 2026-11-12; these are OCF contributions,
+    # not balance-sheet changes or a normalized/free-cash-flow adjustment.
+    fixture = Path(__file__).parents[4] / "fixtures" / "edinet" / f"{doc_id}.tsv"
+    text = fixture.read_text()
+
+    def parse(content):
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("facts.csv", content.encode("utf-16-le"))
+        return parse_csv_zip_metric_record(
+            ticker=ticker,
+            doc_id=doc_id,
+            doc_type_code=kind,
+            content=buffer.getvalue(),
+            period_start=period_start,
+            period_end=period_end,
+        )
+
+    record = parse(text)
+    without_detail = parse(
+        "\n".join(
+            line
+            for line in text.splitlines()
+            if "DecreaseIncreaseInInventoriesOpeCFIFRS" not in line
+        )
+    )
+    assert record.ocf_inventories_cash_effect == effect
+    assert replace(record, ocf_inventories_cash_effect=None) == without_detail
+
+
+_INVENTORY = "jpigp_cor:DecreaseIncreaseInInventoriesOpeCFIFRS"
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([("CurrentYearDuration", "JPY", "10")], 10),
+        ([("CurrentYearDuration", "JPY", "-10")], -10),
+        ([("CurrentYearDuration", "JPY", "0")], 0),
+        ([("CurrentYearDuration", "JPY", "-")], 0),
+        ([("CurrentYearDuration", "JPY", "－")], None),
+        ([("CurrentYearDuration", "JPY", "")], None),
+        ([("CurrentYearDuration", "USD", "10")], None),
+        ([("Prior1YearDuration", "JPY", "10")], None),
+        ([("CurrentYearDuration_NonConsolidatedMember", "JPY", "10")], None),
+        ([("CurrentYearDuration_SegmentMember", "JPY", "10")], None),
+        ([("CurrentYearDuration", "JPY", "10")] * 2, 10),
+        ([("CurrentYearDuration", "JPY", "10"), ("CurrentYearDuration", "JPY", "11")], None),
+    ],
+)
+def test_ifrs_inventory_cash_effect_keeps_sign_missingness_and_scope(rows, expected):
+    text = "要素ID\tコンテキストID\tユニットID\t値\n"
+    text += "jpdei_cor:AccountingStandardsDEI\tFilingDateInstant\t－\tIFRS\n"
+    text += (
+        "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS\tCurrentYearDuration\tJPY\t100\n"
+    )
+    text += "jppfs_cor:DecreaseIncreaseInInventoriesOpeCF\tCurrentYearDuration\tJPY\t999\n"
+    text += "\n".join("\t".join((_INVENTORY, *row)) for row in rows)
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("facts.csv", text.encode("utf-16-le"))
+    record = parse_csv_zip_metric_record(
+        ticker="0000", doc_id="S100TEST", doc_type_code="120", content=buffer.getvalue()
+    )
+    assert record.ocf_inventories_cash_effect == expected
+    assert record.ocf_ttm == 100
+    assert record.fcf_ttm is None
+
+
+@pytest.mark.parametrize("kind", ["160", "170"])
+def test_ifrs_inventory_alias_does_not_expand_interim_details(kind):
     text = (
         "要素ID\tコンテキストID\tユニットID\t値\n"
-        f"{namespace}:{concept}\tInterimDuration\tJPY\t999\n"
+        "jpigp_cor:NetCashProvidedByUsedInOperatingActivitiesIFRS\tInterimDuration\tJPY\t100\n"
+        f"{_INVENTORY}\tInterimDuration\tJPY\t10\n"
     )
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("facts.csv", text.encode("utf-16-le"))
     record = parse_csv_zip_metric_record(
-        ticker="0000", doc_id="S100TEST", doc_type_code="160", content=buffer.getvalue()
+        ticker="0000", doc_id="S100TEST", doc_type_code=kind, content=buffer.getvalue()
     )
-    assert record.sales_ttm is None
-    assert record.capex_ttm is None
-    assert record.consolidation_basis is None
+    assert record.ocf_ttm == 100
+    assert record.ocf_inventories_cash_effect is None
