@@ -197,6 +197,7 @@ export interface SavedLimitTermsView {
 export interface SavedLiquidityView {
   analysis_as_of: string | null
   price_window_end: string | null
+  turnover_window: SavedTurnoverWindowView | null
   adv_yen: string | null
   unavailable_reason: string | null
 }
@@ -271,6 +272,14 @@ export interface SavedSellItemView {
   reason_code: 'economic_invalidation' | 'insufficient_remaining_reward'
   terms: SavedLimitTermsView | null
   terms_unavailable_reasons: SavedReasonView[]
+}
+
+export interface SavedTurnoverWindowView {
+  start_date: string
+  end_date: string
+  price_bar_count: number
+  valid_turnover_count: number
+  median_yen: string | null
 }
 
 export interface UnfinishedResearchView {

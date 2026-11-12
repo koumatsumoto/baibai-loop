@@ -157,6 +157,9 @@ describe('保存提案レポート', () => {
     const html = renderProposal()
     expect(html).toContain('保存された流動性の補足')
     expect(html).toContain('9876543.0000000001 円')
+    expect(html).toContain('100000.000000001 円')
+    expect(html).toContain('19 / 20 本の価格bar')
+    expect(html).toContain('2026-09-25 ～ 2026-10-23')
     expect(html).toContain('ADVの価格窓終端日')
     expect(html).toContain('dateTime="2026-10-23"')
     expect(html).toContain('dateTime="2026-10-26"')
@@ -178,10 +181,24 @@ describe('保存提案レポート', () => {
   it('日付のない旧表示データは分析基準日から価格窓終端を補完しない', () => {
     const legacy = structuredClone(buyFixture)
     Reflect.deleteProperty(legacy.liquidity!, 'price_window_end')
+    Reflect.deleteProperty(legacy.liquidity!, 'turnover_window')
     const html = renderToStaticMarkup(createElement(ProposalItemCard, { item: legacy }))
     expect(html).toMatch(/ADVの価格窓終端日<\/dt><dd[^>]*>保存値なし<\/dd>/)
     expect(html).not.toContain('dateTime="2026-10-23"')
     expect(html).toContain('dateTime="2026-10-26"')
+    expect(html).toContain('売買代金窓の本数・中央値は保存値なし。')
+    expect(html).not.toContain('100000.000000001 円')
+  })
+
+  it('売買代金の0観測と中央値未算出を平均で埋めない', () => {
+    const item = structuredClone(buyFixture)
+    item.liquidity!.turnover_window!.valid_turnover_count = 0
+    item.liquidity!.turnover_window!.median_yen = null
+    const html = renderToStaticMarkup(createElement(ProposalItemCard, { item }))
+    expect(html).toContain('0 / 20 本の価格bar')
+    expect(html).toContain('算出に必要な有効観測数なし')
+    expect(html).toContain('9876543.0000000001 円')
+    expect(html).not.toContain('中央値</dt><dd>0 円')
   })
 
   it('正常empty、読取不能、loadingを区別して空提案を捏造しない', () => {

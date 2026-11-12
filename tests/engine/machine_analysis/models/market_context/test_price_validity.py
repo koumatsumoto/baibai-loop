@@ -128,3 +128,43 @@ def test_turnover_average_counts_only_finite_nonnegative_observations(
     assert price["resolved_date"] == DAY.isoformat()
     assert price["return_20d"] == 0.0
     assert price["bar_count"] == 21
+    assert price["turnover_window"] == {
+        "start_date": DAYS[1].isoformat(),
+        "end_date": DAY.isoformat(),
+        "price_bar_count": 20,
+        "valid_turnover_count": valid_count,
+        "median_yen": valid_turnover if valid_count == 10 else None,
+    }
+
+
+@pytest.mark.parametrize("bar_count", [0, 5, 10, 20])
+def test_turnover_window_keeps_sparse_dates_and_outlier_separate_from_median(bar_count):
+    # 疎な実在barを共通営業日へ詰めず、一日の急増を通常の規模にしない。
+    bars = tuple(
+        PriceBar(
+            DAY - timedelta(days=3 * (bar_count - index - 1)), 100.0, 1e7 if index == 0 else 1e5
+        )
+        for index in range(bar_count)
+    )
+    price = calculate_security_market_context(
+        ticker="1301",
+        bars=bars,
+        master=None,
+        benchmark_ticker="1321",
+        benchmark_prices={},
+        peer_prices=(),
+        self_range_window_bars=750,
+    )["price"]
+    if not bars:
+        assert price is None
+        return
+    assert price["turnover_window"] == {
+        "start_date": bars[0].traded_at.isoformat(),
+        "end_date": DAY.isoformat(),
+        "price_bar_count": bar_count,
+        "valid_turnover_count": bar_count,
+        "median_yen": 1e5 if bar_count >= 10 else None,
+    }
+    assert price["avg_turnover_20d_oku"] == (
+        pytest.approx((1e7 + 1e5 * (bar_count - 1)) / bar_count / 1e8) if bar_count >= 10 else None
+    )

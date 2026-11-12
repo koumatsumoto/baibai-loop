@@ -391,7 +391,7 @@ def read_and_generate_models(
             ),
         },
         securities_context=contexts,
-        market_context_revision="shared-market-context-bar-timing-v9-tradingview-sector-date",
+        market_context_revision="shared-market-context-v10-turnover-window",
         growth_start=growth_start,
         trends=trends,
     )

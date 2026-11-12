@@ -140,11 +140,19 @@ def test_saved_buy_preserves_clocks_conditions_precision_warnings_and_exposure(p
 
 
 @pytest.mark.parametrize("window_end", [None, "2026-10-07"])
+@pytest.mark.parametrize("with_window", [False, True])
 def test_saved_generated_liquidity_keeps_window_end_separate_from_analysis_date(
-    payload, window_end
+    payload, window_end, with_window
 ):
     pair = _pair()
     _current(payload, pair)
+    window = {
+        "start_date": "2026-09-10",
+        "end_date": "2026-10-07",
+        "price_bar_count": 20,
+        "valid_turnover_count": 19,
+        "median_yen": "100000.000000001",
+    }
     payload["liquidity_context"] = [
         {
             "ticker": "1234",
@@ -154,6 +162,7 @@ def test_saved_generated_liquidity_keeps_window_end_separate_from_analysis_date(
             "adv_yen": "100000000.000000001",
             "unavailable_reason": None,
             **({"price_window_end": window_end} if window_end is not None else {}),
+            **({"turnover_window": window} if with_window else {}),
         }
     ]
     proposal = TradeProposal.model_validate(payload)
@@ -162,6 +171,7 @@ def test_saved_generated_liquidity_keeps_window_end_separate_from_analysis_date(
     assert row.model_dump(mode="json") == {
         "analysis_as_of": "2026-10-14",
         "price_window_end": window_end,
+        "turnover_window": window if with_window else None,
         "adv_yen": "100000000.000000001",
         "unavailable_reason": None,
     }

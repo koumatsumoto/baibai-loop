@@ -222,7 +222,14 @@ export function ProposalItemCard({ item }: { item: ProposalItem }) {
               <Field label="保存ADV（平均売買代金）">{item.liquidity.adv_yen === null ? '保存値なし' : `${item.liquidity.adv_yen} 円`}</Field>
               <Field label="流動性の分析基準日">{item.liquidity.analysis_as_of === null ? '保存値なし' : <time dateTime={item.liquidity.analysis_as_of}>{item.liquidity.analysis_as_of}</time>}</Field>
               <Field label="ADVの価格窓終端日">{item.liquidity.price_window_end == null ? '保存値なし' : <time dateTime={item.liquidity.price_window_end}>{item.liquidity.price_window_end}</time>}</Field>
+              {item.liquidity.turnover_window != null && <>
+                <Field label="同じ窓の売買代金中央値">{item.liquidity.turnover_window.median_yen === null ? '算出に必要な有効観測数なし' : `${item.liquidity.turnover_window.median_yen} 円`}</Field>
+                <Field label="売買代金の有効観測">{item.liquidity.turnover_window.valid_turnover_count} / {item.liquidity.turnover_window.price_bar_count} 本の価格bar</Field>
+                <Field label="売買代金の価格窓">{item.liquidity.turnover_window.start_date} ～ {item.liquidity.turnover_window.end_date}</Field>
+              </>}
             </dl>
+            {item.liquidity.turnover_window == null && <p className="text-sm text-muted-foreground">売買代金窓の本数・中央値は保存値なし。</p>}
+            <p className="text-sm text-muted-foreground">実在価格barの窓であり、共通営業日数とは限りません。欠落日を無出来高0に補完していません。</p>
             <p className="text-sm text-muted-foreground">価格窓の終端であり、売買代金の最終有効日や鮮度の保証ではありません。</p>
             {item.liquidity.unavailable_reason !== null && <Prose>{item.liquidity.unavailable_reason}</Prose>}
             <p className="text-xs leading-6 text-muted-foreground">保存値であり、現在の板や約定可能性を示しません。</p>

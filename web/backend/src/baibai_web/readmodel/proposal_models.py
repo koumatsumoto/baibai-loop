@@ -64,9 +64,18 @@ class SavedRemainingRewardView(BaseModel):
     reason: str
 
 
+class SavedTurnoverWindowView(BaseModel):
+    start_date: date
+    end_date: date
+    price_bar_count: int
+    valid_turnover_count: int
+    median_yen: str | None
+
+
 class SavedLiquidityView(BaseModel):
     analysis_as_of: date | None
     price_window_end: date | None = None
+    turnover_window: SavedTurnoverWindowView | None = None
     adv_yen: str | None
     unavailable_reason: str | None
 

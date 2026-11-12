@@ -36,9 +36,10 @@ def _price_block(
     high_52w = max(window_52w) if valid_range else None
     low_52w = min(window_52w) if valid_range else None
     range_window = prices[-self_range_window_bars:]
+    turnover_bars = bars[-_TURNOVER_WINDOW_BARS:]
     turnover = [
         bar.turnover_value
-        for bar in bars[-_TURNOVER_WINDOW_BARS:]
+        for bar in turnover_bars
         if bar.turnover_value is not None
         and math.isfinite(bar.turnover_value)
         and bar.turnover_value >= 0
@@ -64,6 +65,15 @@ def _price_block(
             if len(turnover) >= _TURNOVER_WINDOW_BARS // 2
             else None
         ),
+        "turnover_window": {
+            "start_date": turnover_bars[0].traded_at.isoformat(),
+            "end_date": turnover_bars[-1].traded_at.isoformat(),
+            "price_bar_count": len(turnover_bars),
+            "valid_turnover_count": len(turnover),
+            "median_yen": statistics.median(turnover)
+            if len(turnover) >= _TURNOVER_WINDOW_BARS // 2
+            else None,
+        },
         "bar_count": len(bars),
     }
 
