@@ -159,6 +159,9 @@ _IFRS_ALIASES = {
         "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
     ),
     "jpigp_cor:PurchaseOfIntangibleAssetsInvCFIFRS": "jppfs_cor:PurchaseOfIntangibleAssetsInvCF",
+    "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCFIFRS": (
+        "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
+    ),
 }
 
 

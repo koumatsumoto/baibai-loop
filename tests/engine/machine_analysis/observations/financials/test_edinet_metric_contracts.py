@@ -9,6 +9,7 @@ from datetime import date
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from tests.helpers.edinet_csv_zip import _edinet_csv_zip
 from tests.helpers.edinet_documents import store_edinet_documents
 
@@ -437,15 +438,18 @@ def test_cash_flow_details_require_annual_jpy_unique_current_context():
     assert interim.capex_ppe_reported is None
 
 
-def test_capex_total_components_and_period_are_not_mixed(subtests):
-    total = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF"
-    tangible = "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
-    intangible = "jppfs_cor:PurchaseOfIntangibleAssetsInvCF"
+@pytest.mark.parametrize("standard", ["jppfs_cor", "jpigp_cor"])
+def test_capex_total_components_and_period_are_not_mixed(subtests, standard):
+    suffix = "IFRS" if standard == "jpigp_cor" else ""
+    total = f"{standard}:PurchaseOfPropertyPlantAndEquipmentAndIntangibleAssetsInvCF{suffix}"
+    tangible = f"{standard}:PurchaseOfPropertyPlantAndEquipmentInvCF{suffix}"
+    intangible = f"{standard}:PurchaseOfIntangibleAssetsInvCF{suffix}"
     current = "InterimDuration"
     prior = "Prior1InterimDuration"
-    rows = [("jppfs_cor:NetCashProvidedByUsedInOperatingActivities", current, "4857")]
+    rows = [(f"{standard}:NetCashProvidedByUsedInOperatingActivities{suffix}", current, "4857")]
     cases = [
         ("total", [(total, current, "-1136")], 1136),
+        ("duplicate-total", [(total, current, "-1136"), (total, current, "-1136")], 1136),
         ("components", [(tangible, current, "-1000"), (intangible, current, "-136")], 1136),
         (
             "total-and-components",
@@ -459,6 +463,11 @@ def test_capex_total_components_and_period_are_not_mixed(subtests):
         (
             "blank-total-does-not-fall-back",
             [(total, current, ""), (tangible, current, "-1000"), (intangible, current, "-136")],
+            None,
+        ),
+        (
+            "nil-total-does-not-fall-back",
+            [(total, current, "－"), (tangible, current, "-1000"), (intangible, current, "-136")],
             None,
         ),
         (
