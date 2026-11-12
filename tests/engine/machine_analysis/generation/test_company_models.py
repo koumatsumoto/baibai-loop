@@ -75,6 +75,34 @@ def generate(
     )
 
 
+def test_financial_generation_rejects_post_asof_capital_disclosure():
+    action = CapitalAction(
+        ticker="1001",
+        issued_shares=130,
+        effective_date=date(2026, 7, 1),
+        received_at=datetime(2026, 11, 12, tzinfo=UTC),
+        source_url="https://example.invalid",
+        source_sha256="a" * 64,
+        disclosure_number="synthetic",
+        description="completed",
+        published_on=date(2026, 9, 10),
+    )
+    with pytest.raises(ValueError, match="company model inputs"):
+        generate_financial_and_price_models(
+            ticker="1001",
+            documents=(document(),),
+            adjusted_bars=[PriceBar(ASOF, 10.0, None)],
+            adjustment_events=(),
+            trading_dates=CALENDAR,
+            expected_price_date=ASOF,
+            sector=None,
+            as_of=ASOF,
+            input_release=RELEASE,
+            ttm_rules=RULES,
+            capital_actions=[action],
+        )
+
+
 def test_capital_action_reaches_saved_financial_model_without_claiming_current_treasury():
     event = CapitalAction(
         ticker="1001",
@@ -85,6 +113,7 @@ def test_capital_action_reaches_saved_financial_model_without_claiming_current_t
         source_sha256="a" * 64,
         disclosure_number="synthetic",
         description="completed",
+        published_on=date(2026, 7, 2),
     )
     models = generate_financial_and_price_models(
         ticker="1001",
@@ -101,6 +130,7 @@ def test_capital_action_reaches_saved_financial_model_without_claiming_current_t
     )
     payload = next(model.payload for model in models if model.model_id == "company_financials")
     assert payload["capital_action_evidence"][0]["issued_shares"] == 130
+    assert payload["capital_action_evidence"][0]["published_on"] == "2026-07-02"
     assert payload["earnings_price"]["market_cap_yen"] is None
     assert (
         payload["earnings_price"]["unavailable_reason"]
@@ -286,7 +316,7 @@ def test_optional_edinet_observations_reach_valuation_without_changing_y_growth_
     assert present[1:] == missing[1:]
     assert "er_annual" not in financial
     assert present[0].calculation_revision.endswith(
-        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1"
+        "observations-v8-reported-flow-periods-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1-book-source-v1-balance-context-v1-capital-actions-v2-post-period-completion"
     )
     with pytest.raises(ValueError, match="different ticker"):
         generate(**arguments, edinet=replace(record, ticker="1002"))

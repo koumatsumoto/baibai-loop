@@ -1,0 +1,15 @@
+{
+  "source_url": "https://www2.jpx.co.jp/disc/76400/140120260909533860.pdf",
+  "source_sha256": "17ab3df01c26d215e67054a306cbec1e5473e68ef9a07590cbec805043145d2c",
+  "published_on": "2026-09-10",
+  "effective_on": "2026-08-31",
+  "pdf_pages": [
+    1,
+    15
+  ],
+  "scope": "Minimal header/completed-event/table excerpts from the original, normalized with NFKC and whitespace removal. Not full pages or an HTTP receipt. Source hash identifies retained original PDF, not this fixture.",
+  "texts": [
+    "2026年10月期第3四半期決算短信\n2026年9月10日\n上場会社名株式会社トップカルチャー上場取引所東\nコード番号7640URLhttps://www.topculture.co.jp",
+    "(重要な後発事象)\n当社は、2026年8月25日付の取締役会書面決議において、当社が発行するA種優先株式について、A種優先株主による取得請求権行使に伴い、A種優先株式15,000株のうち、3,000株を普通株式を対価として、12,000株を金銭を対価として取得し、会社法第178条の規定に基づき、当該株式の全てを消却すること決議し、2026年8月31日付でA種優先株式15,000株を取得し、同日、取得したA種優先株式全てを消却いたしました。\n2.転換の内容1取得株式の種類株式会社トップカルチャーA種優先株式2取得請求権行使日2026年8月31日3取得するA種優先株式数3,000株4転換により増加する普通株式数1,758,152株5増加後の発行済み普通株式総数17,972,552株※転換とは取得請求権付株式である優先株式の取得と引換えに普通株式を交付することをいいます。3.取得の内容"
+  ]
+}

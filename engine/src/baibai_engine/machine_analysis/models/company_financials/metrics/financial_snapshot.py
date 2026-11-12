@@ -80,7 +80,7 @@ def build_financial_snapshot(
     pdf_selection: PdfFinancialSelection | None = None,
     capital_actions: Sequence[CapitalAction] = (),
 ) -> FinancialSnapshot:
-    if any(action.effective_date > asof_date for action in capital_actions):
+    if any(action.after_as_of(asof_date) for action in capital_actions):
         raise ValueError("capital action is after the model as-of date")
     normalization = _normalize_summaries_with_status(
         project_financial_documents(summaries, asof_date),

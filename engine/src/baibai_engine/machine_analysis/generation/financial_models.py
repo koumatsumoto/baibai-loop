@@ -28,7 +28,10 @@ from baibai_engine.machine_analysis.models.technical_analysis.calculations impor
 from baibai_engine.machine_analysis.models.technical_analysis.generation import (
     generate_technical_analysis,
 )
-from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
+from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import (
+    CAPITAL_ACTION_REVISION,
+    CapitalAction,
+)
 from baibai_engine.machine_analysis.observations.financials.edinet_comparison_models import (
     FilingComparisons,
 )
@@ -85,9 +88,7 @@ def generate_financial_and_price_models(
     if (
         any(row.ticker != ticker for row in documents)
         or any(event.ticker != ticker for event in adjustment_events)
-        or any(
-            action.ticker != ticker or action.effective_date > as_of for action in capital_actions
-        )
+        or any(action.ticker != ticker or action.after_as_of(as_of) for action in capital_actions)
         or any(
             item.ticker != ticker
             or item.reference_date > as_of
@@ -174,7 +175,8 @@ def generate_financial_and_price_models(
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             )
             + "-accounting-flags-v2-provider-capital-v1-holder-evidence-v1"
-            "-cf-details-v1-book-source-v1-balance-context-v1",
+            "-cf-details-v1-book-source-v1-balance-context-v1"
+            f"-{CAPITAL_ACTION_REVISION}",
             payload=json.loads(
                 canonical_json(
                     {

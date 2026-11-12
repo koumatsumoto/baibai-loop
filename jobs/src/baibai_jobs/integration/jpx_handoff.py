@@ -26,6 +26,7 @@ from baibai_engine.machine_analysis.observations.financials.capital_action_pdf i
     extract_completed_conversion,
 )
 from baibai_engine.machine_analysis.observations.financials.pdf_statements import extract_pdf
+from baibai_engine.primitives.time import JST
 from baibai_engine.storage.sqlite.source_cache.schema import open_connection
 from baibai_jobs.integration.replay_result import ReplayResult
 
@@ -108,6 +109,9 @@ def import_handoff(
                                 response.body,
                                 source_url=response.requested_url,
                                 received_at=response.received_at,
+                                # Import classifies retained originals at capture, not
+                                # the model evaluation date or bundle selection date.
+                                as_of=response.received_at.astimezone(JST).date(),
                             )
                             if action is None:
                                 raise ValueError("unsupported capital action PDF")
