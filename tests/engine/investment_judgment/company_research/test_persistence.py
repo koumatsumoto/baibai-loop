@@ -161,6 +161,30 @@ def test_snapshot_scaffold_retry_and_stale_prior_are_distinct(tmp_path):
         assert load_research(connection, "r1") == r1
 
 
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_external_source_preserves_cited_scheme_through_save_and_read(tmp_path, scheme):
+    value = draft(evidence=True).model_dump(mode="json")
+    ref = f"{scheme}://example.test/ir?period=2026#safety"
+    value["document"]["sources"][0]["ref"] = ref
+    submitted = ResearchDraft.model_validate(value)
+    service = ResearchStoreService(tmp_path / "app", clock=lambda: NOW)
+    saved = service.save(submitted)
+    assert saved.document.sources[0].ref == ref
+    assert service.save(submitted) == saved
+    with closing(connect_read_only(tmp_path / "app")) as connection:
+        assert load_research(connection, saved.reference.research_id) == saved
+
+
+@pytest.mark.parametrize(
+    "ref", [None, "file:///tmp/ir.pdf", "javascript:alert(1)", "ftp://ir.test"]
+)
+def test_external_source_still_requires_a_web_ref(ref):
+    value = draft(evidence=True).model_dump(mode="json")
+    value["document"]["sources"][0]["ref"] = ref
+    with pytest.raises(ValueError, match=r"external source requires an HTTP\(S\) ref"):
+        ResearchDraft.model_validate(value)
+
+
 @pytest.mark.parametrize(
     "change",
     [
