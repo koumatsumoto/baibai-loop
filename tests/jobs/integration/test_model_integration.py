@@ -23,6 +23,7 @@ from baibai_engine.machine_analysis.generation.contracts import (
     InputSnapshot,
     ModelGenerationStream,
 )
+from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
 from baibai_engine.machine_analysis.generation.query import read_generation
 from baibai_engine.machine_analysis.models.company_financials.earnings import EarningsPrice
 from baibai_engine.machine_analysis.screening.policies.economic_paths import EconomicPathPolicy
@@ -57,6 +58,7 @@ def integration(tmp_path, monkeypatch):
     @contextmanager
     def prepare(**kwargs):
         events.append("prepare")
+        prepared.edinet_input = read_edinet_input(kwargs["store"], kwargs["edinet_input"])
         yield prepared
         events.append("release-snapshot")
 
@@ -75,6 +77,7 @@ def integration(tmp_path, monkeypatch):
         events.append("generate")
         assert kwargs["growth_start"] == arguments["growth_start"]
         assert kwargs["market_snapshot"] is prepared.source_snapshot
+        assert kwargs["edinet_input"] is prepared.edinet_input
         assert kwargs["evaluation_time"] >= prepared.source_snapshot.sealed_at
         assert kwargs["price_identity"] is prepared.price_identity
         assert kwargs["master_identity"] is prepared.master_identity
@@ -342,12 +345,16 @@ def test_models_retain_applied_edinet_input_without_current_heads(
     del store.values[LISTS]
     del store.values[ARCHIVES]
     store.get_keys.clear()
+    store.head_keys.clear()
     prepare = Mock(wraps=job.prepare_market_lake)
     monkeypatch.setattr(job, "prepare_market_lake", prepare)
     result = job.integrate_models(**{**arguments, "store": store, "edinet_input": saved})
     assert prepare.call_args.kwargs["edinet_input"] == saved
     generated = read_generation(result["generation_id"], path=arguments["runs"])
     assert generated.inputs["edinet"] == saved
+    metadata_keys = [key for key in store.get_keys if key.startswith("fixed-inputs/edinet/v1/")]
+    assert len(metadata_keys) == len(set(metadata_keys)) == 3
+    assert all(store.head_keys.count(key) == 1 for key in metadata_keys)
     assert LISTS not in store.get_keys
     assert ARCHIVES not in store.get_keys
     assert not any(key.endswith((".zip", ".body.gz")) for key in store.get_keys)
@@ -417,14 +424,7 @@ def test_comparison_evidence_uses_only_previous_serving_pointer(
             yield prepared
 
     monkeypatch.setattr(job, "prepare_market_lake", with_serving)
-    native = InputSnapshot(
-        kind="native_l1",
-        reference="edinet-fixed",
-        descriptor={},
-        sha256=hashlib.sha256(b"{}").hexdigest(),
-    )
-    monkeypatch.setattr(job, "read_edinet_input", lambda *_: SimpleNamespace(identity=native))
-    job.integrate_models(**{**arguments, "edinet_input": native})
+    job.integrate_models(**arguments)
     source = generate.call_args.kwargs["comparison_evidence"]
     if has_pointer:
         assert source.market == InputSnapshot(

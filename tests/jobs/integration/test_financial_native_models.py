@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -231,10 +232,12 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
     seed_master(store, market, tmp_path / "master-native", as_of=DAY)
     economic = tmp_path / "economic.sqlite"
     initialize_database(economic).close()
+    edinet = empty_edinet_input(store, tmp_path)
     store.get_keys.clear()
+    store.head_keys.clear()
     result = job.integrate_models(
         store=store,
-        edinet_input=empty_edinet_input(store, tmp_path),
+        edinet_input=edinet,
         market=market,
         economic=economic,
         runs=tmp_path / "runs",
@@ -245,6 +248,13 @@ def test_first_native_daily_publishes_models_and_upload_copy_without_financial_d
         policy=EconomicPathPolicy(candidate_limit=36),
     )
     saved = read_generation(result["generation_id"], path=tmp_path / "runs")
+    metadata_reads = Counter(
+        key for key in store.get_keys if key.startswith("fixed-inputs/edinet/v1/")
+    )
+    assert len(metadata_reads) == 3
+    assert set(metadata_reads.values()) == {1}
+    assert Counter(key for key in store.head_keys if key in metadata_reads) == metadata_reads
+    assert saved.inputs["edinet"] == edinet
     assert store.get_keys.count(FINANCIAL_HEAD_KEY) == 1
     assert saved.inputs["financial"].descriptor["head_sha256"] == before.content_id
     assert FinancialL1(store, tmp_path / "cold").fixed().payload == before.payload

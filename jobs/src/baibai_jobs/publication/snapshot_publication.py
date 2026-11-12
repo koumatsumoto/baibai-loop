@@ -43,7 +43,10 @@ from baibai_engine.data_collection.providers.jquants.short_sale_reports_native i
     ShortSaleReportsL1,
 )
 from baibai_engine.machine_analysis.generation.contracts import InputSnapshot
-from baibai_engine.machine_analysis.generation.edinet_inputs import read_edinet_input
+from baibai_engine.machine_analysis.generation.edinet_inputs import (
+    EdinetModelInput,
+    read_edinet_input,
+)
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.filesystem import fsync_directory
 from baibai_engine.storage.objects.r2 import Boto3R2Store, LakePublishError, ObjectStore
@@ -163,6 +166,7 @@ class PreparedMarketLake:
     base_resolve_seconds: float
     seal_export_seconds: float
     release_create_seconds: float
+    edinet_input: EdinetModelInput | None = None
     price_identity: InputSnapshot | None = None
     master_identity: InputSnapshot | None = None
     calendar_identity: InputSnapshot | None = None
@@ -485,6 +489,7 @@ def prepare_market_lake(
                 base_resolve_seconds=base_finished - started,
                 seal_export_seconds=export_finished - base_finished,
                 release_create_seconds=time.perf_counter() - export_finished,
+                edinet_input=fixed_edinet,
                 price_identity=price_identity,
                 master_identity=master_identity,
                 calendar_identity=calendar_identity,
