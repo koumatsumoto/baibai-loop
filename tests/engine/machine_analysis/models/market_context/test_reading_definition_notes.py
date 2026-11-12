@@ -21,9 +21,9 @@ from baibai_engine.machine_analysis.observations.economic_indicators.validation 
 )
 
 
-@pytest.mark.parametrize("series_id", ["jp.n225_iv_term", "jp.n225_iv_skew"])
+@pytest.mark.parametrize("series_id", ["jp.n225_iv_term", "jp.n225_iv_skew", "wti", "brent"])
 @pytest.mark.parametrize("state", ["observed", "empty", "unreadable"])
-def test_option_definition_and_observation_notes_reach_reading_payload(series_id, state):
+def test_definition_and_observation_notes_reach_reading_payload(series_id, state):
     definition = load_definitions().by_id()[series_id]
     assert definition.notes
     asof = date(2026, 10, 23)

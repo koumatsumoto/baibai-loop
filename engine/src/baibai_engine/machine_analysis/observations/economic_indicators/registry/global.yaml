@@ -22,6 +22,7 @@ series:
     reading_key: DCOILWTICO
     source_id: fred-dcoilwtico
     tradingview_symbol: NYMEX:CL1!
+    notes: FRED DCOILWTICO(EIA)のCushing現物原油価格。日次USD/barrelで、NYMEX:CL1!の連続先物や国内船舶燃料の購入単価とは別。
     aliases: [WTI, WTI原油]
   - series_id: brent
     name: Brent原油
@@ -34,6 +35,7 @@ series:
     reading_key: DCOILBRENTEU
     source_id: fred-dcoilbrenteu
     tradingview_symbol: TVC:UKOIL
+    notes: FRED DCOILBRENTEU(EIA)のEurope現物原油価格。日次USD/barrelで、取引時点のquoteや国内船舶燃料の購入単価ではない。
     aliases: [Brent, Brent原油, brent_oil]
   - series_id: btc_usd
     name: ビットコイン価格USD
