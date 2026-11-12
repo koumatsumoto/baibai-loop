@@ -61,7 +61,7 @@ class EDINETHTTP:
                 # A broken refusal body must not turn a known denial into transport retries.
                 if response.status_code in {401, 403}:
                     raise EdinetAccessDeniedError(response.status_code)
-                body = bytes(response.content)
+                body = b"" if response.status_code == 429 else bytes(response.content)
                 received_at = datetime.now(UTC)
             except requests.RequestException as error:
                 # Keep the original exception (which may contain the key URL) out

@@ -334,7 +334,7 @@ def test_server_retry_after_beyond_deadline_stops_without_early_request(clock, m
     assert clock == []
 
 
-@pytest.mark.parametrize("status", [200, 401, 403])
+@pytest.mark.parametrize("status", [200, 401, 403, 429])
 def test_real_session_exposes_refusal_headers_before_a_broken_body(status, clock):
     class BrokenRaw:
         def __init__(self):
@@ -362,6 +362,8 @@ def test_real_session_exposes_refusal_headers_before_a_broken_body(status, clock
             self.streams.append(kwargs["stream"])
             reply = requests.Response()
             reply.status_code = status
+            if status == 429:
+                reply.headers["Retry-After"] = "17"
             reply.raw = BrokenRaw()
             reply.request = request
             reply.url = request.url
@@ -372,7 +374,11 @@ def test_real_session_exposes_refusal_headers_before_a_broken_body(status, clock
             pass
 
     adapter = Adapter()
-    error_type = EdinetAccessDeniedError if status in {401, 403} else EdinetAcquisitionError
+    error_type = {
+        401: EdinetAccessDeniedError,
+        403: EdinetAccessDeniedError,
+        429: EdinetRateLimitError,
+    }.get(status, EdinetAcquisitionError)
     with requests.Session() as session:
         session.trust_env = False
         session.mount("https://api.edinet-fsa.go.jp/", adapter)
@@ -381,11 +387,11 @@ def test_real_session_exposes_refusal_headers_before_a_broken_body(status, clock
     refused = status in {401, 403}
     assert len(adapter.replies) == (1 if refused else 6)
     assert all(adapter.streams)
-    assert [reply.raw.body_reads for reply in adapter.replies] == [0 if refused else 1] * len(
+    assert [reply.raw.body_reads for reply in adapter.replies] == [1 if status == 200 else 0] * len(
         adapter.replies
     )
     assert all(reply.raw.close_count == reply.raw.releases == 1 for reply in adapter.replies)
-    assert clock == ([] if refused else [3, 6, 12, 24, 48])
+    assert clock == ([] if refused else [17] * 5 if status == 429 else [3, 6, 12, 24, 48])
     assert isinstance(caught.value, EdinetAccessDeniedError) is refused
     assert KEY not in str(caught.value)
     assert caught.value.__cause__ is None
