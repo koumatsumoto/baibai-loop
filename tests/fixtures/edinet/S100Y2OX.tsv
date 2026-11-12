@@ -1,0 +1,11 @@
+要素ID	項目名	コンテキストID	相対年度	連結・個別	期間・時点	ユニットID	単位	値
+jppfs_cor:DecreaseIncreaseInInventoriesOpeCF	棚卸資産の増減額（△は増加）、営業活動によるキャッシュ・フロー	Prior1InterimDuration_NonConsolidatedMember	前中間期	個別	期間	JPY	円	-58530000
+jppfs_cor:DecreaseIncreaseInInventoriesOpeCF	棚卸資産の増減額（△は増加）、営業活動によるキャッシュ・フロー	InterimDuration_NonConsolidatedMember	当中間期	個別	期間	JPY	円	8673000
+jppfs_cor:NetCashProvidedByUsedInOperatingActivities	営業活動によるキャッシュ・フロー	Prior1InterimDuration_NonConsolidatedMember	前中間期	個別	期間	JPY	円	-173388000
+jppfs_cor:NetCashProvidedByUsedInOperatingActivities	営業活動によるキャッシュ・フロー	InterimDuration_NonConsolidatedMember	当中間期	個別	期間	JPY	円	-32809000
+jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF	有形固定資産の取得による支出、投資活動によるキャッシュ・フロー	Prior1InterimDuration_NonConsolidatedMember	前中間期	個別	期間	JPY	円	-10073000
+jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF	有形固定資産の取得による支出、投資活動によるキャッシュ・フロー	InterimDuration_NonConsolidatedMember	当中間期	個別	期間	JPY	円	-1233089000
+jppfs_cor:PurchaseOfIntangibleAssetsInvCF	無形固定資産の取得による支出、投資活動によるキャッシュ・フロー	Prior1InterimDuration_NonConsolidatedMember	前中間期	個別	期間	JPY	円	-73898000
+jppfs_cor:PurchaseOfIntangibleAssetsInvCF	無形固定資産の取得による支出、投資活動によるキャッシュ・フロー	InterimDuration_NonConsolidatedMember	当中間期	個別	期間	JPY	円	－
+jpdei_cor:AccountingStandardsDEI	会計基準、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	Japan GAAP
+jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI	連結決算の有無、DEI	FilingDateInstant	提出日時点	その他	時点	－	－	false

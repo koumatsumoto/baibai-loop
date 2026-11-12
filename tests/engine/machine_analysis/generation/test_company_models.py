@@ -534,7 +534,9 @@ def test_reported_cf_details_keep_sign_null_scope_and_totals_through_generation(
         "capex_intangible_reported": None,
     }
     if kind in {"160", "170"}:
-        expected = dict.fromkeys(expected)
+        expected = {
+            field: None if field.startswith("ocf_") else value for field, value in expected.items()
+        }
     inputs = dict(documents=(document(),), bars=(PriceBar(ASOF, 10.0, None),))
     baseline = generate(**inputs, edinet=baseline_record)
     generated = generate(**inputs, edinet=record)
