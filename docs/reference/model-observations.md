@@ -145,6 +145,8 @@ Research Selectionは決算予定/規制/現在台帳を網羅するとは限ら
 外部評価の利益/倍率/資本/期の重要差は原典確認し、銀行のEBITDA/FCF等を全社必須にしない。rating加点/coverage別laneを設けず、[固定8社での不採用](https://github.com/koumatsumoto/baibai-loop/blob/88dcc68d768bbedf85df91fcfe7e7e30f76d0ed8/reports/studies/2026-10-22-decision-quality-closure/report.md)も将来効果の否定にしない。Investing.comは変更の補助で、第二の日次consensusではない。
 
 <a id="public-research-reports"></a>
-[SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)は仮説の補助で毎回取得/日次crawlerを要求しない。[根拠の確認](stock-assessment.md#観測と根拠)に従い、独自予想/会社計画、sponsor調査/独立根拠を分け、実読ページと採用HTTPS原本を残す。届かなければ一次資料へ戻る。
+[SRC](https://holistic-r.org/report/)・[フィスコ](https://www.fisco.co.jp/service/report/)・[トウシル](https://media.rakuten-sec.net/)などの事業・成長・競争・懸念に関する見解は、重要な仮説の前提・反証を調べる補助に使う。対象と問いに合う保存済み資料・[記事本文](../../.agents/skills/investment-judgment/SKILL.md#記事の原文へ戻る)から始め、不足時に公開原本へ進む。目標株価/ratingだけで済ませず、著者の因果説明を自分の事業理解・価値実現条件と比べ、判断に関係する差や残る問いを既存Research/Assessmentへ残す。
+
+[根拠の確認](stock-assessment.md#観測と根拠)に従い、実績などの事実・会社説明/計画・著者の独自見解を分け、sponsor調査を独立した裏付けに数えない。公表時点・実読ページ/本文範囲と採用HTTPS原本を残し、古い見解は現況を示す一次資料等と照合する。毎社/全媒体の必読・毎回取得/日次crawlerは要求しない。届かなければ一次資料へ戻る。
 
 保有quoteはJ-Quantsを使い、公開quoteの台帳転記で補わない。補助値には時点/basisを示す。Outcomeは[Ledger](../../.agents/skills/ledger-record/SKILL.md#historical-outcome)、世界経済の解釈/発行履歴は[市場判断skill](../../.agents/skills/market-context-assessment/SKILL.md)へ。
