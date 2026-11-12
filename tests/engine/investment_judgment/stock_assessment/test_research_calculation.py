@@ -168,6 +168,34 @@ def test_projection_numbers_use_recorded_price_horizon_rate(
     assert numbers["base"]["pmax_raw_yen"] == pytest.approx(pmax)
 
 
+@pytest.mark.parametrize(
+    ("basis", "observed_at"),
+    [
+        ("realtime", "2026-09-04T09:10:00+09:00"),
+        ("realtime", "2026-09-04T00:10:00Z"),
+        ("last_close_unadjusted", "2026-09-04T15:30:00+09:00"),
+        ("last_close_unadjusted", None),
+    ],
+)
+def test_projection_keeps_selected_price_clock_without_inventing_missing_time(basis, observed_at):
+    payload = inputs_payload()
+    fact = payload["input_snapshot"]["facts"][0]
+    other = {**fact, "fact_id": "other-price", "value": 2000}
+    payload["input_snapshot"]["facts"].insert(0, other)
+    fact.update(price_basis=basis, observed_at=observed_at)
+    payload["price_comparison"] = {"price_yen": 900}
+    before = deepcopy(payload)
+    result = calculate(CalculationInput.model_validate(payload))
+    numbers = result["projection_numbers"]
+    assert numbers["price_yen"] == 1000
+    assert numbers["price_basis"] == basis
+    assert numbers["price_observed_at"] == (
+        datetime.fromisoformat(observed_at).isoformat() if observed_at is not None else None
+    )
+    assert "price_observed_at" not in result["price_comparison_numbers"]
+    assert payload == before
+
+
 def test_comparison_keeps_observation_and_review_materials_and_uses_hypothetical_quantity():
     payload = inputs_payload()
     payload["input_snapshot"]["facts"][0]["value"] = 8511

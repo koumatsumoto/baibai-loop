@@ -198,6 +198,9 @@ def calculate(inputs: CalculationInput) -> dict[str, object]:
         "valuation_as_of": snapshot.as_of.isoformat(),
         "price_yen": decimal_to_number(price),
         "price_as_of": price_fact.as_of.isoformat(),
+        "price_observed_at": price_fact.observed_at.isoformat()
+        if price_fact.observed_at is not None
+        else None,
         "price_basis": price_fact.price_basis,
         "horizon_months": valuation.horizon_months,
         "required_annual_return_pct": decimal_to_number(valuation.required_annual_return_pct),

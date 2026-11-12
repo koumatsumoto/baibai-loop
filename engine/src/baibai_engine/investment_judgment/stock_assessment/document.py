@@ -328,6 +328,9 @@ def assessment_valuation_context(
         "price_context": "assessment_snapshot",
         "valuation_as_of": document.input_snapshot.as_of.isoformat(),
         "price_as_of": price_fact.as_of.isoformat(),
+        "price_observed_at": price_fact.observed_at.isoformat()
+        if price_fact.observed_at is not None
+        else None,
         "price_basis": price_fact.price_basis,
         "price_yen": _valuation_context_number(price),
         "horizon_months": valuation.horizon_months,

@@ -87,6 +87,7 @@ def test_ready_context_matches_recorded_price_and_issue_example(tmp_path, capsys
         "price_context": "assessment_snapshot",
         "valuation_as_of": "2026-09-07",
         "price_as_of": "2026-09-04",
+        "price_observed_at": "2026-09-04T15:30:00+09:00",
         "price_basis": "last_close_unadjusted",
         "price_yen": 1000,
         "horizon_months": 12,
@@ -196,7 +197,17 @@ def test_warnings_do_not_remove_resolved_context(tmp_path, capsys):
     assert payload["valuation_context"] is not None
 
 
-def test_old_assessment_keeps_origin_period_and_referenced_fact(tmp_path, capsys):
+@pytest.mark.parametrize(
+    ("basis", "observed_at"),
+    [
+        ("realtime", "2025-09-04T09:10:00+09:00"),
+        ("realtime", "2025-09-04T00:10:00Z"),
+        ("last_close_unadjusted", None),
+    ],
+)
+def test_old_assessment_keeps_origin_period_and_referenced_fact(
+    tmp_path, capsys, basis, observed_at
+):
     assessment, review = pair_payload(as_of="2025-09-07", quote_as_of="2025-09-04")
     assessment["input_snapshot"]["facts"][0]["value"] = 1000
     assessment["valuation"]["horizon_months"] = 6
@@ -204,7 +215,7 @@ def test_old_assessment_keeps_origin_period_and_referenced_fact(tmp_path, capsys
     other = deepcopy(assessment["input_snapshot"]["facts"][0])
     other.update(fact_id="other-price", value=2000)
     assessment["input_snapshot"]["facts"].insert(0, other)
-    assessment["input_snapshot"]["facts"][1]["price_basis"] = "realtime"
+    assessment["input_snapshot"]["facts"][1].update(price_basis=basis, observed_at=observed_at)
     review["reviewed_assessment_sha256"] = assessment_core_hash(
         StockAssessmentDocument.model_validate(assessment)
     )
@@ -212,7 +223,10 @@ def test_old_assessment_keeps_origin_period_and_referenced_fact(tmp_path, capsys
     context = payload["valuation_context"]
     assert context["valuation_as_of"] == "2025-09-07"
     assert context["price_as_of"] == "2025-09-04"
-    assert context["price_basis"] == "realtime"
+    assert context["price_basis"] == basis
+    assert context["price_observed_at"] == (
+        datetime.fromisoformat(observed_at).isoformat() if observed_at is not None else None
+    )
     assert context["price_yen"] == 1000
     assert context["horizon_months"] == 6
     assert context["required_annual_return_pct"] == 21
