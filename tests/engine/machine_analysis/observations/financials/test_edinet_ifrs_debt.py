@@ -109,6 +109,7 @@ def test_ifrs_debt_requires_all_four_usable_same_scope_components(component, unu
             ("jpigp_cor:OtherFinancialLiabilitiesCLIFRS", "CurrentYearInstant", "JPY", "10"),
             ("jpigp_cor:OtherFinancialLiabilitiesNCLIFRS", "CurrentYearInstant", "JPY", "10"),
             ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "JPY", "100"),
+            ("jppfs_cor:CommercialPapersLiabilities", "CurrentYearInstant", "JPY", "100"),
             ("jppfs_cor:LeaseObligationsCL", "CurrentYearInstant", "JPY", "100"),
         ]
     )
@@ -135,6 +136,7 @@ def test_ifrs_aggregate_is_not_added_to_duplicates_components_or_japanese_gaap()
             ("jpigp_cor:BondsCLIFRS", "CurrentYearInstant", "JPY", "3"),
             ("jpigp_cor:BondsNCLIFRS", "CurrentYearInstant", "JPY", "2"),
             ("jppfs_cor:ShortTermLoansPayable", "CurrentYearInstant", "JPY", "500"),
+            ("jppfs_cor:CommercialPapersLiabilities", "CurrentYearInstant", "JPY", "500"),
             ("jppfs_cor:LeaseObligationsNCL", "CurrentYearInstant", "JPY", "600"),
         ]
     )
