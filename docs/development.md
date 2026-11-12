@@ -33,14 +33,3 @@ browserが必要なら`--with-browser`を追加する。Web編集時は`.node-ve
 通常testは共通fixtureで実network通信を禁止する。実store/provider受入は合成fixtureと分け、CIのskipを受入成功としない。通信の例外は明示有効化したR2 integration testだけで、書込・削除を伴うため、明示依頼された専用空bucketでのみ`-n 0`で逐次実行する。
 
 指標・取得・Reading method変更時の観測store確認は[運用](../jobs/OPERATIONS.md#指標観測とregistryの修正)へ。
-
-<a id="kabumap-uncomputed-migration"></a>
-### Kabumap未計算状態のローカル移行
-
-schema 50の作業copyから、[専用tool](../tools/enable_kabumap_uncomputed.py)で新しいschema 51 copyを作る。元DBはread-onlyで保ち、既存行は`available`として全field・identity・時計を保持する。他表・L1原本・index・view・triggerも保持し、検証済みの新出力だけを確定する。通常open/dailyは旧schemaを自動移行しない。
-
-```bash
-uv run python -m tools.enable_kabumap_uncomputed --source <LOCAL_SCHEMA50_COPY> --destination <NEW_SCHEMA51_COPY>
-```
-
-これはローカル変換の検証手段で、本番cutover・公開の承認や受入を代替しない。本番切替の完了後はtoolと専用testを撤去し、旧固定releaseの読取契約は保持する。
