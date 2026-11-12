@@ -35,3 +35,4 @@
 "jppfs_cor:LeaseObligationsNCL"	"リース負債、固定負債"	"CurrentYearInstant_NonConsolidatedMember"	"当期末"	"個別"	"時点"	"JPY"	"円"	"15000000"
 "jpdei_cor:AccountingStandardsDEI"	"会計基準、DEI"	"FilingDateInstant"	"提出日時点"	"その他"	"時点"	"－"	"－"	"IFRS"
 "jpdei_cor:WhetherConsolidatedFinancialStatementsArePreparedDEI"	"連結決算の有無、DEI"	"FilingDateInstant"	"提出日時点"	"その他"	"時点"	"－"	"－"	"true"
+"jpigp_cor:DecreaseIncreaseInInventoriesOpeCFIFRS"	"棚卸資産の増減額（△は増加）、営業活動によるキャッシュ・フロー（IFRS）"	"CurrentYearDuration"	"当期"	"その他"	"期間"	"JPY"	"円"	"562000000"

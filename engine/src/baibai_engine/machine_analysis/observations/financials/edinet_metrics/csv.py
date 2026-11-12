@@ -155,6 +155,9 @@ _IFRS_ALIASES = {
     "jpigp_cor:EquityIFRS": "jppfs_cor:NetAssets",
     "jpigp_cor:AssetsIFRS": "jppfs_cor:Assets",
     "jpigp_cor:DepreciationAndAmortizationOpeCFIFRS": "jppfs_cor:DepreciationAndAmortizationOpeCF",
+    "jpigp_cor:DecreaseIncreaseInInventoriesOpeCFIFRS": (
+        "jppfs_cor:DecreaseIncreaseInInventoriesOpeCF"
+    ),
     "jpigp_cor:PurchaseOfPropertyPlantAndEquipmentInvCFIFRS": (
         "jppfs_cor:PurchaseOfPropertyPlantAndEquipmentInvCF"
     ),
