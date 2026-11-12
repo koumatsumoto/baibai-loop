@@ -68,6 +68,7 @@ def finish_payload(
             {
                 "artifact": item.current.ref.model_dump(mode="json"),
                 "status": item.current.status,
+                "content_scope": item.current.evidence.content_scope,
                 "limitations": list(item.current.limitations),
                 "last_known": None
                 if item.baseline is None
