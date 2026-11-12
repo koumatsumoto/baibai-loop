@@ -359,7 +359,7 @@ stage指定は必要分を繰り返す。終了0は固定copyの診断完了だ�
 current-onlyは実取得日を使い、他handoffの日付は動かさない。松井の過去asofを現在pageで埋めず、optionsの古い訂正は明示期間で取得する。
 
 <a id="pmi-public-articles"></a>
-PMIはS&P公式PDFの日本/米国製造業headline・サービスBusiness Activity Index。未接続TE adapterやISM/Output/Composite、旧値/snippet、拒否後fallbackで代用しない。原文/抽出・速報/確報・対象月・公表/配信時計を分け、完全PITとしない。[採否](https://github.com/koumatsumoto/baibai-loop/issues/1477)を参照する。
+PMIはS&P公式PDFの日本/米国製造業headline・サービスBusiness Activity Index。ISM/Output/Composite、旧値/snippet、拒否後fallbackで代用しない。TEの取得adapterは持たず、既に保持したTE HTMLは元のmeasurement source ID・受領時計で再読できる。原文/抽出・速報/確報・対象月・公表/配信時計を分け、完全PITとしない。[採否](https://github.com/koumatsumoto/baibai-loop/issues/1477)を参照する。
 
 <a id="指標観測とregistryの修正"></a>
 原本訂正は再取得/明示再構築、系列/式はL2定義、取得条件はData Collectionで変更する。式変更だけで再取得せず、local DELETEをcloud mergeへ流さない。
