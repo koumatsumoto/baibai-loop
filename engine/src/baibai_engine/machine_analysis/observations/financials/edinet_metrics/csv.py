@@ -54,8 +54,8 @@ def parse_csv_zip_metric_record(
         doc_type_code,
         allow_non_consolidated=consolidation_dei in {"false", "missing"},
     )
-    if any(_row_element(row) in _IFRS_ALIASES for row in rows) and any(
-        _row_element(row) not in _IFRS_ALIASES for row in rows
+    if any(_row_element(row) in _IFRS_ELEMENTS for row in rows) and any(
+        _row_element(row) not in _IFRS_ELEMENTS for row in rows
     ):
         rows, basis = [], None
         accounting_failure = "accounting_standard_dei_missing_for_mixed_facts"
@@ -76,7 +76,7 @@ def parse_csv_zip_metric_record(
     investment_securities = _single_metric(rows, _TAGS["investment_securities"])
     equity = _single_metric(rows, _TAGS["equity"])
     total_assets = _single_metric(rows, _TAGS["total_assets"])
-    debt = _sum_metric(rows, _TAGS["debt_components"])
+    debt = _debt_metric(rows)
     depreciation = _depreciation_metric(rows)
     capex = _capex_metric(rows)
     capex_abs = abs(capex) if capex is not None else None
@@ -164,6 +164,14 @@ _IFRS_ALIASES = {
     ),
 }
 
+_IFRS_DEBT_COMPONENTS = (
+    "jpigp_cor:BondsAndBorrowingsCLIFRS",
+    "jpigp_cor:BondsAndBorrowingsNCLIFRS",
+    "jpigp_cor:LeaseLiabilitiesCLIFRS",
+    "jpigp_cor:LeaseLiabilitiesNCLIFRS",
+)
+_IFRS_ELEMENTS = _IFRS_ALIASES.keys() | set(_IFRS_DEBT_COMPONENTS)
+
 
 # Exact qualified standard concepts. Issuer local-name homonyms are not aliases.
 _TAGS: dict[str, tuple[str, ...]] = {
@@ -190,6 +198,7 @@ _TAGS: dict[str, tuple[str, ...]] = {
         "jppfs_cor:LeaseObligationsCL",
         "jppfs_cor:LeaseObligationsNCL",
     ),
+    "ifrs_debt_components": _IFRS_DEBT_COMPONENTS,
     "depreciation": (
         "jppfs_cor:DepreciationAndAmortizationOpeCF",
         "jppfs_cor:AmortizationOfGoodwillOpeCF",
@@ -343,7 +352,7 @@ def _accounting_standard_rows(
         return [], "accounting_standard_dei_conflict"
     standard = next(iter(standards))
     if standard == "IFRS":
-        return [row for row in rows if _row_element(row) in _IFRS_ALIASES], None
+        return [row for row in rows if _row_element(row) in _IFRS_ELEMENTS], None
     if standard == "Japan GAAP":
         return [row for row in rows if not _row_element(row).startswith("jpigp_cor:")], None
     return [], "accounting_standard_dei_unsupported"
@@ -377,6 +386,20 @@ def _sum_metric(rows: Sequence[Mapping[str, str]], tags: tuple[str, ...]) -> flo
     if not values or any(value is None for value in values.values()):
         return None
     return sum(value for value in values.values() if value is not None)
+
+
+def _debt_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
+    values = _metric_values(rows, _IFRS_DEBT_COMPONENTS)
+    if values:
+        # IFRS may put leases in other financial liabilities. Borrowings alone
+        # are not a substitute, and aggregate bonds/borrowings must not be added
+        # to their narrower components or to Japanese-GAAP reference figures.
+        if len(values) != len(_IFRS_DEBT_COMPONENTS) or any(
+            value is None for value in values.values()
+        ):
+            return None
+        return sum(value for value in values.values() if value is not None)
+    return _sum_metric(rows, _TAGS["debt_components"])
 
 
 def _depreciation_metric(rows: Sequence[Mapping[str, str]]) -> float | None:
