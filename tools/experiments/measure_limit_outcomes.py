@@ -1,8 +1,9 @@
 """Describe recorded buy-order outcomes without inferring fills or policy effects.
 
-台帳上の買付予約・約定・解放を集計し、失効後の観測終値と指値の差を補足する。
+台帳上の買付予約・約定・解放と、失効までの観測安値と指値の差を集計する。
 前日終値固定の旧ルールやProposalの承認を参照IDだけから推定しない。
 価格差は実現できた利益・因果効果ではなく、価格basisを確認できる場合の記述統計。
+失効後の最高値を逸失利益へ置き換えず、経済成果は同じ資金・終期の別比較で扱う。
 read-only。asofはJST日付で、ledgerとmarket storeを書き換えない。
 """
 
@@ -33,9 +34,6 @@ from baibai_engine.portfolio.ledger.store import LedgerStoreService
 from baibai_engine.primitives.time import JST
 from baibai_engine.storage.paths import APPLICATION_DB_PATH, MARKET_DB_PATH
 
-# 失効後にどこまで見て「逃した幅」と呼ぶか。決算 1 本を挟む程度の窓にする。
-POST_EXPIRY_SESSIONS = 20
-
 
 class LimitOutcomeMeasurementError(ValueError):
     """Raised when the stores cannot support a truthful order-by-order view."""
@@ -56,42 +54,21 @@ class OrderOutcome:
     window_end: date | None
     window_low_yen: float | None
     distance_to_limit_pct: float | None
-    # 失効後に実際に観測できた立会日数。`forgone_pct` は窓が満ちた注文にだけ付く。
-    # 4 日ぶんの上昇を 20 日窓の「逃した幅」として出すと、まだ測っていないものが
-    # 測り終えた値の顔で中央値へ入る。
-    post_expiry_sessions_observed: int
-    post_window_high_close_yen: float | None
-    forgone_pct: float | None
     price_comparison_unavailable_reason: str | None = None
 
 
-def _bars(
+def _order_lows(
     connection: sqlite3.Connection, ticker: str, start: date, end: date
-) -> list[tuple[date, float, float]]:
-    rows = connection.execute(
-        "SELECT traded_at, low, close FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at BETWEEN ? AND ? "
-        "AND low IS NOT NULL AND close IS NOT NULL ORDER BY traded_at",
-        (ticker, start.isoformat(), end.isoformat()),
-    ).fetchall()
-    values = [(date.fromisoformat(str(row[0])), float(row[1]), float(row[2])) for row in rows]
-    if any(not isfinite(value) or value <= 0 for _, low, close in values for value in (low, close)):
-        raise LimitOutcomeMeasurementError("invalid observed order-window price")
-    return values
-
-
-def _forward_closes(
-    connection: sqlite3.Connection, ticker: str, after: date, asof: date, sessions: int
 ) -> list[tuple[date, float]]:
     rows = connection.execute(
-        "SELECT traded_at, close FROM jquants_daily_bars "
-        "WHERE ticker = ? AND traded_at > ? AND traded_at <= ? AND close IS NOT NULL "
-        "ORDER BY traded_at LIMIT ?",
-        (ticker, after.isoformat(), asof.isoformat(), sessions),
+        "SELECT traded_at, low FROM jquants_daily_bars "
+        "WHERE ticker = ? AND traded_at BETWEEN ? AND ? "
+        "AND low IS NOT NULL ORDER BY traded_at",
+        (ticker, start.isoformat(), end.isoformat()),
     ).fetchall()
     values = [(date.fromisoformat(str(row[0])), float(row[1])) for row in rows]
-    if any(not isfinite(close) or close <= 0 for _, close in values):
-        raise LimitOutcomeMeasurementError("invalid observed post-expiry price")
+    if any(not isfinite(low) or low <= 0 for _, low in values):
+        raise LimitOutcomeMeasurementError("invalid observed order-window price")
     return values
 
 
@@ -146,12 +123,12 @@ def build_limit_outcomes(*, app_db: Path, market_db: Path, asof: date) -> dict[s
         "asof": asof.isoformat(),
         "scope": "buy_reservations",
         "interpretation": (
-            "報告済み注文状態と価格の記述統計。価格窓は取得済み終値の先頭20観測で、"
-            "欠測のない20営業日、実現可能利益、指値方針の因果効果を証明しない。"
+            "報告済み注文状態と失効までの観測安値の記述統計。日足安値は注文有効時間内の"
+            "約定可能性を証明せず、未観測の価格や約定を補わない。"
+            "失効後の最高値・逸失利益・投資成績・指値方針の因果効果は測定しない。"
             "参照IDがあるだけでProposalの承認や特定の注文規律に従ったとはみなさない。"
         ),
         "ledger_as_of": ledger.as_of.isoformat(),
-        "post_expiry_sessions": POST_EXPIRY_SESSIONS,
         "orders": [_order_payload(item) for item in outcomes],
         "summary": {
             "all_ledger_orders": _summarize(outcomes),
@@ -166,7 +143,6 @@ def _summarize(outcomes: Sequence[OrderOutcome]) -> dict[str, object]:
     distances = [
         item.distance_to_limit_pct for item in unfilled if item.distance_to_limit_pct is not None
     ]
-    forgone = [item.forgone_pct for item in unfilled if item.forgone_pct is not None]
     decided = len(filled) + len(unfilled)
     return {
         "orders": len(outcomes),
@@ -180,18 +156,9 @@ def _summarize(outcomes: Sequence[OrderOutcome]) -> dict[str, object]:
         "decided_orders": decided,
         "full_fill_rate_pct": None if not decided else round(len(filled) / decided * 100, 1),
         "median_low_above_limit_pct": None if not distances else round(median(distances), 2),
-        # 中央値の母数は窓が満ちた失効注文だけ。まだ窓の途中にある注文をここへ入れると、
-        # 直近の失効ほど「逃した幅が小さい」側へ寄る。
-        "forgone_measured_orders": len(forgone),
-        "forgone_pending_window_orders": sum(
-            item.post_expiry_sessions_observed < POST_EXPIRY_SESSIONS
-            and item.price_comparison_unavailable_reason is None
-            for item in unfilled
-        ),
         "price_incomparable_orders": sum(
             item.price_comparison_unavailable_reason is not None for item in unfilled
         ),
-        "median_forgone_pct": None if not forgone else round(median(forgone), 2),
     }
 
 
@@ -239,18 +206,12 @@ def _order_outcome(
             window_end=window_end,
             window_low_yen=None,
             distance_to_limit_pct=None,
-            post_expiry_sessions_observed=0,
-            post_window_high_close_yen=None,
-            forgone_pct=None,
         )
     assert release is not None
     window_end = min(release.occurred_at.astimezone(JST).date(), asof)
-    bars = _bars(connection, reservation.ticker, placed_on, window_end)
-    window_low = min((low for _, low, _ in bars), default=None)
-    forward = _forward_closes(
-        connection, reservation.ticker, window_end, asof, POST_EXPIRY_SESSIONS
-    )
-    through_date = forward[-1][0] if forward else bars[-1][0] if bars else None
+    lows = _order_lows(connection, reservation.ticker, placed_on, window_end)
+    window_low = min((low for _, low in lows), default=None)
+    through_date = lows[-1][0] if lows else None
     comparable = through_date is not None and market_basis_is_confirmed(
         basis="price",
         sqlite_path=market_db,
@@ -261,8 +222,6 @@ def _order_outcome(
     )
     if not comparable:
         window_low = None
-    complete_window = len(forward) == POST_EXPIRY_SESSIONS
-    high_close = max(close for _, close in forward) if complete_window and comparable else None
     return OrderOutcome(
         reservation_id=reservation.reservation_id,
         ticker=reservation.ticker,
@@ -281,10 +240,6 @@ def _order_outcome(
         distance_to_limit_pct=(
             None if window_low is None else _pct(window_low, reservation.price_guard_yen)
         ),
-        post_expiry_sessions_observed=len(forward),
-        post_window_high_close_yen=high_close,
-        # 指値に対する観測最高終値の差。後知恵の比較であり逸失利益ではない。
-        forgone_pct=(None if high_close is None else _pct(high_close, reservation.price_guard_yen)),
     )
 
 
@@ -305,9 +260,6 @@ def _order_payload(item: OrderOutcome) -> dict[str, object]:
         "window_end": None if item.window_end is None else item.window_end.isoformat(),
         "window_low_yen": item.window_low_yen,
         "distance_to_limit_pct": item.distance_to_limit_pct,
-        "post_expiry_sessions_observed": item.post_expiry_sessions_observed,
-        "post_window_high_close_yen": item.post_window_high_close_yen,
-        "forgone_pct": item.forgone_pct,
         "price_comparison_unavailable_reason": item.price_comparison_unavailable_reason,
     }
 
