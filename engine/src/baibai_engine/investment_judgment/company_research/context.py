@@ -59,7 +59,7 @@ class CompanyContext(_Context):
 
 
 def company_context_brief(context: CompanyContext) -> dict[str, object]:
-    """有限の発見表示。全文はexact refで読む。省略を根拠・反証なしと扱わない。"""
+    """有限の発見表示。直近資料日を全根拠の再確認済みとせず、全文はexact refで読む。"""
     result: dict[str, object] = {}
     research = context.research
     if isinstance(research, AvailableResearch):
@@ -81,7 +81,8 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
                 }
                 for item in document.hypotheses[:3]
             ],
-            "source_dates": sorted({item.as_of.isoformat() for item in document.sources})[:3],
+            # Retained old sources must not hide newly added evidence on revisit.
+            "source_dates": sorted({item.as_of.isoformat() for item in document.sources})[-3:],
             "display": "brief_only; use exact reference for all evidence and counterarguments",
         }
     else:
@@ -107,7 +108,7 @@ def company_context_brief(context: CompanyContext) -> dict[str, object]:
             "unresolved_questions": [
                 text[:240] for text in assessment.findings.unresolved_questions[:3]
             ],
-            "source_dates": sorted({item.as_of.isoformat() for item in assessment.sources})[:3],
+            "source_dates": sorted({item.as_of.isoformat() for item in assessment.sources})[-3:],
             "display": "brief_only; use exact reference for all evidence and counterarguments",
         }
     else:

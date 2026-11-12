@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from tests.helpers.assessment_v1 import assessment_id, pair_payload
+from tests.helpers.assessment_v1 import assessment_id, pair_payload, update_review_hash
 from tests.helpers.db_seed import seed_historical_operation
 from tests.helpers.generated_selection import generated_draft_for, seed_generated_selection
 from tests.helpers.research_selection import historical_operation
@@ -299,6 +299,70 @@ def test_catalog_includes_assessment_only_and_revisits_noncandidate(tmp_path):
     context = read(path, "5678")
     assert context.research.status == context.assessment.status == "available"
     assert context.assessment.reference.core_sha256 == pair.core_sha256
+
+
+@pytest.mark.parametrize("kind", ["research", "assessment"])
+def test_revisit_brief_keeps_new_earnings_source_date_in_bounded_noncandidate_context(
+    tmp_path, kind
+):
+    path, runs = tmp_path / "app", tmp_path / "runs"
+    # New earnings evidence can be appended to years of retained material.
+    # Retrieval/snapshot dates do not replace each source's original date.
+    dates = ("2026-06-30", "2026-01-31", "2026-09-30", "2026-10-14", "2026-03-31")
+    sources = [
+        {
+            "source_id": f"retained_{index}",
+            "ticker": "1234",
+            "source_tier": "primary",
+            "ref": f"https://example.test/ir/{index}",
+            "retrieved_at": (NOW - timedelta(hours=3)).isoformat(),
+            "as_of": day,
+            "used_for": "原日付を保った決算比較。再確認済みの意味ではない",
+        }
+        for index, day in enumerate(dates)
+    ]
+    if kind == "research":
+        raw = draft(evidence=True).model_dump(mode="json")
+        raw["document"]["sources"].extend(sources)
+        saved = ResearchStoreService(path, clock=lambda: NOW).save(
+            ResearchDraft.model_validate(raw)
+        )
+        reference = saved.reference.model_dump(mode="json")
+    else:
+        document, review = pair_payload()
+        document["input_snapshot"]["sources"].extend(sources)
+        update_review_hash(document, review)
+        saved = AssessmentStoreService(path, clock=lambda: NOW).publish_reviewed_assessment(
+            assessment_id(), document, review
+        )
+        reference = {
+            "assessment_id": saved.assessment_id,
+            "core_sha256": saved.core_sha256,
+            "review_id": saved.review.review_id,
+        }
+    original = read(path).model_dump_json()
+    catalog = research_catalog(path, as_of=AS_OF, known_at=NOW)
+    brief = catalog["items"][0][kind]
+    assert brief["source_dates"] == ["2026-06-30", "2026-09-30", "2026-10-14"]
+    assert brief["reference"] == reference
+    assert "brief_only" in brief["display"]
+
+    selected = seed_generated_selection(runs=runs, now=NOW, tickers=())
+    context = load_generated_selection_context(
+        request=selected.request,
+        generation_id=selected.inputs.generation.generation_id,
+        screening_selection_id=selected.inputs.screening_selection_id,
+        research_as_of=AS_OF,
+        known_at=NOW,
+        runs_path=runs,
+        db_path=path,
+        comparison_tickers=("1234",),
+    )
+    assert context["candidate_tickers"] == []
+    assert context["saved_company_context"]["1234"][kind] == brief
+    context["saved_company_context"]["1234"][kind]["source_dates"].clear()
+    assert read(path).model_dump_json() == original
+    assert research_catalog(path, as_of=AS_OF, known_at=NOW - timedelta(seconds=1))["items"] == []
 
 
 def test_selection_v4_freezes_only_selected_context_and_resume_never_reads_latest(
