@@ -1,4 +1,4 @@
-"""公開実原本2件と有限反例。外部取得・本番storeの更新は行わない。"""
+"""公開実原本と有限反例。外部取得・本番storeの更新は行わない。"""
 
 import hashlib
 import json
@@ -13,6 +13,8 @@ from tests.helpers.edinet_documents import store_edinet_documents
 from tests.helpers.lake_release import publish_market_fixture
 
 from baibai_engine.data_collection.providers.edinet.archives import retain_source_archive
+from baibai_engine.investment_judgment.workflow.generated_inputs import project_generated_inputs
+from baibai_engine.machine_analysis.generation.contracts import InputSnapshot, ModelInputSlice
 from baibai_engine.machine_analysis.generation.financial_models import (
     generate_financial_and_price_models,
 )
@@ -380,3 +382,177 @@ def test_fixed_release_matches_sealed_reader_and_ignores_mutable_zip(tmp_path):
         read_fixed_financial_documents(
             tmp_path / "mirror", origin=origin, ticker="436A", as_of=ASOF
         )
+
+
+@pytest.mark.parametrize(
+    ("doc", "amounts", "precision"),
+    [
+        (
+            "S100XU9L",
+            [
+                ("2265837000000", "2011351000000"),
+                ("1271789000000", "1135440000000"),
+                ("427344000000", "393836000000"),
+            ],
+            "-6",
+        ),
+        (
+            "S100YG7Z",
+            [("15668000000", "15943000000"), ("340000000", "676000000"), ("81000000", "578000000")],
+            "-6",
+        ),
+        (
+            "S100Z3FV",
+            [None, ("-1155922000", "1100296000"), ("-1711953000", "465710000")],
+            "-3",
+        ),
+    ],
+)
+def test_consolidated_annual_native_pairs_keep_period_scope_and_partial_gap(
+    doc, amounts, precision
+):
+    result = extract(doc)
+    assert result.reason is None
+    assert result.statement_basis == "consolidated"
+    assert result.extractor_revision == "edinet-ifrs-statement-comparisons-v2-consolidated-annual"
+    assert result.current_period_start.isoformat() == metadata(doc)["periodStart"]
+    assert result.current_period_end.isoformat() == metadata(doc)["periodEnd"]
+    assert [pair.metric for pair in result.pairs] == ["sales", "operating_profit", "parent_profit"]
+    for pair, expected in zip(result.pairs, amounts, strict=True):
+        if expected is None:
+            # Revenue2IFRS is retained in the source fixture, not aliased by this role fix.
+            assert pair.reason == "comparison_operand_not_observed"
+            assert pair.current is pair.comparative is None
+            continue
+        assert pair.reason is None
+        assert (pair.comparative.amount, pair.current.amount) == expected
+        for amount in (pair.comparative, pair.current):
+            assert amount.decimals == precision
+            assert amount.currency == "JPY"
+            assert amount.presentation_role.endswith("/rol_ConsolidatedStatementOfProfitOrLossIFRS")
+            assert amount.locators
+        assert pair.comparative.context_id == "Prior1YearDuration"
+        assert pair.current.context_id == "CurrentYearDuration"
+        assert pair.current.period_start == result.current_period_start
+        assert pair.current.period_end == result.current_period_end
+        assert pair.comparative.period_end.year == pair.current.period_end.year - 1
+
+
+@pytest.mark.parametrize(
+    ("doc", "before", "after"),
+    [
+        (
+            "S100YG7Z",
+            b"rol_ConsolidatedStatementOfProfitOrLossIFRS",
+            b"rol_StatementOfProfitOrLossIFRS",
+        ),
+        (
+            "S100YRSR",
+            b"rol_StatementOfProfitOrLossIFRS",
+            b"rol_ConsolidatedStatementOfProfitOrLossIFRS",
+        ),
+        (
+            "S100YG7Z",
+            b"rol_ConsolidatedStatementOfProfitOrLossIFRS",
+            b"rol_ConsolidatedStatementOfComprehensiveIncomeIFRS",
+        ),
+        ("S100YG7Z", b"/role/jpigp/", b"/role/issuer/"),
+    ],
+)
+def test_main_statement_role_must_match_dei_scope_and_exact_standard_role(doc, before, after):
+    result = extract(doc, replace={before: after})
+    assert result.reason == "comparison_main_statement_unknown"
+    assert not result.pairs
+
+
+@pytest.mark.parametrize("same_role", [False, True])
+def test_consolidated_role_does_not_pool_a_second_presentation_link(same_role):
+    original = (FIXTURES / "S100YG7Z_pre.xml").read_bytes()
+    start = original.index(b"<link:presentationLink ")
+    end = original.index(b"</link:presentationLink>") + len(b"</link:presentationLink>")
+    second = original[start:end]
+    if not same_role:
+        second = second.replace(
+            b"rol_ConsolidatedStatementOfProfitOrLossIFRS", b"rol_StatementOfProfitOrLossIFRS"
+        )
+    result = extract("S100YG7Z", replace={b"</link:linkbase>": second + b"</link:linkbase>"})
+    assert result.reason == ("comparison_main_statement_unknown" if same_role else None)
+    if not same_role:
+        assert result.pairs[1].current.amount == "676000000"
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "reason"),
+    [
+        (b"iso4217:JPY", b"iso4217:USD", "comparison_currency_unsupported"),
+        (
+            b"#jpigp_cor_OperatingProfitLossIFRS",
+            b"#issuer_OperatingProfitLossIFRS",
+            "comparison_operand_not_observed",
+        ),
+    ],
+)
+def test_consolidated_role_does_not_bypass_currency_or_main_statement_membership(
+    before, after, reason
+):
+    result = extract("S100YG7Z", replace={before: after})
+    assert result.reason is None
+    assert result.pairs[1].reason == reason
+    assert result.pairs[1].current is None
+
+
+@pytest.mark.parametrize("doc", ["S100XU9L", "S100YG7Z", "S100Z3FV"])
+def test_consolidated_comparisons_reach_l3_without_replacing_series_or_ttm(doc):
+    native = extract(doc)
+    assert native.reason is None
+    row = metadata(doc)
+    document = normalize_financial_summary(
+        {
+            "Code": row["secCode"],
+            "DiscDate": row["submitDateTime"][:10],
+            "DiscNo": "synthetic-series-not-native",
+            "DocType": "FYFinancialStatements_Consolidated_IFRS",
+            "CurPerType": "FY",
+            "CurPerSt": row["periodStart"],
+            "CurPerEn": row["periodEnd"],
+            "CurFYEn": row["periodEnd"],
+            "Sales": "3000000000",
+            "OP": "1000000000",
+        }
+    )
+    kwargs = dict(
+        ticker=native.ticker,
+        documents=[document],
+        adjusted_bars=(),
+        adjustment_events=(),
+        trading_dates=(),
+        expected_price_date=None,
+        sector=None,
+        as_of=ASOF,
+        input_release=RELEASE,
+        ttm_rules=DEFAULT_TTM_RULES,
+    )
+    baseline = generate_financial_and_price_models(**kwargs)
+    changed = generate_financial_and_price_models(**kwargs, comparisons=[native])
+    comparison = changed[1].payload["reported_comparisons"][0]
+    assert comparison["read_semantics"] == "each_document_vintage_not_latest_or_ttm"
+    assert changed[0].payload["financial"]["reported_comparisons"] == [comparison]
+    assert changed[0].payload["earnings_price"] == baseline[0].payload["earnings_price"]
+    assert changed[1].payload["periods"] == baseline[1].payload["periods"]
+    assert changed[1].payload["changes"] == baseline[1].payload["changes"]
+    saved = ModelInputSlice(
+        generation_id="synthetic-role-comparison",
+        as_of=ASOF,
+        evaluation_time=datetime(2026, 10, 31, tzinfo=UTC),
+        inputs={"market": InputSnapshot(kind="lake_release", reference="fixed", sha256="a" * 64)},
+        subjects=(native.ticker,),
+        models=tuple(changed),
+    )
+    before = saved.model_dump_json()
+    displayed = project_generated_inputs(saved)
+    reported = displayed["securities"][native.ticker]["company_financials"]["financial"][
+        "reported_comparisons"
+    ]
+    assert reported == [comparison]
+    reported[0]["observation"]["pairs"][1]["current"]["amount"] = "display-only-change"
+    assert saved.model_dump_json() == before
