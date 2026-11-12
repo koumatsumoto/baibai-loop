@@ -119,6 +119,24 @@ def test_brief_does_not_invent_missing_forecast_lineage(financial):
     assert brief == financial
 
 
+def test_brief_keeps_book_source_even_without_an_active_capital_path():
+    company = card()
+    book = {
+        "amount_yen": 2400.0,
+        "method": "bps_times_current_shares",
+        "measurement_date": None,
+        "statement_basis": "unknown",
+        "disclosed_at": "2026-08-12",
+        "operands": {"bps_yen": 30.0, "shares_ex_treasury": 80.0},
+    }
+    company["context"]["financial"]["book_equity"] = book
+    brief = economic_screening_brief(result(company))["cards"][0]
+    assert brief["context"]["financial"]["book_equity"] == book
+    assert brief["paths"][0]["path_id"] == "business_expansion"
+    brief["context"]["financial"]["book_equity"]["amount_yen"] = 1.0
+    assert book["amount_yen"] == 2400.0
+
+
 def test_ttm_basis_failure_reason_survives_the_bounded_l3_brief():
     company = card()
     company["context"]["annual_observation"] = {

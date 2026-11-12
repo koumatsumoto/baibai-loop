@@ -251,7 +251,7 @@ def project_company(
                 },
             )
         )
-    # 簿価のsource・scope・測定日は未保存のため、資本経路ではFY利益へ切り替えない。
+    # 選択した分母の出典があっても、利益と同期間の普通株/平均資本とは限らない。
     pbr = _positive(financial.get("pbr"))
     financial_cap = _positive(financial.get("market_cap"))
     capital_pricing_aligned = (
@@ -278,7 +278,11 @@ def project_company(
                 "same_current_market_cap": capital_pricing_aligned,
                 "book_amount_implied_by_pbr": _ratio(financial_cap, pbr),
                 "earnings_components": earnings.get("profit_components"),
-                "book_provenance": "individual_book_source_scope_and_measurement_date_not_exposed",
+                "book_provenance": (
+                    "selected_model_book_in_context_financial_book_equity"
+                    if financial.get("book_equity") is not None
+                    else "individual_book_source_scope_and_measurement_date_not_exposed"
+                ),
                 "interpretation": (
                     "reported_profit_to_model_implied_book_"
                     "not_verified_common_or_average_equity_roe"
@@ -386,6 +390,7 @@ def project_company(
                 "forecast_ordinary_profit_yen",
                 "earnings_forecast_source",
                 "forecast_full_year_loss_flag",
+                "book_equity",
                 "cash",
                 "debt",
                 "fcf_ttm",
@@ -411,6 +416,7 @@ def project_company(
                 "net_share_change_yoy",
                 "tradable_share_change_yoy",
             )
+            if key != "book_equity" or key in financial
         },
         "price_momentum": technical.get("price_momentum"),
         "rsi_14bar": technical.get("rsi_14bar"),

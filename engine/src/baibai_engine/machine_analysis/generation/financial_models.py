@@ -173,7 +173,8 @@ def generate_financial_and_price_models(
                 if reported
                 else f"{VALUATION_CALCULATION_REVISION}-observations-v8-reported-flow-periods"
             )
-            + "-accounting-flags-v2-provider-capital-v1-holder-evidence-v1-cf-details-v1",
+            + "-accounting-flags-v2-provider-capital-v1-holder-evidence-v1"
+            "-cf-details-v1-book-source-v1",
             payload=json.loads(
                 canonical_json(
                     {

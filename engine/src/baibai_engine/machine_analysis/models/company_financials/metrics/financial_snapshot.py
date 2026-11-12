@@ -7,7 +7,7 @@ from datetime import date
 
 from baibai_engine.machine_analysis.models.company_financials.metrics.capital import (
     ENTITY_SCALE_MISMATCH,
-    _common_equity_yen,
+    _common_equity,
     _edinet_passes_entity_scale_check,
     _normalize_summaries_with_status,
     _resolve_capital_basis,
@@ -45,10 +45,12 @@ from baibai_engine.machine_analysis.models.company_financials.metrics.ratios imp
 from baibai_engine.machine_analysis.observations.financials.capital_action_pdf import CapitalAction
 from baibai_engine.machine_analysis.observations.financials.edinet_models import EdinetMetricRecord
 from baibai_engine.machine_analysis.observations.financials.financial_documents import (
+    accounting_standard,
     comparable_reporting_basis,
     forecast_source_trace,
     latest_forecast_source,
     project_financial_documents,
+    statement_basis,
 )
 from baibai_engine.machine_analysis.observations.financials.jquants_models import (
     JQuantsFinancialSummary,
@@ -221,7 +223,7 @@ def build_financial_snapshot(
         bps_row is None
         or _accounting_observation_key(common_equity_row) >= _accounting_observation_key(bps_row)
     )
-    equity_yen = _common_equity_yen(
+    equity = _common_equity(
         summaries,
         total_assets=(
             common_equity_row.total_assets
@@ -236,7 +238,35 @@ def build_financial_snapshot(
         bps=bps,
         shares_ex_treasury=shares_ex_treasury,
     )
-    pbr = _safe_positive_ratio(latest_market_cap, equity_yen)
+    book_equity: dict[str, object] | None = None
+    if equity is not None:
+        equity_yen, method = equity
+        source = common_equity_row if method == "assets_times_equity_ratio" else bps_row
+        assert source is not None
+        book_equity = {
+            "amount_yen": equity_yen,
+            "method": method,
+            "measurement_date": source.period_end,
+            "statement_basis": statement_basis(source),
+            "accounting_standard": accounting_standard(source),
+            "disclosure_number": source.disclosure_number,
+            "disclosed_at": source.disclosed_at,
+            "disclosed_time": source.disclosed_time,
+            "document_type": source.document_type,
+            "operands": (
+                {
+                    "total_assets_yen": source.total_assets,
+                    "equity_to_asset_ratio": source.equity_to_asset_ratio,
+                }
+                if method == "assets_times_equity_ratio"
+                else {
+                    "bps_yen": bps,
+                    "shares_ex_treasury": shares_ex_treasury,
+                    "share_basis_as_of": asof_date,
+                }
+            ),
+        }
+    pbr = _safe_positive_ratio(latest_market_cap, None if equity is None else equity[0])
     prior_total_assets_row = _prior_year_summary(
         summaries,
         ttm_rules,
@@ -317,6 +347,7 @@ def build_financial_snapshot(
         cash_eq=cash_eq,
         total_assets=total_assets,
         same_state_equity_yen=same_state_equity_yen,
+        book_equity=book_equity,
         market_price_yen=latest_price,
         shares_ex_treasury=shares_ex_treasury,
         capital_basis_failure_reason=capital_basis.failure_reason,

@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
 from math import exp, isclose, log
+from typing import Literal
 
 from pydantic import JsonValue
 
@@ -671,14 +672,17 @@ def _reported_equity_routes_overlap(
     return max(ratio_low, bps_ratio_low) <= min(ratio_high, bps_ratio_high)
 
 
-def _common_equity_yen(
+type _BookEquity = tuple[float, Literal["assets_times_equity_ratio", "bps_times_current_shares"]]
+
+
+def _common_equity(
     summaries: Sequence[JQuantsFinancialSummary],
     *,
     total_assets: float | None,
     equity_to_asset_ratio: float | None,
     bps: float | None,
     shares_ex_treasury: float | None,
-) -> float | None:
+) -> _BookEquity | None:
     """Choose the yen or BPS equity route under the comparable-row policy.
 
     When both routes are available, compare the newest eligible row's TA/EqAR
@@ -696,10 +700,16 @@ def _common_equity_yen(
         else None
     )
     bps_equity = bps * shares_ex_treasury if bps is not None and shares_ex_treasury else None
+    yen_result: _BookEquity | None = (
+        (yen_equity, "assets_times_equity_ratio") if yen_equity is not None else None
+    )
+    bps_result: _BookEquity | None = (
+        (bps_equity, "bps_times_current_shares") if bps_equity is not None else None
+    )
     if yen_equity is None:
-        return bps_equity
+        return bps_result
     if bps_equity is None:
-        return yen_equity
+        return yen_result
     for summary in sorted(_actual_rows(summaries), key=_accounting_observation_key, reverse=True):
         if (
             summary.bps is None
@@ -723,9 +733,9 @@ def _common_equity_yen(
             shares=row_shares,
             total_assets=summary.total_assets,
         )
-        return yen_equity if agrees else bps_equity
+        return yen_result if agrees else bps_result
     # 突き合わせられる行が無い会社では、狭い方の基準を採る。
-    return bps_equity
+    return bps_result
 
 
 def _shares_excluding_treasury(
